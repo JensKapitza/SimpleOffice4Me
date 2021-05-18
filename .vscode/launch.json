@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Flask",
+            "name": "Python: Flask debugging",
             "type": "python",
             "request": "launch",
             "module": "flask",
@@ -17,6 +17,22 @@
             "args": [
                 "run",
                 "--debugger"
+            ],
+            "jinja": true
+        },
+        {
+            "name": "Python: Flask production",
+            "type": "python",
+            "request": "launch",
+            "module": "flask",
+            "env": {
+                "PYTHONIOENCODING": "utf8",
+                "FLASK_APP": "app",
+                "FLASK_ENV": "production"
+            },
+            "args": [
+                "run",
+                "--no-debugger"
             ],
             "jinja": true
         }

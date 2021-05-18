@@ -44,7 +44,7 @@ dictConfig({
         'class': 'logging.handlers.RotatingFileHandler',
         'formatter': 'default',
         'filename': 'logconfig.log',
-        'maxBytes': 1024,
+        'maxBytes': 1024*1024,
         'backupCount': 3
     }
 
