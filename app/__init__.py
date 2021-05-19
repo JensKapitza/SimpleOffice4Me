@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #export PYTHONIOENCODING=utf8
-from bs4 import BeautifulSoup
-#pip3 install beautifulsoup4 flask
+from pathlib import Path
 
 import os
 import random
@@ -10,7 +9,10 @@ import sys
 import datetime
 import locale
 
-from logging.config import dictConfig
+from .applogging import initlogging
+
+from .bs4 import download_file, renderwithbs4
+
 from flask import Flask, send_from_directory, \
     render_template_string, render_template, \
     request, session, redirect, abort, send_file, \
@@ -24,41 +26,24 @@ if sys.version_info < (3,):
     raise BaseException("Wrong Python Version")
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-script_dir = os.path.join(script_dir, "..")
+app_dir = os.path.join(script_dir, "..")
 
-database_dir = os.path.join(script_dir, "database")
-template_dir = os.path.join(script_dir, "templates")
-static_dir = os.path.join(script_dir, "static")
+database_dir = os.path.join(app_dir, "database")
+filebase_dir = os.path.join(database_dir, "files")
+template_dir = os.path.join(app_dir, "templates")
+static_dir = os.path.join(app_dir, "static")
 
-# logging to file
+for p in [database_dir, filebase_dir]:
+    x = Path(p)
+    if not x.exists():
+        x.mkdir()
 
-dictConfig({
-    'version': 1,
-    'formatters': {'default': {
-        'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
-    }},
-    'handlers': {'wsgi': {
-        'class': 'logging.StreamHandler',
-        'stream': 'ext://flask.logging.wsgi_errors_stream',
-        'formatter': 'default'
-    },
-        'file': {
-        'class': 'logging.handlers.RotatingFileHandler',
-        'formatter': 'default',
-        'filename': 'logconfig.log',
-        'maxBytes': 1024*1024,
-        'backupCount': 3
-    }
+initlogging()
 
-    },
-    'root': {
-        'level': 'ERROR', # INFO ERROR
-        'handlers': ['wsgi','file']
-    }
-})
 #see here 4mail logging
 #https://flask.palletsprojects.com/en/1.1.x/logging/
 app = Flask(__name__,template_folder=template_dir,static_folder=static_dir)
+app.config['DATABASE_DIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -96,26 +81,18 @@ def add_header(response):
 
 @app.route('/favicon.ico')
 @app.route('/static/<path:dirname>/<path:filename>')
-def download_file(dirname="", filename=""):
-    if request.path == "/favicon.ico":
-        return ""
-
-    dirpath = os.path.join(static_dir, dirname)
-    return send_from_directory(dirpath, filename, as_attachment=True)
+def staticfile(dirname="", filename=""):
+    return download_file(static_dir,dirname,filename)
 
 
 @app.route('/')
 @app.route('/<myFile>', methods=['GET', 'POST'])
 @app.route('/<lang>/<myFile>', methods=['GET', 'POST'])
-def index(lang=None, myFile="index.html"):
-    if not myFile.endswith('html'):
-        myFile += '.html'
-    resultString = render_template(myFile, mylanguage=lang)
+def index(myFile="index.html",lang=None):
+    if lang is not None:
+        g.current_lang = lang
 
-    soup = BeautifulSoup(resultString)               #make BeautifulSoup
-    prettyHTML = soup.prettify()    
-    #prettyHTML = resultString
-    return prettyHTML
+    return renderwithbs4
 
 
 

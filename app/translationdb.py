@@ -51,6 +51,13 @@ def add_translation_command(key,value):
             )
     db.commit()
 
+def getoraddtranslation(key,value):
+    entry = get_translation_command(key)
+    if entry is None:
+        add_translation_command(key,value)
+        return value
+    return entry
+
 
 @click.command('translation-get')
 @click.argument('key', default='')
