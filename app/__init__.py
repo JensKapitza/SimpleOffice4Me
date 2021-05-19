@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #export PYTHONIOENCODING=utf8
+from bs4 import BeautifulSoup
+#pip3 install beautifulsoup4 flask
 
 import os
 import random
@@ -106,7 +108,11 @@ def index(lang=None, myFile="index.html"):
     if not myFile.endswith('html'):
         myFile += '.html'
     resultString = render_template(myFile, mylanguage=lang)
-    return resultString
+
+    soup = BeautifulSoup(resultString)               #make BeautifulSoup
+    prettyHTML = soup.prettify()    
+    #prettyHTML = resultString
+    return prettyHTML
 
 
 
