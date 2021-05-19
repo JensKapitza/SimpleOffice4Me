@@ -60,6 +60,7 @@ dictConfig({
 #https://flask.palletsprojects.com/en/1.1.x/logging/
 app = Flask(__name__,template_folder=template_dir,static_folder=static_dir)
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
+app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = 'web-session' + str(random.random())[2:]
 
@@ -72,6 +73,8 @@ app.register_blueprint(auth.bp)
 from . import db
 db.init_app(app)
 
+from . import translationdb as tdb
+tdb.init_app(app)
 
 
 @app.template_filter('datetime')
