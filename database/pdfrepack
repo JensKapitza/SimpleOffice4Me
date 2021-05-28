@@ -1,30 +1,89 @@
 #!/bin/bash
 set -v
 
-echo $0
+#echo $0
 # $1 ist quelle
 
 A=`mktemp -d `
 
-pdftoppm -r 300 -png $1 $A/temp
+xdg-open $A
+if [ `file $1 | grep PDF | wc -l` == "1" ]; then
+
+	#gs -dDownsampleColorImages=true -dColorImageResolution=300 -dDownsampleGrayImages=true -dGrayImageResolution=300 -dDownsampleMonoImages=true -dMonoImageResolution=300  -dNOPAUSE -sDEVICE=pdfwrite -dNOTRANSPERENCY -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/printer -dNOPAUSE -dBATCH  -dQUIET -sOutputFile=$A/downsample.pdf $1
+	#read	
+	#convert  -density 300 -background white -resize a4 -quality 100 $1 $A/temp%d.png
+	pdftoppm -r 200 -png $1 $A/temp
+	#pdftocairo  -png $1  $A/temp
+
+else
+	convert $1 -quality 100 $A/temp-001.png
+fi
+
 
 for i in $A/temp*.png; do 
 	#unpaper -dv 1 -dr 10 -dn top --overwrite $i "$i.png"
-	`dirname $0`/textcleaner "$i" "${i}clean.png"
+
+
+	unpaper --no-deskew --no-mask-center  --no-mask-scan  --no-grayfilter --no-blurfilter  --no-wipe   --no-blackfilter  --overwrite "${i}" "${i}yyRO.pnm"
+	#convert "${i}yyRO.pnm" -quality 100 "${i}yymin.png"
+	RO=0
+	`dirname $0`/textcleaner "${i}yyRO.pnm" "${i}clean.png"
+	cmdR=`dirname $0`/textdeskew
+
+	RO=`$cmdR "${i}"  | grep -i rotating | cut -d' ' -f3`
+
+	a=$(echo "$RO < 30 && $RO > -30" | bc)
+
+	RCMD="-rotate $RO"
+	if [ "0$a" != "01" ]; then
+		RCMD=""
+	fi 
+
+	echo $RCMD
+	echo "==========="
+	convert "${i}yyRO.pnm" -quality 100 $RCMD "${i}xxRO.png"
+	convert "${i}clean.png" -quality 100 $RCMD "${i}cleanRO.png"
+
+	img2pdf -o $A/testgray.pdf "${i}" 
+
+	PERCENT=$(gs -o - -sDEVICE=inkcov "$A/testgray.pdf" | grep CMYK | nawk 'BEGIN { sum=0; } {sum += $1 + $2 + $3 + $4;} END { printf "%.5f\n", sum } ')
+	 
+		if [ $(echo "$PERCENT > 0.009" | bc) -eq 1 ]
+			then 
+			 	gs -o - -sDEVICE=inkcov  "$A/testgray.pdf" | grep CMYK | while read a b c d e f; do
+					Ax=0;
+					Bx=0;
+					Cx=0;		
+					Ax=$(echo "$a < 0.2" |bc);
+					Bx=$(echo "$b < 0.2" |bc);
+					Cx=$(echo "$c < 0.2" |bc);
+					echo  "--$Ax$Bx$Cx--";
+					#echo  "-- $a $b $c $d $e $f --";
+
+					if [  "--$Ax$Bx$Cx--" = "--111--" ]; then
+						echo "convert -- to gray";
+						convert "${i}yyRO.pnm" -quality 100 -grayscale average $RCMD "${i}xxRO.png"
+						convert "${i}clean.png" -quality 100 -grayscale average $RCMD "${i}cleanRO.png"
+						#convert "${i}yyRO.pnm" -quality 100 -grayscale average $RCMD "${i}xxROg.png"
+					fi
+			
+				done
+
+			fi
+
 done
 
+#convert $A/*cleanRO.png -quality 100 $A/001.pdf
+#convert $A/*xxRO.png -quality 100 $A/002.pdf
 
-convert $A/*clean.png -quality 100 $A/001.pdf
-
-rm  $A/*clean.png
-
-convert $A/*.png -quality 100 $A/002.pdf
+img2pdf -o $A/001.pdf $A/*cleanRO.png 
+img2pdf -o $A/002.pdf $A/*xxRO.png 
 
 
-ocrmypdf -l deu+eng  --tesseract-config `dirname $0`/no-dict.cfg $A/001.pdf  $A/003.pdf
+ocrmypdf --oversample 300 --optimize 3 --rotate-pages-threshold 100 -l deu+eng  --tesseract-config `dirname $0`/no-dict.cfg $A/001.pdf  $A/003.pdf
 
 pdftk $A/003.pdf multistamp $A/002.pdf output $2
 
-gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dBATCH  -dQUIET -sOutputFile=$2_s.pdf $2
-
+#gs -dDownsampleColorImages=true -dColorImageResolution=300 -dDownsampleGrayImages=true -dGrayImageResolution=300 -dDownsampleMonoImages=true -dMonoImageResolution=300  -dNOPAUSE -sDEVICE=pdfwrite -dNOTRANSPERENCY -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dBATCH  -dQUIET -sOutputFile=$2_s.pdf $2
+#read
 rm -rf "$A"

@@ -1,0 +1,6 @@
+sudo apt install  libleptonica-dev 
+
+cd jbig2enc
+./autogen.sh
+./configure && make
+[sudo] make install
