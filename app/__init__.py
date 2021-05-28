@@ -43,7 +43,7 @@ initlogging()
 #see here 4mail logging
 #https://flask.palletsprojects.com/en/1.1.x/logging/
 app = Flask(__name__,template_folder=template_dir,static_folder=static_dir)
-app.config['DATABASE_DIR'] = filebase_dir
+app.config['DATABASE_FILEDIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -60,6 +60,9 @@ db.init_app(app)
 
 from . import translationdb as tdb
 tdb.init_app(app)
+
+from . import filedb as fdb
+fdb.init_app(app)
 
 
 @app.template_filter('datetime')
@@ -92,7 +95,7 @@ def index(myFile="index.html",lang=None):
     if lang is not None:
         g.current_lang = lang
 
-    return renderwithbs4
+    return renderwithbs4(myFile)
 
 
 

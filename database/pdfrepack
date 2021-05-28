@@ -1,0 +1,30 @@
+#!/bin/bash
+set -v
+
+echo $0
+# $1 ist quelle
+
+A=`mktemp -d `
+
+pdftoppm -r 300 -png $1 $A/temp
+
+for i in $A/temp*.png; do 
+	#unpaper -dv 1 -dr 10 -dn top --overwrite $i "$i.png"
+	`dirname $0`/textcleaner "$i" "${i}clean.png"
+done
+
+
+convert $A/*clean.png -quality 100 $A/001.pdf
+
+rm  $A/*clean.png
+
+convert $A/*.png -quality 100 $A/002.pdf
+
+
+ocrmypdf -l deu+eng  --tesseract-config `dirname $0`/no-dict.cfg $A/001.pdf  $A/003.pdf
+
+pdftk $A/003.pdf multistamp $A/002.pdf output $2
+
+gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dBATCH  -dQUIET -sOutputFile=$2_s.pdf $2
+
+rm -rf "$A"

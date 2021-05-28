@@ -22,7 +22,8 @@ def renderwithbs4(myFile="index.html"):
         myFile += '.html'
     resultString = render_template(myFile)
 
-    soup = BeautifulSoup(resultString)               #make BeautifulSoup
-    prettyHTML = soup.prettify()    
+    soup = BeautifulSoup(resultString,features="html5lib")               #make BeautifulSoup
+    prettyHTML = soup.prettify(formatter="html")    
+    #prettyHTML = resultString
     return prettyHTML
 
