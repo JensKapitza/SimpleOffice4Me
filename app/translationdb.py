@@ -64,10 +64,10 @@ def getoraddtranslation(key,value):
 @with_appcontext
 def get_translation_command(key):
     db=get_db()
-    entry=db.execute(
-                'SELECT value FROM translation WHERE key=?',
-                (key)
-            ).fetchone()
+    entry = db.execute(
+        'SELECT value FROM translation WHERE key=?',
+        (key,)
+    ).fetchone()
     if entry is not None:
         click.echo(entry['value'])
         return entry['value']
@@ -81,9 +81,9 @@ def get_translation_command(key):
 def del_translation_command(key):
     db=get_db()
     db.execute(
-                'DELETE FROM translation WHERE key=?',
-                (key)
-            )
+        'DELETE FROM translation WHERE key=?',
+        (key,)
+    )
     db.commit()
 
 

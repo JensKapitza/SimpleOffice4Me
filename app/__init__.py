@@ -19,7 +19,8 @@ from flask import Flask, send_from_directory, \
     g
 
 
-if str(locale.getpreferredencoding()).lower in ["utf-8", "utf8"]:
+# ensure the environment uses UTF-8 encoding
+if str(locale.getpreferredencoding()).lower() not in ["utf-8", "utf8"]:
     raise BaseException("Wrong encoding use utf8")
 
 if sys.version_info < (3,):
@@ -72,12 +73,15 @@ def format_datetime(value, format='%Y-%m-%d'):
 
 @app.after_request
 def add_header(response):
-    res = False
+    """Add caching headers for static assets when not in debug mode."""
     app.logger.debug(f"debugging ist {app.debug}")
-    if not app.debug and "text/css" in str(response.content_type) or "application/javascript" in str(response.content_type):
+    if not app.debug and (
+        "text/css" in str(response.content_type)
+        or "application/javascript" in str(response.content_type)
+    ):
         then = datetime.datetime.now() + datetime.timedelta(minutes=5)
-        response.headers['Cache-Control'] = 'public,max-age=1000'
-        response.headers['Expires'] = then.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        response.headers["Cache-Control"] = "public,max-age=1000"
+        response.headers["Expires"] = then.strftime("%a, %d %b %Y %H:%M:%S GMT")
     return response
 
 
