@@ -84,19 +84,19 @@ Dokument-ID sein.
 ```bash
 # Notiz und fachlichen Zustand setzen
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
-  python -m flask --app app document-note "inbox/rechnung.pdf" "Rückfrage an Peter offen"
+  python -m flask --app app document-note "inbox/rechnung.pdf" "Rückfrage an Peter offen" --user jens
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
-  python -m flask --app app document-state "inbox/rechnung.pdf" "wartet_auf_antwort"
+  python -m flask --app app document-state "inbox/rechnung.pdf" "wartet_auf_antwort" --user jens
 
 # Zwei Dokumente verbinden und die Mindmap-Daten ausgeben
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
-  python -m flask --app app document-link "inbox/rechnung.pdf" "vertrag.pdf" --type bezieht_sich_auf
+  python -m flask --app app document-link "inbox/rechnung.pdf" "vertrag.pdf" --type bezieht_sich_auf --user jens
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
   python -m flask --app app document-graph "inbox/rechnung.pdf"
 
 # Eine neue Datei als nächste Version ablegen
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
-  python -m flask --app app import-file ./rechnung-korrigiert.pdf --version-of "inbox/rechnung.pdf"
+  python -m flask --app app import-file ./rechnung-korrigiert.pdf --version-of "rechnung" --user jens
 ```
 
 Notizen und Zustandswechsel sind chronologisch gespeichert. Beziehungen sind
@@ -114,7 +114,7 @@ durchsuchbar.
 
 ```bash
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
-  python -m flask --app app document-attribute "vertrag.pdf" "projekt" "Musterbau 2026"
+  python -m flask --app app document-attribute "vertrag.pdf" "projekt" "Musterbau 2026" --user jens
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
   python -m flask --app app search-documents "Musterbau"
 ```
@@ -124,3 +124,20 @@ Wird eine Datei außerhalb der Anwendung verändert, meldet ein späterer Scan
 `integrity_changed` in Metadaten und Chronik. Eine inhaltliche Änderung soll
 deshalb als neue Version importiert werden, nicht als Überschreiben der alten
 Datei.
+
+## Revisionsarchiv und Benutzerzuordnung
+
+Schreibende Befehle verlangen `--user`. Notiz, Zustand, Attribut, Beziehung und
+neue Version werden mit diesem Benutzer in der Ereignischronik und zusätzlich
+im lokalen Git-Repository `.simpleoffice-history/` abgelegt. Dort liegen
+Metadaten- und Konfigurationssnapshots getrennt vom Programm-Repository.
+
+Die Metadaten liegen zentral sowie zusätzlich ordnernah unter
+`.simpleoffice-meta/<Dokument-ID>.json`. Kurze Notizen und der Zustand werden,
+falls das Dateisystem dies zulässt, als Extended Attributes direkt an die Datei
+geschrieben. Bei großen Notizen verweist ein Attribut auf die ordnernahe
+Sidecar-Datei.
+
+`--version-of` akzeptiert ID, Pfad, Dateinamen, Tags, Zustände, Notiztext oder
+freie Attribute. Vor dem Import zeigt die Anwendung alle Treffer und fragt
+nach Auswahl und Bestätigung. Erst danach wird die neue Version übernommen.
