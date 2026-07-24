@@ -17,7 +17,10 @@ def import_file(file: Path) -> None:
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
     target = store.import_file(file)
     report = store.scan()
-    click.echo(f"imported={target} files={report.files} duplicates={report.duplicates}")
+    click.echo(
+        f"imported={target} files={report.files} duplicates={report.duplicates} "
+        f"symlinks={report.symlinks} boundaries={report.skipped_boundaries}"
+    )
 
 
 @click.command("list-files")
