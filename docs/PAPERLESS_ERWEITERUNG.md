@@ -55,7 +55,39 @@ Verarbeitungsstatus. Erst nach der Verarbeitung entsteht ein Dokument.
 | DOK-05 | Metadaten | Jedes Dokument besitzt mindestens Titel, Dokumentdatum, Importdatum, Dokumenttyp, Korrespondent, Tags und Quelle. |
 | DOK-06 | Vorschläge | OCR-Text, E-Mail-Betreff und Absender erzeugen Vorschläge für Typ, Korrespondent und Tags; der Benutzer bestätigt oder korrigiert sie. |
 | DOK-07 | Suche | Volltextsuche sowie Filter nach Zeitraum, Typ, Korrespondent, Tag, Quelle und Bearbeitungsstatus stehen zur Verfügung. |
-| DOK-08 | Aufbewahrung | Löschen erfolgt zweistufig: Papierkorb mit Frist, danach physische Löschung. Aufbewahrungsfristen können je Dokumenttyp gesetzt werden. |
+| DOK-08 | Aufbewahrung | Jede zutreffende Aufbewahrungsregel wird einzeln berechnet. Physisch löschbar ist ein Dokument erst, wenn **alle** Regeln abgelaufen sind; praktisch gilt somit stets das späteste Fristende. |
+| DOK-09 | Fristenquellen | Regeln können für Dokumenttyp, Korrespondent, Tags, Benutzer/Organisation, manuelle Einzelfälle und Verknüpfungen hinterlegt werden. |
+| DOK-10 | Fristbeginn | Der Fristbeginn ist je Regel konfigurierbar: Dokumentdatum, Importdatum, Tag-Zeitpunkt, Ereignisdatum oder ein manuell gesetztes Datum. |
+| DOK-11 | Verknüpfte Dokumente | Eine aufbewahrungsrelevante Verknüpfung überträgt die längste aktive Frist transitiv auf alle erreichbaren Dokumente. Kein Dokument der Verknüpfungsgruppe wird vorher gelöscht. |
+
+### 3.2.1 Aufbewahrungsregeln und Fristenlogik
+
+Eine Frist ist kein einzelnes Feld am Dokument, sondern ein nachvollziehbar
+ausgewerteter Regelbefund. Zu einem Dokument können mehrere Regeln gleichzeitig
+gelten. Jede Regel erzeugt ein eigenes `retention_until`.
+
+**Löschregel:** Ein Dokument darf nur gelöscht werden, wenn für das Dokument
+und alle transitiv über aufbewahrungsrelevante Verknüpfungen erreichbaren
+Dokumente keine aktive Frist und kein Löschstopp mehr vorliegt. Gleichwertig:
+das effektive Fristende ist das Maximum aller Fristenden in dieser Gruppe.
+
+| Regel | Start | Ergebnis |
+| --- | --- | --- |
+| Tag `2026` mit Dauer 8 Jahre | Zeitpunkt, zu dem das Tag gesetzt wurde | Tag am 15.03.2026 gesetzt → Fristende 15.03.2034. |
+| Korrespondent `Peter` mit Dauer 4 Jahre | Dokumentdatum, alternativ konfigurierbarer Start | Peter-Dokument vom 01.04.2026 → Fristende 01.04.2030. |
+| Dokumenttyp `Rechnung` mit Dauer 10 Jahre | Geschäftsjahresende oder Dokumentdatum, je Regel | darf die kürzere Peter-Regel übersteuern. |
+| Verknüpfte Rechnung | Fristende eines verknüpften Dokuments | ein Beleg, der mit der Rechnung verbunden ist, erbt deren spätere Frist. |
+
+Eine Verknüpfung besitzt daher einen Typ und das Flag
+`propagates_retention`. Für normale Hinweise kann dieses Flag ausgeschaltet
+werden. Für Anlagen, Anhänge, Belege, Vertragsnachträge, Antworten und
+zusammengehörende Vorgänge ist es standardmäßig eingeschaltet.
+
+Änderungen an Tags, Korrespondenten, Dokumenttyp, Regeln oder Verknüpfungen
+lösen eine Neuberechnung aus. Die Anwendung speichert dabei sowohl die
+einzelnen Regelbefunde als auch das effektive Fristende, damit eine Löschsperre
+erklärbar bleibt. Abgelaufene Fristen werden nicht entfernt, sondern als
+abgelaufen protokolliert.
 
 ### 3.3 Bedienung
 
@@ -111,6 +143,14 @@ einem Fehler sicher erneut starten.
   Status, Fehler, temporäre Datei, Prüfsumme.
 - `document_file`: Original, Konvertat, Vorschaubild und abgeleitete Dateien.
 - `audit_event`: Benutzer, Aktion, Zeitpunkt, Objekt, vorher/nachher.
+- `retention_rule`: Geltungsbereich, Filter (z. B. Tag `2026` oder
+  Korrespondent `Peter`), Dauer, Fristbeginn und Priorität/Status.
+- `retention_evaluation`: Dokument, auslösende Regel, Fristbeginn,
+  Fristende, Berechnungszeitpunkt und Begründung.
+- `document_link`: Quell- und Zieldokument, Beziehungstyp und
+  `propagates_retention`.
+- `legal_hold`: expliziter Löschstopp mit Grund, Beginn, optionalem Ende und
+  Freigabe durch berechtigte Benutzer.
 
 Für einen Einzelplatz genügt SQLite mit FTS5 zunächst. Bei gleichzeitigem
 E-Mail-Abruf, mehreren Nutzern oder hohem Scanaufkommen ist PostgreSQL die
