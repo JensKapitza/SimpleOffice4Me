@@ -1,0 +1,4 @@
+{% if logbook is defined %}{% set items = logbook %}{% else %}{% set items = events %}{% endif %}
+{% if items %}<div class="list-group">{% for event in items %}
+<div class="list-group-item"><div class="d-flex justify-content-between"><strong>{{ event.action or event.type }}</strong><small>{{ event.at }}</small></div><small class="text-muted">{{ event.actor or 'System/Scanner' }} · {{ event.category or event.source }}</small></div>
+{% endfor %}</div>{% else %}<p class="text-muted">Noch keine Ereignisse.</p>{% endif %}
