@@ -590,6 +590,50 @@ class DocumentStore:
             key=lambda item: (int(item.get("version_number", 1)), item.get("first_seen_at", "")),
         )
 
+    def offload_old_versions(self, reference: str | Path, archive_root: str | Path, actor: str) -> dict[str, Any]:
+        """Move every non-current version to an external archive after hash verification."""
+        self._require_actor(actor)
+        versions = self.versions(reference)
+        if len(versions) < 2:
+            raise ValueError("the document has no older versions to offload")
+        target_root = Path(archive_root).expanduser().resolve()
+        if not target_root.is_dir() or target_root == self.root or self.root in target_root.parents:
+            raise ValueError("choose a mounted archive directory outside the document store")
+        archive = self.register_external_archive(target_root, target_root.name, ["version-archive"], actor)
+        current = max(versions, key=lambda item: int(item.get("version_number", 1)))
+        moved: list[str] = []
+        for version in versions:
+            if version["document_id"] == current["document_id"] or version.get("storage_state") == "external_archive":
+                continue
+            source = self.root / version.get("last_path", "")
+            if not source.is_file() or source.is_symlink():
+                continue
+            directory = target_root / ".simpleoffice-documents" / version["version_series_id"] / f"v{version.get('version_number', 1)}"
+            directory.mkdir(parents=True, exist_ok=True)
+            destination = directory / source.name
+            if destination.exists():
+                destination = directory / f"{destination.stem}-{version['document_id'][:8]}{destination.suffix}"
+            temporary = destination.with_suffix(destination.suffix + ".part")
+            shutil.copy2(source, temporary)
+            if sha256_file(temporary) != version.get("sha256"):
+                temporary.unlink(missing_ok=True)
+                raise RuntimeError(f"hash verification failed for {source.name}; local file was retained")
+            temporary.replace(destination)
+            version.setdefault("archive_locations", []).append({
+                "archive_id": archive["archive_id"], "path": str(destination.relative_to(target_root)), "moved_at": utc_now(), "moved_by": actor,
+            })
+            version["storage_state"] = "external_archive"
+            version["local_deleted_at"] = utc_now()
+            self._save_document(version)
+            self._refresh_search_index(version)
+            with self._db() as db:
+                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (version.get("last_path", ""),))
+            source.unlink()
+            self._event("document_version_offloaded", {"document_id": version["document_id"], "archive_id": archive["archive_id"], "actor": actor})
+            self._record_revision("document_version_offloaded", actor, "documents", version["document_id"], version)
+            moved.append(version["document_id"])
+        return {"archive": archive, "current_document_id": current["document_id"], "moved_document_ids": moved}
+
     def note_wiki(self) -> list[dict[str, Any]]:
         """Return all document notes as a single, newest-first wiki feed."""
         entries: list[dict[str, Any]] = []
