@@ -69,6 +69,9 @@ fdb.init_app(app)
 from . import document_store as document_store
 document_store.init_app(app)
 
+from . import documents
+app.register_blueprint(documents.bp)
+
 
 @app.template_filter('datetime')
 def format_datetime(value, format='%Y-%m-%d'):
