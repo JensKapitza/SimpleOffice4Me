@@ -102,6 +102,21 @@ def create_share(document_id: str):
     return redirect(url_for("documents.detail", document_id=document_id))
 
 
+@bp.post("/<document_id>/offload-versions")
+@login_required
+def offload_versions(document_id: str):
+    _document_or_404(document_id)
+    if request.form.get("confirm") != "AUSLAGERN":
+        flash("Zum Auslagern muss AUSLAGERN bestätigt werden.")
+        return redirect(url_for("documents.detail", document_id=document_id))
+    try:
+        result = _store().offload_old_versions(document_id, request.form.get("archive_path", ""), str(g.user["username"]))
+        flash(f"{len(result['moved_document_ids'])} alte Version(en) auf {result['archive']['label']} ausgelagert. Die aktuelle Version bleibt lokal.")
+    except (OSError, RuntimeError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
 @bp.route("/share/<share_id>", methods=("GET", "POST"))
 def open_share(share_id: str):
     if request.method == "GET":
