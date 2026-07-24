@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import sqlite3
+import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,6 +29,8 @@ CONTROL_DIR = ".simpleoffice-meta"
 POLICY_FILE = ".simpleoffice-folder.json"
 EVENT_FILE = "events.ndjson"
 HISTORY_DIR = ".simpleoffice-history"
+ARCHIVES_FILE = "archives.json"
+ARCHIVE_MARKER = ".simpleoffice-archive.json"
 
 
 def utc_now() -> str:
@@ -69,6 +72,7 @@ class DocumentStore:
         self.fingerprints = self.control / "fingerprints"
         self.events = self.control / EVENT_FILE
         self.index_path = self.control / "index.sqlite3"
+        self.archives_path = self.control / ARCHIVES_FILE
         self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
@@ -156,6 +160,77 @@ class DocumentStore:
         metadata = self.get_document(target)
         self._record_revision("document_imported", actor, "documents", metadata["document_id"], metadata)
         return target
+
+    def import_upload(self, upload: Any, filename: str, actor: str, archive: bool = False) -> dict[str, Any]:
+        """Store an uploaded file safely; archive placement is content-hash sorted."""
+        self._require_actor(actor)
+        self.initialize()
+        safe_name = Path(filename or "upload").name.replace("/", "_").replace("\\", "_")
+        if safe_name in ("", "."):
+            safe_name = "upload"
+        staging = self.control / "staging" / f"{uuid.uuid4().hex}-{safe_name}"
+        staging.parent.mkdir(parents=True, exist_ok=True)
+        source = getattr(upload, "stream", upload)
+        with staging.open("wb") as destination:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                destination.write(chunk)
+        digest = sha256_file(staging)
+        if archive:
+            destination_dir = self.root / "archive" / digest[:2] / digest
+        else:
+            destination_dir = self.root / "inbox"
+        self.ensure_folder_policy(destination_dir)
+        target = destination_dir / safe_name
+        if target.exists():
+            target = destination_dir / f"{target.stem}-{uuid.uuid4().hex[:8]}{target.suffix}"
+        staging.replace(target)
+        self.scan()
+        metadata = self.get_document(target)
+        self._event("file_uploaded", {"document_id": metadata["document_id"], "path": self.relative(target), "actor": actor, "sha256": digest, "archive": archive})
+        self._record_revision("document_uploaded", actor, "documents", metadata["document_id"], metadata)
+        return metadata
+
+    def archives(self) -> list[dict[str, Any]]:
+        self.initialize()
+        return sorted(self._read_json(self.archives_path, {"archives": []}).get("archives", []), key=lambda item: item.get("label", ""))
+
+    def register_external_archive(self, root: str | Path, label: str, tags: list[str], actor: str) -> dict[str, Any]:
+        """Mark a mounted archive volume so it remains identifiable while absent."""
+        self._require_actor(actor)
+        path = Path(root).expanduser().resolve()
+        if not path.is_dir():
+            raise ValueError("archive root must be an existing mounted directory")
+        label = label.strip() or path.name
+        marker_path = path / ARCHIVE_MARKER
+        marker = self._read_json(marker_path, {})
+        archive_id = marker.get("archive_id", str(uuid.uuid4()))
+        marker = {"version": 1, "archive_id": archive_id, "label": label, "tags": sorted(set(tags)), "registered_at": marker.get("registered_at", utc_now())}
+        atomic_json_write(marker_path, marker)
+        all_archives = self.archives()
+        record = {**marker, "last_known_path": str(path), "available": True, "last_seen_at": utc_now()}
+        all_archives = [item for item in all_archives if item.get("archive_id") != archive_id] + [record]
+        atomic_json_write(self.archives_path, {"archives": all_archives})
+        self._event("external_archive_registered", {"archive_id": archive_id, "actor": actor, "path": str(path)})
+        self._record_revision("external_archive_registered", actor, "archives", archive_id, record)
+        return record
+
+    def discover_archives(self, actor: str) -> list[dict[str, Any]]:
+        """Inspect mounted volume roots for our small portable archive marker."""
+        self._require_actor(actor)
+        found: dict[str, Path] = {}
+        for mount in self._mounted_roots():
+            marker = self._read_json(mount / ARCHIVE_MARKER, {})
+            if marker.get("archive_id"):
+                found[marker["archive_id"]] = mount
+        archives = self.archives()
+        updated: list[dict[str, Any]] = []
+        for archive in archives:
+            mounted = found.get(archive.get("archive_id"))
+            updated.append({**archive, "available": mounted is not None, **({"last_known_path": str(mounted), "last_seen_at": utc_now()} if mounted else {})})
+        atomic_json_write(self.archives_path, {"archives": updated})
+        self._event("external_archives_discovered", {"actor": actor, "found": len(found)})
+        self._record_revision("external_archives_discovered", actor, "archives", "registry", {"archives": updated})
+        return updated
 
     def get_document(self, reference: str | Path) -> dict[str, Any]:
         """Return metadata by document ID or by a path inside the managed tree."""
@@ -644,6 +719,33 @@ class DocumentStore:
             for path in self.documents.glob("*.json")
             if (metadata := self._read_json(path, {})).get("document_id")
         ]
+
+    @staticmethod
+    def _mounted_roots() -> list[Path]:
+        """Return mounted volume roots without recursively scanning drives."""
+        roots: set[Path] = set()
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
+                mask = ctypes.windll.kernel32.GetLogicalDrives()
+                for index in range(26):
+                    if mask & (1 << index):
+                        roots.add(Path(f"{chr(65 + index)}:/"))
+            except (AttributeError, OSError):
+                pass
+        elif sys.platform == "darwin":
+            roots.add(Path("/Volumes"))
+            if Path("/Volumes").is_dir():
+                roots.update(path for path in Path("/Volumes").iterdir() if path.is_dir())
+        else:
+            try:
+                for line in Path("/proc/mounts").read_text(encoding="utf-8").splitlines():
+                    fields = line.split()
+                    if len(fields) > 1:
+                        roots.add(Path(fields[1].replace("\\040", " ")))
+            except OSError:
+                roots.update(path for path in (Path("/media"), Path("/mnt")) if path.is_dir())
+        return sorted((path for path in roots if path.is_dir()), key=str)
 
     def _db(self) -> sqlite3.Connection:
         self.control.mkdir(parents=True, exist_ok=True)
