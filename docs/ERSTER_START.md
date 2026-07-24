@@ -1,6 +1,21 @@
 # Erster Start
 
-## Schnellstart
+## Einfach starten
+
+- **Linux:** `./start.sh`
+- **Windows:** `start.bat` doppelklicken.
+- **macOS:** `start.command` doppelklicken.
+
+Beim ersten Start erzeugt der Starter automatisch eine lokale Python-Umgebung,
+installiert die benötigten Pakete und öffnet einen kurzen Einrichtungsassistenten.
+Mit Enter werden die vorgeschlagenen Werte übernommen. Anschließend läuft die
+Anwendung unter `http://127.0.0.1:8080`.
+
+Ein Update erfolgt mit `./update.sh` bzw. `update.bat`. Das führt nur
+`git pull --ff-only` aus, damit lokale Änderungen nicht überschrieben werden,
+installiert bei Bedarf neue Abhängigkeiten und startet anschließend neu.
+
+## Manuelle Alternative
 
 ```bash
 git clone https://github.com/JensKapitza/SimpleOffice4Me.git
@@ -34,6 +49,22 @@ ohne Extended Attributes funktioniert der Sidecar-Speicher weiter.
 Der Scan kann ohne Risiko wiederholt werden. Er berechnet fehlende Prüfsummen,
 erkennt gleiche Dateien, protokolliert Symlinks und baut den Index nach einem
 Abbruch selbst erneut auf.
+
+Standardmäßig folgt der Scanner keinen Symlinks und überschreitet keine
+Dateisystemgrenze, z. B. keinen Mount, Bind-Mount oder Overlay-Einstieg. In
+`.simpleoffice-folder.json` kann das nur für einen konkreten Ordner freigegeben
+werden:
+
+```json
+"scan": {
+  "follow_symlinks": true,
+  "allow_other_filesystems": true
+}
+```
+
+Auch bei einer bewussten Freigabe verhindert die Kombination aus Geräte- und
+Inode-ID Endlosschleifen. Übersprungene Links und Dateisystemgrenzen erscheinen
+in der Chronik.
 
 ```bash
 SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
