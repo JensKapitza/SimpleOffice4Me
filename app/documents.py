@@ -28,6 +28,25 @@ def index():
     return render_template("documents/index.html", documents=_store().list_documents())
 
 
+@bp.post("/upload")
+@login_required
+def upload():
+    files = [item for item in request.files.getlist("files") if item and item.filename]
+    if not files:
+        flash("Bitte mindestens eine Datei auswählen.")
+        return redirect(url_for("documents.index"))
+    stored = 0
+    for item in files:
+        try:
+            _store().import_upload(item, item.filename, str(g.user["username"]), request.form.get("archive") == "1")
+            stored += 1
+        except (OSError, ValueError) as exc:
+            flash(f"{item.filename}: {exc}")
+    if stored:
+        flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")
+    return redirect(url_for("documents.index"))
+
+
 @bp.route("/<document_id>")
 @login_required
 def detail(document_id: str):
@@ -75,3 +94,29 @@ def notes_wiki():
 @login_required
 def logbook():
     return render_template("documents/logbook.html", events=_store().logbook())
+
+
+@bp.route("/archives")
+@login_required
+def archives():
+    return render_template("documents/archives.html", archives=_store().archives())
+
+
+@bp.post("/archives/register")
+@login_required
+def register_archive():
+    try:
+        tags = [tag.strip() for tag in request.form.get("tags", "").split(",") if tag.strip()]
+        _store().register_external_archive(request.form.get("path", ""), request.form.get("label", ""), tags, str(g.user["username"]))
+        flash("Externes Archiv wurde markiert und registriert.")
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.archives"))
+
+
+@bp.post("/archives/discover")
+@login_required
+def discover_archives():
+    _store().discover_archives(str(g.user["username"]))
+    flash("Angeschlossene Laufwerke wurden nach Archivmarkern geprüft.")
+    return redirect(url_for("documents.archives"))
