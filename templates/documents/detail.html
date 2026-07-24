@@ -15,7 +15,9 @@
         <button class="btn btn-primary mt-2" type="submit">Notiz speichern</button>
       </form>
       {% for note in document.notes|reverse %}
-      <article class="card mb-2"><div class="card-body"><div style="white-space: pre-wrap">{{ note.text }}</div><small class="text-muted">{{ note.author }} · {{ note.created_at }}</small></div></article>
+      <article class="card mb-2"><div class="card-body"><div style="white-space: pre-wrap">{{ note.text }}</div><small class="text-muted">{{ note.author }} · {{ note.created_at }}</small>
+        <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}" class="mt-2 d-flex gap-2"><input type="hidden" name="note_id" value="{{ note.id }}"><input required type="password" class="form-control form-control-sm" name="password" placeholder="Passwort für Notiz"><input class="form-control form-control-sm" type="number" name="expires_days" value="7" min="1" max="365"><button class="btn btn-sm btn-outline-primary">Notiz teilen</button></form>
+      </div></article>
       {% else %}<p class="text-muted">Noch keine Notizen.</p>{% endfor %}
     </section>
     <aside class="col-lg-5">
@@ -31,6 +33,8 @@
         <li class="list-group-item {% if version.document_id == document.document_id %}active{% endif %}"><a class="{% if version.document_id == document.document_id %}link-light{% endif %}" href="{{ url_for('documents.detail', document_id=version.document_id) }}">Version {{ version.version_number }}: {{ version.last_path }}</a></li>
         {% endfor %}
       </ol>
+      <h2 class="h4 mt-4">Datei freigeben</h2>
+      <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}"><label class="form-label">Passwort und Ablauf</label><div class="input-group"><input required type="password" class="form-control" name="password" minlength="8" placeholder="mindestens 8 Zeichen"><input class="form-control" type="number" name="expires_days" value="7" min="1" max="365"><button class="btn btn-outline-primary">HTTPS-Link erzeugen</button></div></form>
     </aside>
   </div>
   <section class="mt-5"><h2 class="h4">Logbuch dieses Dokuments</h2>{% include "documents/event_list.html" %}</section>
