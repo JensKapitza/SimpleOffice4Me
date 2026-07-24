@@ -14,6 +14,24 @@ Nach einem Scan erhalten alle Dateien eine SHA-256-Prüfsumme. Beim Web-Upload k
 
 Synchronisierte Ordner sollten nur in **eine** Richtung als Eingang verwendet werden. Das Metadatenverzeichnis `.simpleoffice-meta/` und das Revisionsarchiv `.simpleoffice-history/` dürfen nicht in einen fremden Sync-Ordner kopiert werden, weil parallele Git-Schreibvorgänge Konflikte erzeugen können.
 
+## SSH-Quellen und HTTPS-Freigaben
+
+Unter `/documents/sources/ssh` kann ein SSH-System mit Host, Benutzer,
+absolutem Remote-Pfad und optionalem lokalem Schlüsselpfad registriert werden.
+Der Import läuft einseitig mit `rsync` über SSH, folgt keinen Links und kopiert
+erst in einen internen Staging-Bereich. Erst danach werden die regulären
+Hash-, Duplikat- und Revisionsprüfungen ausgeführt. Der Server speichert kein
+SSH-Passwort und keinen privaten Schlüssel; sinnvoll sind ein eingeschränkter
+Schlüssel oder ein SSH-Agent. Unter Windows ist dafür WSL mit `rsync` sinnvoll.
+
+Eine Datei oder einzelne Notiz kann über einen HTTPS-Link mit Passwort und
+Ablaufdatum freigegeben werden. Es wird nur ein scrypt-Hash des Passworts
+gespeichert. Der Link ist kein ungeschützter Direktpfad: Erst nach erfolgreicher
+Passwortprüfung wird die Datei ausgeliefert oder die Notiz angezeigt. Das
+öffentliche System muss dafür hinter einer korrekt eingerichteten HTTPS-URL
+betrieben werden; für reinen lokalen Betrieb funktionieren die Links nur im
+lokalen Netz.
+
 ## Externe Archive
 
 Ein externes Archiv erhält im Wurzelordner die kleine Datei `.simpleoffice-archive.json`. Sie enthält eine zufällige Archiv-ID, einen Namen und Tags. Die zentrale Registry kennt diese Kennung weiter, wenn die Platte nicht angeschlossen ist. Die Oberfläche unter `/documents/archives` kann eingehängte Laufwerke prüfen:
