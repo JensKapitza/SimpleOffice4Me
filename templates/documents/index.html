@@ -4,6 +4,14 @@
 <main class="container py-4">
   <h1>Dokumente</h1>
   <p class="text-muted">Dateien, ihre Versionen, Notizen und die zugehörige Chronik.</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <section class="card mb-4"><div class="card-body"><h2 class="h5">Dateien hinzufügen</h2>
+    <form method="post" action="{{ url_for('documents.upload') }}" enctype="multipart/form-data">
+      <input class="form-control" type="file" name="files" multiple required>
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" value="1" name="archive" id="archive"><label class="form-check-label" for="archive">Direkt ins feste Archiv importieren (nach SHA-256 sortiert)</label></div>
+      <button class="btn btn-primary mt-2" type="submit">Vollständig importieren</button>
+    </form>
+  </div></section>
   {% if documents %}
   <div class="list-group">
     {% for document in documents %}
