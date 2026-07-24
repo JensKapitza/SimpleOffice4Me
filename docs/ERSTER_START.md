@@ -103,3 +103,24 @@ Notizen und Zustandswechsel sind chronologisch gespeichert. Beziehungen sind
 gerichtet und beschriftet; die Graph-Ausgabe enthält ein Dokument, seine
 eingehenden/ausgehenden Verbindungen und seine Versionsreihe. Eine grafische
 Mindmap-Oberfläche kann diese Ausgabe ohne erneute Datenmigration verwenden.
+
+## SciServer-Prinzipien
+
+Aus dem SciServer-Konzept sind drei Funktionen direkt übernommen: schnelle
+Suche, fachliche Modellierung und Datenintegrität. Freie Attribute erlauben
+z. B. Messreihe, Projekt, Material oder Aktenzeichen ohne Datenbankänderung.
+Sie sind zusammen mit Pfad, Zustand, Tags, Notizen und späterem OCR-Text
+durchsuchbar.
+
+```bash
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app document-attribute "vertrag.pdf" "projekt" "Musterbau 2026"
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app search-documents "Musterbau"
+```
+
+Der beim ersten Scan ermittelte SHA-256 bleibt als Original-Prüfsumme erhalten.
+Wird eine Datei außerhalb der Anwendung verändert, meldet ein späterer Scan
+`integrity_changed` in Metadaten und Chronik. Eine inhaltliche Änderung soll
+deshalb als neue Version importiert werden, nicht als Überschreiben der alten
+Datei.
