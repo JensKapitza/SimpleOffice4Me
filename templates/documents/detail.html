@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container py-4">
+  <a href="{{ url_for('documents.index') }}">← Alle Dokumente</a>
+  <h1 class="mt-2">{{ document.last_path }}</h1>
+  <p class="text-muted">Dokument-ID: <code>{{ document.document_id }}</code> · SHA-256: <code>{{ document.sha256 }}</code></p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-7">
+      <h2 class="h4">Notizen</h2>
+      <form method="post" action="{{ url_for('documents.add_note', document_id=document.document_id) }}" class="mb-3">
+        <label class="form-label" for="note-text">Neue Notiz</label>
+        <textarea required class="form-control" id="note-text" name="text" rows="4" placeholder="Wissen, Entscheidung oder Beobachtung festhalten …"></textarea>
+        <button class="btn btn-primary mt-2" type="submit">Notiz speichern</button>
+      </form>
+      {% for note in document.notes|reverse %}
+      <article class="card mb-2"><div class="card-body"><div style="white-space: pre-wrap">{{ note.text }}</div><small class="text-muted">{{ note.author }} · {{ note.created_at }}</small></div></article>
+      {% else %}<p class="text-muted">Noch keine Notizen.</p>{% endfor %}
+    </section>
+    <aside class="col-lg-5">
+      <h2 class="h4">Zustand</h2>
+      <p><span class="badge bg-secondary">{{ document.state }}</span></p>
+      <form method="post" action="{{ url_for('documents.set_state', document_id=document.document_id) }}" class="input-group mb-4">
+        <input required class="form-control" name="state" value="{{ document.state }}" aria-label="Zustand">
+        <button class="btn btn-outline-primary" type="submit">Setzen</button>
+      </form>
+      <h2 class="h4">Versionen</h2>
+      <ol class="list-group list-group-numbered">
+        {% for version in versions %}
+        <li class="list-group-item {% if version.document_id == document.document_id %}active{% endif %}"><a class="{% if version.document_id == document.document_id %}link-light{% endif %}" href="{{ url_for('documents.detail', document_id=version.document_id) }}">Version {{ version.version_number }}: {{ version.last_path }}</a></li>
+        {% endfor %}
+      </ol>
+    </aside>
+  </div>
+  <section class="mt-5"><h2 class="h4">Logbuch dieses Dokuments</h2>{% include "documents/event_list.html" %}</section>
+</main>
+{% endblock %}
