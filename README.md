@@ -14,6 +14,9 @@ Der erste dateibasierte Eingangskorb mit Prüfsummen, Chronik und einem
 neu aufbaubaren Index ist umgesetzt. Die Installation und der erste Scan stehen
 in [docs/ERSTER_START.md](docs/ERSTER_START.md).
 
+Das Konzept für normale Sync-Clients, externe Archive und föderierte Kataloge
+steht in [docs/SYNC_FEDERATION.md](docs/SYNC_FEDERATION.md).
+
 ## Start und Update
 
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
