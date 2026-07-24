@@ -130,6 +130,147 @@ class DocumentStore:
         self._event("file_imported", {"source": str(source_path), "path": self.relative(target)})
         return target
 
+    def get_document(self, reference: str | Path) -> dict[str, Any]:
+        """Return metadata by document ID or by a path inside the managed tree."""
+        self.initialize()
+        reference_text = str(reference)
+        candidate = Path(reference).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.root / candidate
+        if candidate.exists() and candidate.is_file() and not candidate.is_symlink():
+            self._scan_file(candidate.resolve())
+            with self._db() as db:
+                row = db.execute(
+                    "SELECT document_id FROM scan_file WHERE relative_path = ?",
+                    (self.relative(candidate),),
+                ).fetchone()
+            if row:
+                reference_text = str(row[0])
+        metadata = self._read_json(self.documents / f"{reference_text}.json", {})
+        if not metadata.get("document_id"):
+            raise ValueError(f"unknown document: {reference}")
+        return metadata
+
+    def add_note(self, reference: str | Path, text: str, author: str = "local") -> dict[str, Any]:
+        """Append an immutable note to a document's file-based metadata."""
+        text = text.strip()
+        if not text:
+            raise ValueError("note must not be empty")
+        metadata = self.get_document(reference)
+        note = {"id": str(uuid.uuid4()), "text": text, "author": author, "created_at": utc_now()}
+        metadata.setdefault("notes", []).append(note)
+        self._save_document(metadata)
+        self._event("document_note_added", {"document_id": metadata["document_id"], "note_id": note["id"]})
+        return note
+
+    def set_state(self, reference: str | Path, state: str, author: str = "local") -> dict[str, Any]:
+        """Set a human workflow state and preserve the complete state history."""
+        state = state.strip()
+        if not state:
+            raise ValueError("state must not be empty")
+        metadata = self.get_document(reference)
+        previous = metadata.get("state", "new")
+        event = {"from": previous, "to": state, "author": author, "changed_at": utc_now()}
+        metadata["state"] = state
+        metadata.setdefault("state_history", []).append(event)
+        self._save_document(metadata)
+        self._event("document_state_changed", {"document_id": metadata["document_id"], **event})
+        return event
+
+    def add_link(
+        self,
+        source: str | Path,
+        target: str | Path,
+        relation_type: str = "related",
+        label: str = "",
+        author: str = "local",
+    ) -> dict[str, Any]:
+        """Create a directed, labelled document relationship for graph views."""
+        source_metadata = self.get_document(source)
+        target_metadata = self.get_document(target)
+        if source_metadata["document_id"] == target_metadata["document_id"]:
+            raise ValueError("a document cannot be linked to itself")
+        relation_type = relation_type.strip() or "related"
+        for link in source_metadata.setdefault("relationships", []):
+            if link.get("target_document_id") == target_metadata["document_id"] and link.get("type") == relation_type:
+                return link
+        link = {
+            "id": str(uuid.uuid4()),
+            "target_document_id": target_metadata["document_id"],
+            "type": relation_type,
+            "label": label.strip(),
+            "author": author,
+            "created_at": utc_now(),
+        }
+        source_metadata["relationships"].append(link)
+        self._save_document(source_metadata)
+        self._event(
+            "document_link_added",
+            {"source_document_id": source_metadata["document_id"], "target_document_id": target_metadata["document_id"], "type": relation_type},
+        )
+        return link
+
+    def import_version(self, source: str | Path, version_of: str | Path, author: str = "local") -> dict[str, Any]:
+        """Import SOURCE as the next version of an existing document."""
+        parent = self.get_document(version_of)
+        target = self.import_file(source)
+        self.scan()
+        version = self.get_document(target)
+        series_id = parent.get("version_series_id", parent["document_id"])
+        version_numbers = [
+            int(item.get("version_number", 1))
+            for item in self._all_documents()
+            if item.get("version_series_id", item.get("document_id")) == series_id
+        ]
+        version.update(
+            {
+                "version_series_id": series_id,
+                "version_number": max(version_numbers, default=1) + 1,
+                "version_of": parent["document_id"],
+                "state": "new_version",
+            }
+        )
+        version.setdefault("state_history", []).append(
+            {"from": "new", "to": "new_version", "author": author, "changed_at": utc_now()}
+        )
+        self._save_document(version)
+        self.add_link(version["document_id"], parent["document_id"], "version_of", "Vorgängerversion", author)
+        self._event(
+            "document_version_imported",
+            {"document_id": version["document_id"], "version_of": parent["document_id"], "version_number": version["version_number"]},
+        )
+        return version
+
+    def graph(self, reference: str | Path) -> dict[str, Any]:
+        """Return one document, its versions and all inbound/outbound graph edges."""
+        document = self.get_document(reference)
+        document_id = document["document_id"]
+        documents = self._all_documents()
+        visible_ids = {document_id}
+        edges: list[dict[str, Any]] = []
+        for item in documents:
+            for link in item.get("relationships", []):
+                if item.get("document_id") == document_id or link.get("target_document_id") == document_id:
+                    visible_ids.add(item["document_id"])
+                    visible_ids.add(link["target_document_id"])
+                    edges.append({"source": item["document_id"], "target": link["target_document_id"], **link})
+        series_id = document.get("version_series_id", document_id)
+        for item in documents:
+            if item.get("version_series_id", item.get("document_id")) == series_id:
+                visible_ids.add(item["document_id"])
+        nodes = [
+            {
+                "id": item["document_id"],
+                "path": item.get("last_path"),
+                "state": item.get("state"),
+                "version_number": item.get("version_number", 1),
+                "notes": len(item.get("notes", [])),
+            }
+            for item in documents
+            if item.get("document_id") in visible_ids
+        ]
+        return {"focus_document_id": document_id, "nodes": nodes, "edges": edges}
+
     def scan(self) -> ScanReport:
         self.initialize()
         files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
@@ -238,6 +379,12 @@ class DocumentStore:
                 "last_seen_at": now,
                 "last_path": relative_path,
                 "tags": metadata.get("tags", xattrs.get("tags", [])),
+                "notes": metadata.get("notes", []),
+                "relationships": metadata.get("relationships", []),
+                "state": metadata.get("state", "new"),
+                "state_history": metadata.get("state_history", []),
+                "version_series_id": metadata.get("version_series_id", document_id),
+                "version_number": metadata.get("version_number", 1),
             }
         )
         atomic_json_write(metadata_path, metadata)
@@ -258,6 +405,8 @@ class DocumentStore:
             }
         )
         atomic_json_write(fingerprint_path, fingerprint)
+        metadata["system_state"] = "duplicate" if duplicate else "indexed"
+        self._save_document(metadata)
         with self._db() as db:
             db.execute(
                 """INSERT INTO scan_file(relative_path, document_id, sha256, size, modified_ns, last_seen_at)
@@ -272,6 +421,17 @@ class DocumentStore:
             {"path": relative_path, "document_id": document_id, "sha256": digest, "first_seen": created, "duplicate": duplicate},
         )
         return created, duplicate
+
+    def _save_document(self, metadata: dict[str, Any]) -> None:
+        atomic_json_write(self.documents / f"{metadata['document_id']}.json", metadata)
+
+    def _all_documents(self) -> list[dict[str, Any]]:
+        self.initialize()
+        return [
+            metadata
+            for path in self.documents.glob("*.json")
+            if (metadata := self._read_json(path, {})).get("document_id")
+        ]
 
     def _db(self) -> sqlite3.Connection:
         self.control.mkdir(parents=True, exist_ok=True)
@@ -341,6 +501,51 @@ def scan_documents_command(root: Path | None) -> None:
     )
 
 
+@click.command("document-note")
+@click.argument("document")
+@click.argument("text")
+@with_appcontext
+def document_note_command(document: str, text: str) -> None:
+    """Add TEXT as a note to DOCUMENT (ID or relative file path)."""
+    note = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_note(document, text)
+    click.echo(note["id"])
+
+
+@click.command("document-state")
+@click.argument("document")
+@click.argument("state")
+@with_appcontext
+def document_state_command(document: str, state: str) -> None:
+    """Set the human workflow STATE of DOCUMENT."""
+    changed = DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_state(document, state)
+    click.echo(json.dumps(changed, ensure_ascii=False))
+
+
+@click.command("document-link")
+@click.argument("source")
+@click.argument("target")
+@click.option("--type", "relation_type", default="related", show_default=True)
+@click.option("--label", default="")
+@with_appcontext
+def document_link_command(source: str, target: str, relation_type: str, label: str) -> None:
+    """Link SOURCE to TARGET for the document mindmap."""
+    link = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_link(source, target, relation_type, label)
+    click.echo(link["id"])
+
+
+@click.command("document-graph")
+@click.argument("document")
+@with_appcontext
+def document_graph_command(document: str) -> None:
+    """Print graph data for DOCUMENT as JSON."""
+    graph = DocumentStore(current_app.config["DOCUMENT_ROOT"]).graph(document)
+    click.echo(json.dumps(graph, ensure_ascii=False, indent=2))
+
+
 def init_app(app: Any) -> None:
     app.cli.add_command(init_document_store_command)
     app.cli.add_command(scan_documents_command)
+    app.cli.add_command(document_note_command)
+    app.cli.add_command(document_state_command)
+    app.cli.add_command(document_link_command)
+    app.cli.add_command(document_graph_command)
