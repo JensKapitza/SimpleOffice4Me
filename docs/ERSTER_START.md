@@ -154,6 +154,12 @@ Damit ist auch bei einem Neustart nachvollziehbar, wer wann welche Notiz oder
 Änderung vorgenommen hat; die Anzeige liest ausschließlich die dateibasierten
 Metadaten und das lokale Revisionsarchiv.
 
+Dateien lassen sich auf der Dokumentseite auch mehrfach direkt hochladen. Mit
+„Direkt ins feste Archiv“ werden sie hashbasiert unter `archive/` einsortiert;
+der Import ist vollständig nachvollziehbar und die Originale werden nicht
+überschrieben. Unter `/documents/archives` können externe Platten mit Name,
+ID und Tags registriert und später nach dem Einhängen wiedergefunden werden.
+
 `--version-of` akzeptiert ID, Pfad, Dateinamen, Tags, Zustände, Notiztext oder
 freie Attribute. Vor dem Import zeigt die Anwendung alle Treffer und fragt
 nach Auswahl und Bestätigung. Erst danach wird die neue Version übernommen.
