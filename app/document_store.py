@@ -370,6 +370,62 @@ class DocumentStore:
         ]
         return {"focus_document_id": document_id, "nodes": nodes, "edges": edges}
 
+    def list_documents(self) -> list[dict[str, Any]]:
+        """List the known documents without treating the SQLite cache as truth."""
+        return sorted(
+            self._all_documents(),
+            key=lambda item: (item.get("last_seen_at", ""), item.get("last_path", "")),
+            reverse=True,
+        )
+
+    def versions(self, reference: str | Path) -> list[dict[str, Any]]:
+        """Return every version in the same document series, oldest first."""
+        document = self.get_document(reference)
+        series_id = document.get("version_series_id", document["document_id"])
+        return sorted(
+            [
+                item for item in self._all_documents()
+                if item.get("version_series_id", item.get("document_id")) == series_id
+            ],
+            key=lambda item: (int(item.get("version_number", 1)), item.get("first_seen_at", "")),
+        )
+
+    def note_wiki(self) -> list[dict[str, Any]]:
+        """Return all document notes as a single, newest-first wiki feed."""
+        entries: list[dict[str, Any]] = []
+        for document in self._all_documents():
+            for note in document.get("notes", []):
+                entries.append({
+                    **note,
+                    "document_id": document["document_id"],
+                    "path": document.get("last_path", ""),
+                    "version_number": document.get("version_number", 1),
+                })
+        return sorted(entries, key=lambda item: item.get("created_at", ""), reverse=True)
+
+    def logbook(self, reference: str | Path | None = None) -> list[dict[str, Any]]:
+        """Read the append-only activity trail, optionally for one document."""
+        document_id = self.get_document(reference)["document_id"] if reference is not None else None
+        entries: list[dict[str, Any]] = []
+        events_dir = self.history.root / "events"
+        if events_dir.exists():
+            for path in events_dir.glob("*.json"):
+                event = self._read_json(path, {})
+                if event and (document_id is None or event.get("key") == document_id):
+                    entries.append({**event, "source": "revision"})
+        if self.events.exists():
+            try:
+                for line in self.events.read_text(encoding="utf-8").splitlines():
+                    event = json.loads(line)
+                    if not isinstance(event, dict):
+                        continue
+                    related = event.get("document_id") or event.get("source_document_id")
+                    if document_id is None or related == document_id:
+                        entries.append({**event, "source": "scanner"})
+            except (OSError, json.JSONDecodeError):
+                pass
+        return sorted(entries, key=lambda item: item.get("at", ""), reverse=True)
+
     def scan(self) -> ScanReport:
         self.initialize()
         files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
