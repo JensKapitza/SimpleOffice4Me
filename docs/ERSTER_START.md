@@ -138,6 +138,22 @@ falls das Dateisystem dies zulässt, als Extended Attributes direkt an die Datei
 geschrieben. Bei großen Notizen verweist ein Attribut auf die ordnernahe
 Sidecar-Datei.
 
+## Weboberfläche für Versionen, Wiki und Logbuch
+
+Nach der Anmeldung stehen diese Seiten zur Verfügung:
+
+- `/documents/`: alle indexierten Dokumente.
+- `/documents/<Dokument-ID>`: jede Version derselben Datei, Notizen, Zustand
+  und das Logbuch genau dieses Dokuments. Neue Notizen und Zustände speichern
+  immer den angemeldeten Benutzer als Autor und erzeugen eine Git-Revision.
+- `/documents/wiki/notes`: ein dokumentübergreifendes Notiz-Wiki.
+- `/documents/logbook`: alle Benutzer-Revisionen und Scannerereignisse in
+  umgekehrt chronologischer Reihenfolge.
+
+Damit ist auch bei einem Neustart nachvollziehbar, wer wann welche Notiz oder
+Änderung vorgenommen hat; die Anzeige liest ausschließlich die dateibasierten
+Metadaten und das lokale Revisionsarchiv.
+
 `--version-of` akzeptiert ID, Pfad, Dateinamen, Tags, Zustände, Notiztext oder
 freie Attribute. Vor dem Import zeigt die Anwendung alle Treffer und fragt
 nach Auswahl und Bestätigung. Erst danach wird die neue Version übernommen.
