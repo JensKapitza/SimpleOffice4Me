@@ -7,10 +7,14 @@ can therefore be deleted and rebuilt at any time.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import re
 import shutil
+import shlex
 import sqlite3
+import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
@@ -31,6 +35,8 @@ EVENT_FILE = "events.ndjson"
 HISTORY_DIR = ".simpleoffice-history"
 ARCHIVES_FILE = "archives.json"
 ARCHIVE_MARKER = ".simpleoffice-archive.json"
+SHARES_FILE = "shares.json"
+SSH_SOURCES_FILE = "ssh-sources.json"
 
 
 def utc_now() -> str:
@@ -73,6 +79,8 @@ class DocumentStore:
         self.events = self.control / EVENT_FILE
         self.index_path = self.control / "index.sqlite3"
         self.archives_path = self.control / ARCHIVES_FILE
+        self.shares_path = self.control / SHARES_FILE
+        self.ssh_sources_path = self.control / SSH_SOURCES_FILE
         self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
@@ -193,6 +201,123 @@ class DocumentStore:
     def archives(self) -> list[dict[str, Any]]:
         self.initialize()
         return sorted(self._read_json(self.archives_path, {"archives": []}).get("archives", []), key=lambda item: item.get("label", ""))
+
+    def create_share(self, reference: str | Path, password: str, expires_days: int, actor: str, note_id: str = "") -> dict[str, Any]:
+        """Create a password-protected, expiring share for a file or one note."""
+        self._require_actor(actor)
+        password = password.strip()
+        if len(password) < 8:
+            raise ValueError("share password must contain at least 8 characters")
+        if not 1 <= expires_days <= 365:
+            raise ValueError("share expiry must be between 1 and 365 days")
+        document = self.get_document(reference)
+        note = next((item for item in document.get("notes", []) if item.get("id") == note_id), None) if note_id else None
+        if note_id and note is None:
+            raise ValueError("note does not exist on this document")
+        share_id = uuid.uuid4().hex
+        salt = os.urandom(16)
+        expires_at = datetime.now(timezone.utc).replace(microsecond=0).timestamp() + expires_days * 86400
+        share = {
+            "share_id": share_id,
+            "document_id": document["document_id"],
+            "resource_type": "note" if note else "file",
+            "note_id": note_id or None,
+            "created_by": actor,
+            "created_at": utc_now(),
+            "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
+            "password_salt": salt.hex(),
+            "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(),
+        }
+        payload = self._read_json(self.shares_path, {"shares": []})
+        payload["shares"] = [*payload.get("shares", []), share]
+        atomic_json_write(self.shares_path, payload)
+        self._event("share_created", {"share_id": share_id, "document_id": document["document_id"], "actor": actor})
+        self._record_revision("share_created", actor, "shares", share_id, {key: value for key, value in share.items() if not key.startswith("password_")})
+        return {key: value for key, value in share.items() if not key.startswith("password_")}
+
+    def open_share(self, share_id: str, password: str) -> dict[str, Any]:
+        """Validate a share password and return its document metadata."""
+        shares = self._read_json(self.shares_path, {"shares": []}).get("shares", [])
+        share = next((item for item in shares if item.get("share_id") == share_id), None)
+        if not share or datetime.fromisoformat(share["expires_at"]).astimezone(timezone.utc) < datetime.now(timezone.utc):
+            raise ValueError("share is unavailable or expired")
+        expected = bytes.fromhex(share["password_hash"])
+        actual = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(share["password_salt"]), n=2**14, r=8, p=1)
+        if not hmac.compare_digest(expected, actual):
+            raise ValueError("invalid share password")
+        document = self.get_document(share["document_id"])
+        self._event("share_opened", {"share_id": share_id, "document_id": document["document_id"]})
+        result = {"document": document, "share": {key: value for key, value in share.items() if not key.startswith("password_")}}
+        if share.get("resource_type") == "note":
+            note = next((item for item in document.get("notes", []) if item.get("id") == share.get("note_id")), None)
+            if note is None:
+                raise ValueError("the shared note is no longer available")
+            return {**result, "note": note}
+        path = self.root / document.get("last_path", "")
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("the shared original is currently unavailable")
+        return {**result, "path": path}
+
+    def ssh_sources(self) -> list[dict[str, Any]]:
+        self.initialize()
+        return self._read_json(self.ssh_sources_path, {"sources": []}).get("sources", [])
+
+    def register_ssh_source(self, name: str, host: str, username: str, remote_path: str, key_path: str, actor: str) -> dict[str, Any]:
+        """Register an SSH source without storing a password or private key."""
+        self._require_actor(actor)
+        values = {"name": name.strip(), "host": host.strip(), "username": username.strip(), "remote_path": remote_path.strip(), "key_path": key_path.strip()}
+        if not all(values[key] for key in ("name", "host", "username", "remote_path")):
+            raise ValueError("name, host, SSH user and remote path are required")
+        if any("\n" in value or "\x00" in value for value in values.values()):
+            raise ValueError("SSH source values must not contain control characters")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", values["host"]) or not re.fullmatch(r"[A-Za-z0-9_.-]+", values["username"]):
+            raise ValueError("SSH host or user contains unsupported characters")
+        if not values["remote_path"].startswith("/"):
+            raise ValueError("remote SSH path must be absolute")
+        record = {"source_id": str(uuid.uuid4()), **values, "created_by": actor, "created_at": utc_now(), "last_sync_at": None}
+        payload = self._read_json(self.ssh_sources_path, {"sources": []})
+        payload["sources"] = [*payload.get("sources", []), record]
+        atomic_json_write(self.ssh_sources_path, payload)
+        self._event("ssh_source_registered", {"source_id": record["source_id"], "actor": actor, "host": values["host"]})
+        self._record_revision("ssh_source_registered", actor, "ssh-sources", record["source_id"], record)
+        return record
+
+    def sync_ssh_source(self, source_id: str, actor: str) -> int:
+        """One-way import from an SSH source using rsync and the local SSH agent."""
+        self._require_actor(actor)
+        source = next((item for item in self.ssh_sources() if item.get("source_id") == source_id), None)
+        if source is None:
+            raise ValueError("unknown SSH source")
+        if shutil.which("rsync") is None:
+            raise RuntimeError("rsync is required for SSH import; on Windows use WSL or install rsync")
+        staging = self.control / "ssh-staging" / source_id
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True, exist_ok=True)
+        remote = f"{source['username']}@{source['host']}:{source['remote_path'].rstrip('/')}/"
+        command = ["rsync", "-a", "--no-links", "--safe-links"]
+        if source.get("key_path"):
+            key_path = Path(source["key_path"]).expanduser()
+            if not key_path.is_file():
+                raise ValueError("configured SSH key file is unavailable")
+            command.extend(["-e", shlex.join(["ssh", "-i", str(key_path)])])
+        command.extend(["--", remote, f"{staging}/"])
+        result = subprocess.run(command, capture_output=True, text=True, timeout=3600)
+        if result.returncode:
+            raise RuntimeError(result.stderr.strip() or "SSH import failed")
+        imported = 0
+        for path in staging.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                self.import_file(path, actor)
+                imported += 1
+        payload = self._read_json(self.ssh_sources_path, {"sources": []})
+        for item in payload.get("sources", []):
+            if item.get("source_id") == source_id:
+                item["last_sync_at"] = utc_now()
+                item["last_sync_by"] = actor
+        atomic_json_write(self.ssh_sources_path, payload)
+        self._event("ssh_source_synced", {"source_id": source_id, "actor": actor, "imported": imported})
+        self._record_revision("ssh_source_synced", actor, "ssh-sources", source_id, next(item for item in payload["sources"] if item.get("source_id") == source_id))
+        return imported
 
     def register_external_archive(self, root: str | Path, label: str, tags: list[str], actor: str) -> dict[str, Any]:
         """Mark a mounted archive volume so it remains identifiable while absent."""
