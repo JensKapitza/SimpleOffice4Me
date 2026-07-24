@@ -47,6 +47,7 @@ app = Flask(__name__,template_folder=template_dir,static_folder=static_dir)
 app.config['DATABASE_FILEDIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
+app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = 'web-session' + str(random.random())[2:]
 
@@ -64,6 +65,9 @@ tdb.init_app(app)
 
 from . import filedb as fdb
 fdb.init_app(app)
+
+from . import document_store as document_store
+document_store.init_app(app)
 
 
 @app.template_filter('datetime')
