@@ -11,10 +11,15 @@ from .document_store import DocumentStore
 
 @click.command("import-file")
 @click.argument("file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--version-of", default=None, help="Existing document ID or relative path.")
 @with_appcontext
-def import_file(file: Path) -> None:
+def import_file(file: Path, version_of: str | None) -> None:
     """Copy FILE into the inbox; OCR is deliberately handled by a later worker."""
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
+    if version_of:
+        version = store.import_version(file, version_of)
+        click.echo(f"imported-version={version['document_id']} number={version['version_number']}")
+        return
     target = store.import_file(file)
     report = store.scan()
     click.echo(
