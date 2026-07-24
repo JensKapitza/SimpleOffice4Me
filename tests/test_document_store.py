@@ -58,6 +58,7 @@ class DocumentStoreTest(unittest.TestCase):
             second = store.get_document("related.txt")
             note = store.add_note(first["document_id"], "Bitte prüfen")
             store.set_state(first["document_id"], "in_pruefung")
+            store.set_attribute(first["document_id"], "projekt", "Musterbau")
             store.add_link(first["document_id"], second["document_id"], "bezieht_sich_auf")
             version = store.import_version(replacement, first["document_id"])
             graph = store.graph(first["document_id"])
@@ -66,3 +67,17 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual("in_pruefung", store.get_document(first["document_id"])["state"])
             self.assertEqual(2, version["version_number"])
             self.assertIn(version["document_id"], {node["id"] for node in graph["nodes"]})
+            self.assertEqual(first["document_id"], store.search("Musterbau")[0]["document_id"])
+
+    def test_changed_original_is_reported_as_integrity_problem(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.txt"
+            source.write_text("original", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            source.write_text("changed outside application", encoding="utf-8")
+
+            store.scan()
+
+            self.assertEqual("integrity_changed", store.get_document("source.txt")["system_state"])
