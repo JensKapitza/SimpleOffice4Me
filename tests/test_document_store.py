@@ -30,3 +30,14 @@ class DocumentStoreTest(unittest.TestCase):
             DocumentStore(root).initialize()
 
             self.assertEqual(policy, json.loads((root / POLICY_FILE).read_text(encoding="utf-8")))
+
+    def test_symlink_is_logged_but_not_followed_by_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "source.txt").write_text("content", encoding="utf-8")
+            (root / "loop").symlink_to(root, target_is_directory=True)
+
+            report = DocumentStore(root).scan()
+
+            self.assertEqual(1, report.files)
+            self.assertEqual(1, report.symlinks)
