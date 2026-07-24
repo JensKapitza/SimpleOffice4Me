@@ -1,0 +1,20 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container py-4">
+  <h1>Dokumente</h1>
+  <p class="text-muted">Dateien, ihre Versionen, Notizen und die zugehörige Chronik.</p>
+  {% if documents %}
+  <div class="list-group">
+    {% for document in documents %}
+    <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=document.document_id) }}">
+      <div class="d-flex justify-content-between"><strong>{{ document.last_path }}</strong><span>Version {{ document.version_number }}</span></div>
+      <small class="text-muted">{{ document.state }} · {{ document.notes|length }} Notizen · zuletzt gesehen {{ document.last_seen_at }}</small>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="alert alert-info">Noch keine Dokumente indexiert. Lege Dateien im Dokumentordner ab und starte den Scan.</div>
+  {% endif %}
+</main>
+{% endblock %}
