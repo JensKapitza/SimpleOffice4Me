@@ -52,6 +52,7 @@ class ScanReport:
     new_files: int = 0
     duplicates: int = 0
     symlinks: int = 0
+    skipped_boundaries: int = 0
     errors: int = 0
 
 
@@ -106,6 +107,10 @@ class DocumentStore:
                 "folder_id": str(uuid.uuid4()),
                 "inherit": True,
                 "grants": [],
+                "scan": {
+                    "follow_symlinks": False,
+                    "allow_other_filesystems": False,
+                },
             },
         )
         self._event("folder_policy_created", {"path": self.relative(folder_path)})
@@ -127,24 +132,54 @@ class DocumentStore:
 
     def scan(self) -> ScanReport:
         self.initialize()
-        files = new_files = duplicates = symlinks = errors = 0
-        for current, directories, names in os.walk(self.root, followlinks=False):
-            current_path = Path(current)
-            directories[:] = [name for name in directories if name != CONTROL_DIR]
+        files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
+        # Device/inode tracking prevents a deliberately allowed symlink from
+        # walking back into an already visited directory tree.
+        pending = [self.root]
+        visited_directories: set[tuple[int, int]] = set()
+        while pending:
+            current_path = pending.pop()
             try:
-                self.ensure_folder_policy(current_path)
-            except ValueError as exc:
+                current_stat = current_path.stat()
+                key = (current_stat.st_dev, current_stat.st_ino)
+                if key in visited_directories:
+                    self._event("directory_cycle_skipped", {"path": self.relative(current_path)})
+                    continue
+                visited_directories.add(key)
+                options = self._scan_options(current_path)
+                entries = sorted(current_path.iterdir(), key=lambda entry: entry.name.lower())
+            except (OSError, ValueError) as exc:
                 errors += 1
                 self._event("folder_policy_invalid", {"path": self.relative(current_path), "error": str(exc)})
                 continue
-            for name in names:
-                if name == POLICY_FILE:
+            for path in entries:
+                if path.name == POLICY_FILE or path.name == CONTROL_DIR:
                     continue
-                path = current_path / name
                 try:
                     if path.is_symlink():
                         symlinks += 1
-                        self._event("symlink_seen", {"path": self.relative(path), "target": os.readlink(path)})
+                        target = path.resolve(strict=True)
+                        self._event("symlink_seen", {"path": self.relative(path), "target": str(target)})
+                        if not options["follow_symlinks"]:
+                            continue
+                        if target.is_dir():
+                            pending.append(target)
+                        elif target.is_file():
+                            created, duplicate = self._scan_file(target)
+                            files += 1
+                            new_files += int(created)
+                            duplicates += int(duplicate)
+                        continue
+                    entry_stat = path.stat(follow_symlinks=False)
+                    if path.is_dir():
+                        if entry_stat.st_dev != current_stat.st_dev and not options["allow_other_filesystems"]:
+                            skipped_boundaries += 1
+                            self._event(
+                                "filesystem_boundary_skipped",
+                                {"path": self.relative(path), "device": entry_stat.st_dev},
+                            )
+                            continue
+                        pending.append(path)
                         continue
                     if not path.is_file():
                         continue
@@ -155,10 +190,34 @@ class DocumentStore:
                 except (OSError, ValueError) as exc:
                     errors += 1
                     self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
-        return ScanReport(files, new_files, duplicates, symlinks, errors)
+        return ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors)
 
     def relative(self, path: Path) -> str:
-        return str(path.resolve().relative_to(self.root)) if path != self.root else "."
+        resolved = path.resolve()
+        if resolved == self.root:
+            return "."
+        try:
+            return str(resolved.relative_to(self.root))
+        except ValueError:
+            return f"[external] {resolved}"
+
+    def _scan_options(self, folder: Path) -> dict[str, bool]:
+        """Read the policy of a folder inside the managed tree.
+
+        A symlink target outside the tree has no implicit permission to escape
+        further boundaries. The link itself must have been explicitly allowed
+        by the policy of its parent directory.
+        """
+        try:
+            self.ensure_folder_policy(folder)
+            policy = self._read_json(folder / POLICY_FILE, {})
+        except ValueError:
+            policy = {}
+        configured = policy.get("scan", {}) if isinstance(policy.get("scan", {}), dict) else {}
+        return {
+            "follow_symlinks": configured.get("follow_symlinks") is True,
+            "allow_other_filesystems": configured.get("allow_other_filesystems") is True,
+        }
 
     def _scan_file(self, path: Path) -> tuple[bool, bool]:
         stat = path.stat()
@@ -278,7 +337,7 @@ def scan_documents_command(root: Path | None) -> None:
     report = store.scan()
     click.echo(
         f"files={report.files} new={report.new_files} duplicates={report.duplicates} "
-        f"symlinks={report.symlinks} errors={report.errors}"
+        f"symlinks={report.symlinks} boundaries={report.skipped_boundaries} errors={report.errors}"
     )
 
 
