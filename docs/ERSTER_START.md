@@ -74,3 +74,32 @@ SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
 Für den späteren automatischen Betrieb ist ein systemd-Timer oder ein
 Container-Job sinnvoll. Die Anwendung soll dabei nur den Dokumentbaum und
 nicht das ganze System lesen.
+
+## Mit Dokumenten arbeiten
+
+Die Metadaten bleiben neben den Dateien und können bereits über die
+Kommandozeile bearbeitet werden. `DOKUMENT` kann die relative Datei oder ihre
+Dokument-ID sein.
+
+```bash
+# Notiz und fachlichen Zustand setzen
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app document-note "inbox/rechnung.pdf" "Rückfrage an Peter offen"
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app document-state "inbox/rechnung.pdf" "wartet_auf_antwort"
+
+# Zwei Dokumente verbinden und die Mindmap-Daten ausgeben
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app document-link "inbox/rechnung.pdf" "vertrag.pdf" --type bezieht_sich_auf
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app document-graph "inbox/rechnung.pdf"
+
+# Eine neue Datei als nächste Version ablegen
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app import-file ./rechnung-korrigiert.pdf --version-of "inbox/rechnung.pdf"
+```
+
+Notizen und Zustandswechsel sind chronologisch gespeichert. Beziehungen sind
+gerichtet und beschriftet; die Graph-Ausgabe enthält ein Dokument, seine
+eingehenden/ausgehenden Verbindungen und seine Versionsreihe. Eine grafische
+Mindmap-Oberfläche kann diese Ausgabe ohne erneute Datenmigration verwenden.
