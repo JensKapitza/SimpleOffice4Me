@@ -14,6 +14,13 @@ Der erste dateibasierte Eingangskorb mit Prüfsummen, Chronik und einem
 neu aufbaubaren Index ist umgesetzt. Die Installation und der erste Scan stehen
 in [docs/ERSTER_START.md](docs/ERSTER_START.md).
 
+## Start und Update
+
+`start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
+die lokale Python-Umgebung, installieren die Anwendung und starten den
+Ersteinrichtungs-Assistenten. Updates laufen mit `update.sh` oder `update.bat`
+über ein sicheres `git pull --ff-only`.
+
 
 NEED FLASK to work
 NEED Python3, firefox, chromium, imagemagic, opencv
