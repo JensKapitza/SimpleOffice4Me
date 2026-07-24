@@ -160,6 +160,13 @@ der Import ist vollständig nachvollziehbar und die Originale werden nicht
 überschrieben. Unter `/documents/archives` können externe Platten mit Name,
 ID und Tags registriert und später nach dem Einhängen wiedergefunden werden.
 
+Hat ein Dokument mehrere Versionen, kann die Dokumentansicht ältere Versionen
+per „Alte Versionen auslagern“ auf einen eingehängten Datenträger verschieben.
+Die letzte Version bleibt lokal. Jede ältere Datei wird zuerst in den
+Datenträger kopiert und per SHA-256 gegen die bekannte Prüfsumme geprüft. Nur
+bei Übereinstimmung wird die lokale Kopie gelöscht und der externe Archivort
+mit Archiv-ID in den Metadaten notiert.
+
 `--version-of` akzeptiert ID, Pfad, Dateinamen, Tags, Zustände, Notiztext oder
 freie Attribute. Vor dem Import zeigt die Anwendung alle Treffer und fragt
 nach Auswahl und Bestätigung. Erst danach wird die neue Version übernommen.
