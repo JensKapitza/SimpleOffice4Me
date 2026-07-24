@@ -17,6 +17,9 @@ in [docs/ERSTER_START.md](docs/ERSTER_START.md).
 Das Konzept für normale Sync-Clients, externe Archive und föderierte Kataloge
 steht in [docs/SYNC_FEDERATION.md](docs/SYNC_FEDERATION.md).
 
+Die flexible Kontaktverwaltung und Thunderbird-Anbindung sind in
+[docs/KONTAKTE.md](docs/KONTAKTE.md) beschrieben.
+
 ## Start und Update
 
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
