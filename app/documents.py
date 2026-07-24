@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
+import json
+
+from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
 from .document_store import DocumentStore
+from .contact_store import ContactStore
 
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
@@ -13,6 +16,10 @@ bp = Blueprint("documents", __name__, url_prefix="/documents")
 
 def _store() -> DocumentStore:
     return DocumentStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _contacts() -> ContactStore:
+    return ContactStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _document_or_404(document_id: str) -> dict:
@@ -70,6 +77,16 @@ def add_note(document_id: str):
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
+
+
+@bp.get("/<document_id>/notes/<note_id>/snapshot.pdf")
+@login_required
+def download_note_snapshot(document_id: str, note_id: str):
+    try:
+        path = _store().note_snapshot(document_id, note_id)
+        return send_file(path, as_attachment=True, download_name=f"notiz-{note_id}.pdf", mimetype="application/pdf")
+    except (OSError, RuntimeError, ValueError):
+        abort(404)
 
 
 @bp.post("/<document_id>/state")
@@ -197,3 +214,44 @@ def sync_ssh_source(source_id: str):
     except (OSError, RuntimeError, ValueError) as exc:
         flash(str(exc))
     return redirect(url_for("documents.ssh_sources"))
+
+
+@bp.route("/contacts")
+@login_required
+def contacts():
+    return render_template("documents/contacts.html", contacts=_contacts().contacts(), schema=_contacts().schema())
+
+
+@bp.post("/contacts")
+@login_required
+def save_contact():
+    try:
+        _contacts().upsert(request.form.to_dict(), str(g.user["username"]), request.form.get("contact_id", ""))
+        flash("Kontakt gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contacts"))
+
+
+@bp.post("/contacts/schema")
+@login_required
+def save_contact_schema():
+    try:
+        aliases = json.loads(request.form.get("aliases", "{}"))
+        if not isinstance(aliases, dict) or not all(isinstance(value, list) for value in aliases.values()):
+            raise ValueError("aliases must be a JSON object whose values are lists")
+        _contacts().save_schema(request.form.get("required", "").split(","), aliases, str(g.user["username"]))
+        flash("Kontaktfeld-Zuordnung gespeichert.")
+    except (json.JSONDecodeError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contacts"))
+
+
+@bp.get("/contacts/<contact_id>.vcf")
+@login_required
+def download_contact_vcard(contact_id: str):
+    try:
+        card = _contacts().vcard(contact_id)
+    except ValueError:
+        abort(404)
+    return Response(card, mimetype="text/vcard", headers={"Content-Disposition": f'attachment; filename="contact-{contact_id}.vcf"'})
