@@ -100,15 +100,89 @@ abgelaufen protokolliert.
 - Responsive Oberfläche; Fotos vom Smartphone und der Upload müssen ohne App
   funktionieren.
 
-### 3.4 Benutzer, Rechte und Nachvollziehbarkeit
+### 3.4 Anmeldung und Identitäten
 
 | ID | Anforderung |
 | --- | --- |
-| SEC-01 | Rollen `admin`, `bearbeiten`, `lesen` und optionale Bereiche/Mandanten begrenzen Sichtbarkeit und Änderungen. |
-| SEC-02 | Jede Änderung an Metadaten, Datei, Berechtigung oder Löschung wird mit Benutzer, Zeitpunkt, Alt- und Neuwert protokolliert. |
-| SEC-03 | Kennwörter werden ausschließlich gehasht gespeichert; der Flask-Secret-Key kommt aus einer Umgebungsvariable und nicht aus dem Quelltext. |
-| SEC-04 | Uploads erhalten Zufallsnamen, Größen- und MIME-Prüfung sowie Virenscan-Hook. Dateien werden nie direkt aus dem Benutzernamen oder ursprünglichen Dateinamen ausgeführt. |
-| SEC-05 | Sicherung umfasst Datenbank, Originale, erzeugte PDFs und Konfiguration. Eine Wiederherstellung wird dokumentiert und getestet. |
+| AUTH-01 | Lokale Konten bleiben vollständig nutzbar; Kennwörter werden gehasht gespeichert. |
+| AUTH-02 | OAuth2/OpenID Connect wird generisch unterstützt. Google, Microsoft, GitHub oder ein eigener Identity-Provider sind nur Konfigurationen desselben OIDC-Connectors. |
+| AUTH-03 | API-Tokens sind an Benutzer oder technische Quellen gebunden, haben Rechtebereiche, Ablaufdatum, Widerruf und einen lesbaren Namen. Scanner erhalten keinen Benutzerzugang. |
+| AUTH-04 | PAM-Login kann auf einem Linux-Server aktiviert werden und ordnet lokale Linux-Benutzer Gruppen/Rollen zu. Es ist nur für eine vertrauenswürdige lokale Installation vorgesehen. |
+| AUTH-05 | HTTP-Basic/`htpasswd` wird durch Apache oder Nginx vor der Anwendung unterstützt. Der Reverse Proxy übergibt ausschließlich über eine vertrauenswürdige interne Verbindung den bestätigten Benutzernamen. |
+| AUTH-06 | Mehrere Anmeldearten können auf dieselbe interne Identität abgebildet werden, damit ein Benutzer z. B. lokal oder mit Google anmelden kann, ohne getrennte Rechte zu erhalten. |
+
+`htaccess` ist keine eigene Anmeldeart der Flask-Anwendung, sondern die
+Konfiguration eines vorgeschalteten Webservers. Das Konzept unterstützt sie
+deshalb über Reverse-Proxy-Authentifizierung, nicht über das Speichern von
+`htpasswd`-Kennwörtern in der Anwendung.
+
+### 3.5 Benutzer, Rechte und Nachvollziehbarkeit
+
+| ID | Anforderung |
+| --- | --- |
+| SEC-01 | Rechte werden getrennt vergeben: `index_lesen` (Name, Pfad, Tags und Status), `taggen`, `inhalt_lesen` (Vorschau, OCR, Download), `schreiben`, `loeschen`, `regeln_verwalten` und `admin`. |
+| SEC-02 | Ein Benutzer mit `index_lesen` und `taggen`, aber ohne `inhalt_lesen`, kann ein Dokument nach Name auffinden und taggen, sieht aber weder Datei, Vorschau noch OCR-Text. |
+| SEC-03 | Eine Verzeichnispolicy gilt für ihren gesamten Teilbaum, bis eine darunterliegende Policy sie gezielt überschreibt. |
+| SEC-04 | Die Verzeichnispolicy liegt als leicht lesbare Flag-Datei `.simpleoffice-folder.json` im jeweiligen Ordner. Sie enthält stabile Ordner-ID, Vererbungsmodus, Gruppen und Rechte. |
+| SEC-05 | Nach Verschieben oder Umbenennen scannt ein Abgleichslauf Policy-Dateien und Dokument-IDs neu ein. Fehlt eine Datei oder ist sie fehlerhaft, startet die Anwendung eingeschränkt, protokolliert den Fehler und rekonstruiert den Index; Rechte werden niemals stillschweigend erweitert. |
+| SEC-06 | Jede Änderung an Metadaten, Datei, Berechtigung oder Löschung wird mit Benutzer, Zeitpunkt, Alt- und Neuwert protokolliert. |
+| SEC-07 | Kennwörter werden ausschließlich gehasht gespeichert; der Flask-Secret-Key kommt aus einer Umgebungsvariable und nicht aus dem Quelltext. |
+| SEC-08 | Uploads erhalten Zufallsnamen, Größen- und MIME-Prüfung sowie Virenscan-Hook. Dateien werden nie direkt aus dem Benutzernamen oder ursprünglichen Dateinamen ausgeführt. |
+| SEC-09 | Sicherung umfasst Datenbank, Originale, erzeugte PDFs und Konfiguration. Eine Wiederherstellung wird dokumentiert und getestet. |
+
+### 3.6 Dateibasierte Ablage, Index und Selbstreparatur
+
+**Empfehlung:** Originaldateien und ihre fachlichen Metadaten bleiben
+dateibasiert. SQLite ist weiterhin der beste lokale, transaktionale und
+volltextfähige Index; er ist jedoch nur ein jederzeit neu erzeugbarer Cache,
+nicht die einzige Wahrheit. Ein Datenbankserver ist für den Start nicht
+erforderlich.
+
+| Baustein | Ablage | Zweck |
+| --- | --- | --- |
+| Original und Archiv-PDF | reguläre Verzeichnisstruktur | dauerhaft lesbare Dokumente, auch ohne Anwendung. |
+| Dateimetadaten | Dateisystem-Extended-Attributes (`user.simpleoffice.*`), wenn verfügbar | stabile Dokument-ID, SHA-256, Tags und Zeitpunkte direkt an der Datei. |
+| Fallback-Metadaten | versteckter, versionierter Sidecar-Speicher `.simpleoffice-meta/` | funktioniert auf Dateisystemen oder Sicherungen ohne Extended Attributes. |
+| Ordnerpolicy | `.simpleoffice-folder.json` im Ordner | Rechte und Teilbaum-Vererbung, unabhängig von einer zentralen Datenbank. |
+| Suchindex | SQLite mit FTS5 | Wegwerfbarer Cache für Volltext, Filter, Rechteauflösung und schnelle Suche. |
+| Chronik | append-only `events.ndjson`, optional zusätzlich SQLite-Ansicht | revisionsfähige Ereignisse und Wiederaufbau nach Datenbankverlust. |
+
+Tags werden nicht in den Dateinamen eingebaut. Das führt bei Umbenennungen,
+Sonderzeichen und vielen Tags zu Fehlern. Sie werden als Extended Attribute
+gespeichert; fällt diese Funktion weg, verwendet die Anwendung Sidecars. Die
+Datei-ID und SHA-256 werden ebenfalls dort abgelegt. Bei einer Dateikopie ohne
+Metadaten erkennt der Abgleich die Datei über die Prüfsumme erneut.
+
+Beim Anlegen eines Ordners erzeugt oder prüft die Anwendung die
+`.simpleoffice-folder.json`. Beim ersten Start und nach einem Abbruch läuft ein
+idempotenter Abgleich:
+
+1. Verzeichnisbaum, Policy-Dateien und Dokument-Metadaten einlesen.
+2. Fehlende oder veraltete SHA-256-Werte berechnen; vorhandene Werte prüfen.
+3. Bewegte Dateien über stabile Dokument-ID erkennen, ersatzweise über Hash.
+4. SQLite-Index, Volltextwarteschlange und effektive Rechte erneut aufbauen.
+5. Abweichungen als Chronik-Ereignis dokumentieren; keine fremde oder
+   widersprüchliche Datei automatisch löschen.
+
+Die Anwendung kann danach mit einem teilweise fehlenden Index starten. Nicht
+aufgelöste Konflikte bleiben im Wartungsbereich sichtbar und können erst nach
+Prüfung freigegeben werden.
+
+### 3.7 Scan-Chronik und Dublettenanalyse
+
+| ID | Anforderung |
+| --- | --- |
+| AUD-01 | Jeder Scanlauf und jede gefundene Datei erzeugt ein unveränderbares Ereignis mit Zeit, Quelle, Pfad, Dateigröße, Hash, Dokument-ID und Bearbeitungsstatus. |
+| AUD-02 | `first_seen_at` wird beim ersten Auftreten eines SHA-256 dauerhaft gespeichert; spätere Funde erhöhen nur Zähler und führen die Fundorte. |
+| AUD-03 | Die Ansicht zeigt identische Dateien pro Hash, ihren kanonischen Speicherort, Anzahl der Kopien und erstmals/zuletzt gesehen. |
+| AUD-04 | Symlinks werden standardmäßig nicht verfolgt. Sie werden als Verweis erfasst; Zielpfad, Geräte-/Inode-ID und ein möglicher Zyklus werden protokolliert. |
+| AUD-05 | Gleiche Verzeichnisbäume werden über einen Merkle-Hash aus relativen Pfaden und Datei-Hashes erkannt. Bind-Mounts und erneut eingehängte Bäume werden zusätzlich über Geräte-/Inode-ID markiert. |
+| AUD-06 | Zur Vermeidung von Dubletten schlägt die Anwendung je Fall vor: Referenz auf das vorhandene Dokument, relativer Symlink, Hardlink nur bei gleichem Dateisystem oder bewusste unabhängige Kopie. Nichts davon erfolgt automatisch ohne Regel/Freigabe. |
+
+Die Chronik beantwortet damit: Wann wurde ein Hash erstmals gesehen? Wie viele
+identische Kopien existieren? Welche Pfade zeigen nur per Symlink auf dieselbe
+Datei? Und ob ein ganzer Verzeichniszweig bereits an anderer Stelle vorhanden
+ist.
 
 ## 4. Technischer Zuschnitt
 
@@ -151,6 +225,14 @@ einem Fehler sicher erneut starten.
   `propagates_retention`.
 - `legal_hold`: expliziter Löschstopp mit Grund, Beginn, optionalem Ende und
   Freigabe durch berechtigte Benutzer.
+- `identity` und `identity_login`: interne Person sowie Zuordnung zu lokalem
+  Konto, OIDC-Subject, PAM-Name, Reverse-Proxy-Name oder API-Token.
+- `permission_grant`: Verzeichnis-ID, Benutzer/Gruppe, getrennte
+  Rechteflags und Vererbungsregel.
+- `file_fingerprint`: Dokument-ID, SHA-256, Größe, Dateisystem-ID, Inode,
+  kanonischer Pfad und Zeitpunkte `first_seen_at`/`last_seen_at`.
+- `scan_event`: append-only Ereignis für Scanläufe, Funde, Verschiebungen,
+  Dubletten, Symlinks, Reparaturen und Fehler.
 
 Für einen Einzelplatz genügt SQLite mit FTS5 zunächst. Bei gleichzeitigem
 E-Mail-Abruf, mehreren Nutzern oder hohem Scanaufkommen ist PostgreSQL die
