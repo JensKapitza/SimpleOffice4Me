@@ -41,3 +41,28 @@ class DocumentStoreTest(unittest.TestCase):
 
             self.assertEqual(1, report.files)
             self.assertEqual(1, report.symlinks)
+
+    def test_notes_links_states_and_versions_are_file_based(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.txt"
+            source.write_text("version one", encoding="utf-8")
+            related = root / "related.txt"
+            related.write_text("related", encoding="utf-8")
+            replacement = root / "replacement.txt"
+            replacement.write_text("version two", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+
+            first = store.get_document("source.txt")
+            second = store.get_document("related.txt")
+            note = store.add_note(first["document_id"], "Bitte prüfen")
+            store.set_state(first["document_id"], "in_pruefung")
+            store.add_link(first["document_id"], second["document_id"], "bezieht_sich_auf")
+            version = store.import_version(replacement, first["document_id"])
+            graph = store.graph(first["document_id"])
+
+            self.assertEqual("Bitte prüfen", note["text"])
+            self.assertEqual("in_pruefung", store.get_document(first["document_id"])["state"])
+            self.assertEqual(2, version["version_number"])
+            self.assertIn(version["document_id"], {node["id"] for node in graph["nodes"]})
