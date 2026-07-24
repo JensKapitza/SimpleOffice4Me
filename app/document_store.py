@@ -21,10 +21,13 @@ import click
 from flask import current_app
 from flask.cli import with_appcontext
 
+from .revision_history import RevisionHistory
+
 
 CONTROL_DIR = ".simpleoffice-meta"
 POLICY_FILE = ".simpleoffice-folder.json"
 EVENT_FILE = "events.ndjson"
+HISTORY_DIR = ".simpleoffice-history"
 
 
 def utc_now() -> str:
@@ -66,6 +69,7 @@ class DocumentStore:
         self.fingerprints = self.control / "fingerprints"
         self.events = self.control / EVENT_FILE
         self.index_path = self.control / "index.sqlite3"
+        self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -127,9 +131,16 @@ class DocumentStore:
             },
         )
         self._event("folder_policy_created", {"path": self.relative(folder_path)})
+        self._record_revision(
+            "folder_policy_created",
+            "system",
+            "policies",
+            hashlib.sha256(self.relative(folder_path).encode("utf-8")).hexdigest(),
+            self._read_json(policy, {}),
+        )
         return policy
 
-    def import_file(self, source: str | Path) -> Path:
+    def import_file(self, source: str | Path, actor: str = "system") -> Path:
         """Copy one local file into inbox without interpreting its filename as a command."""
         self.initialize()
         source_path = Path(source).expanduser().resolve()
@@ -140,7 +151,10 @@ class DocumentStore:
         safe_name = source_path.name.replace("/", "_").replace("\\", "_")
         target = inbox / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}-{safe_name}"
         shutil.copy2(source_path, target)
-        self._event("file_imported", {"source": str(source_path), "path": self.relative(target)})
+        self._event("file_imported", {"source": str(source_path), "path": self.relative(target), "actor": actor})
+        self.scan()
+        metadata = self.get_document(target)
+        self._record_revision("document_imported", actor, "documents", metadata["document_id"], metadata)
         return target
 
     def get_document(self, reference: str | Path) -> dict[str, Any]:
@@ -164,8 +178,9 @@ class DocumentStore:
             raise ValueError(f"unknown document: {reference}")
         return metadata
 
-    def add_note(self, reference: str | Path, text: str, author: str = "local") -> dict[str, Any]:
+    def add_note(self, reference: str | Path, text: str, author: str = "") -> dict[str, Any]:
         """Append an immutable note to a document's file-based metadata."""
+        self._require_actor(author)
         text = text.strip()
         if not text:
             raise ValueError("note must not be empty")
@@ -175,10 +190,12 @@ class DocumentStore:
         self._save_document(metadata)
         self._refresh_search_index(metadata)
         self._event("document_note_added", {"document_id": metadata["document_id"], "note_id": note["id"]})
+        self._record_revision("document_note_added", author, "documents", metadata["document_id"], metadata)
         return note
 
-    def set_state(self, reference: str | Path, state: str, author: str = "local") -> dict[str, Any]:
+    def set_state(self, reference: str | Path, state: str, author: str = "") -> dict[str, Any]:
         """Set a human workflow state and preserve the complete state history."""
+        self._require_actor(author)
         state = state.strip()
         if not state:
             raise ValueError("state must not be empty")
@@ -190,10 +207,12 @@ class DocumentStore:
         self._save_document(metadata)
         self._refresh_search_index(metadata)
         self._event("document_state_changed", {"document_id": metadata["document_id"], **event})
+        self._record_revision("document_state_changed", author, "documents", metadata["document_id"], metadata)
         return event
 
-    def set_attribute(self, reference: str | Path, key: str, value: str, author: str = "local") -> None:
+    def set_attribute(self, reference: str | Path, key: str, value: str, author: str = "") -> None:
         """Set a domain-specific metadata value without schema migration."""
+        self._require_actor(author)
         key = key.strip()
         if not key:
             raise ValueError("attribute key must not be empty")
@@ -205,6 +224,7 @@ class DocumentStore:
             "document_attribute_set",
             {"document_id": metadata["document_id"], "key": key, "author": author},
         )
+        self._record_revision("document_attribute_set", author, "documents", metadata["document_id"], metadata)
 
     def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
         """Search indexed metadata and later OCR content without scanning files again."""
@@ -234,9 +254,10 @@ class DocumentStore:
         target: str | Path,
         relation_type: str = "related",
         label: str = "",
-        author: str = "local",
+        author: str = "",
     ) -> dict[str, Any]:
         """Create a directed, labelled document relationship for graph views."""
+        self._require_actor(author)
         source_metadata = self.get_document(source)
         target_metadata = self.get_document(target)
         if source_metadata["document_id"] == target_metadata["document_id"]:
@@ -260,12 +281,14 @@ class DocumentStore:
             "document_link_added",
             {"source_document_id": source_metadata["document_id"], "target_document_id": target_metadata["document_id"], "type": relation_type},
         )
+        self._record_revision("document_link_added", author, "documents", source_metadata["document_id"], source_metadata)
         return link
 
-    def import_version(self, source: str | Path, version_of: str | Path, author: str = "local") -> dict[str, Any]:
+    def import_version(self, source: str | Path, version_of: str | Path, author: str = "") -> dict[str, Any]:
         """Import SOURCE as the next version of an existing document."""
+        self._require_actor(author)
         parent = self.get_document(version_of)
-        target = self.import_file(source)
+        target = self.import_file(source, author)
         self.scan()
         version = self.get_document(target)
         series_id = parent.get("version_series_id", parent["document_id"])
@@ -292,7 +315,30 @@ class DocumentStore:
             "document_version_imported",
             {"document_id": version["document_id"], "version_of": parent["document_id"], "version_number": version["version_number"]},
         )
+        self._record_revision("document_version_imported", author, "documents", version["document_id"], version)
         return version
+
+    def find_matches(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Find possible version parents by ID, path, name and all human metadata."""
+        needle = query.strip().casefold()
+        if not needle:
+            return []
+        matches: list[dict[str, Any]] = []
+        for metadata in self._all_documents():
+            path = metadata.get("last_path", "")
+            haystack = " ".join(
+                [metadata.get("document_id", ""), path, metadata.get("state", ""), " ".join(metadata.get("tags", [])),
+                 " ".join(note.get("text", "") for note in metadata.get("notes", [])), json.dumps(metadata.get("attributes", {}), ensure_ascii=False)]
+            ).casefold()
+            if needle not in haystack:
+                continue
+            score = 100 if needle in (metadata.get("document_id", "").casefold(), path.casefold()) else 10
+            if Path(path).name.casefold() == needle:
+                score = 90
+            elif needle in Path(path).name.casefold():
+                score = 60
+            matches.append({"document_id": metadata["document_id"], "path": path, "state": metadata.get("state"), "version": metadata.get("version_number", 1), "score": score})
+        return sorted(matches, key=lambda item: (-item["score"], item["path"]))[:limit]
 
     def graph(self, reference: str | Path) -> dict[str, Any]:
         """Return one document, its versions and all inbound/outbound graph edges."""
@@ -347,7 +393,7 @@ class DocumentStore:
                 self._event("folder_policy_invalid", {"path": self.relative(current_path), "error": str(exc)})
                 continue
             for path in entries:
-                if path.name == POLICY_FILE or path.name == CONTROL_DIR:
+                if path.name in (POLICY_FILE, CONTROL_DIR, HISTORY_DIR):
                     continue
                 try:
                     if path.is_symlink():
@@ -488,6 +534,35 @@ class DocumentStore:
 
     def _save_document(self, metadata: dict[str, Any]) -> None:
         atomic_json_write(self.documents / f"{metadata['document_id']}.json", metadata)
+        relative_path = str(metadata.get("last_path", ""))
+        if relative_path and not relative_path.startswith("[external]"):
+            document_path = self.root / relative_path
+            if document_path.is_file() and not document_path.is_symlink():
+                atomic_json_write(document_path.parent / CONTROL_DIR / f"{metadata['document_id']}.json", metadata)
+                self._write_context_xattrs(document_path, metadata)
+
+    @staticmethod
+    def _write_context_xattrs(path: Path, metadata: dict[str, Any]) -> None:
+        if not hasattr(os, "setxattr"):
+            return
+        try:
+            os.setxattr(path, "user.simpleoffice.state", str(metadata.get("state", "new")).encode("utf-8"))
+            notes = json.dumps(metadata.get("notes", []), ensure_ascii=False).encode("utf-8")
+            if len(notes) <= 2048:
+                os.setxattr(path, "user.simpleoffice.notes", notes)
+            else:
+                os.setxattr(path, "user.simpleoffice.notes_ref", f"{CONTROL_DIR}/{metadata['document_id']}.json".encode("utf-8"))
+        except OSError:
+            return
+
+    def _record_revision(self, action: str, actor: str, category: str, key: str, snapshot: dict[str, Any]) -> None:
+        commit = self.history.record(action, actor, category, key, snapshot)
+        self._event("revision_recorded", {"action": action, "actor": actor, "commit": commit, "key": key})
+
+    @staticmethod
+    def _require_actor(actor: str) -> None:
+        if not actor.strip():
+            raise ValueError("a named user is required for every write action")
 
     def _refresh_search_index(self, metadata: dict[str, Any]) -> None:
         row = (
@@ -585,20 +660,22 @@ def scan_documents_command(root: Path | None) -> None:
 @click.command("document-note")
 @click.argument("document")
 @click.argument("text")
+@click.option("--user", "actor", required=True)
 @with_appcontext
-def document_note_command(document: str, text: str) -> None:
+def document_note_command(document: str, text: str, actor: str) -> None:
     """Add TEXT as a note to DOCUMENT (ID or relative file path)."""
-    note = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_note(document, text)
+    note = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_note(document, text, actor)
     click.echo(note["id"])
 
 
 @click.command("document-state")
 @click.argument("document")
 @click.argument("state")
+@click.option("--user", "actor", required=True)
 @with_appcontext
-def document_state_command(document: str, state: str) -> None:
+def document_state_command(document: str, state: str, actor: str) -> None:
     """Set the human workflow STATE of DOCUMENT."""
-    changed = DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_state(document, state)
+    changed = DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_state(document, state, actor)
     click.echo(json.dumps(changed, ensure_ascii=False))
 
 
@@ -607,10 +684,11 @@ def document_state_command(document: str, state: str) -> None:
 @click.argument("target")
 @click.option("--type", "relation_type", default="related", show_default=True)
 @click.option("--label", default="")
+@click.option("--user", "actor", required=True)
 @with_appcontext
-def document_link_command(source: str, target: str, relation_type: str, label: str) -> None:
+def document_link_command(source: str, target: str, relation_type: str, label: str, actor: str) -> None:
     """Link SOURCE to TARGET for the document mindmap."""
-    link = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_link(source, target, relation_type, label)
+    link = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_link(source, target, relation_type, label, actor)
     click.echo(link["id"])
 
 
@@ -627,10 +705,11 @@ def document_graph_command(document: str) -> None:
 @click.argument("document")
 @click.argument("key")
 @click.argument("value")
+@click.option("--user", "actor", required=True)
 @with_appcontext
-def document_attribute_command(document: str, key: str, value: str) -> None:
+def document_attribute_command(document: str, key: str, value: str, actor: str) -> None:
     """Set a freely modelled KEY/VALUE attribute on DOCUMENT."""
-    DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_attribute(document, key, value)
+    DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_attribute(document, key, value, actor)
     click.echo(key)
 
 
