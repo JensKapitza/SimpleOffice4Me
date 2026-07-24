@@ -86,6 +86,19 @@ class DocumentStore:
                 CREATE INDEX IF NOT EXISTS scan_file_sha256 ON scan_file(sha256);
                 """
             )
+            try:
+                db.execute(
+                    """CREATE VIRTUAL TABLE IF NOT EXISTS document_search
+                    USING fts5(document_id UNINDEXED, path, state, tags, notes, attributes, content)"""
+                )
+            except sqlite3.OperationalError:
+                # FTS5 is normally present in SQLite. A plain table keeps the
+                # project usable on stripped-down platform builds.
+                db.execute(
+                    """CREATE TABLE IF NOT EXISTS document_search (
+                    document_id TEXT PRIMARY KEY, path TEXT, state TEXT, tags TEXT,
+                    notes TEXT, attributes TEXT, content TEXT)"""
+                )
 
     def ensure_folder_policy(self, folder: str | Path) -> Path:
         folder_path = Path(folder).resolve()
@@ -160,6 +173,7 @@ class DocumentStore:
         note = {"id": str(uuid.uuid4()), "text": text, "author": author, "created_at": utc_now()}
         metadata.setdefault("notes", []).append(note)
         self._save_document(metadata)
+        self._refresh_search_index(metadata)
         self._event("document_note_added", {"document_id": metadata["document_id"], "note_id": note["id"]})
         return note
 
@@ -174,8 +188,45 @@ class DocumentStore:
         metadata["state"] = state
         metadata.setdefault("state_history", []).append(event)
         self._save_document(metadata)
+        self._refresh_search_index(metadata)
         self._event("document_state_changed", {"document_id": metadata["document_id"], **event})
         return event
+
+    def set_attribute(self, reference: str | Path, key: str, value: str, author: str = "local") -> None:
+        """Set a domain-specific metadata value without schema migration."""
+        key = key.strip()
+        if not key:
+            raise ValueError("attribute key must not be empty")
+        metadata = self.get_document(reference)
+        metadata.setdefault("attributes", {})[key] = value
+        self._save_document(metadata)
+        self._refresh_search_index(metadata)
+        self._event(
+            "document_attribute_set",
+            {"document_id": metadata["document_id"], "key": key, "author": author},
+        )
+
+    def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Search indexed metadata and later OCR content without scanning files again."""
+        query = query.strip()
+        if not query:
+            return []
+        self.initialize()
+        with self._db() as db:
+            try:
+                rows = db.execute(
+                    "SELECT document_id, path, state FROM document_search WHERE document_search MATCH ? LIMIT ?",
+                    (query, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                pattern = f"%{query}%"
+                rows = db.execute(
+                    """SELECT document_id, path, state FROM document_search
+                    WHERE path LIKE ? OR state LIKE ? OR tags LIKE ? OR notes LIKE ?
+                       OR attributes LIKE ? OR content LIKE ? LIMIT ?""",
+                    (pattern, pattern, pattern, pattern, pattern, pattern, limit),
+                ).fetchall()
+        return [{"document_id": row[0], "path": row[1], "state": row[2]} for row in rows]
 
     def add_link(
         self,
@@ -204,6 +255,7 @@ class DocumentStore:
         }
         source_metadata["relationships"].append(link)
         self._save_document(source_metadata)
+        self._refresh_search_index(source_metadata)
         self._event(
             "document_link_added",
             {"source_document_id": source_metadata["document_id"], "target_document_id": target_metadata["document_id"], "type": relation_type},
@@ -234,6 +286,7 @@ class DocumentStore:
             {"from": "new", "to": "new_version", "author": author, "changed_at": utc_now()}
         )
         self._save_document(version)
+        self._refresh_search_index(version)
         self.add_link(version["document_id"], parent["document_id"], "version_of", "Vorgängerversion", author)
         self._event(
             "document_version_imported",
@@ -370,6 +423,8 @@ class DocumentStore:
         created = not metadata_path.exists()
         now = utc_now()
         metadata = self._read_json(metadata_path, {})
+        original_sha256 = metadata.get("original_sha256", digest)
+        integrity_changed = original_sha256 != digest
         metadata.update(
             {
                 "version": 1,
@@ -379,12 +434,15 @@ class DocumentStore:
                 "last_seen_at": now,
                 "last_path": relative_path,
                 "tags": metadata.get("tags", xattrs.get("tags", [])),
+                "original_sha256": original_sha256,
+                "content_sha256": digest,
                 "notes": metadata.get("notes", []),
                 "relationships": metadata.get("relationships", []),
                 "state": metadata.get("state", "new"),
                 "state_history": metadata.get("state_history", []),
                 "version_series_id": metadata.get("version_series_id", document_id),
                 "version_number": metadata.get("version_number", 1),
+                "attributes": metadata.get("attributes", {}),
             }
         )
         atomic_json_write(metadata_path, metadata)
@@ -405,8 +463,14 @@ class DocumentStore:
             }
         )
         atomic_json_write(fingerprint_path, fingerprint)
-        metadata["system_state"] = "duplicate" if duplicate else "indexed"
+        metadata["system_state"] = "integrity_changed" if integrity_changed else ("duplicate" if duplicate else "indexed")
         self._save_document(metadata)
+        if integrity_changed:
+            self._event(
+                "integrity_changed",
+                {"document_id": document_id, "expected_sha256": original_sha256, "observed_sha256": digest},
+            )
+        self._refresh_search_index(metadata)
         with self._db() as db:
             db.execute(
                 """INSERT INTO scan_file(relative_path, document_id, sha256, size, modified_ns, last_seen_at)
@@ -424,6 +488,23 @@ class DocumentStore:
 
     def _save_document(self, metadata: dict[str, Any]) -> None:
         atomic_json_write(self.documents / f"{metadata['document_id']}.json", metadata)
+
+    def _refresh_search_index(self, metadata: dict[str, Any]) -> None:
+        row = (
+            metadata["document_id"],
+            metadata.get("last_path", ""),
+            metadata.get("state", ""),
+            " ".join(metadata.get("tags", [])),
+            "\n".join(note.get("text", "") for note in metadata.get("notes", [])),
+            json.dumps(metadata.get("attributes", {}), ensure_ascii=False),
+            metadata.get("ocr_text", ""),
+        )
+        with self._db() as db:
+            db.execute("DELETE FROM document_search WHERE document_id = ?", (metadata["document_id"],))
+            db.execute(
+                "INSERT INTO document_search(document_id, path, state, tags, notes, attributes, content) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                row,
+            )
 
     def _all_documents(self) -> list[dict[str, Any]]:
         self.initialize()
@@ -542,6 +623,27 @@ def document_graph_command(document: str) -> None:
     click.echo(json.dumps(graph, ensure_ascii=False, indent=2))
 
 
+@click.command("document-attribute")
+@click.argument("document")
+@click.argument("key")
+@click.argument("value")
+@with_appcontext
+def document_attribute_command(document: str, key: str, value: str) -> None:
+    """Set a freely modelled KEY/VALUE attribute on DOCUMENT."""
+    DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_attribute(document, key, value)
+    click.echo(key)
+
+
+@click.command("search-documents")
+@click.argument("query")
+@click.option("--limit", default=50, show_default=True)
+@with_appcontext
+def search_documents_command(query: str, limit: int) -> None:
+    """Search document paths, states, tags, notes and domain attributes."""
+    results = DocumentStore(current_app.config["DOCUMENT_ROOT"]).search(query, limit)
+    click.echo(json.dumps(results, ensure_ascii=False, indent=2))
+
+
 def init_app(app: Any) -> None:
     app.cli.add_command(init_document_store_command)
     app.cli.add_command(scan_documents_command)
@@ -549,3 +651,5 @@ def init_app(app: Any) -> None:
     app.cli.add_command(document_state_command)
     app.cli.add_command(document_link_command)
     app.cli.add_command(document_graph_command)
+    app.cli.add_command(document_attribute_command)
+    app.cli.add_command(search_documents_command)
