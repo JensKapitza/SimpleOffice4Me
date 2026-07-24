@@ -81,6 +81,7 @@ class DocumentStore:
         self.archives_path = self.control / ARCHIVES_FILE
         self.shares_path = self.control / SHARES_FILE
         self.ssh_sources_path = self.control / SSH_SOURCES_FILE
+        self.note_snapshots = self.control / "note-snapshots"
         self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
@@ -388,10 +389,22 @@ class DocumentStore:
         note = {"id": str(uuid.uuid4()), "text": text, "author": author, "created_at": utc_now()}
         metadata.setdefault("notes", []).append(note)
         self._save_document(metadata)
+        self._write_note_snapshot(metadata, note)
         self._refresh_search_index(metadata)
         self._event("document_note_added", {"document_id": metadata["document_id"], "note_id": note["id"]})
         self._record_revision("document_note_added", author, "documents", metadata["document_id"], metadata)
         return note
+
+    def note_snapshot(self, reference: str | Path, note_id: str) -> Path:
+        """Return the immutable PDF snapshot that was created with a note."""
+        document = self.get_document(reference)
+        note = next((item for item in document.get("notes", []) if item.get("id") == note_id), None)
+        if note is None:
+            raise ValueError("note does not exist on this document")
+        path = self.note_snapshots / f"{note_id}.pdf"
+        if not path.exists():
+            self._write_note_snapshot(document, note)
+        return path
 
     def set_state(self, reference: str | Path, state: str, author: str = "") -> dict[str, Any]:
         """Set a human workflow state and preserve the complete state history."""
@@ -840,6 +853,48 @@ class DocumentStore:
             if document_path.is_file() and not document_path.is_symlink():
                 atomic_json_write(document_path.parent / CONTROL_DIR / f"{metadata['document_id']}.json", metadata)
                 self._write_context_xattrs(document_path, metadata)
+
+    def _write_note_snapshot(self, document: dict[str, Any], note: dict[str, Any]) -> Path:
+        """Create once; a note itself is immutable, so its PDF is a stable snapshot."""
+        path = self.note_snapshots / f"{note['id']}.pdf"
+        if path.exists():
+            return path
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.units import mm
+            from reportlab.pdfgen.canvas import Canvas
+        except ImportError as exc:
+            raise RuntimeError("reportlab is required for note PDF snapshots") from exc
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        canvas = Canvas(str(temporary), pagesize=A4, pageCompression=1)
+        width, height = A4
+        x, y = 20 * mm, height - 20 * mm
+        canvas.setFont("Helvetica-Bold", 14)
+        canvas.drawString(x, y, "SimpleOffice4Me - Notiz-Snapshot")
+        y -= 10 * mm
+        canvas.setFont("Helvetica", 9)
+        for line in (f"Dokument: {document.get('last_path', '')}", f"Dokument-ID: {document['document_id']}", f"Notiz-ID: {note['id']}", f"Autor: {note.get('author', '')}", f"Erstellt: {note.get('created_at', '')}"):
+            canvas.drawString(x, y, line[:150])
+            y -= 5 * mm
+        y -= 4 * mm
+        canvas.setFont("Helvetica", 11)
+        words = note.get("text", "").split()
+        line = ""
+        for word in words or [""]:
+            candidate = f"{line} {word}".strip()
+            if canvas.stringWidth(candidate, "Helvetica", 11) > width - 40 * mm:
+                canvas.drawString(x, y, line)
+                y -= 6 * mm
+                if y < 20 * mm:
+                    canvas.showPage(); y = height - 20 * mm; canvas.setFont("Helvetica", 11)
+                line = word
+            else:
+                line = candidate
+        canvas.drawString(x, y, line)
+        canvas.save()
+        temporary.replace(path)
+        return path
 
     @staticmethod
     def _write_context_xattrs(path: Path, metadata: dict[str, Any]) -> None:
