@@ -16,6 +16,7 @@
       </form>
       {% for note in document.notes|reverse %}
       <article class="card mb-2"><div class="card-body"><div style="white-space: pre-wrap">{{ note.text }}</div><small class="text-muted">{{ note.author }} · {{ note.created_at }}</small>
+        <a class="btn btn-sm btn-outline-secondary ms-2" href="{{ url_for('documents.download_note_snapshot', document_id=document.document_id, note_id=note.id) }}">PDF-Snapshot</a>
         <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}" class="mt-2 d-flex gap-2"><input type="hidden" name="note_id" value="{{ note.id }}"><input required type="password" class="form-control form-control-sm" name="password" placeholder="Passwort für Notiz"><input class="form-control form-control-sm" type="number" name="expires_days" value="7" min="1" max="365"><button class="btn btn-sm btn-outline-primary">Notiz teilen</button></form>
       </div></article>
       {% else %}<p class="text-muted">Noch keine Notizen.</p>{% endfor %}
