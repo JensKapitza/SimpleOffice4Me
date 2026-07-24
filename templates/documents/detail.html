@@ -33,6 +33,11 @@
         <li class="list-group-item {% if version.document_id == document.document_id %}active{% endif %}"><a class="{% if version.document_id == document.document_id %}link-light{% endif %}" href="{{ url_for('documents.detail', document_id=version.document_id) }}">Version {{ version.version_number }}: {{ version.last_path }}</a></li>
         {% endfor %}
       </ol>
+      {% if versions|length > 1 %}
+      <h2 class="h4 mt-4">Alte Versionen auslagern</h2>
+      <p class="small text-muted">Kopiert jede ältere Version auf den Datenträger, prüft SHA-256 und löscht erst danach die lokale Kopie. Die aktuelle Version bleibt hier.</p>
+      <form method="post" action="{{ url_for('documents.offload_versions', document_id=document.document_id) }}"><input required class="form-control mb-2" name="archive_path" placeholder="Eingehängter Archivpfad, z. B. /media/jens/Archiv"><input required class="form-control mb-2" name="confirm" placeholder="AUSLAGERN zur Bestätigung"><button class="btn btn-outline-warning">Alte Versionen auslagern</button></form>
+      {% endif %}
       <h2 class="h4 mt-4">Datei freigeben</h2>
       <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}"><label class="form-label">Passwort und Ablauf</label><div class="input-group"><input required type="password" class="form-control" name="password" minlength="8" placeholder="mindestens 8 Zeichen"><input class="form-control" type="number" name="expires_days" value="7" min="1" max="365"><button class="btn btn-outline-primary">HTTPS-Link erzeugen</button></div></form>
     </aside>
