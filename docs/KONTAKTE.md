@@ -15,8 +15,12 @@ konfigurierbar. Zusätzliche Werte werden über `custom_<kennung>` gespeichert.
 ## Thunderbird
 
 Ein Kontakt kann als vCard 4.0 (`.vcf`) exportiert und direkt in Thunderbird
-importiert werden. Für eine echte laufende Zwei-Wege-Synchronisation benötigt
-Thunderbird einen CardDAV-Endpunkt. Dieser wird als eigene, authentifizierte
-Schnittstelle umgesetzt, weil CardDAV mit Passwortwechseln, Löschkonflikten,
-ETags und Berechtigungen korrekt arbeiten muss. Ein unsicherer Web-Upload oder
-ein offen erreichbares JSON-API wäre dafür keine sinnvolle Alternative.
+importiert werden. Zusätzlich kann CardDAV unter `/documents/contacts`
+aktiviert werden. Die Oberfläche erzeugt ein separates App-Passwort; dieses
+ist vom Web-Login getrennt und wird nur als scrypt-Hash abgelegt. Thunderbird
+erhält die dort angezeigte HTTPS-URL, den Web-Benutzernamen und dieses
+App-Passwort.
+
+Der Endpunkt unterstützt das Standard-Adressbuch mit `PROPFIND`, `REPORT`,
+`GET`, `PUT` und `DELETE`, inklusive ETags. Ein öffentlich erreichbarer
+CardDAV-Endpunkt muss hinter HTTPS betrieben werden.
