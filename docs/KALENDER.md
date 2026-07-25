@@ -20,3 +20,26 @@ Zugriffsregel oder nur in einem geschützten Netz bereitgestellt werden.
 Der nächste Ausbauschritt für Thunderbird ist ein aktivierbarer CalDAV-Endpunkt
 mit denselben App-Passwörtern wie CardDAV. Er wird getrennt ergänzt, damit
 Kontakt- und Kalenderkonflikte nicht unkontrolliert vermischt werden.
+
+## Externe Buchung mit Bestätigung
+
+Unter `/documents/calendar` lassen sich feste Buchungszeiten aktivieren. Die
+öffentliche Seite `/documents/calendar/book` zeigt dann ausschließlich freie
+Slots; bestehende und bereits angefragte Termine blockieren den Zeitraum. Titel,
+Grund, Name und E-Mail-Adresse sind Pflicht.
+
+Eine Anfrage bleibt `pending`. Erst „Bestätigen und ICS senden“ macht sie
+verbindlich. Die Statusänderung erfolgt erst nach erfolgreichem E-Mail-Versand.
+Dafür müssen diese Variablen gesetzt sein:
+
+```bash
+SIMPLEOFFICE_SMTP_HOST=smtp.example.org
+SIMPLEOFFICE_SMTP_FROM=kalender@example.org
+SIMPLEOFFICE_SMTP_PORT=587
+SIMPLEOFFICE_SMTP_STARTTLS=true
+SIMPLEOFFICE_SMTP_USER=kalender@example.org
+SIMPLEOFFICE_SMTP_PASSWORD='...'
+```
+
+Ohne SMTP-Konfiguration bleibt die Anfrage bewusst offen. In der ICS-Antwort
+stehen nur der bestätigte Titel und die Zeit; der Grund wird nicht veröffentlicht.
