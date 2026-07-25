@@ -33,6 +33,10 @@ die lokale Python-Umgebung, installieren die Anwendung und starten den
 Ersteinrichtungs-Assistenten. Updates laufen mit `update.sh` oder `update.bat`
 über ein sicheres `git pull --ff-only`.
 
+## Teststand
+
+Test-Commit vom 25.07.2026.
+
 
 NEED FLASK to work
 NEED Python3, firefox, chromium, imagemagic, opencv
