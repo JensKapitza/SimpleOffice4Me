@@ -26,6 +26,61 @@ class CalendarStore:
     def events(self) -> list[dict[str, Any]]:
         return sorted(self._read().get("events", []), key=lambda item: item.get("start", ""))
 
+    def export_ics(self) -> str:
+        """Export all non-cancelled events as a single iCalendar file."""
+        lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "CALSCALE:GREGORIAN"]
+        for event in self.events():
+            if event.get("status") == "cancelled":
+                continue
+            start = self._ics_datetime(event["start"])
+            end = self._ics_datetime(event.get("end") or event["start"])
+            lines.extend(["BEGIN:VEVENT", f"UID:{event.get('source_uid') or event['event_id']}@simpleoffice.local", f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{self._ics_escape(event['title'])}", f"DESCRIPTION:{self._ics_escape(event.get('reason', ''))}"])
+            tags = [tag["name"] for tag in event.get("tags", []) if tag.get("name")]
+            if tags:
+                lines.append(f"CATEGORIES:{','.join(self._ics_escape(tag) for tag in tags)}")
+            lines.append("END:VEVENT")
+        return "\r\n".join([*lines, "END:VCALENDAR", ""])
+
+    def import_ics(self, content: str, actor: str) -> int:
+        """Import iCalendar VEVENTs without changing visibility or retention rules."""
+        if not actor.strip():
+            raise ValueError("user is required")
+        unfolded: list[str] = []
+        for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            if line.startswith((" ", "\t")) and unfolded:
+                unfolded[-1] += line[1:]
+            else:
+                unfolded.append(line)
+        events: list[dict[str, str]] = []
+        current: dict[str, str] | None = None
+        for line in unfolded:
+            name, separator, value = line.partition(":")
+            key = name.split(";", 1)[0].upper()
+            if key == "BEGIN" and value.upper() == "VEVENT":
+                current = {}
+            elif key == "END" and value.upper() == "VEVENT" and current is not None:
+                events.append(current); current = None
+            elif current is not None and separator and key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES"}:
+                current[key] = value
+        if not events:
+            raise ValueError("no VEVENT records found")
+        data = self._read(); imported = 0
+        for incoming in events:
+            if not incoming.get("DTSTART") or not incoming.get("SUMMARY"):
+                continue
+            source_uid = self._ics_unescape(incoming.get("UID", "")).strip() or str(uuid.uuid4())
+            existing = next((item for item in data.get("events", []) if item.get("source_uid") == source_uid), None)
+            tags = [{"name": self._ics_unescape(tag).strip(), "visibility": "private"} for tag in incoming.get("CATEGORIES", "").split(",") if self._ics_unescape(tag).strip()]
+            event = self._event(existing["event_id"] if existing else "", self._ics_unescape(incoming["SUMMARY"]), self._ics_unescape(incoming.get("DESCRIPTION", "")) or "Aus iCalendar importiert", self._parse_ics_datetime(incoming["DTSTART"]), self._parse_ics_datetime(incoming.get("DTEND", incoming["DTSTART"])), existing.get("contact_id", "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", tags, existing)
+            event["source_uid"] = source_uid
+            data["events"] = [item for item in data.get("events", []) if item.get("event_id") != event["event_id"]] + [event]
+            self.history.record("calendar_event_imported", actor, "calendar", event["event_id"], event)
+            imported += 1
+        if not imported:
+            raise ValueError("no usable VEVENT records found")
+        atomic_json_write(self.path, data)
+        return imported
+
     def booking_settings(self) -> dict[str, Any]:
         default = {"enabled": False, "duration_minutes": 60, "start_time": "09:00", "end_time": "17:00", "days": [0, 1, 2, 3, 4]}
         try:
@@ -132,6 +187,31 @@ class CalendarStore:
     @staticmethod
     def _visible_tags(event: dict[str, Any], audience: str) -> list[str]:
         return [tag["name"] for tag in event.get("tags", []) if tag.get("visibility") == audience]
+
+    @staticmethod
+    def _ics_escape(value: str) -> str:
+        return str(value).replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+
+    @staticmethod
+    def _ics_unescape(value: str) -> str:
+        return str(value).replace("\\n", "\n").replace("\\N", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+
+    @staticmethod
+    def _ics_datetime(value: str) -> str:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y%m%dT%H%M%S")
+
+    @staticmethod
+    def _parse_ics_datetime(value: str) -> str:
+        value = value.strip()
+        if len(value) == 8:
+            return datetime.strptime(value, "%Y%m%d").isoformat(timespec="minutes")
+        normalized = value.rstrip("Z")
+        for pattern in ("%Y%m%dT%H%M%S", "%Y%m%dT%H%M"):
+            try:
+                return datetime.strptime(normalized, pattern).isoformat(timespec="minutes")
+            except ValueError:
+                continue
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None).isoformat(timespec="minutes")
 
     def _busy(self, begins: datetime, finishes: datetime) -> bool:
         for event in self.events():
