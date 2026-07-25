@@ -203,6 +203,12 @@ class DocumentStore:
         self.initialize()
         return sorted(self._read_json(self.archives_path, {"archives": []}).get("archives", []), key=lambda item: item.get("label", ""))
 
+    def main_archive(self) -> dict[str, Any]:
+        """Describe the always-connected primary document archive separately."""
+        self.initialize()
+        policy = self._read_json(self.root / POLICY_FILE, {})
+        return {"label": "Hauptarchiv (lokal)", "archive_id": policy.get("folder_id", "local"), "path": str(self.root), "available": True}
+
     def create_share(self, reference: str | Path, password: str, expires_days: int, actor: str, note_id: str = "") -> dict[str, Any]:
         """Create a password-protected, expiring share for a file or one note."""
         self._require_actor(actor)
@@ -319,6 +325,18 @@ class DocumentStore:
         self._event("ssh_source_synced", {"source_id": source_id, "actor": actor, "imported": imported})
         self._record_revision("ssh_source_synced", actor, "ssh-sources", source_id, next(item for item in payload["sources"] if item.get("source_id") == source_id))
         return imported
+
+    def remove_ssh_source(self, source_id: str, actor: str) -> None:
+        """Remove only the local SSH source configuration, never remote files."""
+        self._require_actor(actor)
+        payload = self._read_json(self.ssh_sources_path, {"sources": []})
+        source = next((item for item in payload.get("sources", []) if item.get("source_id") == source_id), None)
+        if source is None:
+            raise ValueError("unknown SSH source")
+        payload["sources"] = [item for item in payload["sources"] if item.get("source_id") != source_id]
+        atomic_json_write(self.ssh_sources_path, payload)
+        self._event("ssh_source_removed", {"source_id": source_id, "actor": actor, "host": source.get("host", "")})
+        self._record_revision("ssh_source_removed", actor, "ssh-sources", source_id, source)
 
     def register_external_archive(self, root: str | Path, label: str, tags: list[str], actor: str) -> dict[str, Any]:
         """Mark a mounted archive volume so it remains identifiable while absent."""
@@ -795,6 +813,8 @@ class DocumentStore:
         metadata = self._read_json(metadata_path, {})
         original_sha256 = metadata.get("original_sha256", digest)
         integrity_changed = original_sha256 != digest
+        existing_tags = metadata.get("tags", xattrs.get("tags", []))
+        detected_tags = self._filename_tags(path.name)
         metadata.update(
             {
                 "version": 1,
@@ -803,7 +823,7 @@ class DocumentStore:
                 "first_seen_at": metadata.get("first_seen_at", now),
                 "last_seen_at": now,
                 "last_path": relative_path,
-                "tags": metadata.get("tags", xattrs.get("tags", [])),
+                "tags": sorted({*existing_tags, *detected_tags}, key=str.casefold),
                 "original_sha256": original_sha256,
                 "content_sha256": digest,
                 "notes": metadata.get("notes", []),
@@ -855,6 +875,15 @@ class DocumentStore:
             {"path": relative_path, "document_id": document_id, "sha256": digest, "first_seen": created, "duplicate": duplicate},
         )
         return created, duplicate
+
+    @staticmethod
+    def _filename_tags(filename: str) -> list[str]:
+        """Keep the complete filename stem and useful words as non-destructive tags."""
+        stem = Path(filename).stem.strip()
+        if not stem:
+            return []
+        words = [part.strip() for part in re.split(r"[\s_.-]+", stem) if len(part.strip()) > 1]
+        return [stem, *words]
 
     def _save_document(self, metadata: dict[str, Any]) -> None:
         atomic_json_write(self.documents / f"{metadata['document_id']}.json", metadata)
