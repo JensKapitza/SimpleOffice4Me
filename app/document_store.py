@@ -526,6 +526,22 @@ class DocumentStore:
         self._record_revision("document_link_added", author, "documents", source_metadata["document_id"], source_metadata)
         return link
 
+    def add_text_link(self, source: str | Path, target_text: str, relation_type: str = "related", label: str = "", author: str = "") -> dict[str, Any]:
+        """Link a document to a durable free-text reference such as an URL or case number."""
+        self._require_actor(author)
+        target_text = target_text.strip()
+        if not target_text:
+            raise ValueError("free-text reference must not be empty")
+        source_metadata = self.get_document(source)
+        relation_type = relation_type.strip() or "related"
+        link = {"id": str(uuid.uuid4()), "target_text": target_text, "type": relation_type, "label": label.strip(), "author": author, "created_at": utc_now()}
+        source_metadata.setdefault("relationships", []).append(link)
+        self._save_document(source_metadata)
+        self._refresh_search_index(source_metadata)
+        self._event("document_text_link_added", {"source_document_id": source_metadata["document_id"], "target_text": target_text, "type": relation_type})
+        self._record_revision("document_text_link_added", author, "documents", source_metadata["document_id"], source_metadata)
+        return link
+
     def import_version(self, source: str | Path, version_of: str | Path, author: str = "") -> dict[str, Any]:
         """Import SOURCE as the next version of an existing document."""
         self._require_actor(author)
@@ -591,10 +607,12 @@ class DocumentStore:
         edges: list[dict[str, Any]] = []
         for item in documents:
             for link in item.get("relationships", []):
-                if item.get("document_id") == document_id or link.get("target_document_id") == document_id:
+                target_id = link.get("target_document_id")
+                if item.get("document_id") == document_id or target_id == document_id:
                     visible_ids.add(item["document_id"])
-                    visible_ids.add(link["target_document_id"])
-                    edges.append({"source": item["document_id"], "target": link["target_document_id"], **link})
+                    if target_id:
+                        visible_ids.add(target_id)
+                    edges.append({"source": item["document_id"], "target": target_id or f"text:{link['id']}", **link})
         series_id = document.get("version_series_id", document_id)
         for item in documents:
             if item.get("version_series_id", item.get("document_id")) == series_id:
@@ -610,6 +628,7 @@ class DocumentStore:
             for item in documents
             if item.get("document_id") in visible_ids
         ]
+        nodes.extend({"id": edge["target"], "path": edge.get("target_text", "Freitext"), "state": "reference", "version_number": 0, "notes": 0} for edge in edges if edge["target"].startswith("text:"))
         return {"focus_document_id": document_id, "nodes": nodes, "edges": edges}
 
     def list_documents(self) -> list[dict[str, Any]]:
