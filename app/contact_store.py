@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -31,6 +34,7 @@ class ContactStore:
         self.control = self.root / CONTROL_DIR
         self.contacts_path = self.control / "contacts.json"
         self.schema_path = self.control / "contact-schema.json"
+        self.carddav_path = self.control / "carddav.json"
         self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
@@ -39,6 +43,8 @@ class ContactStore:
             atomic_json_write(self.schema_path, DEFAULT_SCHEMA)
         if not self.contacts_path.exists():
             atomic_json_write(self.contacts_path, {"contacts": []})
+        if not self.carddav_path.exists():
+            atomic_json_write(self.carddav_path, {"enabled": False, "accounts": []})
 
     def schema(self) -> dict[str, Any]:
         self.initialize()
@@ -79,10 +85,67 @@ class ContactStore:
         return contact
 
     def vcard(self, contact_id: str) -> str:
-        fields = self.get(contact_id)["fields"]
+        contact = self.get(contact_id)
+        fields = contact["fields"]
         def value(key: str) -> str:
             return str(fields.get(key, "")).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-        return "\r\n".join(["BEGIN:VCARD", "VERSION:4.0", f"FN:{value('display_name')}", f"N:{value('last_name')};{value('first_name')};;;", *([f"EMAIL:{value('email')}"] if fields.get("email") else []), *([f"TEL:{value('phone')}"] if fields.get("phone") else []), *([f"BDAY:{value('birthday')}"] if fields.get("birthday") else []), *([f"ORG:{value('company')}"] if fields.get("company") else []), "END:VCARD", ""])
+        return "\r\n".join(["BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}", f"N:{value('last_name')};{value('first_name')};;;", *([f"EMAIL:{value('email')}"] if fields.get("email") else []), *([f"TEL:{value('phone')}"] if fields.get("phone") else []), *([f"BDAY:{value('birthday')}"] if fields.get("birthday") else []), *([f"ORG:{value('company')}"] if fields.get("company") else []), "END:VCARD", ""])
+
+    def carddav(self) -> dict[str, Any]:
+        self.initialize()
+        config = self._read(self.carddav_path, {"enabled": False, "accounts": []})
+        return {"enabled": config.get("enabled") is True, "accounts": [{key: value for key, value in item.items() if key not in ("password_hash", "password_salt")} for item in config.get("accounts", [])]}
+
+    def activate_carddav(self, username: str, password: str, actor: str) -> None:
+        self._require_actor(actor)
+        if len(password) < 12:
+            raise ValueError("CardDAV app password must contain at least 12 characters")
+        self.initialize()
+        salt = os.urandom(16)
+        account = {"username": username, "enabled": True, "created_at": utc_now(), "password_salt": salt.hex(), "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex()}
+        config = self._read(self.carddav_path, {"enabled": True, "accounts": []})
+        config["enabled"] = True
+        config["accounts"] = [item for item in config.get("accounts", []) if item.get("username") != username] + [account]
+        atomic_json_write(self.carddav_path, config)
+        self.history.record("carddav_activated", actor, "contacts", f"carddav-{username}", {"username": username, "enabled": True, "created_at": account["created_at"]})
+
+    def carddav_authenticate(self, username: str, password: str) -> bool:
+        self.initialize()
+        config = self._read(self.carddav_path, {"enabled": False, "accounts": []})
+        account = next((item for item in config.get("accounts", []) if item.get("username") == username and item.get("enabled") is True), None)
+        if not config.get("enabled") or account is None:
+            return False
+        actual = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(account["password_salt"]), n=2**14, r=8, p=1)
+        return hmac.compare_digest(actual, bytes.fromhex(account["password_hash"]))
+
+    def upsert_vcard(self, card: str, actor: str, contact_id: str = "") -> dict[str, Any]:
+        values: dict[str, str] = {}
+        for raw in card.replace("\r\n", "\n").split("\n"):
+            key, separator, value = raw.partition(":")
+            if not separator:
+                continue
+            name = key.split(";", 1)[0].upper()
+            if name == "FN": values["display_name"] = value
+            elif name == "N":
+                parts = value.split(";")
+                values["last_name"] = parts[0] if parts else ""
+                values["first_name"] = parts[1] if len(parts) > 1 else ""
+            elif name == "EMAIL": values["email"] = value
+            elif name == "TEL": values["phone"] = value
+            elif name == "BDAY": values["birthday"] = value
+            elif name == "ORG": values["company"] = value
+            elif name == "UID" and not contact_id: contact_id = value
+        return self.upsert(values, actor, contact_id)
+
+    def delete(self, contact_id: str, actor: str) -> None:
+        self._require_actor(actor)
+        payload = self._read(self.contacts_path, {"contacts": []})
+        contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
+        if contact is None:
+            raise ValueError("unknown contact")
+        payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact_id]
+        atomic_json_write(self.contacts_path, payload)
+        self.history.record("contact_deleted", actor, "contacts", contact_id, contact)
 
     @staticmethod
     def _normalize(values: dict[str, str], schema: dict[str, Any]) -> dict[str, str]:
