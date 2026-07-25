@@ -1,0 +1,17 @@
+body { background: #f5f7fb; color: #1f2937; }
+.app-navbar { background: linear-gradient(105deg, #0f766e, #155e75); }
+.app-navbar .nav-link { border-radius: .45rem; padding-inline: .65rem !important; }
+.app-navbar .nav-link:hover, .app-navbar .nav-link:focus { background: rgba(255,255,255,.14); }
+.card { border: 0; border-radius: .85rem; box-shadow: 0 .2rem .75rem rgba(15, 23, 42, .08); }
+.card-header { background: transparent; border-bottom-color: #e5e7eb; font-weight: 600; }
+.btn { border-radius: .5rem; }
+.form-control, .form-select { border-radius: .5rem; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid #e5e7eb; border-radius: .75rem; overflow: hidden; background: #fff; }
+.calendar-weekday { background: #f1f5f9; font-size: .75rem; font-weight: 700; padding: .6rem; text-align: center; text-transform: uppercase; }
+.calendar-day { min-height: 8.5rem; border-right: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb; padding: .45rem; }
+.calendar-day:nth-child(7n) { border-right: 0; }
+.calendar-day.empty { background: #f8fafc; }
+.calendar-number { color: #475569; font-size: .8rem; font-weight: 700; }
+.calendar-event { display: block; background: #ccfbf1; border-left: 3px solid #0f766e; border-radius: .25rem; color: #134e4a; font-size: .75rem; margin-top: .3rem; overflow: hidden; padding: .2rem .35rem; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-event:hover { background: #99f6e4; color: #134e4a; }
+@media (max-width: 767px) { .calendar-day { min-height: 5.75rem; padding: .25rem; } .calendar-weekday { font-size: .62rem; padding: .35rem .05rem; } .calendar-event { font-size: .63rem; padding: .12rem; } }
