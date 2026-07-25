@@ -439,6 +439,17 @@ class DocumentStore:
         )
         self._record_revision("document_attribute_set", author, "documents", metadata["document_id"], metadata)
 
+    def set_tags(self, reference: str | Path, tags: list[str], author: str = "") -> dict[str, Any]:
+        """Replace document tags while retaining filesystem and revision metadata."""
+        self._require_actor(author)
+        metadata = self.get_document(reference)
+        metadata["tags"] = sorted({tag.strip() for tag in tags if tag.strip()}, key=str.casefold)
+        self._save_document(metadata)
+        self._refresh_search_index(metadata)
+        self._event("document_tags_set", {"document_id": metadata["document_id"], "actor": author, "tags": metadata["tags"]})
+        self._record_revision("document_tags_set", author, "documents", metadata["document_id"], metadata)
+        return metadata
+
     def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
         """Search indexed metadata and later OCR content without scanning files again."""
         query = query.strip()
