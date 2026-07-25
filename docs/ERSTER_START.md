@@ -11,6 +11,11 @@ installiert die benötigten Pakete und öffnet einen kurzen Einrichtungsassisten
 Mit Enter werden die vorgeschlagenen Werte übernommen. Anschließend läuft die
 Anwendung unter `http://127.0.0.1:8080`.
 
+Beim ersten Aufruf führt die Startseite zur Anmeldung. Dort einmalig
+**Registrieren** auswählen und das lokale Benutzerkonto anlegen. Nach der
+Anmeldung öffnet sich direkt die Systemübersicht. Die Benutzertabelle wird
+beim Start angelegt, vorhandene Konten werden dabei nicht verändert.
+
 Ein Update erfolgt mit `./update.sh` bzw. `update.bat`. Das führt nur
 `git pull --ff-only` aus, damit lokale Änderungen nicht überschrieben werden,
 installiert bei Bedarf neue Abhängigkeiten und startet anschließend neu.
