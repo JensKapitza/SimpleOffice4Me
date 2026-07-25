@@ -23,6 +23,9 @@ Die flexible Kontaktverwaltung und Thunderbird-Anbindung sind in
 Der interne Kalender und die CalDAV-Planung stehen in
 [docs/KALENDER.md](docs/KALENDER.md).
 
+Für den sicheren öffentlichen Betrieb von Freigabelinks und CardDAV siehe
+[docs/PROXY_HTTPS.md](docs/PROXY_HTTPS.md).
+
 ## Start und Update
 
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
