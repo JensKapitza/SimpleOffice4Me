@@ -30,7 +30,7 @@ class CalendarStore:
         """Export all non-cancelled events as a single iCalendar file."""
         lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "CALSCALE:GREGORIAN"]
         for event in self.events():
-            if event.get("status") == "cancelled":
+            if event.get("status") in {"cancelled", "deleted", "moved"}:
                 continue
             start = self._ics_datetime(event["start"])
             end = self._ics_datetime(event.get("end") or event["start"])
@@ -162,19 +162,34 @@ class CalendarStore:
         return event
 
     def delete(self, event_id: str, actor: str) -> None:
+        self.set_lifecycle_status(event_id, "deleted", actor)
+
+    def set_lifecycle_status(self, event_id: str, status: str, actor: str, moved_to: str = "") -> dict[str, Any]:
+        """Keep cancelled/deleted/moved events as auditable records instead of removing them."""
+        if not actor.strip() or status not in {"active", "cancelled", "deleted", "moved"}:
+            raise ValueError("invalid calendar lifecycle status")
         data = self._read()
         event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
         if event is None:
             raise ValueError("unknown calendar event")
-        data["events"] = [item for item in data["events"] if item.get("event_id") != event_id]
+        previous = event.get("status", "active")
+        event["status"] = status
+        event["status_changed_at"] = utc_now()
+        event["status_changed_by"] = actor
+        if moved_to.strip():
+            event["moved_to"] = moved_to.strip()
+        event.setdefault("status_history", []).append({"from": previous, "to": status, "by": actor, "at": event["status_changed_at"], "moved_to": event.get("moved_to", "")})
         atomic_json_write(self.path, data)
-        self.history.record("calendar_event_deleted", actor, "calendar", event_id, event)
+        self.history.record("calendar_event_status_changed", actor, "calendar", event_id, event)
+        return event
 
     def visible_events(self, audience: str) -> list[dict[str, Any]]:
         if audience not in ("family", "external"):
             raise ValueError("unknown calendar audience")
         result: list[dict[str, Any]] = []
         for event in self.events():
+            if event.get("status") in {"cancelled", "deleted", "moved"}:
+                continue
             visibility = event.get("visibility", "private")
             if visibility == "private":
                 continue
@@ -215,7 +230,7 @@ class CalendarStore:
 
     def _busy(self, begins: datetime, finishes: datetime) -> bool:
         for event in self.events():
-            if event.get("status") == "cancelled":
+            if event.get("status") in {"cancelled", "deleted", "moved"}:
                 continue
             event_start = datetime.fromisoformat(event["start"])
             event_end = datetime.fromisoformat(event.get("end") or event["start"]) + (timedelta(hours=1) if not event.get("end") else timedelta())
