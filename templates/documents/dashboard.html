@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container py-4">
+  <h1>Systemübersicht</h1>
+  <div class="row g-3">
+    <section class="col-md-4"><div class="card h-100"><div class="card-body"><h2 class="h5">Zeit</h2><p>{{ system.time }}</p><h2 class="h5">Dokumentenspeicher</h2><p>{{ (system.storage.free / 1024 / 1024 / 1024)|round(1) }} GB frei von {{ (system.storage.total / 1024 / 1024 / 1024)|round(1) }} GB</p></div></div></section>
+    <section class="col-md-8"><div class="card h-100"><div class="card-body"><h2 class="h5">Verbundene Speicher</h2>{% for device in system.devices %}<div>{{ device.path }}: {{ (device.free / 1024 / 1024 / 1024)|round(1) }} GB frei / {{ (device.total / 1024 / 1024 / 1024)|round(1) }} GB</div>{% else %}<p>Keine lesbaren Mounts erkannt.</p>{% endfor %}</div></div></section>
+    <section class="col-md-6"><div class="card h-100"><div class="card-body"><h2 class="h5">Inbox</h2>{% for item in inbox[:8] %}<div><a href="{{ url_for('documents.detail', document_id=item.document_id) }}">{{ item.last_path }}</a></div>{% else %}<p>Leer.</p>{% endfor %}</div></div></section>
+    <section class="col-md-6"><div class="card h-100" id="todo"><div class="card-body"><h2 class="h5">To-Do</h2><form method="post" action="{{ url_for('documents.add_todo') }}" class="input-group mb-2"><input required name="title" class="form-control" placeholder="Neue Aufgabe"><button class="btn btn-primary">+</button></form>{% for item in todos %}<form method="post" action="{{ url_for('documents.toggle_todo', item_id=item.id) }}"><button class="btn btn-sm {% if item.done %}btn-outline-secondary{% else %}btn-outline-primary{% endif %}">{% if item.done %}✓{% else %}○{% endif %}</button> {{ item.title }}</form>{% else %}<p>Keine offenen Aufgaben.</p>{% endfor %}</div></div></section>
+  </div>
+</main>
+{% endblock %}
