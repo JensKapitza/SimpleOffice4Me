@@ -15,6 +15,7 @@ from .document_store import DocumentStore
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
 from .todo_store import TodoStore
+from .settings_store import SettingsStore
 
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
@@ -34,6 +35,10 @@ def _calendar() -> CalendarStore:
 
 def _todos() -> TodoStore:
     return TodoStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _settings() -> SettingsStore:
+    return SettingsStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _system_overview() -> dict:
@@ -71,7 +76,7 @@ def _is_unprocessed(document: dict) -> bool:
 @bp.route("/")
 @login_required
 def index():
-    return render_template("documents/index.html", documents=_store().list_documents())
+    return render_template("documents/index.html", documents=_store().list_documents(), defaults=_settings().settings())
 
 
 @bp.get("/dashboard")
@@ -79,6 +84,39 @@ def index():
 def dashboard():
     documents = _store().list_documents()
     return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if _is_unprocessed(item)], todos=_todos().items(), pending=_calendar().pending_bookings())
+
+
+@bp.route("/settings")
+@login_required
+def settings():
+    return render_template("documents/settings.html", settings=_settings().settings())
+
+
+@bp.post("/settings")
+@login_required
+def save_settings():
+    values = {
+        "interface": {"default_language": request.form.get("default_language", "de"), "timezone": request.form.get("timezone", "Europe/Berlin")},
+        "documents": {"default_state": request.form.get("default_state", "new"), "default_tags": request.form.get("default_tags", "").split(","), "upload_to_archive": request.form.get("upload_to_archive") == "1"},
+        "calendar": {"default_visibility": request.form.get("default_visibility", "private"), "default_public_notice": request.form.get("default_public_notice", "Belegt"), "default_duration_minutes": request.form.get("default_duration_minutes", "60")},
+        "sharing": {"default_expiry_days": request.form.get("default_expiry_days", "7")},
+    }
+    try:
+        _settings().save(values, str(g.user["username"]))
+        flash("Standardwerte gespeichert. Bestehende Daten wurden nicht verändert.")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.settings"))
+
+
+@bp.post("/settings/language")
+@login_required
+def set_language():
+    language = request.form.get("language", "de")
+    if language in {"de", "en"}:
+        from flask import session
+        session["simpleoffice_language"] = language
+    return redirect(request.referrer or url_for("documents.settings"))
 
 
 @bp.post("/todo")
@@ -100,7 +138,7 @@ def toggle_todo(item_id: str):
 @bp.route("/inbox")
 @login_required
 def inbox():
-    return render_template("documents/index.html", documents=[item for item in _store().list_documents() if _is_unprocessed(item)], inbox_only=True)
+    return render_template("documents/index.html", documents=[item for item in _store().list_documents() if _is_unprocessed(item)], inbox_only=True, defaults=_settings().settings())
 
 
 @bp.route("/images")
@@ -159,9 +197,14 @@ def upload():
         flash("Bitte mindestens eine Datei auswählen.")
         return redirect(url_for("documents.index"))
     stored = 0
+    defaults = _settings().settings()["documents"]
     for item in files:
         try:
-            _store().import_upload(item, item.filename, str(g.user["username"]), request.form.get("archive") == "1")
+            metadata = _store().import_upload(item, item.filename, str(g.user["username"]), request.form.get("archive") == "1")
+            if defaults["default_tags"]:
+                _store().set_tags(metadata["document_id"], [*metadata.get("tags", []), *defaults["default_tags"]], str(g.user["username"]))
+            if defaults["default_state"] != "new":
+                _store().set_state(metadata["document_id"], defaults["default_state"], str(g.user["username"]))
             stored += 1
         except (OSError, ValueError) as exc:
             flash(f"{item.filename}: {exc}")
@@ -186,6 +229,7 @@ def detail(document_id: str):
         relationships=relationships,
         link_query=query,
         link_matches=[item for item in store.find_matches(query) if item["document_id"] != document_id] if query else [],
+        defaults=_settings().settings(),
     )
 
 
@@ -463,7 +507,7 @@ def calendar():
             events_by_day.setdefault(event_day.day, []).append(event)
     previous = (shown_month.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     following = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
-    return render_template("documents/calendar.html", events=events, contacts=_contacts().contacts(), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, contacts=_contacts().contacts(), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
 
 
 @bp.get("/calendar/export.ics")
