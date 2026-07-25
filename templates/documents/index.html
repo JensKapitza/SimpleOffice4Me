@@ -8,7 +8,7 @@
   <section class="card mb-4"><div class="card-body"><h2 class="h5">Dateien hinzufügen</h2>
     <form method="post" action="{{ url_for('documents.upload') }}" enctype="multipart/form-data">
       <input class="form-control" type="file" name="files" multiple required>
-      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" value="1" name="archive" id="archive"><label class="form-check-label" for="archive">Direkt ins feste Archiv importieren (nach SHA-256 sortiert)</label></div>
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" value="1" name="archive" id="archive" {% if defaults.documents.upload_to_archive %}checked{% endif %}><label class="form-check-label" for="archive">Direkt ins feste Archiv importieren (nach SHA-256 sortiert)</label></div>
       <button class="btn btn-primary mt-2" type="submit">Vollständig importieren</button>
     </form>
   </div></section>
