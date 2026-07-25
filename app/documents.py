@@ -48,6 +48,48 @@ def _forms() -> FormStore:
     return FormStore(current_app.config["DOCUMENT_ROOT"])
 
 
+def _form_relation_choices(form: dict, actor: str) -> dict[str, list[tuple[str, str]]]:
+    """Resolve form relations, including the canonical contact master data."""
+    choices: dict[str, list[tuple[str, str]]] = {}
+    for field in form.get("fields", []):
+        if field.get("type") != "relation":
+            continue
+        target_id = field.get("relation_form", "")
+        if target_id == "contact":
+            choices[field["key"]] = [
+                (item["contact_id"], item.get("fields", {}).get("display_name", item["contact_id"]))
+                for item in _contacts().contacts(actor)
+            ]
+            continue
+        try:
+            target = _forms().definition(target_id)
+            choices[field["key"]] = [
+                (item["record_id"], item.get("values", {}).get(target["title_field"], item["record_id"]))
+                for item in _forms().records(target_id)
+            ]
+        except ValueError:
+            choices[field["key"]] = []
+    return choices
+
+
+def _invoice_products() -> list[dict[str, str]]:
+    """Small product projection used by the invoice-position dropdown."""
+    try:
+        product_form = _forms().definition("product")
+    except ValueError:
+        return []
+    return [
+        {
+            "id": item["record_id"],
+            "name": item.get("values", {}).get(product_form["title_field"], item["record_id"]),
+            "description": item.get("values", {}).get("description", ""),
+            "unit_price": item.get("values", {}).get("sales_price", ""),
+            "tax_rate": item.get("values", {}).get("tax_rate", "19"),
+        }
+        for item in _forms().records("product")
+    ]
+
+
 def _system_overview() -> dict:
     root = _store().root
     storage = shutil.disk_usage(root)
@@ -84,6 +126,29 @@ def _is_unprocessed(document: dict) -> bool:
 @login_required
 def index():
     return render_template("documents/index.html", documents=_store().list_documents(), defaults=_settings().settings())
+
+
+@bp.get("/search")
+@login_required
+def document_search():
+    query = request.args.get("q", "").strip()
+    updated = 0
+    results = []
+    if query:
+        updated = _store().refresh_missing_text(str(g.user["username"]))
+        results = _store().search(query)
+    return render_template("documents/search.html", query=query, results=results, updated=updated)
+
+
+@bp.post("/search/index")
+@login_required
+def refresh_document_search():
+    try:
+        updated = _store().refresh_missing_text(str(g.user["username"]))
+        flash(f"Textextraktion aktualisiert: {updated} Dokument(e) ergänzt.")
+    except (OSError, RuntimeError, ValueError) as exc:
+        flash(f"Textextraktion fehlgeschlagen: {exc}")
+    return redirect(url_for("documents.document_search", q=request.form.get("q", "").strip()))
 
 
 @bp.get("/dashboard")
@@ -193,6 +258,17 @@ def image_preview(document_id: str):
 def set_document_tags(document_id: str):
     try: _store().set_tags(document_id, request.form.get("tags", "").split(","), str(g.user["username"]))
     except ValueError as exc: flash(str(exc))
+    return redirect(request.referrer or url_for("documents.images"))
+
+
+@bp.post("/<document_id>/analyze-image")
+@login_required
+def analyze_image(document_id: str):
+    try:
+        _store().analyze_image(document_id, str(g.user["username"]))
+        flash("Bild analysiert: EXIF, OCR und Tags wurden aktualisiert.")
+    except (OSError, RuntimeError, ValueError) as exc:
+        flash(f"Bildanalyse fehlgeschlagen: {exc}")
     return redirect(request.referrer or url_for("documents.images"))
 
 
@@ -455,15 +531,9 @@ def form_records(form_id: str):
             flash(str(exc))
         return redirect(url_for("documents.form_records", form_id=form_id))
     records = _forms().records(form_id)
-    relation_choices = {}
-    for field in form.get("fields", []):
-        if field.get("type") == "relation" and field.get("relation_form"):
-            try:
-                target = _forms().definition(field["relation_form"])
-                relation_choices[field["key"]] = [(item["record_id"], item.get("values", {}).get(target["title_field"], item["record_id"])) for item in _forms().records(field["relation_form"])]
-            except ValueError:
-                relation_choices[field["key"]] = []
-    return render_template("documents/form_records.html", form=form, records=records, relation_choices=relation_choices)
+    return render_template("documents/form_records.html", form=form, records=records,
+                           relation_choices=_form_relation_choices(form, str(g.user["username"])),
+                           invoice_products=_invoice_products() if form.get("layout") == "invoice" else [])
 
 
 @bp.route("/forms/<form_id>/<record_id>", methods=("GET", "POST"))
@@ -481,16 +551,9 @@ def form_record_detail(form_id: str, record_id: str):
         except ValueError as exc:
             flash(str(exc))
         return redirect(url_for("documents.form_record_detail", form_id=form_id, record_id=record_id))
-    relation_choices = {}
-    for field in form.get("fields", []):
-        relation_form = field.get("relation_form", "")
-        if field.get("type") == "relation" and relation_form:
-            try:
-                target = _forms().definition(relation_form)
-                relation_choices[field["key"]] = [(item["record_id"], item.get("values", {}).get(target["title_field"], item["record_id"])) for item in _forms().records(relation_form)]
-            except ValueError:
-                relation_choices[field["key"]] = []
-    return render_template("documents/form_record_detail.html", form=form, record=record, relation_choices=relation_choices)
+    return render_template("documents/form_record_detail.html", form=form, record=record,
+                           relation_choices=_form_relation_choices(form, str(g.user["username"])),
+                           invoice_products=_invoice_products() if form.get("layout") == "invoice" else [])
 
 
 @bp.post("/forms/definitions")

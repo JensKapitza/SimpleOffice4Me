@@ -38,6 +38,19 @@ def ensure_auth_database() -> None:
             password TEXT NOT NULL
         )"""
     )
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS oauth_identity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            email TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(provider, subject),
+            FOREIGN KEY (user_id) REFERENCES user (id)
+        )"""
+    )
+    get_db().execute("CREATE INDEX IF NOT EXISTS oauth_identity_user_id ON oauth_identity(user_id)")
     get_db().commit()
 
 

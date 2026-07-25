@@ -17,12 +17,15 @@ import shlex
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import uuid
+import zipfile
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import click
 from flask import current_app
@@ -469,6 +472,45 @@ class DocumentStore:
         self._event("document_tags_set", {"document_id": metadata["document_id"], "actor": author, "tags": metadata["tags"]})
         self._record_revision("document_tags_set", author, "documents", metadata["document_id"], metadata)
         return metadata
+
+    def analyze_image(self, reference: str | Path, author: str) -> dict[str, Any]:
+        """Extract EXIF and OCR text from one managed image and add safe tags."""
+        self._require_actor(author)
+        metadata = self.get_document(reference)
+        path = self.root / metadata.get("last_path", "")
+        if not self._is_image(path):
+            raise ValueError("document is not a supported image")
+        self._apply_image_analysis(path, metadata, force=True)
+        self._save_document(metadata)
+        self._refresh_search_index(metadata)
+        self._event("image_analyzed", {"document_id": metadata["document_id"], "actor": author})
+        self._record_revision("image_analyzed", author, "documents", metadata["document_id"], metadata)
+        return metadata
+
+    def refresh_missing_text(self, actor: str, force: bool = False) -> int:
+        """Backfill searchable text for existing files without reprocessing it later."""
+        self._require_actor(actor)
+        pending = {
+            item["document_id"] for item in self._all_documents()
+            if force or item.get("text_extraction", {}).get("source_sha256") != item.get("sha256") or "extracted_text" not in item
+        }
+        self.scan()
+        updated = 0
+        for metadata in self._all_documents():
+            path = self.root / metadata.get("last_path", "")
+            if not path.is_file() or path.is_symlink():
+                continue
+            if self._is_image(path):
+                self._apply_image_analysis(path, metadata, force=force)
+            changed = self._apply_document_text_extraction(path, metadata, force=force)
+            if changed or metadata["document_id"] in pending:
+                metadata.setdefault("text_extraction", {})["updated_by"] = actor
+                self._save_document(metadata)
+                self._refresh_search_index(metadata)
+                updated += 1
+        self._event("document_text_backfill", {"actor": actor, "updated": updated, "force": force})
+        self._record_revision("document_text_backfill", actor, "search", "text-backfill", {"updated": updated, "force": force, "at": utc_now()})
+        return updated
 
     def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
         """Search indexed metadata and later OCR content without scanning files again."""
@@ -946,6 +988,9 @@ class DocumentStore:
         )
         atomic_json_write(fingerprint_path, fingerprint)
         metadata["system_state"] = "integrity_changed" if integrity_changed else ("duplicate" if duplicate else "indexed")
+        if self._is_image(path):
+            self._apply_image_analysis(path, metadata)
+        self._apply_document_text_extraction(path, metadata)
         self._save_document(metadata)
         if integrity_changed:
             self._event(
@@ -976,6 +1021,176 @@ class DocumentStore:
             return []
         words = [part.strip() for part in re.split(r"[\s_.-]+", stem) if len(part.strip()) > 1]
         return [stem, *words]
+
+    @staticmethod
+    def _is_image(path: Path) -> bool:
+        return path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
+
+    def _apply_document_text_extraction(self, path: Path, metadata: dict[str, Any], force: bool = False) -> bool:
+        """Store extracted text beside a document and make it part of full-text search."""
+        current = metadata.get("text_extraction", {})
+        if not force and current.get("source_sha256") == metadata.get("sha256") and "extracted_text" in metadata:
+            return False
+        analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "extracted_at": utc_now(), "status": "completed"}
+        native_text = ""
+        image_text = ""
+        try:
+            if self._is_image(path):
+                native_text = metadata.get("ocr_text", "")
+                analysis["kind"] = "image"
+            elif path.suffix.lower() == ".pdf":
+                native_text = self._pdf_text(path)
+                image_text = self._pdf_image_ocr(path)
+                analysis["kind"] = "pdf"
+            else:
+                native_text, kind = self._file_text(path)
+                analysis["kind"] = kind
+        except RuntimeError as exc:
+            analysis["status"] = "partial"
+            analysis["error"] = str(exc)
+        combined = "\n".join(part for part in (native_text, image_text) if part).strip()
+        metadata["extracted_text"] = combined
+        metadata["text_extraction"] = {**analysis, "native_characters": len(native_text), "image_ocr_characters": len(image_text), "characters": len(combined)}
+        return True
+
+    @staticmethod
+    def _pdf_text(path: Path) -> str:
+        executable = shutil.which("pdftotext")
+        if not executable:
+            raise RuntimeError("pdftotext is not installed")
+        try:
+            result = subprocess.run([executable, "-layout", str(path), "-"], capture_output=True, text=True, timeout=90, check=False)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("PDF text extraction timed out after 90 seconds") from exc
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "PDF text extraction failed")
+        return "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
+
+    def _pdf_image_ocr(self, path: Path) -> str:
+        executable = shutil.which("pdfimages")
+        if not executable:
+            return ""
+        with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-images-") as temp:
+            output_prefix = Path(temp) / "image"
+            try:
+                result = subprocess.run([executable, "-png", str(path), str(output_prefix)], capture_output=True, text=True, timeout=120, check=False)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError("PDF image extraction timed out after 120 seconds") from exc
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "PDF image extraction failed")
+            texts: list[str] = []
+            for image_path in sorted(Path(temp).glob("image-*.png"))[:100]:
+                try:
+                    text = self._image_ocr(image_path)
+                    if text:
+                        texts.append(text)
+                except RuntimeError:
+                    continue
+            return "\n".join(texts)
+
+    @staticmethod
+    def _file_text(path: Path) -> tuple[str, str]:
+        suffix = path.suffix.lower()
+        if suffix in {".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".log", ".eml", ".ics", ".vcf", ".py", ".java", ".js", ".css", ".sql", ".yml", ".yaml"}:
+            return path.read_text(encoding="utf-8", errors="replace"), "plain_text"
+        if suffix in {".docx", ".odt", ".xlsx", ".ods"}:
+            try:
+                with zipfile.ZipFile(path) as archive:
+                    text_parts = []
+                    for name in archive.namelist():
+                        if not name.endswith(".xml") or name.startswith("docProps/"):
+                            continue
+                        try:
+                            root = ElementTree.fromstring(archive.read(name))
+                            text_parts.extend(value.strip() for value in root.itertext() if value.strip())
+                        except ElementTree.ParseError:
+                            continue
+                return "\n".join(text_parts), "office_zip"
+            except (OSError, zipfile.BadZipFile) as exc:
+                raise RuntimeError(f"office document extraction failed: {exc}") from exc
+        return "", "unsupported"
+
+    def _apply_image_analysis(self, path: Path, metadata: dict[str, Any], force: bool = False) -> None:
+        """Keep analysis local; failures are recorded with the document, not hidden."""
+        current = metadata.get("image_analysis", {})
+        if not force and current.get("source_sha256") == metadata.get("sha256"):
+            return
+        analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "analyzed_at": utc_now(), "exif": {}, "ocr_status": "not_run"}
+        generated_tags = {"bild", f"format-{path.suffix.lower().lstrip('.')}"}
+        try:
+            from PIL import ExifTags, Image
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                analysis["format"] = image.format or path.suffix.lstrip(".").upper()
+                analysis["width"], analysis["height"] = image.size
+                exif: dict[str, Any] = {}
+                raw_exif = image.getexif()
+                for key, value in raw_exif.items():
+                    label = ExifTags.TAGS.get(key, str(key))
+                    if label in {"Make", "Model", "Software", "DateTime", "DateTimeOriginal", "DateTimeDigitized", "Orientation"}:
+                        exif[label] = str(value)
+                    elif label == "GPSInfo" and value:
+                        gps = self._gps_data(value, ExifTags.GPSTAGS)
+                        if gps:
+                            exif["GPS"] = gps
+                analysis["exif"] = exif
+                camera = " ".join(part for part in (exif.get("Make", ""), exif.get("Model", "")) if part).strip()
+                if camera:
+                    generated_tags.add(f"kamera-{self._tag_token(camera)}")
+                date_value = exif.get("DateTimeOriginal") or exif.get("DateTime")
+                if date_value and len(date_value) >= 4 and date_value[:4].isdigit():
+                    generated_tags.add(f"jahr-{date_value[:4]}")
+        except ImportError:
+            analysis["metadata_error"] = "Pillow is not installed"
+        except (OSError, ValueError, SyntaxError) as exc:
+            analysis["metadata_error"] = str(exc)
+
+        try:
+            ocr_text = self._image_ocr(path)
+            metadata["ocr_text"] = ocr_text
+            analysis["ocr_status"] = "completed"
+            analysis["ocr_characters"] = len(ocr_text)
+            generated_tags.update(self._ocr_tags(ocr_text))
+        except RuntimeError as exc:
+            analysis["ocr_status"] = "unavailable"
+            analysis["ocr_error"] = str(exc)
+        metadata["image_analysis"] = analysis
+        metadata["tags"] = sorted({*metadata.get("tags", []), *generated_tags}, key=str.casefold)
+
+    @staticmethod
+    def _gps_data(value: Any, labels: dict[int, str]) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {"present": True}
+        data = {labels.get(key, str(key)): str(item) for key, item in value.items()}
+        return {"present": True, **data}
+
+    @staticmethod
+    def _tag_token(value: str) -> str:
+        token = re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
+        return token[:64] or "unbekannt"
+
+    @classmethod
+    def _ocr_tags(cls, text: str) -> set[str]:
+        ignored = {"aber", "alle", "auch", "dass", "der", "die", "das", "den", "dem", "des", "eine", "einer", "einem", "einen", "für", "mit", "nach", "oder", "und", "von", "zum", "zur", "this", "that", "with", "from", "your"}
+        words = [cls._tag_token(word) for word in re.findall(r"[A-Za-zÄÖÜäöüß0-9]{4,}", text)]
+        unique = list(dict.fromkeys(word for word in words if word not in ignored and word != "unbekannt" and not word.isdigit() and len(word) >= 4))
+        return set(unique[:12])
+
+    @staticmethod
+    def _image_ocr(path: Path) -> str:
+        executable = shutil.which("tesseract")
+        if not executable:
+            raise RuntimeError("Tesseract OCR is not installed")
+        try:
+            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=90, check=False)
+            if result.returncode != 0 and "deu" in result.stderr.lower():
+                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=90, check=False)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("OCR timed out after 90 seconds") from exc
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Tesseract OCR failed")
+        return " ".join(result.stdout.split())
 
     def _save_document(self, metadata: dict[str, Any]) -> None:
         atomic_json_write(self.documents / f"{metadata['document_id']}.json", metadata)
@@ -1059,7 +1274,7 @@ class DocumentStore:
             " ".join(metadata.get("tags", [])),
             "\n".join(note.get("text", "") for note in metadata.get("notes", [])),
             json.dumps(metadata.get("attributes", {}), ensure_ascii=False),
-            metadata.get("ocr_text", ""),
+            "\n".join(part for part in (metadata.get("extracted_text", ""), metadata.get("ocr_text", "")) if part),
         )
         with self._db() as db:
             db.execute("DELETE FROM document_search WHERE document_id = ?", (metadata["document_id"],))

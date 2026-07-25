@@ -1,8 +1,10 @@
 """Configurable business forms and records.
 
-The form engine deliberately has no special table for invoices, products or
-contacts.  Those entities are form definitions.  This keeps input masks,
-exports and future business modules on one stable data model.
+Contacts are master data and are therefore managed exclusively by
+``ContactStore``.  Business forms can reference them.  Invoice headers stay
+configurable, while invoice positions and their calculated totals are kept on
+the invoice record so that a price calculation cannot be overwritten by a
+manually entered total.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ import copy
 import json
 import re
 import uuid
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
@@ -22,23 +25,6 @@ from .revision_history import RevisionHistory
 FIELD_TYPES = {"text", "textarea", "email", "date", "number", "currency", "select", "relation"}
 
 DEFAULT_FORMS = [
-    {
-        "form_id": "contact",
-        "name": "Kontakt",
-        "description": "Kunden, Lieferanten und Ansprechpartner mit frei erweiterbaren Stammdaten.",
-        "title_field": "name",
-        "fields": [
-            {"key": "name", "label": "Name", "type": "text", "required": True},
-            {"key": "role", "label": "Art", "type": "select", "options": ["Kunde", "Lieferant", "Ansprechpartner"], "required": True},
-            {"key": "email", "label": "E-Mail", "type": "email"},
-            {"key": "phone", "label": "Telefon", "type": "text"},
-            {"key": "billing_address", "label": "Rechnungsadresse", "type": "textarea"},
-            {"key": "delivery_address", "label": "Lieferadresse", "type": "textarea"},
-            {"key": "payment_terms", "label": "Zahlungsbedingungen", "type": "text"},
-            {"key": "status", "label": "Status", "type": "select", "options": ["aktiv", "inaktiv", "gesperrt"]},
-            {"key": "notes", "label": "Notizen", "type": "textarea"},
-        ],
-    },
     {
         "form_id": "product",
         "name": "Produkt",
@@ -59,7 +45,8 @@ DEFAULT_FORMS = [
     {
         "form_id": "invoice",
         "name": "Rechnung",
-        "description": "Geschäftsdokument mit besonderen Feldern; die Prozessregeln bleiben am Formular konfigurierbar.",
+        "description": "Rechnungskopf mit Kontakt, Positionen und automatisch berechneten Summen.",
+        "layout": "invoice",
         "title_field": "number",
         "fields": [
             {"key": "number", "label": "Rechnungsnummer", "type": "text", "required": True},
@@ -89,6 +76,11 @@ class FormStore:
         with exclusive_file_lock(self.control / ".forms-write.lock"):
             if not self.definitions_path.exists():
                 atomic_json_write(self.definitions_path, {"forms": copy.deepcopy(DEFAULT_FORMS)})
+            else:
+                payload = self._read(self.definitions_path, {"forms": []})
+                upgraded = self._upgrade_standard_definitions(payload.get("forms", []))
+                if upgraded != payload.get("forms", []):
+                    atomic_json_write(self.definitions_path, {"forms": upgraded})
             if not self.records_path.exists():
                 atomic_json_write(self.records_path, {"records": []})
 
@@ -105,6 +97,8 @@ class FormStore:
     def save_definition(self, raw: dict[str, Any], actor: str) -> dict[str, Any]:
         self._require_actor(actor)
         form = self._normalize_definition(raw)
+        if form["form_id"] == "contact":
+            raise ValueError("contacts are master data and are managed under Kontakte")
         with exclusive_file_lock(self.control / ".forms-write.lock"):
             payload = self._read(self.definitions_path, {"forms": []})
             existing = next((item for item in payload["forms"] if item.get("form_id") == form["form_id"]), None)
@@ -130,6 +124,10 @@ class FormStore:
         self._require_actor(actor)
         form = self.definition(form_id)
         clean_values = self._normalize_values(form, values)
+        line_items = self._normalize_line_items(values.get("line_items", [])) if form.get("layout") == "invoice" else None
+        if line_items is not None:
+            totals = self._invoice_totals(line_items)
+            clean_values.update(totals)
         with exclusive_file_lock(self.control / ".forms-write.lock"):
             payload = self._read(self.records_path, {"records": []})
             existing = next((item for item in payload["records"] if item.get("record_id") == record_id and item.get("form_id") == form_id), None) if record_id else None
@@ -142,6 +140,8 @@ class FormStore:
                 "created_by": existing.get("created_by", actor) if existing else actor,
                 "updated_at": now, "updated_by": actor,
             }
+            if line_items is not None:
+                record["line_items"] = line_items
             payload["records"] = [item for item in payload["records"] if item.get("record_id") != record["record_id"]] + [record]
             atomic_json_write(self.records_path, payload)
             self.history.record("form_record_updated" if existing else "form_record_created", actor, "forms", record["record_id"], record)
@@ -173,7 +173,81 @@ class FormStore:
         title_field = str(raw.get("title_field", fields[0]["key"])).strip()
         if title_field not in {item["key"] for item in fields}:
             raise ValueError("title_field must be a field key")
-        return {"form_id": form_id, "name": str(raw.get("name", form_id)).strip() or form_id, "description": str(raw.get("description", "")).strip(), "title_field": title_field, "fields": fields}
+        form = {"form_id": form_id, "name": str(raw.get("name", form_id)).strip() or form_id, "description": str(raw.get("description", "")).strip(), "title_field": title_field, "fields": fields}
+        if raw.get("layout") == "invoice":
+            form["layout"] = "invoice"
+        return form
+
+    @staticmethod
+    def _upgrade_standard_definitions(forms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Move contacts out of the form catalogue and upgrade the stock invoice.
+
+        Custom forms keep their definition.  The formerly generated contact
+        records remain in the JSON store for recovery, but are no longer shown
+        as a second contact source.
+        """
+        result = [copy.deepcopy(item) for item in forms if item.get("form_id") != "contact"]
+        invoice = next((item for item in result if item.get("form_id") == "invoice"), None)
+        if invoice and invoice.get("name") == "Rechnung" and invoice.get("layout") != "invoice":
+            replacement = next(item for item in DEFAULT_FORMS if item["form_id"] == "invoice")
+            result = [copy.deepcopy(replacement) if item.get("form_id") == "invoice" else item for item in result]
+        return result
+
+    @staticmethod
+    def _amount(value: Any, label: str) -> Decimal:
+        text = str(value or "").strip().replace(" ", "")
+        if "," in text and "." in text:
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
+        else:
+            text = text.replace(",", ".")
+        try:
+            amount = Decimal(text)
+        except InvalidOperation as exc:
+            raise ValueError(f"invalid number: {label}") from exc
+        return amount
+
+    def _normalize_line_items(self, raw: Any) -> list[dict[str, str]]:
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw or "[]")
+            except json.JSONDecodeError as exc:
+                raise ValueError("invoice positions are invalid") from exc
+        if not isinstance(raw, list):
+            raise ValueError("invoice positions are invalid")
+        items: list[dict[str, str]] = []
+        for index, source in enumerate(raw, start=1):
+            if not isinstance(source, dict):
+                raise ValueError("invoice position is invalid")
+            description = str(source.get("description", "")).strip()
+            if not description and not any(str(source.get(key, "")).strip() for key in ("quantity", "unit_price", "product_id")):
+                continue
+            if not description:
+                raise ValueError(f"invoice position {index}: description is required")
+            quantity = self._amount(source.get("quantity"), f"quantity in position {index}")
+            unit_price = self._amount(source.get("unit_price"), f"unit price in position {index}")
+            tax_rate = self._amount(source.get("tax_rate", "0"), f"tax rate in position {index}")
+            if quantity <= 0 or unit_price < 0 or tax_rate < 0:
+                raise ValueError(f"invoice position {index}: quantity, price and tax must not be negative")
+            items.append({
+                "product_id": str(source.get("product_id", "")).strip(), "description": description,
+                "quantity": self._format_amount(quantity), "unit": str(source.get("unit", "Stk.")).strip() or "Stk.",
+                "unit_price": self._format_amount(unit_price), "tax_rate": self._format_amount(tax_rate),
+            })
+        if not items:
+            raise ValueError("an invoice needs at least one position")
+        return items
+
+    def _invoice_totals(self, items: list[dict[str, str]]) -> dict[str, str]:
+        net = sum((self._amount(item["quantity"], "quantity") * self._amount(item["unit_price"], "unit price") for item in items), Decimal("0"))
+        tax = sum((self._amount(item["quantity"], "quantity") * self._amount(item["unit_price"], "unit price") * self._amount(item["tax_rate"], "tax rate") / Decimal("100") for item in items), Decimal("0"))
+        return {"net_amount": self._format_amount(net), "tax_amount": self._format_amount(tax), "gross_amount": self._format_amount(net + tax)}
+
+    @staticmethod
+    def _format_amount(value: Decimal) -> str:
+        return format(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f")
 
     @staticmethod
     def _normalize_values(form: dict[str, Any], values: dict[str, Any]) -> dict[str, str]:

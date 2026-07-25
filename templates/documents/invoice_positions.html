@@ -1,0 +1,39 @@
+{% set items = record.line_items|default([]) if record is defined else [] %}
+<section class="col-12" data-invoice-positions data-products='{{ invoice_products|tojson }}' data-items='{{ items|tojson }}'>
+  <div class="card border-primary-subtle">
+    <div class="card-header d-flex justify-content-between align-items-center"><span>Rechnungspositionen</span><button class="btn btn-sm btn-outline-primary" type="button" data-add-position>Position hinzufügen</button></div>
+    <div class="card-body p-0"><div class="table-responsive"><table class="table align-middle mb-0">
+      <thead><tr><th>Artikel / Leistung</th><th>Beschreibung</th><th class="text-end">Menge</th><th>Einheit</th><th class="text-end">Einzelpreis</th><th class="text-end">Steuer %</th><th class="text-end">Netto</th><th></th></tr></thead>
+      <tbody data-position-list></tbody>
+    </table></div></div>
+    <div class="card-footer text-end"><span class="me-3">Netto: <strong data-net-total>0,00 €</strong></span><span class="me-3">Steuer: <strong data-tax-total>0,00 €</strong></span><span>Brutto: <strong data-gross-total>0,00 €</strong></span></div>
+  </div>
+  <input type="hidden" name="line_items" data-line-items>
+</section>
+<template id="invoice-position-row"><tr>
+  <td><select class="form-select form-select-sm" data-product><option value="">Freie Position</option></select></td>
+  <td><input class="form-control form-control-sm" data-description required></td>
+  <td><input class="form-control form-control-sm text-end" data-quantity type="number" min="0.001" step="0.001" value="1" required></td>
+  <td><input class="form-control form-control-sm" data-unit value="Stk."></td>
+  <td><input class="form-control form-control-sm text-end" data-unit-price type="number" min="0" step="0.01" required></td>
+  <td><input class="form-control form-control-sm text-end" data-tax-rate type="number" min="0" step="0.01" value="19" required></td>
+  <td class="text-end text-nowrap" data-line-net>0,00 €</td>
+  <td><button type="button" class="btn btn-sm btn-outline-danger" data-remove-position aria-label="Position entfernen">×</button></td>
+</tr></template>
+<script>
+(() => { const box = document.currentScript.previousElementSibling.previousElementSibling;
+  const products = JSON.parse(box.dataset.products || '[]'), initial = JSON.parse(box.dataset.items || '[]');
+  const list = box.querySelector('[data-position-list]'), hidden = box.querySelector('[data-line-items]'), rowTemplate = document.getElementById('invoice-position-row');
+  const money = value => new Intl.NumberFormat('de-DE', {style:'currency', currency:'EUR'}).format(value || 0);
+  const number = value => Number(String(value || '').replace(',', '.')) || 0;
+  function sync() { const items = [...list.querySelectorAll('tr')].map(row => ({product_id:row.querySelector('[data-product]').value, description:row.querySelector('[data-description]').value, quantity:row.querySelector('[data-quantity]').value, unit:row.querySelector('[data-unit]').value, unit_price:row.querySelector('[data-unit-price]').value, tax_rate:row.querySelector('[data-tax-rate]').value}));
+    let net=0, tax=0; items.forEach((item, index) => { const line = number(item.quantity) * number(item.unit_price), lineTax = line * number(item.tax_rate) / 100; net += line; tax += lineTax; list.children[index].querySelector('[data-line-net]').textContent = money(line); });
+    hidden.value=JSON.stringify(items); box.querySelector('[data-net-total]').textContent=money(net); box.querySelector('[data-tax-total]').textContent=money(tax); box.querySelector('[data-gross-total]').textContent=money(net+tax);
+  }
+  function add(item={}) { const row=rowTemplate.content.firstElementChild.cloneNode(true), select=row.querySelector('[data-product]'); products.forEach(product => { const option=document.createElement('option'); option.value=product.id; option.textContent=product.name; option.dataset.product=JSON.stringify(product); select.append(option); });
+    for (const [key, selector] of Object.entries({product_id:'[data-product]',description:'[data-description]',quantity:'[data-quantity]',unit:'[data-unit]',unit_price:'[data-unit-price]',tax_rate:'[data-tax-rate]'})) if (item[key] !== undefined) row.querySelector(selector).value=item[key];
+    select.addEventListener('change', () => { const product=products.find(value => value.id === select.value); if (product) { row.querySelector('[data-description]').value=product.description || product.name; row.querySelector('[data-unit-price]').value=product.unit_price || ''; row.querySelector('[data-tax-rate]').value=product.tax_rate || '19'; } sync(); });
+    row.addEventListener('input', sync); row.querySelector('[data-remove-position]').addEventListener('click', () => { row.remove(); sync(); }); list.append(row); sync(); }
+  box.querySelector('[data-add-position]').addEventListener('click', () => add()); (initial.length ? initial : [{}]).forEach(add);
+})();
+</script>

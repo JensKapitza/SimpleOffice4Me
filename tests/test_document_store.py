@@ -118,3 +118,48 @@ class DocumentStoreTest(unittest.TestCase):
             store.scan()
 
             self.assertEqual("integrity_changed", store.get_document("source.txt")["system_state"])
+
+    def test_image_scan_extracts_exif_runs_ocr_and_generates_tags(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image_path = root / "Werkstatt Rechnung 2026.jpg"
+            exif = Image.Exif()
+            exif[271] = "SimpleCamera"
+            exif[272] = "Test 1"
+            Image.new("RGB", (80, 40), "white").save(image_path, exif=exif)
+            store = DocumentStore(root)
+            store.scan()
+            image = store.get_document(image_path)
+
+            self.assertEqual("JPEG", image["image_analysis"]["format"])
+            self.assertEqual(80, image["image_analysis"]["width"])
+            self.assertEqual("SimpleCamera", image["image_analysis"]["exif"]["Make"])
+            self.assertIn("bild", image["tags"])
+            self.assertIn("format-jpg", image["tags"])
+            self.assertIn("kamera-simplecamera-test-1", image["tags"])
+            self.assertIn(image["image_analysis"]["ocr_status"], {"completed", "unavailable"})
+
+    def test_pdf_text_is_extracted_searchable_and_backfilled_when_missing(self):
+        try:
+            from reportlab.pdfgen.canvas import Canvas
+        except ImportError:
+            self.skipTest("reportlab is not installed")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pdf_path = root / "rechnung.pdf"
+            canvas = Canvas(str(pdf_path))
+            canvas.drawString(72, 720, "Durchsuchbarer Bezugscode Kranich")
+            canvas.save()
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(pdf_path)
+            self.assertIn("Bezugscode Kranich", document["extracted_text"])
+            self.assertEqual(document["document_id"], store.search("Kranich")[0]["document_id"])
+            document.pop("extracted_text")
+            store._save_document(document)
+            self.assertGreaterEqual(store.refresh_missing_text("tester"), 1)
+            self.assertIn("Kranich", store.get_document(pdf_path)["extracted_text"])

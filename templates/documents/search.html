@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <h1 class="h2">Dokumente durchsuchen</h1>
+  <p class="text-secondary">Durchsucht Dateinamen, Tags, Attribute, Notizen sowie extrahierten PDF-, Office-, Bild- und OCR-Text.</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <form method="get" class="input-group mb-3"><input autofocus required class="form-control" name="q" value="{{ query }}" placeholder="Suchbegriff"><button class="btn btn-primary">Suchen</button></form>
+  <form method="post" action="{{ url_for('documents.refresh_document_search') }}" class="mb-4"><input type="hidden" name="q" value="{{ query }}"><button class="btn btn-outline-secondary">Fehlende Texte aller Dokumente nachträglich extrahieren</button></form>
+  {% if query %}<p class="text-secondary small">{% if updated %}{{ updated }} Dokument(e) wurden vor der Suche ergänzt. {% endif %}{{ results|length }} Treffer.</p>{% endif %}
+  <div class="list-group">{% for result in results %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=result.document_id) }}"><div class="d-flex justify-content-between"><strong>{{ result.path }}</strong><span class="badge text-bg-secondary">{{ result.state }}</span></div><small class="text-secondary"><code>{{ result.document_id }}</code></small></a>{% else %}{% if query %}<div class="alert alert-secondary">Keine Treffer.</div>{% endif %}{% endfor %}</div>
+</main>
+{% endblock %}
