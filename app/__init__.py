@@ -91,7 +91,7 @@ app.register_blueprint(documents.bp)
 from . import carddav
 app.register_blueprint(carddav.bp)
 
-from .settings_store import SettingsStore, translate
+from .settings_store import SettingsStore, translate, ui_literal_translations
 
 
 @app.before_request
@@ -104,7 +104,8 @@ def load_interface_preferences():
 
 @app.context_processor
 def template_preferences():
-    return {"tr": lambda key: translate(getattr(g, "language", "de"), key)}
+    language = getattr(g, "language", "de")
+    return {"tr": lambda key: translate(language, key), "ui_literal_translations": ui_literal_translations(language)}
 
 
 @app.template_filter('datetime')

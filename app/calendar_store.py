@@ -14,6 +14,7 @@ from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
+from .file_lock import exclusive_file_lock
 
 
 class CalendarStore:
@@ -23,13 +24,24 @@ class CalendarStore:
         self.booking_path = self.root / CONTROL_DIR / "calendar-booking.json"
         self.history = RevisionHistory(self.root)
 
-    def events(self) -> list[dict[str, Any]]:
-        return sorted(self._read().get("events", []), key=lambda item: item.get("start", ""))
+    def events(self, actor: str = "") -> list[dict[str, Any]]:
+        items = self._read().get("events", [])
+        if actor:
+            items = [item for item in items if self._can_manage(item, actor)]
+        return sorted(items, key=lambda item: item.get("start", ""))
 
-    def export_ics(self) -> str:
+    def get(self, event_id: str, actor: str = "") -> dict[str, Any]:
+        event = next((item for item in self._read().get("events", []) if item.get("event_id") == event_id), None)
+        if event is None:
+            raise ValueError("unknown calendar event")
+        if actor and not self._can_manage(event, actor):
+            raise ValueError("calendar event is not shared with this user")
+        return event
+
+    def export_ics(self, actor: str = "") -> str:
         """Export all non-cancelled events as a single iCalendar file."""
         lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "CALSCALE:GREGORIAN"]
-        for event in self.events():
+        for event in self.events(actor):
             if event.get("status") in {"cancelled", "deleted", "moved"}:
                 continue
             start = self._ics_datetime(event["start"])
@@ -131,34 +143,74 @@ class CalendarStore:
         self.history.record("calendar_booking_requested", f"booking:{requester_email}", "calendar", event["event_id"], {key: value for key, value in event.items() if key != "requester_email"})
         return event
 
-    def confirm_booking(self, event_id: str, actor: str) -> None:
-        data = self._read(); event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
-        if event is None or event.get("status") != "pending":
-            raise ValueError("unknown pending booking")
-        self._send_ics_confirmation(event)
-        event["status"] = "confirmed"; event["confirmed_at"] = utc_now(); event["confirmed_by"] = actor
-        atomic_json_write(self.path, data)
-        self.history.record("calendar_booking_confirmed", actor, "calendar", event_id, {key: value for key, value in event.items() if key != "requester_email"})
+    def confirm_booking(self, event_id: str, actor: str) -> dict[str, Any]:
+        """Confirm immediately; SMTP delivery is recorded but never blocks the slot."""
+        if not actor.strip():
+            raise ValueError("user is required")
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read(); event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None or event.get("status") != "pending":
+                raise ValueError("unknown pending booking")
+            event["status"] = "confirmed"; event["confirmed_at"] = utc_now(); event["confirmed_by"] = actor
+            try:
+                self._send_ics_confirmation(event)
+                event["confirmation_delivery"] = {"status": "sent", "at": utc_now(), "by": actor}
+                action = "calendar_booking_confirmed_and_sent"
+            except (OSError, RuntimeError, smtplib.SMTPException) as exc:
+                event["confirmation_delivery"] = {"status": "pending", "at": utc_now(), "by": actor, "error": str(exc)}
+                action = "calendar_booking_confirmed_delivery_pending"
+            atomic_json_write(self.path, data)
+            self.history.record(action, actor, "calendar", event_id, {key: value for key, value in event.items() if key != "requester_email"})
+            return event
+
+    def booking_ics(self, event_id: str, actor: str) -> str:
+        event = self.get(event_id, actor)
+        if event.get("status") != "confirmed" or not event.get("requester_email"):
+            raise ValueError("no confirmed booking invitation available")
+        return self._confirmation_ics(event)
 
     def pending_bookings(self) -> list[dict[str, Any]]:
         return [event for event in self.events() if event.get("status") == "pending"]
 
     def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None) -> dict[str, Any]:
         event = self._event("", title, reason, start, end, contact_id, actor, visibility, public_notice, tags or [])
-        data = self._read(); data["events"] = [*data.get("events", []), event]
-        atomic_json_write(self.path, data)
-        self.history.record("calendar_event_created", actor, "calendar", event["event_id"], event)
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read(); data["events"] = [*data.get("events", []), event]
+            atomic_json_write(self.path, data)
+            self.history.record("calendar_event_created", actor, "calendar", event["event_id"], event)
         return event
 
     def update(self, event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]]) -> dict[str, Any]:
-        data = self._read()
-        existing = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
-        if existing is None:
-            raise ValueError("unknown calendar event")
-        event = self._event(event_id, title, reason, start, end, contact_id, actor, visibility, public_notice, tags, existing)
-        data["events"] = [item for item in data["events"] if item.get("event_id") != event_id] + [event]
-        atomic_json_write(self.path, data)
-        self.history.record("calendar_event_updated", actor, "calendar", event_id, event)
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read()
+            existing = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if existing is None:
+                raise ValueError("unknown calendar event")
+            if not self._can_manage(existing, actor):
+                raise ValueError("calendar event is not shared with this user")
+            event = self._event(event_id, title, reason, start, end, contact_id, actor, visibility, public_notice, tags, existing)
+            data["events"] = [item for item in data["events"] if item.get("event_id") != event_id] + [event]
+            atomic_json_write(self.path, data)
+            self.history.record("calendar_event_updated", actor, "calendar", event_id, event)
+        return event
+
+    def share(self, event_id: str, managers: list[str], actor: str) -> dict[str, Any]:
+        if not actor.strip():
+            raise ValueError("user is required")
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read()
+            event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None:
+                raise ValueError("unknown calendar event")
+            owner = event.get("owner") or actor
+            if owner != actor:
+                raise ValueError("only the calendar event owner may change sharing")
+            event["owner"] = owner
+            event["managers"] = sorted({item.strip() for item in managers if item.strip() and item.strip() != owner}, key=str.casefold)
+            event["updated_at"] = utc_now()
+            event["updated_by"] = actor
+            atomic_json_write(self.path, data)
+            self.history.record("calendar_event_sharing_updated", actor, "calendar", event_id, event)
         return event
 
     def delete(self, event_id: str, actor: str) -> None:
@@ -168,19 +220,22 @@ class CalendarStore:
         """Keep cancelled/deleted/moved events as auditable records instead of removing them."""
         if not actor.strip() or status not in {"active", "cancelled", "deleted", "moved"}:
             raise ValueError("invalid calendar lifecycle status")
-        data = self._read()
-        event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
-        if event is None:
-            raise ValueError("unknown calendar event")
-        previous = event.get("status", "active")
-        event["status"] = status
-        event["status_changed_at"] = utc_now()
-        event["status_changed_by"] = actor
-        if moved_to.strip():
-            event["moved_to"] = moved_to.strip()
-        event.setdefault("status_history", []).append({"from": previous, "to": status, "by": actor, "at": event["status_changed_at"], "moved_to": event.get("moved_to", "")})
-        atomic_json_write(self.path, data)
-        self.history.record("calendar_event_status_changed", actor, "calendar", event_id, event)
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read()
+            event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None:
+                raise ValueError("unknown calendar event")
+            if not self._can_manage(event, actor):
+                raise ValueError("calendar event is not shared with this user")
+            previous = event.get("status", "active")
+            event["status"] = status
+            event["status_changed_at"] = utc_now()
+            event["status_changed_by"] = actor
+            if moved_to.strip():
+                event["moved_to"] = moved_to.strip()
+            event.setdefault("status_history", []).append({"from": previous, "to": status, "by": actor, "at": event["status_changed_at"], "moved_to": event.get("moved_to", "")})
+            atomic_json_write(self.path, data)
+            self.history.record("calendar_event_status_changed", actor, "calendar", event_id, event)
         return event
 
     def visible_events(self, audience: str) -> list[dict[str, Any]]:
@@ -238,16 +293,13 @@ class CalendarStore:
                 return True
         return False
 
-    @staticmethod
-    def _send_ics_confirmation(event: dict[str, Any]) -> None:
+    @classmethod
+    def _send_ics_confirmation(cls, event: dict[str, Any]) -> None:
         host = os.environ.get("SIMPLEOFFICE_SMTP_HOST", "")
         sender = os.environ.get("SIMPLEOFFICE_SMTP_FROM", "")
         if not host or not sender:
             raise RuntimeError("SMTP is not configured; booking remains pending")
-        start = datetime.fromisoformat(event["start"]).strftime("%Y%m%dT%H%M%S")
-        end = datetime.fromisoformat(event["end"]).strftime("%Y%m%dT%H%M%S")
-        summary = event["title"].replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
-        ics = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "METHOD:REQUEST", "BEGIN:VEVENT", f"UID:{event['event_id']}@simpleoffice.local", f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{summary}", "STATUS:CONFIRMED", "END:VEVENT", "END:VCALENDAR", ""])
+        ics = cls._confirmation_ics(event)
         message = EmailMessage()
         message["Subject"] = f"Termin bestätigt: {event['title']}"
         message["From"] = formataddr(("SimpleOffice4Me", sender))
@@ -263,6 +315,13 @@ class CalendarStore:
             smtp.send_message(message)
 
     @staticmethod
+    def _confirmation_ics(event: dict[str, Any]) -> str:
+        start = datetime.fromisoformat(event["start"]).strftime("%Y%m%dT%H%M%S")
+        end = datetime.fromisoformat(event["end"]).strftime("%Y%m%dT%H%M%S")
+        summary = event["title"].replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+        return "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "METHOD:REQUEST", "BEGIN:VEVENT", f"UID:{event['event_id']}@simpleoffice.local", f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{summary}", "STATUS:CONFIRMED", "END:VEVENT", "END:VCALENDAR", ""])
+
+    @staticmethod
     def _event(event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]], existing: dict[str, Any] | None = None) -> dict[str, Any]:
         if not actor.strip() or not title.strip() or not reason.strip() or not start.strip():
             raise ValueError("title, reason, start and named user are required")
@@ -271,7 +330,30 @@ class CalendarStore:
         valid_tags = [{"name": str(tag.get("name", "")).strip(), "visibility": str(tag.get("visibility", "private"))} for tag in tags if str(tag.get("name", "")).strip()]
         if any(tag["visibility"] not in ("private", "family", "external") for tag in valid_tags):
             raise ValueError("invalid tag visibility")
-        return {"event_id": event_id or str(uuid.uuid4()), "title": title.strip(), "reason": reason.strip(), "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, "created_at": existing.get("created_at", utc_now()) if existing else utc_now(), "created_by": existing.get("created_by", actor) if existing else actor, "updated_at": utc_now(), "updated_by": actor}
+        changed_at = utc_now()
+        values = {"title": title.strip(), "reason": reason.strip(), "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags}
+        changes = list(existing.get("changes", [])) if existing else []
+        for field, new_value in values.items():
+            old_value = existing.get(field, "") if existing else ""
+            if old_value != new_value:
+                changes.append({"field": field, "old": old_value, "new": new_value, "at": changed_at, "actor": actor})
+        return {
+            "event_id": event_id or str(uuid.uuid4()),
+            **values,
+            "owner": existing.get("owner") or actor if existing else ("" if actor.startswith("booking:") else actor),
+            "managers": existing.get("managers", []) if existing else [],
+            "changes": changes[-200:],
+            "created_at": existing.get("created_at", changed_at) if existing else changed_at,
+            "created_by": existing.get("created_by", actor) if existing else actor,
+            "updated_at": changed_at,
+            "updated_by": actor,
+            **{key: value for key, value in (existing or {}).items() if key not in {"title", "reason", "start", "end", "contact_id", "visibility", "public_notice", "tags", "owner", "managers", "changes", "created_at", "created_by", "updated_at", "updated_by"}},
+        }
+
+    @staticmethod
+    def _can_manage(event: dict[str, Any], actor: str) -> bool:
+        owner = str(event.get("owner", "")).strip()
+        return not owner or actor == owner or actor in event.get("managers", [])
 
     def _read(self) -> dict[str, Any]:
         try:

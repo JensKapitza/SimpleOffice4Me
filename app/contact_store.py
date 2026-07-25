@@ -12,6 +12,7 @@ from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
+from .file_lock import exclusive_file_lock
 
 
 DEFAULT_SCHEMA = {
@@ -39,12 +40,13 @@ class ContactStore:
 
     def initialize(self) -> None:
         self.control.mkdir(parents=True, exist_ok=True)
-        if not self.schema_path.exists():
-            atomic_json_write(self.schema_path, DEFAULT_SCHEMA)
-        if not self.contacts_path.exists():
-            atomic_json_write(self.contacts_path, {"contacts": []})
-        if not self.carddav_path.exists():
-            atomic_json_write(self.carddav_path, {"enabled": False, "accounts": []})
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            if not self.schema_path.exists():
+                atomic_json_write(self.schema_path, DEFAULT_SCHEMA)
+            if not self.contacts_path.exists():
+                atomic_json_write(self.contacts_path, {"contacts": []})
+            if not self.carddav_path.exists():
+                atomic_json_write(self.carddav_path, {"enabled": False, "accounts": []})
 
     def schema(self) -> dict[str, Any]:
         self.initialize()
@@ -57,14 +59,20 @@ class ContactStore:
         self.history.record("contact_schema_updated", actor, "contacts", "schema", schema)
         return schema
 
-    def contacts(self) -> list[dict[str, Any]]:
+    def contacts(self, actor: str = "") -> list[dict[str, Any]]:
         self.initialize()
-        return sorted(self._read(self.contacts_path, {"contacts": []}).get("contacts", []), key=lambda item: item.get("fields", {}).get("display_name", "").casefold())
+        items = self._read(self.contacts_path, {"contacts": []}).get("contacts", [])
+        if actor:
+            principal = self._principal(actor)
+            items = [item for item in items if self._can_manage(item, principal)]
+        return sorted(items, key=lambda item: item.get("fields", {}).get("display_name", "").casefold())
 
-    def get(self, contact_id: str) -> dict[str, Any]:
+    def get(self, contact_id: str, actor: str = "") -> dict[str, Any]:
         contact = next((item for item in self.contacts() if item.get("contact_id") == contact_id), None)
         if contact is None:
             raise ValueError("unknown contact")
+        if actor and not self._can_manage(contact, self._principal(actor)):
+            raise ValueError("contact is not shared with this user")
         return contact
 
     def upsert(self, values: dict[str, str], actor: str, contact_id: str = "") -> dict[str, Any]:
@@ -76,29 +84,72 @@ class ContactStore:
         missing = [field for field in schema.get("required", []) if not fields.get(field)]
         if missing:
             raise ValueError(f"required contact fields missing: {', '.join(missing)}")
-        payload = self._read(self.contacts_path, {"contacts": []})
-        existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
-        contact = {"contact_id": contact_id or str(uuid.uuid4()), "fields": fields, "addresses": existing.get("addresses", []) if existing else [], "created_at": existing.get("created_at", utc_now()) if existing else utc_now(), "updated_at": utc_now(), "updated_by": actor}
-        payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
-        atomic_json_write(self.contacts_path, payload)
-        self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            payload = self._read(self.contacts_path, {"contacts": []})
+            existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
+            principal = self._principal(actor)
+            if existing and not self._can_manage(existing, principal):
+                raise ValueError("contact is not shared with this user")
+            changed_at = utc_now()
+            changes = list(existing.get("changes", [])) if existing else []
+            old_fields = existing.get("fields", {}) if existing else {}
+            for field in sorted(set(old_fields) | set(fields)):
+                if old_fields.get(field, "") != fields.get(field, ""):
+                    changes.append({"field": field, "old": old_fields.get(field, ""), "new": fields.get(field, ""), "at": changed_at, "actor": actor})
+            contact = {
+                "contact_id": contact_id or str(uuid.uuid4()),
+                "fields": fields,
+                "addresses": existing.get("addresses", []) if existing else [],
+                "owner": existing.get("owner") or principal if existing else principal,
+                "managers": existing.get("managers", []) if existing else [],
+                "changes": changes[-200:],
+                "created_at": existing.get("created_at", changed_at) if existing else changed_at,
+                "created_by": existing.get("created_by", actor) if existing else actor,
+                "updated_at": changed_at,
+                "updated_by": actor,
+            }
+            payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
+            atomic_json_write(self.contacts_path, payload)
+            self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
         return contact
 
     def add_address(self, contact_id: str, label: str, address: str, actor: str) -> dict[str, Any]:
         self._require_actor(actor)
         if not address.strip():
             raise ValueError("address is required")
-        payload = self._read(self.contacts_path, {"contacts": []})
-        contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
-        if contact is None:
-            raise ValueError("unknown contact")
-        normalized = " ".join(address.casefold().split())
-        item = {"id": str(uuid.uuid4()), "label": label.strip() or "Adresse", "value": address.strip(), "normalized": normalized, "created_at": utc_now(), "created_by": actor}
-        contact.setdefault("addresses", []).append(item)
-        contact["updated_at"] = utc_now(); contact["updated_by"] = actor
-        atomic_json_write(self.contacts_path, payload)
-        self.history.record("contact_address_added", actor, "contacts", contact_id, contact)
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            payload = self._read(self.contacts_path, {"contacts": []})
+            contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
+            if contact is None:
+                raise ValueError("unknown contact")
+            if not self._can_manage(contact, self._principal(actor)):
+                raise ValueError("contact is not shared with this user")
+            normalized = " ".join(address.casefold().split())
+            item = {"id": str(uuid.uuid4()), "label": label.strip() or "Adresse", "value": address.strip(), "normalized": normalized, "created_at": utc_now(), "created_by": actor}
+            contact.setdefault("addresses", []).append(item)
+            contact["updated_at"] = utc_now(); contact["updated_by"] = actor
+            atomic_json_write(self.contacts_path, payload)
+            self.history.record("contact_address_added", actor, "contacts", contact_id, contact)
         return item
+
+    def share(self, contact_id: str, managers: list[str], actor: str) -> dict[str, Any]:
+        self._require_actor(actor)
+        principal = self._principal(actor)
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            payload = self._read(self.contacts_path, {"contacts": []})
+            contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
+            if contact is None:
+                raise ValueError("unknown contact")
+            owner = contact.get("owner") or principal
+            if owner != principal:
+                raise ValueError("only the contact owner may change sharing")
+            contact["owner"] = owner
+            contact["managers"] = sorted({item.strip() for item in managers if item.strip() and item.strip() != owner}, key=str.casefold)
+            contact["updated_at"] = utc_now()
+            contact["updated_by"] = actor
+            atomic_json_write(self.contacts_path, payload)
+            self.history.record("contact_sharing_updated", actor, "contacts", contact_id, contact)
+        return contact
 
     def address_matches(self) -> dict[str, list[str]]:
         matches: dict[str, list[str]] = {}
@@ -107,16 +158,16 @@ class ContactStore:
                 matches.setdefault(address.get("normalized", ""), []).append(contact["contact_id"])
         return {key: value for key, value in matches.items() if key and len(value) > 1}
 
-    def vcard(self, contact_id: str) -> str:
-        contact = self.get(contact_id)
+    def vcard(self, contact_id: str, actor: str = "") -> str:
+        contact = self.get(contact_id, actor)
         fields = contact["fields"]
         def value(key: str) -> str:
             return str(fields.get(key, "")).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
         return "\r\n".join(["BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}", f"N:{value('last_name')};{value('first_name')};;;", *([f"EMAIL:{value('email')}"] if fields.get("email") else []), *([f"TEL:{value('phone')}"] if fields.get("phone") else []), *([f"BDAY:{value('birthday')}"] if fields.get("birthday") else []), *([f"ORG:{value('company')}"] if fields.get("company") else []), "END:VCARD", ""])
 
-    def export_vcards(self) -> str:
+    def export_vcards(self, actor: str = "") -> str:
         """Export all contacts as one portable vCard 4.0 file."""
-        return "".join(self.vcard(contact["contact_id"]) for contact in self.contacts())
+        return "".join(self.vcard(contact["contact_id"], actor) for contact in self.contacts(actor))
 
     def import_vcards(self, content: str, actor: str) -> int:
         """Import vCards; an existing UID updates the existing contact."""
@@ -186,13 +237,16 @@ class ContactStore:
 
     def delete(self, contact_id: str, actor: str) -> None:
         self._require_actor(actor)
-        payload = self._read(self.contacts_path, {"contacts": []})
-        contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
-        if contact is None:
-            raise ValueError("unknown contact")
-        payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact_id]
-        atomic_json_write(self.contacts_path, payload)
-        self.history.record("contact_deleted", actor, "contacts", contact_id, contact)
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            payload = self._read(self.contacts_path, {"contacts": []})
+            contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
+            if contact is None:
+                raise ValueError("unknown contact")
+            if not self._can_manage(contact, self._principal(actor)):
+                raise ValueError("contact is not shared with this user")
+            payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact_id]
+            atomic_json_write(self.contacts_path, payload)
+            self.history.record("contact_deleted", actor, "contacts", contact_id, contact)
 
     @staticmethod
     def _normalize(values: dict[str, str], schema: dict[str, Any]) -> dict[str, str]:
@@ -217,3 +271,12 @@ class ContactStore:
     def _require_actor(actor: str) -> None:
         if not actor.strip():
             raise ValueError("a named user is required for contact changes")
+
+    @staticmethod
+    def _principal(actor: str) -> str:
+        return actor.split(":", 1)[1] if actor.startswith("carddav:") else actor
+
+    @staticmethod
+    def _can_manage(contact: dict[str, Any], principal: str) -> bool:
+        owner = str(contact.get("owner", "")).strip()
+        return not owner or principal == owner or principal in contact.get("managers", [])

@@ -1,0 +1,75 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <a href="{{ url_for('documents.contacts') }}" class="text-decoration-none">&larr; Kontakte</a>
+      <h1 class="h2 mt-2 mb-1">{{ contact.fields.display_name }}</h1>
+      <p class="text-secondary mb-0">Eigentümer: {{ contact.owner|default('bisher nicht zugeordnet', true) }} · zuletzt geändert von {{ contact.updated_by }}</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-7">
+      <div class="card">
+        <div class="card-header">Kontaktdaten bearbeiten</div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('documents.save_contact') }}" class="row g-3">
+            <input type="hidden" name="contact_id" value="{{ contact.contact_id }}">
+            <div class="col-md-6"><label class="form-label">Vorname</label><input class="form-control" name="first_name" value="{{ contact.fields.first_name|default('') }}"></div>
+            <div class="col-md-6"><label class="form-label">Nachname</label><input class="form-control" name="last_name" value="{{ contact.fields.last_name|default('') }}"></div>
+            <div class="col-12"><label class="form-label">Anzeigename</label><input required class="form-control" name="display_name" value="{{ contact.fields.display_name|default('') }}"></div>
+            <div class="col-md-6"><label class="form-label">E-Mail</label><input class="form-control" type="email" name="email" value="{{ contact.fields.email|default('') }}"></div>
+            <div class="col-md-6"><label class="form-label">Telefon</label><input class="form-control" name="phone" value="{{ contact.fields.phone|default('') }}"></div>
+            <div class="col-md-6"><label class="form-label">Geburtstag</label><input class="form-control" type="date" name="birthday" value="{{ contact.fields.birthday|default('') }}"></div>
+            <div class="col-md-6"><label class="form-label">Firma</label><input class="form-control" name="company" value="{{ contact.fields.company|default('') }}"></div>
+            {% for key, value in contact.fields.items() if key not in ['first_name','last_name','display_name','email','phone','birthday','company'] %}
+            <div class="col-md-6"><label class="form-label">{{ key }}</label><input class="form-control" name="custom_{{ key }}" value="{{ value }}"></div>
+            {% endfor %}
+            <div class="col-12"><button class="btn btn-primary">Änderungen speichern</button></div>
+          </form>
+        </div>
+      </div>
+      <div class="card mt-4">
+        <div class="card-header">Adressen</div>
+        <div class="card-body">
+          {% for address in contact.addresses|default([]) %}<div class="border rounded p-2 mb-2"><strong>{{ address.label }}</strong><br>{{ address.value }}<div class="small text-secondary">von {{ address.created_by }}</div></div>{% else %}<p class="text-secondary">Keine Adresse hinterlegt.</p>{% endfor %}
+          <form method="post" action="{{ url_for('documents.add_contact_address', contact_id=contact.contact_id) }}" class="row g-2 mt-2">
+            <div class="col-md-3"><input class="form-control" name="label" placeholder="Typ, z. B. Privat"></div>
+            <div class="col-md-7"><input required class="form-control" name="address" placeholder="Vollständige Anschrift"></div>
+            <div class="col-md-2"><button class="btn btn-outline-primary w-100">Hinzufügen</button></div>
+          </form>
+        </div>
+      </div>
+    </section>
+    <aside class="col-lg-5">
+      <div class="card">
+        <div class="card-header">Gemeinsame Verwaltung</div>
+        <div class="card-body">
+          {% if is_owner %}
+          <p class="small text-secondary">Ausgewählte Benutzer können diesen Kontakt sehen und über Weboberfläche oder CardDAV bearbeiten.</p>
+          <form method="post" action="{{ url_for('documents.share_contact', contact_id=contact.contact_id) }}">
+            {% for username in users if username != contact.owner %}
+            <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="managers" value="{{ username }}" id="manager-{{ loop.index }}" {% if username in contact.managers|default([]) %}checked{% endif %}><label class="form-check-label" for="manager-{{ loop.index }}">{{ username }}</label></div>
+            {% else %}<p class="text-secondary">Noch keine weiteren Benutzer registriert.</p>{% endfor %}
+            <button class="btn btn-outline-primary mt-2">Freigaben speichern</button>
+          </form>
+          {% else %}
+          <p class="mb-0">Du verwaltest diesen Kontakt gemeinsam. Freigaben kann nur {{ contact.owner }} ändern.</p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card mt-4">
+        <div class="card-header">Änderungsverlauf</div>
+        <div class="list-group list-group-flush">
+          {% for change in contact.changes|default([])|reverse %}
+          <div class="list-group-item"><div class="d-flex justify-content-between gap-2"><strong>{{ change.field }}</strong><span class="badge text-bg-light">{{ change.actor }}</span></div><div class="small mt-1"><span class="text-danger">{{ change.old|default('—', true) }}</span> &rarr; <span class="text-success">{{ change.new|default('—', true) }}</span></div><div class="small text-secondary">{{ change.at }}</div></div>
+          {% else %}<div class="list-group-item text-secondary">Noch keine Feldänderungen gespeichert.</div>{% endfor %}
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+{% endblock %}

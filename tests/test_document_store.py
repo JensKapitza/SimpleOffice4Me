@@ -86,6 +86,26 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual("Kunde hat bestätigt", store.note_wiki()[0]["text"])
             self.assertTrue(any(event.get("action") == "document_note_added" for event in store.logbook(first["document_id"])))
 
+    def test_logbook_is_paginated_and_filterable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = DocumentStore(Path(temp))
+            store.initialize()
+            for number in range(75):
+                store._event("test_action", {"actor": "jens" if number % 2 else "other", "number": number})
+
+            first = store.logbook_page(page=1, page_size=50)
+            filtered = store.logbook_page(page=1, page_size=50, actor="jens", action="test_action")
+
+            self.assertEqual(50, len(first["events"]))
+            self.assertTrue(first["has_next"])
+            self.assertEqual(37, len(filtered["events"]))
+            self.assertTrue(all(item["actor"] == "jens" for item in filtered["events"]))
+
+    def test_tags_support_prefix_and_wildcard_matching(self):
+        self.assertTrue(DocumentStore.tag_matches("dank", "danke"))
+        self.assertTrue(DocumentStore.tag_matches("dan*", "danke"))
+        self.assertFalse(DocumentStore.tag_matches("bit", "danke"))
+
     def test_changed_original_is_reported_as_integrity_problem(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

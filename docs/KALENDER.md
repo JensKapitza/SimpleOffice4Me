@@ -8,6 +8,13 @@ als Git-Revision gesichert.
 Die Oberfläche unter `/documents/calendar` ist für Anlegen, Ändern und Löschen
 aktiv. Ein Termin ist standardmäßig `private` und wird nicht veröffentlicht.
 
+Jeder Termin besitzt einen Eigentümer. Dieser kann weitere registrierte
+SimpleOffice-Benutzer zur gemeinsamen Verwaltung freigeben. Freigegebene
+Benutzer dürfen den Termin sehen, bearbeiten und seinen Lebenszyklusstatus
+ändern; nur der Eigentümer ändert die Freigabeliste. Feldänderungen speichern
+Altwert, Neuwert, Zeitpunkt und Benutzer und bleiben zusätzlich als
+Git-Revision erhalten.
+
 - `family`: Familienansicht sieht Datum, Titel und Familien-Tags.
 - `external`: Externe Ansicht sieht Datum und ausschließlich den hinterlegten
   Hinweistext, etwa „Belegt“, plus externe Tags. Der Titel bleibt verborgen.
@@ -29,7 +36,12 @@ Slots; bestehende und bereits angefragte Termine blockieren den Zeitraum. Titel,
 Grund, Name und E-Mail-Adresse sind Pflicht.
 
 Eine Anfrage bleibt `pending`. Erst „Bestätigen und ICS senden“ macht sie
-verbindlich. Die Statusänderung erfolgt erst nach erfolgreichem E-Mail-Versand.
+verbindlich. Der Termin wird dabei sofort blockiert, auch wenn SMTP nicht
+verfügbar ist oder der Versand scheitert. Der Versandstatus bleibt dann
+`ausstehend`; im bestätigten Termin steht eine ICS-Datei zum manuellen
+Weitergeben bereit. Zusätzlich öffnet „E-Mail im Client vorbereiten" den
+Standard-Mailclient mit Empfänger, Betreff und dem ICS-Download-Link. Die
+E-Mail kann damit später versendet werden.
 Dafür müssen diese Variablen gesetzt sein:
 
 ```bash

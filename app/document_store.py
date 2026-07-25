@@ -11,12 +11,14 @@ import hmac
 import json
 import os
 import re
+import fnmatch
 import shutil
 import shlex
 import sqlite3
 import subprocess
 import sys
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -488,7 +490,17 @@ class DocumentStore:
                        OR attributes LIKE ? OR content LIKE ? LIMIT ?""",
                     (pattern, pattern, pattern, pattern, pattern, pattern, limit),
                 ).fetchall()
-        return [{"document_id": row[0], "path": row[1], "state": row[2]} for row in rows]
+        results = [{"document_id": row[0], "path": row[1], "state": row[2]} for row in rows]
+        known_ids = {item["document_id"] for item in results}
+        # A tag lookup is intentionally prefix-friendly: "dank" and "dan*"
+        # both match a tag such as "danke" without requiring FTS syntax.
+        for metadata in self._all_documents():
+            if len(results) >= limit:
+                break
+            if metadata["document_id"] not in known_ids and any(self.tag_matches(query, tag) for tag in metadata.get("tags", [])):
+                results.append({"document_id": metadata["document_id"], "path": metadata.get("last_path", ""), "state": metadata.get("state", "")})
+                known_ids.add(metadata["document_id"])
+        return results
 
     def add_link(
         self,
@@ -588,7 +600,8 @@ class DocumentStore:
                 [metadata.get("document_id", ""), path, metadata.get("state", ""), " ".join(metadata.get("tags", [])),
                  " ".join(note.get("text", "") for note in metadata.get("notes", [])), json.dumps(metadata.get("attributes", {}), ensure_ascii=False)]
             ).casefold()
-            if needle not in haystack:
+            tag_hit = any(self.tag_matches(needle, tag) for tag in metadata.get("tags", []))
+            if needle not in haystack and not tag_hit:
                 continue
             score = 100 if needle in (metadata.get("document_id", "").casefold(), path.casefold()) else 10
             if Path(path).name.casefold() == needle:
@@ -597,6 +610,15 @@ class DocumentStore:
                 score = 60
             matches.append({"document_id": metadata["document_id"], "path": path, "state": metadata.get("state"), "version": metadata.get("version_number", 1), "score": score})
         return sorted(matches, key=lambda item: (-item["score"], item["path"]))[:limit]
+
+    @staticmethod
+    def tag_matches(pattern: str, tag: str) -> bool:
+        """Case-insensitive tag matching with optional ``*`` wildcard support."""
+        pattern = pattern.strip().casefold()
+        tag = tag.strip().casefold()
+        if not pattern or not tag:
+            return False
+        return fnmatch.fnmatchcase(tag, pattern) if "*" in pattern else tag.startswith(pattern)
 
     def graph(self, reference: str | Path) -> dict[str, Any]:
         """Return one document, its versions and all inbound/outbound graph edges."""
@@ -730,6 +752,57 @@ class DocumentStore:
             except (OSError, json.JSONDecodeError):
                 pass
         return sorted(entries, key=lambda item: item.get("at", ""), reverse=True)
+
+    def logbook_page(self, *, page: int = 1, page_size: int = 50, query: str = "", actor: str = "", action: str = "", from_at: str = "", to_at: str = "") -> dict[str, Any]:
+        """Return a bounded, filtered audit-log page instead of loading all events."""
+        page = max(1, int(page))
+        page_size = min(100, max(10, int(page_size)))
+        needed = page * page_size + 1
+        query, actor, action = query.casefold().strip(), actor.casefold().strip(), action.casefold().strip()
+
+        def matches(event: dict[str, Any]) -> bool:
+            timestamp = str(event.get("at", ""))
+            if from_at and timestamp < from_at:
+                return False
+            if to_at and timestamp > f"{to_at}T23:59:59.999999+00:00":
+                return False
+            if actor and actor not in str(event.get("actor", "")).casefold():
+                return False
+            if action and action not in str(event.get("action", event.get("type", ""))).casefold():
+                return False
+            return not query or query in json.dumps(event, ensure_ascii=False).casefold()
+
+        def take(items):
+            found = []
+            for item in items:
+                if matches(item):
+                    found.append(item)
+                    if len(found) >= needed:
+                        break
+            return found
+
+        history_dir = self.history.root / "events"
+        history_events = take(
+            {**self._read_json(path, {}), "source": "revision"}
+            for path in sorted(history_dir.glob("*.json"), reverse=True)
+        ) if history_dir.exists() else []
+        if self.events.exists() and not any((query, actor, action, from_at, to_at)):
+            with self.events.open(encoding="utf-8") as source:
+                scanner_lines = list(deque(source, maxlen=needed))
+        elif self.events.exists():
+            with self.events.open(encoding="utf-8") as source:
+                scanner_lines = list(source)
+        else:
+            scanner_lines = []
+        scanner_events = take(
+            {**event, "source": "scanner"}
+            for line in reversed(scanner_lines)
+            for event in [json.loads(line)]
+            if isinstance(event, dict)
+        )
+        merged = sorted([*history_events, *scanner_events], key=lambda item: item.get("at", ""), reverse=True)
+        start = (page - 1) * page_size
+        return {"events": merged[start:start + page_size], "page": page, "has_next": len(merged) > start + page_size}
 
     def scan(self) -> ScanReport:
         self.initialize()

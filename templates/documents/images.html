@@ -5,7 +5,7 @@
   <h1>Bilder</h1>
   <p class="text-muted">Bilder bleiben normale, hashbasiert verwaltete Dokumente. Tags und Freigaben werden revisionssicher protokolliert.</p>
   <form class="row g-2 mb-3">
-    <div class="col-md-5"><input class="form-control" name="tag" value="{{ tag }}" placeholder="Tag filtern"></div>
+    <div class="col-md-5"><input class="form-control" name="tag" value="{{ tag }}" placeholder="Tag filtern, z. B. dank oder dan*"></div>
     <div class="col-md-3"><select class="form-select" name="period"><option value="all" {{ 'selected' if period == 'all' }}>Alle Zeiten</option><option value="week" {{ 'selected' if period == 'week' }}>Diese Woche</option><option value="month" {{ 'selected' if period == 'month' }}>Dieser Monat</option><option value="year" {{ 'selected' if period == 'year' }}>Dieses Jahr</option></select></div>
     <div class="col-auto"><button class="btn btn-outline-primary">Filtern</button></div>
     {% if pictures %}<div class="col-auto"><button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#slideshow">Diashow</button></div>{% endif %}

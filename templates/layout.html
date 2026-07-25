@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{ g.language|default('de') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,5 +16,7 @@
   {% block footer %}{% endblock %}
   <script src="{{ url_for('static', filename='vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script>window.SimpleOfficeTranslations = {{ ui_literal_translations|tojson }};</script>
+  <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
 </body>
 </html>

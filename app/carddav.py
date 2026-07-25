@@ -59,30 +59,38 @@ def endpoint(path: str):
     if request.method == "PROPFIND":
         if normalized.endswith(".vcf"):
             contact_id = normalized.rsplit("/", 1)[-1][:-4]
-            try: contact = _store().get(contact_id)
+            try: contact = _store().get(contact_id, username)
             except ValueError: return Response("not found", 404)
             return _xml([(request.path, f"<d:getetag>{_etag(contact)}</d:getetag><d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>{_write_privileges()}")])
         return _xml([(base, f"<d:resourcetype><d:collection/><card:addressbook/></d:resourcetype><d:displayname>SimpleOffice Kontakte</d:displayname>{_write_privileges()}")])
     if request.method == "REPORT":
         items = []
-        for contact in _store().contacts():
+        for contact in _store().contacts(username):
             href = base + contact["contact_id"] + ".vcf"
-            card = escape(_store().vcard(contact["contact_id"]))
+            card = escape(_store().vcard(contact["contact_id"], username))
             items.append((href, f"<d:getetag>{_etag(contact)}</d:getetag><card:address-data content-type=\"text/vcard\" version=\"4.0\">{card}</card:address-data>"))
         return _xml(items)
     if normalized.endswith(".vcf"):
         contact_id = normalized.rsplit("/", 1)[-1][:-4]
         if request.method == "GET":
-            try: card = _store().vcard(contact_id); contact = _store().get(contact_id)
+            try: card = _store().vcard(contact_id, username); contact = _store().get(contact_id, username)
             except ValueError: return Response("not found", 404)
             return Response(card, 200, {"Content-Type": "text/vcard; charset=utf-8", "ETag": _etag(contact)})
         if request.method == "PUT":
             try:
-                _store().get(contact_id)
+                _store().get(contact_id, username)
                 created = False
             except ValueError:
-                created = True
-            contact = _store().upsert_vcard(request.get_data(as_text=True), f"carddav:{username}", contact_id)
+                try:
+                    _store().get(contact_id)
+                except ValueError:
+                    created = True
+                else:
+                    return Response("forbidden", 403)
+            try:
+                contact = _store().upsert_vcard(request.get_data(as_text=True), f"carddav:{username}", contact_id)
+            except ValueError as exc:
+                return Response(str(exc), 400)
             return Response("", 201 if created else 204, {"ETag": _etag(contact), "Location": base + contact["contact_id"] + ".vcf"})
         if request.method == "DELETE":
             try: _store().delete(contact_id, f"carddav:{username}")

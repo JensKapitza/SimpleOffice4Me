@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+from urllib.parse import urlencode
 from calendar import month_name, monthcalendar
 from datetime import date, datetime, timedelta, timezone
 
@@ -16,6 +17,7 @@ from .contact_store import ContactStore
 from .calendar_store import CalendarStore
 from .todo_store import TodoStore
 from .settings_store import SettingsStore
+from .db import get_db
 
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
@@ -168,7 +170,7 @@ def images():
     pictures = [
         item for item in _store().list_documents()
         if item.get("last_path", "").lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp"))
-        and (not tag or tag in item.get("tags", [])) and in_period(item)
+        and (not tag or any(_store().tag_matches(tag, item_tag) for item_tag in item.get("tags", []))) and in_period(item)
     ]
     return render_template("documents/images.html", pictures=pictures, tag=tag, period=period)
 
@@ -338,7 +340,13 @@ def notes_wiki():
 @bp.route("/logbook")
 @login_required
 def logbook():
-    return render_template("documents/logbook.html", events=_store().logbook())
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError:
+        page = 1
+    filters = {key: request.args.get(key, "").strip() for key in ("q", "actor", "action", "from_at", "to_at")}
+    result = _store().logbook_page(page=page, query=filters["q"], actor=filters["actor"], action=filters["action"], from_at=filters["from_at"], to_at=filters["to_at"])
+    return render_template("documents/logbook.html", events=result["events"], page=result["page"], has_next=result["has_next"], filters=filters)
 
 
 @bp.route("/archives")
@@ -412,27 +420,44 @@ def remove_ssh_source(source_id: str):
 @bp.route("/contacts")
 @login_required
 def contacts():
-    contacts = _contacts().contacts()
+    actor = str(g.user["username"])
+    contacts = _contacts().contacts(actor)
     address_values = sorted({address.get("value", "") for contact in contacts for address in contact.get("addresses", []) if address.get("value")}, key=str.casefold)
     carddav_endpoint = url_for("carddav.endpoint", path=f"addressbooks/{g.user['username']}/default/", _external=True)
     return render_template("documents/contacts.html", contacts=contacts, schema=_contacts().schema(), carddav=_contacts().carddav(), carddav_endpoint=carddav_endpoint, address_matches=_contacts().address_matches(), address_values=address_values)
 
 
+@bp.get("/contacts/<contact_id>")
+@login_required
+def contact_detail(contact_id: str):
+    actor = str(g.user["username"])
+    try:
+        contact = _contacts().get(contact_id, actor)
+    except ValueError:
+        abort(404)
+    users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
+    return render_template("documents/contact_detail.html", contact=contact, users=users, is_owner=not contact.get("owner") or contact.get("owner") == actor)
+
+
 @bp.post("/contacts")
 @login_required
 def save_contact():
+    contact_id = request.form.get("contact_id", "")
     try:
-        _contacts().upsert(request.form.to_dict(), str(g.user["username"]), request.form.get("contact_id", ""))
+        contact = _contacts().upsert(request.form.to_dict(), str(g.user["username"]), contact_id)
         flash("Kontakt gespeichert.")
     except ValueError as exc:
         flash(str(exc))
+        contact = None
+    if contact_id and contact is not None:
+        return redirect(url_for("documents.contact_detail", contact_id=contact["contact_id"]))
     return redirect(url_for("documents.contacts"))
 
 
 @bp.get("/contacts/export.vcf")
 @login_required
 def export_contacts():
-    payload = _contacts().export_vcards().encode("utf-8")
+    payload = _contacts().export_vcards(str(g.user["username"])).encode("utf-8")
     return send_file(io.BytesIO(payload), as_attachment=True, download_name="simpleoffice-kontakte.vcf", mimetype="text/vcard; charset=utf-8")
 
 
@@ -459,7 +484,24 @@ def add_contact_address(contact_id: str):
         flash("Adresse gespeichert.")
     except ValueError as exc:
         flash(str(exc))
-    return redirect(url_for("documents.contacts"))
+    return redirect(url_for("documents.contact_detail", contact_id=contact_id))
+
+
+@bp.post("/contacts/<contact_id>/sharing")
+@login_required
+def share_contact(contact_id: str):
+    actor = str(g.user["username"])
+    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
+    managers = request.form.getlist("managers")
+    unknown = sorted(set(managers) - valid_users)
+    try:
+        if unknown:
+            raise ValueError(f"unknown users: {', '.join(unknown)}")
+        _contacts().share(contact_id, managers, actor)
+        flash("Verwaltungsfreigabe gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contact_detail", contact_id=contact_id))
 
 
 @bp.post("/contacts/schema")
@@ -491,13 +533,14 @@ def activate_carddav():
 @bp.route("/calendar")
 @login_required
 def calendar():
+    actor = str(g.user["username"])
     requested_month = request.args.get("month", date.today().strftime("%Y-%m"))
     try:
         shown_month = date.fromisoformat(f"{requested_month}-01")
     except ValueError:
         shown_month = date.today().replace(day=1)
     events_by_day: dict[int, list[dict]] = {}
-    events = [event for event in _calendar().events() if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
+    events = [event for event in _calendar().events(actor) if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
     for event in events:
         try:
             event_day = datetime.fromisoformat(event["start"].replace("Z", "+00:00")).date()
@@ -507,13 +550,20 @@ def calendar():
             events_by_day.setdefault(event_day.day, []).append(event)
     previous = (shown_month.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     following = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
-    return render_template("documents/calendar.html", events=events, contacts=_contacts().contacts(), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
+    for event in events:
+        if event.get("status") == "confirmed" and event.get("requester_email"):
+            ics_url = url_for("documents.download_booking_confirmation", event_id=event["event_id"], _external=True)
+            subject = f"Terminbestätigung: {event['title']}"
+            body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
+            event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
+    return render_template("documents/calendar.html", events=events, contacts=_contacts().contacts(actor), users=users, current_username=actor, booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
 
 
 @bp.get("/calendar/export.ics")
 @login_required
 def export_calendar():
-    payload = _calendar().export_ics().encode("utf-8")
+    payload = _calendar().export_ics(str(g.user["username"])).encode("utf-8")
     return send_file(io.BytesIO(payload), as_attachment=True, download_name="simpleoffice-kalender.ics", mimetype="text/calendar; charset=utf-8")
 
 
@@ -565,6 +615,23 @@ def delete_calendar_event(event_id: str):
     return redirect(url_for("documents.calendar"))
 
 
+@bp.post("/calendar/<event_id>/sharing")
+@login_required
+def share_calendar_event(event_id: str):
+    actor = str(g.user["username"])
+    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
+    managers = request.form.getlist("managers")
+    unknown = sorted(set(managers) - valid_users)
+    try:
+        if unknown:
+            raise ValueError(f"unknown users: {', '.join(unknown)}")
+        _calendar().share(event_id, managers, actor)
+        flash("Verwaltungsfreigabe für den Termin gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
+
+
 @bp.get("/calendar/published/<audience>")
 def published_calendar(audience: str):
     try:
@@ -588,11 +655,24 @@ def save_booking_settings():
 @login_required
 def confirm_booking(event_id: str):
     try:
-        _calendar().confirm_booking(event_id, str(g.user["username"]))
-        flash("Buchung bestätigt und ICS-E-Mail versendet.")
-    except (RuntimeError, ValueError) as exc:
+        event = _calendar().confirm_booking(event_id, str(g.user["username"]))
+        if event.get("confirmation_delivery", {}).get("status") == "sent":
+            flash("Buchung bestätigt und ICS-E-Mail versendet.")
+        else:
+            flash("Buchung bestätigt und verbindlich blockiert. E-Mail-Versand ist ausstehend; die ICS-Datei kann im Termin heruntergeladen werden.")
+    except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
+
+
+@bp.get("/calendar/bookings/<event_id>/confirmation.ics")
+@login_required
+def download_booking_confirmation(event_id: str):
+    try:
+        payload = _calendar().booking_ics(event_id, str(g.user["username"])).encode("utf-8")
+    except ValueError:
+        abort(404)
+    return send_file(io.BytesIO(payload), as_attachment=True, download_name=f"terminbestaetigung-{event_id}.ics", mimetype="text/calendar; charset=utf-8")
 
 
 @bp.route("/calendar/book", methods=("GET", "POST"))
@@ -613,7 +693,7 @@ def book_calendar_slot():
 @login_required
 def download_contact_vcard(contact_id: str):
     try:
-        card = _contacts().vcard(contact_id)
+        card = _contacts().vcard(contact_id, str(g.user["username"]))
     except ValueError:
         abort(404)
     return Response(card, mimetype="text/vcard", headers={"Content-Disposition": f'attachment; filename="contact-{contact_id}.vcf"'})

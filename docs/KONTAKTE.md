@@ -24,3 +24,17 @@ App-Passwort.
 Der Endpunkt unterstützt das Standard-Adressbuch mit `PROPFIND`, `REPORT`,
 `GET`, `PUT` und `DELETE`, inklusive ETags. Ein öffentlich erreichbarer
 CardDAV-Endpunkt muss hinter HTTPS betrieben werden.
+
+## Bearbeiten und gemeinsam verwalten
+
+Ein Klick auf eine Kontaktkarte öffnet die Detailansicht. Dort lassen sich
+Stammdaten und Adressen bearbeiten. Der Eigentümer kann weitere registrierte
+SimpleOffice-Benutzer als Verwalter auswählen. Diese Benutzer sehen den Kontakt
+anschließend in ihrer Kontaktliste und können ihn sowohl im Browser als auch
+über ihr eigenes CardDAV-Adressbuch bearbeiten. Nur der Eigentümer darf die
+Freigaben ändern.
+
+Feldänderungen enthalten Altwert, Neuwert, Zeitpunkt und handelnden Benutzer.
+Zusätzlich bleibt jede Änderung als Git-Revision erhalten. Parallele
+Thunderbird-Synchronisationen werden serialisiert, damit weder `contacts.json`
+noch der Git-Index durch gleichzeitige `PUT`-Anfragen beschädigt werden.
