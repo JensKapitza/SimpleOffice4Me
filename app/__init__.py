@@ -91,6 +91,21 @@ app.register_blueprint(documents.bp)
 from . import carddav
 app.register_blueprint(carddav.bp)
 
+from .settings_store import SettingsStore, translate
+
+
+@app.before_request
+def load_interface_preferences():
+    settings = SettingsStore(app.config["DOCUMENT_ROOT"]).settings()
+    language = session.get("simpleoffice_language", settings["interface"]["default_language"])
+    g.language = language if language in ("de", "en") else settings["interface"]["default_language"]
+    g.app_settings = settings
+
+
+@app.context_processor
+def template_preferences():
+    return {"tr": lambda key: translate(getattr(g, "language", "de"), key)}
+
 
 @app.template_filter('datetime')
 def format_datetime(value, format='%Y-%m-%d'):
