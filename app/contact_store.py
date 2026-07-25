@@ -78,11 +78,34 @@ class ContactStore:
             raise ValueError(f"required contact fields missing: {', '.join(missing)}")
         payload = self._read(self.contacts_path, {"contacts": []})
         existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
-        contact = {"contact_id": contact_id or str(uuid.uuid4()), "fields": fields, "created_at": existing.get("created_at", utc_now()) if existing else utc_now(), "updated_at": utc_now(), "updated_by": actor}
+        contact = {"contact_id": contact_id or str(uuid.uuid4()), "fields": fields, "addresses": existing.get("addresses", []) if existing else [], "created_at": existing.get("created_at", utc_now()) if existing else utc_now(), "updated_at": utc_now(), "updated_by": actor}
         payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
         atomic_json_write(self.contacts_path, payload)
         self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
         return contact
+
+    def add_address(self, contact_id: str, label: str, address: str, actor: str) -> dict[str, Any]:
+        self._require_actor(actor)
+        if not address.strip():
+            raise ValueError("address is required")
+        payload = self._read(self.contacts_path, {"contacts": []})
+        contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
+        if contact is None:
+            raise ValueError("unknown contact")
+        normalized = " ".join(address.casefold().split())
+        item = {"id": str(uuid.uuid4()), "label": label.strip() or "Adresse", "value": address.strip(), "normalized": normalized, "created_at": utc_now(), "created_by": actor}
+        contact.setdefault("addresses", []).append(item)
+        contact["updated_at"] = utc_now(); contact["updated_by"] = actor
+        atomic_json_write(self.contacts_path, payload)
+        self.history.record("contact_address_added", actor, "contacts", contact_id, contact)
+        return item
+
+    def address_matches(self) -> dict[str, list[str]]:
+        matches: dict[str, list[str]] = {}
+        for contact in self.contacts():
+            for address in contact.get("addresses", []):
+                matches.setdefault(address.get("normalized", ""), []).append(contact["contact_id"])
+        return {key: value for key, value in matches.items() if key and len(value) > 1}
 
     def vcard(self, contact_id: str) -> str:
         contact = self.get(contact_id)
