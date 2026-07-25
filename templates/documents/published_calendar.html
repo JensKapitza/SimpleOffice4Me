@@ -1,0 +1,2 @@
+{% extends "layout.html" %}
+{% block body %}<main class="container py-4"><h1>{% if audience == 'family' %}Familienkalender{% else %}Öffentliche Kalenderhinweise{% endif %}</h1><div class="list-group">{% for event in events %}<div class="list-group-item"><strong>{{ event.start }}{% if event.end %} - {{ event.end }}{% endif %}</strong> · {{ event.title }}{% if event.tags %}<small class="text-muted"> · {{ event.tags|join(', ') }}</small>{% endif %}</div>{% else %}<div class="alert alert-info">Keine veröffentlichten Termine.</div>{% endfor %}</div></main>{% endblock %}
