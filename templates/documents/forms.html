@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div><h1 class="h2 mb-1">Formulare</h1><p class="text-secondary mb-0">Stammdaten und Geschäftsvorgänge sind konfigurierbare Formulare. Neue Masken benötigen keine neue Programmlogik.</p></div>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-3">
+    {% for form in forms %}<article class="col-md-6 col-xl-4"><div class="card h-100 shadow-sm"><div class="card-body"><h2 class="h5">{{ form.name }}</h2><p class="text-secondary small">{{ form.description }}</p><div class="small mb-3">{{ counts[form.form_id] }} Datensätze · {{ form.fields|length }} Felder</div><a class="btn btn-primary" href="{{ url_for('documents.form_records', form_id=form.form_id) }}">Öffnen</a></div></div></article>{% endfor %}
+  </div>
+  <section class="card mt-4"><div class="card-header">Neue Eingabemaske oder Formularvorlage</div><div class="card-body"><p class="small text-secondary">Die Vorlage definiert Feldtypen, Pflichtfelder, Auswahlwerte und Beziehungen. Bestehende Formulare können über dieselbe Kennung angepasst werden.</p><form method="post" action="{{ url_for('documents.save_form_definition') }}"><textarea required class="form-control font-monospace" rows="13" name="definition" placeholder='{"form_id":"angebot","name":"Angebot","title_field":"number","fields":[{"key":"number","label":"Nummer","type":"text","required":true}]}'></textarea><button class="btn btn-outline-primary mt-3">Formularvorlage speichern</button></form></div></section>
+</main>
+{% endblock %}
