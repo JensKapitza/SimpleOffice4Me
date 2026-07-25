@@ -194,7 +194,11 @@ def detail(document_id: str):
 def add_document_relationship(document_id: str):
     _document_or_404(document_id)
     try:
-        _store().add_link(document_id, request.form.get("target", ""), request.form.get("relation_type", "related"), request.form.get("label", ""), str(g.user["username"]))
+        relation_type = request.form.get("custom_relation_type", "").strip() or request.form.get("relation_type", "related")
+        if request.form.get("target", "").strip():
+            _store().add_link(document_id, request.form["target"], relation_type, request.form.get("label", ""), str(g.user["username"]))
+        else:
+            _store().add_text_link(document_id, request.form.get("target_text", ""), relation_type, request.form.get("label", ""), str(g.user["username"]))
         flash("Dokumentverknüpfung gespeichert.")
     except ValueError as exc:
         flash(str(exc))
