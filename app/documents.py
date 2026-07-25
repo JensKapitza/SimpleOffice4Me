@@ -9,6 +9,7 @@ from flask import Blueprint, Response, abort, current_app, flash, g, redirect, r
 from .auth import login_required
 from .document_store import DocumentStore
 from .contact_store import ContactStore
+from .calendar_store import CalendarStore
 
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
@@ -20,6 +21,10 @@ def _store() -> DocumentStore:
 
 def _contacts() -> ContactStore:
     return ContactStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _calendar() -> CalendarStore:
+    return CalendarStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _document_or_404(document_id: str) -> dict:
@@ -219,7 +224,7 @@ def sync_ssh_source(source_id: str):
 @bp.route("/contacts")
 @login_required
 def contacts():
-    return render_template("documents/contacts.html", contacts=_contacts().contacts(), schema=_contacts().schema())
+    return render_template("documents/contacts.html", contacts=_contacts().contacts(), schema=_contacts().schema(), carddav=_contacts().carddav())
 
 
 @bp.post("/contacts")
@@ -245,6 +250,35 @@ def save_contact_schema():
     except (json.JSONDecodeError, ValueError) as exc:
         flash(str(exc))
     return redirect(url_for("documents.contacts"))
+
+
+@bp.post("/contacts/carddav")
+@login_required
+def activate_carddav():
+    try:
+        _contacts().activate_carddav(str(g.user["username"]), request.form.get("password", ""), str(g.user["username"]))
+        endpoint = url_for("carddav.endpoint", path=f"addressbooks/{g.user['username']}/default/", _external=True)
+        flash(f"CardDAV aktiviert. Thunderbird-URL: {endpoint}")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contacts"))
+
+
+@bp.route("/calendar")
+@login_required
+def calendar():
+    return render_template("documents/calendar.html", events=_calendar().events(), contacts=_contacts().contacts())
+
+
+@bp.post("/calendar")
+@login_required
+def add_calendar_event():
+    try:
+        _calendar().add(request.form.get("title", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]))
+        flash("Kalendertermin gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar"))
 
 
 @bp.get("/contacts/<contact_id>.vcf")
