@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
 
@@ -10,6 +12,7 @@ from .auth import login_required
 from .document_store import DocumentStore
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
+from .todo_store import TodoStore
 
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
@@ -25,6 +28,21 @@ def _contacts() -> ContactStore:
 
 def _calendar() -> CalendarStore:
     return CalendarStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _todos() -> TodoStore:
+    return TodoStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _system_overview() -> dict:
+    root = _store().root
+    storage = shutil.disk_usage(root)
+    devices=[]
+    for mount in _store()._mounted_roots():
+        try:
+            usage=shutil.disk_usage(mount); devices.append({"path":str(mount),"total":usage.total,"free":usage.free})
+        except OSError: pass
+    return {"time": datetime.now().astimezone(), "root": str(root), "storage": storage, "devices": devices}
 
 
 def _calendar_tags() -> list[dict[str, str]]:
@@ -47,6 +65,83 @@ def _document_or_404(document_id: str) -> dict:
 @login_required
 def index():
     return render_template("documents/index.html", documents=_store().list_documents())
+
+
+@bp.get("/dashboard")
+@login_required
+def dashboard():
+    documents = _store().list_documents()
+    return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if item.get("last_path", "").startswith("inbox/")], todos=_todos().items(), pending=_calendar().pending_bookings())
+
+
+@bp.post("/todo")
+@login_required
+def add_todo():
+    try: _todos().add(request.form.get("title", ""), str(g.user["username"]))
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.dashboard"))
+
+
+@bp.post("/todo/<item_id>/toggle")
+@login_required
+def toggle_todo(item_id: str):
+    try: _todos().toggle(item_id, str(g.user["username"]))
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.dashboard"))
+
+
+@bp.route("/inbox")
+@login_required
+def inbox():
+    return render_template("documents/index.html", documents=[item for item in _store().list_documents() if item.get("last_path", "").startswith("inbox/")], inbox_only=True)
+
+
+@bp.route("/images")
+@login_required
+def images():
+    tag = request.args.get("tag", "").strip()
+    period = request.args.get("period", "all")
+    if period not in {"all", "week", "month", "year"}:
+        period = "all"
+    now = datetime.now(timezone.utc)
+
+    def in_period(item: dict) -> bool:
+        if period == "all":
+            return True
+        try:
+            seen = datetime.fromisoformat(item.get("first_seen_at", "").replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if seen.tzinfo is None:
+            seen = seen.replace(tzinfo=timezone.utc)
+        if period == "week":
+            return seen >= now - timedelta(days=7)
+        if period == "month":
+            return seen.year == now.year and seen.month == now.month
+        return seen.year == now.year
+
+    pictures = [
+        item for item in _store().list_documents()
+        if item.get("last_path", "").lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp"))
+        and (not tag or tag in item.get("tags", [])) and in_period(item)
+    ]
+    return render_template("documents/images.html", pictures=pictures, tag=tag, period=period)
+
+
+@bp.get("/<document_id>/preview")
+@login_required
+def image_preview(document_id: str):
+    document = _document_or_404(document_id); path = _store().root / document.get("last_path", "")
+    if not path.is_file() or path.is_symlink(): abort(404)
+    return send_file(path)
+
+
+@bp.post("/<document_id>/tags")
+@login_required
+def set_document_tags(document_id: str):
+    try: _store().set_tags(document_id, request.form.get("tags", "").split(","), str(g.user["username"]))
+    except ValueError as exc: flash(str(exc))
+    return redirect(request.referrer or url_for("documents.images"))
 
 
 @bp.post("/upload")
@@ -233,7 +328,9 @@ def sync_ssh_source(source_id: str):
 @bp.route("/contacts")
 @login_required
 def contacts():
-    return render_template("documents/contacts.html", contacts=_contacts().contacts(), schema=_contacts().schema(), carddav=_contacts().carddav())
+    contacts = _contacts().contacts()
+    address_values = sorted({address.get("value", "") for contact in contacts for address in contact.get("addresses", []) if address.get("value")}, key=str.casefold)
+    return render_template("documents/contacts.html", contacts=contacts, schema=_contacts().schema(), carddav=_contacts().carddav(), address_matches=_contacts().address_matches(), address_values=address_values)
 
 
 @bp.post("/contacts")
@@ -242,6 +339,17 @@ def save_contact():
     try:
         _contacts().upsert(request.form.to_dict(), str(g.user["username"]), request.form.get("contact_id", ""))
         flash("Kontakt gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contacts"))
+
+
+@bp.post("/contacts/<contact_id>/addresses")
+@login_required
+def add_contact_address(contact_id: str):
+    try:
+        _contacts().add_address(contact_id, request.form.get("label", ""), request.form.get("address", ""), str(g.user["username"]))
+        flash("Adresse gespeichert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.contacts"))
