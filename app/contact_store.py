@@ -114,6 +114,30 @@ class ContactStore:
             return str(fields.get(key, "")).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
         return "\r\n".join(["BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}", f"N:{value('last_name')};{value('first_name')};;;", *([f"EMAIL:{value('email')}"] if fields.get("email") else []), *([f"TEL:{value('phone')}"] if fields.get("phone") else []), *([f"BDAY:{value('birthday')}"] if fields.get("birthday") else []), *([f"ORG:{value('company')}"] if fields.get("company") else []), "END:VCARD", ""])
 
+    def export_vcards(self) -> str:
+        """Export all contacts as one portable vCard 4.0 file."""
+        return "".join(self.vcard(contact["contact_id"]) for contact in self.contacts())
+
+    def import_vcards(self, content: str, actor: str) -> int:
+        """Import vCards; an existing UID updates the existing contact."""
+        self._require_actor(actor)
+        cards: list[str] = []
+        current: list[str] = []
+        for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            if line.upper() == "BEGIN:VCARD":
+                current = [line]
+            elif current:
+                current.append(line)
+                if line.upper() == "END:VCARD":
+                    cards.append("\r\n".join(current) + "\r\n")
+                    current = []
+        if not cards:
+            raise ValueError("no vCard records found")
+        for card in cards:
+            self.upsert_vcard(card, actor)
+        self.history.record("contacts_imported", actor, "contacts", "vcard-import", {"count": len(cards)})
+        return len(cards)
+
     def carddav(self) -> dict[str, Any]:
         self.initialize()
         config = self._read(self.carddav_path, {"enabled": False, "accounts": []})
