@@ -27,6 +27,15 @@ def _calendar() -> CalendarStore:
     return CalendarStore(current_app.config["DOCUMENT_ROOT"])
 
 
+def _calendar_tags() -> list[dict[str, str]]:
+    return [
+        {"name": tag.strip(), "visibility": visibility}
+        for visibility in ("private", "family", "external")
+        for tag in request.form.get(f"{visibility}_tags", "").split(",")
+        if tag.strip()
+    ]
+
+
 def _document_or_404(document_id: str) -> dict:
     try:
         return _store().get_document(document_id)
@@ -274,11 +283,41 @@ def calendar():
 @login_required
 def add_calendar_event():
     try:
-        _calendar().add(request.form.get("title", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]))
+        _calendar().add(request.form.get("title", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
         flash("Kalendertermin gespeichert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
+
+
+@bp.post("/calendar/<event_id>")
+@login_required
+def update_calendar_event(event_id: str):
+    try:
+        _calendar().update(event_id, request.form.get("title", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
+        flash("Kalendertermin geändert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar"))
+
+
+@bp.post("/calendar/<event_id>/delete")
+@login_required
+def delete_calendar_event(event_id: str):
+    try:
+        _calendar().delete(event_id, str(g.user["username"]))
+        flash("Kalendertermin gelöscht.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar"))
+
+
+@bp.get("/calendar/published/<audience>")
+def published_calendar(audience: str):
+    try:
+        return render_template("documents/published_calendar.html", audience=audience, events=_calendar().visible_events(audience))
+    except ValueError:
+        abort(404)
 
 
 @bp.get("/contacts/<contact_id>.vcf")
