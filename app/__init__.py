@@ -17,6 +17,7 @@ from flask import Flask, send_from_directory, \
     render_template_string, render_template, \
     request, session, redirect, abort, send_file, \
     g
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 # ensure the environment uses UTF-8 encoding
@@ -50,6 +51,19 @@ app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sql
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = 'web-session' + str(random.random())[2:]
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SIMPLEOFFICE_HTTPS', '').lower() in ('1', 'true', 'yes')
+
+# Trust forwarded headers only when an administrator explicitly configures the
+# number of reverse proxies. This keeps externally generated CardDAV/share URLs
+# correct without accepting spoofed headers in the default local installation.
+try:
+    trusted_proxy_hops = int(os.environ.get('SIMPLEOFFICE_TRUSTED_PROXY_HOPS', '0'))
+except ValueError:
+    trusted_proxy_hops = 0
+if trusted_proxy_hops > 0:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_proxy_hops, x_proto=trusted_proxy_hops, x_host=trusted_proxy_hops, x_prefix=trusted_proxy_hops)
 
 
 # blueprints
@@ -92,6 +106,9 @@ def add_header(response):
         then = datetime.datetime.now() + datetime.timedelta(minutes=5)
         response.headers["Cache-Control"] = "public,max-age=1000"
         response.headers["Expires"] = then.strftime("%a, %d %b %Y %H:%M:%S GMT")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
     return response
 
 
