@@ -16,7 +16,7 @@ from .bs4 import download_file, renderwithbs4
 from flask import Flask, send_from_directory, \
     render_template_string, render_template, \
     request, session, redirect, abort, send_file, \
-    g
+    g, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 
@@ -73,6 +73,8 @@ app.register_blueprint(auth.bp)
 
 from . import db
 db.init_app(app)
+with app.app_context():
+    db.ensure_auth_database()
 
 from . import translationdb as tdb
 tdb.init_app(app)
@@ -119,7 +121,6 @@ def staticfile(dirname="", filename=""):
     return download_file(static_dir,dirname,filename)
 
 
-@app.route('/')
 @app.route('/<myFile>', methods=['GET', 'POST'])
 @app.route('/<lang>/<myFile>', methods=['GET', 'POST'])
 def index(myFile="index.html",lang=None):
@@ -127,6 +128,14 @@ def index(myFile="index.html",lang=None):
         g.current_lang = lang
 
     return renderwithbs4(myFile)
+
+
+@app.get('/')
+def home():
+    """Use the application dashboard as the entrypoint after authentication."""
+    if getattr(g, "user", None) is None:
+        return redirect(url_for("auth.login"))
+    return redirect(url_for("documents.dashboard"))
 
 
 
