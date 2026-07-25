@@ -3,7 +3,7 @@
 {% block body %}
 <main class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
-    <div><h1 class="h2 mb-1">Formulare</h1><p class="text-secondary mb-0">Stammdaten und Geschäftsvorgänge sind konfigurierbare Formulare. Neue Masken benötigen keine neue Programmlogik.</p></div>
+    <div><h1 class="h2 mb-1">Formulare</h1><p class="text-secondary mb-0">Kontakte werden einmalig unter Kontakte gepflegt. Formulare verwenden diese Stammdaten als Auswahl; Rechnungen enthalten zusätzlich Positionen und berechnete Summen.</p></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
   <div class="row g-3">

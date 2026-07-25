@@ -7,6 +7,17 @@ CREATE TABLE user (
   password TEXT NOT NULL
 );
 
+CREATE TABLE oauth_identity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  email TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(provider, subject),
+  FOREIGN KEY (user_id) REFERENCES user (id)
+);
+
 CREATE TABLE post (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   author_id INTEGER NOT NULL,

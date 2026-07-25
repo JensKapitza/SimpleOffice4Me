@@ -1,33 +1,67 @@
 import functools
+import json
+import re
+import secrets
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
-from flask import (
-    Blueprint, flash, g, redirect, render_template, request, session, url_for,current_app
-)
+from flask import Blueprint, flash, g, redirect, render_template, request, session, url_for, current_app
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
 
-from .bs4 import renderwithbs4
-
 bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+
+
+def _google_config() -> dict[str, str] | None:
+    client_id = current_app.config.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+    client_secret = current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+    if not client_id or not client_secret:
+        return None
+    return {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": current_app.config.get("GOOGLE_OAUTH_REDIRECT_URI", "").strip() or url_for("auth.google_callback", _external=True),
+    }
+
+
+def _login_user(user) -> None:
+    session.clear()
+    session['user_id'] = user['id']
+
+
+def _google_username(db, email: str) -> str:
+    base = re.sub(r"[^a-z0-9_.-]+", "-", email.split("@", 1)[0].casefold()).strip("-._") or "google-user"
+    candidate = base
+    number = 2
+    while db.execute("SELECT 1 FROM user WHERE username = ?", (candidate,)).fetchone() is not None:
+        candidate = f"{base}-{number}"
+        number += 1
+    return candidate
 
 
 @bp.route('/register', methods=('GET', 'POST'))
 def register():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
         db = get_db()
         error = None
 
         if not username:
-            error = 'Username is required.'
+            error = 'Benutzername fehlt.'
         elif not password:
-            error = 'Password is required.'
+            error = 'Passwort fehlt.'
+        elif len(password) < 8:
+            error = 'Das Passwort muss mindestens 8 Zeichen haben.'
         elif db.execute(
             'SELECT id FROM user WHERE username = ?', (username,)
         ).fetchone() is not None:
-            error = 'User {} is already registered.'.format(username)
+            error = 'Der Benutzername ist bereits vergeben.'
 
         if error is None:
             db.execute(
@@ -39,14 +73,14 @@ def register():
 
         flash(error)
 
-    return renderwithbs4('auth/register.html')
+    return render_template('auth/register.html', google_enabled=_google_config() is not None)
 
 
 @bp.route('/login', methods=('GET', 'POST'))
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
         db = get_db()
         error = None
         user = db.execute(
@@ -54,19 +88,86 @@ def login():
         ).fetchone()
 
         if user is None:
-            error = 'Incorrect username.'
+            error = 'Benutzername oder Passwort ist falsch.'
         elif not check_password_hash(user['password'], password):
-            error = 'Incorrect password.'
+            error = 'Benutzername oder Passwort ist falsch.'
 
         if error is None:
-            session.clear()
-            session['user_id'] = user['id']
+            _login_user(user)
             return redirect(url_for('home'))
 
         flash(error)
 
 
-    return renderwithbs4('auth/login.html')
+    return render_template('auth/login.html', google_enabled=_google_config() is not None)
+
+
+@bp.get('/google')
+def google_login():
+    config = _google_config()
+    if config is None:
+        flash('Google-Anmeldung ist noch nicht konfiguriert.')
+        return redirect(url_for('auth.login'))
+    state = secrets.token_urlsafe(32)
+    session['google_oauth_state'] = state
+    parameters = {
+        'client_id': config['client_id'], 'redirect_uri': config['redirect_uri'], 'response_type': 'code',
+        'scope': 'openid email profile', 'state': state, 'prompt': 'select_account',
+    }
+    return redirect(f"{GOOGLE_AUTH_URL}?{urlencode(parameters)}")
+
+
+@bp.get('/google/callback')
+def google_callback():
+    if request.args.get('error'):
+        flash('Google-Anmeldung wurde abgebrochen.')
+        return redirect(url_for('auth.login'))
+    expected_state = session.pop('google_oauth_state', '')
+    received_state = request.args.get('state', '')
+    code = request.args.get('code', '')
+    config = _google_config()
+    if not config or not code or not expected_state or not secrets.compare_digest(expected_state, received_state):
+        flash('Google-Anmeldung konnte nicht sicher geprüft werden.')
+        return redirect(url_for('auth.login'))
+    try:
+        body = urlencode({
+            'code': code, 'client_id': config['client_id'], 'client_secret': config['client_secret'],
+            'redirect_uri': config['redirect_uri'], 'grant_type': 'authorization_code',
+        }).encode('utf-8')
+        token_request = Request(GOOGLE_TOKEN_URL, data=body, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+        with urlopen(token_request, timeout=15) as response:
+            token = json.loads(response.read().decode('utf-8'))
+        access_token = str(token.get('access_token', ''))
+        if not access_token:
+            raise ValueError('Google did not return an access token')
+        profile_request = Request(GOOGLE_USERINFO_URL, headers={'Authorization': f'Bearer {access_token}'})
+        with urlopen(profile_request, timeout=15) as response:
+            profile = json.loads(response.read().decode('utf-8'))
+        subject = str(profile.get('sub', '')).strip()
+        email = str(profile.get('email', '')).strip().casefold()
+        if not subject or not email or profile.get('email_verified') is not True:
+            raise ValueError('Google account has no verified email address')
+    except Exception:
+        current_app.logger.exception('Google OAuth callback failed')
+        flash('Google-Anmeldung ist fehlgeschlagen. Bitte erneut versuchen.')
+        return redirect(url_for('auth.login'))
+
+    db = get_db()
+    identity = db.execute('SELECT user.* FROM oauth_identity JOIN user ON user.id = oauth_identity.user_id WHERE provider = ? AND subject = ?', ('google', subject)).fetchone()
+    created = False
+    if identity is None:
+        # Never bind an OAuth identity to a local account merely because a
+        # user selected the same text as a username. Explicit linking can be
+        # added later from an authenticated account page.
+        username = _google_username(db, email)
+        db.execute('INSERT INTO user (username, password) VALUES (?, ?)', (username, generate_password_hash(secrets.token_urlsafe(32))))
+        identity = db.execute('SELECT * FROM user WHERE username = ?', (username,)).fetchone()
+        created = True
+        db.execute('INSERT INTO oauth_identity (provider, subject, user_id, email) VALUES (?, ?, ?, ?)', ('google', subject, identity['id'], email))
+        db.commit()
+    _login_user(identity)
+    flash('Konto mit Google erstellt und angemeldet.' if created else 'Mit Google angemeldet.')
+    return redirect(url_for('home'))
 
 @bp.before_app_request
 def load_logged_in_user():
