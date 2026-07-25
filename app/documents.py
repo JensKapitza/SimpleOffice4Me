@@ -276,14 +276,14 @@ def activate_carddav():
 @bp.route("/calendar")
 @login_required
 def calendar():
-    return render_template("documents/calendar.html", events=_calendar().events(), contacts=_contacts().contacts())
+    return render_template("documents/calendar.html", events=_calendar().events(), contacts=_contacts().contacts(), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings())
 
 
 @bp.post("/calendar")
 @login_required
 def add_calendar_event():
     try:
-        _calendar().add(request.form.get("title", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
+        _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
         flash("Kalendertermin gespeichert.")
     except ValueError as exc:
         flash(str(exc))
@@ -294,7 +294,7 @@ def add_calendar_event():
 @login_required
 def update_calendar_event(event_id: str):
     try:
-        _calendar().update(event_id, request.form.get("title", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
+        _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
         flash("Kalendertermin geändert.")
     except ValueError as exc:
         flash(str(exc))
@@ -318,6 +318,42 @@ def published_calendar(audience: str):
         return render_template("documents/published_calendar.html", audience=audience, events=_calendar().visible_events(audience))
     except ValueError:
         abort(404)
+
+
+@bp.post("/calendar/booking-settings")
+@login_required
+def save_booking_settings():
+    try:
+        _calendar().save_booking_settings(request.form.get("enabled") == "1", int(request.form.get("duration_minutes", "60")), request.form.get("start_time", "09:00"), request.form.get("end_time", "17:00"), str(g.user["username"]))
+        flash("Externe Buchungseinstellungen gespeichert.")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar"))
+
+
+@bp.post("/calendar/bookings/<event_id>/confirm")
+@login_required
+def confirm_booking(event_id: str):
+    try:
+        _calendar().confirm_booking(event_id, str(g.user["username"]))
+        flash("Buchung bestätigt und ICS-E-Mail versendet.")
+    except (RuntimeError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar"))
+
+
+@bp.route("/calendar/book", methods=("GET", "POST"))
+def book_calendar_slot():
+    from datetime import date
+    selected_day = request.values.get("date", date.today().isoformat())
+    try:
+        slots = _calendar().available_slots(date.fromisoformat(selected_day))
+        if request.method == "POST":
+            _calendar().request_booking(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("name", ""), request.form.get("email", ""), request.form.get("start", ""), request.form.get("end", ""))
+            return render_template("documents/book_calendar.html", date=selected_day, slots=slots, sent=True)
+        return render_template("documents/book_calendar.html", date=selected_day, slots=slots)
+    except ValueError as exc:
+        return render_template("documents/book_calendar.html", date=selected_day, slots=[], error=str(exc)), 400
 
 
 @bp.get("/contacts/<contact_id>.vcf")
