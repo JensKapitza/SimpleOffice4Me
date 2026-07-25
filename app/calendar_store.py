@@ -151,7 +151,8 @@ class CalendarStore:
             raise RuntimeError("SMTP is not configured; booking remains pending")
         start = datetime.fromisoformat(event["start"]).strftime("%Y%m%dT%H%M%S")
         end = datetime.fromisoformat(event["end"]).strftime("%Y%m%dT%H%M%S")
-        ics = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "METHOD:REQUEST", "BEGIN:VEVENT", f"UID:{event['event_id']}@simpleoffice.local", f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{event['title'].replace(',', '\\,').replace(';', '\\;')}", "STATUS:CONFIRMED", "END:VEVENT", "END:VCALENDAR", ""])
+        summary = event["title"].replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+        ics = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "METHOD:REQUEST", "BEGIN:VEVENT", f"UID:{event['event_id']}@simpleoffice.local", f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{summary}", "STATUS:CONFIRMED", "END:VEVENT", "END:VCALENDAR", ""])
         message = EmailMessage()
         message["Subject"] = f"Termin bestätigt: {event['title']}"
         message["From"] = formataddr(("SimpleOffice4Me", sender))
