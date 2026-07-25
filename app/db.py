@@ -29,6 +29,18 @@ def init_db():
         db.executescript(f.read().decode('utf8'))
 
 
+def ensure_auth_database() -> None:
+    """Create the login table on first start without replacing existing data."""
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS user (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        )"""
+    )
+    get_db().commit()
+
+
 @click.command('init-db')
 @with_appcontext
 def init_db_command():
