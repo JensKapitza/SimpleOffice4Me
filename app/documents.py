@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
-from datetime import datetime, timedelta, timezone
+from calendar import month_name, monthcalendar
+from datetime import date, datetime, timedelta, timezone
 
 from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
 
@@ -61,6 +63,11 @@ def _document_or_404(document_id: str) -> dict:
         abort(404)
 
 
+def _is_unprocessed(document: dict) -> bool:
+    """Inbox contains only new files without a human note, state or relation."""
+    return document.get("state", "new") == "new" and not document.get("notes") and not document.get("relationships")
+
+
 @bp.route("/")
 @login_required
 def index():
@@ -71,7 +78,7 @@ def index():
 @login_required
 def dashboard():
     documents = _store().list_documents()
-    return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if item.get("last_path", "").startswith("inbox/")], todos=_todos().items(), pending=_calendar().pending_bookings())
+    return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if _is_unprocessed(item)], todos=_todos().items(), pending=_calendar().pending_bookings())
 
 
 @bp.post("/todo")
@@ -93,7 +100,7 @@ def toggle_todo(item_id: str):
 @bp.route("/inbox")
 @login_required
 def inbox():
-    return render_template("documents/index.html", documents=[item for item in _store().list_documents() if item.get("last_path", "").startswith("inbox/")], inbox_only=True)
+    return render_template("documents/index.html", documents=[item for item in _store().list_documents() if _is_unprocessed(item)], inbox_only=True)
 
 
 @bp.route("/images")
@@ -168,12 +175,30 @@ def upload():
 def detail(document_id: str):
     document = _document_or_404(document_id)
     store = _store()
+    query = request.args.get("link_query", "").strip()
+    linked_documents = {item["document_id"]: item for item in store._all_documents()}
+    relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
     return render_template(
         "documents/detail.html",
         document=document,
         versions=store.versions(document_id),
         logbook=store.logbook(document_id),
+        relationships=relationships,
+        link_query=query,
+        link_matches=[item for item in store.find_matches(query) if item["document_id"] != document_id] if query else [],
     )
+
+
+@bp.post("/<document_id>/relationships")
+@login_required
+def add_document_relationship(document_id: str):
+    _document_or_404(document_id)
+    try:
+        _store().add_link(document_id, request.form.get("target", ""), request.form.get("relation_type", "related"), request.form.get("label", ""), str(g.user["username"]))
+        flash("Dokumentverknüpfung gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id, link_query=request.form.get("link_query", "")))
 
 
 @bp.post("/<document_id>/notes")
@@ -271,7 +296,7 @@ def logbook():
 @bp.route("/archives")
 @login_required
 def archives():
-    return render_template("documents/archives.html", archives=_store().archives())
+    return render_template("documents/archives.html", main_archive=_store().main_archive(), archives=_store().archives())
 
 
 @bp.post("/archives/register")
@@ -325,6 +350,17 @@ def sync_ssh_source(source_id: str):
     return redirect(url_for("documents.ssh_sources"))
 
 
+@bp.post("/sources/ssh/<source_id>/remove")
+@login_required
+def remove_ssh_source(source_id: str):
+    try:
+        _store().remove_ssh_source(source_id, str(g.user["username"]))
+        flash("SSH-Quelle entfernt. Auf dem entfernten System und im Archiv wurden keine Dateien gelöscht.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.ssh_sources"))
+
+
 @bp.route("/contacts")
 @login_required
 def contacts():
@@ -342,6 +378,28 @@ def save_contact():
         flash("Kontakt gespeichert.")
     except ValueError as exc:
         flash(str(exc))
+    return redirect(url_for("documents.contacts"))
+
+
+@bp.get("/contacts/export.vcf")
+@login_required
+def export_contacts():
+    payload = _contacts().export_vcards().encode("utf-8")
+    return send_file(io.BytesIO(payload), as_attachment=True, download_name="simpleoffice-kontakte.vcf", mimetype="text/vcard; charset=utf-8")
+
+
+@bp.post("/contacts/import")
+@login_required
+def import_contacts():
+    uploaded = request.files.get("contacts_file")
+    if uploaded is None or not uploaded.filename:
+        flash("Bitte eine .vcf-Datei auswählen.")
+        return redirect(url_for("documents.contacts"))
+    try:
+        imported = _contacts().import_vcards(uploaded.read().decode("utf-8-sig"), str(g.user["username"]))
+        flash(f"{imported} Kontakt(e) importiert.")
+    except (UnicodeDecodeError, ValueError) as exc:
+        flash(f"Kontaktimport fehlgeschlagen: {exc}")
     return redirect(url_for("documents.contacts"))
 
 
@@ -385,7 +443,45 @@ def activate_carddav():
 @bp.route("/calendar")
 @login_required
 def calendar():
-    return render_template("documents/calendar.html", events=_calendar().events(), contacts=_contacts().contacts(), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings())
+    requested_month = request.args.get("month", date.today().strftime("%Y-%m"))
+    try:
+        shown_month = date.fromisoformat(f"{requested_month}-01")
+    except ValueError:
+        shown_month = date.today().replace(day=1)
+    events_by_day: dict[int, list[dict]] = {}
+    events = _calendar().events()
+    for event in events:
+        try:
+            event_day = datetime.fromisoformat(event["start"].replace("Z", "+00:00")).date()
+        except (KeyError, ValueError):
+            continue
+        if event_day.year == shown_month.year and event_day.month == shown_month.month:
+            events_by_day.setdefault(event_day.day, []).append(event)
+    previous = (shown_month.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    following = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
+    return render_template("documents/calendar.html", events=events, contacts=_contacts().contacts(), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+
+
+@bp.get("/calendar/export.ics")
+@login_required
+def export_calendar():
+    payload = _calendar().export_ics().encode("utf-8")
+    return send_file(io.BytesIO(payload), as_attachment=True, download_name="simpleoffice-kalender.ics", mimetype="text/calendar; charset=utf-8")
+
+
+@bp.post("/calendar/import")
+@login_required
+def import_calendar():
+    uploaded = request.files.get("calendar_file")
+    if uploaded is None or not uploaded.filename:
+        flash("Bitte eine .ics-Datei auswählen.")
+        return redirect(url_for("documents.calendar"))
+    try:
+        imported = _calendar().import_ics(uploaded.read().decode("utf-8-sig"), str(g.user["username"]))
+        flash(f"{imported} Kalendertermin(e) importiert.")
+    except (UnicodeDecodeError, ValueError) as exc:
+        flash(f"Kalenderimport fehlgeschlagen: {exc}")
+    return redirect(url_for("documents.calendar"))
 
 
 @bp.post("/calendar")
