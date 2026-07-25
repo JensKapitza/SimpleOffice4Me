@@ -1,18 +1,12 @@
-<nav class="navbar navbar-expand navbar-dark bg-dark px-3">
-  <a class="navbar-brand" href="{{ url_for('documents.index') }}">SimpleOffice</a>
-  <div class="navbar-nav">
-    <a class="nav-link" href="{{ url_for('documents.dashboard') }}">Übersicht</a>
-    <a class="nav-link" href="{{ url_for('documents.index') }}">Dokumente</a>
-    <a class="nav-link" href="{{ url_for('documents.inbox') }}">Inbox</a>
-    <a class="nav-link" href="{{ url_for('documents.calendar') }}#termine">Termine</a>
-    <a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">Notiz-Wiki</a>
-    <a class="nav-link" href="{{ url_for('documents.logbook') }}">Logbuch</a>
-    <a class="nav-link" href="{{ url_for('documents.archives') }}">Archive</a>
-    <a class="nav-link" href="{{ url_for('documents.ssh_sources') }}">SSH-Quellen</a>
-    <a class="nav-link" href="{{ url_for('documents.contacts') }}">Kontakte</a>
-    <a class="nav-link" href="{{ url_for('documents.calendar') }}">Kalender</a>
-    <a class="nav-link" href="{{ url_for('documents.dashboard') }}#todo">To-Do</a>
-    <a class="nav-link" href="{{ url_for('documents.images') }}">Bilder</a>
+<nav class="navbar navbar-expand-xl navbar-dark app-navbar sticky-top shadow-sm">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-semibold" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-box-archive me-2"></i>SimpleOffice</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-navigation" aria-controls="main-navigation" aria-expanded="false" aria-label="Navigation öffnen"><span class="navbar-toggler-icon"></span></button>
+    <div class="collapse navbar-collapse" id="main-navigation">
+      <div class="navbar-nav me-auto gap-xl-1">
+        <a class="nav-link" href="{{ url_for('documents.dashboard') }}">Übersicht</a><a class="nav-link" href="{{ url_for('documents.index') }}">Dokumente</a><a class="nav-link" href="{{ url_for('documents.inbox') }}">Inbox</a><a class="nav-link" href="{{ url_for('documents.calendar') }}#termine">Termine</a><a class="nav-link" href="{{ url_for('documents.calendar') }}">Kalender</a><a class="nav-link" href="{{ url_for('documents.dashboard') }}#todo">To-Do</a><a class="nav-link" href="{{ url_for('documents.contacts') }}">Kontakte</a><a class="nav-link" href="{{ url_for('documents.images') }}">Bilder</a>
+      </div>
+      <div class="navbar-nav border-top border-xl-0 pt-2 pt-xl-0"><a class="nav-link" href="{{ url_for('documents.archives') }}">Archive</a><a class="nav-link" href="{{ url_for('documents.ssh_sources') }}">SSH</a><a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">Notizen</a><a class="nav-link" href="{{ url_for('documents.logbook') }}">Logbuch</a><span class="navbar-text px-xl-3">{{ g.user['username'] }}</span><a class="nav-link" href="{{ url_for('auth.logout') }}">Abmelden</a></div>
+    </div>
   </div>
-  <div class="navbar-nav ms-auto"><span class="navbar-text me-3">{{ g.user['username'] }}</span><a class="nav-link" href="{{ url_for('auth.logout') }}">Abmelden</a></div>
 </nav>
