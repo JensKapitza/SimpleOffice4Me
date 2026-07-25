@@ -330,7 +330,8 @@ def sync_ssh_source(source_id: str):
 def contacts():
     contacts = _contacts().contacts()
     address_values = sorted({address.get("value", "") for contact in contacts for address in contact.get("addresses", []) if address.get("value")}, key=str.casefold)
-    return render_template("documents/contacts.html", contacts=contacts, schema=_contacts().schema(), carddav=_contacts().carddav(), address_matches=_contacts().address_matches(), address_values=address_values)
+    carddav_endpoint = url_for("carddav.endpoint", path=f"addressbooks/{g.user['username']}/default/", _external=True)
+    return render_template("documents/contacts.html", contacts=contacts, schema=_contacts().schema(), carddav=_contacts().carddav(), carddav_endpoint=carddav_endpoint, address_matches=_contacts().address_matches(), address_values=address_values)
 
 
 @bp.post("/contacts")
