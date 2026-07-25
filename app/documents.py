@@ -497,7 +497,7 @@ def calendar():
     except ValueError:
         shown_month = date.today().replace(day=1)
     events_by_day: dict[int, list[dict]] = {}
-    events = _calendar().events()
+    events = [event for event in _calendar().events() if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
     for event in events:
         try:
             event_day = datetime.fromisoformat(event["start"].replace("Z", "+00:00")).date()
