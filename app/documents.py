@@ -18,6 +18,7 @@ from .calendar_store import CalendarStore
 from .todo_store import TodoStore
 from .settings_store import SettingsStore
 from .form_store import FormStore
+from .project_store import ProjectStore
 from .db import get_db
 
 
@@ -46,6 +47,10 @@ def _settings() -> SettingsStore:
 
 def _forms() -> FormStore:
     return FormStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _projects() -> ProjectStore:
+    return ProjectStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _form_relation_choices(form: dict, actor: str) -> dict[str, list[tuple[str, str]]]:
@@ -156,6 +161,83 @@ def refresh_document_search():
 def dashboard():
     documents = _store().list_documents()
     return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if _is_unprocessed(item)], todos=_todos().items(), pending=_calendar().pending_bookings())
+
+
+@bp.route("/projects", methods=("GET", "POST"))
+@login_required
+def projects():
+    if request.method == "POST":
+        try:
+            project = _projects().create_project(request.form.to_dict(), str(g.user["username"]))
+            flash("Projekt angelegt.")
+            return redirect(url_for("documents.project_detail", project_id=project["project_id"]))
+        except ValueError as exc:
+            flash(str(exc))
+    return render_template("documents/projects.html", projects=_projects().projects())
+
+
+@bp.route("/projects/<project_id>", methods=("GET", "POST"))
+@login_required
+def project_detail(project_id: str):
+    try:
+        if request.method == "POST":
+            _projects().update_project(project_id, request.form.to_dict(), str(g.user["username"]))
+            flash("Projekt gespeichert.")
+            return redirect(url_for("documents.project_detail", project_id=project_id))
+        project = _projects().project(project_id)
+    except ValueError as exc:
+        flash(str(exc)); return redirect(url_for("documents.projects"))
+    all_documents = {item["document_id"]: item for item in _store().list_documents()}
+    return render_template("documents/project_detail.html", project=project, documents=all_documents)
+
+
+@bp.post("/projects/<project_id>/tasks")
+@login_required
+def add_project_task(project_id: str):
+    try:
+        values = request.form.to_dict(); values["predecessors"] = request.form.getlist("predecessors")
+        _projects().add_task(project_id, values, str(g.user["username"]))
+        flash("Aufgabe angelegt.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.project_detail", project_id=project_id) + "#aufgaben")
+
+
+@bp.post("/projects/<project_id>/tasks/<task_id>")
+@login_required
+def update_project_task(project_id: str, task_id: str):
+    try:
+        values = request.form.to_dict(); values["predecessors"] = request.form.getlist("predecessors")
+        _projects().update_task(project_id, task_id, values, str(g.user["username"]))
+        flash("Aufgabe gespeichert.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
+
+
+@bp.post("/projects/<project_id>/notes")
+@login_required
+def add_project_note(project_id: str):
+    try: _projects().add_note(project_id, request.form.get("text", ""), str(g.user["username"]), request.form.get("task_id", "")); flash("Notiz gespeichert.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.project_detail", project_id=project_id) + "#akte")
+
+
+@bp.post("/projects/<project_id>/links")
+@login_required
+def add_project_link(project_id: str):
+    try: _projects().add_link(project_id, request.form.get("url", ""), request.form.get("label", ""), str(g.user["username"]), request.form.get("task_id", "")); flash("Link gespeichert.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.project_detail", project_id=project_id) + "#akte")
+
+
+@bp.post("/projects/<project_id>/documents")
+@login_required
+def attach_project_document(project_id: str):
+    document_id = request.form.get("document_id", "")
+    try:
+        _document_or_404(document_id)
+        _projects().attach_document(project_id, document_id, str(g.user["username"]), request.form.get("task_id", "")); flash("Datei verknüpft.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.project_detail", project_id=project_id) + "#akte")
 
 
 @bp.route("/settings")
