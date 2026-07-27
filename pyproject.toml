@@ -10,9 +10,14 @@ requires-python = ">=3.10"
 dependencies = [
   "Flask>=3.0,<4",
   "beautifulsoup4>=4.12,<5",
-  "Pillow>=10,<12",
+  "Pillow>=12.3,<13",
   "html5lib>=1.1,<2",
   "reportlab>=4.0,<5",
+]
+
+[project.optional-dependencies]
+security = [
+  "pip-audit>=2.7,<3",
 ]
 
 [tool.setuptools]

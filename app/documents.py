@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import subprocess
 from urllib.parse import urlencode
 from calendar import month_name, monthcalendar
 from datetime import date, datetime, timedelta, timezone
@@ -19,6 +20,7 @@ from .todo_store import TodoStore
 from .settings_store import SettingsStore
 from .form_store import FormStore
 from .project_store import ProjectStore
+from .replication_store import CATEGORIES, ReplicationStore
 from .db import get_db
 
 
@@ -51,6 +53,10 @@ def _forms() -> FormStore:
 
 def _projects() -> ProjectStore:
     return ProjectStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _replication() -> ReplicationStore:
+    return ReplicationStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _form_relation_choices(form: dict, actor: str) -> dict[str, list[tuple[str, str]]]:
@@ -238,6 +244,59 @@ def attach_project_document(project_id: str):
         _projects().attach_document(project_id, document_id, str(g.user["username"]), request.form.get("task_id", "")); flash("Datei verknüpft.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.project_detail", project_id=project_id) + "#akte")
+
+
+@bp.get("/replication")
+@login_required
+def replication():
+    return render_template("documents/replication.html", status=_replication().status(), categories=CATEGORIES, restic_installed=shutil.which("restic") is not None)
+
+
+@bp.post("/replication/targets")
+@login_required
+def add_replication_target():
+    try:
+        _replication().add_target(request.form.to_dict(), str(g.user["username"])); flash("Speicherziel angelegt.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.replication"))
+
+
+@bp.post("/replication/rules")
+@login_required
+def add_replication_rule():
+    try:
+        values = request.form.to_dict(); values["categories"] = request.form.getlist("categories")
+        _replication().add_rule(values, str(g.user["username"])); flash("Spiegelungsregel angelegt.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.replication"))
+
+
+@bp.post("/replication/rules/<rule_id>/run")
+@login_required
+def run_replication_rule(rule_id: str):
+    try:
+        result = _replication().run_rule(rule_id, str(g.user["username"])); flash(f"Spiegelung abgeschlossen: {result['copied']} kopiert, {result['unchanged']} unverändert.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.replication"))
+
+
+@bp.post("/replication/restic")
+@login_required
+def add_restic_repository():
+    try:
+        values = request.form.to_dict(); values["categories"] = request.form.getlist("categories")
+        _replication().add_restic_repository(values, str(g.user["username"])); flash("Restic-Repository angelegt. Das Passwort wurde nicht gespeichert.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.replication"))
+
+
+@bp.post("/replication/restic/<repository_id>/<action>")
+@login_required
+def run_restic(repository_id: str, action: str):
+    try:
+        result = _replication().run_restic(repository_id, action, request.form.get("password", ""), str(g.user["username"]), request.form.get("restore_path", "")); flash(result["output"] or f"Restic {action} abgeschlossen.")
+    except (ValueError, OSError, subprocess.TimeoutExpired) as exc: flash(str(exc))
+    return redirect(url_for("documents.replication"))
 
 
 @bp.route("/settings")
