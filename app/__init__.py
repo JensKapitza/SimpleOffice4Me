@@ -88,6 +88,9 @@ fdb.init_app(app)
 from . import document_store as document_store
 document_store.init_app(app)
 
+from . import replication_store as replication_store
+replication_store.init_app(app)
+
 from . import documents
 app.register_blueprint(documents.bp)
 
@@ -130,6 +133,10 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    # The application serves all assets itself. Inline Bootstrap/Jinja helpers
+    # still require unsafe-inline; removing that needs a dedicated nonce pass.
+    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
     return response
 
 
