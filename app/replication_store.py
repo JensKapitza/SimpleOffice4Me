@@ -44,8 +44,12 @@ class ReplicationStore:
         path = Path(str(values.get("path", "")).strip()).expanduser()
         label = str(values.get("label", "")).strip()
         if not label or not path.is_dir(): raise ValueError("Zielname und vorhandener Zielordner sind erforderlich")
-        if path.resolve() == self.root: raise ValueError("Das Hauptdatenverzeichnis darf kein Spiegelungsziel sein")
-        data = self.status(); target = {"target_id": str(uuid.uuid4()), "label": label, "path": str(path.resolve()), "created_at": utc_now(), "created_by": actor, "last_run": None, "last_error": ""}
+        path = path.resolve()
+        if path == self.root or self.root in path.parents or path in self.root.parents: raise ValueError("Hauptdatenverzeichnis und Unterordner dürfen kein Spiegelungsziel sein")
+        initial_import = {"copied": 0, "unchanged": 0, "skipped": 0}
+        if any(path.iterdir()):
+            initial_import = DocumentStore(self.root).import_directory(path, label, actor)
+        data = self.status(); target = {"target_id": str(uuid.uuid4()), "label": label, "path": str(path), "created_at": utc_now(), "created_by": actor, "last_run": None, "last_error": "", "initial_import": initial_import}
         data["targets"].append(target); self._save(data, actor, "replication_target_created", target["target_id"]); return target
 
     def add_rule(self, values: dict[str, Any], actor: str) -> dict[str, Any]:

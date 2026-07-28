@@ -140,6 +140,34 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual("inbox/rechnung.txt", moved["location_history"][-1]["from"])
             self.assertEqual(moved["document_id"], store.get_document(moved["last_path"])["document_id"])
 
+    def test_accesses_and_persistent_share_links_are_audited(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); source = root / "angebot.txt"; source.write_text("Intern", encoding="utf-8")
+            store = DocumentStore(root); store.scan(); document = store.get_document(source)
+
+            store.record_access(document["document_id"], "admin", "found")
+            store.record_access(document["document_id"], "jens", "seen")
+            accessed = store.get_document(document["document_id"])
+            self.assertIn("admin", accessed["found_by"])
+            self.assertIn("jens", accessed["seen_by"])
+
+            first = store.create_share(document["document_id"], "erstes-passwort", 7, "admin")
+            second = store.create_share(document["document_id"], "zweites-passwort", 7, "admin")
+            store.open_share(first["share_id"], "erstes-passwort", "198.51.100.24")
+            self.assertEqual(2, len(store.document_shares(document["document_id"])))
+            self.assertEqual("opened", store.share_status(first["share_id"])["access_log"][-1]["action"])
+            self.assertEqual("198.51.100.24", store.share_status(first["share_id"])["access_log"][-1]["ip"])
+
+            payload = store._read_json(store.shares_path, {"shares": []})
+            next(item for item in payload["shares"] if item["share_id"] == first["share_id"])["expires_at"] = "2000-01-01T00:00:00+00:00"
+            store.shares_path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "abgelaufen"):
+                store.open_share(first["share_id"], "erstes-passwort", "198.51.100.24")
+            self.assertEqual("abgelaufen", store.share_status(first["share_id"])["status"])
+            store.renew_share(document["document_id"], first["share_id"], "neues-passwort", 7, "admin")
+            store.open_share(first["share_id"], "neues-passwort", "198.51.100.24")
+            self.assertEqual("aktiv", store.share_status(first["share_id"])["status"])
+
     def test_image_scan_extracts_exif_runs_ocr_and_generates_tags(self):
         try:
             from PIL import Image

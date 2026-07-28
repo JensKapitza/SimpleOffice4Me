@@ -162,6 +162,8 @@ def document_search():
     if query:
         updated = _store().refresh_missing_text(str(g.user["username"]))
         results = _store().search(query)
+        for result in results:
+            _store().record_access(result["document_id"], str(g.user["username"]), "found")
     return render_template("documents/search.html", query=query, results=results, updated=updated)
 
 
@@ -207,8 +209,13 @@ def project_detail(project_id: str):
         project = _projects().project(project_id)
     except ValueError as exc:
         flash(str(exc)); return redirect(url_for("documents.projects"))
-    all_documents = {item["document_id"]: item for item in _store().list_documents()}
-    return render_template("documents/project_detail.html", project=project, documents=all_documents)
+    linked_documents = []
+    for document_id in project.get("document_ids", []):
+        try:
+            linked_documents.append(_store().get_document(document_id))
+        except ValueError:
+            continue
+    return render_template("documents/project_detail.html", project=project, linked_documents=linked_documents)
 
 
 @bp.post("/projects/<project_id>/tasks")
@@ -230,6 +237,17 @@ def update_project_task(project_id: str, task_id: str):
         _projects().update_task(project_id, task_id, values, str(g.user["username"]))
         flash("Aufgabe gespeichert.")
     except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
+
+
+@bp.post("/projects/<project_id>/tasks/<task_id>/time")
+@login_required
+def book_project_task_time(project_id: str, task_id: str):
+    try:
+        entry = _projects().book_time(project_id, task_id, request.form.get("date", ""), request.form.get("hours", ""), request.form.get("note", ""), str(g.user["username"]))
+        flash(f"{entry['minutes'] / 60:g} Stunden gebucht.")
+    except ValueError as exc:
+        flash(str(exc))
     return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
 
 
@@ -258,6 +276,16 @@ def attach_project_document(project_id: str):
         _projects().attach_document(project_id, document_id, str(g.user["username"]), request.form.get("task_id", "")); flash("Datei verknüpft.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.project_detail", project_id=project_id) + "#akte")
+
+
+@bp.get("/projects/documents/search")
+@login_required
+def search_project_documents():
+    query = request.args.get("q", "").strip()
+    results = _store().search(query, limit=20) if len(query) >= 2 else []
+    for result in results:
+        _store().record_access(result["document_id"], str(g.user["username"]), "found")
+    return Response(json.dumps(results), mimetype="application/json")
 
 
 @bp.get("/replication")
@@ -330,6 +358,11 @@ def save_settings():
     }
     try:
         _settings().save(values, str(g.user["username"]))
+        display_name = request.form.get("display_name", "").strip()
+        if not display_name:
+            raise ValueError("Anzeigename fehlt.")
+        get_db().execute("UPDATE user SET display_name = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?", (display_name, "manual", g.user["id"]))
+        get_db().commit()
         flash("Standardwerte gespeichert. Bestehende Daten wurden nicht verändert.")
     except (TypeError, ValueError) as exc:
         flash(str(exc))
@@ -457,6 +490,7 @@ def upload():
 def detail(document_id: str):
     document = _document_or_404(document_id)
     store = _store()
+    document = store.record_access(document_id, str(g.user["username"]), "seen")
     query = request.args.get("link_query", "").strip()
     linked_documents = {item["document_id"]: item for item in store._all_documents()}
     relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
@@ -466,6 +500,7 @@ def detail(document_id: str):
         versions=store.versions(document_id),
         logbook=store.logbook(document_id),
         relationships=relationships,
+        shares=store.document_shares(document_id),
         link_query=query,
         link_matches=[item for item in store.find_matches(query) if item["document_id"] != document_id] if query else [],
         defaults=_settings().settings(),
@@ -551,6 +586,18 @@ def create_share(document_id: str):
     return redirect(url_for("documents.detail", document_id=document_id))
 
 
+@bp.post("/<document_id>/share/<share_id>/renew")
+@login_required
+def renew_share(document_id: str, share_id: str):
+    _document_or_404(document_id)
+    try:
+        _store().renew_share(document_id, share_id, request.form.get("password", ""), int(request.form.get("expires_days", "7")), str(g.user["username"]))
+        flash("Freigabelink mit neuem Passwort reaktiviert.")
+    except (TypeError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
 @bp.post("/<document_id>/offload-versions")
 @login_required
 def offload_versions(document_id: str):
@@ -569,11 +616,12 @@ def offload_versions(document_id: str):
 @bp.route("/share/<share_id>", methods=("GET", "POST"))
 def open_share(share_id: str):
     if request.method == "GET":
-        return render_template("documents/share.html", share_id=share_id)
+        store = _store(); store.record_share_view(share_id, request.remote_addr or "")
+        return render_template("documents/share.html", share_id=share_id, share=store.share_status(share_id))
     try:
-        opened = _store().open_share(share_id, request.form.get("password", ""))
+        opened = _store().open_share(share_id, request.form.get("password", ""), request.remote_addr or "")
     except ValueError as exc:
-        return render_template("documents/share.html", share_id=share_id, error=str(exc)), 403
+        return render_template("documents/share.html", share_id=share_id, share=_store().share_status(share_id), error=str(exc)), 403
     if "note" in opened:
         return render_template("documents/shared_note.html", note=opened["note"], document=opened["document"], share=opened["share"])
     return send_file(opened["path"], as_attachment=True, download_name=opened["path"].name)

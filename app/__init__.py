@@ -97,6 +97,7 @@ initlogging()
 #see here 4mail logging
 #https://flask.palletsprojects.com/en/1.1.x/logging/
 app = Flask(__name__,template_folder=template_dir,static_folder=static_dir)
+app.jinja_env.globals["now"] = datetime.datetime.now
 app.session_interface = SchemeAwareSessionInterface()
 app.config['DATABASE_FILEDIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")

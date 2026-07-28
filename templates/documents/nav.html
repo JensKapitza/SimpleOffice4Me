@@ -11,13 +11,14 @@
         <a class="nav-link" href="{{ url_for('documents.document_search') }}"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Suchen</a>
         <a class="nav-link" href="{{ url_for('documents.calendar') }}"><i class="fas fa-calendar-days me-1" aria-hidden="true"></i>{{ tr('calendar') }}</a>
         <a class="nav-link" href="{{ url_for('documents.contacts') }}"><i class="fas fa-address-book me-1" aria-hidden="true"></i>{{ tr('contacts') }}</a>
+        <a class="nav-link" href="{{ url_for('documents.images') }}"><i class="fas fa-images me-1" aria-hidden="true"></i>{{ tr('images') }}</a>
       </div>
       <div class="navbar-nav border-top border-xl-0 pt-2 pt-xl-0 align-items-xl-center">
         <a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a>
         <a class="nav-link" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a>
         <a class="nav-link" href="{{ url_for('documents.settings') }}"><i class="fas fa-cog me-1" aria-hidden="true"></i>{{ tr('settings') }}</a>
         <form method="post" action="{{ url_for('documents.set_language') }}" class="px-xl-2"><label class="visually-hidden" for="language">Language</label><select class="form-select form-select-sm" id="language" name="language" onchange="this.form.submit()" aria-label="Language"><option value="de" {% if g.language == 'de' %}selected{% endif %}>DE</option><option value="en" {% if g.language == 'en' %}selected{% endif %}>EN</option></select></form>
-        <a class="navbar-text px-xl-2 small text-decoration-none" href="{{ url_for('auth.profile') }}">{{ g.user['display_name'] or g.user['username'] }}</a><a class="nav-link" href="{{ url_for('auth.logout') }}">{{ tr('logout') }}</a>
+        <span class="navbar-text px-xl-2 small">{{ g.user['display_name'] or g.user['username'] }}</span><a class="nav-link" href="{{ url_for('auth.logout') }}">{{ tr('logout') }}</a>
       </div>
     </div>
   </div>

@@ -175,6 +175,49 @@ class DocumentStore:
         self._record_revision("document_imported", actor, "documents", metadata["document_id"], metadata)
         return target
 
+    def import_directory(self, source: str | Path, label: str, actor: str = "system") -> dict[str, int | str]:
+        """Copy an existing directory into the managed archive without modifying it.
+
+        The source tree remains untouched.  Its relative directory structure is
+        retained below ``imports/<label>`` and name collisions create an
+        additional file instead of replacing an earlier import.
+        """
+        self._require_actor(actor)
+        self.initialize()
+        source_root = Path(source).expanduser().resolve()
+        if not source_root.is_dir() or source_root.is_symlink():
+            raise ValueError("source directory must be a regular directory")
+        source_in_staging = self.control == source_root or self.control in source_root.parents
+        if source_root == self.root or (self.root in source_root.parents and not source_in_staging) or source_root in self.root.parents:
+            raise ValueError("source directory must be outside the main archive")
+        safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", label.strip()).strip(".-") or "storage"
+        destination_root = self.root / "imports" / safe_label
+        copied = unchanged = skipped = 0
+        for source_path in sorted(source_root.rglob("*"), key=lambda item: str(item).casefold()):
+            if not source_path.is_file() or source_path.is_symlink():
+                skipped += 1
+                continue
+            relative = source_path.relative_to(source_root)
+            destination = destination_root / relative
+            source_hash = sha256_file(source_path)
+            if destination.is_file() and sha256_file(destination) == source_hash:
+                unchanged += 1
+                continue
+            if destination.exists():
+                destination = destination.with_name(f"{destination.stem}-{source_hash[:12]}{destination.suffix}")
+                if destination.is_file() and sha256_file(destination) == source_hash:
+                    unchanged += 1
+                    continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            self.ensure_folder_policy(destination.parent)
+            shutil.copy2(source_path, destination)
+            copied += 1
+        self.scan()
+        result: dict[str, int | str] = {"source": str(source_root), "destination": self.relative(destination_root), "copied": copied, "unchanged": unchanged, "skipped": skipped}
+        self._event("directory_imported", {**result, "actor": actor})
+        self._record_revision("directory_imported", actor, "documents", safe_label, result)
+        return result
+
     def import_upload(self, upload: Any, filename: str, actor: str, archive: bool = False) -> dict[str, Any]:
         """Store an uploaded file safely; archive placement is content-hash sorted."""
         self._require_actor(actor)
@@ -239,6 +282,7 @@ class DocumentStore:
             "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
             "password_salt": salt.hex(),
             "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(),
+            "access_log": [],
         }
         payload = self._read_json(self.shares_path, {"shares": []})
         payload["shares"] = [*payload.get("shares", []), share]
@@ -247,18 +291,46 @@ class DocumentStore:
         self._record_revision("share_created", actor, "shares", share_id, {key: value for key, value in share.items() if not key.startswith("password_")})
         return {key: value for key, value in share.items() if not key.startswith("password_")}
 
-    def open_share(self, share_id: str, password: str) -> dict[str, Any]:
+    def document_shares(self, reference: str | Path) -> list[dict[str, Any]]:
+        document_id = self.get_document(reference)["document_id"]
+        now = datetime.now(timezone.utc)
+        shares = [item for item in self._read_json(self.shares_path, {"shares": []}).get("shares", []) if item.get("document_id") == document_id]
+        return [self._public_share(item, now) for item in sorted(shares, key=lambda item: item.get("created_at", ""), reverse=True)]
+
+    def share_status(self, share_id: str) -> dict[str, Any] | None:
+        share = next((item for item in self._read_json(self.shares_path, {"shares": []}).get("shares", []) if item.get("share_id") == share_id), None)
+        return self._public_share(share, datetime.now(timezone.utc)) if share else None
+
+    def renew_share(self, reference: str | Path, share_id: str, password: str, expires_days: int, actor: str) -> dict[str, Any]:
+        """Reactivate the same persistent URL, only with a replacement password."""
+        self._require_actor(actor)
+        if len(password.strip()) < 8: raise ValueError("share password must contain at least 8 characters")
+        if not 1 <= expires_days <= 365: raise ValueError("share expiry must be between 1 and 365 days")
+        document_id = self.get_document(reference)["document_id"]
+        payload = self._read_json(self.shares_path, {"shares": []})
+        share = next((item for item in payload["shares"] if item.get("share_id") == share_id and item.get("document_id") == document_id), None)
+        if share is None: raise ValueError("share does not belong to this document")
+        salt = os.urandom(16)
+        share.update({"password_salt": salt.hex(), "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(), "expires_at": datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + expires_days * 86400, timezone.utc).isoformat(), "reactivated_at": utc_now(), "reactivated_by": actor})
+        atomic_json_write(self.shares_path, payload)
+        self._event("share_reactivated", {"share_id": share_id, "document_id": document_id, "actor": actor})
+        return self._public_share(share, datetime.now(timezone.utc))
+
+    def open_share(self, share_id: str, password: str, remote_addr: str = "") -> dict[str, Any]:
         """Validate a share password and return its document metadata."""
-        shares = self._read_json(self.shares_path, {"shares": []}).get("shares", [])
-        share = next((item for item in shares if item.get("share_id") == share_id), None)
-        if not share or datetime.fromisoformat(share["expires_at"]).astimezone(timezone.utc) < datetime.now(timezone.utc):
-            raise ValueError("share is unavailable or expired")
+        payload = self._read_json(self.shares_path, {"shares": []})
+        share = next((item for item in payload["shares"] if item.get("share_id") == share_id), None)
+        if not share: raise ValueError("Freigabelink ist nicht verfügbar")
+        if self._share_expired(share):
+            self._record_share_access(payload, share, "expired_access", remote_addr)
+            raise ValueError("Freigabelink ist abgelaufen")
         expected = bytes.fromhex(share["password_hash"])
         actual = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(share["password_salt"]), n=2**14, r=8, p=1)
         if not hmac.compare_digest(expected, actual):
-            raise ValueError("invalid share password")
+            self._record_share_access(payload, share, "password_rejected", remote_addr)
+            raise ValueError("Passwort ist nicht korrekt")
         document = self.get_document(share["document_id"])
-        self._event("share_opened", {"share_id": share_id, "document_id": document["document_id"]})
+        self._record_share_access(payload, share, "opened", remote_addr)
         result = {"document": document, "share": {key: value for key, value in share.items() if not key.startswith("password_")}}
         if share.get("resource_type") == "note":
             note = next((item for item in document.get("notes", []) if item.get("id") == share.get("note_id")), None)
@@ -269,6 +341,38 @@ class DocumentStore:
         if not path.is_file() or path.is_symlink():
             raise ValueError("the shared original is currently unavailable")
         return {**result, "path": path}
+
+    def record_share_view(self, share_id: str, remote_addr: str = "") -> None:
+        payload = self._read_json(self.shares_path, {"shares": []})
+        share = next((item for item in payload["shares"] if item.get("share_id") == share_id), None)
+        if share: self._record_share_access(payload, share, "link_viewed", remote_addr)
+
+    def record_access(self, reference: str | Path, actor: str, access_type: str) -> dict[str, Any]:
+        """Persist who saw a document or received it as a search result."""
+        self._require_actor(actor)
+        if access_type not in {"seen", "found"}: raise ValueError("unsupported document access type")
+        document = self.get_document(reference)
+        access = {"type": access_type, "actor": actor, "at": utc_now()}
+        document.setdefault("access_log", []).append(access)
+        document.setdefault(f"{access_type}_by", {})[actor] = access["at"]
+        self._save_document(document)
+        self._event(f"document_{access_type}", {"document_id": document["document_id"], **access})
+        return document
+
+    @staticmethod
+    def _share_expired(share: dict[str, Any]) -> bool:
+        return datetime.fromisoformat(share["expires_at"]).astimezone(timezone.utc) < datetime.now(timezone.utc)
+
+    def _public_share(self, share: dict[str, Any], now: datetime) -> dict[str, Any]:
+        result = {key: value for key, value in share.items() if not key.startswith("password_")}
+        result["status"] = "abgelaufen" if self._share_expired(share) else "aktiv"
+        return result
+
+    def _record_share_access(self, payload: dict[str, Any], share: dict[str, Any], action: str, remote_addr: str) -> None:
+        entry = {"action": action, "at": utc_now(), "ip": remote_addr or "unbekannt", "share_id": share["share_id"]}
+        share.setdefault("access_log", []).append(entry)
+        atomic_json_write(self.shares_path, payload)
+        self._event("share_access", {"share_id": share["share_id"], "document_id": share["document_id"], **entry})
 
     def ssh_sources(self) -> list[dict[str, Any]]:
         self.initialize()
@@ -316,11 +420,7 @@ class DocumentStore:
         result = subprocess.run(command, capture_output=True, text=True, timeout=3600)
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or "SSH import failed")
-        imported = 0
-        for path in staging.rglob("*"):
-            if path.is_file() and not path.is_symlink():
-                self.import_file(path, actor)
-                imported += 1
+        imported = int(self.import_directory(staging, f"SSH-{source['name']}", actor)["copied"])
         payload = self._read_json(self.ssh_sources_path, {"sources": []})
         for item in payload.get("sources", []):
             if item.get("source_id") == source_id:

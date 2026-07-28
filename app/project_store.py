@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -71,11 +72,27 @@ class ProjectStore:
         task = {"task_id": str(uuid.uuid4()), "title": str(values["title"]).strip(), "description": str(values.get("description", "")).strip(),
                 "status": self._state(values.get("status"), TASK_STATES, "open"), "planned_start": str(values.get("planned_start", "")).strip(),
                 "planned_end": str(values.get("planned_end", "")).strip(), "resources": self._values(values.get("resources")),
-                "predecessors": predecessors, "result": str(values.get("result", "")).strip(), "document_ids": [], "links": [], "notes": [],
+                "predecessors": predecessors, "result": str(values.get("result", "")).strip(), "document_ids": [], "links": [], "notes": [], "time_entries": [],
                 "created_at": utc_now(), "created_by": actor, "updated_at": utc_now(), "updated_by": actor}
         project["tasks"].append(task)
         self._touch(project, actor); self._write_change(project, actor, "project_task_created")
         return task
+
+    def book_time(self, project_id: str, task_id: str, entry_date: str, hours: Any, note: str, actor: str) -> dict[str, Any]:
+        project = self.project(project_id); task = self._task(project, task_id)
+        self._require(actor, entry_date, "entry date")
+        try:
+            booked_date = date.fromisoformat(str(entry_date)).isoformat()
+            minutes = round(float(str(hours).replace(",", ".")) * 60)
+        except (TypeError, ValueError):
+            raise ValueError("date and hours are invalid")
+        if not 1 <= minutes <= 24 * 60:
+            raise ValueError("hours must be between 0.02 and 24")
+        entry = {"entry_id": str(uuid.uuid4()), "date": booked_date, "minutes": minutes, "note": str(note).strip(), "created_at": utc_now(), "created_by": actor}
+        task.setdefault("time_entries", []).append(entry)
+        task["updated_at"] = utc_now(); task["updated_by"] = actor
+        self._touch(project, actor); self._write_change(project, actor, "project_task_time_booked")
+        return entry
 
     def update_task(self, project_id: str, task_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
         project = self.project(project_id); task = self._task(project, task_id)

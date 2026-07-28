@@ -38,6 +38,17 @@ class ReplicationStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Zielname"):
             replication.add_target({"label": "fehlend", "path": str(self.target / "missing")}, "tester")
 
+    def test_existing_target_is_imported_without_changing_source(self):
+        legacy = self.target / "Altbestand" / "rechnung.txt"; legacy.parent.mkdir()
+        legacy.write_text("bleibt erhalten", encoding="utf-8")
+
+        target = ReplicationStore(self.root).add_target({"label": "Altplatte", "path": str(self.target)}, "tester")
+
+        self.assertEqual("bleibt erhalten", legacy.read_text(encoding="utf-8"))
+        self.assertEqual(1, target["initial_import"]["copied"])
+        imported = self.root / "imports" / "Altplatte" / "Altbestand" / "rechnung.txt"
+        self.assertEqual("bleibt erhalten", imported.read_text(encoding="utf-8"))
+
     def test_run_all_collects_enabled_rules(self):
         replication = ReplicationStore(self.root)
         target = replication.add_target({"label": "USB", "path": str(self.target)}, "tester")

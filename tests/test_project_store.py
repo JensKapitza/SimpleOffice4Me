@@ -34,3 +34,14 @@ class ProjectStoreTests(unittest.TestCase):
         task = self.store.add_task(project["project_id"], {"title": "Schritt"}, "jens")
         with self.assertRaisesRegex(ValueError, "invalid task dependency"):
             self.store.update_task(project["project_id"], task["task_id"], {"title": "Schritt", "predecessors": [task["task_id"]]}, "jens")
+
+    def test_task_status_and_time_entries_are_persisted(self):
+        project = self.store.create_project({"title": "Test"}, "jens")
+        task = self.store.add_task(project["project_id"], {"title": "Telefonat"}, "jens")
+        self.store.update_task(project["project_id"], task["task_id"], {"title": "Telefonat", "status": "in_progress"}, "jens")
+        entry = self.store.book_time(project["project_id"], task["task_id"], "2026-07-28", "2", "Vermieter angerufen", "jens")
+
+        stored = self.store.project(project["project_id"])["tasks"][0]
+        self.assertEqual("in_progress", stored["status"])
+        self.assertEqual(120, entry["minutes"])
+        self.assertEqual(120, stored["time_entries"][0]["minutes"])

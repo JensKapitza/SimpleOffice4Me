@@ -222,13 +222,4 @@ def login_required(view):
 @bp.route('/profile', methods=('GET', 'POST'))
 @login_required
 def profile():
-    if request.method == 'POST':
-        display_name = request.form.get('display_name', '').strip()
-        if not display_name:
-            flash('Anzeigename fehlt.')
-        else:
-            get_db().execute('UPDATE user SET display_name = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?', (display_name, 'manual', g.user['id']))
-            get_db().commit()
-            flash('Benutzerprofil gespeichert.')
-            return redirect(url_for('auth.profile'))
-    return render_template('auth/profile.html')
+    return redirect(url_for('documents.settings'))
