@@ -192,28 +192,32 @@ class DocumentStore:
             raise ValueError("source directory must be outside the main archive")
         safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", label.strip()).strip(".-") or "storage"
         destination_root = self.root / "imports" / safe_label
-        copied = unchanged = skipped = 0
+        copied = unchanged = skipped = errors = 0
         for source_path in sorted(source_root.rglob("*"), key=lambda item: str(item).casefold()):
-            if not source_path.is_file() or source_path.is_symlink():
-                skipped += 1
-                continue
-            relative = source_path.relative_to(source_root)
-            destination = destination_root / relative
-            source_hash = sha256_file(source_path)
-            if destination.is_file() and sha256_file(destination) == source_hash:
-                unchanged += 1
-                continue
-            if destination.exists():
-                destination = destination.with_name(f"{destination.stem}-{source_hash[:12]}{destination.suffix}")
+            try:
+                if not source_path.is_file() or source_path.is_symlink():
+                    skipped += 1
+                    continue
+                relative = source_path.relative_to(source_root)
+                destination = destination_root / relative
+                source_hash = sha256_file(source_path)
                 if destination.is_file() and sha256_file(destination) == source_hash:
                     unchanged += 1
                     continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            self.ensure_folder_policy(destination.parent)
-            shutil.copy2(source_path, destination)
-            copied += 1
+                if destination.exists():
+                    destination = destination.with_name(f"{destination.stem}-{source_hash[:12]}{destination.suffix}")
+                    if destination.is_file() and sha256_file(destination) == source_hash:
+                        unchanged += 1
+                        continue
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                self.ensure_folder_policy(destination.parent)
+                shutil.copy2(source_path, destination)
+                copied += 1
+            except OSError as exc:
+                errors += 1
+                self._event("directory_import_file_skipped", {"source": str(source_path), "error": str(exc), "actor": actor})
         self.scan()
-        result: dict[str, int | str] = {"source": str(source_root), "destination": self.relative(destination_root), "copied": copied, "unchanged": unchanged, "skipped": skipped}
+        result: dict[str, int | str] = {"source": str(source_root), "destination": self.relative(destination_root), "copied": copied, "unchanged": unchanged, "skipped": skipped, "errors": errors}
         self._event("directory_imported", {**result, "actor": actor})
         self._record_revision("directory_imported", actor, "documents", safe_label, result)
         return result

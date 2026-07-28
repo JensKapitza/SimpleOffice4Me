@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.document_store import DocumentStore
 from app.replication_store import ReplicationStore
@@ -48,6 +49,26 @@ class ReplicationStoreTests(unittest.TestCase):
         self.assertEqual(1, target["initial_import"]["copied"])
         imported = self.root / "imports" / "Altplatte" / "Altbestand" / "rechnung.txt"
         self.assertEqual("bleibt erhalten", imported.read_text(encoding="utf-8"))
+
+    def test_existing_target_can_be_imported_later(self):
+        replication = ReplicationStore(self.root)
+        target = replication.add_target({"label": "USB", "path": str(self.target)}, "tester")
+        late = self.target / "später.txt"; late.write_text("neu", encoding="utf-8")
+
+        result = replication.import_target(target["target_id"], "tester")
+
+        self.assertEqual(1, result["copied"])
+        self.assertEqual("neu", (self.root / "imports" / "USB" / "später.txt").read_text(encoding="utf-8"))
+
+    def test_unreadable_file_is_skipped_without_aborting_import(self):
+        readable = self.target / "ok.txt"; unreadable = self.target / "locked.bin"
+        readable.write_text("ok", encoding="utf-8"); unreadable.write_bytes(b"locked")
+        original_hash = __import__("app.document_store", fromlist=["sha256_file"]).sha256_file
+        with patch("app.document_store.sha256_file", side_effect=lambda path: (_ for _ in ()).throw(PermissionError("denied")) if Path(path) == unreadable else original_hash(path)):
+            target = ReplicationStore(self.root).add_target({"label": "USB", "path": str(self.target)}, "tester")
+
+        self.assertEqual(1, target["initial_import"]["copied"])
+        self.assertEqual(1, target["initial_import"]["errors"])
 
     def test_run_all_collects_enabled_rules(self):
         replication = ReplicationStore(self.root)

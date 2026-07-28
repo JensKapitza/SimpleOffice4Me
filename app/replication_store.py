@@ -46,11 +46,20 @@ class ReplicationStore:
         if not label or not path.is_dir(): raise ValueError("Zielname und vorhandener Zielordner sind erforderlich")
         path = path.resolve()
         if path == self.root or self.root in path.parents or path in self.root.parents: raise ValueError("Hauptdatenverzeichnis und Unterordner dürfen kein Spiegelungsziel sein")
-        initial_import = {"copied": 0, "unchanged": 0, "skipped": 0}
-        if any(path.iterdir()):
-            initial_import = DocumentStore(self.root).import_directory(path, label, actor)
-        data = self.status(); target = {"target_id": str(uuid.uuid4()), "label": label, "path": str(path), "created_at": utc_now(), "created_by": actor, "last_run": None, "last_error": "", "initial_import": initial_import}
+        initial_import = DocumentStore(self.root).import_directory(path, label, actor) if any(path.iterdir()) else {"copied": 0, "unchanged": 0, "skipped": 0}
+        data = self.status(); target = {"target_id": str(uuid.uuid4()), "label": label, "path": str(path), "created_at": utc_now(), "created_by": actor, "last_run": None, "last_error": "", "initial_import": initial_import, "last_import": initial_import}
         data["targets"].append(target); self._save(data, actor, "replication_target_created", target["target_id"]); return target
+
+    def import_target(self, target_id: str, actor: str) -> dict[str, Any]:
+        """Import the current contents of an already registered target safely."""
+        data = self.status(); target = next((item for item in data["targets"] if item["target_id"] == target_id), None)
+        if target is None: raise ValueError("Unbekanntes Spiegelungsziel")
+        path = Path(target["path"])
+        if not path.is_dir(): raise ValueError("Spiegelungsziel ist nicht verbunden")
+        result = DocumentStore(self.root).import_directory(path, target["label"], actor)
+        target["last_import"] = {**result, "at": utc_now()}
+        self._save(data, actor, "replication_target_imported", target_id)
+        return result
 
     def add_rule(self, values: dict[str, Any], actor: str) -> dict[str, Any]:
         data = self.status(); target_id = str(values.get("target_id", ""));

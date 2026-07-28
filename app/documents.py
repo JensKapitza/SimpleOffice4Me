@@ -298,8 +298,20 @@ def replication():
 @login_required
 def add_replication_target():
     try:
-        _replication().add_target(request.form.to_dict(), str(g.user["username"])); flash("Speicherziel angelegt.")
-    except ValueError as exc: flash(str(exc))
+        target = _replication().add_target(request.form.to_dict(), str(g.user["username"])); result = target.get("initial_import", {})
+        flash(f"Speicherziel angelegt. Import: {result.get('copied', 0)} neu, {result.get('unchanged', 0)} vorhanden, {result.get('errors', 0)} nicht lesbar.")
+    except (OSError, ValueError) as exc: flash(str(exc))
+    return redirect(url_for("documents.replication"))
+
+
+@bp.post("/replication/targets/<target_id>/import")
+@login_required
+def import_replication_target(target_id: str):
+    try:
+        result = _replication().import_target(target_id, str(g.user["username"]))
+        flash(f"Speicher importiert: {result['copied']} neu, {result['unchanged']} bereits vorhanden, {result.get('errors', 0)} nicht lesbar.")
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
     return redirect(url_for("documents.replication"))
 
 
