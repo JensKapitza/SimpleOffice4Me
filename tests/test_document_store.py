@@ -1,4 +1,5 @@
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -156,7 +157,11 @@ class DocumentStoreTest(unittest.TestCase):
             canvas.drawString(72, 720, "Durchsuchbarer Bezugscode Kranich")
             canvas.save()
             store = DocumentStore(root)
-            with mock.patch("app.document_store.shutil.which", return_value=None):
+            system_which = shutil.which
+            with mock.patch(
+                "app.document_store.shutil.which",
+                side_effect=lambda name: None if name in {"pdftotext", "pdfimages"} else system_which(name),
+            ):
                 store.scan()
             document = store.get_document(pdf_path)
             self.assertIn("Bezugscode Kranich", document["extracted_text"])
