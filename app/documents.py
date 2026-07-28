@@ -182,7 +182,7 @@ def refresh_document_search():
 @login_required
 def dashboard():
     documents = _store().list_documents()
-    return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if _is_unprocessed(item)], todos=_todos().items(), pending=_calendar().pending_bookings())
+    return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if _is_unprocessed(item)], todos=_todos().items(), pending=_calendar().pending_bookings(), scan_status=_store().scan_status())
 
 
 @bp.route("/projects", methods=("GET", "POST"))

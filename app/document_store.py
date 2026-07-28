@@ -24,7 +24,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from xml.etree import ElementTree
 
 import click
@@ -86,6 +86,7 @@ class DocumentStore:
         self.archives_path = self.control / ARCHIVES_FILE
         self.shares_path = self.control / SHARES_FILE
         self.ssh_sources_path = self.control / SSH_SOURCES_FILE
+        self.scan_status_path = self.control / "scan-status.json"
         self.note_snapshots = self.control / "note-snapshots"
         self.history = RevisionHistory(self.root)
 
@@ -997,7 +998,7 @@ class DocumentStore:
         start = (page - 1) * page_size
         return {"events": merged[start:start + page_size], "page": page, "has_next": len(merged) > start + page_size}
 
-    def scan(self) -> ScanReport:
+    def scan(self, progress: Callable[[ScanReport], None] | None = None, file_progress: Callable[[Path], None] | None = None) -> ScanReport:
         self.initialize()
         files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
         # Device/inode tracking prevents a deliberately allowed symlink from
@@ -1032,6 +1033,7 @@ class DocumentStore:
                         if target.is_dir():
                             pending.append(target)
                         elif target.is_file():
+                            if file_progress: file_progress(target)
                             created, duplicate = self._scan_file(target)
                             files += 1
                             new_files += int(created)
@@ -1050,6 +1052,7 @@ class DocumentStore:
                         continue
                     if not path.is_file():
                         continue
+                    if file_progress: file_progress(path)
                     created, duplicate = self._scan_file(path)
                     files += 1
                     new_files += int(created)
@@ -1057,7 +1060,19 @@ class DocumentStore:
                 except (OSError, ValueError) as exc:
                     errors += 1
                     self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
-        return ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors)
+                if progress:
+                    progress(ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors))
+        report = ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors)
+        if progress: progress(report)
+        return report
+
+    def scan_status(self) -> dict[str, Any]:
+        self.initialize()
+        return self._read_json(self.scan_status_path, {"state": "idle", "updated_at": None})
+
+    def set_scan_status(self, status: dict[str, Any]) -> None:
+        self.initialize()
+        atomic_json_write(self.scan_status_path, {**status, "updated_at": utc_now()})
 
     def relative(self, path: Path) -> str:
         resolved = path.resolve()

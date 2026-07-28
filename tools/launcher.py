@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 
 
@@ -82,15 +83,25 @@ def start(configure_only: bool = False) -> None:
     from app import app
     from app.document_store import DocumentStore
 
-    report = DocumentStore(document_root).scan()
-    print(
-        f"Dokumentordner geprüft: files={report.files} new={report.new_files} "
-        f"duplicates={report.duplicates} symlinks={report.symlinks} "
-        f"boundaries={report.skipped_boundaries} errors={report.errors}"
-    )
+    store = DocumentStore(document_root)
+
+    def initial_scan() -> None:
+        store.set_scan_status({"state": "running", "files": 0, "new_files": 0, "duplicates": 0, "errors": 0})
+        try:
+            report = store.scan(
+                lambda current: store.set_scan_status({"state": "running", "files": current.files, "new_files": current.new_files, "duplicates": current.duplicates, "errors": current.errors}),
+                lambda path: print(f"Lade Dokument: {store.relative(path)}", flush=True),
+            )
+            store.set_scan_status({"state": "completed", "files": report.files, "new_files": report.new_files, "duplicates": report.duplicates, "errors": report.errors})
+            print(f"Initialscan abgeschlossen: files={report.files} new={report.new_files} duplicates={report.duplicates} errors={report.errors}")
+        except Exception as exc:
+            store.set_scan_status({"state": "failed", "error": str(exc)})
+            print(f"Initialscan fehlgeschlagen: {exc}", file=sys.stderr)
+
+    threading.Thread(target=initial_scan, name="simpleoffice-initial-scan", daemon=True).start()
     host = str(config["host"])
     port = int(config["port"])
-    print(f"SimpleOffice4Me läuft unter http://{host}:{port}")
+    print(f"SimpleOffice4Me läuft unter http://{host}:{port}; Initialscan läuft im Hintergrund.")
     app.run(host=host, port=port, debug=False, use_reloader=False)
 
 

@@ -3,6 +3,7 @@
 {% block body %}
 <main class="container py-4">
   <h1>Systemübersicht</h1>
+  {% if scan_status.state == 'running' %}<div class="alert alert-info">Initialscan läuft: {{ scan_status.files|default(0) }} Dateien verarbeitet, {{ scan_status.new_files|default(0) }} neu, {{ scan_status.errors|default(0) }} Fehler. Die Anwendung ist bereits nutzbar.</div>{% elif scan_status.state == 'failed' %}<div class="alert alert-warning">Initialscan fehlgeschlagen: {{ scan_status.error }}</div>{% elif scan_status.state == 'completed' %}<div class="alert alert-success py-2">Initialscan abgeschlossen: {{ scan_status.files }} Dateien, {{ scan_status.new_files }} neu.</div>{% endif %}
   <div class="row g-3">
     <section class="col-md-4"><div class="card h-100"><div class="card-body"><h2 class="h5">Zeit</h2><p>{{ system.time }}</p><h2 class="h5">Dokumentenspeicher</h2><p>{{ (system.storage.free / 1024 / 1024 / 1024)|round(1) }} GB frei von {{ (system.storage.total / 1024 / 1024 / 1024)|round(1) }} GB</p></div></div></section>
     <section class="col-md-8"><div class="card h-100"><div class="card-body"><h2 class="h5">Verbundene Speicher</h2>{% for device in system.devices %}<div>{{ device.path }}: {{ (device.free / 1024 / 1024 / 1024)|round(1) }} GB frei / {{ (device.total / 1024 / 1024 / 1024)|round(1) }} GB</div>{% else %}<p>Keine lesbaren Mounts erkannt.</p>{% endfor %}</div></div></section>
