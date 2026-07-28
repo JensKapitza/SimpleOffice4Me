@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 
@@ -155,7 +156,8 @@ class DocumentStoreTest(unittest.TestCase):
             canvas.drawString(72, 720, "Durchsuchbarer Bezugscode Kranich")
             canvas.save()
             store = DocumentStore(root)
-            store.scan()
+            with mock.patch("app.document_store.shutil.which", return_value=None):
+                store.scan()
             document = store.get_document(pdf_path)
             self.assertIn("Bezugscode Kranich", document["extracted_text"])
             self.assertEqual(document["document_id"], store.search("Kranich")[0]["document_id"])
