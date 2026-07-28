@@ -3,7 +3,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
+from unittest.mock import patch
 
 from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 
@@ -157,12 +157,7 @@ class DocumentStoreTest(unittest.TestCase):
             canvas.drawString(72, 720, "Durchsuchbarer Bezugscode Kranich")
             canvas.save()
             store = DocumentStore(root)
-            system_which = shutil.which
-            with mock.patch(
-                "app.document_store.shutil.which",
-                side_effect=lambda name: None if name in {"pdftotext", "pdfimages"} else system_which(name),
-            ):
-                store.scan()
+            store.scan()
             document = store.get_document(pdf_path)
             self.assertIn("Bezugscode Kranich", document["extracted_text"])
             self.assertEqual(document["document_id"], store.search("Kranich")[0]["document_id"])
@@ -170,3 +165,25 @@ class DocumentStoreTest(unittest.TestCase):
             store._save_document(document)
             self.assertGreaterEqual(store.refresh_missing_text("tester"), 1)
             self.assertIn("Kranich", store.get_document(pdf_path)["extracted_text"])
+
+    def test_pdf_text_falls_back_to_pypdf_without_pdftotext(self):
+        try:
+            from reportlab.pdfgen.canvas import Canvas
+            import pypdf  # noqa: F401
+        except ImportError:
+            self.skipTest("PDF test dependencies are not installed")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pdf_path = root / "fallback.pdf"
+            canvas = Canvas(str(pdf_path))
+            canvas.drawString(72, 720, "Python PDF Fallback")
+            canvas.save()
+
+            original_which = shutil.which
+            with patch(
+                "app.document_store.shutil.which",
+                side_effect=lambda command: None if command in {"pdftotext", "pdfimages"} else original_which(command),
+            ):
+                DocumentStore(root).scan()
+
+            self.assertIn("Python PDF Fallback", DocumentStore(root).get_document(pdf_path)["extracted_text"])

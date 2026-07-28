@@ -1055,34 +1055,26 @@ class DocumentStore:
 
     @staticmethod
     def _pdf_text(path: Path) -> str:
-        """Extract embedded PDF text, with a portable fallback when Poppler is absent."""
         executable = shutil.which("pdftotext")
         if executable:
             try:
                 result = subprocess.run([executable, "-layout", str(path), "-"], capture_output=True, text=True, timeout=90, check=False)
             except subprocess.TimeoutExpired as exc:
                 raise RuntimeError("PDF text extraction timed out after 90 seconds") from exc
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip() or "PDF text extraction failed")
-            return "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
+            if result.returncode == 0:
+                return "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
 
-        # pypdf keeps basic text extraction available on Windows, macOS and
-        # minimal Linux installations without requiring a system package.
-        if path.stat().st_size > 100 * 1024 * 1024:
-            raise RuntimeError("PDF exceeds the 100 MiB limit for portable text extraction")
+        # GitHub Actions and portable installations do not necessarily provide
+        # Poppler's pdftotext binary. Keep a pure-Python fallback available.
         try:
             from pypdf import PdfReader
-            from pypdf.errors import PdfReadError
-        except ImportError as exc:
-            raise RuntimeError("PDF text extraction requires pdftotext or pypdf") from exc
-        try:
-            reader = PdfReader(path, strict=False)
-            if len(reader.pages) > 2000:
-                raise RuntimeError("PDF exceeds the 2000 page limit for portable text extraction")
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except (OSError, PdfReadError, ValueError) as exc:
-            raise RuntimeError(f"PDF text extraction failed: {exc}") from exc
-        return "\n".join(line.rstrip() for line in text.splitlines()).strip()
+
+            reader = PdfReader(str(path))
+            return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        except Exception as exc:
+            if executable:
+                raise RuntimeError(result.stderr.strip() or "PDF text extraction failed") from exc
+            raise RuntimeError("PDF text extraction requires pypdf when pdftotext is unavailable") from exc
 
     def _pdf_image_ocr(self, path: Path) -> str:
         executable = shutil.which("pdfimages")

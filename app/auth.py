@@ -22,10 +22,18 @@ def _google_config() -> dict[str, str] | None:
     client_secret = current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
     if not client_id or not client_secret:
         return None
+    generated_redirect_uri = url_for("auth.google_callback", _external=True)
+    explicit_redirect_uri = current_app.config.get("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
+    allowed_redirect_uris = current_app.config.get("GOOGLE_OAUTH_REDIRECT_URIS", ())
+    redirect_uri = explicit_redirect_uri or generated_redirect_uri
+    if not explicit_redirect_uri and generated_redirect_uri not in allowed_redirect_uris:
+        callback_uris = [value for value in allowed_redirect_uris if value.rstrip("/").endswith("/auth/google/callback")]
+        if len(callback_uris) == 1:
+            redirect_uri = callback_uris[0]
     return {
         "client_id": client_id,
         "client_secret": client_secret,
-        "redirect_uri": current_app.config.get("GOOGLE_OAUTH_REDIRECT_URI", "").strip() or url_for("auth.google_callback", _external=True),
+        "redirect_uri": redirect_uri,
     }
 
 

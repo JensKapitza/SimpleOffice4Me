@@ -6,6 +6,56 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PYTHON="${PYTHON:-python3}"
 VENV="$ROOT/.venv"
 
+usage() {
+  cat <<'EOF'
+SimpleOffice4Me starten
+
+Optionen:
+  --google-json DATEI         Google OAuth JSON-Datei (Web-Anwendung)
+  --public-url URL            Öffentliche HTTPS-Basis-URL; überschreibt die JSON-Callback-URI
+  --google-redirect-uri URL   Vollständige Google OAuth Callback-URL
+  --secret-key-file DATEI     Datei mit dauerhaftem SimpleOffice-Session-Schlüssel
+  --trusted-proxy-hops ANZAHL Anzahl vertrauenswürdiger Reverse-Proxies
+  --help                      Diese Hilfe anzeigen
+
+Beispiel:
+  ./start.sh --google-json /etc/simpleoffice/google-oauth.json \\
+    --public-url https://office.example.de --trusted-proxy-hops 1
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --google-json)
+      [ "$#" -ge 2 ] || { echo "--google-json benötigt einen Dateipfad." >&2; exit 2; }
+      export SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE="$2"; shift 2 ;;
+    --public-url)
+      [ "$#" -ge 2 ] || { echo "--public-url benötigt eine URL." >&2; exit 2; }
+      case "$2" in
+        https://*) ;;
+        *) echo "--public-url muss mit https:// beginnen." >&2; exit 2 ;;
+      esac
+      export SIMPLEOFFICE_GOOGLE_REDIRECT_URI="${2%/}/auth/google/callback"; shift 2 ;;
+    --google-redirect-uri)
+      [ "$#" -ge 2 ] || { echo "--google-redirect-uri benötigt eine URL." >&2; exit 2; }
+      export SIMPLEOFFICE_GOOGLE_REDIRECT_URI="$2"; shift 2 ;;
+    --secret-key-file)
+      [ "$#" -ge 2 ] || { echo "--secret-key-file benötigt einen Dateipfad." >&2; exit 2; }
+      [ -r "$2" ] || { echo "Session-Schlüsseldatei ist nicht lesbar: $2" >&2; exit 2; }
+      IFS= read -r SIMPLEOFFICE_SECRET_KEY < "$2" || true
+      [ -n "$SIMPLEOFFICE_SECRET_KEY" ] || { echo "Session-Schlüsseldatei ist leer: $2" >&2; exit 2; }
+      export SIMPLEOFFICE_SECRET_KEY; shift 2 ;;
+    --trusted-proxy-hops)
+      [ "$#" -ge 2 ] || { echo "--trusted-proxy-hops benötigt eine Anzahl." >&2; exit 2; }
+      case "$2" in *[!0-9]*|'') echo "Proxy-Anzahl muss eine ganze Zahl sein." >&2; exit 2 ;; esac
+      export SIMPLEOFFICE_TRUSTED_PROXY_HOPS="$2"; shift 2 ;;
+    --help|-h)
+      usage; exit 0 ;;
+    *)
+      echo "Unbekannte Option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
   echo "Python 3 wurde nicht gefunden. Bitte Python 3.10 oder neuer installieren." >&2
   exit 1

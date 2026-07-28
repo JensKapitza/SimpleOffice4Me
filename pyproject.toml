@@ -11,9 +11,9 @@ dependencies = [
   "Flask>=3.0,<4",
   "beautifulsoup4>=4.12,<5",
   "Pillow>=12.3,<13",
-  "pypdf>=6.14,<7",
   "html5lib>=1.1,<2",
   "reportlab>=4.0,<5",
+  "pypdf>=5.0,<7",
 ]
 
 [project.optional-dependencies]

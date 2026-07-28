@@ -60,13 +60,6 @@ Verarbeitungsstatus. Erst nach der Verarbeitung entsteht ein Dokument.
 | DOK-10 | Fristbeginn | Der Fristbeginn ist je Regel konfigurierbar: Dokumentdatum, Importdatum, Tag-Zeitpunkt, Ereignisdatum oder ein manuell gesetztes Datum. |
 | DOK-11 | Verknüpfte Dokumente | Eine aufbewahrungsrelevante Verknüpfung überträgt die längste aktive Frist transitiv auf alle erreichbaren Dokumente. Kein Dokument der Verknüpfungsgruppe wird vorher gelöscht. |
 
-Aktueller Stand der PDF-Erkennung: Bereits eingebetteter PDF-Text wird ohne
-zusätzliche Systeminstallation mit `pypdf` gelesen. Ist `pdftotext`
-vorhanden, wird es weiterhin bevorzugt. Reine Scan-PDFs benötigen für OCR
-weiterhin `pdfimages` und Tesseract beziehungsweise später den vorgesehenen
-OCR-Worker. Der portable Fallback begrenzt Dateien auf 100 MiB und 2.000 Seiten,
-damit ein Scanlauf nicht unbegrenzt Ressourcen belegt.
-
 ### 3.2.1 Aufbewahrungsregeln und Fristenlogik
 
 Eine Frist ist kein einzelnes Feld am Dokument, sondern ein nachvollziehbar
