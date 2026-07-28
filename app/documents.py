@@ -868,7 +868,9 @@ def calendar():
             event["origin"] = "shared"; event["origin_label"] = f"Von {event['owner']}"; event["origin_class"] = "text-bg-info"
         else:
             event["origin"] = "own"; event["origin_label"] = "Von mir angelegt"; event["origin_class"] = "text-bg-primary"
-        event["can_edit"] = not event.get("owner") or event.get("owner") == actor or actor in event.get("managers", [])
+        event["can_edit"] = _calendar()._can_edit(event, actor)
+        event["is_owner"] = (event.get("owner") or actor) == actor
+        event["access_role"] = "owner" if event["is_owner"] else event.get("access", {}).get(actor, "edit" if actor in event.get("managers", []) else "read")
         if event.get("status") == "confirmed" and event.get("requester_email"):
             ics_url = url_for("documents.download_booking_confirmation", event_id=event["event_id"], _external=True)
             subject = f"Terminbestätigung: {event['title']}"
@@ -902,8 +904,13 @@ def import_calendar():
 @bp.post("/calendar")
 @login_required
 def add_calendar_event():
+    actor = str(g.user["username"])
+    owner = request.form.get("owner", actor).strip() or actor
+    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
     try:
-        _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
+        if owner not in valid_users:
+            raise ValueError("unknown owner")
+        _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner)
         flash("Kalendertermin gespeichert.")
     except ValueError as exc:
         flash(str(exc))
@@ -937,13 +944,13 @@ def delete_calendar_event(event_id: str):
 def share_calendar_event(event_id: str):
     actor = str(g.user["username"])
     valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
-    managers = request.form.getlist("managers")
-    unknown = sorted(set(managers) - valid_users)
+    permissions = {username: request.form.get(f"access_{username}", "") for username in valid_users}
+    unknown = sorted(set(request.form.getlist("users")) - valid_users)
     try:
         if unknown:
             raise ValueError(f"unknown users: {', '.join(unknown)}")
-        _calendar().share(event_id, managers, actor)
-        flash("Verwaltungsfreigabe für den Termin gespeichert.")
+        _calendar().share(event_id, permissions, actor)
+        flash("Lesen- und Bearbeitungsrechte für den Termin gespeichert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + f"#event-{event_id}")

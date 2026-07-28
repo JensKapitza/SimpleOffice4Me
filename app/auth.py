@@ -2,6 +2,7 @@ import functools
 import json
 import re
 import secrets
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -9,6 +10,7 @@ from flask import Blueprint, flash, g, redirect, render_template, request, sessi
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
+from .google_sync import sync_google_account
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -120,7 +122,8 @@ def google_login():
     session['google_oauth_state'] = state
     parameters = {
         'client_id': config['client_id'], 'redirect_uri': config['redirect_uri'], 'response_type': 'code',
-        'scope': 'openid email profile', 'state': state, 'prompt': 'select_account',
+        'scope': 'openid email profile https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar.readonly',
+        'state': state, 'prompt': 'select_account', 'access_type': 'offline', 'include_granted_scopes': 'true',
     }
     return redirect(f"{GOOGLE_AUTH_URL}?{urlencode(parameters)}")
 
@@ -168,11 +171,22 @@ def google_callback():
         # user selected the same text as a username. Explicit linking can be
         # added later from an authenticated account page.
         username = _google_username(db, email)
-        db.execute('INSERT INTO user (username, password) VALUES (?, ?)', (username, generate_password_hash(secrets.token_urlsafe(32))))
+        db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)', (username, generate_password_hash(secrets.token_urlsafe(32)), str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google'))
         identity = db.execute('SELECT * FROM user WHERE username = ?', (username,)).fetchone()
         created = True
         db.execute('INSERT INTO oauth_identity (provider, subject, user_id, email) VALUES (?, ?, ?, ?)', ('google', subject, identity['id'], email))
-        db.commit()
+    db.execute('UPDATE user SET display_name = ?, email = ?, avatar_url = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?', (str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', identity['id']))
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(token.get('expires_in', 0) or 0))).isoformat()
+    previous = db.execute('SELECT refresh_token FROM oauth_token WHERE provider = ? AND user_id = ?', ('google', identity['id'])).fetchone()
+    refresh_token = str(token.get('refresh_token', '')).strip() or (previous['refresh_token'] if previous else '')
+    db.execute('INSERT INTO oauth_token (provider, user_id, access_token, refresh_token, expires_at, scopes, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(provider, user_id) DO UPDATE SET access_token = excluded.access_token, refresh_token = excluded.refresh_token, expires_at = excluded.expires_at, scopes = excluded.scopes, updated_at = CURRENT_TIMESTAMP', ('google', identity['id'], access_token, refresh_token, expires_at, str(token.get('scope', ''))))
+    db.commit()
+    try:
+        synced = sync_google_account(access_token, identity['username'], subject)
+        flash(f"Google-Daten abgeglichen: {synced['contacts']} Kontakte, {synced['events']} Termine aus {synced['calendars']} Kalendern.")
+    except Exception:
+        current_app.logger.exception('Google data sync failed')
+        flash('Google-Anmeldung erfolgreich; Kontakt- und Kalenderimport wird beim nächsten Google-Login erneut versucht.')
     _login_user(identity)
     flash('Konto mit Google erstellt und angemeldet.' if created else 'Mit Google angemeldet.')
     return redirect(url_for('home'))
@@ -203,3 +217,18 @@ def login_required(view):
         return view(**kwargs)
 
     return wrapped_view
+
+
+@bp.route('/profile', methods=('GET', 'POST'))
+@login_required
+def profile():
+    if request.method == 'POST':
+        display_name = request.form.get('display_name', '').strip()
+        if not display_name:
+            flash('Anzeigename fehlt.')
+        else:
+            get_db().execute('UPDATE user SET display_name = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?', (display_name, 'manual', g.user['id']))
+            get_db().commit()
+            flash('Benutzerprofil gespeichert.')
+            return redirect(url_for('auth.profile'))
+    return render_template('auth/profile.html')

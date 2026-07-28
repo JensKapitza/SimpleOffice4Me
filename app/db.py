@@ -51,6 +51,24 @@ def ensure_auth_database() -> None:
         )"""
     )
     get_db().execute("CREATE INDEX IF NOT EXISTS oauth_identity_user_id ON oauth_identity(user_id)")
+    # Additive migration: existing installations retain their user accounts.
+    columns = {row[1] for row in get_db().execute("PRAGMA table_info(user)").fetchall()}
+    for name in ("display_name", "email", "avatar_url", "profile_source", "profile_updated_at"):
+        if name not in columns:
+            get_db().execute(f"ALTER TABLE user ADD COLUMN {name} TEXT")
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS oauth_token (
+            provider TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            access_token TEXT NOT NULL,
+            refresh_token TEXT,
+            expires_at TEXT,
+            scopes TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(provider, user_id),
+            FOREIGN KEY (user_id) REFERENCES user (id)
+        )"""
+    )
     get_db().commit()
 
 

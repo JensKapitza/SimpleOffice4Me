@@ -58,6 +58,25 @@ class CalendarStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "only the calendar event owner"):
                 store.share(event["event_id"], ["other"], "jens")
 
+    def test_creator_and_target_collaborate_until_target_changes_access(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            event = store.add("Termin", "Grund", "2026-07-25T10:00", "", "", "jens", owner="amy")
+
+            self.assertEqual("amy", event["owner"])
+            self.assertEqual("edit", event["access"]["jens"])
+            self.assertEqual([event["event_id"]], [item["event_id"] for item in store.events("amy")])
+            changed = store.update(event["event_id"], "Geändert", "Grund", "2026-07-25T10:00", "", "", "jens", "private", "", [])
+            self.assertEqual("Geändert", changed["title"])
+
+            store.share(event["event_id"], {"jens": "read"}, "amy")
+            self.assertEqual([event["event_id"]], [item["event_id"] for item in store.events("jens")])
+            with self.assertRaisesRegex(ValueError, "read-only"):
+                store.update(event["event_id"], "Nicht erlaubt", "Grund", "2026-07-25T10:00", "", "", "jens", "private", "", [])
+
+            store.share(event["event_id"], {}, "amy")
+            self.assertEqual([], store.events("jens"))
+
     def test_booking_is_confirmed_when_smtp_is_unavailable(self):
         with tempfile.TemporaryDirectory() as temp:
             store = CalendarStore(Path(temp))

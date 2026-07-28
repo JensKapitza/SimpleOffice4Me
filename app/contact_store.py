@@ -75,7 +75,7 @@ class ContactStore:
             raise ValueError("contact is not shared with this user")
         return contact
 
-    def upsert(self, values: dict[str, str], actor: str, contact_id: str = "") -> dict[str, Any]:
+    def upsert(self, values: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None) -> dict[str, Any]:
         self._require_actor(actor)
         schema = self.schema()
         fields = self._normalize(values, schema)
@@ -87,6 +87,10 @@ class ContactStore:
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
             payload = self._read(self.contacts_path, {"contacts": []})
             existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
+            if existing is None and source and source.get("source_id"):
+                existing = next((item for item in payload["contacts"] if item.get("source", {}).get("source_id") == source["source_id"] and item.get("source", {}).get("provider") == source.get("provider")), None)
+            if existing and not contact_id:
+                contact_id = existing["contact_id"]
             principal = self._principal(actor)
             if existing and not self._can_manage(existing, principal):
                 raise ValueError("contact is not shared with this user")
@@ -107,6 +111,7 @@ class ContactStore:
                 "created_by": existing.get("created_by", actor) if existing else actor,
                 "updated_at": changed_at,
                 "updated_by": actor,
+                "source": source or existing.get("source", {}) if existing else (source or {}),
             }
             payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
             atomic_json_write(self.contacts_path, payload)

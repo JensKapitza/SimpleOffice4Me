@@ -27,14 +27,14 @@ class CalendarStore:
     def events(self, actor: str = "") -> list[dict[str, Any]]:
         items = self._read().get("events", [])
         if actor:
-            items = [item for item in items if self._can_manage(item, actor)]
+            items = [item for item in items if self._can_view(item, actor)]
         return sorted(items, key=lambda item: item.get("start", ""))
 
     def get(self, event_id: str, actor: str = "") -> dict[str, Any]:
         event = next((item for item in self._read().get("events", []) if item.get("event_id") == event_id), None)
         if event is None:
             raise ValueError("unknown calendar event")
-        if actor and not self._can_manage(event, actor):
+        if actor and not self._can_view(event, actor):
             raise ValueError("calendar event is not shared with this user")
         return event
 
@@ -92,6 +92,28 @@ class CalendarStore:
             raise ValueError("no usable VEVENT records found")
         atomic_json_write(self.path, data)
         return imported
+
+    def upsert_external_event(self, values: dict[str, str], actor: str, source: dict[str, str]) -> dict[str, Any]:
+        """Create or update a provider event by its immutable provider ID."""
+        if not source.get("provider") or not source.get("source_id"):
+            raise ValueError("provider and source id are required")
+        title = str(values.get("title", "")).strip() or "Ohne Titel"
+        start = str(values.get("start", "")).strip()
+        if not start:
+            raise ValueError("external event start is required")
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read()
+            existing = next((item for item in data.get("events", []) if isinstance(item.get("source"), dict) and item["source"].get("provider") == source["provider"] and item["source"].get("source_id") == source["source_id"]), None)
+            event = self._event(existing.get("event_id", "") if existing else "", title, str(values.get("reason", "")).strip() or "Aus externem Kalender importiert", start, str(values.get("end", "")).strip(), "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", existing.get("tags", []) if existing else [], existing)
+            event["source"] = source
+            event["source_uid"] = source["source_id"]
+            event["source_status"] = values.get("status", "confirmed")
+            if values.get("status") == "cancelled":
+                event["status"] = "cancelled"
+            data["events"] = [item for item in data.get("events", []) if item.get("event_id") != event["event_id"]] + [event]
+            atomic_json_write(self.path, data)
+            self.history.record("calendar_event_synced", actor, "calendar", event["event_id"], event)
+        return event
 
     def booking_settings(self) -> dict[str, Any]:
         default = {"enabled": False, "duration_minutes": 60, "start_time": "09:00", "end_time": "17:00", "days": [0, 1, 2, 3, 4]}
@@ -172,9 +194,12 @@ class CalendarStore:
     def pending_bookings(self) -> list[dict[str, Any]]:
         return [event for event in self.events() if event.get("status") == "pending"]
 
-    def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None, owner: str = "") -> dict[str, Any]:
         event = self._event("", title, reason, start, end, contact_id, actor, visibility, public_notice, tags or [])
         event["source"] = "manual"
+        owner = owner.strip() or actor
+        event["owner"] = owner
+        event["access"] = {actor: "edit"} if actor != owner else {}
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read(); data["events"] = [*data.get("events", []), event]
             atomic_json_write(self.path, data)
@@ -187,15 +212,17 @@ class CalendarStore:
             existing = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
             if existing is None:
                 raise ValueError("unknown calendar event")
-            if not self._can_manage(existing, actor):
+            if not self._can_view(existing, actor):
                 raise ValueError("calendar event is not shared with this user")
+            if not self._can_edit(existing, actor):
+                raise ValueError("calendar event is read-only for this user")
             event = self._event(event_id, title, reason, start, end, contact_id, actor, visibility, public_notice, tags, existing)
             data["events"] = [item for item in data["events"] if item.get("event_id") != event_id] + [event]
             atomic_json_write(self.path, data)
             self.history.record("calendar_event_updated", actor, "calendar", event_id, event)
         return event
 
-    def share(self, event_id: str, managers: list[str], actor: str) -> dict[str, Any]:
+    def share(self, event_id: str, permissions: dict[str, str] | list[str], actor: str) -> dict[str, Any]:
         if not actor.strip():
             raise ValueError("user is required")
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
@@ -207,7 +234,11 @@ class CalendarStore:
             if owner != actor:
                 raise ValueError("only the calendar event owner may change sharing")
             event["owner"] = owner
-            event["managers"] = sorted({item.strip() for item in managers if item.strip() and item.strip() != owner}, key=str.casefold)
+            if isinstance(permissions, list):
+                permissions = {item.strip(): "edit" for item in permissions if item.strip()}
+            access = {username.strip(): role for username, role in permissions.items() if username.strip() and username.strip() != owner and role in {"edit", "read"}}
+            event["access"] = access
+            event["managers"] = sorted(username for username, role in access.items() if role == "edit")
             event["updated_at"] = utc_now()
             event["updated_by"] = actor
             atomic_json_write(self.path, data)
@@ -226,8 +257,10 @@ class CalendarStore:
             event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
             if event is None:
                 raise ValueError("unknown calendar event")
-            if not self._can_manage(event, actor):
+            if not self._can_view(event, actor):
                 raise ValueError("calendar event is not shared with this user")
+            if not self._can_edit(event, actor):
+                raise ValueError("calendar event is read-only for this user")
             previous = event.get("status", "active")
             event["status"] = status
             event["status_changed_at"] = utc_now()
@@ -352,9 +385,16 @@ class CalendarStore:
         }
 
     @staticmethod
-    def _can_manage(event: dict[str, Any], actor: str) -> bool:
+    def _can_view(event: dict[str, Any], actor: str) -> bool:
         owner = str(event.get("owner", "")).strip()
-        return not owner or actor == owner or actor in event.get("managers", [])
+        return not owner or actor == owner or actor in event.get("access", {}) or actor in event.get("managers", [])
+
+    @staticmethod
+    def _can_edit(event: dict[str, Any], actor: str) -> bool:
+        owner = str(event.get("owner", "")).strip()
+        return not owner or actor == owner or event.get("access", {}).get(actor) == "edit" or actor in event.get("managers", [])
+
+    _can_manage = _can_edit
 
     def _read(self) -> dict[str, Any]:
         try:
