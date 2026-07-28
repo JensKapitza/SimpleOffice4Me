@@ -703,6 +703,53 @@ class DocumentStore:
             reverse=True,
         )
 
+    def move_document(self, reference: str, destination_folder: str, actor: str) -> dict[str, Any]:
+        """Move a managed file inside the document root without changing its ID."""
+        self._require_actor(actor)
+        document = self.get_document(reference)
+        source = self.root / str(document.get("last_path", ""))
+        if not source.is_file() or source.is_symlink():
+            raise ValueError("only an available regular document file can be moved")
+        requested = Path(destination_folder.strip())
+        if not destination_folder.strip() or requested.is_absolute() or ".." in requested.parts:
+            raise ValueError("choose a relative destination folder inside the document store")
+        if any(part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} for part in requested.parts):
+            raise ValueError("the destination folder is reserved for system metadata")
+        destination_directory = (self.root / requested).resolve()
+        try:
+            destination_directory.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError("destination must remain inside the document store") from exc
+        destination = destination_directory / source.name
+        if destination == source:
+            return document
+        if destination.exists():
+            raise ValueError("a file with the same name already exists in the destination folder")
+        destination_directory.mkdir(parents=True, exist_ok=True)
+        self.ensure_folder_policy(destination_directory)
+        previous_path = str(document.get("last_path", ""))
+        shutil.move(str(source), str(destination))
+        relative_path = self.relative(destination)
+        document["last_path"] = relative_path
+        document["last_seen_at"] = utc_now()
+        document.setdefault("location_history", []).append({"from": previous_path, "to": relative_path, "at": document["last_seen_at"], "actor": actor})
+        document["location_history"] = document["location_history"][-200:]
+        self._write_xattrs(destination, document["document_id"], document.get("sha256", ""), document.get("tags", []))
+        self._save_document(document)
+        self._refresh_search_index(document)
+        with self._db() as db:
+            db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+        self._scan_file(destination)
+        fingerprint_path = self.fingerprints / f"{document.get('sha256', '')}.json"
+        fingerprint = self._read_json(fingerprint_path, {})
+        if fingerprint:
+            paths = set(fingerprint.get("paths", [])); paths.discard(previous_path); paths.add(relative_path)
+            fingerprint["paths"] = sorted(paths); fingerprint["last_seen_at"] = utc_now()
+            atomic_json_write(fingerprint_path, fingerprint)
+        self._event("document_moved", {"document_id": document["document_id"], "from": previous_path, "to": relative_path, "actor": actor})
+        self._record_revision("document_moved", actor, "documents", document["document_id"], document)
+        return self.get_document(document["document_id"])
+
     def versions(self, reference: str | Path) -> list[dict[str, Any]]:
         """Return every version in the same document series, oldest first."""
         document = self.get_document(reference)

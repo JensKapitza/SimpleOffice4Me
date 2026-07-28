@@ -133,10 +133,24 @@ def _is_unprocessed(document: dict) -> bool:
     return document.get("state", "new") == "new" and not document.get("notes") and not document.get("relationships")
 
 
+def _document_tree(documents: list[dict]) -> dict:
+    """Build a folder tree for a compact, progressively disclosed document view."""
+    root = {"folders": {}, "documents": [], "count": 0}
+    for document in documents:
+        current = root; current["count"] += 1
+        parts = [part for part in str(document.get("last_path", "")).split("/") if part]
+        for folder in parts[:-1]:
+            current = current["folders"].setdefault(folder, {"folders": {}, "documents": [], "count": 0})
+            current["count"] += 1
+        current["documents"].append(document)
+    return root
+
+
 @bp.route("/")
 @login_required
 def index():
-    return render_template("documents/index.html", documents=_store().list_documents(), defaults=_settings().settings())
+    documents = _store().list_documents()
+    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), defaults=_settings().settings())
 
 
 @bp.get("/search")
@@ -351,7 +365,8 @@ def toggle_todo(item_id: str):
 @bp.route("/inbox")
 @login_required
 def inbox():
-    return render_template("documents/index.html", documents=[item for item in _store().list_documents() if _is_unprocessed(item)], inbox_only=True, defaults=_settings().settings())
+    documents = [item for item in _store().list_documents() if _is_unprocessed(item)]
+    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), inbox_only=True, defaults=_settings().settings())
 
 
 @bp.route("/images")
@@ -503,6 +518,17 @@ def set_state(document_id: str):
         _store().set_state(document_id, request.form.get("state", ""), str(g.user["username"]))
         flash("Zustand wurde als eigene Revision gespeichert.")
     except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
+@bp.post("/<document_id>/move")
+@login_required
+def move_document(document_id: str):
+    try:
+        moved = _store().move_document(document_id, request.form.get("destination_folder", ""), str(g.user["username"]))
+        flash(f"Dokument verschoben nach {moved['last_path']}. Die Dokument-ID bleibt unverändert.")
+    except (OSError, ValueError) as exc:
         flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
 
@@ -834,6 +860,15 @@ def calendar():
     following = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
     users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
     for event in events:
+        if event.get("requester_email") or event.get("source") == "external_booking":
+            event["origin"] = "external"; event["origin_label"] = "Externe Buchung"; event["origin_class"] = "text-bg-warning"
+        elif event.get("source_uid") or event.get("source") == "ical_import":
+            event["origin"] = "imported"; event["origin_label"] = "Importiert"; event["origin_class"] = "text-bg-secondary"
+        elif event.get("owner") and event.get("owner") != actor:
+            event["origin"] = "shared"; event["origin_label"] = f"Von {event['owner']}"; event["origin_class"] = "text-bg-info"
+        else:
+            event["origin"] = "own"; event["origin_label"] = "Von mir angelegt"; event["origin_class"] = "text-bg-primary"
+        event["can_edit"] = not event.get("owner") or event.get("owner") == actor or actor in event.get("managers", [])
         if event.get("status") == "confirmed" and event.get("requester_email"):
             ics_url = url_for("documents.download_booking_confirmation", event_id=event["event_id"], _external=True)
             subject = f"Terminbestätigung: {event['title']}"

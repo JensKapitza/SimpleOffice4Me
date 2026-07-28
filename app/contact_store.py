@@ -140,7 +140,7 @@ class ContactStore:
             contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
             if contact is None:
                 raise ValueError("unknown contact")
-            owner = contact.get("owner") or principal
+            owner = contact.get("owner") or self._principal(str(contact.get("created_by", ""))) or principal
             if owner != principal:
                 raise ValueError("only the contact owner may change sharing")
             contact["owner"] = owner
@@ -278,5 +278,7 @@ class ContactStore:
 
     @staticmethod
     def _can_manage(contact: dict[str, Any], principal: str) -> bool:
-        owner = str(contact.get("owner", "")).strip()
-        return not owner or principal == owner or principal in contact.get("managers", [])
+        # Older contact files had no ``owner`` field.  They must not become
+        # world-readable merely because the ownership metadata is incomplete.
+        owner = str(contact.get("owner", "")).strip() or ContactStore._principal(str(contact.get("created_by", "")))
+        return bool(owner) and (principal == owner or principal in contact.get("managers", []))

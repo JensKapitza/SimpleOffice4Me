@@ -84,7 +84,7 @@ class CalendarStore:
             existing = next((item for item in data.get("events", []) if item.get("source_uid") == source_uid), None)
             tags = [{"name": self._ics_unescape(tag).strip(), "visibility": "private"} for tag in incoming.get("CATEGORIES", "").split(",") if self._ics_unescape(tag).strip()]
             event = self._event(existing["event_id"] if existing else "", self._ics_unescape(incoming["SUMMARY"]), self._ics_unescape(incoming.get("DESCRIPTION", "")) or "Aus iCalendar importiert", self._parse_ics_datetime(incoming["DTSTART"]), self._parse_ics_datetime(incoming.get("DTEND", incoming["DTSTART"])), existing.get("contact_id", "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", tags, existing)
-            event["source_uid"] = source_uid
+            event["source_uid"] = source_uid; event["source"] = "ical_import"
             data["events"] = [item for item in data.get("events", []) if item.get("event_id") != event["event_id"]] + [event]
             self.history.record("calendar_event_imported", actor, "calendar", event["event_id"], event)
             imported += 1
@@ -137,7 +137,7 @@ class CalendarStore:
         if (begins, finishes) not in self.available_slots(begins.date()):
             raise ValueError("the selected time slot is no longer available")
         event = self._event("", title, reason, start, end, "", f"booking:{requester_email}", "private", "Belegt", [], None)
-        event.update({"status": "pending", "requester_name": requester_name.strip(), "requester_email": requester_email.strip(), "booking_requested_at": utc_now()})
+        event.update({"source": "external_booking", "status": "pending", "requester_name": requester_name.strip(), "requester_email": requester_email.strip(), "booking_requested_at": utc_now()})
         data = self._read(); data["events"] = [*data.get("events", []), event]
         atomic_json_write(self.path, data)
         self.history.record("calendar_booking_requested", f"booking:{requester_email}", "calendar", event["event_id"], {key: value for key, value in event.items() if key != "requester_email"})
@@ -174,6 +174,7 @@ class CalendarStore:
 
     def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None) -> dict[str, Any]:
         event = self._event("", title, reason, start, end, contact_id, actor, visibility, public_notice, tags or [])
+        event["source"] = "manual"
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read(); data["events"] = [*data.get("events", []), event]
             atomic_json_write(self.path, data)

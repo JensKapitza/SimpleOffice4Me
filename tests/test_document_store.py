@@ -121,6 +121,25 @@ class DocumentStoreTest(unittest.TestCase):
 
             self.assertEqual("integrity_changed", store.get_document("source.txt")["system_state"])
 
+    def test_document_move_keeps_stable_id_and_records_location_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "inbox" / "rechnung.txt"
+            source.parent.mkdir()
+            source.write_text("Rechnung", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            original = store.get_document(source)
+
+            moved = store.move_document(original["document_id"], "Rechnungen/2026", "tester")
+
+            self.assertEqual(original["document_id"], moved["document_id"])
+            self.assertEqual("Rechnungen/2026/rechnung.txt", moved["last_path"])
+            self.assertTrue((root / moved["last_path"]).is_file())
+            self.assertFalse(source.exists())
+            self.assertEqual("inbox/rechnung.txt", moved["location_history"][-1]["from"])
+            self.assertEqual(moved["document_id"], store.get_document(moved["last_path"])["document_id"])
+
     def test_image_scan_extracts_exif_runs_ocr_and_generates_tags(self):
         try:
             from PIL import Image

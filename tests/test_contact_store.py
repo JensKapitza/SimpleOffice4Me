@@ -7,6 +7,18 @@ from app.contact_store import ContactStore
 
 
 class ContactStoreTest(unittest.TestCase):
+    def test_legacy_contact_without_owner_is_not_visible_to_every_user(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            contact = store.upsert({"display_name": "Privatkontakt"}, "admin")
+            payload = store._read(store.contacts_path, {"contacts": []})
+            payload["contacts"][0].pop("owner")
+            from app.document_store import atomic_json_write
+            atomic_json_write(store.contacts_path, payload)
+
+            self.assertEqual([contact["contact_id"]], [item["contact_id"] for item in store.contacts("admin")])
+            self.assertEqual([], store.contacts("other"))
+
     def test_contact_can_be_edited_and_shared_with_another_user(self):
         with tempfile.TemporaryDirectory() as temp:
             store = ContactStore(Path(temp))

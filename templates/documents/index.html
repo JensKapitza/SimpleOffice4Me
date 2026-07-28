@@ -1,28 +1,30 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% macro render_tree(node) -%}
+  {% for folder, child in node.folders|dictsort %}
+  <details class="document-tree-folder" data-document-tree>
+    <summary><i class="fas fa-folder me-2 text-warning" aria-hidden="true"></i>{{ folder }} <span class="badge text-bg-light border ms-1">{{ child.count }}</span></summary>
+    <div class="document-tree-children">{{ render_tree(child) }}</div>
+  </details>
+  {% endfor %}
+  {% for document in node.documents %}
+  <details class="document-tree-document" data-document-tree>
+    <summary><span class="text-truncate"><i class="fas fa-file me-2 text-secondary" aria-hidden="true"></i>{{ document.last_path.rsplit('/', 1)[-1] }}</span><span class="badge text-bg-secondary ms-2">{{ document.state }}</span></summary>
+    <div class="document-tree-details"><div class="row g-2 small"><div class="col-md-7"><code>{{ document.document_id }}</code><br><span class="text-secondary">Version {{ document.version_number }} · {{ document.notes|length }} Notizen · zuletzt gesehen {{ document.last_seen_at }}</span></div><div class="col-md-5 text-md-end"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">Öffnen</a></div></div></div>
+  </details>
+  {% endfor %}
+{%- endmacro %}
 {% block body %}
-<main class="container py-4">
-  <h1>{{ 'Inbox' if inbox_only else 'Dokumente' }}</h1>
-  <p class="text-muted">{% if inbox_only %}Nur neue Dateien ohne Notiz, Zustand oder Dokumentverknüpfung. Sobald du sie bearbeitest, verschwinden sie aus der Inbox.{% else %}Alle Dateien, Versionen, Notizen und die zugehörige Chronik.{% endif %}</p>
+<main class="container-xl py-4">
+  <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-2"><div><h1 class="h2 mb-1">{{ 'Inbox' if inbox_only else 'Dokumente' }}</h1><p class="text-secondary mb-0">{% if inbox_only %}Neue Dateien ohne Bearbeitung. Verschieben oder organisatorisch bearbeiten entfernt sie aus der Inbox-Ansicht.{% else %}Ordneransicht mit schrittweise aufklappbaren Details. Die Dokument-ID bleibt bei Verschiebungen erhalten.{% endif %}</p></div>{% if documents %}<div class="btn-group"><button class="btn btn-outline-secondary" type="button" data-tree-action="open">Alle aufklappen</button><button class="btn btn-outline-secondary" type="button" data-tree-action="close">Alle schließen</button></div>{% endif %}</div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
-  <section class="card mb-4"><div class="card-body"><h2 class="h5">Dateien hinzufügen</h2>
-    <form method="post" action="{{ url_for('documents.upload') }}" enctype="multipart/form-data">
-      <input class="form-control" type="file" name="files" multiple required>
-      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" value="1" name="archive" id="archive" {% if defaults.documents.upload_to_archive %}checked{% endif %}><label class="form-check-label" for="archive">Direkt ins feste Archiv importieren (nach SHA-256 sortiert)</label></div>
-      <button class="btn btn-primary mt-2" type="submit">Vollständig importieren</button>
-    </form>
-  </div></section>
-  {% if documents %}
-  <div class="list-group">
-    {% for document in documents %}
-    <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=document.document_id) }}">
-      <div class="d-flex justify-content-between"><strong>{{ document.last_path }}</strong><span>Version {{ document.version_number }}</span></div>
-      <small class="text-muted">{{ document.state }} · {{ document.notes|length }} Notizen · zuletzt gesehen {{ document.last_seen_at }}</small>
-    </a>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="alert alert-info">Noch keine Dokumente indexiert. Lege Dateien im Dokumentordner ab und starte den Scan.</div>
-  {% endif %}
+  <section class="card mb-4"><div class="card-body"><h2 class="h5">Dateien hinzufügen</h2><form method="post" action="{{ url_for('documents.upload') }}" enctype="multipart/form-data"><input class="form-control" type="file" name="files" multiple required><div class="form-check mt-2"><input class="form-check-input" type="checkbox" value="1" name="archive" id="archive" {% if defaults.documents.upload_to_archive %}checked{% endif %}><label class="form-check-label" for="archive">Direkt ins feste Archiv importieren (nach SHA-256 sortiert)</label></div><button class="btn btn-primary mt-2" type="submit">Vollständig importieren</button></form></div></section>
+  {% if documents %}<section class="card"><div class="card-header"><i class="fas fa-folder-tree me-2" aria-hidden="true"></i>Ordner und Dokumente</div><div class="card-body document-tree">{{ render_tree(document_tree) }}</div></section>{% else %}<div class="alert alert-info">Noch keine Dokumente indexiert. Lege Dateien im Dokumentordner ab und starte den Scan.</div>{% endif %}
 </main>
+<script>
+document.querySelectorAll('[data-tree-action]').forEach((button) => button.addEventListener('click', () => {
+  const open = button.dataset.treeAction === 'open';
+  document.querySelectorAll('[data-document-tree]').forEach((item) => { item.open = open; });
+}));
+</script>
 {% endblock %}

@@ -69,6 +69,17 @@ class CalendarStoreTest(unittest.TestCase):
             self.assertEqual("confirmed", confirmed["status"])
             self.assertEqual("pending", confirmed["confirmation_delivery"]["status"])
             self.assertIn("BEGIN:VCALENDAR", store.booking_ics(booking["event_id"], "admin"))
+            self.assertEqual("external_booking", confirmed["source"])
+
+    def test_manual_and_ics_events_keep_their_origin(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            manual = store.add("Eigener Termin", "Grund", "2026-07-27T09:00", "", "", "admin")
+            imported = store.import_ics("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:remote-1\nSUMMARY:Fremder Kalender\nDTSTART:20260728T100000\nDTEND:20260728T110000\nEND:VEVENT\nEND:VCALENDAR", "admin")
+
+            self.assertEqual("manual", manual["source"])
+            self.assertEqual(1, imported)
+            self.assertEqual("ical_import", next(event for event in store.events("admin") if event.get("source_uid") == "remote-1")["source"])
 
 
 if __name__ == "__main__":
