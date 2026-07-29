@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import io
 import json
+import mimetypes
 import shutil
 import subprocess
+from pathlib import Path
 from urllib.parse import urlencode
 from calendar import month_name, monthcalendar
 from datetime import date, datetime, timedelta, timezone
@@ -128,6 +130,19 @@ def _document_or_404(document_id: str) -> dict:
         abort(404)
 
 
+def _preview_data(document: dict) -> dict[str, str]:
+    suffix = Path(str(document.get("last_path", ""))).suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}: kind, icon = "image", "fa-file-image"
+    elif suffix == ".pdf": kind, icon = "pdf", "fa-file-pdf"
+    elif suffix in {".mp3", ".wav", ".ogg", ".m4a", ".flac"}: kind, icon = "audio", "fa-file-audio"
+    elif suffix in {".mp4", ".mkv", ".mov", ".avi", ".webm"}: kind, icon = "video", "fa-file-video"
+    elif document.get("extracted_text") or document.get("ocr_text"): kind, icon = "text", "fa-file-lines"
+    elif suffix in {".doc", ".docx", ".odt", ".rtf"}: kind, icon = "document", "fa-file-word"
+    elif suffix in {".xls", ".xlsx", ".ods", ".csv"}: kind, icon = "document", "fa-file-excel"
+    else: kind, icon = "file", "fa-file"
+    return {"kind": kind, "icon": icon, "mime": mimetypes.guess_type(str(document.get("last_path", "")))[0] or "application/octet-stream"}
+
+
 def _is_unprocessed(document: dict) -> bool:
     """Inbox contains only new files without a human note, state or relation."""
     return document.get("state", "new") == "new" and not document.get("notes") and not document.get("relationships")
@@ -149,22 +164,30 @@ def _document_tree(documents: list[dict]) -> dict:
 @bp.route("/")
 @login_required
 def index():
-    documents = _store().list_documents()
-    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), defaults=_settings().settings())
+    try: page = max(1, int(request.args.get("page", "1")))
+    except ValueError: page = 1
+    result = _store().document_page(page=page)
+    documents = result["documents"]
+    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), defaults=_settings().settings(), **result)
 
 
 @bp.get("/search")
 @login_required
 def document_search():
     query = request.args.get("q", "").strip()
-    updated = 0
-    results = []
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError:
+        page = 1
+    result = {"results": [], "page": page, "page_size": 25, "has_next": False}
     if query:
-        updated = _store().refresh_missing_text(str(g.user["username"]))
-        results = _store().search(query)
-        for result in results:
-            _store().record_access(result["document_id"], str(g.user["username"]), "found")
-    return render_template("documents/search.html", query=query, results=results, updated=updated)
+        # Never scan or backfill here: an initial scan may take a long time and
+        # runs independently in the launcher.  The existing index can answer
+        # immediately and is extended as the background scan progresses.
+        result = _store().search_page(query, page=page)
+        for item in result["results"]:
+            _store().record_access(item["document_id"], str(g.user["username"]), "found")
+    return render_template("documents/search.html", query=query, scan_status=_store().scan_status(), **result)
 
 
 @bp.post("/search/index")
@@ -282,7 +305,7 @@ def attach_project_document(project_id: str):
 @login_required
 def search_project_documents():
     query = request.args.get("q", "").strip()
-    results = _store().search(query, limit=20) if len(query) >= 2 else []
+    results = _store().search_page(query, page_size=20)["results"] if len(query) >= 2 else []
     for result in results:
         _store().record_access(result["document_id"], str(g.user["username"]), "found")
     return Response(json.dumps(results), mimetype="application/json")
@@ -311,6 +334,18 @@ def import_replication_target(target_id: str):
         result = _replication().import_target(target_id, str(g.user["username"]))
         flash(f"Speicher importiert: {result['copied']} neu, {result['unchanged']} bereits vorhanden, {result.get('errors', 0)} nicht lesbar.")
     except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.replication"))
+
+
+@bp.post("/replication/targets/<target_id>/enabled")
+@login_required
+def set_replication_target_enabled(target_id: str):
+    try:
+        enabled = request.form.get("enabled") == "1"
+        _replication().set_target_enabled(target_id, enabled, str(g.user["username"]))
+        flash("Speicherziel aktiviert." if enabled else "Speicherziel pausiert. Import und Spiegelung sind angehalten.")
+    except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.replication"))
 
@@ -411,7 +446,7 @@ def toggle_todo(item_id: str):
 @login_required
 def inbox():
     documents = [item for item in _store().list_documents() if _is_unprocessed(item)]
-    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), inbox_only=True, defaults=_settings().settings())
+    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), inbox_only=True, defaults=_settings().settings(), page=1, page_size=max(1, len(documents)), total=len(documents), has_next=False)
 
 
 @bp.route("/images")
@@ -515,6 +550,7 @@ def detail(document_id: str):
         shares=store.document_shares(document_id),
         link_query=query,
         link_matches=[item for item in store.find_matches(query) if item["document_id"] != document_id] if query else [],
+        preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
         defaults=_settings().settings(),
     )
 
@@ -729,10 +765,11 @@ def remove_ssh_source(source_id: str):
 @login_required
 def contacts():
     actor = str(g.user["username"])
-    contacts = _contacts().contacts(actor)
+    query = request.args.get("q", "").strip()
+    contacts = _contacts().search(query, actor)
     address_values = sorted({address.get("value", "") for contact in contacts for address in contact.get("addresses", []) if address.get("value")}, key=str.casefold)
     carddav_endpoint = url_for("carddav.endpoint", path=f"addressbooks/{g.user['username']}/default/", _external=True)
-    return render_template("documents/contacts.html", contacts=contacts, schema=_contacts().schema(), carddav=_contacts().carddav(), carddav_endpoint=carddav_endpoint, address_matches=_contacts().address_matches(), address_values=address_values)
+    return render_template("documents/contacts.html", contacts=contacts, query=query, schema=_contacts().schema(), carddav=_contacts().carddav(), carddav_endpoint=carddav_endpoint, address_matches=_contacts().address_matches(), address_values=address_values)
 
 
 @bp.get("/forms")

@@ -47,13 +47,23 @@ class ReplicationStore:
         path = path.resolve()
         if path == self.root or self.root in path.parents or path in self.root.parents: raise ValueError("Hauptdatenverzeichnis und Unterordner dürfen kein Spiegelungsziel sein")
         initial_import = DocumentStore(self.root).import_directory(path, label, actor) if any(path.iterdir()) else {"copied": 0, "unchanged": 0, "skipped": 0}
-        data = self.status(); target = {"target_id": str(uuid.uuid4()), "label": label, "path": str(path), "created_at": utc_now(), "created_by": actor, "last_run": None, "last_error": "", "initial_import": initial_import, "last_import": initial_import}
+        data = self.status(); target = {"target_id": str(uuid.uuid4()), "label": label, "path": str(path), "created_at": utc_now(), "created_by": actor, "enabled": True, "last_run": None, "last_error": "", "initial_import": initial_import, "last_import": initial_import}
         data["targets"].append(target); self._save(data, actor, "replication_target_created", target["target_id"]); return target
+
+    def set_target_enabled(self, target_id: str, enabled: bool, actor: str) -> dict[str, Any]:
+        data = self.status(); target = next((item for item in data["targets"] if item["target_id"] == target_id), None)
+        if target is None: raise ValueError("Unbekanntes Spiegelungsziel")
+        target["enabled"] = enabled
+        target["paused_at"] = utc_now() if not enabled else None
+        target["paused_by"] = actor if not enabled else None
+        self._save(data, actor, "replication_target_resumed" if enabled else "replication_target_paused", target_id)
+        return target
 
     def import_target(self, target_id: str, actor: str) -> dict[str, Any]:
         """Import the current contents of an already registered target safely."""
         data = self.status(); target = next((item for item in data["targets"] if item["target_id"] == target_id), None)
         if target is None: raise ValueError("Unbekanntes Spiegelungsziel")
+        if target.get("enabled", True) is False: raise ValueError("Spiegelungsziel ist pausiert")
         path = Path(target["path"])
         if not path.is_dir(): raise ValueError("Spiegelungsziel ist nicht verbunden")
         result = DocumentStore(self.root).import_directory(path, target["label"], actor)
@@ -74,6 +84,7 @@ class ReplicationStore:
         data = self.status(); rule = next((item for item in data["rules"] if item["rule_id"] == rule_id), None)
         if not rule: raise ValueError("Unbekannte Spiegelungsregel")
         target = next(item for item in data["targets"] if item["target_id"] == rule["target_id"]); target_path = Path(target["path"])
+        if target.get("enabled", True) is False: raise ValueError("Spiegelungsziel ist pausiert")
         if not target_path.is_dir(): raise ValueError("Spiegelungsziel ist nicht verbunden")
         copied = unchanged = 0; manifest: dict[str, Any] = {"schema": 1, "created_at": utc_now(), "rule_id": rule_id, "files": []}
         for source, relative, category, document_id in self._sources(rule):

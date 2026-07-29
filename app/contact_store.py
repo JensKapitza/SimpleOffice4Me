@@ -67,6 +67,20 @@ class ContactStore:
             items = [item for item in items if self._can_manage(item, principal)]
         return sorted(items, key=lambda item: item.get("fields", {}).get("display_name", "").casefold())
 
+    def search(self, query: str, actor: str = "") -> list[dict[str, Any]]:
+        """Find visible contacts across standard, custom and address fields."""
+        needle = query.strip().casefold()
+        if not needle:
+            return self.contacts(actor)
+        return [
+            contact for contact in self.contacts(actor)
+            if needle in " ".join([
+                contact.get("contact_id", ""),
+                *[str(value) for value in contact.get("fields", {}).values()],
+                *[str(address.get("label", "")) + " " + str(address.get("value", "")) for address in contact.get("addresses", [])],
+            ]).casefold()
+        ]
+
     def get(self, contact_id: str, actor: str = "") -> dict[str, Any]:
         contact = next((item for item in self.contacts() if item.get("contact_id") == contact_id), None)
         if contact is None:

@@ -60,6 +60,18 @@ class ReplicationStoreTests(unittest.TestCase):
         self.assertEqual(1, result["copied"])
         self.assertEqual("neu", (self.root / "imports" / "USB" / "später.txt").read_text(encoding="utf-8"))
 
+    def test_paused_target_blocks_import_and_replication(self):
+        replication = ReplicationStore(self.root)
+        target = replication.add_target({"label": "USB", "path": str(self.target)}, "tester")
+        rule = replication.add_rule({"label": "Kontakte", "target_id": target["target_id"], "categories": ["contacts"]}, "tester")
+        replication.set_target_enabled(target["target_id"], False, "tester")
+
+        with self.assertRaisesRegex(ValueError, "pausiert"):
+            replication.import_target(target["target_id"], "tester")
+        with self.assertRaisesRegex(ValueError, "pausiert"):
+            replication.run_rule(rule["rule_id"], "tester")
+        self.assertTrue(replication.set_target_enabled(target["target_id"], True, "tester")["enabled"])
+
     def test_unreadable_file_is_skipped_without_aborting_import(self):
         readable = self.target / "ok.txt"; unreadable = self.target / "locked.bin"
         readable.write_text("ok", encoding="utf-8"); unreadable.write_bytes(b"locked")

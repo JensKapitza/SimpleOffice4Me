@@ -47,6 +47,16 @@ class ContactStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "only the contact owner"):
                 store.share(contact["contact_id"], ["other"], "jens")
 
+    def test_search_covers_visible_standard_custom_and_address_fields(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            contact = store.upsert({"display_name": "Fensterbau Meier", "email": "team@meier.test", "custom_customer_number": "K-4711"}, "admin")
+            store.add_address(contact["contact_id"], "Werkstatt", "Klaubergstraße 1, Duisburg", "admin")
+
+            self.assertEqual([contact["contact_id"]], [item["contact_id"] for item in store.search("4711", "admin")])
+            self.assertEqual([contact["contact_id"]], [item["contact_id"] for item in store.search("Klauberg", "admin")])
+            self.assertEqual([], store.search("Meier", "other"))
+
     def test_parallel_carddav_writes_do_not_lose_contacts_or_conflict_in_git(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

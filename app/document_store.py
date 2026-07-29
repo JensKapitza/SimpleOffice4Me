@@ -617,37 +617,41 @@ class DocumentStore:
         self._record_revision("document_text_backfill", actor, "search", "text-backfill", {"updated": updated, "force": force, "at": utc_now()})
         return updated
 
-    def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
-        """Search indexed metadata and later OCR content without scanning files again."""
+    def search_page(self, query: str, page: int = 1, page_size: int = 25) -> dict[str, Any]:
+        """Return one fast, indexed result page without touching document files."""
         query = query.strip()
         if not query:
-            return []
+            return {"results": [], "page": 1, "page_size": page_size, "has_next": False}
+        page = max(1, page)
+        page_size = max(1, min(page_size, 100))
+        limit = page_size + 1
+        offset = (page - 1) * page_size
         self.initialize()
         with self._db() as db:
             try:
                 rows = db.execute(
-                    "SELECT document_id, path, state FROM document_search WHERE document_search MATCH ? LIMIT ?",
-                    (query, limit),
+                    "SELECT document_id, path, state FROM document_search WHERE document_search MATCH ? LIMIT ? OFFSET ?",
+                    (query, limit, offset),
                 ).fetchall()
             except sqlite3.OperationalError:
-                pattern = f"%{query}%"
+                pattern = f"%{query.replace('*', '%')}%"
                 rows = db.execute(
                     """SELECT document_id, path, state FROM document_search
                     WHERE path LIKE ? OR state LIKE ? OR tags LIKE ? OR notes LIKE ?
-                       OR attributes LIKE ? OR content LIKE ? LIMIT ?""",
-                    (pattern, pattern, pattern, pattern, pattern, pattern, limit),
+                       OR attributes LIKE ? OR content LIKE ? LIMIT ? OFFSET ?""",
+                    (pattern, pattern, pattern, pattern, pattern, pattern, limit, offset),
                 ).fetchall()
         results = [{"document_id": row[0], "path": row[1], "state": row[2]} for row in rows]
-        known_ids = {item["document_id"] for item in results}
-        # A tag lookup is intentionally prefix-friendly: "dank" and "dan*"
-        # both match a tag such as "danke" without requiring FTS syntax.
-        for metadata in self._all_documents():
-            if len(results) >= limit:
-                break
-            if metadata["document_id"] not in known_ids and any(self.tag_matches(query, tag) for tag in metadata.get("tags", [])):
-                results.append({"document_id": metadata["document_id"], "path": metadata.get("last_path", ""), "state": metadata.get("state", "")})
-                known_ids.add(metadata["document_id"])
-        return results
+        return {
+            "results": results[:page_size],
+            "page": page,
+            "page_size": page_size,
+            "has_next": len(results) > page_size,
+        }
+
+    def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Compatibility helper returning the first indexed search page."""
+        return self.search_page(query, page_size=limit)["results"]
 
     def add_link(
         self,
@@ -807,6 +811,20 @@ class DocumentStore:
             key=lambda item: (item.get("last_seen_at", ""), item.get("last_path", "")),
             reverse=True,
         )
+
+    def document_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
+        """Load only one document page from the scan index for large archives."""
+        self.initialize()
+        page = max(1, page); page_size = max(1, min(500, page_size))
+        with self._db() as db:
+            total = int(db.execute("SELECT COUNT(DISTINCT document_id) FROM scan_file").fetchone()[0])
+            rows = db.execute("SELECT document_id FROM scan_file GROUP BY document_id ORDER BY MAX(last_seen_at) DESC, MAX(relative_path) LIMIT ? OFFSET ?", (page_size, (page - 1) * page_size)).fetchall()
+        documents = []
+        for (document_id,) in rows:
+            metadata = self._read_json(self.documents / f"{document_id}.json", {})
+            if metadata.get("document_id"):
+                documents.append(metadata)
+        return {"documents": documents, "page": page, "page_size": page_size, "total": total, "has_next": page * page_size < total}
 
     def move_document(self, reference: str, destination_folder: str, actor: str) -> dict[str, Any]:
         """Move a managed file inside the document root without changing its ID."""
@@ -1496,7 +1514,13 @@ class DocumentStore:
 
     def _db(self) -> sqlite3.Connection:
         self.control.mkdir(parents=True, exist_ok=True)
-        return sqlite3.connect(self.index_path)
+        # The scanner and web requests use short independent connections. WAL
+        # permits readers while the scanner updates the index; the timeout also
+        # prevents transient writer contention from becoming an HTTP 500.
+        connection = sqlite3.connect(self.index_path, timeout=15)
+        connection.execute("PRAGMA busy_timeout = 15000")
+        connection.execute("PRAGMA journal_mode = WAL")
+        return connection
 
     def _event(self, event_type: str, data: dict[str, Any]) -> None:
         self.control.mkdir(parents=True, exist_ok=True)

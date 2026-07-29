@@ -103,6 +103,36 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual(37, len(filtered["events"]))
             self.assertTrue(all(item["actor"] == "jens" for item in filtered["events"]))
 
+    def test_document_page_does_not_load_the_complete_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for number in range(12):
+                (root / f"datei-{number}.txt").write_text(str(number), encoding="utf-8")
+            store = DocumentStore(root); store.scan()
+
+            first = store.document_page(page=1, page_size=5)
+            third = store.document_page(page=3, page_size=5)
+
+            self.assertEqual(12, first["total"])
+            self.assertEqual(5, len(first["documents"]))
+            self.assertTrue(first["has_next"])
+            self.assertEqual(2, len(third["documents"]))
+
+    def test_search_is_paged_from_the_index(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for number in range(12):
+                (root / f"suchbegriff-{number}.txt").write_text("Inhalt", encoding="utf-8")
+            store = DocumentStore(root); store.scan()
+
+            first = store.search_page("suchbegriff", page=1, page_size=5)
+            third = store.search_page("suchbegriff", page=3, page_size=5)
+
+            self.assertEqual(5, len(first["results"]))
+            self.assertTrue(first["has_next"])
+            self.assertEqual(2, len(third["results"]))
+            self.assertFalse(third["has_next"])
+
     def test_tags_support_prefix_and_wildcard_matching(self):
         self.assertTrue(DocumentStore.tag_matches("dank", "danke"))
         self.assertTrue(DocumentStore.tag_matches("dan*", "danke"))

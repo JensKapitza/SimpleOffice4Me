@@ -6,8 +6,13 @@
   <p class="text-secondary">Durchsucht Dateinamen, Tags, Attribute, Notizen sowie extrahierten PDF-, Office-, Bild- und OCR-Text.</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
   <form method="get" class="input-group mb-3"><input autofocus required class="form-control" name="q" value="{{ query }}" placeholder="Suchbegriff"><button class="btn btn-primary">Suchen</button></form>
-  <form method="post" action="{{ url_for('documents.refresh_document_search') }}" class="mb-4"><input type="hidden" name="q" value="{{ query }}"><button class="btn btn-outline-secondary">Fehlende Texte aller Dokumente nachträglich extrahieren</button></form>
-  {% if query %}<p class="text-secondary small">{% if updated %}{{ updated }} Dokument(e) wurden vor der Suche ergänzt. {% endif %}{{ results|length }} Treffer.</p>{% endif %}
+  <form method="post" action="{{ url_for('documents.refresh_document_search') }}" class="mb-4"><input type="hidden" name="q" value="{{ query }}"><button class="btn btn-outline-secondary">Fehlende Texte nachträglich extrahieren</button></form>
+  {% if query and scan_status.state == 'running' %}<div class="alert alert-info" role="status">Suche läuft noch: Der Dokumentindex wird im Hintergrund ergänzt. Hier sind die bisher bekannten Teiltreffer; die Ansicht aktualisiert sich automatisch.</div>{% endif %}
+  {% if query %}<p class="text-secondary small">{{ results|length }} Teiltreffer auf dieser Seite.</p>{% endif %}
   <div class="list-group">{% for result in results %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=result.document_id) }}"><div class="d-flex justify-content-between"><strong>{{ result.path }}</strong><span class="badge text-bg-secondary">{{ result.state }}</span></div><small class="text-secondary"><code>{{ result.document_id }}</code></small></a>{% else %}{% if query %}<div class="alert alert-secondary">Keine Treffer.</div>{% endif %}{% endfor %}</div>
+  {% if query and (page > 1 or has_next) %}<nav class="d-flex gap-2 mt-3" aria-label="Weitere Suchtreffer">{% if page > 1 %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.document_search', q=query, page=page - 1) }}">Vorherige Treffer</a>{% endif %}{% if has_next %}<a class="btn btn-primary" href="{{ url_for('documents.document_search', q=query, page=page + 1) }}">Weitere Treffer laden</a>{% endif %}</nav>{% endif %}
 </main>
+{% endblock %}
+{% block script %}
+{% if query and scan_status.state == 'running' %}<script>window.setTimeout(function () { window.location.reload(); }, 4000);</script>{% endif %}
 {% endblock %}
