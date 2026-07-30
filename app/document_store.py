@@ -1148,22 +1148,27 @@ class DocumentStore:
                     (relative_path, stat.st_size, stat.st_mtime_ns),
                 ).fetchone()
                 if row:
+                    metadata = self._read_json(self.documents / f"{row[0]}.json", {})
                     db.execute(
                         """UPDATE scan_file SET last_seen_at = ?, device = ?, inode = ?
                            WHERE relative_path = ?""",
                         (now, stat.st_dev, stat.st_ino, relative_path),
                     )
-                    metadata = self._read_json(self.documents / f"{row[0]}.json", {})
-                    return False, metadata.get("system_state") == "duplicate"
-                moved = db.execute(
-                    """SELECT relative_path, document_id, sha256 FROM scan_file
-                       WHERE device = ? AND inode = ? AND size = ? AND modified_ns = ?
-                       ORDER BY last_seen_at DESC LIMIT 1""",
-                    (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns),
-                ).fetchone()
-                if moved:
-                    previous_path, document_id, digest = moved
-                    cached = (document_id, digest)
+                    if metadata.get("document_id"):
+                        return False, metadata.get("system_state") == "duplicate"
+                    # The SQLite index is disposable. Rebuild a missing sidecar
+                    # from its cached identity instead of hiding the damage.
+                    cached = (row[0], row[1])
+                else:
+                    moved = db.execute(
+                        """SELECT relative_path, document_id, sha256 FROM scan_file
+                           WHERE device = ? AND inode = ? AND size = ? AND modified_ns = ?
+                           ORDER BY last_seen_at DESC LIMIT 1""",
+                        (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns),
+                    ).fetchone()
+                    if moved:
+                        previous_path, document_id, digest = moved
+                        cached = (document_id, digest)
 
         xattrs = self._read_xattrs(path)
         if cached:
