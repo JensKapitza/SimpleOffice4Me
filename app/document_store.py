@@ -1637,11 +1637,16 @@ def init_document_store_command(root: Path) -> None:
 
 @click.command("scan-documents")
 @click.option("--root", type=click.Path(path_type=Path), default=None, help="Document root; defaults to SIMPLEOFFICE_DOCUMENT_ROOT.")
+@click.option(
+    "--verify-hashes",
+    is_flag=True,
+    help="Recalculate every SHA-256 checksum even when size and modification time are unchanged.",
+)
 @with_appcontext
-def scan_documents_command(root: Path | None) -> None:
-    """Scan documents, calculate hashes and update the repairable index."""
+def scan_documents_command(root: Path | None, verify_hashes: bool) -> None:
+    """Scan documents and update the repairable index."""
     store = DocumentStore(root or current_app.config["DOCUMENT_ROOT"])
-    report = store.scan()
+    report = store.scan(verify_hashes=verify_hashes)
     click.echo(
         f"files={report.files} new={report.new_files} duplicates={report.duplicates} "
         f"symlinks={report.symlinks} boundaries={report.skipped_boundaries} errors={report.errors}"
