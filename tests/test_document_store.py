@@ -37,6 +37,24 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual(1, report.files)
             self.assertEqual(0, report.new_files)
 
+    def test_missing_metadata_is_rebuilt_from_cached_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "repair.bin"
+            source.write_bytes(b"recoverable")
+            store = DocumentStore(root)
+            store.scan()
+            original = store.get_document(source)
+            metadata_path = root / CONTROL_DIR / "documents" / f"{original['document_id']}.json"
+            metadata_path.unlink()
+
+            with patch("app.document_store.sha256_file", side_effect=AssertionError("cached file was hashed again")):
+                store.scan()
+
+            repaired = store.get_document(source)
+            self.assertEqual(original["document_id"], repaired["document_id"])
+            self.assertTrue(metadata_path.is_file())
+
     def test_external_move_keeps_id_without_rehashing(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
