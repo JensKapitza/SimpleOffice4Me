@@ -51,9 +51,24 @@ ohne Extended Attributes funktioniert der Sidecar-Speicher weiter.
 
 ## Regelmäßiger Betrieb
 
-Der Scan kann ohne Risiko wiederholt werden. Er berechnet fehlende Prüfsummen,
-erkennt gleiche Dateien, protokolliert Symlinks und baut den Index nach einem
-Abbruch selbst erneut auf.
+Der Scan kann ohne Risiko wiederholt werden. Beim normalen Folgescan werden
+bereits bekannte SHA-256-Werte wiederverwendet, wenn Pfad, Größe und
+Änderungszeit unverändert sind. Eine Verschiebung innerhalb desselben
+Dateisystems wird zusätzlich über Geräte- und Inode-ID erkannt; Dokument-ID,
+Prüfsumme und Historie bleiben erhalten. Der erste Lauf nach einem Update kann
+diese Dateisystemkennungen noch nachtragen.
+
+Für eine vollständige Integritätsprüfung kann das erneute Lesen aller Dateien
+ausdrücklich angefordert werden:
+
+```bash
+SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
+  python -m flask --app app scan-documents --verify-hashes
+```
+
+Der Scan erkennt gleiche Dateien, protokolliert Symlinks und baut den
+verzichtbaren SQLite-Index nach einem Abbruch selbst erneut auf. Fehlende
+Dokument-Sidecars werden aus einer vorhandenen Indexidentität repariert.
 
 Standardmäßig folgt der Scanner keinen Symlinks und überschreitet keine
 Dateisystemgrenze, z. B. keinen Mount, Bind-Mount oder Overlay-Einstieg. In
@@ -125,10 +140,14 @@ SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents \
 ```
 
 Der beim ersten Scan ermittelte SHA-256 bleibt als Original-Prüfsumme erhalten.
-Wird eine Datei außerhalb der Anwendung verändert, meldet ein späterer Scan
-`integrity_changed` in Metadaten und Chronik. Eine inhaltliche Änderung soll
-deshalb als neue Version importiert werden, nicht als Überschreiben der alten
-Datei.
+Eine bei einem normalen Scan erkannte Änderung von Größe oder Änderungszeit
+führt erneut zur Hashprüfung. Der Schnellpfad vertraut bei unveränderten Werten
+auf diese Dateisystemangaben; nach einem Verdacht auf Manipulation und
+regelmäßig nach dem eigenen Sicherungskonzept sollte deshalb
+`scan-documents --verify-hashes` ausgeführt werden. Eine erkannte Abweichung
+erscheint als `integrity_changed` in Metadaten und Chronik. Eine inhaltliche
+Änderung soll als neue Version importiert werden, nicht als Überschreiben der
+alten Datei.
 
 ## Revisionsarchiv und Benutzerzuordnung
 
@@ -154,6 +173,8 @@ Nach der Anmeldung stehen diese Seiten zur Verfügung:
 - `/documents/wiki/notes`: ein dokumentübergreifendes Notiz-Wiki.
 - `/documents/logbook`: alle Benutzer-Revisionen und Scannerereignisse in
   umgekehrt chronologischer Reihenfolge.
+- `/documents/images`: Bildergalerie mit höchstens 500 Vorschaubildern pro
+  Seite sowie Vor- und Zurück-Navigation.
 
 Damit ist auch bei einem Neustart nachvollziehbar, wer wann welche Notiz oder
 Änderung vorgenommen hat; die Anzeige liest ausschließlich die dateibasierten
