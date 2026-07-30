@@ -23,6 +23,40 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertTrue((root / POLICY_FILE).exists())
             self.assertTrue((root / CONTROL_DIR / "events.ndjson").exists())
 
+    def test_unchanged_file_reuses_cached_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "gross.bin"
+            source.write_bytes(b"x" * 4096)
+            store = DocumentStore(root)
+            store.scan()
+
+            with patch("app.document_store.sha256_file", side_effect=AssertionError("file was hashed again")):
+                report = store.scan()
+
+            self.assertEqual(1, report.files)
+            self.assertEqual(0, report.new_files)
+
+    def test_external_move_keeps_id_without_rehashing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "vorher.bin"
+            source.write_bytes(b"content")
+            store = DocumentStore(root)
+            store.scan()
+            original = store.get_document(source)
+            destination = root / "nachher.bin"
+            source.rename(destination)
+
+            with patch("app.document_store.sha256_file", side_effect=AssertionError("moved file was hashed again")):
+                store.scan()
+
+            moved = store.get_document(destination)
+            self.assertEqual(original["document_id"], moved["document_id"])
+            self.assertEqual("vorher.bin", moved["location_history"][-1]["from"])
+            self.assertEqual("nachher.bin", moved["location_history"][-1]["to"])
+            self.assertNotEqual("duplicate", moved["system_state"])
+
     def test_existing_policy_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
