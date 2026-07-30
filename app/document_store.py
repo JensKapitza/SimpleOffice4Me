@@ -104,11 +104,21 @@ class DocumentStore:
                     sha256 TEXT NOT NULL,
                     size INTEGER NOT NULL,
                     modified_ns INTEGER NOT NULL,
+                    device INTEGER,
+                    inode INTEGER,
                     last_seen_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS scan_file_sha256 ON scan_file(sha256);
                 """
             )
+            # Additive migration for indexes created before move detection was
+            # introduced. The filesystem remains the source of truth.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(scan_file)")}
+            if "device" not in columns:
+                db.execute("ALTER TABLE scan_file ADD COLUMN device INTEGER")
+            if "inode" not in columns:
+                db.execute("ALTER TABLE scan_file ADD COLUMN inode INTEGER")
+            db.execute("CREATE INDEX IF NOT EXISTS scan_file_inode ON scan_file(device, inode)")
             try:
                 db.execute(
                     """CREATE VIRTUAL TABLE IF NOT EXISTS document_search
@@ -1016,7 +1026,12 @@ class DocumentStore:
         start = (page - 1) * page_size
         return {"events": merged[start:start + page_size], "page": page, "has_next": len(merged) > start + page_size}
 
-    def scan(self, progress: Callable[[ScanReport], None] | None = None, file_progress: Callable[[Path], None] | None = None) -> ScanReport:
+    def scan(
+        self,
+        progress: Callable[[ScanReport], None] | None = None,
+        file_progress: Callable[[Path], None] | None = None,
+        verify_hashes: bool = False,
+    ) -> ScanReport:
         self.initialize()
         files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
         # Device/inode tracking prevents a deliberately allowed symlink from
@@ -1052,7 +1067,7 @@ class DocumentStore:
                             pending.append(target)
                         elif target.is_file():
                             if file_progress: file_progress(target)
-                            created, duplicate = self._scan_file(target)
+                            created, duplicate = self._scan_file(target, force_hash=verify_hashes)
                             files += 1
                             new_files += int(created)
                             duplicates += int(duplicate)
@@ -1071,7 +1086,7 @@ class DocumentStore:
                     if not path.is_file():
                         continue
                     if file_progress: file_progress(path)
-                    created, duplicate = self._scan_file(path)
+                    created, duplicate = self._scan_file(path, force_hash=verify_hashes)
                     files += 1
                     new_files += int(created)
                     duplicates += int(duplicate)
@@ -1119,20 +1134,61 @@ class DocumentStore:
             "allow_other_filesystems": configured.get("allow_other_filesystems") is True,
         }
 
-    def _scan_file(self, path: Path) -> tuple[bool, bool]:
+    def _scan_file(self, path: Path, force_hash: bool = False) -> tuple[bool, bool]:
         stat = path.stat()
         relative_path = self.relative(path)
-        digest = sha256_file(path)
+        now = utc_now()
+        cached: tuple[str, str] | None = None
+        previous_path = ""
+        if not force_hash:
+            with self._db() as db:
+                row = db.execute(
+                    """SELECT document_id, sha256 FROM scan_file
+                       WHERE relative_path = ? AND size = ? AND modified_ns = ?""",
+                    (relative_path, stat.st_size, stat.st_mtime_ns),
+                ).fetchone()
+                if row:
+                    db.execute(
+                        """UPDATE scan_file SET last_seen_at = ?, device = ?, inode = ?
+                           WHERE relative_path = ?""",
+                        (now, stat.st_dev, stat.st_ino, relative_path),
+                    )
+                    metadata = self._read_json(self.documents / f"{row[0]}.json", {})
+                    return False, metadata.get("system_state") == "duplicate"
+                moved = db.execute(
+                    """SELECT relative_path, document_id, sha256 FROM scan_file
+                       WHERE device = ? AND inode = ? AND size = ? AND modified_ns = ?
+                       ORDER BY last_seen_at DESC LIMIT 1""",
+                    (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns),
+                ).fetchone()
+                if moved:
+                    previous_path, document_id, digest = moved
+                    cached = (document_id, digest)
+
         xattrs = self._read_xattrs(path)
-        document_id = xattrs.get("document_id") or str(uuid.uuid4())
+        if cached:
+            document_id, digest = cached
+        else:
+            digest = sha256_file(path)
+            document_id = xattrs.get("document_id") or str(uuid.uuid4())
         metadata_path = self.documents / f"{document_id}.json"
         created = not metadata_path.exists()
-        now = utc_now()
         metadata = self._read_json(metadata_path, {})
         original_sha256 = metadata.get("original_sha256", digest)
         integrity_changed = original_sha256 != digest
         existing_tags = metadata.get("tags", xattrs.get("tags", []))
         detected_tags = self._filename_tags(path.name)
+        if previous_path and previous_path != relative_path:
+            metadata["location_history"] = [
+                *metadata.get("location_history", []),
+                {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"},
+            ]
+            with self._db() as db:
+                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+            self._event(
+                "file_move_detected",
+                {"document_id": document_id, "from": previous_path, "to": relative_path},
+            )
         metadata.update(
             {
                 "version": 1,
@@ -1159,6 +1215,8 @@ class DocumentStore:
         fingerprint_path = self.fingerprints / f"{digest}.json"
         fingerprint = self._read_json(fingerprint_path, {})
         known_paths = set(fingerprint.get("paths", []))
+        if previous_path:
+            known_paths.discard(previous_path)
         duplicate = bool(known_paths and relative_path not in known_paths)
         known_paths.add(relative_path)
         fingerprint.update(
@@ -1184,12 +1242,16 @@ class DocumentStore:
         self._refresh_search_index(metadata)
         with self._db() as db:
             db.execute(
-                """INSERT INTO scan_file(relative_path, document_id, sha256, size, modified_ns, last_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?)
+                """INSERT INTO scan_file(
+                       relative_path, document_id, sha256, size, modified_ns, device, inode, last_seen_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(relative_path) DO UPDATE SET document_id=excluded.document_id,
                      sha256=excluded.sha256, size=excluded.size, modified_ns=excluded.modified_ns,
-                     last_seen_at=excluded.last_seen_at""",
-                (relative_path, document_id, digest, stat.st_size, stat.st_mtime_ns, now),
+                     device=excluded.device, inode=excluded.inode, last_seen_at=excluded.last_seen_at""",
+                (
+                    relative_path, document_id, digest, stat.st_size, stat.st_mtime_ns,
+                    stat.st_dev, stat.st_ino, now,
+                ),
             )
         self._event(
             "file_seen",
