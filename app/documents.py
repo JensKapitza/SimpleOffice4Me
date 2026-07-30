@@ -454,6 +454,11 @@ def inbox():
 def images():
     tag = request.args.get("tag", "").strip()
     period = request.args.get("period", "all")
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError:
+        page = 1
+    page_size = 500
     if period not in {"all", "week", "month", "year"}:
         period = "all"
     now = datetime.now(timezone.utc)
@@ -473,12 +478,24 @@ def images():
             return seen.year == now.year and seen.month == now.month
         return seen.year == now.year
 
-    pictures = [
+    matches = [
         item for item in _store().list_documents()
         if item.get("last_path", "").lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp"))
         and (not tag or any(_store().tag_matches(tag, item_tag) for item_tag in item.get("tags", []))) and in_period(item)
     ]
-    return render_template("documents/images.html", pictures=pictures, tag=tag, period=period)
+    total = len(matches)
+    start = (page - 1) * page_size
+    pictures = matches[start:start + page_size]
+    return render_template(
+        "documents/images.html",
+        pictures=pictures,
+        tag=tag,
+        period=period,
+        page=page,
+        page_size=page_size,
+        total=total,
+        has_next=start + len(pictures) < total,
+    )
 
 
 @bp.get("/<document_id>/preview")
