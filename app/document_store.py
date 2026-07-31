@@ -63,6 +63,21 @@ def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def ocr_subprocess_environment() -> dict[str, str]:
+    """Return a bounded OpenMP environment for one Tesseract process."""
+    environment = os.environ.copy()
+    requested = environment.get(
+        "SIMPLEOFFICE_OCR_THREADS",
+        environment.get("OMP_THREAD_LIMIT", "1"),
+    ).strip()
+    try:
+        threads = int(requested)
+    except ValueError:
+        threads = 1
+    environment["OMP_THREAD_LIMIT"] = str(max(1, min(threads, 8)))
+    return environment
+
+
 @dataclass(frozen=True)
 class ScanReport:
     files: int = 0
@@ -1443,10 +1458,11 @@ class DocumentStore:
         executable = shutil.which("tesseract")
         if not executable:
             raise RuntimeError("Tesseract OCR is not installed")
+        environment = ocr_subprocess_environment()
         try:
-            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=90, check=False)
+            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=90, check=False, env=environment)
             if result.returncode != 0 and "deu" in result.stderr.lower():
-                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=90, check=False)
+                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=90, check=False, env=environment)
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError("OCR timed out after 90 seconds") from exc
         if result.returncode != 0:
