@@ -13,11 +13,27 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "instance" / "simpleoffice.json"
+SCAN_STATUS_FILE_INTERVAL = 250
+SCAN_STATUS_TIME_INTERVAL = 2.0
+
+
+def should_report_scan_progress(
+    current_files: int,
+    last_files: int,
+    now: float,
+    last_at: float,
+) -> bool:
+    """Keep the background scan visible without writing status per file."""
+    return (
+        current_files - last_files >= SCAN_STATUS_FILE_INTERVAL
+        or now - last_at >= SCAN_STATUS_TIME_INTERVAL
+    )
 
 
 def default_document_root() -> Path:
@@ -87,11 +103,34 @@ def start(configure_only: bool = False) -> None:
 
     def initial_scan() -> None:
         store.set_scan_status({"state": "running", "files": 0, "new_files": 0, "duplicates": 0, "errors": 0})
-        try:
-            report = store.scan(
-                lambda current: store.set_scan_status({"state": "running", "files": current.files, "new_files": current.new_files, "duplicates": current.duplicates, "errors": current.errors}),
-                lambda path: print(f"Lade Dokument: {store.relative(path)}", flush=True),
+        last_reported_files = 0
+        last_reported_at = time.monotonic()
+
+        def report_progress(current: object) -> None:
+            nonlocal last_reported_files, last_reported_at
+            now = time.monotonic()
+            current_files = int(getattr(current, "files"))
+            if not should_report_scan_progress(current_files, last_reported_files, now, last_reported_at):
+                return
+            status = {
+                "state": "running",
+                "files": current_files,
+                "new_files": int(getattr(current, "new_files")),
+                "duplicates": int(getattr(current, "duplicates")),
+                "errors": int(getattr(current, "errors")),
+            }
+            store.set_scan_status(status)
+            print(
+                "Initialscan: "
+                f"files={status['files']} new={status['new_files']} "
+                f"duplicates={status['duplicates']} errors={status['errors']}",
+                flush=True,
             )
+            last_reported_files = current_files
+            last_reported_at = now
+
+        try:
+            report = store.scan(report_progress)
             store.set_scan_status({"state": "completed", "files": report.files, "new_files": report.new_files, "duplicates": report.duplicates, "errors": report.errors})
             print(f"Initialscan abgeschlossen: files={report.files} new={report.new_files} duplicates={report.duplicates} errors={report.errors}")
         except Exception as exc:
