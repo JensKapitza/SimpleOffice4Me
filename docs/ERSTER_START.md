@@ -70,6 +70,26 @@ Der Scan erkennt gleiche Dateien, protokolliert Symlinks und baut den
 verzichtbaren SQLite-Index nach einem Abbruch selbst erneut auf. Fehlende
 Dokument-Sidecars werden aus einer vorhandenen Indexidentität repariert.
 
+### Ressourcen beim Hintergrundscan
+
+Der Starter schreibt Scan-Status und Konsolenausgabe gebündelt: spätestens
+nach 250 weiteren Dateien oder nach zwei Sekunden. Der Abschlussstand wird
+immer sofort geschrieben. Das vermeidet tausende kleine Schreibvorgänge, ohne
+den eigentlichen Scan oder seine Chronik auszulassen.
+
+Tesseract erhält standardmäßig höchstens einen OpenMP-Thread pro OCR-Vorgang.
+Für einen leistungsfähigeren Server kann die Grenze bewusst auf 1 bis 8 gesetzt
+werden:
+
+```bash
+SIMPLEOFFICE_OCR_THREADS=2 ./start.sh
+```
+
+Unter Windows kann derselbe Wert vor `start.bat` mit
+`set SIMPLEOFFICE_OCR_THREADS=2` gesetzt werden. Ungültige Werte fallen auf
+1 zurück; Werte über 8 werden begrenzt. Diese Einstellung betrifft Tesseract,
+nicht normale Dateizugriffe oder externe Office-/PDF-Werkzeuge.
+
 Standardmäßig folgt der Scanner keinen Symlinks und überschreitet keine
 Dateisystemgrenze, z. B. keinen Mount, Bind-Mount oder Overlay-Einstieg. In
 `.simpleoffice-folder.json` kann das nur für einen konkreten Ordner freigegeben
