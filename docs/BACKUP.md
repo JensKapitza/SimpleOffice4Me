@@ -37,6 +37,16 @@ python tools/backup.py \
 Die Prüfung liest alle gesicherten Dateien aus dem Archiv und vergleicht
 Größe und SHA-256 mit dem eingebetteten Manifest. Sie extrahiert keine Datei.
 
+Zusätzlich wird die vollständige Archivstruktur geprüft. Doppelte Dateinamen,
+nicht im Manifest aufgeführte Dateien, Pfade außerhalb von `SimpleOffice4Me/`,
+Symlinks, Hardlinks und Spezialdateien führen zu einem sichtbaren Fehler. Das
+verhindert, dass eine manipulierte oder mehrdeutige TAR-Struktur trotz korrekter
+Prüfsummen als gültige Sicherung gemeldet wird. Das Manifest ist auf 64 MiB
+begrenzt, damit ein fremdes Archiv keine übergroßen eingebetteten JSON-Metadaten
+in den Arbeitsspeicher laden lässt. Nicht portabel darstellbare Pfade führen
+bereits beim Erstellen zu einem Fehler, statt eine unprüfbare Sicherung zu
+erzeugen.
+
 ## Betriebsgrenzen
 
 - Das Archiv ist nicht verschlüsselt. Für personenbezogene Dokumente sollte
