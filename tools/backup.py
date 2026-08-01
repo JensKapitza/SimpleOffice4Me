@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import Any
 
 MANIFEST_NAME = "_simpleoffice_backup_manifest.json"
 ARCHIVE_PREFIX = "SimpleOffice4Me"
+MAX_MANIFEST_SIZE = 64 * 1024 * 1024
 
 
 def _sha256(path: Path) -> str:
@@ -32,6 +34,38 @@ def _inside(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _safe_relative_path(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise ValueError(f"{label} contains an unsafe path")
+    parts = value.split("/")
+    if value.startswith("/") or any(part in ("", ".", "..") for part in parts):
+        raise ValueError(f"{label} contains an unsafe path")
+    return value
+
+
+def _manifest_files(manifest: object) -> dict[str, dict[str, Any]]:
+    if not isinstance(manifest, dict) or manifest.get("version") != 1:
+        raise ValueError("backup manifest has an unsupported format")
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        raise ValueError("backup manifest has no file list")
+    expected: dict[str, dict[str, Any]] = {}
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError("backup manifest contains an invalid file entry")
+        relative = _safe_relative_path(item.get("path"), "backup manifest")
+        size = item.get("size")
+        digest = item.get("sha256")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise ValueError(f"backup manifest has an invalid size: {relative}")
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise ValueError(f"backup manifest has an invalid checksum: {relative}")
+        if relative in expected:
+            raise ValueError("backup manifest contains duplicate paths")
+        expected[relative] = item
+    return expected
 
 
 def create_backup(root: Path, destination: Path, allow_other_filesystems: bool = False) -> dict[str, Any]:
@@ -61,6 +95,7 @@ def create_backup(root: Path, destination: Path, allow_other_filesystems: bool =
                 for name in sorted(directories):
                     candidate = current_path / name
                     relative = candidate.relative_to(root).as_posix()
+                    _safe_relative_path(relative, "document tree")
                     if candidate.is_symlink():
                         skipped_symlinks.append(relative)
                     elif not allow_other_filesystems and candidate.stat().st_dev != root_device:
@@ -79,6 +114,7 @@ def create_backup(root: Path, destination: Path, allow_other_filesystems: bool =
                 for name in sorted(filenames):
                     path = current_path / name
                     relative = path.relative_to(root).as_posix()
+                    _safe_relative_path(relative, "document tree")
                     if path.is_symlink():
                         skipped_symlinks.append(relative)
                         continue
@@ -120,19 +156,55 @@ def create_backup(root: Path, destination: Path, allow_other_filesystems: bool =
 
 
 def verify_backup(backup: Path) -> dict[str, Any]:
-    """Verify every archived regular file against the embedded SHA-256 manifest."""
+    """Verify checksums and reject archive members outside the manifest."""
     backup = backup.expanduser().resolve()
     with tarfile.open(backup, "r:gz") as archive:
-        manifest_member = archive.getmember(f"{ARCHIVE_PREFIX}/{MANIFEST_NAME}")
+        members = archive.getmembers()
+        names = [member.name for member in members]
+        if len(names) != len(set(names)):
+            raise ValueError("backup archive contains duplicate members")
+        by_name = {member.name: member for member in members}
+        manifest_name = f"{ARCHIVE_PREFIX}/{MANIFEST_NAME}"
+        manifest_member = by_name.get(manifest_name)
+        if manifest_member is None or not manifest_member.isfile():
+            raise ValueError("backup manifest is missing or has the wrong type")
+        if manifest_member.size > MAX_MANIFEST_SIZE:
+            raise ValueError("backup manifest exceeds the safety limit")
         manifest_file = archive.extractfile(manifest_member)
         if manifest_file is None:
             raise ValueError("backup manifest is unreadable")
-        manifest = json.loads(manifest_file.read().decode("utf-8"))
-        expected = {item["path"]: item for item in manifest.get("files", [])}
-        if len(expected) != len(manifest.get("files", [])):
-            raise ValueError("backup manifest contains duplicate paths")
+        try:
+            manifest = json.loads(manifest_file.read().decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("backup manifest is not valid UTF-8 JSON") from exc
+        expected = _manifest_files(manifest)
+
+        archived_files: dict[str, tarfile.TarInfo] = {}
+        archived_paths: set[str] = set()
+        prefix = f"{ARCHIVE_PREFIX}/"
+        for member in members:
+            if member.name == manifest_name:
+                continue
+            if not member.name.startswith(prefix):
+                raise ValueError(f"backup member is outside the archive root: {member.name}")
+            relative = member.name[len(prefix):].rstrip("/")
+            _safe_relative_path(relative, "backup archive")
+            if relative in archived_paths:
+                raise ValueError(f"backup archive contains an ambiguous path: {relative}")
+            archived_paths.add(relative)
+            if member.isdir():
+                continue
+            if not member.isfile() or member.issparse():
+                raise ValueError(f"backup member has a forbidden type: {relative}")
+            if relative not in expected:
+                raise ValueError(f"backup contains an unmanifested file: {relative}")
+            archived_files[relative] = member
+
+        missing = sorted(set(expected) - set(archived_files))
+        if missing:
+            raise ValueError(f"backup member is missing: {missing[0]}")
         for relative, item in expected.items():
-            member = archive.getmember(f"{ARCHIVE_PREFIX}/{relative}")
+            member = archived_files[relative]
             if not member.isfile() or member.size != item["size"]:
                 raise ValueError(f"backup member has wrong type or size: {relative}")
             source = archive.extractfile(member)
