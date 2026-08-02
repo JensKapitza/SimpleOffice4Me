@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import app, google_oauth_credentials
+from app import MIB, app, configured_upload_limit_bytes, google_oauth_credentials
 from app import auth
 from app import db as database
 
@@ -24,6 +24,14 @@ class _Response:
 
 
 class AuthTest(unittest.TestCase):
+    def test_upload_limit_configuration_is_bounded(self):
+        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}, clear=True):
+            self.assertEqual(1024 * MIB, configured_upload_limit_bytes())
+        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "invalid"}, clear=True):
+            self.assertEqual(512 * MIB, configured_upload_limit_bytes())
+        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "99999"}, clear=True):
+            self.assertEqual(4096 * MIB, configured_upload_limit_bytes())
+
     def test_google_web_oauth_json_is_loaded_from_protected_file(self):
         with tempfile.TemporaryDirectory() as temp:
             credentials_file = Path(temp) / "google-client.json"
@@ -33,7 +41,7 @@ class AuthTest(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URIS", "TESTING")}
+        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URIS", "MAX_CONTENT_LENGTH", "TESTING")}
         app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"), DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"), GOOGLE_OAUTH_CLIENT_ID="test.apps.googleusercontent.com", GOOGLE_OAUTH_CLIENT_SECRET="secret", GOOGLE_OAUTH_REDIRECT_URI="https://example.test/auth/google/callback", GOOGLE_OAUTH_REDIRECT_URIS=())
         with app.app_context():
             database.ensure_auth_database()
@@ -47,6 +55,15 @@ class AuthTest(unittest.TestCase):
         app.config.update(GOOGLE_OAUTH_REDIRECT_URI="", GOOGLE_OAUTH_REDIRECT_URIS=("https://office.example.test/auth/google/callback",))
         with app.test_request_context("/auth/google", base_url="http://127.0.0.1:8080"):
             self.assertEqual("https://office.example.test/auth/google/callback", auth._google_config()["redirect_uri"])
+
+    def test_oversized_request_returns_413_with_configured_limit(self):
+        app.config["MAX_CONTENT_LENGTH"] = 64
+        response = self.client.post(
+            "/auth/register",
+            data={"username": "j" * 100, "password": "sicheres-passwort"},
+        )
+        self.assertEqual(413, response.status_code)
+        self.assertIn("Upload-Limit", response.get_data(as_text=True))
 
     def test_local_registration_and_google_registration(self):
         response = self.client.post("/auth/register", data={"username": "jens", "password": "sicheres-passwort"})
