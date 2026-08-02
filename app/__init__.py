@@ -19,7 +19,26 @@ from flask import Flask, send_from_directory, \
     request, session, redirect, abort, send_file, \
     g, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.exceptions import RequestEntityTooLarge
 from flask.sessions import SecureCookieSessionInterface
+
+
+MIB = 1024 * 1024
+DEFAULT_UPLOAD_LIMIT_MIB = 512
+MAX_UPLOAD_LIMIT_MIB = 4096
+
+
+def configured_upload_limit_bytes() -> int:
+    """Return a bounded total request limit for file imports."""
+    requested = os.environ.get(
+        "SIMPLEOFFICE_MAX_UPLOAD_MIB",
+        str(DEFAULT_UPLOAD_LIMIT_MIB),
+    ).strip()
+    try:
+        limit_mib = int(requested)
+    except ValueError:
+        limit_mib = DEFAULT_UPLOAD_LIMIT_MIB
+    return max(1, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
 
 
 def google_oauth_web_config() -> dict[str, object]:
@@ -103,6 +122,7 @@ app.config['DATABASE_FILEDIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
+app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = os.environ.get('SIMPLEOFFICE_SECRET_KEY') or ('web-session' + str(random.random())[2:])
 google_client_id, google_client_secret = google_oauth_credentials()
@@ -112,6 +132,16 @@ app.config['GOOGLE_OAUTH_REDIRECT_URI'] = os.environ.get('SIMPLEOFFICE_GOOGLE_RE
 app.config['GOOGLE_OAUTH_REDIRECT_URIS'] = google_oauth_redirect_uris()
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def request_too_large(_error):
+    limit_mib = int(app.config['MAX_CONTENT_LENGTH']) // MIB
+    return (
+        f"Anfrage zu groß. Das konfigurierte Upload-Limit beträgt {limit_mib} MiB.\n",
+        413,
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
 
 # Trust forwarded headers only when an administrator explicitly configures the
 # number of reverse proxies. This keeps externally generated CardDAV/share URLs
