@@ -248,9 +248,18 @@ class DocumentStore:
         self._record_revision("directory_imported", actor, "documents", safe_label, result)
         return result
 
-    def import_upload(self, upload: Any, filename: str, actor: str, archive: bool = False) -> dict[str, Any]:
+    def import_upload(
+        self,
+        upload: Any,
+        filename: str,
+        actor: str,
+        archive: bool = False,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
         """Store an uploaded file safely; archive placement is content-hash sorted."""
         self._require_actor(actor)
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise ValueError("upload size limit must be a positive number of bytes")
         self.initialize()
         safe_name = Path(filename or "upload").name.replace("/", "_").replace("\\", "_")
         if safe_name in ("", "."):
@@ -258,19 +267,28 @@ class DocumentStore:
         staging = self.control / "staging" / f"{uuid.uuid4().hex}-{safe_name}"
         staging.parent.mkdir(parents=True, exist_ok=True)
         source = getattr(upload, "stream", upload)
-        with staging.open("wb") as destination:
-            for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                destination.write(chunk)
-        digest = sha256_file(staging)
-        if archive:
-            destination_dir = self.root / "archive" / digest[:2] / digest
-        else:
-            destination_dir = self.root / "inbox"
-        self.ensure_folder_policy(destination_dir)
-        target = destination_dir / safe_name
-        if target.exists():
-            target = destination_dir / f"{target.stem}-{uuid.uuid4().hex[:8]}{target.suffix}"
-        staging.replace(target)
+        try:
+            written = 0
+            with staging.open("wb") as destination:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    written += len(chunk)
+                    if written > max_bytes:
+                        limit_mib = max_bytes / (1024 * 1024)
+                        raise ValueError(f"upload exceeds the {limit_mib:g} MiB size limit")
+                    destination.write(chunk)
+            digest = sha256_file(staging)
+            if archive:
+                destination_dir = self.root / "archive" / digest[:2] / digest
+            else:
+                destination_dir = self.root / "inbox"
+            self.ensure_folder_policy(destination_dir)
+            target = destination_dir / safe_name
+            if target.exists():
+                target = destination_dir / f"{target.stem}-{uuid.uuid4().hex[:8]}{target.suffix}"
+            staging.replace(target)
+        except Exception:
+            staging.unlink(missing_ok=True)
+            raise
         self.scan()
         metadata = self.get_document(target)
         self._event("file_uploaded", {"document_id": metadata["document_id"], "path": self.relative(target), "actor": actor, "sha256": digest, "archive": archive})
