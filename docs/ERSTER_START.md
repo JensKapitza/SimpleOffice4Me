@@ -90,6 +90,23 @@ Unter Windows kann derselbe Wert vor `start.bat` mit
 1 zurück; Werte über 8 werden begrenzt. Diese Einstellung betrifft Tesseract,
 nicht normale Dateizugriffe oder externe Office-/PDF-Werkzeuge.
 
+### Uploadgröße und unvollständige Importe
+
+Web-Uploads sind standardmäßig auf insgesamt 512 MiB pro HTTP-Anfrage
+begrenzt. Mehrere gleichzeitig ausgewählte Dateien teilen sich dieses Limit.
+Für größere Scanstapel kann es zwischen 1 und 4096 MiB angepasst werden:
+
+```bash
+SIMPLEOFFICE_MAX_UPLOAD_MIB=1024 ./start.sh
+```
+
+Unter Windows wird vor `start.bat` entsprechend
+`set SIMPLEOFFICE_MAX_UPLOAD_MIB=1024` verwendet. Ungültige Werte fallen auf
+512 MiB zurück. Ein vorgeschalteter Reverse Proxy muss mindestens dasselbe
+Limit erlauben. Bricht ein Import mit einem Fehler ab oder überschreitet er die
+Grenze, wird seine unvollständige Staging-Datei automatisch entfernt. Bei einem
+harten Prozessabbruch kann sie beim nächsten Start weiterhin sichtbar sein.
+
 Standardmäßig folgt der Scanner keinen Symlinks und überschreitet keine
 Dateisystemgrenze, z. B. keinen Mount, Bind-Mount oder Overlay-Einstieg. In
 `.simpleoffice-folder.json` kann das nur für einen konkreten Ordner freigegeben
