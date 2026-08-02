@@ -1,3 +1,4 @@
+import io
 import json
 import shutil
 import tempfile
@@ -9,6 +10,18 @@ from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 
 
 class DocumentStoreTest(unittest.TestCase):
+    def test_oversized_upload_is_removed_from_staging(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = DocumentStore(root)
+
+            with self.assertRaisesRegex(ValueError, "size limit"):
+                store.import_upload(io.BytesIO(b"123456"), "large.bin", "tester", max_bytes=5)
+
+            staging = root / CONTROL_DIR / "staging"
+            self.assertEqual([], list(staging.glob("*")))
+            self.assertFalse((root / "inbox" / "large.bin").exists())
+
     def test_scan_creates_metadata_and_detects_duplicate(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
