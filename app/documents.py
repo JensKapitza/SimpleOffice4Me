@@ -536,7 +536,13 @@ def upload():
     defaults = _settings().settings()["documents"]
     for item in files:
         try:
-            metadata = _store().import_upload(item, item.filename, str(g.user["username"]), request.form.get("archive") == "1")
+            metadata = _store().import_upload(
+                item,
+                item.filename,
+                str(g.user["username"]),
+                request.form.get("archive") == "1",
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+            )
             if defaults["default_tags"]:
                 _store().set_tags(metadata["document_id"], [*metadata.get("tags", []), *defaults["default_tags"]], str(g.user["username"]))
             if defaults["default_state"] != "new":
