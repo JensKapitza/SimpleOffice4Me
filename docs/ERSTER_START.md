@@ -20,6 +20,23 @@ Ein Update erfolgt mit `./update.sh` bzw. `update.bat`. Das führt nur
 `git pull --ff-only` aus, damit lokale Änderungen nicht überschrieben werden,
 installiert bei Bedarf neue Abhängigkeiten und startet anschließend neu.
 
+### Sitzungsschlüssel und Neustarts
+
+Ohne weitere Konfiguration erzeugt SimpleOffice4Me beim ersten Start einmalig
+`instance/session-secret`. Der kryptografisch sichere Zufallswert bleibt bei
+Updates und Neustarts erhalten, damit Anmeldungen nicht allein durch einen
+Neustart ungültig werden und mehrere WSGI-Prozesse dieselben Sitzungen prüfen
+können. Unter Unix wird die Datei mit Modus `0600` angelegt. `instance/` ist
+vom Programm-Repository ausgeschlossen; der Schlüssel darf nicht in Git
+eingecheckt oder veröffentlicht werden.
+
+Ein zentral verwalteter Schlüssel über `SIMPLEOFFICE_SECRET_KEY` oder
+`--secret-key-file DATEI` hat weiterhin Vorrang. Ist eine wiederhergestellte
+lokale Schlüsseldatei unter Unix für andere Benutzer lesbar, stoppt die
+Anwendung mit einem Hinweis auf `chmod 600`, statt den Schlüssel unbemerkt mit
+zu weiten Rechten zu verwenden. Das Löschen oder Austauschen des Schlüssels
+zerstört keine Dokumente, meldet jedoch alle bestehenden Browser-Sitzungen ab.
+
 ## Manuelle Alternative
 
 ```bash
