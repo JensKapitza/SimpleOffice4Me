@@ -31,6 +31,7 @@ import click
 from flask import current_app
 from flask.cli import with_appcontext
 
+from .retention import evaluate_deadlines, parse_deadline
 from .revision_history import RevisionHistory
 
 
@@ -172,6 +173,7 @@ class DocumentStore:
                     "follow_symlinks": False,
                     "allow_other_filesystems": False,
                 },
+                "retention": {"rules": []},
             },
         )
         self._event("folder_policy_created", {"path": self.relative(folder_path)})
@@ -314,6 +316,7 @@ class DocumentStore:
         if not 1 <= expires_days <= 365:
             raise ValueError("share expiry must be between 1 and 365 days")
         document = self.get_document(reference)
+        self._require_document_editable(document)
         note = next((item for item in document.get("notes", []) if item.get("id") == note_id), None) if note_id else None
         if note_id and note is None:
             raise ValueError("note does not exist on this document")
@@ -557,6 +560,7 @@ class DocumentStore:
         if not text:
             raise ValueError("note must not be empty")
         metadata = self.get_document(reference)
+        self._require_document_editable(metadata)
         note = {"id": str(uuid.uuid4()), "text": text, "author": author, "created_at": utc_now()}
         metadata.setdefault("notes", []).append(note)
         self._save_document(metadata)
@@ -584,6 +588,7 @@ class DocumentStore:
         if not state:
             raise ValueError("state must not be empty")
         metadata = self.get_document(reference)
+        self._require_document_editable(metadata)
         previous = metadata.get("state", "new")
         event = {"from": previous, "to": state, "author": author, "changed_at": utc_now()}
         metadata["state"] = state
@@ -601,6 +606,7 @@ class DocumentStore:
         if not key:
             raise ValueError("attribute key must not be empty")
         metadata = self.get_document(reference)
+        self._require_document_editable(metadata)
         metadata.setdefault("attributes", {})[key] = value
         self._save_document(metadata)
         self._refresh_search_index(metadata)
@@ -614,17 +620,221 @@ class DocumentStore:
         """Replace document tags while retaining filesystem and revision metadata."""
         self._require_actor(author)
         metadata = self.get_document(reference)
-        metadata["tags"] = sorted({tag.strip() for tag in tags if tag.strip()}, key=str.casefold)
+        self._require_document_editable(metadata)
+        previous = set(metadata.get("tags", []))
+        updated = sorted({tag.strip() for tag in tags if tag.strip()}, key=str.casefold)
+        tagged_at = metadata.setdefault("tagged_at", {})
+        now = utc_now()
+        for tag in updated:
+            if tag not in previous:
+                tagged_at[tag] = now
+        metadata["tags"] = updated
         self._save_document(metadata)
         self._refresh_search_index(metadata)
         self._event("document_tags_set", {"document_id": metadata["document_id"], "actor": author, "tags": metadata["tags"]})
         self._record_revision("document_tags_set", author, "documents", metadata["document_id"], metadata)
         return metadata
 
+    def add_deadline(
+        self,
+        reference: str | Path,
+        kind: str,
+        expires_at: str,
+        label: str,
+        author: str,
+    ) -> dict[str, Any]:
+        """Append an audited document deadline without replacing older rules."""
+        self._require_actor(author)
+        kind = kind.strip().casefold()
+        if kind not in {"retention", "work"}:
+            raise ValueError("deadline kind must be retention or work")
+        parsed = parse_deadline(expires_at)
+        deadline = {
+            "id": str(uuid.uuid4()),
+            "kind": kind,
+            "expires_at": parsed.isoformat(),
+            "label": label.strip() or ("Aufbewahrung" if kind == "retention" else "Bearbeiten bis"),
+            "created_at": utc_now(),
+            "created_by": author,
+        }
+        metadata = self.get_document(reference)
+        metadata.setdefault("deadlines", []).append(deadline)
+        self._save_document(metadata)
+        self._event(
+            "document_deadline_added",
+            {"document_id": metadata["document_id"], "actor": author, **deadline},
+        )
+        self._record_revision(
+            "document_deadline_added", author, "documents", metadata["document_id"], metadata
+        )
+        return deadline
+
+    def retention_status(
+        self,
+        reference: str | Path,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Explain inherited, tag, direct and transitive document deadlines."""
+        focus = self.get_document(reference)
+        return self.retention_statuses(now=now)[focus["document_id"]]
+
+    def retention_statuses(
+        self, *, now: datetime | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """Evaluate the complete archive in one graph pass for large stores."""
+        documents = {item["document_id"]: item for item in self._all_documents()}
+        evaluated = {
+            document_id: evaluate_deadlines(document, self._deadline_rules(document), now=now)
+            for document_id, document in documents.items()
+        }
+        adjacency: dict[str, set[str]] = {document_id: set() for document_id in documents}
+        for document in documents.values():
+            source_id = document["document_id"]
+            for link in document.get("relationships", []):
+                target_id = str(link.get("target_document_id", ""))
+                if link.get("propagates_retention") is True and target_id in documents:
+                    adjacency[source_id].add(target_id)
+                    adjacency[target_id].add(source_id)
+
+        statuses: dict[str, dict[str, Any]] = {}
+        unseen = set(documents)
+        while unseen:
+            first = next(iter(unseen))
+            component: set[str] = set()
+            pending = [first]
+            while pending:
+                document_id = pending.pop()
+                if document_id in component:
+                    continue
+                component.add(document_id)
+                pending.extend(adjacency.get(document_id, ()))
+            unseen.difference_update(component)
+
+            retention_findings: list[dict[str, Any]] = []
+            errors: list[dict[str, Any]] = []
+            missing_deadlines: list[str] = []
+            for document_id in sorted(component):
+                document = documents[document_id]
+                result = evaluated[document_id]
+                document_retention = [
+                    {
+                        **finding,
+                        "document_id": document_id,
+                        "document_path": document.get("last_path", ""),
+                    }
+                    for finding in result["findings"]
+                    if finding["kind"] == "retention"
+                ]
+                if not document_retention:
+                    missing_deadlines.append(document_id)
+                retention_findings.extend(document_retention)
+                errors.extend({**error, "document_id": document_id} for error in result["errors"])
+
+            retention_until = max(
+                (parse_deadline(item["expires_at"]) for item in retention_findings),
+                default=None,
+            )
+            all_expired = bool(retention_findings) and all(
+                item["expired"] for item in retention_findings
+            )
+            cleanup_eligible = all_expired and not errors and not missing_deadlines
+            for document_id in component:
+                own = evaluated[document_id]
+                if own["work_locked"]:
+                    state = "locked"
+                elif cleanup_eligible:
+                    state = "cleanup_ready"
+                elif missing_deadlines or errors:
+                    state = "deadline_missing"
+                else:
+                    state = "active"
+                statuses[document_id] = {
+                    **own,
+                    "status": state,
+                    "component_document_ids": sorted(component),
+                    "missing_retention_document_ids": missing_deadlines,
+                    "retention_findings": sorted(
+                        retention_findings,
+                        key=lambda item: (item["expires_at"], item["document_id"]),
+                    ),
+                    "retention_until": retention_until.isoformat() if retention_until else None,
+                    "all_retention_expired": all_expired,
+                    "cleanup_eligible": cleanup_eligible,
+                    "errors": errors,
+                }
+        return statuses
+
+    def cleanup_candidates(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
+        """List files eligible for a manually started cleanup; never move them."""
+        candidates: list[dict[str, Any]] = []
+        documents = {item["document_id"]: item for item in self._all_documents()}
+        for document_id, status in self.retention_statuses(now=now).items():
+            document = documents[document_id]
+            if status["cleanup_eligible"] and document.get("cleanup_state") != "staged":
+                candidates.append(
+                    {
+                        "document_id": document_id,
+                        "path": document.get("last_path", ""),
+                        "retention_until": status["retention_until"],
+                    }
+                )
+        return sorted(candidates, key=lambda item: (item["retention_until"], item["path"]))
+
+    def cleanup_expired(
+        self,
+        destination_folder: str,
+        actor: str,
+        *,
+        apply: bool = False,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Preview or manually move eligible files; physical deletion is never performed."""
+        self._require_actor(actor)
+        candidates = self.cleanup_candidates(now=now)
+        if not apply:
+            return {"applied": False, "candidates": candidates, "moved": []}
+        moved: list[dict[str, Any]] = []
+        for candidate in candidates:
+            relative_parent = Path(candidate["path"]).parent
+            target_folder = Path(destination_folder) / (
+                relative_parent if str(relative_parent) != "." else Path()
+            )
+            document = self.move_document(
+                candidate["document_id"], str(target_folder), actor, allow_locked=True
+            )
+            document["cleanup_state"] = "staged"
+            document["cleanup_staged_at"] = utc_now()
+            document["cleanup_staged_by"] = actor
+            document["cleanup_original_path"] = candidate["path"]
+            self._save_document(document)
+            moved.append(
+                {
+                    "document_id": document["document_id"],
+                    "from": candidate["path"],
+                    "to": document["last_path"],
+                    "sha256": document.get("sha256", ""),
+                    "retention_until": candidate["retention_until"],
+                }
+            )
+        self._event(
+            "retention_cleanup_completed",
+            {"actor": actor, "destination": destination_folder, "moved": moved},
+        )
+        self._record_revision(
+            "retention_cleanup_completed",
+            actor,
+            "retention",
+            "cleanup",
+            {"at": utc_now(), "destination": destination_folder, "moved": moved},
+        )
+        return {"applied": True, "candidates": candidates, "moved": moved}
+
     def analyze_image(self, reference: str | Path, author: str) -> dict[str, Any]:
         """Extract EXIF and OCR text from one managed image and add safe tags."""
         self._require_actor(author)
         metadata = self.get_document(reference)
+        self._require_document_editable(metadata)
         path = self.root / metadata.get("last_path", "")
         if not self._is_image(path):
             raise ValueError("document is not a supported image")
@@ -703,10 +913,12 @@ class DocumentStore:
         relation_type: str = "related",
         label: str = "",
         author: str = "",
+        propagates_retention: bool = False,
     ) -> dict[str, Any]:
         """Create a directed, labelled document relationship for graph views."""
         self._require_actor(author)
         source_metadata = self.get_document(source)
+        self._require_document_editable(source_metadata)
         target_metadata = self.get_document(target)
         if source_metadata["document_id"] == target_metadata["document_id"]:
             raise ValueError("a document cannot be linked to itself")
@@ -719,6 +931,7 @@ class DocumentStore:
             "target_document_id": target_metadata["document_id"],
             "type": relation_type,
             "label": label.strip(),
+            "propagates_retention": propagates_retention is True,
             "author": author,
             "created_at": utc_now(),
         }
@@ -739,6 +952,7 @@ class DocumentStore:
         if not target_text:
             raise ValueError("free-text reference must not be empty")
         source_metadata = self.get_document(source)
+        self._require_document_editable(source_metadata)
         relation_type = relation_type.strip() or "related"
         link = {"id": str(uuid.uuid4()), "target_text": target_text, "type": relation_type, "label": label.strip(), "author": author, "created_at": utc_now()}
         source_metadata.setdefault("relationships", []).append(link)
@@ -869,10 +1083,19 @@ class DocumentStore:
                 documents.append(metadata)
         return {"documents": documents, "page": page, "page_size": page_size, "total": total, "has_next": page * page_size < total}
 
-    def move_document(self, reference: str, destination_folder: str, actor: str) -> dict[str, Any]:
+    def move_document(
+        self,
+        reference: str,
+        destination_folder: str,
+        actor: str,
+        *,
+        allow_locked: bool = False,
+    ) -> dict[str, Any]:
         """Move a managed file inside the document root without changing its ID."""
         self._require_actor(actor)
         document = self.get_document(reference)
+        if not allow_locked:
+            self._require_document_editable(document)
         source = self.root / str(document.get("last_path", ""))
         if not source.is_file() or source.is_symlink():
             raise ValueError("only an available regular document file can be moved")
@@ -1216,6 +1439,12 @@ class DocumentStore:
         integrity_changed = original_sha256 != digest
         existing_tags = metadata.get("tags", xattrs.get("tags", []))
         detected_tags = self._filename_tags(path.name)
+        all_tags = sorted({*existing_tags, *detected_tags}, key=str.casefold)
+        tagged_at = metadata.get("tagged_at", {})
+        if not isinstance(tagged_at, dict):
+            tagged_at = {}
+        for tag in all_tags:
+            tagged_at.setdefault(tag, metadata.get("first_seen_at", now))
         if previous_path and previous_path != relative_path:
             metadata["location_history"] = [
                 *metadata.get("location_history", []),
@@ -1235,7 +1464,8 @@ class DocumentStore:
                 "first_seen_at": metadata.get("first_seen_at", now),
                 "last_seen_at": now,
                 "last_path": relative_path,
-                "tags": sorted({*existing_tags, *detected_tags}, key=str.casefold),
+                "tags": all_tags,
+                "tagged_at": tagged_at,
                 "original_sha256": original_sha256,
                 "content_sha256": digest,
                 "notes": metadata.get("notes", []),
@@ -1245,6 +1475,7 @@ class DocumentStore:
                 "version_series_id": metadata.get("version_series_id", document_id),
                 "version_number": metadata.get("version_number", 1),
                 "attributes": metadata.get("attributes", {}),
+                "deadlines": metadata.get("deadlines", []),
             }
         )
         atomic_json_write(metadata_path, metadata)
@@ -1561,6 +1792,46 @@ class DocumentStore:
         if not actor.strip():
             raise ValueError("a named user is required for every write action")
 
+    def _deadline_rules(
+        self, metadata: dict[str, Any]
+    ) -> list[tuple[dict[str, Any], str, str]]:
+        rules: list[tuple[dict[str, Any], str, str]] = [
+            (rule, "document", metadata["document_id"])
+            for rule in metadata.get("deadlines", [])
+            if isinstance(rule, dict)
+        ]
+        relative_path = Path(str(metadata.get("last_path", "")))
+        if relative_path.is_absolute() or str(relative_path).startswith("[external]"):
+            return rules
+        document_folder = (self.root / relative_path).parent.resolve()
+        try:
+            document_folder.relative_to(self.root)
+        except ValueError:
+            return rules
+        folders = [self.root]
+        current = self.root
+        for part in document_folder.relative_to(self.root).parts:
+            current = current / part
+            folders.append(current)
+        for folder in folders:
+            policy = self._read_json(folder / POLICY_FILE, {})
+            retention = policy.get("retention", {})
+            configured = retention.get("rules", []) if isinstance(retention, dict) else []
+            source = self.relative(folder)
+            rules.extend(
+                (rule, "folder", source) for rule in configured if isinstance(rule, dict)
+            )
+        return rules
+
+    def _require_document_editable(self, metadata: dict[str, Any]) -> None:
+        if metadata.get("cleanup_state") == "staged":
+            raise ValueError("document is staged for manual deletion and cannot be edited")
+        status = self.retention_status(metadata["document_id"])
+        if status["work_locked"]:
+            raise ValueError(
+                f"document is locked since {status['work_until']}; only deadline and cleanup actions remain allowed"
+            )
+
     def _refresh_search_index(self, metadata: dict[str, Any]) -> None:
         row = (
             metadata["document_id"],
@@ -1748,6 +2019,48 @@ def document_attribute_command(document: str, key: str, value: str, actor: str) 
     click.echo(key)
 
 
+@click.command("document-deadline")
+@click.argument("document")
+@click.argument("expires_at")
+@click.option("--kind", type=click.Choice(["retention", "work"]), default="retention")
+@click.option("--label", default="")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def document_deadline_command(
+    document: str, expires_at: str, kind: str, label: str, actor: str
+) -> None:
+    """Append one retention or work deadline to DOCUMENT."""
+    deadline = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_deadline(
+        document, kind, expires_at, label, actor
+    )
+    click.echo(json.dumps(deadline, ensure_ascii=False))
+
+
+@click.command("retention-status")
+@click.argument("document")
+@with_appcontext
+def retention_status_command(document: str) -> None:
+    """Explain every direct, inherited and transitive deadline."""
+    status = DocumentStore(current_app.config["DOCUMENT_ROOT"]).retention_status(document)
+    click.echo(json.dumps(status, ensure_ascii=False, indent=2))
+
+
+@click.command("retention-cleanup")
+@click.option("--destination", default="Aussonderung", show_default=True)
+@click.option("--apply", is_flag=True, help="Move eligible files after an explicit confirmation.")
+@click.option("--confirm", default="", help="Required value for --apply: AUSSONDERN")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def retention_cleanup_command(destination: str, apply: bool, confirm: str, actor: str) -> None:
+    """Preview cleanup candidates or move them; never delete document files."""
+    if apply and confirm != "AUSSONDERN":
+        raise click.UsageError("--apply requires --confirm AUSSONDERN")
+    result = DocumentStore(current_app.config["DOCUMENT_ROOT"]).cleanup_expired(
+        destination, actor, apply=apply
+    )
+    click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 @click.command("search-documents")
 @click.argument("query")
 @click.option("--limit", default=50, show_default=True)
@@ -1766,4 +2079,7 @@ def init_app(app: Any) -> None:
     app.cli.add_command(document_link_command)
     app.cli.add_command(document_graph_command)
     app.cli.add_command(document_attribute_command)
+    app.cli.add_command(document_deadline_command)
+    app.cli.add_command(retention_status_command)
+    app.cli.add_command(retention_cleanup_command)
     app.cli.add_command(search_documents_command)
