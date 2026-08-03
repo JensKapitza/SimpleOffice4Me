@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +9,7 @@ from unittest.mock import patch
 from app import MIB, app, configured_upload_limit_bytes, google_oauth_credentials
 from app import auth
 from app import db as database
+from app.secret_key import load_or_create_secret_key
 
 
 class _Response:
@@ -24,6 +27,36 @@ class _Response:
 
 
 class AuthTest(unittest.TestCase):
+    def test_local_session_key_is_strong_persistent_and_private(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
+            key_file = Path(temp) / "instance" / "session-secret"
+            first = load_or_create_secret_key(key_file)
+            second = load_or_create_secret_key(key_file)
+
+            self.assertEqual(first, second)
+            self.assertGreaterEqual(len(first), 64)
+            self.assertEqual(first, key_file.read_text(encoding="utf-8").strip())
+            if os.name == "posix":
+                self.assertEqual(0, stat.S_IMODE(key_file.stat().st_mode) & 0o077)
+
+    def test_explicit_session_key_remains_authoritative(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ, {"SIMPLEOFFICE_SECRET_KEY": "managed-key"}, clear=True
+        ):
+            key_file = Path(temp) / "session-secret"
+            self.assertEqual("managed-key", load_or_create_secret_key(key_file))
+            self.assertFalse(key_file.exists())
+
+    def test_invalid_persisted_session_key_is_not_replaced(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
+            key_file = Path(temp) / "session-secret"
+            key_file.write_text("too-short\n", encoding="utf-8")
+            if os.name == "posix":
+                key_file.chmod(0o600)
+            with self.assertRaisesRegex(RuntimeError, "shorter"):
+                load_or_create_secret_key(key_file)
+            self.assertEqual("too-short\n", key_file.read_text(encoding="utf-8"))
+
     def test_upload_limit_configuration_is_bounded(self):
         with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}, clear=True):
             self.assertEqual(1024 * MIB, configured_upload_limit_bytes())
