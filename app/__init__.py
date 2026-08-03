@@ -5,12 +5,12 @@ from pathlib import Path
 
 import os
 import json
-import random
 import sys
 import datetime
 import locale
 
 from .applogging import initlogging
+from .secret_key import load_or_create_secret_key
 
 from .bs4 import download_file, renderwithbs4
 
@@ -124,7 +124,7 @@ app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sql
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
 app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.config['SECRET_KEY'] = os.environ.get('SIMPLEOFFICE_SECRET_KEY') or ('web-session' + str(random.random())[2:])
+app.config['SECRET_KEY'] = load_or_create_secret_key(Path(app.instance_path) / "session-secret")
 google_client_id, google_client_secret = google_oauth_credentials()
 app.config['GOOGLE_OAUTH_CLIENT_ID'] = google_client_id
 app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = google_client_secret
