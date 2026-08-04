@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/contact-history.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main class="container-xl py-4">
@@ -61,12 +62,34 @@
           {% endif %}
         </div>
       </div>
-      <div class="card mt-4">
+      <div class="card mt-4" data-contact-history>
         <div class="card-header">Änderungsverlauf</div>
+        {% set history_actors = contact.changes|default([])|map(attribute='actor')|unique|sort|list %}
+        {% set history_fields = contact.changes|default([])|map(attribute='field')|unique|sort|list %}
+        <div class="card-body border-bottom">
+          <div class="row g-2">
+            <div class="col-sm-6">
+              <label class="form-label small" for="contact-history-actor">Bearbeitet von</label>
+              <select class="form-select form-select-sm" id="contact-history-actor" data-contact-history-actor-filter>
+                <option value="">Alle Bearbeiter</option>
+                {% for actor in history_actors %}<option value="{{ actor }}">{{ actor }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small" for="contact-history-field">Geändertes Feld</label>
+              <select class="form-select form-select-sm" id="contact-history-field" data-contact-history-field-filter>
+                <option value="">Alle geänderten Felder</option>
+                {% for field in history_fields %}<option value="{{ field }}">{{ field }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="small text-secondary mt-2" aria-live="polite" data-contact-history-count></div>
+        </div>
         <div class="list-group list-group-flush">
           {% for change in contact.changes|default([])|reverse %}
-          <div class="list-group-item"><div class="d-flex justify-content-between gap-2"><strong>{{ change.field }}</strong><span class="badge text-bg-light">{{ change.actor }}</span></div><div class="small mt-1"><span class="text-danger">{{ change.old|default('—', true) }}</span> &rarr; <span class="text-success">{{ change.new|default('—', true) }}</span></div><div class="small text-secondary">{{ change.at }}</div></div>
+          <div class="list-group-item border-start border-4" data-contact-history-entry data-contact-history-actor="{{ change.actor }}" data-contact-history-field="{{ change.field }}"><div class="d-flex justify-content-between gap-2"><strong>{{ change.field }}</strong><span class="badge" data-contact-history-actor-badge>{{ change.actor }}</span></div><div class="small mt-1"><span class="text-danger">{{ change.old|default('—', true) }}</span> &rarr; <span class="text-success">{{ change.new|default('—', true) }}</span></div><div class="small text-secondary">{{ change.at }}</div></div>
           {% else %}<div class="list-group-item text-secondary">Noch keine Feldänderungen gespeichert.</div>{% endfor %}
+          <div class="list-group-item text-secondary" hidden data-contact-history-empty>Keine Änderungen entsprechen dem Filter.</div>
         </div>
       </div>
     </aside>
