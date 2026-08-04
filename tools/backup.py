@@ -10,14 +10,30 @@ import json
 import os
 import re
 import tarfile
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 
 MANIFEST_NAME = "_simpleoffice_backup_manifest.json"
 ARCHIVE_PREFIX = "SimpleOffice4Me"
 MAX_MANIFEST_SIZE = 64 * 1024 * 1024
+
+
+def _open_private_file(path: Path) -> BinaryIO:
+    """Create a private binary file without following an existing path."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        return os.fdopen(descriptor, "wb")
+    except Exception:
+        os.close(descriptor)
+        raise
 
 
 def _sha256(path: Path) -> str:
@@ -87,8 +103,19 @@ def create_backup(root: Path, destination: Path, allow_other_filesystems: bool =
     files: list[dict[str, Any]] = []
     skipped_symlinks: list[str] = []
     skipped_filesystems: list[str] = []
+    created_temporary = False
     try:
-        with tarfile.open(temporary, "w:gz", format=tarfile.PAX_FORMAT, dereference=False) as archive:
+        with ExitStack() as resources:
+            target = resources.enter_context(_open_private_file(temporary))
+            created_temporary = True
+            archive = resources.enter_context(
+                tarfile.open(
+                    fileobj=target,
+                    mode="w:gz",
+                    format=tarfile.PAX_FORMAT,
+                    dereference=False,
+                )
+            )
             for current, directories, filenames in os.walk(root, topdown=True, followlinks=False):
                 current_path = Path(current)
                 retained_directories: list[str] = []
@@ -151,7 +178,8 @@ def create_backup(root: Path, destination: Path, allow_other_filesystems: bool =
         temporary.replace(destination)
         return manifest
     except Exception:
-        temporary.unlink(missing_ok=True)
+        if created_temporary:
+            temporary.unlink(missing_ok=True)
         raise
 
 
