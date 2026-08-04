@@ -29,6 +29,14 @@ DEFAULT_SCHEMA = {
 }
 
 
+class ContactConflict(ValueError):
+    """A conditional contact write no longer matches the stored revision."""
+
+    def __init__(self, contact: dict[str, Any] | None = None):
+        super().__init__("contact was changed by another client")
+        self.contact = contact
+
+
 class ContactStore:
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
@@ -91,6 +99,11 @@ class ContactStore:
 
     def upsert(self, values: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None) -> dict[str, Any]:
         self._require_actor(actor)
+        fields = self._validated_fields(values)
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            return self._upsert_locked(fields, actor, contact_id, source)
+
+    def _validated_fields(self, values: dict[str, str]) -> dict[str, str]:
         schema = self.schema()
         fields = self._normalize(values, schema)
         if not fields.get("display_name"):
@@ -98,38 +111,40 @@ class ContactStore:
         missing = [field for field in schema.get("required", []) if not fields.get(field)]
         if missing:
             raise ValueError(f"required contact fields missing: {', '.join(missing)}")
-        with exclusive_file_lock(self.control / ".contacts-write.lock"):
-            payload = self._read(self.contacts_path, {"contacts": []})
-            existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
-            if existing is None and source and source.get("source_id"):
-                existing = next((item for item in payload["contacts"] if item.get("source", {}).get("source_id") == source["source_id"] and item.get("source", {}).get("provider") == source.get("provider")), None)
-            if existing and not contact_id:
-                contact_id = existing["contact_id"]
-            principal = self._principal(actor)
-            if existing and not self._can_manage(existing, principal):
-                raise ValueError("contact is not shared with this user")
-            changed_at = utc_now()
-            changes = list(existing.get("changes", [])) if existing else []
-            old_fields = existing.get("fields", {}) if existing else {}
-            for field in sorted(set(old_fields) | set(fields)):
-                if old_fields.get(field, "") != fields.get(field, ""):
-                    changes.append({"field": field, "old": old_fields.get(field, ""), "new": fields.get(field, ""), "at": changed_at, "actor": actor})
-            contact = {
-                "contact_id": contact_id or str(uuid.uuid4()),
-                "fields": fields,
-                "addresses": existing.get("addresses", []) if existing else [],
-                "owner": existing.get("owner") or principal if existing else principal,
-                "managers": existing.get("managers", []) if existing else [],
-                "changes": changes[-200:],
-                "created_at": existing.get("created_at", changed_at) if existing else changed_at,
-                "created_by": existing.get("created_by", actor) if existing else actor,
-                "updated_at": changed_at,
-                "updated_by": actor,
-                "source": source or existing.get("source", {}) if existing else (source or {}),
-            }
-            payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
-            atomic_json_write(self.contacts_path, payload)
-            self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
+        return fields
+
+    def _upsert_locked(self, fields: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = payload or self._read(self.contacts_path, {"contacts": []})
+        existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
+        if existing is None and source and source.get("source_id"):
+            existing = next((item for item in payload["contacts"] if item.get("source", {}).get("source_id") == source["source_id"] and item.get("source", {}).get("provider") == source.get("provider")), None)
+        if existing and not contact_id:
+            contact_id = existing["contact_id"]
+        principal = self._principal(actor)
+        if existing and not self._can_manage(existing, principal):
+            raise ValueError("contact is not shared with this user")
+        changed_at = utc_now()
+        changes = list(existing.get("changes", [])) if existing else []
+        old_fields = existing.get("fields", {}) if existing else {}
+        for field in sorted(set(old_fields) | set(fields)):
+            if old_fields.get(field, "") != fields.get(field, ""):
+                changes.append({"field": field, "old": old_fields.get(field, ""), "new": fields.get(field, ""), "at": changed_at, "actor": actor})
+        contact = {
+            "contact_id": contact_id or str(uuid.uuid4()),
+            "fields": fields,
+            "addresses": existing.get("addresses", []) if existing else [],
+            "owner": existing.get("owner") or principal if existing else principal,
+            "managers": existing.get("managers", []) if existing else [],
+            "changes": changes[-200:],
+            "created_at": existing.get("created_at", changed_at) if existing else changed_at,
+            "created_by": existing.get("created_by", actor) if existing else actor,
+            "updated_at": changed_at,
+            "updated_by": actor,
+            "source": source or existing.get("source", {}) if existing else (source or {}),
+        }
+        payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
+        atomic_json_write(self.contacts_path, payload)
+        self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
         return contact
 
     def add_address(self, contact_id: str, label: str, address: str, actor: str) -> dict[str, Any]:
@@ -236,6 +251,27 @@ class ContactStore:
         return hmac.compare_digest(actual, bytes.fromhex(account["password_hash"]))
 
     def upsert_vcard(self, card: str, actor: str, contact_id: str = "") -> dict[str, Any]:
+        values, contact_id = self._vcard_values(card, contact_id)
+        return self.upsert(values, actor, contact_id)
+
+    def conditional_upsert_vcard(self, card: str, actor: str, contact_id: str, expected_updated_at: str | None = None, create_only: bool = False) -> dict[str, Any]:
+        """Apply a DAV precondition and write atomically under the same lock."""
+        self._require_actor(actor)
+        values, contact_id = self._vcard_values(card, contact_id)
+        fields = self._validated_fields(values)
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            payload = self._read(self.contacts_path, {"contacts": []})
+            existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
+            if existing and not self._can_manage(existing, self._principal(actor)):
+                raise ValueError("contact is not shared with this user")
+            if create_only and existing is not None:
+                raise ContactConflict(existing)
+            if expected_updated_at is not None and (existing is None or existing.get("updated_at", "") != expected_updated_at):
+                raise ContactConflict(existing)
+            return self._upsert_locked(fields, actor, contact_id, payload=payload)
+
+    @staticmethod
+    def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str]:
         values: dict[str, str] = {}
         for raw in card.replace("\r\n", "\n").split("\n"):
             key, separator, value = raw.partition(":")
@@ -252,9 +288,9 @@ class ContactStore:
             elif name == "BDAY": values["birthday"] = value
             elif name == "ORG": values["company"] = value
             elif name == "UID" and not contact_id: contact_id = value
-        return self.upsert(values, actor, contact_id)
+        return values, contact_id
 
-    def delete(self, contact_id: str, actor: str) -> None:
+    def delete(self, contact_id: str, actor: str, expected_updated_at: str | None = None) -> None:
         self._require_actor(actor)
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
             payload = self._read(self.contacts_path, {"contacts": []})
@@ -263,6 +299,8 @@ class ContactStore:
                 raise ValueError("unknown contact")
             if not self._can_manage(contact, self._principal(actor)):
                 raise ValueError("contact is not shared with this user")
+            if expected_updated_at is not None and contact.get("updated_at", "") != expected_updated_at:
+                raise ContactConflict(contact)
             payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact_id]
             atomic_json_write(self.contacts_path, payload)
             self.history.record("contact_deleted", actor, "contacts", contact_id, contact)
