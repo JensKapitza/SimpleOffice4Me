@@ -69,3 +69,36 @@ SIMPLEOFFICE_SMTP_PASSWORD='...'
 
 Ohne SMTP-Konfiguration bleibt die Anfrage bewusst offen. In der ICS-Antwort
 stehen nur der bestätigte Titel und die Zeit; der Grund wird nicht veröffentlicht.
+
+## ICS-Absagen und sichere UID-Zuordnung
+
+Beim Import aus Thunderbird, Google Kalender oder einer anderen
+iCalendar-Quelle verarbeitet SimpleOffice `STATUS:CANCELLED`. Eine Absage mit
+derselben `UID` setzt einen zuvor vom selben Benutzer importierten Termin auf
+`cancelled`, statt ihn zu löschen. Der Termin verschwindet aus veröffentlichten
+Ansichten und blockiert keine Buchungszeit mehr. Zeitpunkt und Benutzer der
+Statusänderung bleiben in der Status- und Git-Historie nachvollziehbar. Ein
+vollständiger Folgeimport mit `STATUS:CONFIRMED` aktiviert den Termin wieder.
+
+Die Zuordnung einer externen `UID` gilt nur innerhalb desselben Benutzers und
+der Importquelle `ical_import`. Dadurch kann ein anderer Benutzer mit derselben
+UID weder einen fremden Termin ändern noch absagen. Sichtbarkeit und Tags neuer
+Importe bleiben privat; vorhandene Freigaben werden bei Aktualisierungen nicht
+erweitert. Gleichzeitige ICS-Importe werden über die Kalenderschreibsperre
+nacheinander verarbeitet, um verlorene Aktualisierungen zu vermeiden.
+
+Es ist keine Konfiguration und kein externer Dienst erforderlich. Unterstützt
+wird UTF-8-iCalendar mit `VEVENT`, `UID`, `SUMMARY`, `DESCRIPTION`, `DTSTART`,
+`DTEND`, `CATEGORIES` und `STATUS`. Das Verhalten orientiert sich an RFC 5545
+und RFC 5546. Eine Absage ohne passenden eigenen Import wird ignoriert und
+erzeugt keinen leeren Termin; enthält eine Datei ausschließlich solche Absagen,
+meldet der Import „keine nutzbaren VEVENT-Datensätze“. Netzwerk- oder
+Anmeldedaten werden nicht übertragen oder gespeichert.
+
+Automatisierte Tests prüfen Absage, erneute Bestätigung, Freigabe des
+Buchungsslots, Benutzertrennung und unbekannte UIDs. Wiederholungsinstanzen,
+feldweises Zusammenführen konkurrierender Änderungen und eine laufende
+CalDAV-Synchronisation sind weiterhin nicht enthalten. Zur Deaktivierung kann
+auf die vorherige Version zurückgegangen werden; das JSON-Format bleibt
+kompatibel. Bereits als abgesagt gespeicherte Termine bleiben dabei erhalten
+und können über den Lebenszyklusstatus wieder aktiviert werden.

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from app.calendar_store import CalendarStore
@@ -99,6 +100,49 @@ class CalendarStoreTest(unittest.TestCase):
             self.assertEqual("manual", manual["source"])
             self.assertEqual(1, imported)
             self.assertEqual("ical_import", next(event for event in store.events("admin") if event.get("source_uid") == "remote-1")["source"])
+
+    def test_ics_cancellation_is_audited_and_releases_booking_slot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            store.save_booking_settings(True, 60, "09:00", "12:00", "admin")
+            store.import_ics("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:remote-1\nSUMMARY:Besprechung\nDTSTART:20260810T090000\nDTEND:20260810T100000\nSTATUS:CONFIRMED\nEND:VEVENT\nEND:VCALENDAR", "admin")
+            self.assertNotIn("09:00", [start.strftime("%H:%M") for start, _ in store.available_slots(date(2026, 8, 10))])
+
+            imported = store.import_ics("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:remote-1\nSTATUS:CANCELLED\nEND:VEVENT\nEND:VCALENDAR", "admin")
+
+            event = store.events("admin")[0]
+            self.assertEqual(1, imported)
+            self.assertEqual("cancelled", event["status"])
+            self.assertEqual("cancelled", event["source_status"])
+            self.assertEqual({"from": "active", "to": "cancelled", "by": "admin"}, {key: event["status_history"][-1][key] for key in ("from", "to", "by")})
+            self.assertIn("09:00", [start.strftime("%H:%M") for start, _ in store.available_slots(date(2026, 8, 10))])
+
+            store.import_ics("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:remote-1\nSUMMARY:Besprechung\nDTSTART:20260810T090000\nDTEND:20260810T100000\nSTATUS:CONFIRMED\nEND:VEVENT\nEND:VCALENDAR", "admin")
+            event = store.events("admin")[0]
+            self.assertEqual("active", event["status"])
+            self.assertEqual({"from": "cancelled", "to": "active", "by": "admin"}, {key: event["status_history"][-1][key] for key in ("from", "to", "by")})
+
+    def test_ics_uid_cannot_overwrite_another_users_event(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            store.import_ics("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:shared-remote-uid\nSUMMARY:Termin von Admin\nDTSTART:20260810T090000\nEND:VEVENT\nEND:VCALENDAR", "admin")
+
+            store.import_ics("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:shared-remote-uid\nSUMMARY:Termin von Other\nDTSTART:20260810T110000\nEND:VEVENT\nEND:VCALENDAR", "other")
+
+            admin_event = store.events("admin")[0]
+            other_event = store.events("other")[0]
+            self.assertEqual("Termin von Admin", admin_event["title"])
+            self.assertEqual("Termin von Other", other_event["title"])
+            self.assertNotEqual(admin_event["event_id"], other_event["event_id"])
+
+    def test_unknown_ics_cancellation_does_not_create_an_event(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+
+            with self.assertRaisesRegex(ValueError, "no usable VEVENT"):
+                store.import_ics("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:unknown\nSTATUS:CANCELLED\nEND:VEVENT\nEND:VCALENDAR", "admin")
+
+            self.assertEqual([], store.events("admin"))
 
 
 if __name__ == "__main__":
