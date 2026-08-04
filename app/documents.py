@@ -19,6 +19,7 @@ from .document_store import DocumentStore
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
 from .calendar_collections import CalendarCollections
+from .itip import ItipConflict, ItipStore, MAX_MESSAGE_BYTES
 from .ics_preview import MAX_PREVIEW_BYTES, preview_ics
 from .todo_store import TodoStore
 from .settings_store import SettingsStore
@@ -42,6 +43,10 @@ def _contacts() -> ContactStore:
 
 def _calendar() -> CalendarStore:
     return CalendarStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _itip() -> ItipStore:
+    return ItipStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _calendars() -> CalendarCollections:
@@ -1197,7 +1202,57 @@ def calendar():
             subject = f"Terminbestätigung: {event['title']}"
             body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
             event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+
+
+@bp.post("/calendar/scheduling/import")
+@login_required
+def import_itip_message():
+    uploaded = request.files.get("itip_file")
+    try:
+        if uploaded is None or not uploaded.filename:
+            raise ValueError("Bitte eine iTIP-/ICS-Datei auswählen.")
+        payload = uploaded.stream.read(MAX_MESSAGE_BYTES + 1)
+        if len(payload) > MAX_MESSAGE_BYTES:
+            raise ValueError("iTIP message exceeds 1 MiB")
+        message = _itip().receive(payload.decode("utf-8-sig"), str(g.user["username"]), "file-import")
+        flash(f"{message['method']}-Nachricht geprüft und zur Bestätigung vorgemerkt.")
+    except (UnicodeDecodeError, ValueError) as exc:
+        flash(f"Termin-Nachricht abgewiesen: {exc}")
+    return redirect(url_for("documents.calendar") + "#scheduling")
+
+
+@bp.post("/calendar/scheduling/<message_id>/apply")
+@login_required
+def apply_itip_message(message_id: str):
+    try:
+        _itip().apply(message_id, str(g.user["username"]), request.form.get("calendar_id", "default"))
+        flash("Termin-Nachricht angewendet und revisionssicher protokolliert.")
+    except (ItipConflict, ValueError) as exc:
+        flash(f"Termin-Nachricht konnte nicht angewendet werden: {exc}")
+    return redirect(url_for("documents.calendar") + "#scheduling")
+
+
+@bp.post("/calendar/scheduling/<message_id>/reject")
+@login_required
+def reject_itip_message(message_id: str):
+    try:
+        _itip().reject(message_id, str(g.user["username"]), request.form.get("reason", ""))
+        flash("Termin-Nachricht abgelehnt; Kalenderdaten blieben unverändert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar") + "#scheduling")
+
+
+@bp.get("/calendar/<event_id>/scheduling.ics")
+@login_required
+def export_itip_message(event_id: str):
+    method = request.args.get("method", "REQUEST")
+    try:
+        payload = _itip().export(event_id, str(g.user["username"]), method, request.args.get("attendee", ""), request.args.get("partstat", ""), str(g.user["email"] or ""))
+    except ValueError as exc:
+        return Response(str(exc), 403, {"Content-Type": "text/plain; charset=utf-8"})
+    return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name=f"termin-{method.casefold()}-{event_id}.ics", mimetype=f"text/calendar; method={method.upper()}; charset=utf-8")
 
 
 @bp.post("/calendar/caldav")
