@@ -18,6 +18,7 @@ from .auth import login_required
 from .document_store import DocumentStore
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
+from .ics_preview import MAX_PREVIEW_BYTES, preview_ics
 from .todo_store import TodoStore
 from .settings_store import SettingsStore
 from .form_store import FormStore
@@ -1210,6 +1211,28 @@ def import_calendar():
     except (UnicodeDecodeError, ValueError) as exc:
         flash(f"Kalenderimport fehlgeschlagen: {exc}")
     return redirect(url_for("documents.calendar"))
+
+
+@bp.post("/calendar/import/preview")
+@login_required
+def preview_calendar_import():
+    uploaded = request.files.get("calendar_file")
+    if uploaded is None or not uploaded.filename:
+        flash("Bitte eine .ics-Datei auswählen.")
+        return redirect(url_for("documents.calendar") + "#calendar-import")
+    try:
+        payload = uploaded.stream.read(MAX_PREVIEW_BYTES + 1)
+        if len(payload) > MAX_PREVIEW_BYTES:
+            raise ValueError(f"iCalendar preview is limited to {MAX_PREVIEW_BYTES // 1024} KiB")
+        preview = preview_ics(payload.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        flash(f"Kalendervorschau fehlgeschlagen: {exc}")
+        return redirect(url_for("documents.calendar") + "#calendar-import")
+    return render_template(
+        "documents/calendar_import_preview.html",
+        preview=preview,
+        filename=uploaded.filename,
+    )
 
 
 @bp.post("/calendar")

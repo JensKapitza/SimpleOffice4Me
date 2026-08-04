@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}<main class="container-xl py-4">
+  {% if g.language == 'en' %}
+    {% set warning_labels = {
+      'timezone_not_converted': 'The TZID time zone is displayed but is not converted by the current import.',
+      'floating_time': 'No time zone is specified; the current import treats this as local time.',
+      'invalid_datetime': 'The date or time cannot be parsed.',
+      'missing_summary': 'SUMMARY is missing; this event will not be imported.',
+      'missing_start': 'DTSTART is missing; this event will not be imported.',
+      'recurrence_not_expanded': 'RRULE is present; the current import does not expand recurring instances.',
+      'recurrence_exception_not_applied': 'RECURRENCE-ID is present; the current import does not apply individual recurrence exceptions.',
+      'status_review_required': 'STATUS is displayed; verify that the import supports this lifecycle status.',
+      'missing_uid': 'UID is missing; importing the file again may create another event.'
+    } %}
+    {% set page_title = 'Check ICS file' %}{% set untouched = 'Nothing has been imported yet.' %}
+    {% set intro = 'This preview only reads the uploaded file. Return to the calendar to start the import explicitly.' %}
+    {% set usable_label = 'usable' %}{% set invalid_label = 'not importable' %}{% set warning_label = 'warnings' %}
+    {% set event_label = 'Event' %}{% set time_label = 'Time' %}{% set status_label = 'Status' %}{% set notes_label = 'Compatibility notes' %}
+    {% set back_label = 'Back to calendar import' %}{% set no_notes = 'No compatibility warnings detected.' %}
+  {% else %}
+    {% set warning_labels = {
+      'timezone_not_converted': 'Die TZID-Zeitzone wird angezeigt, vom aktuellen Import aber nicht umgerechnet.',
+      'floating_time': 'Keine Zeitzone angegeben; der aktuelle Import behandelt die Zeit lokal.',
+      'invalid_datetime': 'Datum oder Uhrzeit können nicht gelesen werden.',
+      'missing_summary': 'SUMMARY fehlt; dieser Termin wird nicht importiert.',
+      'missing_start': 'DTSTART fehlt; dieser Termin wird nicht importiert.',
+      'recurrence_not_expanded': 'RRULE ist vorhanden; der aktuelle Import erzeugt keine einzelnen Wiederholungen.',
+      'recurrence_exception_not_applied': 'RECURRENCE-ID ist vorhanden; der aktuelle Import verarbeitet einzelne Ausnahmen nicht.',
+      'status_review_required': 'STATUS wird angezeigt; prüfe, ob der Import diesen Lebenszyklusstatus unterstützt.',
+      'missing_uid': 'UID fehlt; ein erneuter Import kann einen weiteren Termin erzeugen.'
+    } %}
+    {% set page_title = 'ICS-Datei prüfen' %}{% set untouched = 'Noch nichts importiert.' %}
+    {% set intro = 'Diese Vorschau liest nur die hochgeladene Datei. Kehre zum Kalender zurück, um den Import ausdrücklich zu starten.' %}
+    {% set usable_label = 'verwendbar' %}{% set invalid_label = 'nicht importierbar' %}{% set warning_label = 'Warnungen' %}
+    {% set event_label = 'Termin' %}{% set time_label = 'Zeit' %}{% set status_label = 'Status' %}{% set notes_label = 'Kompatibilitätshinweise' %}
+    {% set back_label = 'Zurück zum Kalenderimport' %}{% set no_notes = 'Keine Kompatibilitätswarnungen erkannt.' %}
+  {% endif %}
+  <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4"><div><h1 class="h2 mb-1">{{ page_title }}</h1><p class="text-secondary mb-0"><code>{{ filename }}</code></p></div><a class="btn btn-outline-secondary" href="{{ url_for('documents.calendar') }}#calendar-import">{{ back_label }}</a></div>
+  <div class="alert alert-info"><strong>{{ untouched }}</strong> {{ intro }}</div>
+  <div class="row g-3 mb-4"><div class="col-sm-3"><div class="card h-100"><div class="card-body"><div class="fs-3 fw-semibold">{{ preview.total }}</div><div class="text-secondary">{{ event_label }}</div></div></div></div><div class="col-sm-3"><div class="card h-100"><div class="card-body"><div class="fs-3 fw-semibold text-success">{{ preview.usable }}</div><div class="text-secondary">{{ usable_label }}</div></div></div></div><div class="col-sm-3"><div class="card h-100"><div class="card-body"><div class="fs-3 fw-semibold text-danger">{{ preview.invalid }}</div><div class="text-secondary">{{ invalid_label }}</div></div></div></div><div class="col-sm-3"><div class="card h-100"><div class="card-body"><div class="fs-3 fw-semibold text-warning">{{ preview.warning_count }}</div><div class="text-secondary">{{ warning_label }}</div></div></div></div></div>
+  <div class="table-responsive"><table class="table table-striped align-middle"><thead><tr><th>#</th><th>{{ event_label }}</th><th>{{ time_label }}</th><th>{{ status_label }}</th><th>{{ notes_label }}</th></tr></thead><tbody>{% for event in preview.events %}<tr><td>{{ event.index }}</td><td><strong>{{ event.title }}</strong><br><small class="text-secondary"><code>{{ event.uid }}</code></small><br>{% if event.usable %}<span class="badge text-bg-success">{{ usable_label }}</span>{% else %}<span class="badge text-bg-danger">{{ invalid_label }}</span>{% endif %}</td><td>{{ event.start }}{% if event.end != '—' %}<br>– {{ event.end }}{% endif %}</td><td>{{ event.status }}</td><td>{% if event.warnings %}<ul class="small mb-0 ps-3">{% for warning in event.warnings %}<li>{{ warning_labels.get(warning, warning) }}</li>{% endfor %}</ul>{% else %}<span class="small text-secondary">{{ no_notes }}</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+</main>{% endblock %}
