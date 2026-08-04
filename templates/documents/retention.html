@@ -7,6 +7,63 @@
     <p class="text-secondary">Es wird niemals automatisch gelöscht. Erst die bestätigte Aktion verschiebt ausschließlich Dokumente, deren sämtliche Aufbewahrungsfristen abgelaufen sind.</p>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <section class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Vererbte Ordner- und Tagregeln</span>
+      <span class="badge text-bg-primary">{{ folder_rules|length }}</span>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('documents.add_retention_rule') }}" class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label" for="rule-folder">Ordner</label>
+          <input required class="form-control" id="rule-folder" name="folder" value="." list="archive-folders">
+          <datalist id="archive-folders">{% for folder in folders %}<option value="{{ folder }}">{% endfor %}</datalist>
+          <div class="form-text">„.“ gilt für das gesamte Archiv. Unterordner erben die Regel.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="rule-label">Bezeichnung</label>
+          <input required class="form-control" id="rule-label" name="label" placeholder="z. B. Steuerunterlagen">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="rule-kind">Wirkung</label>
+          <select class="form-select" id="rule-kind" name="kind"><option value="retention">Aufbewahren</option><option value="work">Bearbeiten bis</option></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="rule-tag">Tag/Pattern</label>
+          <input class="form-control" id="rule-tag" name="tag" placeholder="rechnung*">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="rule-years">Jahre ab Beginn</label>
+          <input class="form-control" id="rule-years" name="years" type="number" min="1" max="100" placeholder="8">
+          <div class="form-text">Bei Tagregel ab erstmaligem Setzen des passenden Tags, sonst ab Erstfund.</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="rule-date">Oder festes Datum</label>
+          <input class="form-control" id="rule-date" name="expires_at" type="date">
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <button class="btn btn-primary w-100">Regel hinzufügen</button>
+        </div>
+      </form>
+      <p class="small text-secondary mt-3 mb-2">Gib entweder Jahre oder ein festes Datum an. Ein optionales Tag unterstützt Muster wie <code>rechnung*</code>.</p>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-striped align-middle mb-0">
+        <thead><tr><th>Ordner</th><th>Bezeichnung</th><th>Wirkung</th><th>Tag</th><th>Frist</th><th></th></tr></thead>
+        <tbody>
+          {% for rule in folder_rules %}
+          <tr>
+            <td><code>{{ rule.folder }}</code></td><td>{{ rule.label }}</td>
+            <td>{{ 'Aufbewahren' if rule.kind == 'retention' else 'Bearbeiten bis' }}</td>
+            <td>{{ rule.tag|default('alle') }}</td>
+            <td>{% if rule.expires_at %}{{ rule.expires_at }}{% else %}{{ rule.years }} Jahr(e) ab {{ 'Tag' if rule.tag else 'Erstfund' }}{% endif %}</td>
+            <td class="text-end"><form method="post" action="{{ url_for('documents.remove_retention_rule', rule_id=rule.id) }}"><input type="hidden" name="folder" value="{{ rule.folder }}"><button class="btn btn-sm btn-outline-danger">Entfernen</button></form></td>
+          </tr>
+          {% else %}<tr><td colspan="6" class="text-secondary">Noch keine vererbte Regel konfiguriert.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
   <div class="row g-4">
     <section class="col-lg-7">
       <div class="card">
