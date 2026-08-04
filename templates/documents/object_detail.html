@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.objects') }}" class="small text-decoration-none">← Alle Objekte</a><h1 class="h2 mb-1">{{ item.name }}</h1><code>{{ item.object_id }}</code></div><span class="badge text-bg-primary">{{ item.type }}</span></div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-7">
+      <div class="card mb-4"><div class="card-header">Stammdaten</div><div class="card-body">
+        <form method="post" class="row g-3">
+          <div class="col-md-6"><label class="form-label">Name</label><input required class="form-control" name="name" value="{{ item.name }}"></div>
+          <div class="col-md-6"><label class="form-label">Typ</label><input required class="form-control" name="type" value="{{ item.type }}"></div>
+          <div class="col-md-6"><label class="form-label">Kennung</label><input class="form-control" name="identifier" value="{{ item.identifier }}"></div>
+          <div class="col-md-6"><label class="form-label">Status</label><select class="form-select" name="status">{% for status in ['active','inactive','lost','retired'] %}<option value="{{ status }}" {% if item.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
+          <div class="col-md-6"><label class="form-label">Ort</label><input class="form-control" name="location" value="{{ item.location }}"></div>
+          <div class="col-md-6"><label class="form-label">Ablaufdatum</label><input class="form-control" type="date" name="expires_at" value="{{ item.expires_at }}"></div>
+          <div class="col-12"><label class="form-label">Tags</label><input class="form-control" name="tags" value="{{ item.tags|join(', ') }}"></div>
+          <div class="col-12"><label class="form-label">Beschreibung</label><textarea class="form-control" name="description" rows="3">{{ item.description }}</textarea></div>
+          <div class="col-12"><label class="form-label">Freie Felder</label><textarea class="form-control font-monospace" name="fields" rows="5" placeholder="Hersteller=Lenovo&#10;Modell=T14">{% for key, value in item.fields.items() %}{{ key }}={{ value }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea><div class="form-text">Ein Feld je Zeile als Schlüssel=Wert.</div></div>
+          <div class="col-12"><button class="btn btn-primary">Speichern</button></div>
+        </form>
+      </div></div>
+      <div class="card"><div class="card-header">Dokumente</div><div class="list-group list-group-flush">
+        {% for document in attached %}<div class="list-group-item d-flex justify-content-between gap-3"><a href="{{ url_for('documents.detail', document_id=document.document_id) }}">{{ document.last_path }}</a><form method="post" action="{{ url_for('documents.detach_object_document', object_id=item.object_id, document_id=document.document_id) }}"><button class="btn btn-sm btn-outline-danger">Lösen</button></form></div>{% else %}<div class="list-group-item text-secondary">Noch kein Dokument verbunden.</div>{% endfor %}
+      </div><div class="card-body border-top"><form method="get" class="input-group"><input class="form-control" name="document_query" value="{{ document_query }}" placeholder="Dokumentname, ID oder Tag"><button class="btn btn-outline-primary">Suchen</button></form>{% if document_query %}<div class="list-group mt-3">{% for document in matches %}<div class="list-group-item d-flex justify-content-between gap-3"><span>{{ document.path }}</span><form method="post" action="{{ url_for('documents.attach_object_document', object_id=item.object_id) }}"><input type="hidden" name="document_id" value="{{ document.document_id }}"><button class="btn btn-sm btn-primary">Verbinden</button></form></div>{% else %}<div class="list-group-item text-secondary">Kein Dokument gefunden.</div>{% endfor %}</div>{% endif %}</div></div>
+    </section>
+    <aside class="col-lg-5"><div class="card"><div class="card-header">Notizen</div><div class="list-group list-group-flush">{% for note in item.notes|reverse %}<div class="list-group-item"><div>{{ note.text }}</div><small class="text-secondary">{{ note.created_at }} · {{ note.created_by }}</small></div>{% else %}<div class="list-group-item text-secondary">Noch keine Notiz.</div>{% endfor %}</div><div class="card-body border-top"><form method="post" action="{{ url_for('documents.add_object_note', object_id=item.object_id) }}"><textarea required class="form-control mb-2" name="text" rows="3"></textarea><button class="btn btn-outline-primary">Notiz hinzufügen</button></form></div></div></aside>
+  </div>
+</main>
+{% endblock %}

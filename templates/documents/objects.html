@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div><h1 class="h2 mb-1">Objekte</h1><p class="text-secondary mb-0">Gegenstände, Lizenzen, Domains und virtuelle Marker mit Dokumenten verbinden.</p></div>
+    <form method="get" class="input-group" style="max-width:28rem"><input class="form-control" name="q" value="{{ query }}" placeholder="Name, Typ, Kennung oder Tag"><button class="btn btn-outline-primary">Suchen</button></form>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-8">
+      <div class="row g-3">
+        {% for item in objects %}
+        <div class="col-md-6"><a class="card h-100 text-decoration-none" href="{{ url_for('documents.object_detail', object_id=item.object_id) }}"><div class="card-body"><div class="d-flex justify-content-between gap-2"><h2 class="h5 text-body">{{ item.name }}</h2><span class="badge text-bg-light border">{{ item.status }}</span></div><div class="text-secondary">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}</div>{% if item.location %}<div class="small mt-2"><i class="fas fa-location-dot me-1"></i>{{ item.location }}</div>{% endif %}{% for tag in item.tags %}<span class="badge text-bg-primary me-1 mt-2">{{ tag }}</span>{% endfor %}</div></a></div>
+        {% else %}<div class="col-12"><div class="alert alert-secondary">Keine Objekte gefunden.</div></div>{% endfor %}
+      </div>
+    </section>
+    <aside class="col-lg-4">
+      <div class="card"><div class="card-header">Objekt anlegen</div><div class="card-body">
+        <form method="post" class="row g-3">
+          <div class="col-12"><label class="form-label">Name</label><input required class="form-control" name="name" placeholder="z. B. Notebook Jens"></div>
+          <div class="col-12"><label class="form-label">Typ</label><input required class="form-control" name="type" list="object-types" placeholder="Gerät, Lizenz, Domain …"><datalist id="object-types"><option>Gerät</option><option>Fahrzeug</option><option>Lizenz</option><option>Domain</option><option>Virtuelle Maschine</option><option>Marker</option></datalist></div>
+          <div class="col-12"><label class="form-label">Kennung</label><input class="form-control" name="identifier" placeholder="Seriennummer, Lizenz-ID …"></div>
+          <div class="col-12"><label class="form-label">Ort</label><input class="form-control" name="location"></div>
+          <div class="col-12"><label class="form-label">Tags</label><input class="form-control" name="tags" placeholder="it, mobil, produktiv"></div>
+          <div class="col-12"><button class="btn btn-primary w-100">Anlegen</button></div>
+        </form>
+      </div></div>
+    </aside>
+  </div>
+</main>
+{% endblock %}
