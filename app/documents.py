@@ -571,6 +571,7 @@ def detail(document_id: str):
         logbook=store.logbook(document_id),
         relationships=relationships,
         shares=store.document_shares(document_id),
+        retention=store.retention_status(document_id),
         link_query=query,
         link_matches=[item for item in store.find_matches(query) if item["document_id"] != document_id] if query else [],
         preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
@@ -585,7 +586,14 @@ def add_document_relationship(document_id: str):
     try:
         relation_type = request.form.get("custom_relation_type", "").strip() or request.form.get("relation_type", "related")
         if request.form.get("target", "").strip():
-            _store().add_link(document_id, request.form["target"], relation_type, request.form.get("label", ""), str(g.user["username"]))
+            _store().add_link(
+                document_id,
+                request.form["target"],
+                relation_type,
+                request.form.get("label", ""),
+                str(g.user["username"]),
+                request.form.get("propagates_retention") == "1",
+            )
         else:
             _store().add_text_link(document_id, request.form.get("target_text", ""), relation_type, request.form.get("label", ""), str(g.user["username"]))
         flash("Dokumentverknüpfung gespeichert.")
@@ -604,6 +612,69 @@ def add_note(document_id: str):
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
+
+
+@bp.post("/<document_id>/deadlines")
+@login_required
+def add_document_deadline(document_id: str):
+    _document_or_404(document_id)
+    try:
+        _store().add_deadline(
+            document_id,
+            request.form.get("kind", "retention"),
+            request.form.get("expires_at", ""),
+            request.form.get("label", ""),
+            str(g.user["username"]),
+        )
+        flash("Frist wurde nachvollziehbar am Dokument gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
+@bp.get("/retention")
+@login_required
+def retention_overview():
+    store = _store()
+    documents = {item["document_id"]: item for item in store._all_documents()}
+    statuses = store.retention_statuses()
+    missing = [
+        {"document": documents[document_id], "status": status}
+        for document_id, status in statuses.items()
+        if status["status"] == "deadline_missing"
+    ]
+    candidates = [
+        {
+            "document_id": document_id,
+            "path": documents[document_id].get("last_path", ""),
+            "retention_until": status["retention_until"],
+        }
+        for document_id, status in statuses.items()
+        if status["cleanup_eligible"]
+    ]
+    return render_template(
+        "documents/retention.html",
+        candidates=sorted(candidates, key=lambda item: (item["retention_until"], item["path"])),
+        missing=sorted(missing, key=lambda item: item["document"].get("last_path", "")),
+    )
+
+
+@bp.post("/retention/cleanup")
+@login_required
+def run_retention_cleanup():
+    if request.form.get("confirm") != "AUSSONDERN":
+        flash("Zum Verschieben muss AUSSONDERN eingegeben werden.")
+        return redirect(url_for("documents.retention_overview"))
+    try:
+        result = _store().cleanup_expired(
+            request.form.get("destination_folder", ""),
+            str(g.user["username"]),
+            apply=True,
+        )
+        flash(f"{len(result['moved'])} Dokument(e) wurden verschoben; nichts wurde gelöscht.")
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.retention_overview"))
 
 
 @bp.get("/<document_id>/notes/<note_id>/snapshot.pdf")

@@ -23,6 +23,9 @@ Die flexible Kontaktverwaltung und Thunderbird-Anbindung sind in
 Der interne Kalender und die CalDAV-Planung stehen in
 [docs/KALENDER.md](docs/KALENDER.md).
 
+Fristen, sichere manuelle Aussonderung und das Modell für reale sowie virtuelle
+Objekte stehen in [docs/FRISTEN_UND_OBJEKTE.md](docs/FRISTEN_UND_OBJEKTE.md).
+
 Für den sicheren öffentlichen Betrieb von Freigabelinks und CardDAV siehe
 [docs/PROXY_HTTPS.md](docs/PROXY_HTTPS.md).
 

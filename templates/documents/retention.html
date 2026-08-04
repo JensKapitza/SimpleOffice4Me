@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="mb-4">
+    <h1 class="h2">Fristen und manuelle Aussonderung</h1>
+    <p class="text-secondary">Es wird niemals automatisch gelöscht. Erst die bestätigte Aktion verschiebt ausschließlich Dokumente, deren sämtliche Aufbewahrungsfristen abgelaufen sind.</p>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-7">
+      <div class="card">
+        <div class="card-header">Aussonderbar <span class="badge text-bg-warning">{{ candidates|length }}</span></div>
+        <div class="list-group list-group-flush">
+          {% for item in candidates %}
+          <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=item.document_id) }}">
+            <strong>{{ item.path }}</strong><br><small class="text-secondary">Aufbewahrung vollständig abgelaufen: {{ item.retention_until }}</small>
+          </a>
+          {% else %}<div class="list-group-item text-secondary">Aktuell ist kein Dokument aussonderbar.</div>{% endfor %}
+        </div>
+      </div>
+    </section>
+    <aside class="col-lg-5">
+      <div class="card mb-4">
+        <div class="card-header">Manuellen Aufräumlauf starten</div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('documents.run_retention_cleanup') }}">
+            <label class="form-label">Zielordner im Dokumentenspeicher</label>
+            <input required class="form-control mb-3" name="destination_folder" value="Aussonderung" placeholder="Aussonderung">
+            <label class="form-label">Bestätigung</label>
+            <input required class="form-control mb-3" name="confirm" autocomplete="off" placeholder="AUSSONDERN">
+            <button class="btn btn-warning w-100" {% if not candidates %}disabled{% endif %}>{{ candidates|length }} Dokument(e) verschieben</button>
+          </form>
+          <div class="form-text mt-2">Originale werden verschoben, nicht gelöscht. ID, SHA-256, alter und neuer Pfad sowie Benutzer werden protokolliert.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">Fehlende oder fehlerhafte Fristen <span class="badge text-bg-secondary">{{ missing|length }}</span></div>
+        <div class="list-group list-group-flush" style="max-height: 32rem; overflow:auto">
+          {% for item in missing %}
+          <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=item.document.document_id) }}">{{ item.document.last_path }}</a>
+          {% else %}<div class="list-group-item text-secondary">Alle Dokumente besitzen eine auswertbare Aufbewahrungsfrist.</div>{% endfor %}
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+{% endblock %}
