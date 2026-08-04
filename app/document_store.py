@@ -669,6 +669,131 @@ class DocumentStore:
         )
         return deadline
 
+    def folder_retention_rules(self) -> list[dict[str, Any]]:
+        """Return configured folder rules without following links or leaving the archive."""
+        configured: list[dict[str, Any]] = []
+        root_device = self.root.stat().st_dev
+        policy_paths: list[Path] = []
+        for current, directories, files in os.walk(self.root, followlinks=False):
+            folder = Path(current)
+            retained_directories: list[str] = []
+            for name in directories:
+                candidate = folder / name
+                try:
+                    if (
+                        name not in {CONTROL_DIR, HISTORY_DIR}
+                        and not candidate.is_symlink()
+                        and candidate.stat().st_dev == root_device
+                    ):
+                        retained_directories.append(name)
+                except OSError:
+                    continue
+            directories[:] = retained_directories
+            if POLICY_FILE in files:
+                policy_paths.append(folder / POLICY_FILE)
+        for policy_path in sorted(policy_paths, key=lambda item: str(item).casefold()):
+            folder = policy_path.parent
+            policy = self._read_json(policy_path, {})
+            retention = policy.get("retention", {})
+            rules = retention.get("rules", []) if isinstance(retention, dict) else []
+            for rule in rules:
+                if isinstance(rule, dict):
+                    configured.append({**rule, "folder": self.relative(folder)})
+        return configured
+
+    def add_folder_retention_rule(
+        self,
+        folder: str,
+        kind: str,
+        label: str,
+        actor: str,
+        *,
+        tag: str = "",
+        expires_at: str = "",
+        years: int | str | None = None,
+    ) -> dict[str, Any]:
+        """Append one validated, audited rule to an existing archive folder."""
+        self._require_actor(actor)
+        target = (self.root / folder.strip()).resolve()
+        try:
+            target.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError("folder is outside the document root") from exc
+        if not target.is_dir() or target.is_symlink():
+            raise ValueError("folder must be an existing regular directory")
+        normalized_kind = kind.strip().casefold()
+        if normalized_kind not in {"retention", "work"}:
+            raise ValueError("deadline kind must be retention or work")
+        normalized_label = label.strip()
+        if not normalized_label:
+            raise ValueError("rule label is required")
+        rule: dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "kind": normalized_kind,
+            "label": normalized_label,
+        }
+        normalized_tag = tag.strip()
+        if normalized_tag:
+            rule["tag"] = normalized_tag
+        has_date = bool(expires_at.strip())
+        has_years = bool(str(years or "").strip())
+        if has_date and has_years:
+            raise ValueError("provide either a fixed date or years, not both")
+        if has_date:
+            rule["expires_at"] = parse_deadline(expires_at).isoformat()
+        else:
+            try:
+                normalized_years = int(years or 0)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("years must be a whole number") from exc
+            if not 1 <= normalized_years <= 100:
+                raise ValueError("years must be between 1 and 100")
+            rule["years"] = normalized_years
+
+        policy_path = self.ensure_folder_policy(target)
+        policy = self._read_json(policy_path, {})
+        retention = policy.setdefault("retention", {})
+        if not isinstance(retention, dict):
+            raise ValueError("folder retention configuration is invalid")
+        rules = retention.setdefault("rules", [])
+        if not isinstance(rules, list):
+            raise ValueError("folder retention rules are invalid")
+        rules.append(rule)
+        atomic_json_write(policy_path, policy)
+        event = {"folder": self.relative(target), "actor": actor, "rule": rule}
+        self._event("folder_retention_rule_added", event)
+        self._record_revision(
+            "folder_retention_rule_added", actor, "policies", policy["folder_id"], policy
+        )
+        return {**rule, "folder": self.relative(target)}
+
+    def remove_folder_retention_rule(self, folder: str, rule_id: str, actor: str) -> None:
+        """Remove exactly one selected rule; never alter document deadlines."""
+        self._require_actor(actor)
+        target = (self.root / folder.strip()).resolve()
+        try:
+            target.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError("folder is outside the document root") from exc
+        policy_path = target / POLICY_FILE
+        if not target.is_dir() or target.is_symlink() or not policy_path.is_file():
+            raise ValueError("folder policy does not exist")
+        policy = self._read_json(policy_path, {})
+        retention = policy.get("retention", {})
+        rules = retention.get("rules", []) if isinstance(retention, dict) else []
+        remaining = [rule for rule in rules if not isinstance(rule, dict) or rule.get("id") != rule_id]
+        if len(remaining) == len(rules):
+            raise ValueError("retention rule does not exist")
+        retention["rules"] = remaining
+        atomic_json_write(policy_path, policy)
+        self._event(
+            "folder_retention_rule_removed",
+            {"folder": self.relative(target), "actor": actor, "rule_id": rule_id},
+        )
+        self._record_revision(
+            "folder_retention_rule_removed", actor, "policies", policy["folder_id"], policy
+        )
+
     def retention_status(
         self,
         reference: str | Path,
