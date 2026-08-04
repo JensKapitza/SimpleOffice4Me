@@ -26,6 +26,9 @@ Der interne Kalender und die CalDAV-Planung stehen in
 [docs/KALENDER.md](docs/KALENDER.md). Die rein lesende Prüfung von
 iCalendar-Dateien vor dem Import ist in
 [docs/ICS_VORSCHAU.md](docs/ICS_VORSCHAU.md) dokumentiert.
+Mehrere Kalender, Rechte, Thunderbird-Synchronisation und die umgesetzten
+Anforderungen aus RFC 5545, 4791, 6578 und 6764 beschreibt
+[docs/CALDAV_RFC_IMPLEMENTIERUNG.md](docs/CALDAV_RFC_IMPLEMENTIERUNG.md).
 
 Fristen, sichere manuelle Aussonderung und das Modell für reale sowie virtuelle
 Objekte stehen in [docs/FRISTEN_UND_OBJEKTE.md](docs/FRISTEN_UND_OBJEKTE.md).

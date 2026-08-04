@@ -57,4 +57,9 @@ class RevisionHistory:
             return self._git("rev-parse", "HEAD").strip()
 
     def _git(self, *arguments: str, env: dict[str, str] | None = None) -> str:
-        return subprocess.run(["git", *arguments], cwd=self.root, env=env, check=True, capture_output=True, text=True).stdout
+        # These repositories are small application audit trails. Detached auto
+        # maintenance can outlive the request and race a shutdown, backup or
+        # temporary test cleanup while writing ``objects``. Explicit maintenance
+        # can still be run by an administrator when ever needed.
+        command = ["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", *arguments]
+        return subprocess.run(command, cwd=self.root, env=env, check=True, capture_output=True, text=True).stdout

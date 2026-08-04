@@ -18,6 +18,7 @@ from .auth import login_required
 from .document_store import DocumentStore
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
+from .calendar_collections import CalendarCollections
 from .ics_preview import MAX_PREVIEW_BYTES, preview_ics
 from .todo_store import TodoStore
 from .settings_store import SettingsStore
@@ -41,6 +42,10 @@ def _contacts() -> ContactStore:
 
 def _calendar() -> CalendarStore:
     return CalendarStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _calendars() -> CalendarCollections:
+    return CalendarCollections(current_app.config["DOCUMENT_ROOT"])
 
 
 def _todos() -> TodoStore:
@@ -1154,6 +1159,8 @@ def activate_carddav():
 @login_required
 def calendar():
     actor = str(g.user["username"])
+    calendars = _calendars().calendars(actor)
+    calendar_map = {item["calendar_id"]: item for item in calendars}
     requested_month = request.args.get("month", date.today().strftime("%Y-%m"))
     try:
         shown_month = date.fromisoformat(f"{requested_month}-01")
@@ -1162,6 +1169,8 @@ def calendar():
     events_by_day: dict[int, list[dict]] = {}
     events = [event for event in _calendar().events(actor) if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
     for event in events:
+        collection = calendar_map.get(event.get("calendar_id") or "default", {"name": "Persönlich", "color": "#2563eb"})
+        event["calendar_name"] = collection["name"]; event["calendar_color"] = collection["color"]
         try:
             event_day = datetime.fromisoformat(event["start"].replace("Z", "+00:00")).date()
         except (KeyError, ValueError):
@@ -1188,7 +1197,43 @@ def calendar():
             subject = f"Terminbestätigung: {event['title']}"
             body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
             event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, contacts=_contacts().contacts(actor), users=users, current_username=actor, booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+
+
+@bp.post("/calendar/caldav")
+@login_required
+def activate_caldav():
+    actor = str(g.user["username"])
+    try:
+        _calendars().activate(actor, request.form.get("password", ""), actor)
+        flash(f"CalDAV aktiviert. Thunderbird-URL: {url_for('caldav.endpoint', path='', _external=True)}")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar") + "#caldav")
+
+
+@bp.post("/calendar/collections")
+@login_required
+def create_calendar_collection():
+    actor = str(g.user["username"])
+    try:
+        _calendars().create(request.form.get("name", ""), actor, request.form.get("color", "#2563eb"), request.form.get("timezone", "Europe/Berlin"), request.form.get("description", ""))
+        flash("Kalender angelegt.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar") + "#caldav")
+
+
+@bp.post("/calendar/collections/<calendar_id>/sharing")
+@login_required
+def share_calendar_collection(calendar_id: str):
+    actor = str(g.user["username"]); valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
+    try:
+        _calendars().update_sharing(calendar_id, {user: request.form.get(f"access_{user}", "") for user in valid_users}, actor)
+        flash("Kalenderfreigaben gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar") + "#caldav")
 
 
 @bp.get("/calendar/export.ics")
@@ -1244,7 +1289,9 @@ def add_calendar_event():
     try:
         if owner not in valid_users:
             raise ValueError("unknown owner")
-        _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner)
+        calendar_id = request.form.get("calendar_id", "default")
+        _calendars().get(calendar_id, actor, write=True)
+        _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id)
         flash("Kalendertermin gespeichert.")
     except ValueError as exc:
         flash(str(exc))
@@ -1255,11 +1302,31 @@ def add_calendar_event():
 @login_required
 def update_calendar_event(event_id: str):
     try:
-        _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), str(g.user["username"]), request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags())
+        actor = str(g.user["username"]); calendar_id = request.form.get("calendar_id", "")
+        if calendar_id: _calendars().get(calendar_id, actor, write=True)
+        source_calendar_id = _calendar().get(event_id, actor).get("calendar_id") or "default"
+        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id)
+        _calendars().record_event_move(event, source_calendar_id, actor)
         flash("Kalendertermin geändert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
+
+
+@bp.post("/calendar/<event_id>/participants")
+@login_required
+def update_calendar_participants(event_id: str):
+    participants = []
+    try:
+        for line in request.form.get("participants", "").splitlines():
+            if not line.strip(): continue
+            email, name, role, status, rsvp = (line.split("|") + ["", "", "", "", ""])[:5]
+            participants.append({"email": email.strip(), "name": name.strip(), "role": role.strip() or "required", "status": status.strip() or "needs-action", "rsvp": rsvp.strip().lower() in {"1", "true", "ja", "yes"}})
+        _calendar().set_participants(event_id, participants, str(g.user["username"]))
+        flash("Teilnehmer gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
 
 
 @bp.post("/calendar/<event_id>/delete")
