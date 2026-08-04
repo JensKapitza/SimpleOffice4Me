@@ -19,6 +19,8 @@ steht in [docs/SYNC_FEDERATION.md](docs/SYNC_FEDERATION.md).
 
 Die flexible Kontaktverwaltung und Thunderbird-Anbindung sind in
 [docs/KONTAKTE.md](docs/KONTAKTE.md) beschrieben.
+Filter und Benutzerfarben für die nachvollziehbare Kontakt-Historie stehen in
+[docs/KONTAKT_HISTORIE.md](docs/KONTAKT_HISTORIE.md).
 
 Der interne Kalender und die CalDAV-Planung stehen in
 [docs/KALENDER.md](docs/KALENDER.md).
