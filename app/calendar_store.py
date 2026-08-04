@@ -24,10 +24,12 @@ class CalendarStore:
         self.booking_path = self.root / CONTROL_DIR / "calendar-booking.json"
         self.history = RevisionHistory(self.root)
 
-    def events(self, actor: str = "") -> list[dict[str, Any]]:
+    def events(self, actor: str = "", calendar_id: str = "") -> list[dict[str, Any]]:
         items = self._read().get("events", [])
         if actor:
             items = [item for item in items if self._can_view(item, actor)]
+        if calendar_id:
+            items = [item for item in items if (item.get("calendar_id") or "default") == calendar_id]
         return sorted(items, key=lambda item: item.get("start", ""))
 
     def get(self, event_id: str, actor: str = "") -> dict[str, Any]:
@@ -38,18 +40,29 @@ class CalendarStore:
             raise ValueError("calendar event is not shared with this user")
         return event
 
-    def export_ics(self, actor: str = "") -> str:
+    def export_ics(self, actor: str = "", calendar_id: str = "") -> str:
         """Export all non-cancelled events as a single iCalendar file."""
         lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "CALSCALE:GREGORIAN"]
-        for event in self.events(actor):
+        for event in self.events(actor, calendar_id):
             if event.get("status") in {"cancelled", "deleted", "moved"}:
                 continue
             start = self._ics_datetime(event["start"])
             end = self._ics_datetime(event.get("end") or event["start"])
-            lines.extend(["BEGIN:VEVENT", f"UID:{event.get('source_uid') or event['event_id']}@simpleoffice.local", f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{self._ics_escape(event['title'])}", f"DESCRIPTION:{self._ics_escape(event.get('reason', ''))}"])
+            uid = event.get("source_uid") or f'{event["event_id"]}@simpleoffice.local'
+            lines.extend(["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{self._ics_escape(event['title'])}", f"DESCRIPTION:{self._ics_escape(event.get('reason', ''))}"])
             tags = [tag["name"] for tag in event.get("tags", []) if tag.get("name")]
             if tags:
                 lines.append(f"CATEGORIES:{','.join(self._ics_escape(tag) for tag in tags)}")
+            organizer = event.get("organizer", {})
+            if organizer.get("email"):
+                name = f';CN="{self._ics_escape(organizer.get("name", ""))}"' if organizer.get("name") else ""
+                lines.append(f"ORGANIZER{name}:mailto:{organizer['email']}")
+            role_names = {"required": "REQ-PARTICIPANT", "optional": "OPT-PARTICIPANT", "chair": "CHAIR", "non-participant": "NON-PARTICIPANT"}
+            for participant in event.get("participants", []):
+                parameters = []
+                if participant.get("name"): parameters.append(f'CN="{self._ics_escape(participant["name"])}"')
+                parameters.extend([f"ROLE={role_names.get(participant.get('role'), 'REQ-PARTICIPANT')}", f"PARTSTAT={participant.get('status', 'needs-action').upper()}", f"RSVP={'TRUE' if participant.get('rsvp') else 'FALSE'}"])
+                lines.append(f"ATTENDEE;{';'.join(parameters)}:mailto:{participant['email']}")
             lines.append("END:VEVENT")
         return "\r\n".join([*lines, "END:VCALENDAR", ""])
 
@@ -63,8 +76,8 @@ class CalendarStore:
                 unfolded[-1] += line[1:]
             else:
                 unfolded.append(line)
-        events: list[dict[str, str]] = []
-        current: dict[str, str] | None = None
+        events: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
         for line in unfolded:
             name, separator, value = line.partition(":")
             key = name.split(";", 1)[0].upper()
@@ -72,8 +85,10 @@ class CalendarStore:
                 current = {}
             elif key == "END" and value.upper() == "VEVENT" and current is not None:
                 events.append(current); current = None
-            elif current is not None and separator and key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES", "STATUS"}:
-                current[key] = value
+            elif current is not None and separator and key == "ATTENDEE":
+                current.setdefault("_ATTENDEES", []).append((name, value))
+            elif current is not None and separator and key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES", "STATUS", "SEQUENCE", "ORGANIZER"}:
+                current[key] = (name, value) if key == "ORGANIZER" else value
         if not events:
             raise ValueError("no VEVENT records found")
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
@@ -101,6 +116,9 @@ class CalendarStore:
                 event = self._event(existing["event_id"] if existing else "", self._ics_unescape(incoming["SUMMARY"]), self._ics_unescape(incoming.get("DESCRIPTION", "")) or "Aus iCalendar importiert", self._parse_ics_datetime(incoming["DTSTART"]), self._parse_ics_datetime(incoming.get("DTEND", incoming["DTSTART"])), (existing.get("contact_id") or "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", tags, existing)
                 event["source_uid"] = source_uid; event["source"] = "ical_import"
                 event["source_status"] = source_status.lower() or "confirmed"
+                event["sequence"] = int(incoming.get("SEQUENCE", "0") or 0)
+                event["organizer"] = self._ics_person(*incoming["ORGANIZER"]) if incoming.get("ORGANIZER") else {}
+                event["participants"] = [self._ics_person(left, value, True) for left, value in incoming.get("_ATTENDEES", [])]
                 if source_status == "CONFIRMED" and event.get("status") == "cancelled":
                     changed_at = utc_now()
                     event.update({"status": "active", "status_changed_at": changed_at, "status_changed_by": actor})
@@ -216,19 +234,20 @@ class CalendarStore:
     def pending_bookings(self) -> list[dict[str, Any]]:
         return [event for event in self.events() if event.get("status") == "pending"]
 
-    def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None, owner: str = "") -> dict[str, Any]:
+    def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None, owner: str = "", calendar_id: str = "default") -> dict[str, Any]:
         event = self._event("", title, reason, start, end, contact_id, actor, visibility, public_notice, tags or [])
         event["source"] = "manual"
         owner = owner.strip() or actor
         event["owner"] = owner
         event["access"] = {actor: "edit"} if actor != owner else {}
+        event["calendar_id"] = calendar_id.strip() or "default"
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read(); data["events"] = [*data.get("events", []), event]
             atomic_json_write(self.path, data)
             self.history.record("calendar_event_created", actor, "calendar", event["event_id"], event)
         return event
 
-    def update(self, event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]]) -> dict[str, Any]:
+    def update(self, event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]], calendar_id: str = "") -> dict[str, Any]:
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read()
             existing = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
@@ -239,9 +258,34 @@ class CalendarStore:
             if not self._can_edit(existing, actor):
                 raise ValueError("calendar event is read-only for this user")
             event = self._event(event_id, title, reason, start, end, contact_id, actor, visibility, public_notice, tags, existing)
+            if calendar_id.strip():
+                event["calendar_id"] = calendar_id.strip()
             data["events"] = [item for item in data["events"] if item.get("event_id") != event_id] + [event]
             atomic_json_write(self.path, data)
             self.history.record("calendar_event_updated", actor, "calendar", event_id, event)
+        return event
+
+    def set_participants(self, event_id: str, participants: list[dict[str, str]], actor: str) -> dict[str, Any]:
+        """Replace participant metadata after normal event edit authorization."""
+        allowed_status = {"needs-action", "accepted", "declined", "tentative", "delegated"}
+        allowed_role = {"chair", "required", "optional", "non-participant"}
+        cleaned = []
+        for value in participants:
+            email = str(value.get("email", "")).strip().lower()
+            if not email or "@" not in email or len(email) > 254: raise ValueError("participant requires a valid email address")
+            status = str(value.get("status", "needs-action")).lower(); role = str(value.get("role", "required")).lower()
+            if status not in allowed_status or role not in allowed_role: raise ValueError("invalid participant status or role")
+            cleaned.append({"email": email, "name": str(value.get("name", "")).strip()[:120], "status": status, "role": role, "rsvp": bool(value.get("rsvp", False))})
+        if len(cleaned) > 200: raise ValueError("at most 200 participants are allowed")
+        if len({row["email"] for row in cleaned}) != len(cleaned): raise ValueError("participant email addresses must be unique")
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read(); event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None or not self._can_edit(event, actor): raise ValueError("calendar event is not editable")
+            previous = event.get("participants", []); changed_at = utc_now()
+            event["participants"] = cleaned; event["updated_at"] = changed_at; event["updated_by"] = actor
+            event.setdefault("changes", []).append({"field": "participants", "old": previous, "new": cleaned, "at": changed_at, "actor": actor})
+            event["changes"] = event["changes"][-200:]; atomic_json_write(self.path, data)
+        self.history.record("calendar_event_participants_updated", actor, "calendar", event_id, event)
         return event
 
     def share(self, event_id: str, permissions: dict[str, str] | list[str], actor: str) -> dict[str, Any]:
@@ -324,7 +368,24 @@ class CalendarStore:
 
     @staticmethod
     def _ics_datetime(value: str) -> str:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y%m%dT%H%M%S")
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        return parsed.strftime("%Y%m%dT%H%M%S")
+
+    @classmethod
+    def _ics_person(cls, left: str, value: str, attendee: bool = False) -> dict[str, Any]:
+        params = {}
+        for parameter in left.split(";")[1:]:
+            key, separator, raw = parameter.partition("=")
+            if separator: params[key.upper()] = raw.strip('"')
+        email = value.strip()[7:] if value.strip().lower().startswith("mailto:") else value.strip()
+        if "@" not in email: raise ValueError("calendar participant requires a mailto email address")
+        result: dict[str, Any] = {"email": email.lower(), "name": cls._ics_unescape(params.get("CN", ""))[:120]}
+        if attendee:
+            roles = {"REQ-PARTICIPANT": "required", "OPT-PARTICIPANT": "optional", "CHAIR": "chair", "NON-PARTICIPANT": "non-participant"}
+            result.update({"role": roles.get(params.get("ROLE", "REQ-PARTICIPANT").upper(), "required"), "status": params.get("PARTSTAT", "NEEDS-ACTION").lower(), "rsvp": params.get("RSVP", "FALSE").upper() == "TRUE"})
+        return result
 
     @staticmethod
     def _parse_ics_datetime(value: str) -> str:

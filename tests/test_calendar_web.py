@@ -6,6 +6,7 @@ from pathlib import Path
 from app import app
 from app import db as database
 from app.calendar_store import CalendarStore
+from app.calendar_collections import CalendarCollections
 
 
 class CalendarWebTest(unittest.TestCase):
@@ -65,6 +66,27 @@ class CalendarWebTest(unittest.TestCase):
         events = CalendarStore(app.config["DOCUMENT_ROOT"]).events("jens")
         self.assertEqual(["web-import-1"], [event.get("source_uid") for event in events])
         self.assertEqual("private", events[0]["visibility"])
+
+    def test_calendar_page_offers_collections_filters_and_participants(self):
+        CalendarCollections(app.config["DOCUMENT_ROOT"]).create("Team", "jens", calendar_id="team")
+        event = CalendarStore(app.config["DOCUMENT_ROOT"]).add("Planung", "Projekt", "2026-08-10T10:00", "", "", "jens", calendar_id="team")
+        response = self.client.get("/documents/calendar")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Mehrere Kalender und CalDAV", body); self.assertIn("Neuen Kalender anlegen", body)
+        self.assertIn("name = 'calendar_id'", body); self.assertIn("Teilnehmer speichern", body)
+        self.assertIn(event["event_id"], body); self.assertIn("Team", body)
+
+    def test_web_can_create_event_in_collection_and_update_participants(self):
+        calendars = CalendarCollections(app.config["DOCUMENT_ROOT"]); calendars.create("Team", "jens", calendar_id="team")
+        created = self.client.post("/documents/calendar", data={"calendar_id": "team", "owner": "jens", "title": "Planung", "reason": "Projekt", "start": "2026-08-10T10:00", "end": "2026-08-10T11:00", "visibility": "private"}, follow_redirects=True)
+        self.assertEqual(200, created.status_code)
+        event = CalendarStore(app.config["DOCUMENT_ROOT"]).events("jens")[0]
+        self.assertEqual("team", event["calendar_id"])
+        participants = self.client.post(f'/documents/calendar/{event["event_id"]}/participants', data={"participants": "amy@example.test|Amy|required|accepted|ja"}, follow_redirects=True)
+        self.assertEqual(200, participants.status_code)
+        saved = CalendarStore(app.config["DOCUMENT_ROOT"]).get(event["event_id"], "jens")
+        self.assertEqual(["amy@example.test"], [row["email"] for row in saved["participants"]])
 
 
 if __name__ == "__main__":
