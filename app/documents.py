@@ -656,7 +656,44 @@ def retention_overview():
         "documents/retention.html",
         candidates=sorted(candidates, key=lambda item: (item["retention_until"], item["path"])),
         missing=sorted(missing, key=lambda item: item["document"].get("last_path", "")),
+        folder_rules=store.folder_retention_rules(),
+        folders=sorted(
+            {".", *(str(Path(item.get("last_path", "")).parent) for item in documents.values())},
+            key=str.casefold,
+        ),
     )
+
+
+@bp.post("/retention/rules")
+@login_required
+def add_retention_rule():
+    try:
+        _store().add_folder_retention_rule(
+            request.form.get("folder", "."),
+            request.form.get("kind", "retention"),
+            request.form.get("label", ""),
+            str(g.user["username"]),
+            tag=request.form.get("tag", ""),
+            expires_at=request.form.get("expires_at", ""),
+            years=request.form.get("years", ""),
+        )
+        flash("Ordnerregel wurde gespeichert und wird auf Unterordner vererbt.")
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.retention_overview"))
+
+
+@bp.post("/retention/rules/<rule_id>/remove")
+@login_required
+def remove_retention_rule(rule_id: str):
+    try:
+        _store().remove_folder_retention_rule(
+            request.form.get("folder", "."), rule_id, str(g.user["username"])
+        )
+        flash("Ordnerregel wurde entfernt. Dokumentfristen blieben unverändert.")
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.retention_overview"))
 
 
 @bp.post("/retention/cleanup")
