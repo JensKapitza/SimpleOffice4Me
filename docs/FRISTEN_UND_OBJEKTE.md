@@ -31,9 +31,16 @@ python -m flask --app app retention-status DOKUMENT
 
 ## Geerbte Ordner- und Tagregeln
 
-Regeln stehen im Abschnitt `retention.rules` einer
-`.simpleoffice-folder.json`. Sämtliche Regeln vom Wurzelordner bis zum
-Dokumentordner werden berücksichtigt. Eine absolute Ordnerfrist sieht so aus:
+Auf der Seite **Fristen** können Ordnerregeln über ein Formular angelegt,
+aufgelistet und gezielt entfernt werden. Dafür werden Ordner, Bezeichnung,
+Wirkung und optional ein Tagmuster angegeben. Als Laufzeit ist entweder eine
+Anzahl Jahre oder ein festes Ablaufdatum zulässig. Jede Änderung wird mit
+Benutzer und Zeitpunkt protokolliert.
+
+Technisch stehen die Regeln weiterhin transparent im Abschnitt
+`retention.rules` einer `.simpleoffice-folder.json`. Sämtliche Regeln vom
+Wurzelordner bis zum Dokumentordner werden berücksichtigt. Eine absolute
+Ordnerfrist sieht so aus:
 
 ```json
 {
