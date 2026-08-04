@@ -23,6 +23,7 @@ from .settings_store import SettingsStore
 from .form_store import FormStore
 from .project_store import ProjectStore
 from .replication_store import CATEGORIES, ReplicationStore
+from .object_store import ObjectStore
 from .db import get_db
 
 
@@ -59,6 +60,10 @@ def _projects() -> ProjectStore:
 
 def _replication() -> ReplicationStore:
     return ReplicationStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _objects() -> ObjectStore:
+    return ObjectStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _form_relation_choices(form: dict, actor: str) -> dict[str, list[tuple[str, str]]]:
@@ -206,6 +211,84 @@ def refresh_document_search():
 def dashboard():
     documents = _store().list_documents()
     return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if _is_unprocessed(item)], todos=_todos().items(), pending=_calendar().pending_bookings(), scan_status=_store().scan_status())
+
+
+@bp.route("/objects", methods=("GET", "POST"))
+@login_required
+def objects():
+    if request.method == "POST":
+        try:
+            item = _objects().create(request.form.to_dict(), str(g.user["username"]))
+            flash("Objekt wurde angelegt.")
+            return redirect(url_for("documents.object_detail", object_id=item["object_id"]))
+        except ValueError as exc:
+            flash(str(exc))
+    query = request.args.get("q", "").strip()
+    return render_template("documents/objects.html", objects=_objects().objects(query), query=query)
+
+
+@bp.route("/objects/<object_id>", methods=("GET", "POST"))
+@login_required
+def object_detail(object_id: str):
+    try:
+        if request.method == "POST":
+            _objects().update(object_id, request.form.to_dict(), str(g.user["username"]))
+            flash("Objekt wurde gespeichert.")
+            return redirect(url_for("documents.object_detail", object_id=object_id))
+        item = _objects().object(object_id)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("documents.objects"))
+    attached = []
+    for document_id in item.get("document_ids", []):
+        try:
+            attached.append(_store().get_document(document_id))
+        except ValueError:
+            attached.append({"document_id": document_id, "last_path": "[Dokument fehlt]"})
+    document_query = request.args.get("document_query", "").strip()
+    matches = _store().search(document_query, limit=20) if document_query else []
+    return render_template(
+        "documents/object_detail.html",
+        item=item,
+        attached=attached,
+        matches=[match for match in matches if match["document_id"] not in item.get("document_ids", [])],
+        document_query=document_query,
+    )
+
+
+@bp.post("/objects/<object_id>/documents")
+@login_required
+def attach_object_document(object_id: str):
+    try:
+        document_id = request.form.get("document_id", "")
+        _store().get_document(document_id)
+        _objects().attach_document(object_id, document_id, str(g.user["username"]))
+        flash("Dokument wurde mit dem Objekt verbunden.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.object_detail", object_id=object_id))
+
+
+@bp.post("/objects/<object_id>/documents/<document_id>/remove")
+@login_required
+def detach_object_document(object_id: str, document_id: str):
+    try:
+        _objects().detach_document(object_id, document_id, str(g.user["username"]))
+        flash("Dokumentverknüpfung wurde entfernt; die Datei blieb unverändert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.object_detail", object_id=object_id))
+
+
+@bp.post("/objects/<object_id>/notes")
+@login_required
+def add_object_note(object_id: str):
+    try:
+        _objects().add_note(object_id, request.form.get("text", ""), str(g.user["username"]))
+        flash("Notiz wurde gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.object_detail", object_id=object_id))
 
 
 @bp.route("/projects", methods=("GET", "POST"))
