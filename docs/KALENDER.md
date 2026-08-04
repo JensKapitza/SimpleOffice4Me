@@ -8,6 +8,20 @@ als Git-Revision gesichert.
 Die Oberfläche unter `/documents/calendar` ist für Anlegen, Ändern und Löschen
 aktiv. Ein Termin ist standardmäßig `private` und wird nicht veröffentlicht.
 
+## Import und Export
+
+Die Schaltfläche **ICS importieren** öffnet direkt in der Kalenderansicht den
+Dateiimport. Unterstützt werden `.ics`-Dateien aus Google Kalender,
+Thunderbird und anderen iCalendar-Anwendungen. Importierte Termine bleiben
+standardmäßig privat. Enthält eine Datei erneut dieselbe iCalendar-UID, wird
+der bestehende importierte Termin aktualisiert und nicht dupliziert. Der Import
+wird dem angemeldeten Benutzer zugeordnet und in der Historie protokolliert.
+
+**ICS exportieren** lädt alle für den angemeldeten Benutzer sichtbaren und
+aktiven Termine als `simpleoffice-kalender.ics` herunter. Abgesagte, gelöschte
+oder verschobene Altstände werden nicht veröffentlicht. Vor größeren Importen
+ist ein geprüftes Backup sinnvoll; der Import löscht jedoch keine Termine.
+
 Jeder Termin besitzt einen Eigentümer. Dieser kann weitere registrierte
 SimpleOffice-Benutzer zur gemeinsamen Verwaltung freigeben. Freigegebene
 Benutzer dürfen den Termin sehen, bearbeiten und seinen Lebenszyklusstatus
