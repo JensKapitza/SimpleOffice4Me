@@ -15,6 +15,14 @@ existieren. Zuerst entsteht eine `.partial`-Datei; erst nach erfolgreichem
 Abschluss wird sie atomar auf den endgültigen Namen verschoben. Verändert sich
 eine Quelldatei während der Sicherung, bricht der Lauf ab.
 
+Die `.partial`-Datei wird exklusiv angelegt, sodass ein bereits vorhandener
+Pfad oder symbolischer Link nicht überschrieben wird. Unter Linux und macOS
+erhalten temporäres und fertiges Archiv unabhängig von einem offenen `umask`
+die Rechte `0600`: nur der anlegende Benutzer darf lesen und schreiben. Unter
+Windows gelten die Zugriffslisten des Zielordners; das Werkzeug lockert sie
+nicht. Für ein gemeinsam genutztes Backup-Ziel sollten dessen NTFS-Rechte
+deshalb vorab ausdrücklich geprüft werden.
+
 Standardmäßig werden symbolische Links nicht verfolgt und Dateisystemgrenzen
 nicht überschritten. Ein bewusst eingebundener weiterer Datenträger kann
 explizit aufgenommen werden:
