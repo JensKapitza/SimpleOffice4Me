@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""First-start wizard and local development server launcher.
+"""First-start wizard and production WSGI server launcher.
 
 The platform scripts create the virtual environment and install dependencies.
 This module deliberately uses only the Python standard library until the
@@ -21,6 +21,40 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "instance" / "simpleoffice.json"
 SCAN_STATUS_FILE_INTERVAL = 250
 SCAN_STATUS_TIME_INTERVAL = 2.0
+
+
+def _integer_setting(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} muss eine ganze Zahl sein.") from exc
+    if not minimum <= value <= maximum:
+        raise RuntimeError(f"{name} muss zwischen {minimum} und {maximum} liegen.")
+    return value
+
+
+def waitress_options(config: dict[str, object], max_request_body_size: int) -> dict[str, object]:
+    """Build bounded Waitress settings while keeping the local bind default."""
+    host = os.environ.get("SIMPLEOFFICE_HOST", str(config["host"])).strip()
+    if not host or any(character.isspace() for character in host):
+        raise RuntimeError("SIMPLEOFFICE_HOST darf nicht leer sein oder Leerzeichen enthalten.")
+    options: dict[str, object] = {
+        "host": host,
+        "port": _integer_setting("SIMPLEOFFICE_PORT", int(config["port"]), 1, 65535),
+        "threads": _integer_setting("SIMPLEOFFICE_WSGI_THREADS", 4, 1, 64),
+        "channel_timeout": _integer_setting("SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT", 120, 10, 3600),
+        "max_request_body_size": max_request_body_size,
+        "expose_tracebacks": False,
+        "ident": "SimpleOffice4Me",
+    }
+    # ProxyFix remains the single authority for configured proxy chains. In
+    # that explicit mode Waitress must preserve the headers until Flask has
+    # applied the configured hop count. The deployment docs require the app to
+    # be unreachable except through that proxy.
+    if _integer_setting("SIMPLEOFFICE_TRUSTED_PROXY_HOPS", 0, 0, 16) > 0:
+        options["clear_untrusted_proxy_headers"] = False
+    return options
 
 
 def should_report_scan_progress(
@@ -100,6 +134,7 @@ def start(configure_only: bool = False) -> None:
     from app.document_store import DocumentStore
 
     store = DocumentStore(document_root)
+    options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]))
 
     def initial_scan() -> None:
         store.set_scan_status({"state": "running", "files": 0, "new_files": 0, "duplicates": 0, "errors": 0})
@@ -138,10 +173,16 @@ def start(configure_only: bool = False) -> None:
             print(f"Initialscan fehlgeschlagen: {exc}", file=sys.stderr)
 
     threading.Thread(target=initial_scan, name="simpleoffice-initial-scan", daemon=True).start()
-    host = str(config["host"])
-    port = int(config["port"])
-    print(f"SimpleOffice4Me läuft unter http://{host}:{port}; Initialscan läuft im Hintergrund.")
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+    host = str(options["host"])
+    port = int(options["port"])
+    print(
+        f"SimpleOffice4Me läuft mit Waitress unter http://{host}:{port} "
+        f"({options['threads']} Threads); Initialscan läuft im Hintergrund.",
+        flush=True,
+    )
+    from waitress import serve
+
+    serve(app, **options)
 
 
 def main() -> None:

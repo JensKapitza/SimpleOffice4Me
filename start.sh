@@ -16,6 +16,10 @@ Optionen:
   --google-redirect-uri URL   Vollständige Google OAuth Callback-URL
   --secret-key-file DATEI     Datei mit dauerhaftem SimpleOffice-Session-Schlüssel
   --trusted-proxy-hops ANZAHL Anzahl vertrauenswürdiger Reverse-Proxies
+  --host ADRESSE              Bind-Adresse (Standard: 127.0.0.1)
+  --port PORT                 HTTP-Port (Standard: aus Ersteinrichtung)
+  --threads ANZAHL            Waitress-Worker-Threads (Standard: 4)
+  --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
   --help                      Diese Hilfe anzeigen
 
 Beispiel:
@@ -48,7 +52,27 @@ while [ "$#" -gt 0 ]; do
     --trusted-proxy-hops)
       [ "$#" -ge 2 ] || { echo "--trusted-proxy-hops benötigt eine Anzahl." >&2; exit 2; }
       case "$2" in *[!0-9]*|'') echo "Proxy-Anzahl muss eine ganze Zahl sein." >&2; exit 2 ;; esac
+      [ "$2" -le 16 ] || { echo "Proxy-Anzahl muss zwischen 0 und 16 liegen." >&2; exit 2; }
       export SIMPLEOFFICE_TRUSTED_PROXY_HOPS="$2"; shift 2 ;;
+    --host)
+      [ "$#" -ge 2 ] || { echo "--host benötigt eine Adresse." >&2; exit 2; }
+      [ -n "$2" ] || { echo "--host darf nicht leer sein." >&2; exit 2; }
+      export SIMPLEOFFICE_HOST="$2"; shift 2 ;;
+    --port)
+      [ "$#" -ge 2 ] || { echo "--port benötigt eine Zahl." >&2; exit 2; }
+      case "$2" in *[!0-9]*|'') echo "Port muss eine ganze Zahl sein." >&2; exit 2 ;; esac
+      [ "$2" -ge 1 ] && [ "$2" -le 65535 ] || { echo "Port muss zwischen 1 und 65535 liegen." >&2; exit 2; }
+      export SIMPLEOFFICE_PORT="$2"; shift 2 ;;
+    --threads)
+      [ "$#" -ge 2 ] || { echo "--threads benötigt eine Anzahl." >&2; exit 2; }
+      case "$2" in *[!0-9]*|'') echo "Thread-Anzahl muss eine ganze Zahl sein." >&2; exit 2 ;; esac
+      [ "$2" -ge 1 ] && [ "$2" -le 64 ] || { echo "Thread-Anzahl muss zwischen 1 und 64 liegen." >&2; exit 2; }
+      export SIMPLEOFFICE_WSGI_THREADS="$2"; shift 2 ;;
+    --channel-timeout)
+      [ "$#" -ge 2 ] || { echo "--channel-timeout benötigt Sekunden." >&2; exit 2; }
+      case "$2" in *[!0-9]*|'') echo "Timeout muss eine ganze Zahl sein." >&2; exit 2 ;; esac
+      [ "$2" -ge 10 ] && [ "$2" -le 3600 ] || { echo "Timeout muss zwischen 10 und 3600 Sekunden liegen." >&2; exit 2; }
+      export SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT="$2"; shift 2 ;;
     --help|-h)
       usage; exit 0 ;;
     *)
