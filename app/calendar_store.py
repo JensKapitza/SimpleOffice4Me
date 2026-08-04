@@ -72,26 +72,48 @@ class CalendarStore:
                 current = {}
             elif key == "END" and value.upper() == "VEVENT" and current is not None:
                 events.append(current); current = None
-            elif current is not None and separator and key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES"}:
+            elif current is not None and separator and key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES", "STATUS"}:
                 current[key] = value
         if not events:
             raise ValueError("no VEVENT records found")
-        data = self._read(); imported = 0
-        for incoming in events:
-            if not incoming.get("DTSTART") or not incoming.get("SUMMARY"):
-                continue
-            source_uid = self._ics_unescape(incoming.get("UID", "")).strip() or str(uuid.uuid4())
-            existing = next((item for item in data.get("events", []) if item.get("source_uid") == source_uid), None)
-            tags = [{"name": self._ics_unescape(tag).strip(), "visibility": "private"} for tag in incoming.get("CATEGORIES", "").split(",") if self._ics_unescape(tag).strip()]
-            event = self._event(existing["event_id"] if existing else "", self._ics_unescape(incoming["SUMMARY"]), self._ics_unescape(incoming.get("DESCRIPTION", "")) or "Aus iCalendar importiert", self._parse_ics_datetime(incoming["DTSTART"]), self._parse_ics_datetime(incoming.get("DTEND", incoming["DTSTART"])), existing.get("contact_id", "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", tags, existing)
-            event["source_uid"] = source_uid; event["source"] = "ical_import"
-            data["events"] = [item for item in data.get("events", []) if item.get("event_id") != event["event_id"]] + [event]
-            self.history.record("calendar_event_imported", actor, "calendar", event["event_id"], event)
-            imported += 1
-        if not imported:
-            raise ValueError("no usable VEVENT records found")
-        atomic_json_write(self.path, data)
-        return imported
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read(); imported = 0
+            audit_entries: list[tuple[str, dict[str, Any]]] = []
+            for incoming in events:
+                source_uid = self._ics_unescape(incoming.get("UID", "")).strip()
+                existing = next((item for item in data.get("events", []) if source_uid and item.get("source_uid") == source_uid and item.get("source") == "ical_import" and item.get("owner") == actor), None)
+                source_status = incoming.get("STATUS", "").strip().upper()
+                if source_status == "CANCELLED":
+                    if existing is None:
+                        continue
+                    previous = existing.get("status", "active")
+                    changed_at = utc_now()
+                    existing.update({"status": "cancelled", "source_status": "cancelled", "status_changed_at": changed_at, "status_changed_by": actor, "updated_at": changed_at, "updated_by": actor})
+                    if previous != "cancelled":
+                        existing.setdefault("status_history", []).append({"from": previous, "to": "cancelled", "by": actor, "at": changed_at, "moved_to": ""})
+                    audit_entries.append(("calendar_event_import_cancelled", existing))
+                    imported += 1
+                    continue
+                if not incoming.get("DTSTART") or not incoming.get("SUMMARY"):
+                    continue
+                source_uid = source_uid or str(uuid.uuid4())
+                tags = [{"name": self._ics_unescape(tag).strip(), "visibility": "private"} for tag in incoming.get("CATEGORIES", "").split(",") if self._ics_unescape(tag).strip()]
+                event = self._event(existing["event_id"] if existing else "", self._ics_unescape(incoming["SUMMARY"]), self._ics_unescape(incoming.get("DESCRIPTION", "")) or "Aus iCalendar importiert", self._parse_ics_datetime(incoming["DTSTART"]), self._parse_ics_datetime(incoming.get("DTEND", incoming["DTSTART"])), (existing.get("contact_id") or "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", tags, existing)
+                event["source_uid"] = source_uid; event["source"] = "ical_import"
+                event["source_status"] = source_status.lower() or "confirmed"
+                if source_status == "CONFIRMED" and event.get("status") == "cancelled":
+                    changed_at = utc_now()
+                    event.update({"status": "active", "status_changed_at": changed_at, "status_changed_by": actor})
+                    event.setdefault("status_history", []).append({"from": "cancelled", "to": "active", "by": actor, "at": changed_at, "moved_to": ""})
+                data["events"] = [item for item in data.get("events", []) if item.get("event_id") != event["event_id"]] + [event]
+                audit_entries.append(("calendar_event_imported", event))
+                imported += 1
+            if not imported:
+                raise ValueError("no usable VEVENT records found")
+            atomic_json_write(self.path, data)
+            for action, event in audit_entries:
+                self.history.record(action, actor, "calendar", event["event_id"], event)
+            return imported
 
     def upsert_external_event(self, values: dict[str, str], actor: str, source: dict[str, str]) -> dict[str, Any]:
         """Create or update a provider event by its immutable provider ID."""
