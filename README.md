@@ -29,6 +29,9 @@ iCalendar-Dateien vor dem Import ist in
 Mehrere Kalender, Rechte, Thunderbird-Synchronisation und die umgesetzten
 Anforderungen aus RFC 5545, 4791, 6578 und 6764 beschreibt
 [docs/CALDAV_RFC_IMPLEMENTIERUNG.md](docs/CALDAV_RFC_IMPLEMENTIERUNG.md).
+Der sichere Einladungs-, Antwort-, Absage- und Gegenvorschlagsablauf nach
+RFC 5546 ist in
+[docs/ITIP_RFC_TERMINPLANUNG.md](docs/ITIP_RFC_TERMINPLANUNG.md) beschrieben.
 
 Fristen, sichere manuelle Aussonderung und das Modell für reale sowie virtuelle
 Objekte stehen in [docs/FRISTEN_UND_OBJEKTE.md](docs/FRISTEN_UND_OBJEKTE.md).
