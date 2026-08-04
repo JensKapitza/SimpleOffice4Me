@@ -1,6 +1,8 @@
 import hashlib
 import io
 import json
+import os
+import stat
 import tarfile
 import tempfile
 import unittest
@@ -40,6 +42,22 @@ class BackupTest(unittest.TestCase):
             self.assertEqual(1, verification["files"])
             self.assertTrue(verification["valid"])
 
+    @unittest.skipIf(os.name == "nt", "Windows file access is controlled by ACLs")
+    def test_backup_permissions_stay_private_with_permissive_umask(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            (root / "private.txt").write_text("confidential", encoding="utf-8")
+            backup = base / "backup.tar.gz"
+            previous_umask = os.umask(0)
+            try:
+                create_backup(root, backup)
+            finally:
+                os.umask(previous_umask)
+
+            self.assertEqual(0o600, stat.S_IMODE(backup.stat().st_mode))
+
     def test_backup_refuses_destination_inside_document_root(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -55,6 +73,23 @@ class BackupTest(unittest.TestCase):
             backup.write_bytes(b"existing")
             with self.assertRaises(FileExistsError):
                 create_backup(root, backup)
+
+    @unittest.skipIf(os.name == "nt", "symbolic-link test requires POSIX semantics")
+    def test_backup_does_not_follow_or_remove_dangling_partial_symlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            backup = base / "backup.tar.gz"
+            missing_target = base / "must-not-be-created"
+            partial = backup.with_name(backup.name + ".partial")
+            partial.symlink_to(missing_target)
+
+            with self.assertRaises(FileExistsError):
+                create_backup(root, backup)
+
+            self.assertTrue(partial.is_symlink())
+            self.assertFalse(missing_target.exists())
 
     def test_verification_rejects_unmanifested_files(self):
         with tempfile.TemporaryDirectory() as temp:
