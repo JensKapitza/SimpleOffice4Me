@@ -25,6 +25,33 @@ Der Endpunkt unterstützt das Standard-Adressbuch mit `PROPFIND`, `REPORT`,
 `GET`, `PUT` und `DELETE`, inklusive ETags. Ein öffentlich erreichbarer
 CardDAV-Endpunkt muss hinter HTTPS betrieben werden.
 
+### Kompatibler vCard-Import
+
+Beim Dateiimport und bei CardDAV-`PUT` werden gefaltete vCard-Zeilen vor der
+Auswertung wieder zusammengesetzt. Maskierte Textzeichen wie `\\,`, `\\;`,
+`\\\\` und `\\n` werden dekodiert; Feldgruppen wie `item1.EMAIL` werden dem
+eigentlichen Feld `EMAIL` zugeordnet. Dadurch bleiben Namen und Firmen mit
+Kommas oder Semikolons sowie mehrzeilige Anzeigenamen aus Thunderbird, Google
+Kontakte und anderen vCard-Anwendungen erhalten. Strukturierte Namensfelder
+werden nur an nicht maskierten Semikolons getrennt.
+
+Unterstützt wird die verwendete UTF-8-Teilmenge von vCard 3.0 und 4.0. Es ist
+keine Konfiguration erforderlich. Binäre Felder, eingebettete Fotos,
+Quoted-Printable aus älteren vCard-2.1-Dateien und unbekannte Erweiterungen
+werden weiterhin nicht übernommen. Unbekannte Maskierungsfolgen bleiben
+unverändert, statt Daten stillschweigend umzuschreiben.
+
+Der Import verwendet weiterhin die bestehende Rechteprüfung, UID-basierte
+Aktualisierung und Audit-Historie. Er gibt keine Kontakte frei und überträgt
+keine Daten an externe Dienste. Ungültige Karten ohne verwertbaren Namen werden
+wie bisher abgelehnt; bereits gespeicherte Kontakte bleiben dabei unverändert.
+Getestet sind Zeilenfaltung, Gruppenpräfixe, maskierte Trennzeichen,
+Zeilenumbrüche und der erneute Export. Zur Deaktivierung genügt die Rückkehr zur
+vorherigen Programmversion; das gespeicherte Kontaktformat wurde nicht geändert.
+
+Grundlage ist vCard 4.0 nach RFC 6350, insbesondere Zeilenfaltung und
+Maskierung von Eigenschaftswerten.
+
 ### Konfliktschutz bei parallelen Änderungen
 
 CardDAV wertet bei `PUT` und `DELETE` die HTTP-Vorbedingungen `If-Match` und

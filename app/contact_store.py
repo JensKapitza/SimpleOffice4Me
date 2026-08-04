@@ -273,22 +273,68 @@ class ContactStore:
     @staticmethod
     def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str]:
         values: dict[str, str] = {}
-        for raw in card.replace("\r\n", "\n").split("\n"):
+        lines: list[str] = []
+        for physical_line in card.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            if physical_line.startswith((" ", "\t")) and lines:
+                lines[-1] += physical_line[1:]
+            else:
+                lines.append(physical_line)
+        for raw in lines:
             key, separator, value = raw.partition(":")
             if not separator:
                 continue
-            name = key.split(";", 1)[0].upper()
-            if name == "FN": values["display_name"] = value
+            name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
+            if name == "FN": values["display_name"] = ContactStore._unescape_vcard_text(value)
             elif name == "N":
-                parts = value.split(";")
+                parts = ContactStore._split_vcard_components(value)
                 values["last_name"] = parts[0] if parts else ""
                 values["first_name"] = parts[1] if len(parts) > 1 else ""
-            elif name == "EMAIL": values["email"] = value
-            elif name == "TEL": values["phone"] = value
-            elif name == "BDAY": values["birthday"] = value
-            elif name == "ORG": values["company"] = value
-            elif name == "UID" and not contact_id: contact_id = value
+            elif name == "EMAIL": values["email"] = ContactStore._unescape_vcard_text(value)
+            elif name == "TEL": values["phone"] = ContactStore._unescape_vcard_text(value)
+            elif name == "BDAY": values["birthday"] = ContactStore._unescape_vcard_text(value)
+            elif name == "ORG": values["company"] = ContactStore._unescape_vcard_text(value)
+            elif name == "UID" and not contact_id: contact_id = ContactStore._unescape_vcard_text(value)
         return values, contact_id
+
+    @staticmethod
+    def _split_vcard_components(value: str) -> list[str]:
+        parts: list[str] = []
+        current: list[str] = []
+        escaped = False
+        for character in value:
+            if escaped:
+                current.extend(("\\", character))
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == ";":
+                parts.append(ContactStore._unescape_vcard_text("".join(current)))
+                current = []
+            else:
+                current.append(character)
+        if escaped:
+            current.append("\\")
+        parts.append(ContactStore._unescape_vcard_text("".join(current)))
+        return parts
+
+    @staticmethod
+    def _unescape_vcard_text(value: str) -> str:
+        result: list[str] = []
+        index = 0
+        while index < len(value):
+            if value[index] != "\\" or index + 1 >= len(value):
+                result.append(value[index])
+                index += 1
+                continue
+            escaped = value[index + 1]
+            if escaped in ("n", "N"):
+                result.append("\n")
+            elif escaped in ("\\", ",", ";"):
+                result.append(escaped)
+            else:
+                result.extend(("\\", escaped))
+            index += 2
+        return "".join(result)
 
     def delete(self, contact_id: str, actor: str, expected_updated_at: str | None = None) -> None:
         self._require_actor(actor)

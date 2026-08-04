@@ -75,6 +75,30 @@ class ContactStoreTest(unittest.TestCase):
             self.assertEqual(20, len(ContactStore(root).contacts("admin")))
             self.assertTrue((root / ".simpleoffice-history" / ".git").is_dir())
 
+    def test_vcard_import_unfolds_and_decodes_text_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            card = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:thunderbird-1\r\n"
+                "FN:Dr. Amy\\, Bei\r\n spiel\\nWerkstatt\r\n"
+                "N:Bei\\;spiel;A\\,my;;;\r\n"
+                "item1.EMAIL;TYPE=work:amy@example.test\r\n"
+                "ORG:Muster\\, GmbH\r\nEND:VCARD\r\n"
+            )
+
+            contact = store.upsert_vcard(card, "admin")
+
+            self.assertEqual("thunderbird-1", contact["contact_id"])
+            self.assertEqual("Dr. Amy, Beispiel\nWerkstatt", contact["fields"]["display_name"])
+            self.assertEqual("Bei;spiel", contact["fields"]["last_name"])
+            self.assertEqual("A,my", contact["fields"]["first_name"])
+            self.assertEqual("amy@example.test", contact["fields"]["email"])
+            self.assertEqual("Muster, GmbH", contact["fields"]["company"])
+
+            exported = store.vcard(contact["contact_id"], "admin")
+            self.assertIn("FN:Dr. Amy\\, Beispiel\\nWerkstatt", exported)
+            self.assertIn("N:Bei\\;spiel;A\\,my;;;", exported)
+
 
 if __name__ == "__main__":
     unittest.main()
