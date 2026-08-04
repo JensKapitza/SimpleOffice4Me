@@ -47,6 +47,58 @@ class ItipStore:
             raise ValueError("scheduling message not found")
         return row
 
+    def inbox_messages(self, actor: str) -> list[dict[str, Any]]:
+        """Return DAV-visible inbound messages, retaining archived rows for audit."""
+        return [
+            row for row in self.messages(actor)
+            if row.get("direction", "inbound") == "inbound"
+            and row.get("recipient") == actor
+            and row.get("state") != "archived"
+        ]
+
+    def inbox_content(self, message_id: str, actor: str) -> tuple[dict[str, Any], str]:
+        with exclusive_file_lock(self.lock):
+            row = next(
+                (
+                    item for item in self._read()["messages"]
+                    if item.get("message_id") == message_id
+                    and item.get("recipient") == actor
+                    and item.get("direction", "inbound") == "inbound"
+                    and item.get("state") != "archived"
+                ),
+                None,
+            )
+            if row is None:
+                raise ValueError("scheduling inbox resource not found")
+            return self._public(row), str(row.get("content", ""))
+
+    def archive_inbox(self, message_id: str, actor: str) -> dict[str, Any]:
+        """Hide a DAV inbox resource without deleting its audit evidence."""
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            row = next(
+                (
+                    item for item in data["messages"]
+                    if item.get("message_id") == message_id
+                    and item.get("recipient") == actor
+                    and item.get("direction", "inbound") == "inbound"
+                    and item.get("state") != "archived"
+                ),
+                None,
+            )
+            if row is None:
+                raise ValueError("scheduling inbox resource not found")
+            previous_state = row.get("state", "pending")
+            row.update({
+                "state": "archived",
+                "previous_state": previous_state,
+                "archived_at": utc_now(),
+                "archived_by": actor,
+            })
+            atomic_json_write(self.path, data)
+        self.history.record("caldav_scheduling_inbox_archived", actor, "calendar-scheduling", message_id, self._public(row))
+        return self._public(row)
+
     def export(self, event_id: str, actor: str, method: str, attendee_email: str = "", partstat: str = "", actor_email: str = "") -> str:
         """Generate one role-checked RFC 5546 VEVENT transaction."""
         method = method.strip().upper()

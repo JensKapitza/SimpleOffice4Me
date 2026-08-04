@@ -1,4 +1,5 @@
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -76,6 +77,26 @@ class CalendarWebTest(unittest.TestCase):
         self.assertIn("Mehrere Kalender und CalDAV", body); self.assertIn("Neuen Kalender anlegen", body)
         self.assertIn("name = 'calendar_id'", body); self.assertIn("Teilnehmer speichern", body)
         self.assertIn(event["event_id"], body); self.assertIn("Team", body)
+
+    def test_calendar_page_accepts_legacy_event_without_access_fields(self):
+        event = CalendarStore(app.config["DOCUMENT_ROOT"]).add(
+            "Alttermin", "Vor Freigaben angelegt", "2026-08-10T10:00", "", "", "jens"
+        )
+        store = CalendarStore(app.config["DOCUMENT_ROOT"])
+        data = store._read()
+        legacy = next(item for item in data["events"] if item["event_id"] == event["event_id"])
+        legacy.pop("access", None)
+        legacy.pop("managers", None)
+        store.path.write_text(json.dumps(data), encoding="utf-8")
+        with app.app_context():
+            db = database.get_db()
+            db.execute("INSERT INTO user (username, password) VALUES (?, ?)", ("zweiter-user", "unused"))
+            db.commit()
+
+        response = self.client.get("/documents/calendar")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Alttermin", response.get_data(as_text=True))
 
     def test_web_can_create_event_in_collection_and_update_participants(self):
         calendars = CalendarCollections(app.config["DOCUMENT_ROOT"]); calendars.create("Team", "jens", calendar_id="team")

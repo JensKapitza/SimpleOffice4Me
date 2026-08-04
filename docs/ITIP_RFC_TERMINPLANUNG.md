@@ -46,7 +46,7 @@ Maßgeblich sind [RFC 5546 (iTIP)](https://www.rfc-editor.org/rfc/rfc5546.html),
 | `COUNTER` ist ein Gegenvorschlag, keine einseitige Terminänderung ([RFC 5546, Abschnitt 3.2.7](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.7)). | MUST | Der Vorschlag wird auditierbar gespeichert, aber nicht automatisch übernommen. |
 | Kalenderdaten aus nicht vertrauenswürdigen Quellen sind vor Spoofing, Wiederholung und unerwünschter Offenlegung zu schützen ([RFC 5546, Abschnitte 6.1 und 6.2](https://www.rfc-editor.org/rfc/rfc5546.html#section-6.1)). | SHOULD | Quarantäne, Größenlimit, Rollenprüfung, Replay-Schutz, Benutzertrennung und explizite Freigabe sind aktiv. |
 | `UID` identifiziert das Ereignis dauerhaft; Datumswerte müssen gültig sein ([RFC 5545, Abschnitte 3.8.4.7 und 3.3.5](https://www.rfc-editor.org/rfc/rfc5545.html#section-3.8.4.7)). | MUST | Der bestehende strikte ICS-Parser normalisiert UID, UTC und Zeitzonen vor der Verarbeitung. |
-| Scheduling kann über CalDAV-Inbox und -Outbox transportiert werden ([RFC 6638, Abschnitte 2 und 3](https://www.rfc-editor.org/rfc/rfc6638.html#section-2)). | MAY | Dieser Ausbau verarbeitet Dateien und Downloads; serverseitige Inbox/Outbox-Zustellung ist bewusst noch nicht aktiviert. |
+| Scheduling kann über CalDAV-Inbox und -Outbox transportiert werden ([RFC 6638, Abschnitte 2 und 3](https://www.rfc-editor.org/rfc/rfc6638.html#section-2)). | MAY | Lokale, explizit freigegebene Zustellung sowie private Inbox/Outbox-Collections sind implementiert; Details stehen in [CALDAV_SCHEDULING_RFC6638.md](CALDAV_SCHEDULING_RFC6638.md). |
 
 ## Abgeleitete Architekturentscheidungen
 
@@ -92,9 +92,8 @@ gespeichert.
 Ein- und Ausgabe verwenden iCalendar 2.0 mit `METHOD`, `UID`, `SEQUENCE`,
 `ORGANIZER`, `ATTENDEE`, `PARTSTAT`, UTC-Zeitwerten und vorhandenen
 Zeitzoneninformationen. Thunderbird und Google Kalender können solche Dateien
-importieren beziehungsweise exportieren. iMIP-Mailzustellung nach RFC 6047 und
-CalDAV-Scheduling-Inbox/Outbox nach RFC 6638 sind noch nicht implementiert;
-normale CalDAV-Synchronisation erhält Änderungen aber über das Sync-Journal.
+importieren beziehungsweise exportieren. Lokales CalDAV Scheduling nach RFC
+6638 ist implementiert; iMIP-Mailzustellung nach RFC 6047 bleibt offen.
 
 ## Fehler- und Konfliktverhalten
 
@@ -126,8 +125,8 @@ Formatgrenzen, Rollen beim Export sowie der vollständige Webablauf.
 - Gegenvorschläge werden bewusst nicht automatisch angenommen.
 - Es gibt noch keine kryptografische Absenderprüfung und keine automatische
   iMIP-E-Mailzustellung.
-- RFC-6638-Inbox/Outbox und automatische serverseitige Zustellung bleiben ein
-  eigener, sicherheitskritischer Ausbau.
+- RFC-6638-Inbox/Outbox und lokale Zustellung sind optional implementiert;
+  Server-zu-Server- und iMIP-Transport bleiben bewusst offen.
 
 ## Deaktivierung und Rückkehr
 

@@ -19,6 +19,7 @@ from .document_store import DocumentStore
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
 from .calendar_collections import CalendarCollections
+from .caldav_scheduling import SchedulingAccess, local_calendar_address
 from .itip import ItipConflict, ItipStore, MAX_MESSAGE_BYTES
 from .ics_preview import MAX_PREVIEW_BYTES, preview_ics
 from .todo_store import TodoStore
@@ -51,6 +52,10 @@ def _itip() -> ItipStore:
 
 def _calendars() -> CalendarCollections:
     return CalendarCollections(current_app.config["DOCUMENT_ROOT"])
+
+
+def _scheduling_access() -> SchedulingAccess:
+    return SchedulingAccess(current_app.config["DOCUMENT_ROOT"])
 
 
 def _todos() -> TodoStore:
@@ -1186,6 +1191,11 @@ def calendar():
     following = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
     users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
     for event in events:
+        # Events created before calendar sharing was introduced do not have
+        # these fields.  Normalize only the in-memory view so opening the
+        # calendar stays backwards compatible without rewriting user data.
+        event["access"] = event.get("access") if isinstance(event.get("access"), dict) else {}
+        event["managers"] = event.get("managers") if isinstance(event.get("managers"), list) else []
         if event.get("requester_email") or event.get("source") == "external_booking":
             event["origin"] = "external"; event["origin_label"] = "Externe Buchung"; event["origin_class"] = "text-bg-warning"
         elif event.get("source_uid") or event.get("source") == "ical_import":
@@ -1202,7 +1212,7 @@ def calendar():
             subject = f"Terminbestätigung: {event['title']}"
             body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
             event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
 
 
 @bp.post("/calendar/scheduling/import")
@@ -1253,6 +1263,25 @@ def export_itip_message(event_id: str):
     except ValueError as exc:
         return Response(str(exc), 403, {"Content-Type": "text/plain; charset=utf-8"})
     return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name=f"termin-{method.casefold()}-{event_id}.ics", mimetype=f"text/calendar; method={method.upper()}; charset=utf-8")
+
+
+@bp.post("/calendar/scheduling/access")
+@login_required
+def update_caldav_scheduling_access():
+    actor = str(g.user["username"])
+    users = {str(row["username"]) for row in get_db().execute("SELECT username FROM user").fetchall()}
+    try:
+        _scheduling_access().update(
+            actor,
+            request.form.get("enabled") == "1",
+            [username for username in users if request.form.get(f"messages_{username}") == "1"],
+            [username for username in users if request.form.get(f"freebusy_{username}") == "1"],
+            users,
+        )
+        flash("CalDAV-Terminplanung und Freigaben wurden gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.calendar") + "#scheduling-access")
 
 
 @bp.post("/calendar/caldav")
