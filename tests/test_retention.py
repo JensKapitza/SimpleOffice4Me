@@ -107,6 +107,57 @@ class RetentionTest(unittest.TestCase):
             self.assertEqual([], store.cleanup_candidates(now=NOW))
             self.assertTrue(any(event.get("type") == "retention_cleanup_completed" for event in store.logbook()))
 
+    def test_folder_rule_editor_adds_lists_and_removes_an_audited_tag_rule(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / "Steuer"
+            folder.mkdir()
+            store = DocumentStore(root)
+
+            created = store.add_folder_retention_rule(
+                "Steuer",
+                "retention",
+                "Rechnungen acht Jahre",
+                "tester",
+                tag="rechnung*",
+                years="8",
+            )
+
+            self.assertEqual("Steuer", created["folder"])
+            self.assertEqual(8, created["years"])
+            self.assertEqual("rechnung*", created["tag"])
+            self.assertEqual([created], store.folder_retention_rules())
+
+            store.remove_folder_retention_rule("Steuer", created["id"], "tester")
+
+            self.assertEqual([], store.folder_retention_rules())
+            event_types = [event.get("type") for event in store.logbook()]
+            self.assertIn("folder_retention_rule_added", event_types)
+            self.assertIn("folder_retention_rule_removed", event_types)
+
+    def test_folder_rule_editor_rejects_escape_and_ambiguous_deadline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = DocumentStore(root)
+
+            with self.assertRaisesRegex(ValueError, "outside"):
+                store.add_folder_retention_rule(
+                    "../outside", "retention", "Ungültig", "tester", years=8
+                )
+            with self.assertRaisesRegex(ValueError, "between 1 and 100"):
+                store.add_folder_retention_rule(
+                    ".", "retention", "Ohne Frist", "tester"
+                )
+            with self.assertRaisesRegex(ValueError, "either"):
+                store.add_folder_retention_rule(
+                    ".",
+                    "retention",
+                    "Doppelte Frist",
+                    "tester",
+                    years=8,
+                    expires_at="2030-01-01",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
