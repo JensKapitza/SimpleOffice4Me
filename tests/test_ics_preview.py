@@ -31,7 +31,7 @@ class IcsPreviewParserTest(unittest.TestCase):
         self.assertEqual("2026-08-10 10:00 (Europe/Berlin)", event["start"])
         self.assertIn("timezone_not_converted", event["warnings"])
         self.assertIn("recurrence_not_expanded", event["warnings"])
-        self.assertIn("status_not_applied", event["warnings"])
+        self.assertIn("status_review_required", event["warnings"])
 
     def test_marks_incomplete_and_malformed_events_unusable(self):
         result = preview_ics(

@@ -10,7 +10,7 @@
       'missing_start': 'DTSTART is missing; this event will not be imported.',
       'recurrence_not_expanded': 'RRULE is present; the current import does not expand recurring instances.',
       'recurrence_exception_not_applied': 'RECURRENCE-ID is present; the current import does not apply individual recurrence exceptions.',
-      'status_not_applied': 'STATUS is displayed but is not applied by the current import.',
+      'status_review_required': 'STATUS is displayed; verify that the import supports this lifecycle status.',
       'missing_uid': 'UID is missing; importing the file again may create another event.'
     } %}
     {% set page_title = 'Check ICS file' %}{% set untouched = 'Nothing has been imported yet.' %}
@@ -27,7 +27,7 @@
       'missing_start': 'DTSTART fehlt; dieser Termin wird nicht importiert.',
       'recurrence_not_expanded': 'RRULE ist vorhanden; der aktuelle Import erzeugt keine einzelnen Wiederholungen.',
       'recurrence_exception_not_applied': 'RECURRENCE-ID ist vorhanden; der aktuelle Import verarbeitet einzelne Ausnahmen nicht.',
-      'status_not_applied': 'STATUS wird angezeigt, vom aktuellen Import aber nicht angewendet.',
+      'status_review_required': 'STATUS wird angezeigt; prüfe, ob der Import diesen Lebenszyklusstatus unterstützt.',
       'missing_uid': 'UID fehlt; ein erneuter Import kann einen weiteren Termin erzeugen.'
     } %}
     {% set page_title = 'ICS-Datei prüfen' %}{% set untouched = 'Noch nichts importiert.' %}

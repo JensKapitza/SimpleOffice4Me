@@ -132,7 +132,7 @@ def preview_ics(content: str) -> dict[str, Any]:
             warnings.append("recurrence_exception_not_applied")
         status = raw_event.get("STATUS", ({}, ""))[1].strip().upper()
         if status:
-            warnings.append("status_not_applied")
+            warnings.append("status_review_required")
         if not uid:
             warnings.append("missing_uid")
 

@@ -34,8 +34,9 @@ Die Anzeige ist bewusst genauer als der derzeitige Import: Sie warnt, wenn
 `TZID`-Zeiten nur angezeigt und nicht umgerechnet werden, lokale „floating“
 Zeiten keine Zeitzone enthalten, Wiederholungsregeln nicht expandiert werden,
 einzelne Serienausnahmen nicht angewendet werden oder ein Lebenszyklusstatus
-nicht übernommen wird. Eine Warnung bedeutet nicht zwangsläufig eine ungültige
-Datei, sondern macht eine Abweichung vom aktuellen Importverhalten sichtbar.
+vor dem Import geprüft werden sollte. Eine Warnung bedeutet nicht zwangsläufig
+eine ungültige Datei, sondern macht eine mögliche Abweichung vom aktuellen
+Importverhalten sichtbar.
 
 ## Sicherheit, Datenschutz, Rechte und Freigaben
 
