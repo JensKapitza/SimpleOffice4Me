@@ -182,6 +182,9 @@ app.register_blueprint(documents.bp)
 from . import carddav
 app.register_blueprint(carddav.bp)
 
+from . import contact_audit
+app.register_blueprint(contact_audit.bp)
+
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
 
