@@ -98,11 +98,19 @@ ist in dieser Ausbaustufe nicht Bestandteil der Anwendung.
 
 ## Allgemeine Objekte
 
-Die nächste darauf aufbauende Stufe verwaltet reale und virtuelle Objekte,
-beispielsweise Geräte, Fahrzeuge, Immobilien, Räume, Softwarelizenzen,
-Domains, virtuelle Maschinen oder frei benannte Marker. Ein Objekt erhält eine
-stabile ID, einen frei definierbaren Typ, Felder, Tags, Kontakte, Termine,
-Notizen und eigene Fristen. Dokumente werden über ihre stabile Dokument-ID mit
-dem Objekt verbunden. Objektfristen werden anschließend als weitere
-nachvollziehbare Fristquelle in denselben Fristenkern eingespeist; dafür ist
-keine Änderung der Löschlogik erforderlich.
+Der Reiter **Objekte** verwaltet reale und virtuelle Objekte, beispielsweise
+Geräte, Fahrzeuge, Räume, Softwarelizenzen, Domains, virtuelle Maschinen oder
+frei benannte Marker. Ein Objekt erhält eine stabile UUID sowie Name, frei
+definierbaren Typ, Status, Kennung, Ort, Ablaufdatum, Tags, Beschreibung,
+Notizen und beliebige Schlüssel-Wert-Felder. Dokumente werden über ihre stabile
+Dokument-ID verbunden; das Lösen einer Verbindung verändert die Datei nicht.
+
+Jede Anlage, Änderung, Notiz und Dokumentverknüpfung wird mit Benutzer und
+Zeitpunkt in der Revisionshistorie festgehalten. Die Objekte liegen einzeln als
+JSON-Dateien unter `.simpleoffice-meta/objects/`, sodass parallele Änderungen
+an unterschiedlichen Objekten nicht dieselbe Datendatei überschreiben.
+
+Das Ablaufdatum eines Objekts ist zunächst ein sichtbares Stammdatenfeld. Eine
+spätere Ausbaustufe kann es als zusätzliche Fristquelle in den bestehenden
+Fristenkern einspeisen. Bis dahin verändert ein Objektablauf ausdrücklich
+keine Dokument-Aufbewahrungsregel.
