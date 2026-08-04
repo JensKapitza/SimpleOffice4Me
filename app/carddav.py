@@ -7,7 +7,7 @@ from xml.sax.saxutils import escape
 
 from flask import Blueprint, Response, current_app, request
 
-from .contact_store import ContactStore
+from .contact_store import ContactConflict, ContactStore
 
 
 bp = Blueprint("carddav", __name__, url_prefix="/carddav")
@@ -37,6 +37,19 @@ def _xml(items: list[tuple[str, str]]) -> Response:
 
 def _etag(contact: dict) -> str:
     return '"' + hashlib.sha256((contact["contact_id"] + contact.get("updated_at", "")).encode()).hexdigest() + '"'
+
+
+def _etag_matches(header_value: str, current_etag: str) -> bool:
+    """Apply HTTP entity-tag list matching for CardDAV write preconditions."""
+    return any(
+        candidate.strip() == "*" or candidate.strip() == current_etag
+        for candidate in header_value.split(",")
+    )
+
+
+def _precondition_failed(current_etag: str = "") -> Response:
+    headers = {"ETag": current_etag} if current_etag else {}
+    return Response("CardDAV precondition failed", 412, headers)
 
 
 def _write_privileges() -> str:
@@ -78,22 +91,53 @@ def endpoint(path: str):
             return Response(card, 200, {"Content-Type": "text/vcard; charset=utf-8", "ETag": _etag(contact)})
         if request.method == "PUT":
             try:
-                _store().get(contact_id, username)
+                existing = _store().get(contact_id, username)
                 created = False
             except ValueError:
                 try:
                     _store().get(contact_id)
                 except ValueError:
+                    existing = None
                     created = True
                 else:
                     return Response("forbidden", 403)
+            expected_updated_at = None
+            create_only = request.headers.get("If-None-Match") == "*"
+            if existing is not None:
+                current_etag = _etag(existing)
+                if create_only:
+                    return _precondition_failed(current_etag)
+                if request.headers.get("If-Match") and not _etag_matches(request.headers["If-Match"], current_etag):
+                    return _precondition_failed(current_etag)
+                if request.headers.get("If-Match"):
+                    expected_updated_at = existing.get("updated_at", "")
+            elif request.headers.get("If-Match"):
+                return _precondition_failed()
             try:
-                contact = _store().upsert_vcard(request.get_data(as_text=True), f"carddav:{username}", contact_id)
+                contact = _store().conditional_upsert_vcard(
+                    request.get_data(as_text=True),
+                    f"carddav:{username}",
+                    contact_id,
+                    expected_updated_at=expected_updated_at,
+                    create_only=create_only,
+                )
+            except ContactConflict as exc:
+                return _precondition_failed(_etag(exc.contact) if exc.contact else "")
             except ValueError as exc:
                 return Response(str(exc), 400)
             return Response("", 201 if created else 204, {"ETag": _etag(contact), "Location": base + contact["contact_id"] + ".vcf"})
         if request.method == "DELETE":
-            try: _store().delete(contact_id, f"carddav:{username}")
+            try:
+                existing = _store().get(contact_id, username)
+            except ValueError:
+                return Response("not found", 404)
+            current_etag = _etag(existing)
+            if request.headers.get("If-Match") and not _etag_matches(request.headers["If-Match"], current_etag):
+                return _precondition_failed(current_etag)
+            expected_updated_at = existing.get("updated_at", "") if request.headers.get("If-Match") else None
+            try: _store().delete(contact_id, f"carddav:{username}", expected_updated_at)
+            except ContactConflict as exc:
+                return _precondition_failed(_etag(exc.contact) if exc.contact else "")
             except ValueError: return Response("not found", 404)
             return Response("", 204)
     return Response("not found", 404)
