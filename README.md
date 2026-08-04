@@ -21,7 +21,9 @@ Die flexible Kontaktverwaltung und Thunderbird-Anbindung sind in
 [docs/KONTAKTE.md](docs/KONTAKTE.md) beschrieben.
 
 Der interne Kalender und die CalDAV-Planung stehen in
-[docs/KALENDER.md](docs/KALENDER.md).
+[docs/KALENDER.md](docs/KALENDER.md). Die rein lesende Prüfung von
+iCalendar-Dateien vor dem Import ist in
+[docs/ICS_VORSCHAU.md](docs/ICS_VORSCHAU.md) dokumentiert.
 
 Fristen, sichere manuelle Aussonderung und das Modell für reale sowie virtuelle
 Objekte stehen in [docs/FRISTEN_UND_OBJEKTE.md](docs/FRISTEN_UND_OBJEKTE.md).
