@@ -26,6 +26,33 @@ class CardDavTest(unittest.TestCase):
         app.config["DOCUMENT_ROOT"] = self.previous_root
         self.temp.cleanup()
 
+    def test_well_known_redirects_to_carddav_context_without_credentials(self):
+        response = self.client.open("/.well-known/carddav", method="PROPFIND")
+
+        self.assertEqual(307, response.status_code)
+        self.assertEqual("http://localhost/carddav/", response.headers["Location"])
+        self.assertIn("max-age=3600", response.headers["Cache-Control"])
+
+    def test_principal_and_addressbook_are_discoverable(self):
+        root = self.client.open("/carddav/", method="PROPFIND", headers=self.auth)
+        principal = self.client.open("/carddav/principals/admin/", method="PROPFIND", headers=self.auth)
+        home = self.client.open("/carddav/addressbooks/admin/", method="PROPFIND", headers={**self.auth, "Depth": "1"})
+
+        self.assertEqual(207, root.status_code)
+        self.assertIn("current-user-principal", root.get_data(as_text=True))
+        self.assertIn("http://localhost/carddav/principals/admin/", root.get_data(as_text=True))
+        self.assertEqual(207, principal.status_code)
+        self.assertIn("addressbook-home-set", principal.get_data(as_text=True))
+        self.assertIn("http://localhost/carddav/addressbooks/admin/", principal.get_data(as_text=True))
+        self.assertEqual(207, home.status_code)
+        self.assertIn("http://localhost/carddav/addressbooks/admin/default/", home.get_data(as_text=True))
+        self.assertIn('content-type="text/vcard" version="4.0"', home.get_data(as_text=True))
+
+    def test_discovery_does_not_expose_another_users_principal(self):
+        response = self.client.open("/carddav/principals/other/", method="PROPFIND", headers=self.auth)
+
+        self.assertEqual(404, response.status_code)
+
     def test_stale_if_match_does_not_overwrite_newer_contact(self):
         created = self.client.put(self.url, data=VCARD, headers={**self.auth, "If-None-Match": "*"})
         self.assertEqual(201, created.status_code)

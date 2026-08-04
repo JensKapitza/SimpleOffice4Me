@@ -20,3 +20,8 @@ fälschen können.
 
 Der Proxy muss die Header `X-Forwarded-Proto`, `X-Forwarded-Host` und bei einem
 Unterpfad `X-Forwarded-Prefix` selbst setzen und eingehende Werte überschreiben.
+
+Für die automatische Einrichtung in Thunderbird muss der Proxy zusätzlich
+`/.well-known/carddav` unverändert an SimpleOffice weiterleiten. Details zu
+Redirect, Principal- und Adressbuch-Erkennung stehen in
+[CARDDAV_DISCOVERY.md](CARDDAV_DISCOVERY.md).

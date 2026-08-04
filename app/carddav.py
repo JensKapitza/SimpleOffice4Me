@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 from xml.sax.saxutils import escape
 
-from flask import Blueprint, Response, current_app, request
+from flask import Blueprint, Response, current_app, request, url_for
 
 from .contact_store import ContactConflict, ContactStore
 
 
-bp = Blueprint("carddav", __name__, url_prefix="/carddav")
+bp = Blueprint("carddav", __name__)
 DAV = "DAV:"
 CARD = "urn:ietf:params:xml:ns:carddav"
 
@@ -57,8 +57,18 @@ def _write_privileges() -> str:
     return "<d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege><d:privilege><d:bind/></d:privilege><d:privilege><d:unbind/></d:privilege></d:current-user-privilege-set>"
 
 
-@bp.route("/", defaults={"path": ""}, methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "PUT", "DELETE"])
-@bp.route("/<path:path>", methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "PUT", "DELETE"])
+def _addressbook_properties() -> str:
+    return f'<d:resourcetype><d:collection/><card:addressbook/></d:resourcetype><d:displayname>SimpleOffice Kontakte</d:displayname><card:supported-address-data><card:address-data-type content-type="text/vcard" version="4.0"/></card:supported-address-data>{_write_privileges()}'
+
+
+@bp.route("/.well-known/carddav", methods=["OPTIONS", "PROPFIND", "GET"])
+def well_known():
+    """Redirect CardDAV auto-discovery to the authenticated DAV context."""
+    return Response("", 307, {"Location": url_for("carddav.endpoint", path="", _external=True), "Cache-Control": "public, max-age=3600"})
+
+
+@bp.route("/carddav/", defaults={"path": ""}, methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "PUT", "DELETE"])
+@bp.route("/carddav/<path:path>", methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "PUT", "DELETE"])
 def endpoint(path: str):
     username = _auth()
     if username is None:
@@ -67,7 +77,9 @@ def endpoint(path: str):
     if request.method == "OPTIONS":
         return Response("", 204, {"DAV": "1, addressbook", "Allow": "OPTIONS, PROPFIND, REPORT, GET, PUT, DELETE"})
     normalized = path.strip("/")
-    if normalized.startswith("addressbooks/") and not normalized.startswith(f"addressbooks/{username}/"):
+    if normalized.startswith("addressbooks/") and normalized != f"addressbooks/{username}" and not normalized.startswith(f"addressbooks/{username}/"):
+        return Response("not found", 404)
+    if normalized.startswith("principals/") and normalized != f"principals/{username}":
         return Response("not found", 404)
     if request.method == "PROPFIND":
         if normalized.endswith(".vcf"):
@@ -75,7 +87,22 @@ def endpoint(path: str):
             try: contact = _store().get(contact_id, username)
             except ValueError: return Response("not found", 404)
             return _xml([(request.path, f"<d:getetag>{_etag(contact)}</d:getetag><d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>{_write_privileges()}")])
-        return _xml([(base, f"<d:resourcetype><d:collection/><card:addressbook/></d:resourcetype><d:displayname>SimpleOffice Kontakte</d:displayname>{_write_privileges()}")])
+        principal = url_for("carddav.endpoint", path=f"principals/{username}/", _external=True)
+        home = url_for("carddav.endpoint", path=f"addressbooks/{username}/", _external=True)
+        addressbook = url_for("carddav.endpoint", path=f"addressbooks/{username}/default/", _external=True)
+        if not normalized:
+            return _xml([(request.url, f"<d:resourcetype><d:collection/></d:resourcetype><d:current-user-principal><d:href>{escape(principal)}</d:href></d:current-user-principal>")])
+        if normalized == f"principals/{username}":
+            properties = f"<d:resourcetype><d:principal/></d:resourcetype><d:displayname>{escape(username)}</d:displayname><d:principal-URL><d:href>{escape(principal)}</d:href></d:principal-URL><card:addressbook-home-set><d:href>{escape(home)}</d:href></card:addressbook-home-set>"
+            return _xml([(principal, properties)])
+        if normalized == f"addressbooks/{username}":
+            items = [(home, "<d:resourcetype><d:collection/></d:resourcetype><d:displayname>SimpleOffice Adressbücher</d:displayname>")]
+            if request.headers.get("Depth", "0") != "0":
+                items.append((addressbook, _addressbook_properties()))
+            return _xml(items)
+        if normalized == f"addressbooks/{username}/default":
+            return _xml([(addressbook, _addressbook_properties())])
+        return Response("not found", 404)
     if request.method == "REPORT":
         items = []
         for contact in _store().contacts(username):
