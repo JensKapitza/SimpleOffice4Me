@@ -160,8 +160,8 @@ class CalendarCollections:
             duplicate = next((e for e in data.get("events", []) if e is not existing and e.get("source_uid") == uid and (e.get("calendar_id") or "default") == calendar_id and e.get("status") != "deleted"), None)
             if duplicate:
                 raise ValueError("UID already exists in this calendar collection")
-            event = self.events._event(existing.get("event_id", "") if existing else "", values["title"], values.get("description") or "CalDAV-Termin", values["start"], values.get("end", ""), "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", values.get("tags", []), existing)
-            event.update({"owner": calendar["owner"], "calendar_id": calendar_id, "caldav_resource": resource, "source_uid": uid, "source": "caldav", "status": values.get("status", "active"), "sequence": int(values.get("sequence", 0)), "organizer": values.get("organizer", {}), "participants": values.get("participants", []), "raw_ics": values.get("raw_ics", "")})
+            event = self.events._event(existing.get("event_id", "") if existing else "", values["title"], values.get("description") or "CalDAV-Termin", values["start"], values.get("end", ""), "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", values.get("tags", []), existing, values)
+            event.update({"owner": calendar["owner"], "calendar_id": calendar_id, "caldav_resource": resource, "source_uid": uid, "source": "caldav", "status": values.get("status", "active"), "sequence": int(values.get("sequence", 0)), "organizer": values.get("organizer", {}), "participants": values.get("participants", []), "timezone": values.get("timezone", ""), "recurrence": values.get("recurrence", {}), "recurrence_overrides": values.get("recurrence_overrides", []), "alarms": values.get("alarms", []), "raw_ics": values.get("raw_ics", "")})
             data["events"] = [e for e in data.get("events", []) if e.get("event_id") != event["event_id"]] + [event]
             atomic_json_write(self.events.path, data)
             self._bump(calendar_id, calendar["owner"], resource, False)
@@ -185,13 +185,14 @@ class CalendarCollections:
     def record_event_move(self, event: dict[str, Any], source_calendar_id: str, actor: str) -> None:
         """Publish a web-originated collection move to both DAV sync journals."""
         target_id = event.get("calendar_id") or "default"
-        if source_calendar_id == target_id: return
         source = self.get(source_calendar_id, actor, write=True); target = self.get(target_id, actor, write=True)
         resource = event.get("caldav_resource") or f'{event["event_id"]}.ics'
         with exclusive_file_lock(self.lock):
-            self._bump(source_calendar_id, source["owner"], resource, True)
+            if source_calendar_id != target_id:
+                self._bump(source_calendar_id, source["owner"], resource, True)
             self._bump(target_id, target["owner"], resource, False)
-        self.history.record("calendar_event_collection_moved", actor, "calendar", event["event_id"], {"event_id": event["event_id"], "from": source_calendar_id, "to": target_id, "resource": resource})
+        action = "calendar_event_collection_moved" if source_calendar_id != target_id else "calendar_event_web_update_synced"
+        self.history.record(action, actor, "calendar", event["event_id"], {"event_id": event["event_id"], "from": source_calendar_id, "to": target_id, "resource": resource})
 
     def sync_changes(self, calendar_id: str, actor: str, token: str = "") -> tuple[list[dict[str, Any]], str]:
         calendar = self.get(calendar_id, actor); current = int(calendar.get("sync_revision", 0))

@@ -29,6 +29,18 @@ iCalendar-Dateien vor dem Import ist in
 Mehrere Kalender, Rechte, Thunderbird-Synchronisation und die umgesetzten
 Anforderungen aus RFC 5545, 4791, 6578 und 6764 beschreibt
 [docs/CALDAV_RFC_IMPLEMENTIERUNG.md](docs/CALDAV_RFC_IMPLEMENTIERUNG.md).
+Serientermine mit RRULE, Ausnahmen, Zeitzonen, Buchungskonflikten und
+CalDAV-Zeitbereichsabfragen sind in
+[docs/KALENDER_SERIEN_RFC5545.md](docs/KALENDER_SERIEN_RFC5545.md) beschrieben.
+Lokale Kalendererinnerungen mit VALARM, Bestätigung und standardkonformem
+Snooze dokumentiert
+[docs/KALENDER_ERINNERUNGEN_RFC5545_9074.md](docs/KALENDER_ERINNERUNGEN_RFC5545_9074.md).
+Status, Zeitbelegung, Priorität, Ort, Ressourcen und sichere
+Konferenzzugänge nach RFC 5545/7986 beschreibt
+[docs/KALENDER_METADATEN_RFC5545_7986.md](docs/KALENDER_METADATEN_RFC5545_7986.md).
+Der optionale, ausschließlich manuell gestartete Google-Kalender-Abgleich mit
+inkrementellen Sync-Tokens und expliziter Konfliktentscheidung steht in
+[docs/GOOGLE_KALENDER_SYNC.md](docs/GOOGLE_KALENDER_SYNC.md).
 Der sichere Einladungs-, Antwort-, Absage- und Gegenvorschlagsablauf nach
 RFC 5546 ist in
 [docs/ITIP_RFC_TERMINPLANUNG.md](docs/ITIP_RFC_TERMINPLANUNG.md) beschrieben.

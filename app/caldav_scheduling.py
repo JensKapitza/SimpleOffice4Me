@@ -156,6 +156,8 @@ def freebusy_periods(root: str | Path, recipient: str, start: datetime, end: dat
     for event in CalendarStore(root).events(recipient):
         if event.get("status") in {"cancelled", "deleted", "moved"}:
             continue
+        if event.get("transparency", "opaque") == "transparent" or event.get("ical_status") == "cancelled":
+            continue
         begins = _as_utc(event.get("start", ""))
         finishes = _as_utc(event.get("end") or event.get("start", ""))
         if finishes <= begins:

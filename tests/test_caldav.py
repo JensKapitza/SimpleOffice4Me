@@ -178,5 +178,96 @@ class CalDavTest(unittest.TestCase):
         self.assertTrue(source[0]["deleted"]); self.assertFalse(target[0]["deleted"])
         self.assertTrue(source_token.endswith(":1")); self.assertTrue(target_token.endswith(":1"))
 
+    def test_recurring_resource_roundtrip_exceptions_dst_and_time_range(self):
+        recurring = "\r\n".join([
+            "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Thunderbird//EN",
+            "BEGIN:VEVENT", "UID:recurring-1@example.test", "DTSTART;TZID=Europe/Berlin:20260323T090000", "DTEND;TZID=Europe/Berlin:20260323T100000", "SUMMARY:Jour fixe", "RRULE:FREQ=WEEKLY;COUNT=4", "EXDATE;TZID=Europe/Berlin:20260330T090000", "END:VEVENT",
+            "BEGIN:VEVENT", "UID:recurring-1@example.test", "RECURRENCE-ID;TZID=Europe/Berlin:20260406T090000", "DTSTART;TZID=Europe/Berlin:20260407T140000", "DTEND;TZID=Europe/Berlin:20260407T150000", "SUMMARY:Verschoben", "END:VEVENT",
+            "END:VCALENDAR", "",
+        ])
+        resource = self.collection + "recurring.ics"
+        created = self.client.put(resource, data=recurring, headers={**self.auth, "If-None-Match": "*", "Content-Type": "text/calendar"})
+        self.assertEqual(201, created.status_code)
+        stored = next(item for item in self.store.resource_events("default", "admin") if item.get("caldav_resource") == "recurring.ics")
+        self.assertEqual("FREQ=WEEKLY;COUNT=4", stored["recurrence"]["rrule"])
+        self.assertEqual("Europe/Berlin", stored["recurrence"]["timezone"])
+        self.assertEqual("2026-04-07T14:00+02:00", stored["recurrence_overrides"][0]["start"])
+        occurrences = self.store.events.occurrences("admin", __import__("datetime").datetime(2026, 3, 1, tzinfo=__import__("datetime").timezone.utc), __import__("datetime").datetime(2026, 5, 1, tzinfo=__import__("datetime").timezone.utc))
+        self.assertEqual(["09:00", "14:00", "09:00"], [__import__("datetime").datetime.fromisoformat(item["start"]).strftime("%H:%M") for item in occurrences])
+        self.assertTrue(all(item["start"].endswith("+02:00") for item in occurrences[1:]))
+        fetched = self.client.get(resource, headers=self.auth)
+        self.assertIn("RRULE:FREQ=WEEKLY;COUNT=4", fetched.text); self.assertIn("RECURRENCE-ID;TZID=Europe/Berlin:20260406T090000", fetched.text)
+        april = '<cal:calendar-query xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav"><cal:filter><cal:comp-filter name="VCALENDAR"><cal:comp-filter name="VEVENT"><cal:time-range start="20260401T000000Z" end="20260501T000000Z"/></cal:comp-filter></cal:comp-filter></cal:filter></cal:calendar-query>'
+        result = self.client.open(self.collection, method="REPORT", data=april, headers=self.auth)
+        self.assertEqual(207, result.status_code); self.assertIn("recurring.ics", result.text)
+        may = self.client.open(self.collection, method="REPORT", data=april.replace("20260401", "20260501").replace("20260501", "20260601"), headers=self.auth)
+        self.assertNotIn("recurring.ics", may.text)
+
+    def test_recurrence_validation_rejects_unsafe_or_ambiguous_resources(self):
+        base = ICS.replace("meeting-1@example.test", "unsafe@example.test")
+        unsupported = base.replace("END:VEVENT", "RRULE:FREQ=HOURLY\r\nEND:VEVENT")
+        self.assertEqual(400, self.client.put(self.collection + "unsafe.ics", data=unsupported, headers=self.auth).status_code)
+        both = base.replace("END:VEVENT", "RRULE:FREQ=DAILY;COUNT=2;UNTIL=20260810T000000Z\r\nEND:VEVENT")
+        self.assertEqual(400, self.client.put(self.collection + "both.ics", data=both, headers=self.auth).status_code)
+        duplicate = base.replace("END:VEVENT", "RRULE:FREQ=DAILY;COUNT=2\r\nRRULE:FREQ=WEEKLY;COUNT=2\r\nEND:VEVENT")
+        self.assertEqual(400, self.client.put(self.collection + "duplicate.ics", data=duplicate, headers=self.auth).status_code)
+        different_uid_exception = base.replace("END:VEVENT", "RRULE:FREQ=DAILY;COUNT=2\r\nEND:VEVENT").replace("END:VCALENDAR", "BEGIN:VEVENT\r\nUID:other@example.test\r\nRECURRENCE-ID:20260806T090000Z\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\nEND:VCALENDAR")
+        response = self.client.put(self.collection + "uids.ics", data=different_uid_exception, headers=self.auth)
+        self.assertEqual(400, response.status_code); self.assertIn("share UID", response.text)
+        ranged = base.replace("END:VEVENT", "RRULE:FREQ=DAILY;COUNT=2\r\nEND:VEVENT").replace("END:VCALENDAR", "BEGIN:VEVENT\r\nUID:unsafe@example.test\r\nRECURRENCE-ID;RANGE=THISANDFUTURE:20260806T090000Z\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\nEND:VCALENDAR")
+        response = self.client.put(self.collection + "range.ics", data=ranged, headers=self.auth)
+        self.assertEqual(400, response.status_code); self.assertIn("THISANDFUTURE", response.text)
+
+    def test_web_recurrence_update_advances_sync_token(self):
+        event = self.store.events.add("Serie", "Test", "2026-08-03T09:00", "2026-08-03T10:00", "", "admin")
+        event = self.store.events.set_recurrence(event["event_id"], {"rrule": "FREQ=WEEKLY;COUNT=2", "timezone": "Europe/Berlin"}, "admin", event["updated_at"])
+        self.store.record_event_move(event, "default", "admin")
+        changes, token = self.store.sync_changes("default", "admin", "urn:simpleoffice:caldav:default:0")
+        self.assertEqual(1, len(changes)); self.assertFalse(changes[0]["deleted"]); self.assertTrue(token.endswith(":1"))
+
+    def test_caldav_valarm_roundtrip_preserves_event_fields_and_syncs(self):
+        alarm_ics = ICS.replace(
+            "END:VEVENT",
+            "BEGIN:VALARM\r\nUID:notify-1@example.test\r\nACTION:DISPLAY\r\n"
+            "TRIGGER;RELATED=END:-PT10M\r\nDESCRIPTION:Bitte vorbereiten\r\n"
+            "END:VALARM\r\nEND:VEVENT",
+        )
+        resource = self.collection + "alarm.ics"
+        created = self.client.put(resource, data=alarm_ics, headers={**self.auth, "If-None-Match": "*", "Content-Type": "text/calendar"})
+        self.assertEqual(201, created.status_code)
+        stored = next(item for item in self.store.resource_events("default", "admin") if item.get("caldav_resource") == "alarm.ics")
+        self.assertEqual("Kalenderausbau", stored["reason"])
+        self.assertEqual("Bitte vorbereiten", stored["alarms"][0]["description"])
+        self.assertEqual("end", stored["alarms"][0]["trigger"]["related"])
+        fetched = self.client.get(resource, headers=self.auth)
+        self.assertIn("BEGIN:VALARM", fetched.text)
+        self.assertIn("TRIGGER;RELATED=END:-PT10M", fetched.text)
+        changes, token = self.store.sync_changes("default", "admin", "urn:simpleoffice:caldav:default:0")
+        self.assertEqual(1, len(changes))
+        self.assertTrue(token.endswith(":1"))
+
+    def test_caldav_rejects_unsafe_and_malformed_valarms_atomically(self):
+        def put_alarm(name, block):
+            payload = ICS.replace("END:VEVENT", block + "\r\nEND:VEVENT")
+            return self.client.put(self.collection + name, data=payload, headers={**self.auth, "If-None-Match": "*", "Content-Type": "text/calendar"})
+
+        email = put_alarm("email.ics", "BEGIN:VALARM\r\nACTION:EMAIL\r\nTRIGGER:-PT5M\r\nDESCRIPTION:Mail\r\nEND:VALARM")
+        self.assertEqual(400, email.status_code)
+        self.assertIn("DISPLAY", email.text)
+        missing_description = put_alarm("description.ics", "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nEND:VALARM")
+        self.assertEqual(400, missing_description.status_code)
+        incomplete_repeat = put_alarm("repeat.ics", "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nDESCRIPTION:Test\r\nREPEAT:2\r\nEND:VALARM")
+        self.assertEqual(400, incomplete_repeat.status_code)
+        too_many = "\r\n".join(
+            f"BEGIN:VALARM\r\nUID:{number}@example.test\r\nACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nDESCRIPTION:Test {number}\r\nEND:VALARM"
+            for number in range(9)
+        )
+        self.assertEqual(400, put_alarm("many.ics", too_many).status_code)
+        resources = [item.get("caldav_resource") for item in self.store.resource_events("default", "admin")]
+        self.assertNotIn("email.ics", resources)
+        self.assertNotIn("description.ics", resources)
+        self.assertNotIn("repeat.ics", resources)
+        self.assertNotIn("many.ics", resources)
+
 
 if __name__ == "__main__": unittest.main()
