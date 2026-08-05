@@ -185,6 +185,9 @@ app.register_blueprint(carddav.bp)
 from . import caldav
 app.register_blueprint(caldav.bp)
 
+from . import webdav
+app.register_blueprint(webdav.bp)
+
 from . import contact_audit
 app.register_blueprint(contact_audit.bp)
 

@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-lg py-4">
+  <a class="text-decoration-none" href="{{ url_for('documents.detail', document_id=document.document_id) }}">← Dokument</a>
+  <h1 class="h3 mt-2">In LibreOffice bearbeiten</h1>
+  <p class="text-secondary text-break">{{ document.last_path }}</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% if generated_password %}
+  <div class="alert alert-warning">
+    <strong>App-Passwort jetzt kopieren.</strong> Es wird nur einmal angezeigt und gehört nicht in den Link.
+    <div class="input-group mt-2"><input id="app-password" class="form-control font-monospace" readonly value="{{ generated_password }}"><button class="btn btn-outline-dark" type="button" data-copy="app-password">Kopieren</button></div>
+  </div>
+  {% endif %}
+  <div class="card mb-4"><div class="card-body">
+    {% if configured %}
+      <label class="form-label" for="webdav-url">WebDAV-Adresse</label>
+      <div class="input-group"><input id="webdav-url" class="form-control" readonly value="{{ webdav_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-url">Adresse kopieren</button></div>
+      <ol class="mt-3 mb-3">
+        <li>LibreOffice öffnen und <strong>Datei → Öffnen</strong> wählen.</li>
+        <li>Die WebDAV-Adresse in „Dateiname“ einfügen.</li>
+        <li>SimpleOffice-Benutzername und das oben erzeugte App-Passwort eingeben.</li>
+        <li>Mit <strong>Strg+S</strong> speichern. Die Änderung wird sofort versioniert zurückgeschrieben.</li>
+      </ol>
+      <p class="small text-secondary">Alternativ: Datei → Remote öffnen → Dienste verwalten → WebDAV. HTTPS ist außerhalb des lokalen Rechners zwingend.</p>
+      <form method="post" class="d-flex flex-wrap gap-2"><button class="btn btn-outline-primary" name="action" value="activate">App-Passwort erneuern</button><button class="btn btn-outline-danger" name="action" value="revoke">WebDAV deaktivieren</button></form>
+    {% else %}
+      <p>WebDAV ist noch deaktiviert. Die Aktivierung erzeugt ein separates App-Passwort für LibreOffice.</p>
+      <form method="post"><button class="btn btn-primary" name="action" value="activate">LibreOffice-Zugriff aktivieren</button></form>
+    {% endif %}
+  </div></div>
+  <div class="alert alert-secondary small">Bei paralleler Bearbeitung verhindern WebDAV-Sperre und ETag-Prüfung ein unbemerktes Überschreiben. Bearbeitungs- und Aufbewahrungssperren gelten unverändert.</div>
+</main>
+{% endblock %}
+{% block script %}<script>document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const field=document.getElementById(button.dataset.copy);await navigator.clipboard.writeText(field.value);button.textContent='Kopiert'}))</script>{% endblock %}
