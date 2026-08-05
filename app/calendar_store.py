@@ -11,10 +11,14 @@ from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
+from .recurrence import RecurrenceError, expand_event, recurrence_key, validate_recurrence
+from .calendar_alarms import MAX_OFFSET_SECONDS, alarm_instances, normalize_alarms, serialize_alarm
+from .calendar_metadata import metadata_lines, normalize_metadata
 
 
 class CalendarStore:
@@ -40,6 +44,15 @@ class CalendarStore:
             raise ValueError("calendar event is not shared with this user")
         return event
 
+    def occurrences(self, actor: str, lower: datetime, upper: datetime, calendar_id: str = "") -> list[dict[str, Any]]:
+        """Return bounded expanded instances for every event visible to ``actor``."""
+        result: list[dict[str, Any]] = []
+        for event in self.events(actor, calendar_id):
+            if event.get("status", "active") in {"cancelled", "deleted", "moved"}:
+                continue
+            result.extend(expand_event(event, lower, upper))
+        return sorted(result, key=lambda item: item.get("start", ""))
+
     def export_ics(self, actor: str = "", calendar_id: str = "") -> str:
         """Export all non-cancelled events as a single iCalendar file."""
         lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "CALSCALE:GREGORIAN"]
@@ -53,6 +66,7 @@ class CalendarStore:
             tags = [tag["name"] for tag in event.get("tags", []) if tag.get("name")]
             if tags:
                 lines.append(f"CATEGORIES:{','.join(self._ics_escape(tag) for tag in tags)}")
+            lines.extend(metadata_lines(event, self._ics_escape))
             organizer = event.get("organizer", {})
             if organizer.get("email"):
                 name = f';CN="{self._ics_escape(organizer.get("name", ""))}"' if organizer.get("name") else ""
@@ -63,42 +77,63 @@ class CalendarStore:
                 if participant.get("name"): parameters.append(f'CN="{self._ics_escape(participant["name"])}"')
                 parameters.extend([f"ROLE={role_names.get(participant.get('role'), 'REQ-PARTICIPANT')}", f"PARTSTAT={participant.get('status', 'needs-action').upper()}", f"RSVP={'TRUE' if participant.get('rsvp') else 'FALSE'}"])
                 lines.append(f"ATTENDEE;{';'.join(parameters)}:mailto:{participant['email']}")
+            recurrence = event.get("recurrence", {})
+            if recurrence.get("rrule"):
+                lines.append(f"RRULE:{recurrence['rrule']}")
+            if recurrence.get("rdates"):
+                lines.append("RDATE:" + ",".join(self._ics_datetime(value) for value in recurrence["rdates"]))
+            if recurrence.get("exdates"):
+                lines.append("EXDATE:" + ",".join(self._ics_datetime(value) for value in recurrence["exdates"]))
+            for alarm in event.get("alarms", []):
+                lines.extend(serialize_alarm(alarm))
             lines.append("END:VEVENT")
+            for override in event.get("recurrence_overrides", []):
+                lines.extend(["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"RECURRENCE-ID:{self._ics_datetime(override['recurrence_id'])}"])
+                if override.get("status") == "cancelled":
+                    lines.append("STATUS:CANCELLED")
+                else:
+                    override_start = override.get("start") or override["recurrence_id"]
+                    override_end = override.get("end") or override_start
+                    lines.extend([f"DTSTART:{self._ics_datetime(override_start)}", f"DTEND:{self._ics_datetime(override_end)}", f"SUMMARY:{self._ics_escape(override.get('title') or event['title'])}", f"DESCRIPTION:{self._ics_escape(override.get('reason') or event.get('reason', ''))}"])
+                lines.append("END:VEVENT")
         return "\r\n".join([*lines, "END:VCALENDAR", ""])
 
     def import_ics(self, content: str, actor: str) -> int:
         """Import iCalendar VEVENTs without changing visibility or retention rules."""
         if not actor.strip():
             raise ValueError("user is required")
+        if len(content.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("calendar import exceeds 1 MiB")
         unfolded: list[str] = []
         for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             if line.startswith((" ", "\t")) and unfolded:
                 unfolded[-1] += line[1:]
             else:
                 unfolded.append(line)
-        events: list[dict[str, Any]] = []
-        current: dict[str, Any] | None = None
+        components: list[list[str]] = []; current: list[str] | None = None
         for line in unfolded:
-            name, separator, value = line.partition(":")
-            key = name.split(";", 1)[0].upper()
-            if key == "BEGIN" and value.upper() == "VEVENT":
-                current = {}
-            elif key == "END" and value.upper() == "VEVENT" and current is not None:
-                events.append(current); current = None
-            elif current is not None and separator and key == "ATTENDEE":
-                current.setdefault("_ATTENDEES", []).append((name, value))
-            elif current is not None and separator and key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES", "STATUS", "SEQUENCE", "ORGANIZER"}:
-                current[key] = (name, value) if key == "ORGANIZER" else value
-        if not events:
+            if line.upper() == "BEGIN:VEVENT": current = [line]
+            elif line.upper() == "END:VEVENT" and current is not None: current.append(line); components.append(current); current = None
+            elif current is not None: current.append(line)
+        if not components or len(components) > 1000:
             raise ValueError("no VEVENT records found")
+        groups: dict[str, list[list[str]]] = {}
+        for component in components:
+            uid_line = next((line for line in component if line.split(":", 1)[0].split(";", 1)[0].upper() == "UID" and ":" in line), "")
+            uid = self._ics_unescape(uid_line.split(":", 1)[1]).strip() if uid_line else ""
+            if not uid: raise ValueError("every VEVENT requires UID")
+            groups.setdefault(uid, []).append(component)
+        if len(groups) > 200:
+            raise ValueError("calendar import contains more than 200 event series")
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read(); imported = 0
             audit_entries: list[tuple[str, dict[str, Any]]] = []
-            for incoming in events:
-                source_uid = self._ics_unescape(incoming.get("UID", "")).strip()
+            for source_uid, component_group in groups.items():
                 existing = next((item for item in data.get("events", []) if source_uid and item.get("source_uid") == source_uid and item.get("source") == "ical_import" and item.get("owner") == actor), None)
-                source_status = incoming.get("STATUS", "").strip().upper()
-                if source_status == "CANCELLED":
+                master = next((item for item in component_group if not any(line.split(":", 1)[0].split(";", 1)[0].upper() == "RECURRENCE-ID" for line in item)), None)
+                has_start = bool(master and any(line.split(":", 1)[0].split(";", 1)[0].upper() == "DTSTART" for line in master))
+                master_cancelled = bool(master and any(line.upper() == "STATUS:CANCELLED" for line in master))
+                if master_cancelled and not has_start:
                     if existing is None:
                         continue
                     previous = existing.get("status", "active")
@@ -109,17 +144,39 @@ class CalendarStore:
                     audit_entries.append(("calendar_event_import_cancelled", existing))
                     imported += 1
                     continue
-                if not incoming.get("DTSTART") or not incoming.get("SUMMARY"):
+                if not has_start:
+                    # A standalone RECURRENCE-ID cancellation updates only one known instance.
+                    if existing is None: continue
+                    changed = False; overrides = list(existing.get("recurrence_overrides", [])); tzid = existing.get("recurrence", {}).get("timezone", "")
+                    for component in component_group:
+                        recurrence_line = next((line for line in component if line.split(":", 1)[0].split(";", 1)[0].upper() == "RECURRENCE-ID"), "")
+                        if not recurrence_line or not any(line.upper() == "STATUS:CANCELLED" for line in component): continue
+                        left, value = recurrence_line.split(":", 1)
+                        from .recurrence import parse_ical_datetime
+                        recurrence_id = parse_ical_datetime(left, value, tzid)[0]; key = recurrence_key(recurrence_id, tzid)
+                        overrides = [row for row in overrides if recurrence_key(row.get("recurrence_id", ""), tzid) != key] + [{"recurrence_id": key, "status": "cancelled", "start": "", "end": "", "title": "", "reason": "", "updated_at": utc_now(), "updated_by": actor}]
+                        changed = True
+                    if changed:
+                        existing["recurrence_overrides"] = overrides[-500:]; existing["updated_at"] = utc_now(); existing["updated_by"] = actor
+                        audit_entries.append(("calendar_event_occurrence_import_cancelled", existing)); imported += 1
                     continue
-                source_uid = source_uid or str(uuid.uuid4())
-                tags = [{"name": self._ics_unescape(tag).strip(), "visibility": "private"} for tag in incoming.get("CATEGORIES", "").split(",") if self._ics_unescape(tag).strip()]
-                event = self._event(existing["event_id"] if existing else "", self._ics_unescape(incoming["SUMMARY"]), self._ics_unescape(incoming.get("DESCRIPTION", "")) or "Aus iCalendar importiert", self._parse_ics_datetime(incoming["DTSTART"]), self._parse_ics_datetime(incoming.get("DTEND", incoming["DTSTART"])), (existing.get("contact_id") or "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", tags, existing)
+                from .caldav import _parse_ics
+                grouped_ics = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me import//EN", *(line for component in component_group for line in component), "END:VCALENDAR", ""])
+                incoming = _parse_ics(grouped_ics)
+                event = self._event(existing["event_id"] if existing else "", incoming["title"], incoming.get("description") or "Aus iCalendar importiert", incoming["start"], incoming.get("end") or incoming["start"], (existing.get("contact_id") or "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", incoming.get("tags", []), existing)
                 event["source_uid"] = source_uid; event["source"] = "ical_import"
-                event["source_status"] = source_status.lower() or "confirmed"
-                event["sequence"] = int(incoming.get("SEQUENCE", "0") or 0)
-                event["organizer"] = self._ics_person(*incoming["ORGANIZER"]) if incoming.get("ORGANIZER") else {}
-                event["participants"] = [self._ics_person(left, value, True) for left, value in incoming.get("_ATTENDEES", [])]
-                if source_status == "CONFIRMED" and event.get("status") == "cancelled":
+                event["source_status"] = "cancelled" if incoming.get("status") == "cancelled" else "confirmed"
+                event["sequence"] = int(incoming.get("sequence", 0))
+                event["organizer"] = incoming.get("organizer", {}); event["participants"] = incoming.get("participants", [])
+                event["timezone"] = incoming.get("timezone", ""); event["recurrence"] = incoming.get("recurrence", {}); event["recurrence_overrides"] = incoming.get("recurrence_overrides", [])
+                event["alarms"] = incoming.get("alarms", [])
+                event["raw_ics"] = incoming.get("raw_ics", "")
+                event.update(normalize_metadata(incoming, event))
+                if incoming.get("status") == "cancelled":
+                    previous = event.get("status", "active"); changed_at = utc_now()
+                    event.update({"status": "cancelled", "status_changed_at": changed_at, "status_changed_by": actor})
+                    if previous != "cancelled": event.setdefault("status_history", []).append({"from": previous, "to": "cancelled", "by": actor, "at": changed_at, "moved_to": ""})
+                if incoming.get("status") != "cancelled" and event.get("status") == "cancelled":
                     changed_at = utc_now()
                     event.update({"status": "active", "status_changed_at": changed_at, "status_changed_by": actor})
                     event.setdefault("status_history", []).append({"from": "cancelled", "to": "active", "by": actor, "at": changed_at, "moved_to": ""})
@@ -133,7 +190,7 @@ class CalendarStore:
                 self.history.record(action, actor, "calendar", event["event_id"], event)
             return imported
 
-    def upsert_external_event(self, values: dict[str, str], actor: str, source: dict[str, str]) -> dict[str, Any]:
+    def upsert_external_event(self, values: dict[str, Any], actor: str, source: dict[str, str], owner: str = "", calendar_id: str = "", access_actor: str = "") -> dict[str, Any]:
         """Create or update a provider event by its immutable provider ID."""
         if not source.get("provider") or not source.get("source_id"):
             raise ValueError("provider and source id are required")
@@ -144,32 +201,64 @@ class CalendarStore:
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read()
             existing = next((item for item in data.get("events", []) if isinstance(item.get("source"), dict) and item["source"].get("provider") == source["provider"] and item["source"].get("source_id") == source["source_id"]), None)
-            event = self._event(existing.get("event_id", "") if existing else "", title, str(values.get("reason", "")).strip() or "Aus externem Kalender importiert", start, str(values.get("end", "")).strip(), "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", existing.get("tags", []) if existing else [], existing)
+            event = self._event(existing.get("event_id", "") if existing else "", title, str(values.get("reason", "")).strip() or "Aus externem Kalender importiert", start, str(values.get("end", "")).strip(), "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", existing.get("tags", []) if existing else [], existing, values)
             event["source"] = source
             event["source_uid"] = source["source_id"]
             event["source_status"] = values.get("status", "confirmed")
+            event["owner"] = (owner.strip() or existing.get("owner", "") or actor) if existing else (owner.strip() or actor)
+            if access_actor.strip() and access_actor.strip() != event["owner"]:
+                event["access"] = {**event.get("access", {}), access_actor.strip(): "edit"}
+            event["calendar_id"] = calendar_id.strip() or (existing.get("calendar_id", "") if existing else "") or "default"
+            event["timezone"] = values.get("timezone", "")
+            event["participants"] = values.get("participants", [])
+            event["organizer"] = values.get("organizer", {})
+            recurrence = values.get("recurrence", {})
+            event["recurrence"] = validate_recurrence(recurrence, start) if recurrence else {}
             if values.get("status") == "cancelled":
                 event["status"] = "cancelled"
+            elif event.get("status") == "cancelled":
+                event["status"] = "active"
             data["events"] = [item for item in data.get("events", []) if item.get("event_id") != event["event_id"]] + [event]
             atomic_json_write(self.path, data)
             self.history.record("calendar_event_synced", actor, "calendar", event["event_id"], event)
         return event
 
+    def acknowledge_external_version(self, event_id: str, actor: str, source: dict[str, str], expected_updated_at: str) -> dict[str, Any]:
+        """Keep a local edit while acknowledging a reviewed provider version."""
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read()
+            event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None or not self._can_edit(event, actor):
+                raise ValueError("calendar event is not editable")
+            previous = event.get("source", {})
+            if not isinstance(previous, dict) or previous.get("provider") != source.get("provider") or previous.get("source_id") != source.get("source_id"):
+                raise ValueError("external calendar source changed")
+            if expected_updated_at and event.get("updated_at") != expected_updated_at:
+                raise ValueError("calendar event changed while resolving the sync conflict")
+            event["source"] = source
+            event.setdefault("changes", []).append({"field": "source_version", "old": previous.get("etag", ""), "new": source.get("etag", ""), "at": source.get("synced_at", utc_now()), "actor": actor})
+            event["changes"] = event["changes"][-200:]
+            atomic_json_write(self.path, data)
+        self.history.record("calendar_external_version_kept_local", actor, "calendar", event_id, event)
+        return event
+
     def booking_settings(self) -> dict[str, Any]:
-        default = {"enabled": False, "duration_minutes": 60, "start_time": "09:00", "end_time": "17:00", "days": [0, 1, 2, 3, 4]}
+        default = {"enabled": False, "duration_minutes": 60, "start_time": "09:00", "end_time": "17:00", "days": [0, 1, 2, 3, 4], "timezone": "Europe/Berlin"}
         try:
             data = json.loads(self.booking_path.read_text(encoding="utf-8"))
             return {**default, **data} if isinstance(data, dict) else default
         except (OSError, json.JSONDecodeError):
             return default
 
-    def save_booking_settings(self, enabled: bool, duration_minutes: int, start_time: str, end_time: str, actor: str) -> dict[str, Any]:
+    def save_booking_settings(self, enabled: bool, duration_minutes: int, start_time: str, end_time: str, actor: str, timezone_id: str = "Europe/Berlin") -> dict[str, Any]:
         if not actor.strip() or not 15 <= duration_minutes <= 480:
             raise ValueError("booking duration must be between 15 and 480 minutes")
         start = time.fromisoformat(start_time); end = time.fromisoformat(end_time)
         if start >= end:
             raise ValueError("booking end time must be after start time")
-        settings = {"enabled": enabled, "duration_minutes": duration_minutes, "start_time": start_time, "end_time": end_time, "days": [0, 1, 2, 3, 4]}
+        try: ZoneInfo(timezone_id)
+        except (ZoneInfoNotFoundError, ValueError) as exc: raise ValueError("unknown booking timezone") from exc
+        settings = {"enabled": enabled, "duration_minutes": duration_minutes, "start_time": start_time, "end_time": end_time, "days": [0, 1, 2, 3, 4], "timezone": timezone_id}
         atomic_json_write(self.booking_path, settings)
         self.history.record("calendar_booking_settings_updated", actor, "calendar", "booking-settings", settings)
         return settings
@@ -184,7 +273,7 @@ class CalendarStore:
         slots = []
         while start + duration <= end_limit:
             finish = start + duration
-            if not self._busy(start, finish):
+            if not self._busy(start, finish, settings.get("timezone", "Europe/Berlin")):
                 slots.append((start, finish))
             start = finish
         return slots
@@ -234,8 +323,8 @@ class CalendarStore:
     def pending_bookings(self) -> list[dict[str, Any]]:
         return [event for event in self.events() if event.get("status") == "pending"]
 
-    def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None, owner: str = "", calendar_id: str = "default") -> dict[str, Any]:
-        event = self._event("", title, reason, start, end, contact_id, actor, visibility, public_notice, tags or [])
+    def add(self, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str = "private", public_notice: str = "", tags: list[dict[str, str]] | None = None, owner: str = "", calendar_id: str = "default", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        event = self._event("", title, reason, start, end, contact_id, actor, visibility, public_notice, tags or [], metadata=metadata)
         event["source"] = "manual"
         owner = owner.strip() or actor
         event["owner"] = owner
@@ -247,7 +336,7 @@ class CalendarStore:
             self.history.record("calendar_event_created", actor, "calendar", event["event_id"], event)
         return event
 
-    def update(self, event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]], calendar_id: str = "") -> dict[str, Any]:
+    def update(self, event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]], calendar_id: str = "", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read()
             existing = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
@@ -257,7 +346,10 @@ class CalendarStore:
                 raise ValueError("calendar event is not shared with this user")
             if not self._can_edit(existing, actor):
                 raise ValueError("calendar event is read-only for this user")
-            event = self._event(event_id, title, reason, start, end, contact_id, actor, visibility, public_notice, tags, existing)
+            event = self._event(event_id, title, reason, start, end, contact_id, actor, visibility, public_notice, tags, existing, metadata)
+            # A web edit becomes the new canonical representation. Keeping a
+            # prior imported payload would make CalDAV GET return stale fields.
+            event.pop("raw_ics", None)
             if calendar_id.strip():
                 event["calendar_id"] = calendar_id.strip()
             data["events"] = [item for item in data["events"] if item.get("event_id") != event_id] + [event]
@@ -287,6 +379,133 @@ class CalendarStore:
             event["changes"] = event["changes"][-200:]; atomic_json_write(self.path, data)
         self.history.record("calendar_event_participants_updated", actor, "calendar", event_id, event)
         return event
+
+    def set_recurrence(self, event_id: str, recurrence: dict[str, Any], actor: str, expected_updated_at: str = "") -> dict[str, Any]:
+        """Set or clear a series rule under normal edit authorization and conflict checks."""
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read(); event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None or not self._can_edit(event, actor):
+                raise ValueError("calendar event is not editable")
+            if expected_updated_at and event.get("updated_at") != expected_updated_at:
+                raise ValueError("calendar event changed concurrently; reload before changing recurrence")
+            normalized = validate_recurrence(recurrence, event["start"])
+            previous = event.get("recurrence", {})
+            changed_at = utc_now()
+            event["recurrence"] = normalized
+            event["timezone"] = normalized.get("timezone", event.get("timezone", "")) if normalized else event.get("timezone", "")
+            if not normalized:
+                event["recurrence_overrides"] = []
+            event["updated_at"] = changed_at; event["updated_by"] = actor
+            event.pop("raw_ics", None)
+            event.setdefault("changes", []).append({"field": "recurrence", "old": previous, "new": normalized, "at": changed_at, "actor": actor})
+            event["changes"] = event["changes"][-200:]
+            atomic_json_write(self.path, data)
+        self.history.record("calendar_event_recurrence_updated", actor, "calendar", event_id, event)
+        return event
+
+    def set_occurrence_exception(self, event_id: str, recurrence_id: str, actor: str, *, status: str = "active", start: str = "", end: str = "", title: str = "", reason: str = "", expected_updated_at: str = "") -> dict[str, Any]:
+        """Move, edit or cancel one instance without modifying the series master."""
+        if status not in {"active", "cancelled"}:
+            raise ValueError("invalid recurrence exception status")
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read(); event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None or not self._can_edit(event, actor):
+                raise ValueError("calendar event is not editable")
+            if not event.get("recurrence"):
+                raise ValueError("calendar event is not recurring")
+            if expected_updated_at and event.get("updated_at") != expected_updated_at:
+                raise ValueError("calendar event changed concurrently; reload before changing an occurrence")
+            tzid = event.get("recurrence", {}).get("timezone", "")
+            normalized_id = recurrence_key(recurrence_id, tzid)
+            if status == "active" and start:
+                # Validate and normalize via the same recurrence date parser.
+                recurrence_key(start, tzid)
+                if end:
+                    recurrence_key(end, tzid)
+                    if recurrence_key(end, tzid) <= recurrence_key(start, tzid):
+                        raise ValueError("occurrence end must be after start")
+            override = {"recurrence_id": normalized_id, "status": status, "start": start.strip(), "end": end.strip(), "title": title.strip()[:300], "reason": reason.strip()[:2000], "updated_at": utc_now(), "updated_by": actor}
+            previous = list(event.get("recurrence_overrides", []))
+            event["recurrence_overrides"] = [item for item in previous if recurrence_key(item.get("recurrence_id", ""), tzid) != normalized_id] + [override]
+            event["recurrence_overrides"] = event["recurrence_overrides"][-500:]
+            event["updated_at"] = override["updated_at"]; event["updated_by"] = actor
+            event.pop("raw_ics", None)
+            event.setdefault("changes", []).append({"field": "recurrence_overrides", "old": previous, "new": event["recurrence_overrides"], "at": override["updated_at"], "actor": actor})
+            event["changes"] = event["changes"][-200:]
+            atomic_json_write(self.path, data)
+        self.history.record("calendar_event_occurrence_changed", actor, "calendar", event_id, event)
+        return event
+
+    def set_alarms(self, event_id: str, alarms: list[dict[str, Any]], actor: str, expected_updated_at: str = "") -> dict[str, Any]:
+        """Replace alarms with edit authorization, optimistic conflict and audit."""
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read(); event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None or not self._can_edit(event, actor):
+                raise ValueError("calendar event alarms are not editable")
+            if expected_updated_at and event.get("updated_at") != expected_updated_at:
+                raise ValueError("calendar event changed concurrently; reload before changing reminders")
+            normalized = normalize_alarms(alarms, event.get("end", ""))
+            previous = event.get("alarms", []); changed_at = utc_now()
+            event["alarms"] = normalized; event["updated_at"] = changed_at; event["updated_by"] = actor
+            event.pop("raw_ics", None)
+            event.setdefault("changes", []).append({"field": "alarms", "old": previous, "new": normalized, "at": changed_at, "actor": actor})
+            event["changes"] = event["changes"][-200:]
+            atomic_json_write(self.path, data)
+        self.history.record("calendar_event_alarms_updated", actor, "calendar", event_id, event)
+        return event
+
+    def acknowledge_alarm(self, event_id: str, alarm_uid: str, actor: str, acknowledged_at: str = "") -> dict[str, Any]:
+        """Acknowledge one alarm; RFC 9074 prevents older trigger instances repeating."""
+        event = self.get(event_id, actor)
+        alarms = list(event.get("alarms", []))
+        alarm = next((item for item in alarms if item.get("uid") == alarm_uid), None)
+        if alarm is None:
+            raise ValueError("unknown calendar alarm")
+        changed = datetime.fromisoformat((acknowledged_at or utc_now()).replace("Z", "+00:00"))
+        if changed.tzinfo is None:
+            raise ValueError("alarm acknowledgement must include a UTC offset")
+        alarm["acknowledged"] = changed.astimezone(timezone.utc).isoformat(timespec="seconds")
+        saved = self.set_alarms(event_id, alarms, actor, event.get("updated_at", ""))
+        self.history.record("calendar_alarm_acknowledged", actor, "calendar-alarm", alarm_uid, {"event_id": event_id, "alarm": alarm})
+        return saved
+
+    def snooze_alarm(self, event_id: str, alarm_uid: str, actor: str, minutes: int) -> dict[str, Any]:
+        """Acknowledge an alarm and create an absolute RFC 9074 SNOOZE sibling."""
+        if not 1 <= minutes <= 1440:
+            raise ValueError("snooze must be between 1 and 1440 minutes")
+        event = self.get(event_id, actor); alarms = list(event.get("alarms", []))
+        original = next((item for item in alarms if item.get("uid") == alarm_uid), None)
+        if original is None:
+            raise ValueError("unknown calendar alarm")
+        now = datetime.now(timezone.utc)
+        original["acknowledged"] = now.isoformat(timespec="seconds")
+        alarms = [item for item in alarms if not (item.get("related_to") == alarm_uid and item.get("relation") == "SNOOZE")]
+        alarms.append({"uid": f"{uuid.uuid4()}@simpleoffice.local", "action": "DISPLAY", "description": original.get("description") or event.get("title", "Erinnerung"), "trigger": {"kind": "absolute", "at": (now + timedelta(minutes=minutes)).isoformat(timespec="seconds")}, "repeat": 0, "duration_seconds": 0, "acknowledged": "", "related_to": alarm_uid, "relation": "SNOOZE"})
+        saved = self.set_alarms(event_id, alarms, actor, event.get("updated_at", ""))
+        self.history.record("calendar_alarm_snoozed", actor, "calendar-alarm", alarm_uid, {"event_id": event_id, "minutes": minutes, "alarms": saved["alarms"]})
+        return saved
+
+    def due_alarms(self, actor: str, lower: datetime, upper: datetime, calendar_id: str = "") -> list[dict[str, Any]]:
+        """Compute visible alarm instances in a bounded UTC interval without writes."""
+        if lower.tzinfo is None or upper.tzinfo is None or lower >= upper or upper - lower > timedelta(days=31):
+            raise ValueError("reminder query requires an aware interval of at most 31 days")
+        lower = lower.astimezone(timezone.utc); upper = upper.astimezone(timezone.utc)
+        result: list[dict[str, Any]] = []
+        for event in self.events(actor, calendar_id):
+            if event.get("status", "active") in {"cancelled", "deleted", "moved"} or not event.get("alarms"):
+                continue
+            occurrence_lower = lower - timedelta(seconds=MAX_OFFSET_SECONDS + 86400)
+            occurrence_upper = upper + timedelta(seconds=MAX_OFFSET_SECONDS + 86400)
+            occurrences = expand_event(event, occurrence_lower, occurrence_upper)
+            rows = alarm_instances(event, occurrences, lower, upper)
+            can_edit = self._can_edit(event, actor)
+            for row in rows:
+                row["can_edit"] = can_edit
+                row["calendar_id"] = event.get("calendar_id") or "default"
+            result.extend(rows)
+            if len(result) > 500:
+                raise ValueError("reminder query exceeds 500 results; narrow the interval")
+        return sorted(result, key=lambda row: row["trigger_at"])
 
     def share(self, event_id: str, permissions: dict[str, str] | list[str], actor: str) -> dict[str, Any]:
         if not actor.strip():
@@ -400,13 +619,22 @@ class CalendarStore:
                 continue
         return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None).isoformat(timespec="minutes")
 
-    def _busy(self, begins: datetime, finishes: datetime) -> bool:
-        for event in self.events():
-            if event.get("status") in {"cancelled", "deleted", "moved"}:
+    def _busy(self, begins: datetime, finishes: datetime, timezone_id: str = "") -> bool:
+        if timezone_id:
+            zone = ZoneInfo(timezone_id)
+            if begins.tzinfo is None: begins = begins.replace(tzinfo=zone)
+            if finishes.tzinfo is None: finishes = finishes.replace(tzinfo=zone)
+        # Existing floating-time events historically used the booking calendar's
+        # local time. Preserve that interpretation when a booking timezone is set.
+        for event in self.events(""):
+            if event.get("status", "active") in {"cancelled", "deleted", "moved"}:
                 continue
-            event_start = datetime.fromisoformat(event["start"])
-            event_end = datetime.fromisoformat(event.get("end") or event["start"]) + (timedelta(hours=1) if not event.get("end") else timedelta())
-            if begins < event_end and finishes > event_start:
+            if event.get("transparency", "opaque") == "transparent" or event.get("ical_status") == "cancelled":
+                continue
+            candidate = dict(event)
+            if timezone_id and not candidate.get("timezone") and not candidate.get("recurrence", {}).get("timezone"):
+                candidate["timezone"] = timezone_id
+            if expand_event(candidate, begins, finishes):
                 return True
         return False
 
@@ -439,7 +667,7 @@ class CalendarStore:
         return "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//EN", "METHOD:REQUEST", "BEGIN:VEVENT", f"UID:{event['event_id']}@simpleoffice.local", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{summary}", "STATUS:CONFIRMED", "END:VEVENT", "END:VCALENDAR", ""])
 
     @staticmethod
-    def _event(event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]], existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _event(event_id: str, title: str, reason: str, start: str, end: str, contact_id: str, actor: str, visibility: str, public_notice: str, tags: list[dict[str, str]], existing: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         if not actor.strip() or not title.strip() or not reason.strip() or not start.strip():
             raise ValueError("title, reason, start and named user are required")
         if visibility not in ("private", "family", "external"):
@@ -448,7 +676,7 @@ class CalendarStore:
         if any(tag["visibility"] not in ("private", "family", "external") for tag in valid_tags):
             raise ValueError("invalid tag visibility")
         changed_at = utc_now()
-        values = {"title": title.strip(), "reason": reason.strip(), "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags}
+        values = {"title": title.strip(), "reason": reason.strip(), "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, **normalize_metadata(metadata, existing)}
         changes = list(existing.get("changes", [])) if existing else []
         for field, new_value in values.items():
             old_value = existing.get(field, "") if existing else ""
@@ -465,7 +693,7 @@ class CalendarStore:
             "created_by": existing.get("created_by", actor) if existing else actor,
             "updated_at": changed_at,
             "updated_by": actor,
-            **{key: value for key, value in (existing or {}).items() if key not in {"title", "reason", "start", "end", "contact_id", "visibility", "public_notice", "tags", "owner", "managers", "changes", "created_at", "created_by", "updated_at", "updated_by"}},
+            **{key: value for key, value in (existing or {}).items() if key not in {*values, "owner", "managers", "changes", "created_at", "created_by", "updated_at", "updated_by"}},
         }
 
     @staticmethod

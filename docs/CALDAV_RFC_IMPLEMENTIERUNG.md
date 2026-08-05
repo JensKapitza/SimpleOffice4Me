@@ -141,13 +141,19 @@ Konfliktprüfung. Ergänzend werden Benutzertrennung der Standardkalender,
 Kalenderwechsel mit beiden Sync-Journal-Einträgen und Teilnehmer-Audit geprüft.
 Zusätzlich läuft die vollständige bestehende Testsuite.
 
+## Serientermine
+
+RRULE-, RDATE-, EXDATE- und RECURRENCE-ID-Verarbeitung einschließlich
+CalDAV-Zeitbereichsabfragen ist in
+[Serientermine, Ausnahmen und Zeitzonen nach RFC 5545](KALENDER_SERIEN_RFC5545.md)
+dokumentiert.
+
 ## Bewusste Grenzen
 
-- `VTODO`, `VJOURNAL`, `VFREEBUSY`, Scheduling/iTIP und einzelne
-  Ausnahmen wiederkehrender Termine sind noch nicht implementiert.
-- Zeitbereichsfilter berücksichtigen einzelne VEVENTs. Die Expansion von
-  `RRULE`-Serien und `RECURRENCE-ID`-Ausnahmen folgt später; die originalen
-  ICS-Properties bleiben für den Client-Roundtrip erhalten.
+- `VTODO`, `VJOURNAL`, `VFREEBUSY` und vollständiges Scheduling/iTIP für
+  Serieninstanzen sind noch nicht implementiert.
+- Zeitbereichsfilter expandieren den dokumentierten RRULE-Teilumfang und
+  berücksichtigen `RDATE`, `EXDATE` sowie einzelne `RECURRENCE-ID`-Ausnahmen.
 - Das Sync-Journal ist auf 1000 Einträge begrenzt. Termin-Tombstones und
   Audit-Historie bleiben davon unberührt.
 - Rohe ICS-Daten bleiben für verlustarmen CalDAV-Roundtrip erhalten.

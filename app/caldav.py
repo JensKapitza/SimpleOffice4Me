@@ -15,6 +15,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from flask import Blueprint, Response, current_app, request, url_for
 
 from .calendar_collections import CalendarCollections, CalendarConflict
+from .recurrence import RecurrenceError, event_overlaps, parse_ical_datetime, parse_ical_list, validate_recurrence
+from .calendar_alarms import parse_valarm, serialize_alarm
+from .calendar_metadata import metadata_lines, normalize_metadata
 from .caldav_scheduling import SchedulingAccess, freebusy_ics, freebusy_periods, local_calendar_address, parse_freebusy_request
 from .db import get_db
 from .document_store import utc_now
@@ -141,6 +144,8 @@ def _event_ics(event: dict) -> str:
         return normalized.replace("\n", "\r\n").rstrip("\r\n") + "\r\n"
     def stamp(value: str) -> str:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None and event.get("timezone"):
+            parsed = parsed.replace(tzinfo=ZoneInfo(event["timezone"]))
         if parsed.tzinfo:
             return parsed.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         return parsed.strftime("%Y%m%dT%H%M%S")
@@ -151,6 +156,8 @@ def _event_ics(event: dict) -> str:
     lines.extend([f"SUMMARY:{esc(event['title'])}", f"DESCRIPTION:{esc(event.get('reason', ''))}"])
     tags = [tag.get("name", "") for tag in event.get("tags", []) if tag.get("name")]
     if tags: lines.append("CATEGORIES:" + ",".join(esc(tag) for tag in tags))
+    metadata_event = {**event, "ical_status": "cancelled" if event.get("status") == "cancelled" else event.get("ical_status", "confirmed")}
+    lines.extend(metadata_lines(metadata_event, esc))
     if event.get("organizer"):
         organizer = event["organizer"]
         prefix = f';CN="{esc(organizer.get("name", ""))}"' if organizer.get("name") else ""
@@ -161,8 +168,22 @@ def _event_ics(event: dict) -> str:
         parameters.extend([f"ROLE={role_names.get(attendee.get('role'), 'REQ-PARTICIPANT')}", f"PARTSTAT={attendee.get('status', 'needs-action').upper()}"])
         if attendee.get("rsvp"): parameters.append("RSVP=TRUE")
         lines.append("ATTENDEE;" + ";".join(parameters) + ":mailto:" + attendee["email"])
-    if event.get("status") == "cancelled": lines.append("STATUS:CANCELLED")
-    lines.extend(["END:VEVENT", "END:VCALENDAR", ""])
+    recurrence = event.get("recurrence", {})
+    if recurrence.get("rrule"): lines.append("RRULE:" + recurrence["rrule"])
+    if recurrence.get("rdates"): lines.append("RDATE:" + ",".join(stamp(value) for value in recurrence["rdates"]))
+    if recurrence.get("exdates"): lines.append("EXDATE:" + ",".join(stamp(value) for value in recurrence["exdates"]))
+    for alarm in event.get("alarms", []):
+        lines.extend(serialize_alarm(alarm))
+    lines.append("END:VEVENT")
+    for override in event.get("recurrence_overrides", []):
+        lines.extend(["BEGIN:VEVENT", f"UID:{esc(uid)}", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"RECURRENCE-ID:{stamp(override['recurrence_id'])}"])
+        if override.get("status") == "cancelled":
+            lines.append("STATUS:CANCELLED")
+        else:
+            override_start = override.get("start") or override["recurrence_id"]
+            lines.extend([f"DTSTART:{stamp(override_start)}", f"DTEND:{stamp(override.get('end') or override_start)}", f"SUMMARY:{esc(override.get('title') or event['title'])}", f"DESCRIPTION:{esc(override.get('reason') or event.get('reason', ''))}"])
+        lines.append("END:VEVENT")
+    lines.extend(["END:VCALENDAR", ""])
     return "\r\n".join(lines)
 
 
@@ -186,7 +207,7 @@ def _validate_scheduling_write(actor: str, previous: dict | None, values: dict) 
         return
     if previous.get("organizer", {}).get("email", "").casefold() != organizer:
         raise PermissionError("attendee cannot replace organizer")
-    protected = ("source_uid", "title", "reason", "start", "end", "status", "sequence", "tags")
+    protected = ("source_uid", "title", "reason", "start", "end", "status", "sequence", "tags", "ical_status", "transparency", "classification", "priority", "location", "event_url", "resources", "conferences")
     normalized = {**values, "source_uid": values.get("uid"), "reason": values.get("description", "")}
     if any(previous.get(key) != normalized.get(key) for key in protected):
         raise PermissionError("attendee changed organizer-controlled event data")
@@ -317,31 +338,27 @@ def _parse_ics(content: str) -> dict:
     for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         if line.startswith((" ", "\t")) and unfolded: unfolded[-1] += line[1:]
         else: unfolded.append(line)
-    if sum(line.upper() == "BEGIN:VEVENT" for line in unfolded) != 1 or sum(line.upper() == "END:VEVENT" for line in unfolded) != 1:
-        raise ValueError("one calendar resource must contain exactly one VEVENT")
-    fields: dict[str, tuple[str, str]] = {}; attendee_fields: list[tuple[str, str]] = []; inside = False
+    begin_count = sum(line.upper() == "BEGIN:VEVENT" for line in unfolded)
+    if begin_count < 1 or begin_count != sum(line.upper() == "END:VEVENT" for line in unfolded) or begin_count > 501:
+        raise ValueError("calendar resource requires one master and at most 500 exception VEVENTs")
+    component_lines: list[dict[str, list]] = []; current: list[str] | None = None; alarms: list[list[str]] = []; current_alarm: list[str] | None = None
     for line in unfolded:
-        if line.upper() == "BEGIN:VEVENT": inside = True; continue
-        if line.upper() == "END:VEVENT": inside = False; continue
-        if not inside or ":" not in line: continue
-        left, value = line.split(":", 1); key = left.split(";", 1)[0].upper()
-        if key == "ATTENDEE": attendee_fields.append((left, value))
-        elif key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES", "STATUS", "SEQUENCE", "ORGANIZER"}: fields[key] = (left, value)
-    if not fields.get("UID", ("", ""))[1].strip() or not fields.get("DTSTART", ("", ""))[1].strip():
-        raise ValueError("VEVENT requires UID and DTSTART")
+        upper_line = line.upper()
+        if upper_line == "BEGIN:VEVENT":
+            if current is not None: raise ValueError("nested VEVENT is invalid")
+            current = []; alarms = []; continue
+        if upper_line == "BEGIN:VALARM" and current is not None:
+            if current_alarm is not None: raise ValueError("nested VALARM is invalid")
+            current_alarm = []; continue
+        if upper_line == "END:VALARM" and current is not None:
+            if current_alarm is None: raise ValueError("unmatched VALARM end")
+            alarms.append(current_alarm); current_alarm = None; continue
+        if upper_line == "END:VEVENT" and current is not None:
+            if current_alarm is not None: raise ValueError("unterminated VALARM")
+            component_lines.append({"lines": current, "alarms": alarms}); current = None; continue
+        if current_alarm is not None: current_alarm.append(line)
+        elif current is not None: current.append(line)
     unescape = lambda value: re.sub(r"\\([nN,;\\])", lambda m: "\n" if m.group(1).lower() == "n" else m.group(1), value)
-    def parse_time(entry: tuple[str, str]) -> str:
-        left, value = entry; value = value.strip(); tzid = ""
-        for parameter in left.split(";")[1:]:
-            if parameter.upper().startswith("TZID="): tzid = parameter.split("=", 1)[1].strip('"')
-        if len(value) == 8: return datetime.strptime(value, "%Y%m%d").isoformat(timespec="minutes")
-        zulu = value.endswith("Z"); raw = value[:-1] if zulu else value
-        parsed = datetime.strptime(raw, "%Y%m%dT%H%M%S" if len(raw) == 15 else "%Y%m%dT%H%M")
-        if zulu: parsed = parsed.replace(tzinfo=timezone.utc)
-        elif tzid:
-            try: parsed = parsed.replace(tzinfo=ZoneInfo(tzid))
-            except ZoneInfoNotFoundError as exc: raise ValueError(f"unknown TZID: {tzid}") from exc
-        return parsed.isoformat(timespec="minutes")
     def person(entry: tuple[str, str], attendee: bool = False) -> dict:
         left, value = entry; params = {}
         for parameter in left.split(";")[1:]:
@@ -354,10 +371,76 @@ def _parse_ics(content: str) -> dict:
         if attendee:
             result.update({"status": params.get("PARTSTAT", "NEEDS-ACTION").lower(), "role": params.get("ROLE", "REQ-PARTICIPANT").lower().replace("req-participant", "required").replace("opt-participant", "optional"), "rsvp": params.get("RSVP", "FALSE").upper() == "TRUE"})
         return result
-    status = fields.get("STATUS", ("", ""))[1].upper()
-    participants = [person(value, True) for value in attendee_fields]
+    components: list[dict] = []
+    for component in component_lines:
+        lines = component["lines"]
+        fields: dict[str, tuple[str, str]] = {}; repeated: dict[str, list[tuple[str, str]]] = {"ATTENDEE": [], "RDATE": [], "EXDATE": [], "CONFERENCE": []}
+        for line in lines:
+            if ":" not in line: continue
+            left, value = line.split(":", 1); key = left.split(";", 1)[0].upper()
+            if key in repeated: repeated[key].append((left, value))
+            elif key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES", "STATUS", "SEQUENCE", "ORGANIZER", "RRULE", "RECURRENCE-ID", "TRANSP", "CLASS", "PRIORITY", "LOCATION", "URL", "RESOURCES"}:
+                if key in fields and key in {"UID", "DTSTART", "DTEND", "RRULE", "RECURRENCE-ID"}:
+                    raise ValueError(f"{key} must not occur more than once in a VEVENT")
+                fields[key] = (left, value)
+        if not fields.get("UID", ("", ""))[1].strip(): raise ValueError("every VEVENT requires UID")
+        components.append({"fields": fields, "repeated": repeated, "alarm_lines": component["alarms"]})
+    masters = [item for item in components if "RECURRENCE-ID" not in item["fields"]]
+    if len(masters) != 1 or "DTSTART" not in masters[0]["fields"]:
+        raise ValueError("calendar resource requires exactly one master VEVENT with DTSTART")
+    master = masters[0]; fields = master["fields"]; repeated = master["repeated"]
+    uid = unescape(fields["UID"][1]).strip()
+    if any(unescape(item["fields"]["UID"][1]).strip() != uid for item in components):
+        raise ValueError("all recurrence components in one resource must share UID")
+    start, tzid, _ = parse_ical_datetime(*fields["DTSTART"])
+    end = parse_ical_datetime(*fields["DTEND"], tzid)[0] if "DTEND" in fields else ""
+    if any(item["alarm_lines"] for item in components if item is not master):
+        raise ValueError("alarms on recurrence exception VEVENTs are not supported")
+    alarms = [parse_valarm(lines, end) for lines in master["alarm_lines"]]
+    if len(alarms) > 8:
+        raise ValueError("at most 8 VALARM components are allowed per event")
+    rdates: list[str] = []; exdates: list[str] = []
+    for entry in repeated["RDATE"]:
+        values, _ = parse_ical_list(*entry, tzid); rdates.extend(values)
+    for entry in repeated["EXDATE"]:
+        values, _ = parse_ical_list(*entry, tzid); exdates.extend(values)
+    recurrence = validate_recurrence({"rrule": fields.get("RRULE", ("", ""))[1], "rdates": rdates, "exdates": exdates, "timezone": tzid}, start)
+    overrides: list[dict] = []
+    for item in components:
+        exception_fields = item["fields"]
+        if "RECURRENCE-ID" not in exception_fields: continue
+        if ";RANGE=" in exception_fields["RECURRENCE-ID"][0].upper():
+            raise ValueError("RECURRENCE-ID RANGE=THISANDFUTURE is not supported")
+        recurrence_id = parse_ical_datetime(*exception_fields["RECURRENCE-ID"], tzid)[0]
+        status = exception_fields.get("STATUS", ("", ""))[1].upper()
+        if status != "CANCELLED" and "DTSTART" not in exception_fields:
+            raise ValueError("active recurrence exception requires DTSTART")
+        override_start = parse_ical_datetime(*exception_fields["DTSTART"], tzid)[0] if "DTSTART" in exception_fields else ""
+        override_end = parse_ical_datetime(*exception_fields["DTEND"], tzid)[0] if "DTEND" in exception_fields else ""
+        overrides.append({"recurrence_id": recurrence_id, "status": "cancelled" if status == "CANCELLED" else "active", "start": override_start, "end": override_end, "title": unescape(exception_fields.get("SUMMARY", ("", ""))[1]), "reason": unescape(exception_fields.get("DESCRIPTION", ("", ""))[1])})
+    participants = [person(value, True) for value in repeated["ATTENDEE"]]
     if len(participants) > 200 or len({row["email"] for row in participants}) != len(participants): raise ValueError("VEVENT participant list is invalid")
-    return {"uid": unescape(fields["UID"][1]).strip(), "title": unescape(fields.get("SUMMARY", ("", "Ohne Titel"))[1]).strip() or "Ohne Titel", "description": unescape(fields.get("DESCRIPTION", ("", ""))[1]), "start": parse_time(fields["DTSTART"]), "end": parse_time(fields["DTEND"]) if "DTEND" in fields else "", "status": "cancelled" if status == "CANCELLED" else "active", "sequence": int(fields.get("SEQUENCE", ("", "0"))[1] or 0), "tags": [{"name": unescape(tag).strip(), "visibility": "private"} for tag in fields.get("CATEGORIES", ("", ""))[1].split(",") if tag.strip()], "organizer": person(fields["ORGANIZER"]) if "ORGANIZER" in fields else {}, "participants": participants, "raw_ics": content}
+    status = fields.get("STATUS", ("", ""))[1].upper()
+    try: sequence = int(fields.get("SEQUENCE", ("", "0"))[1] or 0)
+    except ValueError as exc: raise ValueError("SEQUENCE must be an integer") from exc
+    conferences = []
+    for left, value in repeated["CONFERENCE"]:
+        params = {}
+        for parameter in left.split(";")[1:]:
+            key, separator, raw = parameter.partition("=")
+            if separator: params[key.upper()] = raw.strip('"')
+        conferences.append({"uri": value.strip(), "label": unescape(params.get("LABEL", "")), "features": [item.strip().lower() for item in params.get("FEATURE", "").split(",") if item.strip()]})
+    metadata = normalize_metadata({
+        "ical_status": status.lower() if status else "confirmed",
+        "transparency": fields.get("TRANSP", ("", "OPAQUE"))[1].lower(),
+        "classification": fields.get("CLASS", ("", "PRIVATE"))[1].lower(),
+        "priority": fields.get("PRIORITY", ("", "0"))[1],
+        "location": unescape(fields.get("LOCATION", ("", ""))[1]),
+        "event_url": fields.get("URL", ("", ""))[1].strip(),
+        "resources": [unescape(item).strip() for item in fields.get("RESOURCES", ("", ""))[1].split(",") if item.strip()],
+        "conferences": conferences,
+    })
+    return {"uid": uid, "title": unescape(fields.get("SUMMARY", ("", "Ohne Titel"))[1]).strip() or "Ohne Titel", "description": unescape(fields.get("DESCRIPTION", ("", ""))[1]), "start": start, "end": end, "timezone": tzid, "recurrence": recurrence, "recurrence_overrides": overrides, "alarms": alarms, "status": "cancelled" if status == "CANCELLED" else "active", "sequence": sequence, "tags": [{"name": unescape(tag).strip(), "visibility": "private"} for tag in fields.get("CATEGORIES", ("", ""))[1].split(",") if tag.strip()], "organizer": person(fields["ORGANIZER"]) if "ORGANIZER" in fields else {}, "participants": participants, "raw_ics": content, **metadata}
 
 
 def _xml_root() -> ElementTree.Element:
@@ -541,12 +624,8 @@ def endpoint(path: str):
                     upper = datetime.strptime(time_range.attrib.get("end", "99991231T235959Z"), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
                     if lower >= upper: raise ValueError
                 except ValueError: return Response("invalid CalDAV time-range", 400)
-                def overlaps(event):
-                    start = datetime.fromisoformat(event["start"].replace("Z", "+00:00")); end = datetime.fromisoformat((event.get("end") or event["start"]).replace("Z", "+00:00"))
-                    if start.tzinfo is None: start = start.replace(tzinfo=timezone.utc)
-                    if end.tzinfo is None: end = end.replace(tzinfo=timezone.utc)
-                    return start < upper and end >= lower
-                events = [event for event in events if overlaps(event)]
+                try: events = [event for event in events if event_overlaps(event, lower, upper)]
+                except RecurrenceError as exc: return Response(str(exc), 400)
         items = []
         for event in events:
             resource = event.get("caldav_resource") or event["event_id"] + ".ics"

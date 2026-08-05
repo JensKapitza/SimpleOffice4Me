@@ -1,5 +1,13 @@
 # Kalender
 
+Serientermine, einzelne Verschiebungen/Absagen, Sommerzeitbehandlung und die
+zugrunde liegenden Anforderungen aus RFC 5545 und RFC 4791 sind ausführlich in
+[KALENDER_SERIEN_RFC5545.md](KALENDER_SERIEN_RFC5545.md) dokumentiert.
+Lokale DISPLAY-Erinnerungen, Bestätigung, Snooze und der ICS-/CalDAV-Roundtrip
+sind in
+[KALENDER_ERINNERUNGEN_RFC5545_9074.md](KALENDER_ERINNERUNGEN_RFC5545_9074.md)
+mit den Anforderungen aus RFC 5545 und RFC 9074 beschrieben.
+
 Der Kalender liegt dateibasiert in `.simpleoffice-meta/calendar.json`. Termine
 haben Titel, Beginn, optionales Ende, Tags und optional eine
 Kontaktverknüpfung. Jede Änderung wird dem angemeldeten Benutzer zugeordnet und

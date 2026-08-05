@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 from calendar import month_name, monthcalendar
 from datetime import date, datetime, timedelta, timezone
+from typing import Any
 
 from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
 
@@ -19,6 +20,7 @@ from .document_store import DocumentStore
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
 from .calendar_collections import CalendarCollections
+from .google_calendar_sync import GoogleCalendarError, GoogleCalendarSync
 from .caldav_scheduling import SchedulingAccess, local_calendar_address
 from .itip import ItipConflict, ItipStore, MAX_MESSAGE_BYTES
 from .ics_preview import MAX_PREVIEW_BYTES, preview_ics
@@ -52,6 +54,10 @@ def _itip() -> ItipStore:
 
 def _calendars() -> CalendarCollections:
     return CalendarCollections(current_app.config["DOCUMENT_ROOT"])
+
+
+def _google_calendar() -> GoogleCalendarSync:
+    return GoogleCalendarSync(current_app.config["DOCUMENT_ROOT"])
 
 
 def _scheduling_access() -> SchedulingAccess:
@@ -142,6 +148,29 @@ def _calendar_tags() -> list[dict[str, str]]:
         for tag in request.form.get(f"{visibility}_tags", "").split(",")
         if tag.strip()
     ]
+
+
+def _calendar_metadata() -> dict[str, Any]:
+    conferences = []
+    for line in request.form.get("conferences", "").splitlines():
+        if not line.strip():
+            continue
+        uri, label, features = (line.split("|", 2) + ["", ""])[:3]
+        conferences.append({
+            "uri": uri.strip(),
+            "label": label.strip(),
+            "features": [item.strip() for item in features.split(",") if item.strip()],
+        })
+    return {
+        "ical_status": request.form.get("ical_status", "confirmed"),
+        "transparency": request.form.get("transparency", "opaque"),
+        "classification": request.form.get("classification", "private"),
+        "priority": request.form.get("priority", "0"),
+        "location": request.form.get("location", ""),
+        "event_url": request.form.get("event_url", ""),
+        "resources": [item.strip() for item in request.form.get("resources", "").split(",") if item.strip()],
+        "conferences": conferences,
+    }
 
 
 def _document_or_404(document_id: str) -> dict:
@@ -1169,6 +1198,12 @@ def activate_carddav():
 @login_required
 def calendar():
     actor = str(g.user["username"])
+    reminder_now = datetime.now(timezone.utc)
+    try:
+        reminders = _calendar().due_alarms(actor, reminder_now - timedelta(hours=12), reminder_now + timedelta(days=7))
+    except ValueError as exc:
+        reminders = []
+        flash(f"Erinnerungen konnten nicht berechnet werden: {exc}")
     calendars = _calendars().calendars(actor)
     calendar_map = {item["calendar_id"]: item for item in calendars}
     requested_month = request.args.get("month", date.today().strftime("%Y-%m"))
@@ -1178,7 +1213,17 @@ def calendar():
         shown_month = date.today().replace(day=1)
     events_by_day: dict[int, list[dict]] = {}
     events = [event for event in _calendar().events(actor) if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
+    month_lower = datetime(shown_month.year, shown_month.month, 1, tzinfo=timezone.utc)
+    next_month = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_upper = datetime(next_month.year, next_month.month, 1, tzinfo=timezone.utc)
+    try:
+        occurrences = _calendar().occurrences(actor, month_lower, month_upper)
+    except ValueError as exc:
+        occurrences = []; flash(f"Serientermine konnten nicht dargestellt werden: {exc}")
     for event in events:
+        collection = calendar_map.get(event.get("calendar_id") or "default", {"name": "Persönlich", "color": "#2563eb"})
+        event["calendar_name"] = collection["name"]; event["calendar_color"] = collection["color"]
+    for event in occurrences:
         collection = calendar_map.get(event.get("calendar_id") or "default", {"name": "Persönlich", "color": "#2563eb"})
         event["calendar_name"] = collection["name"]; event["calendar_color"] = collection["color"]
         try:
@@ -1212,7 +1257,60 @@ def calendar():
             subject = f"Terminbestätigung: {event['title']}"
             body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
             event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+
+
+@bp.post("/calendar/google/preview")
+@login_required
+def preview_google_calendar_sync():
+    actor = str(g.user["username"])
+    try:
+        status = _google_calendar().status(actor)
+        _calendars().get(status["target_calendar_id"], actor, write=True)
+        result = _google_calendar().synchronize(actor, apply=False)
+        flash(f"Google-Vorschau: {result['received']} Änderungen empfangen, {result['applicable']} anwendbar, {len(result['conflicts'])} Konflikte. Kalenderdaten und Sync-Token blieben unverändert.")
+    except (GoogleCalendarError, ValueError) as exc:
+        flash(f"Google-Kalender konnte nicht geprüft werden: {exc}")
+    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
+
+
+@bp.post("/calendar/google/sync")
+@login_required
+def apply_google_calendar_sync():
+    actor = str(g.user["username"])
+    try:
+        status = _google_calendar().status(actor)
+        _calendars().get(status["target_calendar_id"], actor, write=True)
+        result = _google_calendar().synchronize(actor, apply=True)
+        if result["conflicts"]:
+            flash(f"Google-Abgleich: {result['applied']} Änderungen gespeichert; {len(result['conflicts'])} lokale Konflikte blieben unverändert. Bitte zuerst manuell auflösen.")
+        else:
+            flash(f"Google-Abgleich abgeschlossen: {result['applied']} Änderungen gespeichert, keine Konflikte.")
+    except (GoogleCalendarError, ValueError) as exc:
+        flash(f"Google-Kalender wurde nicht geändert: {exc}")
+    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
+
+
+@bp.post("/calendar/google/conflicts/<strategy>")
+@login_required
+def resolve_google_calendar_conflicts(strategy: str):
+    actor = str(g.user["username"])
+    try:
+        status = _google_calendar().status(actor)
+        _calendars().get(status["target_calendar_id"], actor, write=True)
+        result = _google_calendar().synchronize(actor, apply=True, conflict_policy=strategy)
+        flash(f"Google-Konflikte aufgelöst: {result['applied']} Google-Versionen übernommen, {result['kept_local']} lokale Versionen beibehalten.")
+    except (GoogleCalendarError, ValueError) as exc:
+        flash(f"Google-Konflikte wurden nicht aufgelöst: {exc}")
+    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
+
+
+@bp.post("/calendar/google/reset")
+@login_required
+def reset_google_calendar_sync():
+    _google_calendar().disable(str(g.user["username"]))
+    flash("Google-Sync-Zustand entfernt. Importierte Termine bleiben erhalten; der nächste Abgleich prüft den Kalender vollständig.")
+    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
 
 
 @bp.post("/calendar/scheduling/import")
@@ -1375,7 +1473,10 @@ def add_calendar_event():
             raise ValueError("unknown owner")
         calendar_id = request.form.get("calendar_id", "default")
         _calendars().get(calendar_id, actor, write=True)
-        _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id)
+        event = _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id, _calendar_metadata())
+        if request.form.get("rrule", "").strip() or request.form.get("rdates", "").strip():
+            event = _calendar().set_recurrence(event["event_id"], {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "Europe/Berlin")}, actor, event.get("updated_at", ""))
+        _calendars().record_event_move(event, calendar_id, actor)
         flash("Kalendertermin gespeichert.")
     except ValueError as exc:
         flash(str(exc))
@@ -1389,7 +1490,7 @@ def update_calendar_event(event_id: str):
         actor = str(g.user["username"]); calendar_id = request.form.get("calendar_id", "")
         if calendar_id: _calendars().get(calendar_id, actor, write=True)
         source_calendar_id = _calendar().get(event_id, actor).get("calendar_id") or "default"
-        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id)
+        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id, _calendar_metadata())
         _calendars().record_event_move(event, source_calendar_id, actor)
         flash("Kalendertermin geändert.")
     except ValueError as exc:
@@ -1411,6 +1512,115 @@ def update_calendar_participants(event_id: str):
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + f"#event-{event_id}")
+
+
+@bp.post("/calendar/<event_id>/recurrence")
+@login_required
+def update_calendar_recurrence(event_id: str):
+    actor = str(g.user["username"])
+    try:
+        previous = _calendar().get(event_id, actor); calendar_id = previous.get("calendar_id") or "default"
+        event = _calendar().set_recurrence(event_id, {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "")}, actor, request.form.get("expected_updated_at", ""))
+        _calendars().record_event_move(event, calendar_id, actor)
+        flash("Serienregel gespeichert und für CalDAV synchronisiert.")
+    except ValueError as exc:
+        flash(f"Serienregel nicht gespeichert: {exc}")
+    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
+
+
+@bp.post("/calendar/<event_id>/occurrence")
+@login_required
+def update_calendar_occurrence(event_id: str):
+    actor = str(g.user["username"])
+    try:
+        previous = _calendar().get(event_id, actor); calendar_id = previous.get("calendar_id") or "default"
+        event = _calendar().set_occurrence_exception(event_id, request.form.get("recurrence_id", ""), actor, status=request.form.get("occurrence_status", "active"), start=request.form.get("occurrence_start", ""), end=request.form.get("occurrence_end", ""), title=request.form.get("occurrence_title", ""), reason=request.form.get("occurrence_reason", ""), expected_updated_at=request.form.get("expected_updated_at", ""))
+        _calendars().record_event_move(event, calendar_id, actor)
+        flash("Einzelne Serieninstanz revisionssicher geändert.")
+    except ValueError as exc:
+        flash(f"Serieninstanz nicht geändert: {exc}")
+    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
+
+
+@bp.post("/calendar/<event_id>/alarms")
+@login_required
+def add_calendar_alarm(event_id: str):
+    actor = str(g.user["username"])
+    try:
+        previous = _calendar().get(event_id, actor)
+        minutes = int(request.form.get("minutes", "15"))
+        if not 0 <= minutes <= 527040:
+            raise ValueError("Erinnerungsabstand muss zwischen 0 und 527040 Minuten liegen.")
+        direction = request.form.get("direction", "before")
+        related = request.form.get("related", "start")
+        if direction not in {"before", "after"} or related not in {"start", "end"}:
+            raise ValueError("Ungültiger Erinnerungsbezug.")
+        alarms = list(previous.get("alarms", []))
+        alarms.append({"action": "DISPLAY", "description": request.form.get("description", "").strip() or previous.get("title", "Erinnerung"), "trigger": {"kind": "relative", "seconds": minutes * 60 * (-1 if direction == "before" else 1), "related": related}})
+        event = _calendar().set_alarms(event_id, alarms, actor, request.form.get("expected_updated_at", ""))
+        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
+        flash("Lokale Kalendererinnerung gespeichert und für CalDAV synchronisiert.")
+    except (TypeError, ValueError) as exc:
+        flash(f"Erinnerung nicht gespeichert: {exc}")
+    return redirect(url_for("documents.calendar") + "#reminders")
+
+
+@bp.post("/calendar/<event_id>/alarms/delete")
+@login_required
+def delete_calendar_alarm(event_id: str):
+    actor = str(g.user["username"])
+    try:
+        previous = _calendar().get(event_id, actor); alarm_uid = request.form.get("alarm_uid", "")
+        alarms = [item for item in previous.get("alarms", []) if item.get("uid") != alarm_uid]
+        if len(alarms) == len(previous.get("alarms", [])):
+            raise ValueError("Unbekannte Kalendererinnerung.")
+        event = _calendar().set_alarms(event_id, alarms, actor, request.form.get("expected_updated_at", ""))
+        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
+        flash("Kalendererinnerung entfernt.")
+    except ValueError as exc:
+        flash(f"Erinnerung nicht entfernt: {exc}")
+    return redirect(url_for("documents.calendar") + "#reminders")
+
+
+@bp.post("/calendar/<event_id>/alarms/acknowledge")
+@login_required
+def acknowledge_calendar_alarm(event_id: str):
+    actor = str(g.user["username"])
+    try:
+        previous = _calendar().get(event_id, actor)
+        event = _calendar().acknowledge_alarm(event_id, request.form.get("alarm_uid", ""), actor)
+        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
+        flash("Erinnerung bestätigt.")
+    except ValueError as exc:
+        flash(f"Erinnerung nicht bestätigt: {exc}")
+    return redirect(url_for("documents.calendar") + "#reminders")
+
+
+@bp.post("/calendar/<event_id>/alarms/snooze")
+@login_required
+def snooze_calendar_alarm(event_id: str):
+    actor = str(g.user["username"])
+    try:
+        previous = _calendar().get(event_id, actor)
+        event = _calendar().snooze_alarm(event_id, request.form.get("alarm_uid", ""), actor, int(request.form.get("minutes", "10")))
+        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
+        flash("Erinnerung wurde verschoben.")
+    except (TypeError, ValueError) as exc:
+        flash(f"Erinnerung nicht verschoben: {exc}")
+    return redirect(url_for("documents.calendar") + "#reminders")
+
+
+@bp.get("/calendar/reminders.json")
+@login_required
+def calendar_reminders_json():
+    now = datetime.now(timezone.utc)
+    try:
+        lower = datetime.fromisoformat(request.args.get("from", "").replace("Z", "+00:00")) if request.args.get("from") else now - timedelta(hours=12)
+        upper = datetime.fromisoformat(request.args.get("to", "").replace("Z", "+00:00")) if request.args.get("to") else now + timedelta(days=7)
+        rows = _calendar().due_alarms(str(g.user["username"]), lower, upper, request.args.get("calendar_id", ""))
+        return Response(json.dumps({"generated_at": now.isoformat(timespec="seconds"), "reminders": rows}, ensure_ascii=False), mimetype="application/json")
+    except ValueError as exc:
+        return Response(json.dumps({"error": str(exc)}, ensure_ascii=False), 400, mimetype="application/json")
 
 
 @bp.post("/calendar/<event_id>/delete")
@@ -1453,7 +1663,7 @@ def published_calendar(audience: str):
 @login_required
 def save_booking_settings():
     try:
-        _calendar().save_booking_settings(request.form.get("enabled") == "1", int(request.form.get("duration_minutes", "60")), request.form.get("start_time", "09:00"), request.form.get("end_time", "17:00"), str(g.user["username"]))
+        _calendar().save_booking_settings(request.form.get("enabled") == "1", int(request.form.get("duration_minutes", "60")), request.form.get("start_time", "09:00"), request.form.get("end_time", "17:00"), str(g.user["username"]), request.form.get("timezone", "Europe/Berlin"))
         flash("Externe Buchungseinstellungen gespeichert.")
     except (TypeError, ValueError) as exc:
         flash(str(exc))
