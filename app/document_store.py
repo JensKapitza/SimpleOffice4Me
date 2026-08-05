@@ -635,6 +635,42 @@ class DocumentStore:
         self._record_revision("document_tags_set", author, "documents", metadata["document_id"], metadata)
         return metadata
 
+    def export_portable_metadata(self, reference: str | Path, actor: str) -> Path:
+        """Write an interoperable sidecar without renaming or modifying the file."""
+        self._require_actor(actor)
+        metadata = self.get_document(reference)
+        path = self.root / str(metadata.get("last_path", ""))
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("document file is unavailable")
+        sidecar_dir = path.parent / CONTROL_DIR
+        sidecar_dir.mkdir(parents=True, exist_ok=True)
+        sidecar = sidecar_dir / f"{path.name}.simpleoffice.json"
+        payload = {
+            "schema": "https://simpleoffice.local/schemas/portable-file-metadata/v1",
+            "version": 1,
+            "document_id": metadata["document_id"], "file_name": path.name,
+            "sha256": sha256_file(path), "state": metadata.get("state", "new"),
+            "tags": sorted(set(metadata.get("tags", [])), key=str.casefold),
+            "description": str(metadata.get("attributes", {}).get("description", "")),
+            "origin": metadata.get("attributes", {}).get("attachment_origin", {}),
+            "exported_at": utc_now(),
+        }
+        atomic_json_write(sidecar, payload)
+        self._event("portable_metadata_exported", {"document_id": metadata["document_id"], "actor": actor, "sidecar": self.relative(sidecar)})
+        self._record_revision("portable_metadata_exported", actor, "documents", metadata["document_id"], payload)
+        return sidecar
+
+    def export_all_portable_metadata(self, actor: str) -> dict[str, int]:
+        result = {"exported": 0, "errors": 0}
+        for metadata in self._all_documents():
+            try:
+                self.export_portable_metadata(metadata["document_id"], actor)
+                result["exported"] += 1
+            except (OSError, ValueError):
+                result["errors"] += 1
+        self._record_revision("portable_metadata_bulk_exported", actor, "documents", "portable-metadata", result)
+        return result
+
     def add_deadline(
         self,
         reference: str | Path,
@@ -1120,6 +1156,113 @@ class DocumentStore:
         )
         self._record_revision("document_version_imported", author, "documents", version["document_id"], version)
         return version
+
+    def replace_content(
+        self,
+        reference: str | Path,
+        content: bytes,
+        author: str,
+        *,
+        expected_sha256: str = "",
+        source: str = "webdav",
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Atomically replace a managed file and retain the previous payload.
+
+        The precondition is checked while holding the same filesystem lock as
+        the write. This makes an HTTP ETag useful even when two WebDAV workers
+        receive concurrent saves.
+        """
+        self._require_actor(author)
+        if len(content) > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+        self.initialize()
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            self._require_document_editable(metadata)
+            path = self.root / str(metadata.get("last_path", ""))
+            if not path.is_file() or path.is_symlink():
+                raise ValueError("document file is unavailable")
+            current_sha256 = sha256_file(path)
+            if expected_sha256 and not hmac.compare_digest(expected_sha256, current_sha256):
+                raise ValueError("document content changed since it was opened")
+            new_sha256 = hashlib.sha256(content).hexdigest()
+            if hmac.compare_digest(current_sha256, new_sha256):
+                return metadata
+
+            now = utc_now()
+            archive = self.control / "content-versions" / metadata["document_id"] / current_sha256
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            if not archive.exists():
+                temporary_archive = archive.with_suffix(".partial")
+                shutil.copy2(path, temporary_archive)
+                if sha256_file(temporary_archive) != current_sha256:
+                    temporary_archive.unlink(missing_ok=True)
+                    raise RuntimeError("previous document version could not be verified")
+                temporary_archive.replace(archive)
+
+            temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.partial")
+            try:
+                with temporary.open("xb") as destination:
+                    destination.write(content)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+            revision = {
+                "number": int(metadata.get("content_revision", 0)) + 1,
+                "at": now,
+                "actor": author,
+                "source": source,
+                "previous_sha256": current_sha256,
+                "sha256": new_sha256,
+                "previous_size": archive.stat().st_size,
+                "size": len(content),
+                "archive": str(archive.relative_to(self.control)),
+            }
+            metadata["sha256"] = new_sha256
+            metadata["content_sha256"] = new_sha256
+            metadata["original_sha256"] = new_sha256
+            metadata["content_revision"] = revision["number"]
+            metadata["last_seen_at"] = now
+            metadata["system_state"] = "indexed"
+            metadata.setdefault("content_history", []).append(revision)
+            metadata["content_history"] = metadata["content_history"][-200:]
+            self._write_xattrs(path, metadata["document_id"], new_sha256, metadata.get("tags", []))
+            self._apply_document_text_extraction(path, metadata, force=True)
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            stat = path.stat()
+            with self._db() as db:
+                db.execute(
+                    """UPDATE scan_file SET sha256 = ?, size = ?, modified_ns = ?,
+                       device = ?, inode = ?, last_seen_at = ? WHERE relative_path = ?""",
+                    (new_sha256, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, now, self.relative(path)),
+                )
+            relative_path = self.relative(path)
+            old_fingerprint_path = self.fingerprints / f"{current_sha256}.json"
+            old_fingerprint = self._read_json(old_fingerprint_path, {})
+            if old_fingerprint:
+                old_fingerprint["paths"] = sorted(set(old_fingerprint.get("paths", [])) - {relative_path})
+                old_fingerprint["last_seen_at"] = now
+                atomic_json_write(old_fingerprint_path, old_fingerprint)
+            new_fingerprint_path = self.fingerprints / f"{new_sha256}.json"
+            new_fingerprint = self._read_json(new_fingerprint_path, {})
+            new_fingerprint.update({
+                "sha256": new_sha256,
+                "first_seen_at": new_fingerprint.get("first_seen_at", now),
+                "last_seen_at": now,
+                "paths": sorted({*new_fingerprint.get("paths", []), relative_path}),
+                "seen_count": int(new_fingerprint.get("seen_count", 0)) + 1,
+            })
+            atomic_json_write(new_fingerprint_path, new_fingerprint)
+            self._event("document_content_replaced", {"document_id": metadata["document_id"], **revision})
+            self._record_revision("document_content_replaced", author, "documents", metadata["document_id"], metadata)
+            return metadata
 
     def find_matches(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Find possible version parents by ID, path, name and all human metadata."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import mimetypes
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -30,6 +31,7 @@ from .form_store import FormStore
 from .project_store import ProjectStore
 from .replication_store import CATEGORIES, ReplicationStore
 from .object_store import ObjectStore
+from .attachment_security import AttachmentSecurity, ClamAV
 from .db import get_db
 
 
@@ -86,6 +88,15 @@ def _replication() -> ReplicationStore:
 
 def _objects() -> ObjectStore:
     return ObjectStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _attachment_security() -> AttachmentSecurity:
+    return AttachmentSecurity(current_app.config["DOCUMENT_ROOT"])
+
+
+def _security_admin(actor: str) -> bool:
+    configured = {item.strip() for item in os.environ.get("SIMPLEOFFICE_SECURITY_ADMINS", "").split(",") if item.strip()}
+    return actor in configured
 
 
 def _form_relation_choices(form: dict, actor: str) -> dict[str, list[tuple[str, str]]]:
@@ -642,6 +653,25 @@ def set_document_tags(document_id: str):
     return redirect(request.referrer or url_for("documents.images"))
 
 
+@bp.post("/<document_id>/portable-metadata")
+@login_required
+def export_portable_metadata(document_id: str):
+    try:
+        sidecar = _store().export_portable_metadata(document_id, str(g.user["username"]))
+        flash(f"Portable Metadaten aktualisiert: {sidecar.name}")
+    except (OSError, ValueError) as exc:
+        flash(f"Metadatenexport fehlgeschlagen: {exc}")
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
+@bp.post("/portable-metadata/export-all")
+@login_required
+def export_all_portable_metadata():
+    result = _store().export_all_portable_metadata(str(g.user["username"]))
+    flash(f"Portable Metadaten: {result['exported']} exportiert, {result['errors']} Fehler.")
+    return redirect(url_for("documents.index"))
+
+
 @bp.post("/<document_id>/analyze-image")
 @login_required
 def analyze_image(document_id: str):
@@ -705,6 +735,58 @@ def detail(document_id: str):
         preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
         defaults=_settings().settings(),
     )
+
+
+@bp.route("/<document_id>/attachments", methods=["GET", "POST"])
+@login_required
+def document_attachments(document_id: str):
+    actor = str(g.user["username"])
+    document = _document_or_404(document_id)
+    if Path(str(document.get("last_path", ""))).suffix.casefold() != ".eml":
+        abort(404)
+    try:
+        if request.method == "GET":
+            manifest = _attachment_security().preview_eml(document_id, actor)
+            return render_template("documents/attachments.html", document=document, manifest=manifest)
+        selected = [int(value) for value in request.form.getlist("parts")]
+        results = _attachment_security().extract(request.form.get("manifest_id", ""), selected, actor)
+        clean = sum(1 for row in results if row.get("verdict") == "clean")
+        infected = sum(1 for row in results if row.get("verdict") == "infected")
+        flash(f"{clean} Anhang/Anhänge sicher übernommen; {infected} infizierte Datei(en) bleiben in Quarantäne.")
+    except (OSError, PermissionError, RuntimeError, ValueError) as exc:
+        flash(f"Anhänge wurden nicht freigegeben: {exc}")
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
+@bp.get("/security")
+@login_required
+def security_center():
+    actor = str(g.user["username"])
+    security = _attachment_security()
+    return render_template("documents/security.html", status=security.scanner.status(), scans=security.recent_scans(), is_admin=_security_admin(actor))
+
+
+@bp.post("/security/scan-now")
+@login_required
+def security_scan_now():
+    actor = str(g.user["username"])
+    if not _security_admin(actor): abort(403)
+    try: flash(f"Serverprüfung abgeschlossen: {_attachment_security().scan_documents(actor)}")
+    except (OSError, RuntimeError, ValueError) as exc: flash(f"Serverprüfung fehlgeschlagen: {exc}")
+    return redirect(url_for("documents.security_center"))
+
+
+@bp.post("/security/update")
+@login_required
+def security_update():
+    actor = str(g.user["username"])
+    if not _security_admin(actor): abort(403)
+    try:
+        output = ClamAV().update()
+        _store().history.record("clamav_signatures_updated", actor, "security", "clamav", {"output": output[-1000:]})
+        flash("ClamAV-Signaturen wurden aktualisiert.")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc: flash(f"Signatur-Update fehlgeschlagen: {exc}")
+    return redirect(url_for("documents.security_center"))
 
 
 @bp.post("/<document_id>/relationships")
