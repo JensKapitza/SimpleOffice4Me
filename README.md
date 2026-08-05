@@ -32,6 +32,9 @@ Anforderungen aus RFC 5545, 4791, 6578 und 6764 beschreibt
 Der sichere Einladungs-, Antwort-, Absage- und Gegenvorschlagsablauf nach
 RFC 5546 ist in
 [docs/ITIP_RFC_TERMINPLANUNG.md](docs/ITIP_RFC_TERMINPLANUNG.md) beschrieben.
+Die optionale lokale CalDAV-Terminplanung mit privaten Inbox-/Outbox-
+Sammlungen und datensparsamer Free/Busy-Abfrage beschreibt
+[docs/CALDAV_SCHEDULING_RFC6638.md](docs/CALDAV_SCHEDULING_RFC6638.md).
 
 Fristen, sichere manuelle Aussonderung und das Modell für reale sowie virtuelle
 Objekte stehen in [docs/FRISTEN_UND_OBJEKTE.md](docs/FRISTEN_UND_OBJEKTE.md).

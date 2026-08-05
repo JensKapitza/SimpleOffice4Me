@@ -458,6 +458,7 @@ class CalendarStore:
             "event_id": event_id or str(uuid.uuid4()),
             **values,
             "owner": existing.get("owner") or actor if existing else ("" if actor.startswith("booking:") else actor),
+            "access": existing.get("access", {}) if existing else {},
             "managers": existing.get("managers", []) if existing else [],
             "changes": changes[-200:],
             "created_at": existing.get("created_at", changed_at) if existing else changed_at,
