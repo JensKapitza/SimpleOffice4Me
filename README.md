@@ -46,7 +46,11 @@ Für den sicheren öffentlichen Betrieb von Freigabelinks und CardDAV siehe
 
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
 die lokale Python-Umgebung, installieren die Anwendung und starten den
-Ersteinrichtungs-Assistenten. Updates laufen mit `update.sh` oder `update.bat`
+Ersteinrichtungs-Assistenten. Anschließend läuft die Anwendung mit dem
+produktionsgeeigneten Waitress-WSGI-Server statt mit Flasks Entwicklungsserver.
+Konfiguration und Sicherheitsgrenzen stehen unter
+[Produktionsbetrieb mit Waitress](docs/PRODUKTIONSBETRIEB.md). Updates laufen
+mit `update.sh` oder `update.bat`
 über ein sicheres `git pull --ff-only`.
 
 ## Teststand

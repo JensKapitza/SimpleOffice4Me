@@ -14,6 +14,7 @@ dependencies = [
   "html5lib>=1.1,<2",
   "reportlab>=4.0,<6",
   "pypdf>=5.0,<7",
+  "waitress>=3.0,<4",
 ]
 
 [project.optional-dependencies]
