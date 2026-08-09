@@ -64,6 +64,10 @@ Der inkrementelle Änderungsabgleich für kompatible Clients folgt
 Schreibbare, atomare Datei- und Ordnereigenschaften für Desktop-Clients sind
 unter [WebDAV-Eigenschaften nach RFC 4918](docs/WEBDAV_EIGENSCHAFTEN_RFC4918.md)
 beschrieben.
+Optionale Speichergrenzen nach RFC 4331, 507-Fehler und der vollständige
+Lebenszyklus von Office-Sperren einschließlich Refresh und gesperrter leerer
+Ressourcen stehen in
+[WebDAV-Speichergrenzen und robuste Locks](docs/WEBDAV_QUOTA_UND_LOCKS.md).
 Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
 [docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
 Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer

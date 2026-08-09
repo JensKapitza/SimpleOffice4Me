@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
 from email.utils import formatdate
@@ -86,10 +87,80 @@ PROTECTED_DAV_PROPERTIES = {
     f"{{{DAV}}}{name}" for name in (
         "creationdate", "getcontentlength",
         "getcontenttype", "getetag", "getlastmodified", "lockdiscovery",
-        "resourcetype", "supportedlock", "supported-report-set", "sync-token",
+        "quota-available-bytes", "quota-used-bytes", "resourcetype",
+        "supportedlock", "supported-report-set", "sync-token",
     )
 }
 MUTABLE_DAV_PROPERTIES = {f"{{{DAV}}}displayname", f"{{{DAV}}}getcontentlanguage"}
+
+
+def _quota_state() -> dict[str, int] | None:
+    """Return repeatable RFC 4331 accounting for the visible managed tree."""
+    limit = max(0, int(current_app.config.get("WEBDAV_QUOTA_BYTES", 0)))
+    if not limit:
+        return None
+    root = _store().root
+    used = 0
+    for current, directories, files in os.walk(root, followlinks=False):
+        parent = Path(current)
+        directories[:] = [
+            name for name in directories
+            if name not in {CONTROL_DIR, HISTORY_DIR} and not (parent / name).is_symlink()
+        ]
+        for name in files:
+            if name == POLICY_FILE:
+                continue
+            path = parent / name
+            try:
+                if path.is_file() and not path.is_symlink():
+                    used += path.stat().st_size
+            except OSError:
+                continue
+    try:
+        physical_free = max(0, int(shutil.disk_usage(root).free))
+    except OSError:
+        physical_free = max(0, limit - used)
+    return {
+        "limit": limit,
+        "used": used,
+        "available": min(max(0, limit - used), physical_free),
+        "physical_free": physical_free,
+    }
+
+
+def _quota_error(username: str, operation: str, resource: Path, growth: int, condition: str) -> Response:
+    state = _quota_state() or {"limit": 0, "used": 0, "available": 0}
+    _store().history.record(
+        "webdav_quota_rejected",
+        f"webdav:{username}",
+        "webdav-quota",
+        hashlib.sha256(f"{username}:{operation}:{_store().relative(resource)}".encode()).hexdigest(),
+        {
+            "operation": operation,
+            "resource": _store().relative(resource),
+            "requested_growth": max(0, growth),
+            "used": state["used"],
+            "limit": state["limit"],
+            "rejected_at": utc_now(),
+            "actor": f"webdav:{username}",
+        },
+    )
+    xml = f'<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:{condition}/></d:error>'
+    return Response(xml, 507, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store"})
+
+
+def _check_quota(username: str, operation: str, resource: Path, growth: int) -> Response | None:
+    """Reject positive allocation growth before mutation while its lock is held."""
+    if growth <= 0:
+        return None
+    state = _quota_state()
+    if state is None:
+        return None
+    if growth > state["physical_free"]:
+        return _quota_error(username, operation, resource, growth, "sufficient-disk-space")
+    if growth > state["available"]:
+        return _quota_error(username, operation, resource, growth, "quota-not-exceeded")
+    return None
 
 
 def _credential_records(value: object) -> list[dict]:
@@ -351,7 +422,16 @@ def _request_token() -> str:
     return match.group(0) if match else ""
 
 
-def _save_lock(document_id: str, username: str, token: str, timeout_seconds: int, owner: str = "") -> dict:
+def _save_lock(
+    document_id: str,
+    username: str,
+    token: str,
+    timeout_seconds: int,
+    owner: str = "",
+    *,
+    href: str = "",
+    depth: str = "0",
+) -> dict:
     path = _locks_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with exclusive_file_lock(path.with_suffix(".lock")):
@@ -363,6 +443,8 @@ def _save_lock(document_id: str, username: str, token: str, timeout_seconds: int
             "token": token,
             "username": username,
             "owner": owner[:200],
+            "href": href or str(existing.get("href", "") if existing else ""),
+            "depth": depth,
             "created_at": existing.get("created_at", utc_now()) if existing else utc_now(),
             "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat(),
         }
@@ -376,9 +458,128 @@ def _timeout_seconds() -> int:
     return max(60, min(int(match.group(1)) if match else 1800, 3600))
 
 
-def _lock_xml(lock: dict, href: str) -> str:
+def _activelock_xml(lock: dict, href: str) -> str:
     seconds = max(0, int((datetime.fromisoformat(lock["expires_at"]) - datetime.now(timezone.utc)).total_seconds()))
-    return f'''<?xml version="1.0" encoding="utf-8"?><d:prop xmlns:d="DAV:"><d:lockdiscovery><d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:exclusive/></d:lockscope><d:depth>0</d:depth><d:owner>{escape(lock.get("owner", ""))}</d:owner><d:timeout>Second-{seconds}</d:timeout><d:locktoken><d:href>{escape(lock["token"])}</d:href></d:locktoken><d:lockroot><d:href>{escape(href)}</d:href></d:lockroot></d:activelock></d:lockdiscovery></d:prop>'''
+    return f'''<d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:exclusive/></d:lockscope><d:depth>{escape(str(lock.get("depth", "0")))}</d:depth><d:owner>{escape(lock.get("owner", ""))}</d:owner><d:timeout>Second-{seconds}</d:timeout><d:locktoken><d:href>{escape(lock["token"])}</d:href></d:locktoken><d:lockroot><d:href>{escape(str(lock.get("href", href)))}</d:href></d:lockroot></d:activelock>'''
+
+
+def _lockdiscovery_xml(lock: dict | None, href: str) -> str:
+    active = _activelock_xml(lock, href) if lock else ""
+    return f'<d:lockdiscovery xmlns:d="DAV:">{active}</d:lockdiscovery>'
+
+
+def _lock_xml(lock: dict, href: str) -> str:
+    return f'''<?xml version="1.0" encoding="utf-8"?><d:prop xmlns:d="DAV:">{_lockdiscovery_xml(lock, href)}</d:prop>'''
+
+
+def _record_lock_audit(action: str, username: str, resource: Path, lock: dict) -> None:
+    relative = _store().relative(resource)
+    _store().history.record(
+        action,
+        f"webdav:{username}",
+        "webdav-locks",
+        hashlib.sha256(f"{username}:{relative}".encode()).hexdigest(),
+        {
+            "resource": relative,
+            "depth": str(lock.get("depth", "0")),
+            "owner_present": bool(lock.get("owner")),
+            "expires_at": str(lock.get("expires_at", "")),
+            "changed_at": utc_now(),
+            "actor": f"webdav:{username}",
+        },
+    )
+
+
+def _parse_lock_body(body: bytes) -> str:
+    root = _safe_xml_root(body, f"{{{DAV}}}lockinfo")
+    allowed = {f"{{{DAV}}}lockscope", f"{{{DAV}}}locktype", f"{{{DAV}}}owner"}
+    if any(child.tag not in allowed for child in root):
+        raise ValueError("LOCK body contains an unsupported element")
+    scopes = root.findall(f"{{{DAV}}}lockscope")
+    types = root.findall(f"{{{DAV}}}locktype")
+    owners = root.findall(f"{{{DAV}}}owner")
+    if len(scopes) != 1 or len(types) != 1 or len(owners) > 1:
+        raise ValueError("LOCK requires one lockscope and one locktype")
+    if [child.tag for child in scopes[0]] != [f"{{{DAV}}}exclusive"]:
+        raise ValueError("only exclusive WebDAV locks are supported")
+    if [child.tag for child in types[0]] != [f"{{{DAV}}}write"]:
+        raise ValueError("only write locks are supported")
+    owner = "".join(owners[0].itertext()).strip() if owners else ""
+    if len(owner.encode("utf-8")) > 1024:
+        raise OverflowError("LOCK owner is too large")
+    return owner
+
+
+def _lock_request(username: str, resource: Path, document: dict | None, href: str) -> Response:
+    """Create or explicitly refresh an RFC 4918 exclusive write lock."""
+    body = request.get_data(cache=True)
+    key = _lock_key(resource, document)
+    existing = _lock_for(key)
+
+    if not body.strip():
+        tokens = re.findall(r"opaquelocktoken:[0-9a-fA-F-]+", request.headers.get("If", ""))
+        if len(tokens) != 1 or not existing or existing.get("token") != tokens[0] or existing.get("username") != username:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:lock-token-matches-request-uri/></d:error>'
+            return Response(error, 412, mimetype="application/xml")
+        lock = _save_lock(
+            key, username, tokens[0], _timeout_seconds(), existing.get("owner", ""),
+            href=str(existing.get("href", href)), depth=str(existing.get("depth", "0")),
+        )
+        _record_lock_audit("webdav_lock_refreshed", username, resource, lock)
+        return Response(_lock_xml(lock, href), 200, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store"})
+
+    depth = request.headers.get("Depth", "infinity").casefold()
+    if depth not in {"0", "infinity"}:
+        return Response("LOCK Depth must be 0 or infinity", 400)
+    if resource.is_dir() and depth == "infinity":
+        return Response("recursive collection locks are not implemented", 501)
+
+    try:
+        owner = _parse_lock_body(body)
+    except OverflowError as exc:
+        return Response(str(exc), 413)
+    except PermissionError:
+        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+        return Response(error, 400, mimetype="application/xml")
+    except ValueError as exc:
+        return Response(str(exc), 400)
+    if existing:
+        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-conflicting-lock/></d:error>'
+        return Response(error, 423, mimetype="application/xml")
+    if document is not None:
+        try:
+            _store()._require_document_editable(document)
+        except ValueError as exc:
+            return Response(str(exc), 423)
+
+    token = f"opaquelocktoken:{uuid.uuid4()}"
+    status = 200
+    if not resource.exists():
+        if not resource.parent.is_dir() or resource.parent.is_symlink():
+            return Response("parent collection does not exist", 409)
+        provisional_key = key
+        try:
+            _save_lock(provisional_key, username, token, _timeout_seconds(), owner, href=href, depth="0")
+            document = _store().create_document_at(
+                _store().relative(resource), b"", f"webdav:{username}",
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+            )
+        except (FileExistsError, ValueError) as exc:
+            _release_lock(provisional_key)
+            return Response(str(exc), 409)
+        _release_lock(provisional_key)
+        key = _lock_key(resource, document)
+        _record_sync_changes(username, _store().relative(resource))
+        status = 201
+    try:
+        lock = _save_lock(key, username, token, _timeout_seconds(), owner, href=href, depth="0" if not resource.is_dir() else depth)
+    except PermissionError:
+        return Response("locked", 423)
+    _record_lock_audit("webdav_lock_created", username, resource, lock)
+    return Response(
+        _lock_xml(lock, href), status,
+        {"Content-Type": "application/xml; charset=utf-8", "Lock-Token": f"<{token}>", "Cache-Control": "no-store"},
+    )
 
 
 def _safe_xml_root(body: bytes, expected_tag: str) -> ElementTree.Element:
@@ -439,7 +640,16 @@ def _xml_element(tag: str, text: str | None = None, child: ElementTree.Element |
     return ElementTree.tostring(element, encoding="unicode", short_empty_elements=True)
 
 
-def _live_properties(display_name: str, *, collection: bool, document: dict | None, sync_token: str = "") -> dict[str, str]:
+def _live_properties(
+    display_name: str,
+    *,
+    collection: bool,
+    document: dict | None,
+    sync_token: str = "",
+    quota: dict[str, int] | None = None,
+    lock: dict | None = None,
+    href: str = "",
+) -> dict[str, str]:
     supported = ElementTree.Element(f"{{{DAV}}}supportedlock")
     entry = ElementTree.SubElement(supported, f"{{{DAV}}}lockentry")
     scope = ElementTree.SubElement(entry, f"{{{DAV}}}lockscope")
@@ -449,7 +659,7 @@ def _live_properties(display_name: str, *, collection: bool, document: dict | No
     values = {
         f"{{{DAV}}}displayname": _xml_element(f"{{{DAV}}}displayname", display_name),
         f"{{{DAV}}}supportedlock": ElementTree.tostring(supported, encoding="unicode"),
-        f"{{{DAV}}}lockdiscovery": _xml_element(f"{{{DAV}}}lockdiscovery"),
+        f"{{{DAV}}}lockdiscovery": _lockdiscovery_xml(lock, href),
     }
     if collection:
         resource_type = ElementTree.Element(f"{{{DAV}}}resourcetype")
@@ -464,6 +674,13 @@ def _live_properties(display_name: str, *, collection: bool, document: dict | No
         })
         if sync_token:
             values[f"{{{DAV}}}sync-token"] = _xml_element(f"{{{DAV}}}sync-token", sync_token)
+        if quota is not None:
+            values[f"{{{DAV}}}quota-available-bytes"] = _xml_element(
+                f"{{{DAV}}}quota-available-bytes", str(quota["available"])
+            )
+            values[f"{{{DAV}}}quota-used-bytes"] = _xml_element(
+                f"{{{DAV}}}quota-used-bytes", str(quota["used"])
+            )
         return values
     path = _document_path(document or {})
     stat = path.stat()
@@ -523,7 +740,16 @@ def _prop_response(
     resource: Path | None = None,
     query: tuple[str, list[str]] | None = None,
 ) -> str:
-    live = _live_properties(display_name, collection=collection, document=document, sync_token=sync_token)
+    active_lock = _lock_for(_lock_key(resource, document)) if resource is not None else None
+    live = _live_properties(
+        display_name,
+        collection=collection,
+        document=document,
+        sync_token=sync_token,
+        quota=_quota_state() if collection and username else None,
+        lock=active_lock,
+        href=href,
+    )
     dead = _dead_properties(username, resource, document) if username and resource is not None else {}
     mode, requested = query or ("allprop", [])
     available = {**live, **dead}
@@ -536,7 +762,10 @@ def _prop_response(
     else:
         # RFC 4918 allprop includes dead properties and the live properties in
         # that RFC. Extension properties such as sync-token require include.
-        extensions = {f"{{{DAV}}}sync-token", f"{{{DAV}}}supported-report-set"}
+        extensions = {
+            f"{{{DAV}}}quota-available-bytes", f"{{{DAV}}}quota-used-bytes",
+            f"{{{DAV}}}sync-token", f"{{{DAV}}}supported-report-set",
+        }
         selected_live = {tag: value for tag, value in live.items() if tag not in extensions}
         available = {**selected_live, **dead}
         for tag in requested:
@@ -1003,7 +1232,16 @@ def setup_document(document_id: str):
     configured = any(not item["expired"] for item in credentials)
     webdav_url = _resource_url(username, document, external=True)
     webdav_root_url = _tree_url(username, external=True, collection=True)
-    return render_template("documents/libreoffice.html", document=document, webdav_url=webdav_url, webdav_root_url=webdav_root_url, configured=configured, generated_password=generated_password, credentials=credentials)
+    return render_template(
+        "documents/libreoffice.html",
+        document=document,
+        webdav_url=webdav_url,
+        webdav_root_url=webdav_root_url,
+        configured=configured,
+        generated_password=generated_password,
+        credentials=credentials,
+        quota=_quota_state(),
+    )
 
 
 @bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
@@ -1032,7 +1270,7 @@ def file_tree(username: str, relative_path: str):
         except ValueError:
             return Response("not found", 404)
 
-    if request.method in WRITE_METHODS - {"LOCK", "UNLOCK"}:
+    if request.method in WRITE_METHODS:
         mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
         mutation_lock.__enter__()
         g._webdav_mutation_lock = mutation_lock
@@ -1094,7 +1332,7 @@ def file_tree(username: str, relative_path: str):
 
     key = _lock_key(resource, document)
     lock_error = _require_lock(key, username)
-    if lock_error is not None and request.method != "UNLOCK":
+    if lock_error is not None and request.method not in {"LOCK", "UNLOCK"}:
         return lock_error
 
     if request.method == "PROPPATCH":
@@ -1124,25 +1362,7 @@ def file_tree(username: str, relative_path: str):
         return Response("", 201)
 
     if request.method == "LOCK":
-        token = _request_token() or f"opaquelocktoken:{uuid.uuid4()}"
-        owner = ""
-        try:
-            root = _safe_xml_root(request.get_data() or b"<lockinfo xmlns='DAV:'/>", f"{{{DAV}}}lockinfo")
-            owner_node = root.find("{DAV:}owner")
-            owner = "".join(owner_node.itertext()) if owner_node is not None else ""
-        except OverflowError as exc:
-            return Response(str(exc), 413)
-        except PermissionError:
-            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
-            return Response(error, 400, mimetype="application/xml")
-        except ValueError:
-            return Response("invalid LOCK body", 400)
-        try:
-            lock = _save_lock(key, username, token, _timeout_seconds(), owner)
-        except PermissionError:
-            return Response("locked", 423)
-        status = 200 if resource.exists() else 201
-        return Response(_lock_xml(lock, request.url), status, {"Content-Type": "application/xml; charset=utf-8", "Lock-Token": f"<{token}>"})
+        return _lock_request(username, resource, document, request.url)
 
     if request.method == "UNLOCK":
         token = _request_token()
@@ -1150,9 +1370,11 @@ def file_tree(username: str, relative_path: str):
         if not existing or existing.get("token") != token or existing.get("username") != username:
             return Response("lock token does not match", 409)
         _release_lock(key)
+        _record_lock_audit("webdav_lock_released", username, resource, existing)
         return Response("", 204)
 
     if request.method == "PUT":
+        content = request.get_data()
         current_etag = _etag(document) if document else ""
         if document:
             if request.headers.get("If-None-Match") == "*":
@@ -1162,8 +1384,11 @@ def file_tree(username: str, relative_path: str):
                 return Response("existing resources require If-Match or a lock token", 428, {"ETag": current_etag})
             if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
                 return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+            quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
+            if quota_error is not None:
+                return quota_error
             try:
-                updated = _store().replace_content(document["document_id"], request.get_data(), f"webdav:{username}", expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+                updated = _store().replace_content(document["document_id"], content, f"webdav:{username}", expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
             except ValueError as exc:
                 status = 412 if "changed since" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 400
                 return Response(str(exc), status)
@@ -1174,8 +1399,11 @@ def file_tree(username: str, relative_path: str):
             return Response("cannot PUT a collection", 405)
         if request.headers.get("If-Match"):
             return Response("resource does not exist", 412)
+        quota_error = _check_quota(username, "PUT", resource, len(content))
+        if quota_error is not None:
+            return quota_error
         try:
-            created = _store().create_document_at(_store().relative(resource), request.get_data(), f"webdav:{username}", max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+            created = _store().create_document_at(_store().relative(resource), content, f"webdav:{username}", max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
         except FileExistsError:
             return Response("resource already exists", 412)
         except ValueError as exc:
@@ -1183,7 +1411,10 @@ def file_tree(username: str, relative_path: str):
         old_lock = _lock_for(key)
         if old_lock:
             _release_lock(key)
-            _save_lock(created["document_id"], username, old_lock["token"], _timeout_seconds(), old_lock.get("owner", ""))
+            _save_lock(
+                created["document_id"], username, old_lock["token"], _timeout_seconds(), old_lock.get("owner", ""),
+                href=str(old_lock.get("href", request.url)), depth=str(old_lock.get("depth", "0")),
+            )
         _record_sync_changes(username, _store().relative(resource))
         return Response("", 201, {"ETag": _etag(created), "Cache-Control": "private, no-cache"})
 
@@ -1231,6 +1462,10 @@ def file_tree(username: str, relative_path: str):
         destination_lock = _require_lock(_lock_key(destination), username)
         if destination_lock is not None:
             return destination_lock
+        if request.method == "COPY":
+            quota_error = _check_quota(username, "COPY", destination, resource.stat().st_size)
+            if quota_error is not None:
+                return quota_error
         try:
             if request.method == "COPY":
                 result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
@@ -1294,7 +1529,7 @@ def endpoint(path: str):
         if not parts:
             responses.append(_prop_response(request.path, "SimpleOffice4Me", collection=True, query=query))
         elif parts == ["documents", username]:
-            responses.append(_prop_response(request.path, "SimpleOffice Dokumente", collection=True, query=query))
+            responses.append(_prop_response(request.path, "SimpleOffice Dokumente", collection=True, username=username, resource=_store().root, query=query))
             if depth == "1":
                 for item in _store().list_documents():
                     try:
@@ -1337,25 +1572,9 @@ def endpoint(path: str):
         response.headers.update(headers)
         return response
     if request.method == "LOCK":
-        token = _request_token() or f"opaquelocktoken:{uuid.uuid4()}"
-        owner = ""
-        try:
-            root = _safe_xml_root(request.get_data() or b"<lockinfo xmlns='DAV:'/>", f"{{{DAV}}}lockinfo")
-            owner_node = root.find("{DAV:}owner")
-            owner = "".join(owner_node.itertext()) if owner_node is not None else ""
-        except OverflowError as exc:
-            return Response(str(exc), 413)
-        except PermissionError:
-            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
-            return Response(error, 400, mimetype="application/xml")
-        except ValueError:
-            return Response("invalid LOCK body", 400)
-        try:
-            lock = _save_lock(document["document_id"], username, token, _timeout_seconds(), owner)
-        except PermissionError:
-            return Response("locked", 423)
-        body = _lock_xml(lock, request.url)
-        return Response(body, 200, {"Content-Type": "application/xml; charset=utf-8", "Lock-Token": f"<{token}>", **common_headers})
+        response = _lock_request(username, document_path, document, request.url)
+        response.headers.update(common_headers)
+        return response
     if request.method == "UNLOCK":
         token = _request_token()
         lock_path = _locks_path()
@@ -1366,8 +1585,10 @@ def endpoint(path: str):
                 return Response("lock token does not match", 409)
             payload["locks"].pop(document["document_id"], None)
             atomic_json_write(lock_path, payload)
+        _record_lock_audit("webdav_lock_released", username, document_path, existing)
         return Response("", 204)
     if request.method == "PUT":
+        content = request.get_data()
         token = _request_token()
         lock = _active_locks().get("locks", {}).get(document["document_id"])
         if lock and (lock.get("token") != token or lock.get("username") != username):
@@ -1375,9 +1596,12 @@ def endpoint(path: str):
         if_match = request.headers.get("If-Match", "")
         if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
             return Response("document changed since it was opened", 412, common_headers)
+        quota_error = _check_quota(username, "PUT", document_path, len(content) - document_path.stat().st_size)
+        if quota_error is not None:
+            return quota_error
         try:
             updated = _store().replace_content(
-                document["document_id"], request.get_data(), f"webdav:{username}",
+                document["document_id"], content, f"webdav:{username}",
                 expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             )
         except ValueError as exc:

@@ -26,6 +26,7 @@ from flask.sessions import SecureCookieSessionInterface
 MIB = 1024 * 1024
 DEFAULT_UPLOAD_LIMIT_MIB = 512
 MAX_UPLOAD_LIMIT_MIB = 4096
+MAX_WEBDAV_QUOTA_MIB = 1024 * 1024
 
 
 def configured_upload_limit_bytes() -> int:
@@ -39,6 +40,23 @@ def configured_upload_limit_bytes() -> int:
     except ValueError:
         limit_mib = DEFAULT_UPLOAD_LIMIT_MIB
     return max(1, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
+
+
+def configured_webdav_quota_bytes() -> int:
+    """Return the optional managed-tree WebDAV quota in bytes.
+
+    Zero keeps the historic unlimited behavior.  Invalid or negative values
+    fail safely to that backwards-compatible default instead of introducing
+    a surprising storage outage during startup.
+    """
+    requested = os.environ.get("SIMPLEOFFICE_WEBDAV_QUOTA_MIB", "0").strip()
+    try:
+        limit_mib = int(requested)
+    except ValueError:
+        return 0
+    if limit_mib <= 0:
+        return 0
+    return min(limit_mib, MAX_WEBDAV_QUOTA_MIB) * MIB
 
 
 def google_oauth_web_config() -> dict[str, object]:
@@ -123,6 +141,7 @@ app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
 app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
+app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes()
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = load_or_create_secret_key(Path(app.instance_path) / "session-secret")
 google_client_id, google_client_secret = google_oauth_credentials()

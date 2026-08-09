@@ -45,6 +45,7 @@ weiterhin einen HTTPS-Reverse-Proxy.
 | `--port PORT` | `SIMPLEOFFICE_PORT` | Wert der Ersteinrichtung, gewöhnlich `8080` | 1–65535 |
 | `--threads ANZAHL` | `SIMPLEOFFICE_WSGI_THREADS` | 4 | 1–64 |
 | `--channel-timeout SEKUNDEN` | `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` | 120 | 10–3600 |
+| – | `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` | 0 (deaktiviert) | 1–1.048.576 MiB oder 0 |
 
 Die Thread- und Timeout-Werte entsprechen den dokumentierten
 [Waitress-Serverargumenten](https://docs.pylonsproject.org/projects/waitress/en/stable/arguments.html#arguments-to-waitress-serve).

@@ -14,9 +14,9 @@ from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, revoke
 class WebDavDocumentTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "MAX_CONTENT_LENGTH")}
+        self.previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "MAX_CONTENT_LENGTH", "WEBDAV_QUOTA_BYTES")}
         root = Path(self.temp.name) / "documents"
-        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "users.sqlite"), DOCUMENT_ROOT=str(root), MAX_CONTENT_LENGTH=1024 * 1024)
+        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "users.sqlite"), DOCUMENT_ROOT=str(root), MAX_CONTENT_LENGTH=1024 * 1024, WEBDAV_QUOTA_BYTES=0)
         with app.app_context():
             ensure_auth_database()
         self.client = app.test_client()
@@ -33,6 +33,7 @@ class WebDavDocumentTest(unittest.TestCase):
         self.auth = {"Authorization": f"Basic {token}"}
         self.url = f"/webdav/documents/jens/{self.document['document_id']}--angebot.odt"
         self.files = "/webdav/files/jens"
+        self.lock_body = "<d:lockinfo xmlns:d='DAV:'><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype><d:owner>LibreOffice</d:owner></d:lockinfo>"
 
     def tearDown(self):
         app.config.update(self.previous)
@@ -248,7 +249,7 @@ class WebDavDocumentTest(unittest.TestCase):
             read_password = activate("jens", "jens", label="Property Reader", scope="read", expires_days=30)
         read_auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{read_password}".encode()).decode()}
         read_only = self.client.open(target, method="PROPPATCH", data=body, headers=read_auth)
-        locked = self.client.open(target, method="LOCK", headers=self.auth)
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers=self.auth)
         missing_token = self.client.open(target, method="PROPPATCH", data=body, headers=self.auth)
         token = locked.headers["Lock-Token"]
         accepted = self.client.open(target, method="PROPPATCH", data=body, headers={**self.auth, "If": f"(<{token.strip('<>')}>)"})
@@ -340,7 +341,7 @@ class WebDavDocumentTest(unittest.TestCase):
         stale = self.client.get(self.url, headers=self.auth).headers["ETag"]
         self.client.put(self.url, data=b"newer", headers={**self.auth, "If-Match": stale})
         rejected = self.client.put(self.url, data=b"stale", headers={**self.auth, "If-Match": stale})
-        lock = self.client.open(self.url, method="LOCK", headers=self.auth)
+        lock = self.client.open(self.url, method="LOCK", data=self.lock_body, headers=self.auth)
         missing_token = self.client.put(self.url, data=b"without token", headers=self.auth)
 
         self.assertEqual(412, rejected.status_code)
@@ -591,15 +592,137 @@ class WebDavDocumentTest(unittest.TestCase):
 
     def test_lock_null_resource_can_be_created_and_unlocked(self):
         target = f"{self.files}/LibreOffice-neu.odt"
-        locked = self.client.open(target, method="LOCK", headers={**self.auth, "Timeout": "Second-600"})
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers={**self.auth, "Timeout": "Second-600"})
         token = locked.headers["Lock-Token"]
+        empty = self.client.get(target, headers=self.auth)
+        listed = self.client.open(
+            self.files, method="PROPFIND", headers={**self.auth, "Depth": "1"}
+        )
         created = self.client.put(target, data=b"office payload", headers={**self.auth, "If": f"(<{token.strip('<>')}>)"})
         unlocked = self.client.open(target, method="UNLOCK", headers={**self.auth, "Lock-Token": token})
 
         self.assertEqual(201, locked.status_code)
-        self.assertEqual(201, created.status_code)
+        self.assertEqual(200, empty.status_code)
+        self.assertEqual(b"", empty.data)
+        self.assertIn("LibreOffice-neu.odt", listed.get_data(as_text=True))
+        self.assertEqual(204, created.status_code)
         self.assertEqual(204, unlocked.status_code)
         self.assertEqual(b"office payload", (self.store.root / "LibreOffice-neu.odt").read_bytes())
+
+    def test_lock_refresh_and_discovery_follow_rfc4918(self):
+        target = f"{self.files}/angebot.odt"
+        locked = self.client.open(
+            target, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "0", "Timeout": "Second-60"},
+        )
+        token = locked.headers["Lock-Token"]
+        before = json.loads((self.store.control / "webdav-locks.json").read_text())["locks"][self.document["document_id"]]
+        missing_token = self.client.open(target, method="LOCK", headers=self.auth)
+        refreshed = self.client.open(
+            target, method="LOCK",
+            headers={**self.auth, "If": f"(<{token.strip('<>')}>)", "Timeout": "Second-3600", "Depth": "invalid-but-ignored"},
+        )
+        after = json.loads((self.store.control / "webdav-locks.json").read_text())["locks"][self.document["document_id"]]
+        query = '<d:propfind xmlns:d="DAV:"><d:prop><d:lockdiscovery/></d:prop></d:propfind>'
+        discovered = self.client.open(target, method="PROPFIND", data=query, headers={**self.auth, "Depth": "0"})
+        duplicate = self.client.open(
+            target, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "If": f"(<{token.strip('<>')}>)"},
+        )
+
+        self.assertEqual(200, locked.status_code)
+        self.assertEqual(412, missing_token.status_code)
+        self.assertEqual(200, refreshed.status_code)
+        self.assertNotIn("Lock-Token", refreshed.headers)
+        self.assertEqual(before["created_at"], after["created_at"])
+        self.assertGreater(after["expires_at"], before["expires_at"])
+        self.assertIn("LibreOffice", refreshed.get_data(as_text=True))
+        self.assertIn(token.strip("<>"), discovered.get_data(as_text=True))
+        self.assertIn("lockroot", discovered.get_data(as_text=True))
+        self.assertEqual(423, duplicate.status_code)
+        self.assertIn("no-conflicting-lock", duplicate.get_data(as_text=True))
+        lock_actions = {row.get("action") for row in self.store.logbook() if row.get("category") == "webdav-locks"}
+        self.assertTrue({"webdav_lock_created", "webdav_lock_refreshed"}.issubset(lock_actions))
+
+    def test_lock_rejects_unsupported_scope_depth_and_recursive_collection(self):
+        shared = self.lock_body.replace("exclusive", "shared")
+        wrong_scope = self.client.open(f"{self.files}/angebot.odt", method="LOCK", data=shared, headers=self.auth)
+        wrong_depth = self.client.open(
+            f"{self.files}/angebot.odt", method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "1"},
+        )
+        recursive = self.client.open(self.files, method="LOCK", data=self.lock_body, headers=self.auth)
+
+        self.assertEqual([400, 400, 501], [wrong_scope.status_code, wrong_depth.status_code, recursive.status_code])
+        self.assertFalse((self.store.control / "webdav-locks.json").exists())
+
+    def test_rfc4331_quota_properties_are_explicit_protected_live_properties(self):
+        app.config["WEBDAV_QUOTA_BYTES"] = 1024 * 1024
+        query = '<d:propfind xmlns:d="DAV:"><d:prop><d:quota-used-bytes/><d:quota-available-bytes/></d:prop></d:propfind>'
+        explicit = self.client.open(self.files, method="PROPFIND", data=query, headers={**self.auth, "Depth": "0"})
+        names = self.client.open(
+            self.files, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:"><d:propname/></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        all_properties = self.client.open(self.files, method="PROPFIND", headers={**self.auth, "Depth": "0"})
+        protected = self.client.open(
+            self.files, method="PROPPATCH",
+            data='<d:propertyupdate xmlns:d="DAV:"><d:set><d:prop><d:quota-used-bytes>0</d:quota-used-bytes></d:prop></d:set></d:propertyupdate>',
+            headers=self.auth,
+        )
+        page = self.client.get(f"/documents/{self.document['document_id']}/libreoffice")
+        root = ElementTree.fromstring(explicit.data)
+
+        self.assertEqual(207, explicit.status_code)
+        self.assertEqual(len(b"first office version"), int(root.findtext(".//{DAV:}quota-used-bytes")))
+        self.assertEqual(1024 * 1024 - len(b"first office version"), int(root.findtext(".//{DAV:}quota-available-bytes")))
+        self.assertIn("quota-used-bytes", names.get_data(as_text=True))
+        self.assertNotIn("quota-used-bytes", all_properties.get_data(as_text=True))
+        self.assertIn("403 Forbidden", protected.get_data(as_text=True))
+        self.assertIn("WebDAV-Speicher", page.get_data(as_text=True))
+
+    def test_quota_atomically_blocks_growth_but_allows_shrink_and_move(self):
+        app.config["WEBDAV_QUOTA_BYTES"] = 24
+        allowed = self.client.put(f"{self.files}/vier.bin", data=b"1234", headers=self.auth)
+        rejected_create = self.client.put(f"{self.files}/eins.bin", data=b"1", headers=self.auth)
+        rejected_copy = self.client.open(
+            f"{self.files}/angebot.odt", method="COPY",
+            headers={**self.auth, "Destination": "http://localhost/webdav/files/jens/kopie.odt"},
+        )
+        current = self.client.get(f"{self.files}/angebot.odt", headers=self.auth)
+        rejected_growth = self.client.put(
+            f"{self.files}/angebot.odt", data=b"x" * 21,
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+        shrunk = self.client.put(
+            f"{self.files}/angebot.odt", data=b"short",
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+        moved = self.client.open(
+            f"{self.files}/vier.bin", method="MOVE",
+            headers={**self.auth, "Destination": "http://localhost/webdav/files/jens/umbenannt.bin"},
+        )
+
+        self.assertEqual(201, allowed.status_code)
+        self.assertEqual([507, 507, 507], [rejected_create.status_code, rejected_copy.status_code, rejected_growth.status_code])
+        self.assertIn("quota-not-exceeded", rejected_create.get_data(as_text=True))
+        self.assertFalse((self.store.root / "eins.bin").exists())
+        self.assertFalse((self.store.root / "kopie.odt").exists())
+        self.assertEqual(b"short", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(204, shrunk.status_code)
+        self.assertEqual(201, moved.status_code)
+        self.assertTrue((self.store.root / "umbenannt.bin").is_file())
+        rejections = [row for row in self.store.logbook() if row.get("action") == "webdav_quota_rejected"]
+        self.assertGreaterEqual(len(rejections), 3)
+
+    def test_disabled_quota_keeps_existing_unlimited_behavior(self):
+        query = '<d:propfind xmlns:d="DAV:"><d:prop><d:quota-used-bytes/><d:quota-available-bytes/></d:prop></d:propfind>'
+        response = self.client.open(self.files, method="PROPFIND", data=query, headers={**self.auth, "Depth": "0"})
+        created = self.client.put(f"{self.files}/unlimited.bin", data=b"payload", headers=self.auth)
+
+        self.assertIn("404 Not Found", response.get_data(as_text=True))
+        self.assertEqual(201, created.status_code)
 
     def test_collections_are_non_recursive_and_reserved_paths_are_hidden(self):
         self.client.open(f"{self.files}/Ordner", method="MKCOL", headers=self.auth)

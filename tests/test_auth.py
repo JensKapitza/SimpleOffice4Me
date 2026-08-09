@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import MIB, app, configured_upload_limit_bytes, google_oauth_credentials
+from app import MIB, app, configured_upload_limit_bytes, configured_webdav_quota_bytes, google_oauth_credentials
 from app import auth
 from app import db as database
 from app.secret_key import load_or_create_secret_key
@@ -64,6 +64,15 @@ class AuthTest(unittest.TestCase):
             self.assertEqual(512 * MIB, configured_upload_limit_bytes())
         with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "99999"}, clear=True):
             self.assertEqual(4096 * MIB, configured_upload_limit_bytes())
+
+    def test_webdav_quota_is_optional_bounded_and_invalid_values_disable_it(self):
+        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "2048"}, clear=True):
+            self.assertEqual(2048 * MIB, configured_webdav_quota_bytes())
+        for value in ("", "invalid", "-1", "0"):
+            with self.subTest(value=value), patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": value}, clear=True):
+                self.assertEqual(0, configured_webdav_quota_bytes())
+        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "999999999"}, clear=True):
+            self.assertEqual(1024 * 1024 * MIB, configured_webdav_quota_bytes())
 
     def test_google_web_oauth_json_is_loaded_from_protected_file(self):
         with tempfile.TemporaryDirectory() as temp:

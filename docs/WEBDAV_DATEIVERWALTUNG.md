@@ -139,12 +139,23 @@ wiederherstellen. Sicherheitsmodell, Konflikte und RFC-Abgrenzung stehen in
   Schutzgrenze.
 - `423`: Lock-Token fehlt/falsch oder eine SimpleOffice-Sperre greift.
 - `428`: eine vorhandene Datei soll ohne ETag oder Lock überschrieben werden.
+- `507`: das optionale WebDAV-Kontingent oder der physisch freie Speicher
+  reicht für den angeforderten Zuwachs nicht; die XML-Fehlerbedingung
+  unterscheidet `quota-not-exceeded` und `sufficient-disk-space`.
 - `502`: `Destination` verweist auf einen anderen Host oder Benutzerbaum.
 
 Uploads unterliegen `SIMPLEOFFICE_MAX_UPLOAD_MIB`. Temporärdateien werden nach
 Fehlern entfernt. Ein Prozessabbruch vor dem atomaren Austausch lässt das
 bisherige Dokument unverändert; ein nicht mehr verwendeter Lock läuft nach
 höchstens einer Stunde ab.
+
+Mit `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` kann zusätzlich ein standardmäßig
+deaktiviertes Kontingent für den sichtbaren Dateibaum gesetzt werden. Clients
+lesen Belegung und Rest über die geschützten Live Properties
+`DAV:quota-used-bytes` und `DAV:quota-available-bytes`. Berechnung, Lock-Refresh,
+Lock-Discovery und 507-Verhalten sind in
+[WebDAV-Speichergrenzen und robuste Locks](WEBDAV_QUOTA_UND_LOCKS.md)
+dokumentiert.
 
 ## Migration, Kompatibilität und Grenzen
 
@@ -169,7 +180,10 @@ Automatisiert geprüft werden realistische Abläufe für:
   geschützte Live Properties, Lock- und Rechtefehler sowie XML-Schutzgrenzen;
 - `MKCOL` und `PUT`-Neuanlage mit Dokument-ID, Hash und Audit;
 - ETag-geschütztes Speichern, veraltete und fehlende Vorbedingungen;
-- Lock-null-Erzeugung, `PUT`, Token-Übertragung und `UNLOCK`;
+- gesperrte leere Ressource, `PUT`, Token-Übertragung, ausdrücklicher
+  Lock-Refresh, `lockdiscovery` und `UNLOCK`;
+- Quota-Live-Properties, PROPPATCH-Schutz, erlaubte Verkleinerung sowie
+  atomare 507-Ablehnung für PUT und COPY;
 - `COPY`, `MOVE`, Umbenennung, neue/stabile IDs und Metadatenherkunft;
 - Soft-Delete, Wiederherstellungsdatei und vollständige Ereignishistorie;
 - bestätigte, benutzergetrennte Soft-Delete- und Inhaltswiederherstellung,

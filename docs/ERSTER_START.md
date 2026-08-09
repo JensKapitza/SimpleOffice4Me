@@ -124,6 +124,18 @@ Limit erlauben. Bricht ein Import mit einem Fehler ab oder überschreitet er die
 Grenze, wird seine unvollständige Staging-Datei automatisch entfernt. Bei einem
 harten Prozessabbruch kann sie beim nächsten Start weiterhin sichtbar sein.
 
+Optional kann der über WebDAV sichtbare Dokumentbaum zusätzlich begrenzt
+werden. Ohne Angabe bleibt das bisherige unbegrenzte Verhalten erhalten:
+
+```bash
+SIMPLEOFFICE_WEBDAV_QUOTA_MIB=10240 ./start.sh
+```
+
+Desktop-Clients können Belegung und Restplatz nach RFC 4331 auslesen;
+wachsende PUT- und COPY-Anfragen oberhalb der Grenze werden ohne Teiländerung
+mit HTTP 507 abgewiesen. Einzelheiten und die Windows-Konfiguration stehen in
+[WebDAV-Speichergrenzen und robuste Locks](WEBDAV_QUOTA_UND_LOCKS.md).
+
 Standardmäßig folgt der Scanner keinen Symlinks und überschreitet keine
 Dateisystemgrenze, z. B. keinen Mount, Bind-Mount oder Overlay-Einstieg. In
 `.simpleoffice-folder.json` kann das nur für einen konkreten Ordner freigegeben

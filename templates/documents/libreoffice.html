@@ -25,6 +25,13 @@
       <label class="form-label mt-3" for="webdav-root-url">Dateiverwaltung und Synchronisation</label>
       <div class="input-group"><input id="webdav-root-url" class="form-control" readonly value="{{ webdav_root_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-root-url">Wurzeladresse kopieren</button></div>
       <p class="small text-secondary mt-2">Diese Adresse in Nautilus, Finder, Windows Explorer oder FreeFileSync verwenden. Dort können Dateien mit einem Schreibzugang angelegt, gespeichert, kopiert, umbenannt, verschoben und kontrolliert gelöscht werden. Alternativ in LibreOffice: Datei → Remote öffnen → Dienste verwalten → WebDAV. HTTPS ist außerhalb des lokalen Rechners zwingend.</p>
+      {% if quota %}
+      <div class="border rounded p-3 mt-3">
+        <div class="d-flex justify-content-between gap-3"><strong>WebDAV-Speicher</strong><span>{{ (quota.used / 1048576)|round(1) }} von {{ (quota.limit / 1048576)|round(1) }} MiB belegt</span></div>
+        <div class="progress mt-2" role="progressbar" aria-label="WebDAV-Speicherbelegung" aria-valuenow="{{ quota.used }}" aria-valuemin="0" aria-valuemax="{{ quota.limit }}"><div class="progress-bar {% if quota.available == 0 %}bg-danger{% endif %}" style="width: {{ ([100, (quota.used * 100 / quota.limit)]|min)|round(1) }}%"></div></div>
+        <p class="small text-secondary mb-0 mt-2">Desktop-Clients können dieselben Werte über <code>DAV:quota-used-bytes</code> und <code>DAV:quota-available-bytes</code> lesen. Bei ausgeschöpftem Speicher bleiben gleich große oder kleinere Aktualisierungen möglich.</p>
+      </div>
+      {% endif %}
     {% else %}
       <p>Es gibt keinen aktiven WebDAV-Zugang. Lege unten ein separates App-Passwort für LibreOffice, Dateimanager oder Synchronisation an.</p>
     {% endif %}
