@@ -17,6 +17,16 @@ Weitere fachliche und betriebliche Dokumente liegen in diesem Verzeichnis; die
 wichtigsten Einstiegspunkte sind zusätzlich im [Projekt-README](../README.md)
 verlinkt.
 
+## Dateien und Desktop-Integration
+
+- [Hierarchische WebDAV-Dateiverwaltung](WEBDAV_DATEIVERWALTUNG.md)
+- [Effizienter WebDAV-Änderungsabgleich nach RFC 6578](WEBDAV_SYNC_RFC6578.md)
+- [Getrennte WebDAV-Gerätezugänge](WEBDAV_ZUGAENGE.md)
+- [Sichere Datei- und Inhaltswiederherstellung](DATEI_WIEDERHERSTELLUNG.md)
+- [LibreOffice über WebDAV](LIBREOFFICE_WEBDAV.md)
+- [Bestätigte Mail-Anhänge und ClamAV](ANHAENGE_CLAMAV.md)
+- [Eigenständig umgesetzte Ansätze aus TagSpaces](TAGSPACES_ANSAETZE.md)
+
 ## Betrieb
 
 - [Produktionsbetrieb mit Waitress](PRODUKTIONSBETRIEB.md)

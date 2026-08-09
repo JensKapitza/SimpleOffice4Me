@@ -635,6 +635,42 @@ class DocumentStore:
         self._record_revision("document_tags_set", author, "documents", metadata["document_id"], metadata)
         return metadata
 
+    def export_portable_metadata(self, reference: str | Path, actor: str) -> Path:
+        """Write an interoperable sidecar without renaming or modifying the file."""
+        self._require_actor(actor)
+        metadata = self.get_document(reference)
+        path = self.root / str(metadata.get("last_path", ""))
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("document file is unavailable")
+        sidecar_dir = path.parent / CONTROL_DIR
+        sidecar_dir.mkdir(parents=True, exist_ok=True)
+        sidecar = sidecar_dir / f"{path.name}.simpleoffice.json"
+        payload = {
+            "schema": "https://simpleoffice.local/schemas/portable-file-metadata/v1",
+            "version": 1,
+            "document_id": metadata["document_id"], "file_name": path.name,
+            "sha256": sha256_file(path), "state": metadata.get("state", "new"),
+            "tags": sorted(set(metadata.get("tags", [])), key=str.casefold),
+            "description": str(metadata.get("attributes", {}).get("description", "")),
+            "origin": metadata.get("attributes", {}).get("attachment_origin", {}),
+            "exported_at": utc_now(),
+        }
+        atomic_json_write(sidecar, payload)
+        self._event("portable_metadata_exported", {"document_id": metadata["document_id"], "actor": actor, "sidecar": self.relative(sidecar)})
+        self._record_revision("portable_metadata_exported", actor, "documents", metadata["document_id"], payload)
+        return sidecar
+
+    def export_all_portable_metadata(self, actor: str) -> dict[str, int]:
+        result = {"exported": 0, "errors": 0}
+        for metadata in self._all_documents():
+            try:
+                self.export_portable_metadata(metadata["document_id"], actor)
+                result["exported"] += 1
+            except (OSError, ValueError):
+                result["errors"] += 1
+        self._record_revision("portable_metadata_bulk_exported", actor, "documents", "portable-metadata", result)
+        return result
+
     def add_deadline(
         self,
         reference: str | Path,
@@ -1121,6 +1157,187 @@ class DocumentStore:
         self._record_revision("document_version_imported", author, "documents", version["document_id"], version)
         return version
 
+    def replace_content(
+        self,
+        reference: str | Path,
+        content: bytes,
+        author: str,
+        *,
+        expected_sha256: str = "",
+        source: str = "webdav",
+        max_bytes: int = 512 * 1024 * 1024,
+        restored_from_sha256: str = "",
+    ) -> dict[str, Any]:
+        """Atomically replace a managed file and retain the previous payload.
+
+        The precondition is checked while holding the same filesystem lock as
+        the write. This makes an HTTP ETag useful even when two WebDAV workers
+        receive concurrent saves.
+        """
+        self._require_actor(author)
+        if len(content) > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+        self.initialize()
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            self._require_document_editable(metadata)
+            path = self.root / str(metadata.get("last_path", ""))
+            if not path.is_file() or path.is_symlink():
+                raise ValueError("document file is unavailable")
+            current_sha256 = sha256_file(path)
+            if expected_sha256 and not hmac.compare_digest(expected_sha256, current_sha256):
+                raise ValueError("document content changed since it was opened")
+            new_sha256 = hashlib.sha256(content).hexdigest()
+            if hmac.compare_digest(current_sha256, new_sha256):
+                return metadata
+
+            now = utc_now()
+            archive = self.control / "content-versions" / metadata["document_id"] / current_sha256
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            if not archive.exists():
+                temporary_archive = archive.with_suffix(".partial")
+                shutil.copy2(path, temporary_archive)
+                if sha256_file(temporary_archive) != current_sha256:
+                    temporary_archive.unlink(missing_ok=True)
+                    raise RuntimeError("previous document version could not be verified")
+                temporary_archive.replace(archive)
+
+            temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.partial")
+            try:
+                with temporary.open("xb") as destination:
+                    destination.write(content)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+            revision = {
+                "number": int(metadata.get("content_revision", 0)) + 1,
+                "at": now,
+                "actor": author,
+                "source": source,
+                "previous_sha256": current_sha256,
+                "sha256": new_sha256,
+                "previous_size": archive.stat().st_size,
+                "size": len(content),
+                "archive": str(archive.relative_to(self.control)),
+            }
+            metadata["sha256"] = new_sha256
+            metadata["content_sha256"] = new_sha256
+            metadata["original_sha256"] = new_sha256
+            metadata["content_revision"] = revision["number"]
+            metadata["last_seen_at"] = now
+            metadata["system_state"] = "indexed"
+            metadata.setdefault("content_history", []).append(revision)
+            metadata["content_history"] = metadata["content_history"][-200:]
+            restoration = None
+            if restored_from_sha256:
+                restoration = {
+                    "at": now,
+                    "actor": author,
+                    "from_sha256": current_sha256,
+                    "restored_sha256": restored_from_sha256,
+                    "content_revision": revision["number"],
+                }
+                metadata.setdefault("content_recovery_history", []).append(restoration)
+                metadata["content_recovery_history"] = metadata["content_recovery_history"][-200:]
+            self._write_xattrs(path, metadata["document_id"], new_sha256, metadata.get("tags", []))
+            self._apply_document_text_extraction(path, metadata, force=True)
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            stat = path.stat()
+            with self._db() as db:
+                db.execute(
+                    """UPDATE scan_file SET sha256 = ?, size = ?, modified_ns = ?,
+                       device = ?, inode = ?, last_seen_at = ? WHERE relative_path = ?""",
+                    (new_sha256, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, now, self.relative(path)),
+                )
+            relative_path = self.relative(path)
+            old_fingerprint_path = self.fingerprints / f"{current_sha256}.json"
+            old_fingerprint = self._read_json(old_fingerprint_path, {})
+            if old_fingerprint:
+                old_fingerprint["paths"] = sorted(set(old_fingerprint.get("paths", [])) - {relative_path})
+                old_fingerprint["last_seen_at"] = now
+                atomic_json_write(old_fingerprint_path, old_fingerprint)
+            new_fingerprint_path = self.fingerprints / f"{new_sha256}.json"
+            new_fingerprint = self._read_json(new_fingerprint_path, {})
+            new_fingerprint.update({
+                "sha256": new_sha256,
+                "first_seen_at": new_fingerprint.get("first_seen_at", now),
+                "last_seen_at": now,
+                "paths": sorted({*new_fingerprint.get("paths", []), relative_path}),
+                "seen_count": int(new_fingerprint.get("seen_count", 0)) + 1,
+            })
+            atomic_json_write(new_fingerprint_path, new_fingerprint)
+            self._event("document_content_replaced", {"document_id": metadata["document_id"], **revision})
+            self._record_revision("document_content_replaced", author, "documents", metadata["document_id"], metadata)
+            if restoration:
+                self._event("document_content_restored", {"document_id": metadata["document_id"], **restoration})
+                self._record_revision("document_content_restored", author, "documents", metadata["document_id"], metadata)
+            return metadata
+
+    def content_recovery_versions(self, reference: str | Path) -> list[dict[str, Any]]:
+        """List immutable archived payloads that can replace the current content."""
+        metadata = self.get_document(reference)
+        versions: dict[str, dict[str, Any]] = {}
+        for change in metadata.get("content_history", []):
+            digest = str(change.get("previous_sha256", ""))
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                continue
+            archive = self.control / "content-versions" / metadata["document_id"] / digest
+            versions[digest] = {
+                "sha256": digest,
+                "created_at": str(change.get("at", "")),
+                "replaced_by": str(change.get("actor", "")),
+                "size": int(change.get("previous_size", 0)),
+                "available": archive.is_file() and not archive.is_symlink(),
+            }
+        return sorted(versions.values(), key=lambda item: item["created_at"], reverse=True)
+
+    def restore_content_version(
+        self,
+        reference: str | Path,
+        archived_sha256: str,
+        expected_current_sha256: str,
+        actor: str,
+        *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Restore one verified archived payload with a current-version precondition."""
+        self._require_actor(actor)
+        if not re.fullmatch(r"[0-9a-f]{64}", archived_sha256):
+            raise ValueError("unknown archived content version")
+        metadata = self.get_document(reference)
+        self._require_document_editable(metadata)
+        path = self.root / str(metadata.get("last_path", ""))
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("document file is unavailable")
+        current_sha256 = sha256_file(path)
+        if not expected_current_sha256 or not hmac.compare_digest(expected_current_sha256, current_sha256):
+            raise ValueError("document content changed since the recovery page was opened")
+        if hmac.compare_digest(archived_sha256, current_sha256):
+            raise ValueError("the selected version is already current")
+        known = {item["sha256"] for item in self.content_recovery_versions(reference) if item["available"]}
+        if archived_sha256 not in known:
+            raise ValueError("archived content version is unavailable")
+        archive = self.control / "content-versions" / metadata["document_id"] / archived_sha256
+        if archive.is_symlink() or not archive.is_file() or sha256_file(archive) != archived_sha256:
+            raise ValueError("archived content version failed integrity verification")
+        if archive.stat().st_size > max_bytes:
+            raise ValueError("archived content version exceeds the configured upload size limit")
+        return self.replace_content(
+            reference,
+            archive.read_bytes(),
+            actor,
+            expected_sha256=current_sha256,
+            source="recovery",
+            max_bytes=max_bytes,
+            restored_from_sha256=archived_sha256,
+        )
+
     def find_matches(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Find possible version parents by ID, path, name and all human metadata."""
         needle = query.strip().casefold()
@@ -1214,9 +1431,10 @@ class DocumentStore:
         destination_folder: str,
         actor: str,
         *,
+        destination_name: str = "",
         allow_locked: bool = False,
     ) -> dict[str, Any]:
-        """Move a managed file inside the document root without changing its ID."""
+        """Move or rename a managed file without changing its stable ID."""
         self._require_actor(actor)
         document = self.get_document(reference)
         if not allow_locked:
@@ -1234,7 +1452,10 @@ class DocumentStore:
             destination_directory.relative_to(self.root)
         except ValueError as exc:
             raise ValueError("destination must remain inside the document store") from exc
-        destination = destination_directory / source.name
+        requested_name = destination_name.strip() or source.name
+        if Path(requested_name).name != requested_name or requested_name in {"", ".", "..", POLICY_FILE}:
+            raise ValueError("choose a safe destination file name")
+        destination = destination_directory / requested_name
         if destination == source:
             return document
         if destination.exists():
@@ -1263,6 +1484,304 @@ class DocumentStore:
         self._event("document_moved", {"document_id": document["document_id"], "from": previous_path, "to": relative_path, "actor": actor})
         self._record_revision("document_moved", actor, "documents", document["document_id"], document)
         return self.get_document(document["document_id"])
+
+    def create_document_at(
+        self,
+        relative_path: str,
+        content: bytes,
+        actor: str,
+        *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Atomically create a new regular file at an existing managed folder."""
+        self._require_actor(actor)
+        if len(content) > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        destination = self.root / relative
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination collection does not exist")
+        self.ensure_folder_policy(destination.parent)
+        self.initialize()
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            if destination.exists():
+                raise FileExistsError("destination resource already exists")
+            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
+            try:
+                with temporary.open("xb") as handle:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+            self._scan_file(destination, force_hash=True)
+            metadata = self.get_document(destination)
+            metadata.setdefault("content_history", []).append({
+                "number": 1,
+                "at": utc_now(),
+                "actor": actor,
+                "source": "webdav",
+                "previous_sha256": "",
+                "sha256": metadata["sha256"],
+                "previous_size": 0,
+                "size": len(content),
+                "archive": "",
+            })
+            metadata["content_revision"] = 1
+            self._save_document(metadata)
+            self._event("document_created", {"document_id": metadata["document_id"], "path": self.relative(destination), "actor": actor, "sha256": metadata["sha256"]})
+            self._record_revision("document_created", actor, "documents", metadata["document_id"], metadata)
+            return metadata
+
+    def copy_document(self, reference: str, destination_path: str, actor: str) -> dict[str, Any]:
+        """Create an independent, audited copy without carrying access grants."""
+        self._require_actor(actor)
+        source_metadata = self.get_document(reference)
+        self._require_document_editable(source_metadata)
+        source = self.root / str(source_metadata.get("last_path", ""))
+        if not source.is_file() or source.is_symlink():
+            raise ValueError("only an available regular document file can be copied")
+        relative = self._safe_managed_relative_path(destination_path, require_name=True)
+        destination = self.root / relative
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination collection does not exist")
+        self.ensure_folder_policy(destination.parent)
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            if destination.exists():
+                raise FileExistsError("destination resource already exists")
+            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
+            try:
+                shutil.copyfile(source, temporary)
+                if sha256_file(temporary) != sha256_file(source):
+                    raise RuntimeError("copied document could not be verified")
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+            self._scan_file(destination, force_hash=True)
+            copied = self.get_document(destination)
+            copied["tags"] = list(source_metadata.get("tags", []))
+            copied["tagged_at"] = dict(source_metadata.get("tagged_at", {}))
+            copied["attributes"] = {
+                key: value for key, value in source_metadata.get("attributes", {}).items()
+                if key in {"description", "attachment_origin", "malware_scan"}
+            }
+            copied["attributes"]["copied_from"] = source_metadata["document_id"]
+            self._write_xattrs(destination, copied["document_id"], copied.get("sha256", ""), copied["tags"])
+            self._save_document(copied)
+            self._refresh_search_index(copied)
+            details = {"document_id": copied["document_id"], "copied_from": source_metadata["document_id"], "path": self.relative(destination), "actor": actor}
+            self._event("document_copied", details)
+            self._record_revision("document_copied", actor, "documents", copied["document_id"], copied)
+            return copied
+
+    def soft_delete_document(self, reference: str, actor: str) -> dict[str, Any]:
+        """Move a document into a private recovery area and retain its metadata."""
+        self._require_actor(actor)
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            self._require_document_editable(metadata)
+            source = self.root / str(metadata.get("last_path", ""))
+            if not source.is_file() or source.is_symlink():
+                raise ValueError("only an available regular document file can be deleted")
+            previous_path = self.relative(source)
+            deleted_at = utc_now()
+            trash = self.control / "webdav-trash" / metadata["document_id"]
+            trash.mkdir(parents=True, exist_ok=True)
+            destination = trash / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}--{source.name}"
+            source.replace(destination)
+            metadata["deleted_at"] = deleted_at
+            metadata["deleted_by"] = actor
+            metadata["deleted_from"] = previous_path
+            metadata["recovery_path"] = str(destination.relative_to(self.control))
+            metadata["last_path"] = ""
+            metadata["system_state"] = "webdav_deleted"
+            metadata.setdefault("location_history", []).append({"from": previous_path, "to": "[webdav-trash]", "at": deleted_at, "actor": actor})
+            metadata["location_history"] = metadata["location_history"][-200:]
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            with self._db() as db:
+                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+            fingerprint_path = self.fingerprints / f"{metadata.get('sha256', '')}.json"
+            fingerprint = self._read_json(fingerprint_path, {})
+            if fingerprint:
+                fingerprint["paths"] = sorted(set(fingerprint.get("paths", [])) - {previous_path})
+                fingerprint["last_seen_at"] = deleted_at
+                atomic_json_write(fingerprint_path, fingerprint)
+            details = {"document_id": metadata["document_id"], "from": previous_path, "deleted_at": deleted_at, "actor": actor, "recovery": str(destination.relative_to(self.control))}
+            self._event("document_soft_deleted", details)
+            self._record_revision("document_soft_deleted", actor, "documents", metadata["document_id"], metadata)
+            return details
+
+    @staticmethod
+    def _recovery_owner(metadata: dict[str, Any]) -> str:
+        actor = str(metadata.get("deleted_by", ""))
+        if not actor:
+            actor = next((str(item.get("actor", "")) for item in reversed(metadata.get("location_history", [])) if item.get("to") == "[webdav-trash]"), "")
+        return actor.removeprefix("webdav:")
+
+    def _recovery_file(self, metadata: dict[str, Any]) -> Path:
+        trash_root = self.control / "webdav-trash" / metadata["document_id"]
+        recovery_path = str(metadata.get("recovery_path", ""))
+        candidates = [self.control / recovery_path] if recovery_path else sorted(trash_root.glob("*"), reverse=True)
+        for candidate in candidates:
+            try:
+                candidate.resolve().relative_to(trash_root.resolve())
+            except (OSError, ValueError):
+                continue
+            if candidate.is_file() and not candidate.is_symlink():
+                return candidate
+        raise ValueError("recovery payload is unavailable")
+
+    def recovery_items(self, actor: str) -> list[dict[str, Any]]:
+        """List only soft-deleted documents owned by the authenticated user."""
+        self._require_actor(actor)
+        items = []
+        for metadata in self._all_documents():
+            if metadata.get("system_state") != "webdav_deleted" or self._recovery_owner(metadata) != actor:
+                continue
+            try:
+                recovery = self._recovery_file(metadata)
+                size = recovery.stat().st_size
+                available = True
+            except (OSError, ValueError):
+                size = 0
+                available = False
+            items.append({
+                "document_id": metadata["document_id"],
+                "deleted_from": str(metadata.get("deleted_from", "")),
+                "deleted_at": str(metadata.get("deleted_at", "")),
+                "sha256": str(metadata.get("sha256", "")),
+                "size": size,
+                "available": available,
+            })
+        return sorted(items, key=lambda item: item["deleted_at"], reverse=True)
+
+    def restore_soft_deleted(self, reference: str, destination_path: str, expected_sha256: str, actor: str) -> dict[str, Any]:
+        """Atomically restore a user's verified WebDAV deletion without overwriting."""
+        self._require_actor(actor)
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            if metadata.get("system_state") != "webdav_deleted":
+                raise ValueError("document is not in WebDAV recovery")
+            if self._recovery_owner(metadata) != actor:
+                raise PermissionError("document recovery belongs to another user")
+            source = self._recovery_file(metadata)
+            actual_sha256 = sha256_file(source)
+            if not expected_sha256 or not hmac.compare_digest(expected_sha256, str(metadata.get("sha256", ""))):
+                raise ValueError("recovery entry changed since the page was opened")
+            if not hmac.compare_digest(actual_sha256, expected_sha256):
+                raise ValueError("recovery payload failed integrity verification")
+            relative = self._safe_managed_relative_path(destination_path or str(metadata.get("deleted_from", "")), require_name=True)
+            destination = self.root / relative
+            if not destination.parent.is_dir() or destination.parent.is_symlink():
+                raise ValueError("destination collection does not exist")
+            if destination.exists():
+                raise FileExistsError("destination already exists; recovery never overwrites a file")
+            self.ensure_folder_policy(destination.parent)
+            source.replace(destination)
+            restored_at = utc_now()
+            previous_recovery = str(metadata.get("recovery_path", source.relative_to(self.control)))
+            metadata["last_path"] = self.relative(destination)
+            metadata["last_seen_at"] = restored_at
+            metadata["system_state"] = "indexed"
+            metadata["restored_at"] = restored_at
+            metadata["restored_by"] = actor
+            metadata.setdefault("location_history", []).append({"from": "[webdav-trash]", "to": metadata["last_path"], "at": restored_at, "actor": actor})
+            metadata["location_history"] = metadata["location_history"][-200:]
+            metadata.setdefault("recovery_history", []).append({
+                "deleted_at": metadata.get("deleted_at", ""), "deleted_by": metadata.get("deleted_by", ""),
+                "recovery": previous_recovery, "restored_at": restored_at, "restored_by": actor,
+                "destination": metadata["last_path"], "sha256": actual_sha256,
+            })
+            metadata["recovery_history"] = metadata["recovery_history"][-200:]
+            metadata.pop("recovery_path", None)
+            self._write_xattrs(destination, metadata["document_id"], actual_sha256, metadata.get("tags", []))
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            stat = destination.stat()
+            with self._db() as db:
+                db.execute(
+                    """INSERT INTO scan_file(relative_path, document_id, sha256, size, modified_ns, device, inode, last_seen_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(relative_path) DO UPDATE SET document_id=excluded.document_id, sha256=excluded.sha256,
+                         size=excluded.size, modified_ns=excluded.modified_ns, device=excluded.device, inode=excluded.inode,
+                         last_seen_at=excluded.last_seen_at""",
+                    (metadata["last_path"], metadata["document_id"], actual_sha256, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, restored_at),
+                )
+            fingerprint_path = self.fingerprints / f"{actual_sha256}.json"
+            fingerprint = self._read_json(fingerprint_path, {})
+            fingerprint.update({
+                "sha256": actual_sha256, "first_seen_at": fingerprint.get("first_seen_at", metadata.get("first_seen_at", restored_at)),
+                "last_seen_at": restored_at, "paths": sorted({*fingerprint.get("paths", []), metadata["last_path"]}),
+                "seen_count": int(fingerprint.get("seen_count", 0)) + 1,
+            })
+            atomic_json_write(fingerprint_path, fingerprint)
+            details = {"document_id": metadata["document_id"], "to": metadata["last_path"], "restored_at": restored_at, "actor": actor, "sha256": actual_sha256}
+            self._event("document_restored", details)
+            self._record_revision("document_restored", actor, "documents", metadata["document_id"], metadata)
+            return metadata
+
+    def create_collection(self, relative_path: str, actor: str) -> Path:
+        """Create exactly one collection; RFC 4918 requires its parent to exist."""
+        self._require_actor(actor)
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        destination = self.root / relative
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("parent collection does not exist")
+        if destination.exists():
+            raise FileExistsError("destination collection already exists")
+        destination.mkdir()
+        self.ensure_folder_policy(destination)
+        details = {"path": self.relative(destination), "actor": actor, "at": utc_now()}
+        self._event("webdav_collection_created", details)
+        self._record_revision("webdav_collection_created", actor, "collections", hashlib.sha256(details["path"].encode()).hexdigest(), details)
+        return destination
+
+    def delete_empty_collection(self, relative_path: str, actor: str) -> None:
+        """Delete an empty collection while leaving retention-managed contents alone."""
+        self._require_actor(actor)
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        collection = self.root / relative
+        if not collection.is_dir() or collection.is_symlink():
+            raise ValueError("collection does not exist")
+        visible = [item for item in collection.iterdir() if item.name != POLICY_FILE]
+        if visible:
+            raise ValueError("collection is not empty")
+        (collection / POLICY_FILE).unlink(missing_ok=True)
+        collection.rmdir()
+        details = {"path": str(relative), "actor": actor, "at": utc_now()}
+        self._event("webdav_collection_deleted", details)
+        self._record_revision("webdav_collection_deleted", actor, "collections", hashlib.sha256(str(relative).encode()).hexdigest(), details)
+
+    def _safe_managed_relative_path(self, value: str, *, require_name: bool = False) -> Path:
+        requested = Path(value.strip())
+        if (require_name and value.strip() in {"", "."}) or requested.is_absolute() or ".." in requested.parts:
+            raise ValueError("path must remain inside the document store")
+        if any(part in {"", CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or "\x00" in part for part in requested.parts):
+            raise ValueError("path contains a reserved segment")
+        candidate = self.root / requested
+        if candidate.is_symlink():
+            raise ValueError("symbolic links are not available over WebDAV")
+        resolved_parent = candidate.parent.resolve()
+        try:
+            resolved_parent.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError("path must remain inside the document store") from exc
+        current = self.root
+        for part in requested.parts[:-1]:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("symbolic links are not available over WebDAV")
+        return requested
 
     def versions(self, reference: str | Path) -> list[dict[str, Any]]:
         """Return every version in the same document series, oldest first."""

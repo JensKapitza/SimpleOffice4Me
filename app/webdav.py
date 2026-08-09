@@ -1,0 +1,1000 @@
+"""Writable, versioned WebDAV endpoint for LibreOffice remote editing."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import mimetypes
+import os
+import re
+import secrets
+import uuid
+from datetime import datetime, timedelta, timezone
+from email.utils import formatdate
+from pathlib import Path
+from urllib.parse import quote, unquote, urlsplit
+from xml.etree import ElementTree
+from xml.sax.saxutils import escape
+
+from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
+
+from .auth import login_required
+from .document_store import CONTROL_DIR, HISTORY_DIR, POLICY_FILE, DocumentStore, atomic_json_write, sha256_file, utc_now
+from .file_lock import exclusive_file_lock
+
+
+bp = Blueprint("webdav", __name__)
+DAV = "DAV:"
+
+
+def _release_mutation_lock() -> None:
+    context = g.pop("_webdav_mutation_lock", None)
+    if context is not None:
+        context.__exit__(None, None, None)
+
+
+@bp.after_request
+def _after_webdav_request(response: Response) -> Response:
+    _release_mutation_lock()
+    return response
+
+
+@bp.teardown_request
+def _teardown_webdav_request(_error: BaseException | None) -> None:
+    _release_mutation_lock()
+
+
+def _store() -> DocumentStore:
+    return DocumentStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _credentials_path() -> Path:
+    return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-credentials.json"
+
+
+def _locks_path() -> Path:
+    return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-locks.json"
+
+
+def _sync_path() -> Path:
+    return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-sync.json"
+
+
+def _read_json(path: Path, fallback: dict) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else fallback
+    except (OSError, json.JSONDecodeError):
+        return fallback
+
+
+MAX_ACTIVE_CREDENTIALS = 10
+WRITE_METHODS = {"PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"}
+MAX_SYNC_CHANGES = 4096
+MAX_SYNC_TOKENS = 512
+
+
+def _credential_records(value: object) -> list[dict]:
+    """Read both the legacy single-password record and the v2 device list."""
+    if not isinstance(value, dict):
+        return []
+    if "salt" in value and "hash" in value:
+        return [{
+            **value,
+            "credential_id": "legacy",
+            "label": "Bestehender Desktop-Zugang",
+            "scope": "write",
+            "expires_at": "",
+        }]
+    records = value.get("credentials", [])
+    return [dict(record) for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+
+
+def _expired(record: dict, now: datetime | None = None) -> bool:
+    expires_at = str(record.get("expires_at", "")).strip()
+    if not expires_at:
+        return False
+    try:
+        expires = datetime.fromisoformat(expires_at).astimezone(timezone.utc)
+    except ValueError:
+        return True
+    return expires <= (now or datetime.now(timezone.utc))
+
+
+def credentials_for(username: str) -> list[dict]:
+    """Return display-safe credential metadata without password material."""
+    users = _read_json(_credentials_path(), {"users": {}}).get("users", {})
+    value = users.get(username) if isinstance(users, dict) else None
+    result = []
+    for record in _credential_records(value):
+        result.append({
+            "credential_id": str(record.get("credential_id", "")),
+            "label": str(record.get("label", "Desktop-Zugang")),
+            "scope": "read" if record.get("scope") == "read" else "write",
+            "created_at": str(record.get("created_at", "")),
+            "expires_at": str(record.get("expires_at", "")),
+            "expired": _expired(record),
+        })
+    return sorted(result, key=lambda item: item["created_at"], reverse=True)
+
+
+def activate(username: str, actor: str, *, label: str = "Desktop-Zugang", scope: str = "write", expires_days: int = 90) -> str:
+    """Create an independently revocable WebDAV app password and return it once."""
+    label = " ".join(label.split()).strip()
+    if not label or len(label) > 80 or any(ord(character) < 32 for character in label):
+        raise ValueError("Bezeichnung muss 1 bis 80 druckbare Zeichen enthalten.")
+    if scope not in {"read", "write"}:
+        raise ValueError("Unbekannter WebDAV-Rechteumfang.")
+    if isinstance(expires_days, bool) or not 1 <= int(expires_days) <= 365:
+        raise ValueError("Gültigkeit muss zwischen 1 und 365 Tagen liegen.")
+    expires_days = int(expires_days)
+    credential_id = secrets.token_hex(12)
+    password = f"{credential_id}.{secrets.token_urlsafe(24)}"
+    salt = os.urandom(16)
+    record = {
+        "credential_id": credential_id,
+        "label": label,
+        "scope": scope,
+        "salt": salt.hex(),
+        "hash": hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1).hex(),
+        "created_at": utc_now(),
+        "created_by": actor,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat(),
+    }
+    path = _credentials_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"version": 2, "users": {}})
+        users = payload.get("users")
+        if not isinstance(users, dict):
+            users = {}
+            payload["users"] = users
+        records = _credential_records(users.get(username))
+        if sum(not _expired(item) for item in records) >= MAX_ACTIVE_CREDENTIALS:
+            raise ValueError(f"Höchstens {MAX_ACTIVE_CREDENTIALS} aktive WebDAV-Zugänge sind erlaubt.")
+        users[username] = {"credentials": [*records, record]}
+        payload["version"] = 2
+        atomic_json_write(path, payload)
+    _store().history.record(
+        "webdav_credential_created", actor, "webdav", hashlib.sha256(username.encode()).hexdigest()[:16],
+        {key: record[key] for key in ("credential_id", "label", "scope", "created_at", "expires_at")},
+    )
+    return password
+
+
+def revoke(username: str, actor: str, credential_id: str = "") -> bool:
+    """Revoke one device credential, or all credentials when no id is supplied."""
+    path = _credentials_path()
+    revoked: list[dict] = []
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"users": {}})
+        users = payload.get("users")
+        if not isinstance(users, dict):
+            users = {}
+            payload["users"] = users
+        records = _credential_records(users.get(username))
+        if credential_id:
+            revoked = [record for record in records if hmac.compare_digest(str(record.get("credential_id", "")), credential_id)]
+            remaining = [record for record in records if record not in revoked]
+            if remaining:
+                users[username] = {"credentials": remaining}
+            else:
+                users.pop(username, None)
+        else:
+            revoked = records
+            users.pop(username, None)
+        payload["version"] = 2
+        atomic_json_write(path, payload)
+    for record in revoked:
+        _store().history.record(
+            "webdav_credential_revoked", actor, "webdav", hashlib.sha256(username.encode()).hexdigest()[:16],
+            {"credential_id": record.get("credential_id", ""), "label": record.get("label", ""), "scope": record.get("scope", "write"), "revoked_at": utc_now()},
+        )
+    return bool(revoked)
+
+
+def _authenticate() -> dict | None:
+    supplied = request.authorization
+    if not supplied or supplied.type.casefold() != "basic" or not supplied.username or not supplied.password:
+        return None
+    users = _read_json(_credentials_path(), {"users": {}}).get("users", {})
+    value = users.get(supplied.username) if isinstance(users, dict) else None
+    records = _credential_records(value)
+    selector = supplied.password.partition(".")[0] if "." in supplied.password else ""
+    if selector:
+        selected = [record for record in records if record.get("credential_id") == selector]
+        candidates = selected or [record for record in records if record.get("credential_id") == "legacy"]
+    else:
+        candidates = records
+    for record in candidates:
+        if _expired(record):
+            continue
+        try:
+            actual = hashlib.scrypt(supplied.password.encode(), salt=bytes.fromhex(record["salt"]), n=2**14, r=8, p=1)
+            expected = bytes.fromhex(record["hash"])
+        except (KeyError, ValueError):
+            continue
+        if hmac.compare_digest(actual, expected):
+            return {
+                "username": supplied.username,
+                "credential_id": str(record.get("credential_id", "legacy")),
+                "scope": "read" if record.get("scope") == "read" else "write",
+            }
+    return None
+
+
+def _unauthorized() -> Response:
+    return Response("WebDAV authentication required", 401, {"WWW-Authenticate": 'Basic realm="SimpleOffice4Me Documents", charset="UTF-8"'})
+
+
+def _document_path(document: dict) -> Path:
+    path = _store().root / str(document.get("last_path", ""))
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("document unavailable")
+    return path
+
+
+def _etag(document: dict) -> str:
+    path = _document_path(document)
+    return f'"{sha256_file(path)}"'
+
+
+def _etag_value(value: str) -> str:
+    return value.strip().removeprefix("W/").strip('"')
+
+
+def _resource_url(username: str, document: dict, *, external: bool = False) -> str:
+    filename = Path(str(document.get("last_path", "document"))).name
+    return url_for("webdav.endpoint", path=f"documents/{username}/{document['document_id']}--{filename}", _external=external)
+
+
+def _tree_url(username: str, relative: str = "", *, external: bool = False, collection: bool = False) -> str:
+    encoded = "/".join(quote(part, safe="") for part in Path(relative).parts if part not in {"", "."})
+    suffix = f"/{encoded}" if encoded else ""
+    base = request.url_root.rstrip("/") if external else ""
+    value = f"{base}/webdav/files/{quote(username, safe='')}{suffix}"
+    return value + "/" if collection and not value.endswith("/") else value
+
+
+def _tree_path(relative_path: str) -> Path:
+    store = _store()
+    if not relative_path.strip("/"):
+        return store.root
+    relative = store._safe_managed_relative_path(unquote(relative_path), require_name=True)
+    candidate = store.root / relative
+    if candidate.is_symlink():
+        raise ValueError("symbolic links are not available over WebDAV")
+    return candidate
+
+
+def _tree_document(path: Path) -> dict:
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("document unavailable")
+    return _store().get_document(path)
+
+
+def _lock_key(path: Path, document: dict | None = None) -> str:
+    if document:
+        return str(document["document_id"])
+    relative = _store().relative(path)
+    return "unmapped:" + hashlib.sha256(relative.encode("utf-8")).hexdigest()
+
+
+def _destination(username: str) -> tuple[Path, str]:
+    value = request.headers.get("Destination", "")
+    if not value:
+        raise ValueError("Destination header is required")
+    parsed = urlsplit(value)
+    if parsed.netloc and parsed.netloc.casefold() != request.host.casefold():
+        raise PermissionError("cross-server destinations are not allowed")
+    prefix = f"/webdav/files/{username}/"
+    path = unquote(parsed.path)
+    if not path.startswith(prefix):
+        raise PermissionError("destination must remain in the authenticated user's WebDAV tree")
+    relative = path[len(prefix):].strip("/")
+    if not relative:
+        raise ValueError("the WebDAV root cannot be replaced")
+    destination = _tree_path(relative)
+    return destination, _store().relative(destination)
+
+
+def _lock_for(key: str) -> dict | None:
+    return _active_locks().get("locks", {}).get(key)
+
+
+def _require_lock(key: str, username: str) -> Response | None:
+    lock = _lock_for(key)
+    token = _request_token()
+    if lock and (lock.get("token") != token or lock.get("username") != username):
+        return Response("resource is locked", 423)
+    return None
+
+
+def _release_lock(key: str) -> None:
+    path = _locks_path()
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _active_locks()
+        payload.get("locks", {}).pop(key, None)
+        atomic_json_write(path, payload)
+
+
+def _active_locks() -> dict:
+    now = datetime.now(timezone.utc)
+    payload = _read_json(_locks_path(), {"locks": {}})
+    locks = payload.setdefault("locks", {})
+    locks = {key: value for key, value in locks.items() if datetime.fromisoformat(value["expires_at"]).astimezone(timezone.utc) > now}
+    payload["locks"] = locks
+    return payload
+
+
+def _request_token() -> str:
+    values = " ".join((request.headers.get("If", ""), request.headers.get("Lock-Token", "")))
+    match = re.search(r"opaquelocktoken:[0-9a-fA-F-]+", values)
+    return match.group(0) if match else ""
+
+
+def _save_lock(document_id: str, username: str, token: str, timeout_seconds: int, owner: str = "") -> dict:
+    path = _locks_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _active_locks()
+        existing = payload["locks"].get(document_id)
+        if existing and existing.get("token") != token:
+            raise PermissionError("document is already locked")
+        lock = {
+            "token": token,
+            "username": username,
+            "owner": owner[:200],
+            "created_at": existing.get("created_at", utc_now()) if existing else utc_now(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat(),
+        }
+        payload["locks"][document_id] = lock
+        atomic_json_write(path, payload)
+        return lock
+
+
+def _timeout_seconds() -> int:
+    match = re.search(r"Second-(\d+)", request.headers.get("Timeout", ""), re.I)
+    return max(60, min(int(match.group(1)) if match else 1800, 3600))
+
+
+def _lock_xml(lock: dict, href: str) -> str:
+    seconds = max(0, int((datetime.fromisoformat(lock["expires_at"]) - datetime.now(timezone.utc)).total_seconds()))
+    return f'''<?xml version="1.0" encoding="utf-8"?><d:prop xmlns:d="DAV:"><d:lockdiscovery><d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:exclusive/></d:lockscope><d:depth>0</d:depth><d:owner>{escape(lock.get("owner", ""))}</d:owner><d:timeout>Second-{seconds}</d:timeout><d:locktoken><d:href>{escape(lock["token"])}</d:href></d:locktoken><d:lockroot><d:href>{escape(href)}</d:href></d:lockroot></d:activelock></d:lockdiscovery></d:prop>'''
+
+
+def _prop_response(href: str, display_name: str, *, collection: bool = False, document: dict | None = None, sync_token: str = "") -> str:
+    locks = "<d:supportedlock><d:lockentry><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry></d:supportedlock><d:lockdiscovery/>"
+    if collection:
+        sync = "<d:supported-report-set><d:supported-report><d:report><d:sync-collection/></d:report></d:supported-report></d:supported-report-set>"
+        if sync_token:
+            sync += f"<d:sync-token>{escape(sync_token)}</d:sync-token>"
+        properties = f"<d:resourcetype><d:collection/></d:resourcetype><d:displayname>{escape(display_name)}</d:displayname>{locks}{sync}"
+    else:
+        path = _document_path(document or {})
+        stat = path.stat()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        properties = f"<d:resourcetype/><d:displayname>{escape(display_name)}</d:displayname><d:getcontentlength>{stat.st_size}</d:getcontentlength><d:getcontenttype>{escape(content_type)}</d:getcontenttype><d:getlastmodified>{formatdate(stat.st_mtime, usegmt=True)}</d:getlastmodified><d:getetag>{escape(_etag(document or {}))}</d:getetag>{locks}"
+    return f"<d:response><d:href>{escape(href)}</d:href><d:propstat><d:prop>{properties}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+
+
+def _visible_snapshot(collection: Path) -> dict[str, dict]:
+    """Return the visible regular-file tree without following unsafe nodes."""
+    store = _store()
+    snapshot: dict[str, dict] = {}
+    for current, directories, files in os.walk(collection, followlinks=False):
+        parent = Path(current)
+        directories[:] = sorted(
+            name for name in directories
+            if name not in {CONTROL_DIR, HISTORY_DIR} and not (parent / name).is_symlink()
+        )
+        for name in directories:
+            path = parent / name
+            snapshot[store.relative(path)] = {"collection": True, "signature": "collection"}
+        for name in sorted(files):
+            if name == POLICY_FILE:
+                continue
+            path = parent / name
+            if path.is_symlink() or not path.is_file():
+                continue
+            stat = path.stat()
+            snapshot[store.relative(path)] = {
+                "collection": False,
+                "signature": f"{stat.st_size}:{stat.st_mtime_ns}",
+            }
+    return snapshot
+
+
+def _new_sync_token() -> str:
+    return f"urn:uuid:{uuid.uuid4()}"
+
+
+def _record_sync_changes(username: str, *relative_paths: str) -> None:
+    """Record mutations immediately, including remove-and-remap sequences."""
+    path = _sync_path()
+    if not path.exists():
+        return
+    normalized = sorted({value.strip("/") for value in relative_paths if value.strip("/")})
+    if not normalized:
+        return
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"version": 1, "users": {}})
+        collections = payload.get("users", {}).get(username, {}).get("collections", {})
+        if not isinstance(collections, dict):
+            return
+        for collection_key, state in collections.items():
+            if not isinstance(state, dict):
+                continue
+            collection_relative = "" if collection_key == "." else str(collection_key)
+            previous = state.get("snapshot", {}) if isinstance(state.get("snapshot"), dict) else {}
+            current = dict(previous)
+            for relative in normalized:
+                resource = _store().root / relative
+                if resource.is_dir() and not resource.is_symlink():
+                    current[relative] = {"collection": True, "signature": "collection"}
+                elif resource.is_file() and not resource.is_symlink():
+                    stat = resource.stat()
+                    current[relative] = {"collection": False, "signature": f"{stat.st_size}:{stat.st_mtime_ns}"}
+                else:
+                    current.pop(relative, None)
+            changes = state.get("changes", []) if isinstance(state.get("changes"), list) else []
+            tokens = state.get("tokens", []) if isinstance(state.get("tokens"), list) else []
+            revision = int(state.get("revision", 0))
+            for relative in normalized:
+                try:
+                    Path(relative).relative_to(collection_relative) if collection_relative else Path(relative)
+                except ValueError:
+                    continue
+                revision += 1
+                token = _new_sync_token()
+                changes.append({
+                    "revision": revision,
+                    "path": relative,
+                    "removed": relative not in current,
+                    "collection": bool((current.get(relative) or previous.get(relative) or {}).get("collection")),
+                })
+                tokens.append({"token": token, "revision": revision})
+                state["token"] = token
+            state["revision"] = revision
+            state["snapshot"] = current
+            state["changes"] = changes[-MAX_SYNC_CHANGES:]
+            minimum = state["changes"][0]["revision"] - 1 if state["changes"] else revision
+            state["tokens"] = [item for item in tokens if int(item.get("revision", -1)) >= minimum][-MAX_SYNC_TOKENS:]
+        atomic_json_write(path, payload)
+
+
+def _sync_state(username: str, collection: Path) -> dict:
+    """Reconcile one user-bound collection journal with the current disk tree."""
+    path = _sync_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    collection_key = _store().relative(collection) or "."
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"version": 1, "users": {}})
+        users = payload.setdefault("users", {})
+        collections = users.setdefault(username, {}).setdefault("collections", {})
+        snapshot = _visible_snapshot(collection)
+        state = collections.get(collection_key)
+        if not isinstance(state, dict):
+            token = _new_sync_token()
+            state = {
+                "revision": 0,
+                "token": token,
+                "tokens": [{"token": token, "revision": 0}],
+                "changes": [],
+                "snapshot": snapshot,
+            }
+            collections[collection_key] = state
+        else:
+            previous = state.get("snapshot", {}) if isinstance(state.get("snapshot"), dict) else {}
+            changes = state.get("changes", []) if isinstance(state.get("changes"), list) else []
+            tokens = state.get("tokens", []) if isinstance(state.get("tokens"), list) else []
+            revision = int(state.get("revision", 0))
+            for relative in sorted(set(previous) | set(snapshot)):
+                if previous.get(relative) == snapshot.get(relative):
+                    continue
+                revision += 1
+                token = _new_sync_token()
+                changes.append({
+                    "revision": revision,
+                    "path": relative,
+                    "removed": relative not in snapshot,
+                    "collection": bool((snapshot.get(relative) or previous.get(relative) or {}).get("collection")),
+                })
+                tokens.append({"token": token, "revision": revision})
+                state["token"] = token
+            state["revision"] = revision
+            state["snapshot"] = snapshot
+            state["changes"] = changes[-MAX_SYNC_CHANGES:]
+            minimum = state["changes"][0]["revision"] - 1 if state["changes"] else revision
+            retained = [item for item in tokens if int(item.get("revision", -1)) >= minimum]
+            state["tokens"] = retained[-MAX_SYNC_TOKENS:]
+            if not state.get("token"):
+                state["token"] = state["tokens"][-1]["token"] if state["tokens"] else _new_sync_token()
+        payload["version"] = 1
+        atomic_json_write(path, payload)
+        return json.loads(json.dumps(state))
+
+
+def _collection_sync_token(username: str, collection: Path) -> str:
+    """Read the mutation-maintained token without rescanning on every PROPFIND."""
+    collection_key = _store().relative(collection) or "."
+    state = (
+        _read_json(_sync_path(), {"users": {}})
+        .get("users", {}).get(username, {}).get("collections", {}).get(collection_key)
+    )
+    if isinstance(state, dict) and state.get("token"):
+        return str(state["token"])
+    return str(_sync_state(username, collection)["token"])
+
+
+def _sync_if_error(username: str) -> Response | None:
+    """Validate RFC 6578 collection tokens used as tagged If state tokens."""
+    value = request.headers.get("If", "")
+    if "urn:uuid:" not in value:
+        return None
+    pairs = re.findall(r"<([^>]+)>\s*\(\s*<(urn:uuid:[^>]+)>", value, re.I)
+    if not pairs:
+        untagged = re.findall(r"\(\s*<(urn:uuid:[^>]+)>", value, re.I)
+        if len(untagged) != 1:
+            return Response("invalid collection sync-token precondition", 412)
+        pairs = [(request.path, untagged[0])]
+    prefix = f"/webdav/files/{quote(username, safe='')}"
+    for resource_tag, supplied_token in pairs:
+        parsed = urlsplit(resource_tag)
+        if parsed.netloc and parsed.netloc.casefold() != request.host.casefold():
+            return Response("collection sync-token belongs to another server", 412)
+        tagged_path = unquote(parsed.path)
+        if tagged_path.rstrip("/") == prefix:
+            relative = ""
+        elif tagged_path.startswith(prefix + "/"):
+            relative = tagged_path[len(prefix):].strip("/")
+        else:
+            return Response("collection sync-token belongs to another user tree", 412)
+        try:
+            collection = _tree_path(relative)
+        except ValueError:
+            return Response("collection sync-token target is invalid", 412)
+        if not collection.is_dir() or collection.is_symlink():
+            return Response("collection sync-token target is not a collection", 412)
+        current_token = str(_sync_state(username, collection)["token"])
+        if not hmac.compare_digest(supplied_token, current_token):
+            return Response("collection changed since synchronization", 412)
+    return None
+
+
+def _sync_member_in_scope(relative: str, collection: Path, level: str) -> bool:
+    collection_relative = _store().relative(collection)
+    try:
+        nested = Path(relative).relative_to(collection_relative) if collection_relative else Path(relative)
+    except ValueError:
+        return False
+    return nested != Path(".") and (level == "infinite" or len(nested.parts) == 1)
+
+
+def _sync_report(username: str, collection: Path) -> Response:
+    if request.headers.get("Depth", "0") != "0":
+        return Response("sync-collection requires Depth: 0", 400)
+    body = request.get_data(cache=True)
+    if len(body) > 64 * 1024:
+        return Response("REPORT body is too large", 413)
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError:
+        return Response("invalid sync-collection XML", 400)
+    if root.tag != f"{{{DAV}}}sync-collection":
+        return Response("unsupported REPORT", 400)
+    token_nodes = root.findall(f"{{{DAV}}}sync-token")
+    level_nodes = root.findall(f"{{{DAV}}}sync-level")
+    prop_nodes = root.findall(f"{{{DAV}}}prop")
+    if len(token_nodes) != 1 or len(level_nodes) != 1 or len(prop_nodes) != 1:
+        return Response("sync-token, sync-level and prop are required", 400)
+    token_node, level_node = token_nodes[0], level_nodes[0]
+    level = (level_node.text or "").strip()
+    if level not in {"1", "infinite"}:
+        return Response("sync-level must be 1 or infinite", 400)
+    if root.find(f"{{{DAV}}}limit") is not None:
+        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:number-of-matches-within-limits/></d:error>'
+        return Response(error, 507, mimetype="application/xml")
+
+    supplied_token = (token_node.text or "").strip()
+    state = _sync_state(username, collection)
+    if supplied_token:
+        token_revisions = {
+            str(item.get("token", "")): int(item.get("revision", -1))
+            for item in state.get("tokens", []) if isinstance(item, dict)
+        }
+        if supplied_token not in token_revisions:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:valid-sync-token/></d:error>'
+            return Response(error, 403, mimetype="application/xml")
+        since = token_revisions[supplied_token]
+        latest: dict[str, dict] = {}
+        for change in state.get("changes", []):
+            if int(change.get("revision", -1)) > since and _sync_member_in_scope(str(change.get("path", "")), collection, level):
+                latest[str(change["path"])] = change
+        members = [latest[key] for key in sorted(latest)]
+    else:
+        members = [
+            {"path": relative, "removed": False, "collection": bool(info.get("collection"))}
+            for relative, info in sorted(state.get("snapshot", {}).items())
+            if _sync_member_in_scope(relative, collection, level)
+        ]
+
+    removed_collections = {
+        str(item["path"]) for item in members
+        if item.get("removed") and item.get("collection")
+    }
+    responses: list[str] = []
+    for item in members:
+        relative = str(item["path"])
+        if level == "infinite" and any(relative.startswith(parent + "/") for parent in removed_collections):
+            continue
+        href = _tree_url(username, relative, collection=bool(item.get("collection")))
+        if item.get("removed"):
+            responses.append(f"<d:response><d:href>{escape(href)}</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response>")
+            continue
+        resource = _store().root / relative
+        if item.get("collection"):
+            responses.append(_prop_response(href, resource.name, collection=True))
+        else:
+            try:
+                document = _tree_document(resource)
+            except ValueError:
+                continue
+            responses.append(_prop_response(href, resource.name, document=document))
+    xml = f'''<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}<d:sync-token>{escape(str(state["token"]))}</d:sync-token></d:multistatus>'''
+    return Response(xml, 207, mimetype="application/xml")
+
+
+@bp.route("/documents/<document_id>/libreoffice", methods=["GET", "POST"])
+@login_required
+def setup_document(document_id: str):
+    try:
+        document = _store().get_document(document_id)
+        _document_path(document)
+    except ValueError:
+        return Response("document not found", 404)
+    username = str(g.user["username"])
+    generated_password = ""
+    if request.method == "POST":
+        action = request.form.get("action", "activate")
+        if action == "revoke_all":
+            revoke(username, username)
+            flash("Alle WebDAV-Zugänge wurden widerrufen.")
+        elif action == "revoke":
+            if revoke(username, username, request.form.get("credential_id", "")):
+                flash("WebDAV-Zugang wurde widerrufen.")
+            else:
+                flash("Der WebDAV-Zugang war bereits widerrufen.")
+        else:
+            try:
+                generated_password = activate(
+                    username, username,
+                    label=request.form.get("label", "Desktop-Zugang"),
+                    scope=request.form.get("scope", "write"),
+                    expires_days=int(request.form.get("expires_days", "90")),
+                )
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or "WebDAV-Zugang konnte nicht angelegt werden.")
+    credentials = credentials_for(username)
+    configured = any(not item["expired"] for item in credentials)
+    webdav_url = _resource_url(username, document, external=True)
+    webdav_root_url = _tree_url(username, external=True, collection=True)
+    return render_template("documents/libreoffice.html", document=document, webdav_url=webdav_url, webdav_root_url=webdav_root_url, configured=configured, generated_password=generated_password, credentials=credentials)
+
+
+@bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
+@bp.route("/webdav/files/<username>/<path:relative_path>", methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
+def file_tree(username: str, relative_path: str):
+    """Hierarchical WebDAV namespace for desktop file managers and sync clients."""
+    identity = _authenticate()
+    if identity is None:
+        return _unauthorized()
+    if identity["username"] != username:
+        return Response("not found", 404)
+    allow = "OPTIONS, PROPFIND, REPORT, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, REPORT, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, LOCK, UNLOCK"
+    if request.method == "OPTIONS":
+        return Response("", 204, {"DAV": "1, 2, sync-collection", "MS-Author-Via": "DAV", "Allow": allow})
+    if identity["scope"] != "write" and request.method in WRITE_METHODS:
+        return Response("this WebDAV credential is read-only", 403, {"Allow": allow})
+    try:
+        resource = _tree_path(relative_path)
+    except ValueError:
+        return Response("not found", 404)
+    is_collection = resource.is_dir() and not resource.is_symlink()
+    document = None
+    if resource.is_file() and not resource.is_symlink():
+        try:
+            document = _tree_document(resource)
+        except ValueError:
+            return Response("not found", 404)
+
+    if request.method in WRITE_METHODS - {"LOCK", "UNLOCK"}:
+        mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
+        mutation_lock.__enter__()
+        g._webdav_mutation_lock = mutation_lock
+        sync_error = _sync_if_error(username)
+        if sync_error is not None:
+            return sync_error
+
+    if request.method == "REPORT":
+        if not is_collection:
+            return Response("sync-collection requires a collection", 400)
+        return _sync_report(username, resource)
+
+    if request.method == "PROPFIND":
+        if not is_collection and document is None:
+            return Response("not found", 404)
+        depth = request.headers.get("Depth", "0")
+        if depth not in {"0", "1"}:
+            return Response("finite Depth required", 403)
+        href = _tree_url(username, _store().relative(resource), collection=is_collection)
+        wants_sync_token = b"sync-token" in request.get_data(cache=True)
+        sync_token = _collection_sync_token(username, resource) if is_collection and wants_sync_token else ""
+        responses = [_prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token)]
+        if is_collection and depth == "1":
+            for child in sorted(resource.iterdir(), key=lambda item: item.name.casefold()):
+                if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or child.is_symlink():
+                    continue
+                child_href = _tree_url(username, _store().relative(child), collection=child.is_dir())
+                if child.is_dir():
+                    responses.append(_prop_response(child_href, child.name, collection=True))
+                elif child.is_file():
+                    try:
+                        child_document = _tree_document(child)
+                    except ValueError:
+                        continue
+                    responses.append(_prop_response(child_href, child.name, document=child_document))
+        return Response(f'''<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}</d:multistatus>''', 207, mimetype="application/xml")
+
+    if request.method in {"GET", "HEAD"}:
+        if document is None:
+            return Response("not found", 404)
+        data = resource.read_bytes()
+        headers = {"ETag": _etag(document), "Content-Type": mimetypes.guess_type(resource.name)[0] or "application/octet-stream", "Content-Length": str(len(data)), "Cache-Control": "private, no-cache"}
+        response = Response(data if request.method == "GET" else None, 200)
+        response.headers.update(headers)
+        return response
+
+    key = _lock_key(resource, document)
+    lock_error = _require_lock(key, username)
+    if lock_error is not None and request.method != "UNLOCK":
+        return lock_error
+
+    if request.method == "MKCOL":
+        if resource.exists():
+            return Response("resource already exists", 405)
+        if request.get_data():
+            return Response("extended MKCOL bodies are not supported", 415)
+        try:
+            _store().create_collection(_store().relative(resource), f"webdav:{username}")
+        except ValueError:
+            return Response("parent collection does not exist", 409)
+        _record_sync_changes(username, _store().relative(resource))
+        return Response("", 201)
+
+    if request.method == "LOCK":
+        token = _request_token() or f"opaquelocktoken:{uuid.uuid4()}"
+        owner = ""
+        try:
+            root = ElementTree.fromstring(request.get_data() or b"<lockinfo xmlns='DAV:'/>")
+            owner_node = root.find("{DAV:}owner")
+            owner = "".join(owner_node.itertext()) if owner_node is not None else ""
+        except ElementTree.ParseError:
+            return Response("invalid LOCK body", 400)
+        try:
+            lock = _save_lock(key, username, token, _timeout_seconds(), owner)
+        except PermissionError:
+            return Response("locked", 423)
+        status = 200 if resource.exists() else 201
+        return Response(_lock_xml(lock, request.url), status, {"Content-Type": "application/xml; charset=utf-8", "Lock-Token": f"<{token}>"})
+
+    if request.method == "UNLOCK":
+        token = _request_token()
+        existing = _lock_for(key)
+        if not existing or existing.get("token") != token or existing.get("username") != username:
+            return Response("lock token does not match", 409)
+        _release_lock(key)
+        return Response("", 204)
+
+    if request.method == "PUT":
+        current_etag = _etag(document) if document else ""
+        if document:
+            if request.headers.get("If-None-Match") == "*":
+                return Response("resource already exists", 412, {"ETag": current_etag})
+            if_match = request.headers.get("If-Match", "")
+            if not _request_token() and not if_match:
+                return Response("existing resources require If-Match or a lock token", 428, {"ETag": current_etag})
+            if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
+                return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+            try:
+                updated = _store().replace_content(document["document_id"], request.get_data(), f"webdav:{username}", expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+            except ValueError as exc:
+                status = 412 if "changed since" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 400
+                return Response(str(exc), status)
+            if _etag(updated) != current_etag:
+                _record_sync_changes(username, _store().relative(resource))
+            return Response("", 204, {"ETag": _etag(updated), "Cache-Control": "private, no-cache"})
+        if is_collection:
+            return Response("cannot PUT a collection", 405)
+        if request.headers.get("If-Match"):
+            return Response("resource does not exist", 412)
+        try:
+            created = _store().create_document_at(_store().relative(resource), request.get_data(), f"webdav:{username}", max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+        except FileExistsError:
+            return Response("resource already exists", 412)
+        except ValueError as exc:
+            return Response(str(exc), 409)
+        old_lock = _lock_for(key)
+        if old_lock:
+            _release_lock(key)
+            _save_lock(created["document_id"], username, old_lock["token"], _timeout_seconds(), old_lock.get("owner", ""))
+        _record_sync_changes(username, _store().relative(resource))
+        return Response("", 201, {"ETag": _etag(created), "Cache-Control": "private, no-cache"})
+
+    if request.method == "DELETE":
+        if document:
+            if_match = request.headers.get("If-Match", "")
+            current_etag = _etag(document)
+            if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
+                return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+            try:
+                _store().soft_delete_document(document["document_id"], f"webdav:{username}")
+            except ValueError as exc:
+                return Response(str(exc), 423)
+            _release_lock(key)
+            _record_sync_changes(username, _store().relative(resource))
+            return Response("", 204)
+        if is_collection:
+            if resource == _store().root:
+                return Response("the WebDAV root cannot be deleted", 403)
+            try:
+                _store().delete_empty_collection(_store().relative(resource), f"webdav:{username}")
+            except ValueError as exc:
+                return Response(str(exc), 409)
+            _record_sync_changes(username, _store().relative(resource))
+            return Response("", 204)
+        return Response("not found", 404)
+
+    if request.method in {"COPY", "MOVE"}:
+        if document is None:
+            return Response("only regular files can be copied or moved", 501 if is_collection else 404)
+        current_etag = _etag(document)
+        if_match = request.headers.get("If-Match", "")
+        if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
+            return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+        try:
+            destination, destination_relative = _destination(username)
+        except PermissionError:
+            return Response("destination is outside the authenticated WebDAV tree", 502)
+        except ValueError as exc:
+            return Response(str(exc), 400)
+        if destination.exists():
+            return Response("destination exists; explicit replacement is required", 412)
+        if not destination.parent.is_dir():
+            return Response("destination parent does not exist", 409)
+        destination_lock = _require_lock(_lock_key(destination), username)
+        if destination_lock is not None:
+            return destination_lock
+        try:
+            if request.method == "COPY":
+                result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
+            else:
+                with exclusive_file_lock(_store().control / ".document-content.lock"):
+                    result = _store().move_document(document["document_id"], _store().relative(destination.parent), f"webdav:{username}", destination_name=destination.name)
+        except (FileExistsError, ValueError) as exc:
+            status = 423 if "locked" in str(exc) or "staged" in str(exc) else 409
+            return Response(str(exc), status)
+        if request.method == "COPY":
+            _record_sync_changes(username, destination_relative)
+        else:
+            _record_sync_changes(username, _store().relative(resource), destination_relative)
+        return Response("", 201, {"ETag": _etag(result), "Location": _tree_url(username, result["last_path"])})
+
+    return Response("method not allowed", 405, {"Allow": allow})
+
+
+@bp.route("/webdav/", defaults={"path": ""}, methods=["OPTIONS", "PROPFIND"])
+@bp.route("/webdav/<path:path>", methods=["OPTIONS", "PROPFIND", "GET", "HEAD", "PUT", "LOCK", "UNLOCK"])
+def endpoint(path: str):
+    identity = _authenticate()
+    if identity is None:
+        return _unauthorized()
+    username = identity["username"]
+    allow = "OPTIONS, PROPFIND, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, GET, HEAD, PUT, LOCK, UNLOCK"
+    if request.method == "OPTIONS":
+        return Response("", 204, {"DAV": "1, 2", "MS-Author-Via": "DAV", "Allow": allow})
+    if identity["scope"] != "write" and request.method in WRITE_METHODS:
+        return Response("this WebDAV credential is read-only", 403, {"Allow": allow})
+
+    parts = [part for part in path.split("/") if part]
+    if any(part in {".", ".."} for part in parts) or (len(parts) >= 2 and parts[1] != username):
+        return Response("not found", 404)
+    document = None
+    if len(parts) == 3 and parts[0] == "documents" and "--" in parts[2]:
+        document_id, requested_name = parts[2].split("--", 1)
+        try:
+            document = _store().get_document(document_id)
+            document_path = _document_path(document)
+        except ValueError:
+            return Response("not found", 404)
+        if requested_name != document_path.name:
+            return Response("not found", 404)
+
+    if request.method == "PROPFIND":
+        depth = request.headers.get("Depth", "0")
+        if depth not in {"0", "1"}:
+            return Response("finite Depth required", 403)
+        responses: list[str] = []
+        if not parts:
+            responses.append(_prop_response(request.path, "SimpleOffice4Me", collection=True))
+        elif parts == ["documents", username]:
+            responses.append(_prop_response(request.path, "SimpleOffice Dokumente", collection=True))
+            if depth == "1":
+                for item in _store().list_documents():
+                    try:
+                        _document_path(item)
+                    except ValueError:
+                        continue
+                    responses.append(_prop_response(_resource_url(username, item), Path(item["last_path"]).name, document=item))
+        elif document is not None:
+            responses.append(_prop_response(request.path, document_path.name, document=document))
+        else:
+            return Response("not found", 404)
+        return Response(f'<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}</d:multistatus>', 207, mimetype="application/xml")
+
+    if document is None:
+        return Response("not found", 404)
+    current_etag = _etag(document)
+    common_headers = {"ETag": current_etag, "Accept-Ranges": "bytes", "Cache-Control": "private, no-cache"}
+    if request.method in {"GET", "HEAD"}:
+        data = document_path.read_bytes()
+        headers = {**common_headers, "Content-Type": "application/octet-stream", "Content-Length": str(len(data))}
+        response = Response(data if request.method == "GET" else None, 200)
+        response.headers.update(headers)
+        return response
+    if request.method == "LOCK":
+        token = _request_token() or f"opaquelocktoken:{uuid.uuid4()}"
+        owner = ""
+        try:
+            root = ElementTree.fromstring(request.get_data() or b"<lockinfo xmlns='DAV:'/>")
+            owner_node = root.find("{DAV:}owner")
+            owner = "".join(owner_node.itertext()) if owner_node is not None else ""
+        except ElementTree.ParseError:
+            return Response("invalid LOCK body", 400)
+        try:
+            lock = _save_lock(document["document_id"], username, token, _timeout_seconds(), owner)
+        except PermissionError:
+            return Response("locked", 423)
+        body = _lock_xml(lock, request.url)
+        return Response(body, 200, {"Content-Type": "application/xml; charset=utf-8", "Lock-Token": f"<{token}>", **common_headers})
+    if request.method == "UNLOCK":
+        token = _request_token()
+        lock_path = _locks_path()
+        with exclusive_file_lock(lock_path.with_suffix(".lock")):
+            payload = _active_locks()
+            existing = payload["locks"].get(document["document_id"])
+            if not existing or existing.get("token") != token or existing.get("username") != username:
+                return Response("lock token does not match", 409)
+            payload["locks"].pop(document["document_id"], None)
+            atomic_json_write(lock_path, payload)
+        return Response("", 204)
+    if request.method == "PUT":
+        token = _request_token()
+        lock = _active_locks().get("locks", {}).get(document["document_id"])
+        if lock and (lock.get("token") != token or lock.get("username") != username):
+            return Response("document is locked", 423, common_headers)
+        if_match = request.headers.get("If-Match", "")
+        if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
+            return Response("document changed since it was opened", 412, common_headers)
+        try:
+            updated = _store().replace_content(
+                document["document_id"], request.get_data(), f"webdav:{username}",
+                expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+            )
+        except ValueError as exc:
+            message = str(exc)
+            status = 412 if "changed since" in message else 423 if "locked" in message or "staged" in message else 400
+            return Response(str(exc), status, common_headers)
+        return Response("", 204, {"ETag": _etag(updated), "Cache-Control": "private, no-cache"})
+    return Response("method not allowed", 405)

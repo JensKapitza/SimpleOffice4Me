@@ -54,6 +54,25 @@ Objekte stehen in [docs/FRISTEN_UND_OBJEKTE.md](docs/FRISTEN_UND_OBJEKTE.md).
 Für den sicheren öffentlichen Betrieb von Freigabelinks und CardDAV siehe
 [docs/PROXY_HTTPS.md](docs/PROXY_HTTPS.md).
 
+Schreibendes Öffnen und Speichern von Dokumenten mit LibreOffice über WebDAV
+ist in [docs/LIBREOFFICE_WEBDAV.md](docs/LIBREOFFICE_WEBDAV.md) beschrieben.
+Hierarchische Dateiverwaltung mit Nautilus, Windows Explorer, Finder und einem
+eingehängten FreeFileSync-Ziel ist in
+[docs/WEBDAV_DATEIVERWALTUNG.md](docs/WEBDAV_DATEIVERWALTUNG.md) dokumentiert.
+Der inkrementelle Änderungsabgleich für kompatible Clients folgt
+[RFC 6578](docs/WEBDAV_SYNC_RFC6578.md).
+Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
+[docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
+Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer
+Dateiinhalte ohne stilles Überschreiben beschreibt
+[docs/DATEI_WIEDERHERSTELLUNG.md](docs/DATEI_WIEDERHERSTELLUNG.md).
+Der bestätigungspflichtige Import von Mail-Anhängen, Herkunftskennzeichnung,
+Quarantäne und ClamAV-Betrieb sind in
+[docs/ANHAENGE_CLAMAV.md](docs/ANHAENGE_CLAMAV.md) dokumentiert.
+Die eigenständige Übertragung guter Offline-, Sidecar- und Suchkonzepte aus
+TagSpaces ist in [docs/TAGSPACES_ANSAETZE.md](docs/TAGSPACES_ANSAETZE.md)
+einschließlich Verbesserungen und Interoperabilitätsgrenzen beschrieben.
+
 ## Start und Update
 
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen

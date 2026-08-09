@@ -1,0 +1,220 @@
+"""Confirmed MIME attachment extraction and ClamAV quarantine workflow."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import uuid
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
+from email import policy
+from email.parser import BytesParser
+from pathlib import Path
+from typing import Any
+
+from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha256_file, utc_now
+from .file_lock import exclusive_file_lock
+
+MAX_PARTS = 100
+MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+MAX_TOTAL_BYTES = 200 * 1024 * 1024
+MANIFEST_TTL_MINUTES = 30
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    verdict: str
+    detail: str
+    engine: str
+
+
+class ClamAV:
+    """Execute fixed ClamAV programs without a shell or network listener."""
+
+    def __init__(self, timeout: int | None = None):
+        configured = timeout if timeout is not None else int(os.environ.get("SIMPLEOFFICE_CLAMAV_TIMEOUT", "120"))
+        self.timeout = max(5, min(configured, 900))
+
+    def executable(self) -> str:
+        requested = os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip()
+        if requested:
+            candidate = Path(requested)
+            if not candidate.is_absolute() or candidate.name not in {"clamdscan", "clamscan"}:
+                raise RuntimeError("SIMPLEOFFICE_CLAMAV_SCANNER must be an absolute clamdscan or clamscan path")
+            if not candidate.is_file():
+                raise RuntimeError("configured ClamAV scanner is unavailable")
+            return str(candidate)
+        found = shutil.which("clamdscan") or shutil.which("clamscan")
+        if not found:
+            raise RuntimeError("ClamAV is not installed or not in PATH")
+        return found
+
+    def status(self) -> dict[str, str]:
+        try:
+            executable = self.executable()
+            result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=5, check=False)
+            return {"state": "available" if result.returncode == 0 else "error", "engine": Path(executable).name, "version": (result.stdout or result.stderr).strip()[:300]}
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            return {"state": "unavailable", "engine": "", "version": str(exc)}
+
+    def scan(self, path: Path) -> ScanResult:
+        executable = self.executable()
+        command = [executable, "--no-summary"]
+        if Path(executable).name == "clamdscan" and os.name != "nt":
+            command.append("--fdpass")
+        command.append(str(path))
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=self.timeout, check=False)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("ClamAV scan timed out") from exc
+        detail = (result.stdout or result.stderr or "no scanner output").replace(str(path), path.name).strip()[:1000]
+        if result.returncode == 0:
+            return ScanResult("clean", detail, Path(executable).name)
+        if result.returncode == 1:
+            return ScanResult("infected", detail, Path(executable).name)
+        raise RuntimeError(f"ClamAV scan failed (exit {result.returncode}): {detail}")
+
+    def update(self) -> str:
+        executable = shutil.which("freshclam")
+        if not executable:
+            raise RuntimeError("freshclam is not installed or not in PATH")
+        result = subprocess.run([executable, "--stdout"], capture_output=True, text=True, timeout=300, check=False)
+        output = (result.stdout or result.stderr).strip()[-3000:]
+        if result.returncode:
+            raise RuntimeError(f"freshclam failed (exit {result.returncode}): {output}")
+        return output
+
+
+class AttachmentSecurity:
+    def __init__(self, root: str | Path, scanner: ClamAV | None = None):
+        self.root = Path(root).resolve()
+        self.control = self.root / CONTROL_DIR
+        self.manifests = self.control / "attachment-manifests"
+        self.quarantine = self.control / "quarantine"
+        self.registry = self.control / "malware-scan.json"
+        self.scanner = scanner or ClamAV()
+
+    @staticmethod
+    def _safe_name(value: str, index: int) -> str:
+        value = Path(value.replace("\\", "/")).name
+        value = re.sub(r"[\x00-\x1f\x7f]+", "_", value).strip(" .")
+        return value[:180] or f"attachment-{index}.bin"
+
+    def _message(self, source: Path):
+        if source.suffix.casefold() != ".eml" or not source.is_file() or source.is_symlink():
+            raise ValueError("source must be a regular .eml document")
+        return BytesParser(policy=policy.default).parsebytes(source.read_bytes())
+
+    def preview_eml(self, document_id: str, actor: str) -> dict[str, Any]:
+        store = DocumentStore(self.root)
+        document = store.get_document(document_id)
+        source = self.root / document.get("last_path", "")
+        message = self._message(source)
+        rows, total = [], 0
+        for index, part in enumerate(message.walk()):
+            filename = part.get_filename()
+            if part.is_multipart() or (not filename and part.get_content_disposition() != "attachment"):
+                continue
+            if len(rows) >= MAX_PARTS:
+                raise ValueError(f"message contains more than {MAX_PARTS} attachments")
+            payload = part.get_payload(decode=True) or b""
+            if len(payload) > MAX_ATTACHMENT_BYTES:
+                raise ValueError("an attachment exceeds the 50 MiB extraction limit")
+            total += len(payload)
+            if total > MAX_TOTAL_BYTES:
+                raise ValueError("decoded attachments exceed the 200 MiB total limit")
+            rows.append({"part": index, "filename": self._safe_name(filename or "", index), "declared_filename": filename or "", "content_type": part.get_content_type(), "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest(), "content_id": (part.get("Content-ID") or "").strip("<>")[:300]})
+        manifest_id = uuid.uuid4().hex
+        manifest = {"version": 1, "manifest_id": manifest_id, "actor": actor, "source_type": "eml", "document_id": document_id, "source_path": document.get("last_path", ""), "source_sha256": sha256_file(source), "created_at": utc_now(), "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=MANIFEST_TTL_MINUTES)).isoformat(), "message": {"message_id": (message.get("Message-ID") or "").strip()[:500], "subject": str(message.get("Subject") or "")[:500], "from": str(message.get("From") or "")[:500]}, "attachments": rows}
+        self.manifests.mkdir(parents=True, exist_ok=True)
+        atomic_json_write(self.manifests / f"{manifest_id}.json", manifest)
+        store.history.record("attachment_extraction_previewed", actor, "documents", document_id, {"manifest_id": manifest_id, "attachments": [{"part": row["part"], "filename": row["filename"], "size": row["size"], "sha256": row["sha256"]} for row in rows]})
+        return manifest
+
+    def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:
+        path = self.manifests / f"{manifest_id}.json"
+        with exclusive_file_lock(path.with_suffix(".lock")):
+            try:
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValueError("extraction preview does not exist") from exc
+            if manifest.get("actor") != actor:
+                raise PermissionError("extraction preview belongs to another user")
+            if datetime.fromisoformat(manifest["expires_at"]) < datetime.now(timezone.utc):
+                raise ValueError("extraction preview has expired")
+            source = self.root / manifest["source_path"]
+            if sha256_file(source) != manifest["source_sha256"]:
+                raise ValueError("source changed after preview; create a new preview")
+            allowed = {row["part"]: row for row in manifest["attachments"]}
+            chosen = sorted(set(selected))
+            if not chosen or any(index not in allowed for index in chosen):
+                raise ValueError("select at least one listed attachment")
+            message = self._message(source)
+            parts = list(message.walk())
+            results = []
+            self.quarantine.mkdir(parents=True, exist_ok=True)
+            for index in chosen:
+                row = allowed[index]
+                payload = parts[index].get_payload(decode=True) or b""
+                if hashlib.sha256(payload).hexdigest() != row["sha256"]:
+                    raise ValueError("attachment changed after preview")
+                quarantine_path = self.quarantine / f"{uuid.uuid4().hex}.pending"
+                with quarantine_path.open("xb") as handle:
+                    os.chmod(quarantine_path, 0o600)
+                    handle.write(payload)
+                try:
+                    verdict = self.scanner.scan(quarantine_path)
+                    record = {"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "source_document_id": manifest["document_id"], "filename": row["filename"], "sha256": row["sha256"], **asdict(verdict)}
+                    if verdict.verdict != "clean":
+                        destination = self.quarantine / f"{record['scan_id']}.infected"
+                        quarantine_path.replace(destination)
+                        record["quarantine_id"] = destination.name
+                        self._record_scan(record)
+                        results.append(record)
+                        continue
+                    self._record_scan(record)
+                    with quarantine_path.open("rb") as handle:
+                        imported = DocumentStore(self.root).import_upload(handle, row["filename"], actor, max_bytes=MAX_ATTACHMENT_BYTES)
+                    tags = ["attachment", "source:eml", f"source-document:{manifest['document_id']}", f"source-message:{hashlib.sha256(manifest['message']['message_id'].encode()).hexdigest()[:16] if manifest['message']['message_id'] else 'unknown'}"]
+                    store = DocumentStore(self.root)
+                    store.set_tags(imported["document_id"], [*imported.get("tags", []), *tags], actor)
+                    for key, value in {"attachment_origin": {"type": "eml", "source_document_id": manifest["document_id"], "source_path": manifest["source_path"], "message_id": manifest["message"]["message_id"], "subject": manifest["message"]["subject"], "from": manifest["message"]["from"], "mime_part": index, "content_type": row["content_type"], "sha256": row["sha256"]}, "malware_scan": record}.items():
+                        store.set_attribute(imported["document_id"], key, value, actor)
+                    quarantine_path.unlink(missing_ok=True)
+                    results.append({**record, "document_id": imported["document_id"]})
+                except Exception:
+                    quarantine_path.rename(quarantine_path.with_suffix(".error"))
+                    raise
+            path.unlink(missing_ok=True)
+            return results
+
+    def _record_scan(self, record: dict[str, Any]) -> None:
+        self.registry.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.registry.with_suffix(".lock")):
+            try: payload = json.loads(self.registry.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError): payload = {"version": 1, "scans": []}
+            payload.setdefault("scans", []).append(record)
+            payload["scans"] = payload["scans"][-2000:]
+            atomic_json_write(self.registry, payload)
+
+    def scan_documents(self, actor: str, max_files: int = 10000) -> dict[str, int]:
+        result = {"clean": 0, "infected": 0, "errors": 0, "skipped": 0}
+        for count, document in enumerate(DocumentStore(self.root)._all_documents()):
+            if count >= max_files: result["skipped"] += 1; continue
+            path = self.root / document.get("last_path", "")
+            if not path.is_file() or path.is_symlink(): result["skipped"] += 1; continue
+            try:
+                verdict = self.scanner.scan(path)
+                result[verdict.verdict] += 1
+                self._record_scan({"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "document_id": document["document_id"], "filename": path.name, "sha256": sha256_file(path), **asdict(verdict)})
+            except (OSError, RuntimeError): result["errors"] += 1
+        DocumentStore(self.root).history.record("managed_documents_malware_scanned", actor, "security", "clamav", result)
+        return result
+
+    def recent_scans(self) -> list[dict[str, Any]]:
+        try: return list(reversed(json.loads(self.registry.read_text(encoding="utf-8")).get("scans", [])))[:100]
+        except (OSError, json.JSONDecodeError): return []
