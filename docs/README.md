@@ -25,6 +25,7 @@ verlinkt.
 - [WebDAV-Speichergrenzen nach RFC 4331 und robuste Locks](WEBDAV_QUOTA_UND_LOCKS.md)
 - [Ressourcengenaue WebDAV-If-Bedingungen nach RFC 4918](WEBDAV_IF_HEADER_RFC4918.md)
 - [Rekursive WebDAV-Ordnersperren nach RFC 4918](WEBDAV_COLLECTION_LOCKS_RFC4918.md)
+- [WebDAV-Ordner rekursiv kopieren und verschieben nach RFC 4918](WEBDAV_ORDNER_COPY_MOVE_RFC4918.md)
 - [Fortsetzbare WebDAV-Downloads und HTTP-Validatoren nach RFC 9110](WEBDAV_DOWNLOADS_RFC9110.md)
 - [WebDAV-Übertragungsintegrität mit Content- und Repr-Digest nach RFC 9530](WEBDAV_INTEGRITAET_RFC9530.md)
 - [Getrennte WebDAV-Gerätezugänge](WEBDAV_ZUGAENGE.md)

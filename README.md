@@ -74,6 +74,9 @@ Die sichere Zuordnung von Lock-Token, ETags und Sync-Token zu genau der im
 Rekursive Ordnersperren, vererbte Lock-Discovery und Konfliktschutz für neue
 Dateien nach RFC 4918 beschreibt
 [WebDAV-Ordnersperren](docs/WEBDAV_COLLECTION_LOCKS_RFC4918.md).
+Ganze Ordner lassen sich nach
+[RFC 4918 serverseitig kopieren und verschieben](docs/WEBDAV_ORDNER_COPY_MOVE_RFC4918.md),
+einschließlich Rechte-, Lock-, Quota-, Audit- und Rollback-Schutz.
 Fortsetzbare Downloads, `If-Range`, bedingte GET-/HEAD-Anfragen und sichere
 Mehrfachbereiche beschreibt
 [WebDAV-Downloads nach RFC 9110](docs/WEBDAV_DOWNLOADS_RFC9110.md).

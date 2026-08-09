@@ -20,13 +20,13 @@ unverändert wirksam.
 
 | Normative Anforderung | Abgeleitete Umsetzung |
 | --- | --- |
-| Eine Write-Lock-Sperre schützt die URL-Zuordnung und alle schreibenden Methoden; der Client **MUST** das Token bei einer betroffenen Mutation übermitteln. | `PUT`, `DELETE`, `MKCOL`, `PROPPATCH`, `COPY` und `MOVE` prüfen die für Quelle und Ziel geltenden Sperren. Ein fehlendes oder fremdes Token liefert `423 Locked`, ohne Datei, Index oder Journal zu verändern. [RFC 4918 §6.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-6.1), [§7.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.4) |
+| Eine Write-Lock-Sperre schützt die URL-Zuordnung und alle schreibenden Methoden; der Client **MUST** das Token bei einer betroffenen Mutation übermitteln. | `PUT`, `DELETE`, `MKCOL` und `PROPPATCH` prüfen das mutierte Ziel. `MOVE` prüft Quelle und Ziel; `COPY` verändert nur das Ziel und verlangt deshalb kein Quelltoken. Ein fehlendes oder fremdes erforderliches Token liefert `423 Locked`, ohne Datei, Index oder Journal zu verändern. [RFC 4918 §6.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-6.1), [§7.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.4), [§7.5](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.5) |
 | Ein exklusiver Lock kollidiert mit jedem weiteren Lock auf derselben Ressource; ein Server **MUST NOT** widersprüchliche aktive Locks erzeugen. | Neue Sperren werden unter derselben globalen Mutationssperre wie Dateioperationen gegen exakte, geerbte und künftig überlappende Sperren geprüft. Eltern- und Kind-Collection können daher nicht widersprüchlich rekursiv gesperrt werden. [RFC 4918 §6.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-6.1), [§7.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.3) |
 | Ein `Depth: infinity`-Lock auf einer Collection gilt für alle Mitglieder in beliebiger Tiefe, einschließlich später hinzugefügter Mitglieder. Der Lock Root bleibt die Request-URI. | Die gespeicherte relative Lock-Wurzel wird für jeden Zielpfad sicher auf Vererbung geprüft. Neue Dateien und Unterordner sind sofort geschützt; `lockroot` verweist auch bei der Discovery eines Kindes auf den gesperrten Ordner. [RFC 4918 §7.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.4), [§9.10.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.3) |
 | LOCK akzeptiert nur Tiefe `0` oder `infinity`; fehlt `Depth`, ist `infinity` der Standard. Ein Server mit Lock-Unterstützung **MUST** unendliche Tiefe unterstützen. | Collections akzeptieren `0` und `infinity`; ohne Header wird rekursiv gesperrt. Dateien werden immer effektiv mit Tiefe 0 gespeichert. Andere Werte liefern `400`. [RFC 4918 §9.10.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.3), [§14.17](https://www.rfc-editor.org/rfc/rfc4918.html#section-14.17) |
 | `DAV:lockdiscovery` listet die auf einer Ressource wirkenden aktiven Locks und **SHOULD** auch geerbte Collection-Locks sichtbar machen. | `PROPFIND` auf einem Kind zeigt den geerbten Lock mit Umfang, Typ, Tiefe, Restlaufzeit und ursprünglicher Lock-Wurzel. Nicht betroffene Nachbarordner erhalten keine Sperrinformation. [RFC 4918 §15.8](https://www.rfc-editor.org/rfc/rfc4918.html#section-15.8) |
 | Ein LOCK ohne Body aktualisiert einen vorhandenen Lock; UNLOCK wird auf die Lock-Wurzel angewendet. | Refresh und UNLOCK müssen exakt die ursprüngliche Lock-URL und das richtige Token verwenden. Ein Versuch auf einem Kind liefert `412` beziehungsweise `409` und verändert die Laufzeit nicht. [RFC 4918 §7.7](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.7), [§9.10.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.2), [§9.11](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.11) |
-| Bei COPY und MOVE müssen Locks auf den jeweils betroffenen Quell- und Zielressourcen beachtet werden. | Getaggte `If`-Bedingungen können Quell- und Ziel-Token getrennt zuordnen. Eine rekursiv gesperrte Quelle oder ein gesperrtes Ziel wird ohne das jeweils passende Token abgewiesen. [RFC 4918 §7.5](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.5), [§7.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.6) |
+| COPY lässt die Quelle unverändert und darf ihren Lock nicht duplizieren; MOVE verändert Quelle und Ziel und darf den Quell-Lock nicht mitverschieben. | COPY prüft ausschließlich die am Ziel wirksamen Locks. MOVE verlangt alle für Quelle, getrennt gesperrte Nachfahren und Ziel nötigen Token; nach Erfolg werden explizite Quell-Locks auditierbar entfernt. [RFC 4918 §7.5](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.5), [§7.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.6) |
 | Server **MAY** Lock-Laufzeiten begrenzen und abgelaufene Locks entfernen, um Ressourcenmissbrauch zu vermeiden. | Angeforderte Timeouts werden auf höchstens eine Stunde begrenzt. Abgelaufene Ordnersperren werden atomar bereinigt und blockieren keine Nachfolger. [RFC 4918 §6.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-6.6), [§20.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-20.2) |
 
 ## Bedienung und Konfiguration
@@ -109,7 +109,7 @@ Abgedeckt sind:
 - Lock-Discovery auf Kindern und Abschirmung nicht betroffener Nachbarn;
 - Kollisionen zwischen Eltern- und Nachfahr-Locks in beiden Richtungen;
 - nicht vererbte `Depth: 0`-Collection-Locks;
-- COPY mit getrennten Quell- und Zielbedingungen;
+- COPY ohne Quelltoken, aber mit Token eines gesperrten Zielbereichs;
 - Refresh und UNLOCK ausschließlich an der Lock-Wurzel;
 - identischer Schutz über hierarchische und stabile LibreOffice-URLs sowie
   Freigabe der Sperre beim bestätigten Löschen ihrer leeren Wurzel;
@@ -122,7 +122,8 @@ Abgedeckt sind:
 
 SimpleOffice unterstützt weiterhin nur exklusive Write-Locks, keine Shared
 Locks. Rekursive serverseitige COPY- und MOVE-Operationen für ganze Ordner
-sind unabhängig von der Lock-Vererbung nicht implementiert. In einem Cluster
+sind in [WebDAV-Ordner COPY/MOVE](WEBDAV_ORDNER_COPY_MOVE_RFC4918.md)
+dokumentiert. In einem Cluster
 müssen Lock-Speicher und Mutationssperre gemeinsam koordiniert werden; die
 eingebaute Prozesssperre ist für eine einzelne Anwendungsinstanz ausgelegt.
 

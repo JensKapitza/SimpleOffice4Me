@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from xml.etree import ElementTree
 
 from app import app
@@ -1178,7 +1179,7 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(204, saved.status_code)
         self.assertEqual(423, blocked_delete.status_code)
 
-    def test_collection_lock_copy_requires_token_for_source_and_destination(self):
+    def test_collection_lock_copy_requires_token_for_locked_destination(self):
         folder = f"{self.files}/Projekte"
         self.client.open(folder, method="MKCOL", headers=self.auth)
         self.client.put(f"{folder}/Quelle.odt", data=b"source", headers=self.auth)
@@ -1549,6 +1550,186 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(b"first office version", after_rejected)
         self.assertEqual(204, accepted.status_code)
         self.assertEqual(b"guarded write", (self.store.root / "angebot.odt").read_bytes())
+
+    def test_collection_copy_recurses_preserves_properties_and_creates_independent_documents(self):
+        source = f"{self.files}/Projekte"
+        self.client.open(source, method="MKCOL", headers=self.auth)
+        self.client.open(f"{source}/Texte", method="MKCOL", headers=self.auth)
+        self.client.put(f"{source}/Plan.odt", data=b"plan", headers=self.auth)
+        self.client.put(f"{source}/Texte/Notiz.txt", data=b"note", headers=self.auth)
+        property_body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:label>Projekt A</m:label></d:prop></d:set></d:propertyupdate>'
+        self.client.open(source, method="PROPPATCH", data=property_body, headers=self.auth)
+        source_document = self.store.get_document("Projekte/Plan.odt")
+        source_document["tags"] = ["planung"]
+        source_document["grants"] = [{"username": "other", "role": "editor"}]
+        self.store._save_document(source_document)
+
+        copied = self.client.open(
+            source, method="COPY",
+            headers={
+                **self.auth, "Depth": "infinity", "Overwrite": "F",
+                "Destination": f"http://localhost{self.files}/Projekte-Kopie",
+            },
+        )
+        copied_document = self.store.get_document("Projekte-Kopie/Plan.odt")
+        property_query = '<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:label/></d:prop></d:propfind>'
+        copied_properties = self.client.open(
+            f"{self.files}/Projekte-Kopie", method="PROPFIND", data=property_query,
+            headers={**self.auth, "Depth": "0"},
+        )
+
+        self.assertEqual(201, copied.status_code)
+        self.assertEqual(b"plan", (self.store.root / "Projekte-Kopie" / "Plan.odt").read_bytes())
+        self.assertEqual(b"note", (self.store.root / "Projekte-Kopie" / "Texte" / "Notiz.txt").read_bytes())
+        self.assertNotEqual(source_document["document_id"], copied_document["document_id"])
+        self.assertEqual(["planung"], copied_document["tags"])
+        self.assertEqual([], copied_document.get("grants", []))
+        self.assertEqual("Projekt A", ElementTree.fromstring(copied_properties.data).findtext(".//{urn:simpleoffice:test}label"))
+        self.assertIn("Projekte-Kopie/", copied.headers["Location"])
+        actions = {row.get("type") for row in self.store.logbook()}
+        self.assertIn("webdav_collection_copied", actions)
+
+    def test_collection_copy_depth_zero_copies_only_collection_and_dead_properties(self):
+        source = f"{self.files}/Vorlage"
+        self.client.open(source, method="MKCOL", headers=self.auth)
+        self.client.put(f"{source}/Inhalt.txt", data=b"not copied", headers=self.auth)
+        property_body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:kind>Vorlage</m:kind></d:prop></d:set></d:propertyupdate>'
+        self.client.open(source, method="PROPPATCH", data=property_body, headers=self.auth)
+
+        copied = self.client.open(
+            source, method="COPY",
+            headers={**self.auth, "Depth": "0", "Destination": f"http://localhost{self.files}/Leere-Vorlage"},
+        )
+        query = '<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:kind/></d:prop></d:propfind>'
+        properties = self.client.open(
+            f"{self.files}/Leere-Vorlage", method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+
+        self.assertEqual(201, copied.status_code)
+        self.assertTrue((self.store.root / "Leere-Vorlage").is_dir())
+        self.assertFalse((self.store.root / "Leere-Vorlage" / "Inhalt.txt").exists())
+        self.assertEqual("Vorlage", ElementTree.fromstring(properties.data).findtext(".//{urn:simpleoffice:test}kind"))
+
+    def test_collection_copy_does_not_require_or_duplicate_source_lock(self):
+        source = f"{self.files}/Gesperrte-Quelle"
+        self.client.open(source, method="MKCOL", headers=self.auth)
+        self.client.put(f"{source}/Lesbar.txt", data=b"copy me", headers=self.auth)
+        locked = self.client.open(
+            source, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "infinity"},
+        )
+
+        copied = self.client.open(
+            source, method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{self.files}/Ungesperrte-Kopie"},
+        )
+        destination_properties = self.client.open(
+            f"{self.files}/Ungesperrte-Kopie", method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:"><d:prop><d:lockdiscovery/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+
+        self.assertEqual(200, locked.status_code)
+        self.assertEqual(201, copied.status_code)
+        self.assertNotIn("activelock", destination_properties.get_data(as_text=True))
+        self.assertEqual(b"copy me", (self.store.root / "Ungesperrte-Kopie" / "Lesbar.txt").read_bytes())
+
+    def test_collection_move_is_recursive_keeps_ids_and_releases_source_lock(self):
+        source = f"{self.files}/Team"
+        self.client.open(source, method="MKCOL", headers=self.auth)
+        self.client.open(f"{source}/Unterordner", method="MKCOL", headers=self.auth)
+        self.client.put(f"{source}/Unterordner/Plan.txt", data=b"v1", headers=self.auth)
+        original = self.store.get_document("Team/Unterordner/Plan.txt")
+        locked = self.client.open(
+            source, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "infinity", "Timeout": "Second-600"},
+        )
+        token = locked.headers["Lock-Token"].strip("<>")
+
+        moved = self.client.open(
+            source, method="MOVE",
+            headers={
+                **self.auth, "Depth": "infinity",
+                "Destination": f"http://localhost{self.files}/Archiv-Team",
+                "If": f"<http://localhost{source}> (<{token}>)",
+            },
+        )
+        moved_document = self.store.get_document("Archiv-Team/Unterordner/Plan.txt")
+        current = self.client.get(f"{self.files}/Archiv-Team/Unterordner/Plan.txt", headers=self.auth)
+        saved = self.client.put(
+            f"{self.files}/Archiv-Team/Unterordner/Plan.txt", data=b"v2",
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+
+        self.assertEqual(201, moved.status_code)
+        self.assertFalse((self.store.root / "Team").exists())
+        self.assertEqual(original["document_id"], moved_document["document_id"])
+        self.assertEqual("Archiv-Team/Unterordner/Plan.txt", moved_document["last_path"])
+        self.assertEqual(204, saved.status_code)
+        self.assertEqual(b"v2", (self.store.root / "Archiv-Team" / "Unterordner" / "Plan.txt").read_bytes())
+        actions = [json.loads(path.read_text()).get("action") for path in (self.store.history.root / "events").glob("*.json")]
+        self.assertIn("webdav_lock_released_by_move", actions)
+
+    def test_collection_operations_reject_cycles_invalid_depth_quota_and_unsafe_members(self):
+        source = f"{self.files}/Quelle"
+        self.client.open(source, method="MKCOL", headers=self.auth)
+        self.client.put(f"{source}/Gross.bin", data=b"123456", headers=self.auth)
+        cycle = self.client.open(
+            source, method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{source}/Kind"},
+        )
+        invalid_depth = self.client.open(
+            source, method="COPY",
+            headers={**self.auth, "Depth": "1", "Destination": f"http://localhost{self.files}/Invalid"},
+        )
+        app.config["WEBDAV_QUOTA_BYTES"] = 10
+        quota = self.client.open(
+            source, method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{self.files}/Zu-Gross"},
+        )
+        app.config["WEBDAV_QUOTA_BYTES"] = 0
+        outside = Path(self.temp.name) / "outside.txt"
+        outside.write_bytes(b"outside")
+        (self.store.root / "Quelle" / "Verweis").symlink_to(outside)
+        unsafe = self.client.open(
+            source, method="MOVE",
+            headers={**self.auth, "Destination": f"http://localhost{self.files}/Unsicher"},
+        )
+
+        self.assertEqual(403, cycle.status_code)
+        self.assertEqual(400, invalid_depth.status_code)
+        self.assertEqual(507, quota.status_code)
+        self.assertIn("quota-not-exceeded", quota.get_data(as_text=True))
+        self.assertEqual(409, unsafe.status_code)
+        self.assertTrue((self.store.root / "Quelle" / "Gross.bin").is_file())
+        self.assertFalse((self.store.root / "Unsicher").exists())
+
+    def test_collection_copy_rolls_back_visible_destination_after_member_failure(self):
+        source = f"{self.files}/Rollback"
+        self.client.open(source, method="MKCOL", headers=self.auth)
+        self.client.put(f"{source}/A.txt", data=b"a", headers=self.auth)
+        self.client.put(f"{source}/B.txt", data=b"b", headers=self.auth)
+        original_copy = DocumentStore.copy_document
+        calls = 0
+
+        def fail_second(store, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated storage failure")
+            return original_copy(store, *args, **kwargs)
+
+        with mock.patch.object(DocumentStore, "copy_document", fail_second):
+            response = self.client.open(
+                source, method="COPY",
+                headers={**self.auth, "Destination": f"http://localhost{self.files}/Rollback-Kopie"},
+            )
+
+        self.assertEqual(507, response.status_code)
+        self.assertFalse((self.store.root / "Rollback-Kopie").exists())
+        rolled_back = [row for row in self.store.logbook() if row.get("type") == "document_soft_deleted"]
+        self.assertTrue(rolled_back)
 
 
 if __name__ == "__main__":

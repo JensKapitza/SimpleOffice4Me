@@ -1536,7 +1536,13 @@ def _apply_proppatch(username: str, resource: Path, document: dict | None, href:
     return _proppatch_response(href, [(tag, 200) for _, tag, _ in operations]), bool(changed_names)
 
 
-def _copy_dead_properties(username: str, source: Path, source_document: dict, destination: Path, destination_document: dict) -> None:
+def _copy_dead_properties(
+    username: str,
+    source: Path,
+    source_document: dict | None,
+    destination: Path,
+    destination_document: dict | None,
+) -> None:
     """Preserve dead properties on COPY as recommended by RFC 4918 section 9.8.2."""
     path = _properties_path()
     if not path.exists():
@@ -1562,6 +1568,45 @@ def _copy_dead_properties(username: str, source: Path, source_document: dict, de
             "actor": f"webdav:{username}",
         },
     )
+
+
+def _collection_lock_error(resource: Path, username: str) -> Response | None:
+    """Require tokens for every explicit lock rooted inside a collection."""
+    relative = _store().relative(resource)
+    for stored_key, lock in _active_locks().get("locks", {}).items():
+        lock_resource = str(lock.get("resource", "")).strip()
+        if not lock_resource or not _relative_is_within(lock_resource, relative):
+            continue
+        if lock.get("username") != username or lock.get("token") != _request_token(stored_key):
+            return Response("a member of the collection is locked", 423)
+    return None
+
+
+def _release_collection_locks_after_move(username: str, source: Path) -> None:
+    """RFC 4918 section 7.6 forbids moving source locks with a resource."""
+    source_relative = _store().relative(source)
+    path = _locks_path()
+    released: list[dict] = []
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _active_locks()
+        locks = payload.get("locks", {})
+        for stored_key, lock in list(locks.items()):
+            lock_resource = str(lock.get("resource", "")).strip()
+            if lock.get("username") != username or not lock_resource or not _relative_is_within(lock_resource, source_relative):
+                continue
+            released.append(dict(lock))
+            locks.pop(stored_key, None)
+        if released:
+            atomic_json_write(path, payload)
+    for lock in released:
+        _store().history.record(
+            "webdav_lock_released_by_move", f"webdav:{username}", "webdav-locks",
+            hashlib.sha256(f"{username}:{lock.get('resource', '')}".encode()).hexdigest(),
+            {
+                "resource": str(lock.get("resource", "")), "depth": str(lock.get("depth", "0")),
+                "released_at": utc_now(), "actor": f"webdav:{username}",
+            },
+        )
 
 
 def _visible_snapshot(collection: Path) -> dict[str, dict]:
@@ -1949,7 +1994,7 @@ def file_tree(username: str, relative_path: str):
 
     key = _lock_key(resource, document)
     lock_error = _require_lock(resource, document, username)
-    if lock_error is not None and request.method not in {"LOCK", "UNLOCK"}:
+    if lock_error is not None and request.method not in {"LOCK", "UNLOCK", "COPY"}:
         return lock_error
 
     if request.method == "PROPPATCH":
@@ -2073,12 +2118,25 @@ def file_tree(username: str, relative_path: str):
         return Response("not found", 404)
 
     if request.method in {"COPY", "MOVE"}:
-        if document is None:
-            return Response("only regular files can be copied or moved", 501 if is_collection else 404)
-        current_etag = _etag(document)
-        if_match = request.headers.get("If-Match", "")
-        if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
-            return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+        if document is None and not is_collection:
+            return Response("not found", 404)
+        if resource == _store().root:
+            return Response("the WebDAV root cannot be copied or moved", 403)
+        if request.method == "MOVE" and _credential_is_boundary(identity, resource):
+            return Response("the credential lacks access to the parent collection", 403)
+        overwrite = request.headers.get("Overwrite", "T").upper()
+        if overwrite not in {"T", "F"}:
+            return Response("Overwrite must be T or F", 400)
+        depth = request.headers.get("Depth", "infinity").lower()
+        if request.method == "COPY" and is_collection and depth not in {"0", "infinity"}:
+            return Response("collection COPY requires Depth: 0 or infinity", 400)
+        if request.method == "MOVE" and is_collection and depth != "infinity":
+            return Response("collection MOVE requires Depth: infinity", 400)
+        if document is not None:
+            current_etag = _etag(document)
+            if_match = request.headers.get("If-Match", "")
+            if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
+                return Response("resource changed since it was opened", 412, {"ETag": current_etag})
         try:
             destination, destination_relative = _destination(username, identity)
         except PermissionError:
@@ -2092,25 +2150,77 @@ def file_tree(username: str, relative_path: str):
         destination_lock = _require_lock(destination, None, username)
         if destination_lock is not None:
             return destination_lock
+        manifest = None
+        if is_collection:
+            if request.method == "MOVE":
+                collection_lock_error = _collection_lock_error(resource, username)
+                if collection_lock_error is not None:
+                    return collection_lock_error
+            try:
+                manifest = _store().collection_manifest(
+                    _store().relative(resource), f"webdav:{username}",
+                    depth=depth if request.method == "COPY" else "infinity",
+                )
+            except ValueError as exc:
+                status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 409
+                return Response(str(exc), status)
         if request.method == "COPY":
-            quota_error = _check_quota(username, "COPY", destination, resource.stat().st_size)
+            growth = int(manifest["total_bytes"]) if manifest is not None and depth == "infinity" else resource.stat().st_size if document else 0
+            quota_error = _check_quota(username, "COPY", destination, growth)
             if quota_error is not None:
                 return quota_error
         try:
-            if request.method == "COPY":
+            if is_collection and request.method == "COPY":
+                result = _store().copy_collection(
+                    _store().relative(resource), destination_relative, f"webdav:{username}", depth=depth,
+                )
+                copied_directories = result["directories_relative"]
+                for nested in copied_directories:
+                    source_collection = resource if nested == Path(".") else resource / nested
+                    destination_collection = destination if nested == Path(".") else destination / nested
+                    _copy_dead_properties(username, source_collection, None, destination_collection, None)
+                for item in result["resources"]:
+                    _copy_dead_properties(
+                        username, item["source"], item["source_document"],
+                        item["destination"], item["destination_document"],
+                    )
+            elif is_collection:
+                result = _store().move_collection(
+                    _store().relative(resource), destination_relative, f"webdav:{username}",
+                )
+                _release_collection_locks_after_move(username, resource)
+            elif request.method == "COPY":
                 result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
                 _copy_dead_properties(username, resource, document, destination, result)
             else:
                 with exclusive_file_lock(_store().control / ".document-content.lock"):
                     result = _store().move_document(document["document_id"], _store().relative(destination.parent), f"webdav:{username}", destination_name=destination.name)
-        except (FileExistsError, ValueError) as exc:
-            status = 423 if "locked" in str(exc) or "staged" in str(exc) else 409
+        except OSError:
+            return _quota_error(username, request.method, destination, 0, "sufficient-disk-space")
+        except (FileExistsError, RuntimeError, ValueError) as exc:
+            status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 403 if "itself" in str(exc) else 409
             return Response(str(exc), status)
+        changed_paths: list[str] = []
+        if is_collection:
+            for nested in result["directories_relative"]:
+                destination_member = destination if nested == Path(".") else destination / nested
+                changed_paths.append(_store().relative(destination_member))
+                if request.method == "MOVE":
+                    source_member = resource if nested == Path(".") else resource / nested
+                    changed_paths.append(_store().relative(source_member))
+            for item in result["resources"]:
+                if request.method == "COPY":
+                    changed_paths.append(_store().relative(item["destination"]))
+                else:
+                    changed_paths.extend([item["before"], item["after"]])
         if request.method == "COPY":
-            _record_sync_changes(username, destination_relative)
+            _record_sync_changes(username, *(changed_paths or [destination_relative]))
         else:
-            _record_sync_changes(username, _store().relative(resource), destination_relative)
-        return Response("", 201, {"ETag": _etag(result), "Location": _tree_url(username, result["last_path"])})
+            _record_sync_changes(username, *(changed_paths or [_store().relative(resource), destination_relative]))
+        headers = {"Location": _tree_url(username, destination_relative, collection=is_collection)}
+        if not is_collection:
+            headers["ETag"] = _etag(result)
+        return Response("", 201, headers)
 
     return Response("method not allowed", 405, {"Allow": allow})
 

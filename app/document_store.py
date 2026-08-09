@@ -43,6 +43,8 @@ ARCHIVES_FILE = "archives.json"
 ARCHIVE_MARKER = ".simpleoffice-archive.json"
 SHARES_FILE = "shares.json"
 SSH_SOURCES_FILE = "ssh-sources.json"
+MAX_WEBDAV_COLLECTION_MEMBERS = 2_000
+MAX_WEBDAV_COLLECTION_DEPTH = 64
 
 
 def utc_now() -> str:
@@ -1578,6 +1580,247 @@ class DocumentStore:
             self._event("document_copied", details)
             self._record_revision("document_copied", actor, "documents", copied["document_id"], copied)
             return copied
+
+    def collection_manifest(
+        self,
+        relative_path: str,
+        actor: str,
+        *,
+        depth: str = "infinity",
+        max_members: int = MAX_WEBDAV_COLLECTION_MEMBERS,
+        max_depth: int = MAX_WEBDAV_COLLECTION_DEPTH,
+    ) -> dict[str, Any]:
+        """Preflight a bounded collection tree without following unsafe nodes."""
+        self._require_actor(actor)
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        source = self.root / relative
+        if not source.is_dir() or source.is_symlink():
+            raise ValueError("source collection does not exist")
+        if depth == "0":
+            return {
+                "source": source, "source_relative": str(relative), "directories": [Path(".")],
+                "files": [], "member_count": 0, "total_bytes": 0,
+            }
+        if depth != "infinity":
+            raise ValueError("collection operation requires Depth: 0 or infinity")
+        directories: list[Path] = [Path(".")]
+        files: list[dict[str, Any]] = []
+        total_bytes = 0
+        member_count = 0
+        for current, names, filenames in os.walk(source, topdown=True, followlinks=False):
+            parent = Path(current)
+            nested_parent = parent.relative_to(source)
+            if len(nested_parent.parts) > max_depth:
+                raise ValueError("collection exceeds the supported nesting depth")
+            safe_names: list[str] = []
+            for name in sorted(names, key=str.casefold):
+                child = parent / name
+                if name == CONTROL_DIR:
+                    if child.is_symlink() or not child.is_dir():
+                        raise ValueError("collection contains unsafe internal metadata")
+                    continue
+                if name == HISTORY_DIR:
+                    raise ValueError("collection contains a reserved history directory")
+                if child.is_symlink() or not child.is_dir():
+                    raise ValueError("collection contains a symbolic link or special directory")
+                nested = child.relative_to(source)
+                if len(nested.parts) > max_depth:
+                    raise ValueError("collection exceeds the supported nesting depth")
+                directories.append(nested)
+                safe_names.append(name)
+                member_count += 1
+            names[:] = safe_names
+            for name in sorted(filenames, key=str.casefold):
+                if name == POLICY_FILE:
+                    policy = parent / name
+                    if policy.is_symlink() or not policy.is_file():
+                        raise ValueError("collection contains an unsafe folder policy")
+                    loaded_policy = self._read_json(policy, {})
+                    if not isinstance(loaded_policy, dict) or not loaded_policy.get("folder_id"):
+                        raise ValueError("collection contains an invalid folder policy")
+                    continue
+                child = parent / name
+                if child.is_symlink() or not child.is_file():
+                    raise ValueError("collection contains a symbolic link or special file")
+                nested = child.relative_to(source)
+                if len(nested.parts) > max_depth:
+                    raise ValueError("collection exceeds the supported nesting depth")
+                document = self.get_document(child)
+                self._require_document_editable(document)
+                size = child.stat().st_size
+                files.append({"nested": nested, "document": document, "size": size})
+                total_bytes += size
+                member_count += 1
+            if member_count > max_members:
+                raise ValueError("collection contains too many resources for one operation")
+        return {
+            "source": source,
+            "source_relative": str(relative),
+            "directories": directories,
+            "files": files,
+            "member_count": member_count,
+            "total_bytes": total_bytes,
+        }
+
+    def copy_collection(
+        self,
+        source_path: str,
+        destination_path: str,
+        actor: str,
+        *,
+        depth: str = "infinity",
+    ) -> dict[str, Any]:
+        """Copy a collection with new IDs/grants and recoverable rollback."""
+        if depth not in {"0", "infinity"}:
+            raise ValueError("collection COPY requires Depth: 0 or infinity")
+        manifest = self.collection_manifest(source_path, actor, depth=depth)
+        destination_relative = self._safe_managed_relative_path(destination_path, require_name=True)
+        destination = self.root / destination_relative
+        source = manifest["source"]
+        if source == destination or source in destination.parents:
+            raise ValueError("a collection cannot be copied into itself")
+        if destination.exists():
+            raise FileExistsError("destination resource already exists")
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination parent collection does not exist")
+        directories = manifest["directories"] if depth == "infinity" else [Path(".")]
+        file_entries = manifest["files"] if depth == "infinity" else []
+        created_documents: list[dict[str, Any]] = []
+        created_directories: list[Path] = []
+        try:
+            for nested in sorted(directories, key=lambda item: (len(item.parts), str(item).casefold())):
+                target = destination if nested == Path(".") else destination / nested
+                self.create_collection(self.relative(target), actor)
+                created_directories.append(target)
+            for entry in file_entries:
+                target = destination / entry["nested"]
+                copied = self.copy_document(entry["document"]["document_id"], self.relative(target), actor)
+                created_documents.append({
+                    "source": manifest["source"] / entry["nested"],
+                    "source_document": entry["document"],
+                    "destination": target,
+                    "destination_document": copied,
+                })
+        except Exception:
+            for item in reversed(created_documents):
+                try:
+                    self.soft_delete_document(item["destination_document"]["document_id"], actor)
+                except (OSError, ValueError):
+                    pass
+            for directory in sorted(created_directories, key=lambda item: len(item.parts), reverse=True):
+                try:
+                    self.delete_empty_collection(self.relative(directory), actor)
+                except (OSError, ValueError):
+                    pass
+            self._record_revision(
+                "webdav_collection_copy_rolled_back", actor, "collections",
+                hashlib.sha256(f"{source_path}:{destination_path}".encode()).hexdigest(),
+                {"source": source_path, "destination": destination_path, "at": utc_now(), "actor": actor},
+            )
+            raise
+        details = {
+            "source": manifest["source_relative"],
+            "destination": str(destination_relative),
+            "depth": depth,
+            "collections": len(created_directories),
+            "documents": len(created_documents),
+            "bytes": sum(int(item["destination"].stat().st_size) for item in created_documents),
+            "actor": actor,
+            "at": utc_now(),
+        }
+        self._event("webdav_collection_copied", details)
+        self._record_revision(
+            "webdav_collection_copied", actor, "collections",
+            hashlib.sha256(str(destination_relative).encode()).hexdigest(), details,
+        )
+        return {**details, "resources": created_documents, "directories_relative": directories}
+
+    def move_collection(self, source_path: str, destination_path: str, actor: str) -> dict[str, Any]:
+        """Atomically remap a collection and retain every document's stable ID."""
+        manifest = self.collection_manifest(source_path, actor)
+        destination_relative = self._safe_managed_relative_path(destination_path, require_name=True)
+        destination = self.root / destination_relative
+        source = manifest["source"]
+        if source == self.root:
+            raise ValueError("the document root cannot be moved")
+        if source == destination or source in destination.parents:
+            raise ValueError("a collection cannot be moved into itself")
+        if destination.exists():
+            raise FileExistsError("destination resource already exists")
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination parent collection does not exist")
+        snapshots = {
+            entry["document"]["document_id"]: json.loads(json.dumps(entry["document"]))
+            for entry in manifest["files"]
+        }
+        moved_documents: list[dict[str, Any]] = []
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            source.replace(destination)
+            try:
+                changed_at = utc_now()
+                for entry in manifest["files"]:
+                    document = json.loads(json.dumps(entry["document"]))
+                    previous_path = str(document.get("last_path", ""))
+                    target = destination / entry["nested"]
+                    relative = self.relative(target)
+                    document["last_path"] = relative
+                    document["last_seen_at"] = changed_at
+                    document.setdefault("location_history", []).append({
+                        "from": previous_path, "to": relative, "at": changed_at, "actor": actor,
+                    })
+                    document["location_history"] = document["location_history"][-200:]
+                    self._write_xattrs(target, document["document_id"], document.get("sha256", ""), document.get("tags", []))
+                    self._save_document(document)
+                    self._refresh_search_index(document)
+                    with self._db() as db:
+                        db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+                    self._scan_file(target)
+                    moved_documents.append({"before": previous_path, "after": relative, "document": document})
+                for item in moved_documents:
+                    fingerprint_path = self.fingerprints / f"{item['document'].get('sha256', '')}.json"
+                    fingerprint = self._read_json(fingerprint_path, {})
+                    if fingerprint:
+                        paths = set(fingerprint.get("paths", []))
+                        paths.discard(item["before"])
+                        paths.add(item["after"])
+                        fingerprint["paths"] = sorted(paths)
+                        fingerprint["last_seen_at"] = changed_at
+                        atomic_json_write(fingerprint_path, fingerprint)
+            except Exception:
+                if destination.exists() and not source.exists():
+                    destination.replace(source)
+                for document_id, snapshot in snapshots.items():
+                    self._save_document(snapshot)
+                    self._refresh_search_index(snapshot)
+                    old_path = self.root / str(snapshot.get("last_path", ""))
+                    if old_path.is_file() and not old_path.is_symlink():
+                        self._scan_file(old_path)
+                self._record_revision(
+                    "webdav_collection_move_rolled_back", actor, "collections",
+                    hashlib.sha256(f"{source_path}:{destination_path}".encode()).hexdigest(),
+                    {"source": source_path, "destination": destination_path, "at": utc_now(), "actor": actor},
+                )
+                raise
+        for item in moved_documents:
+            details = {
+                "document_id": item["document"]["document_id"], "from": item["before"],
+                "to": item["after"], "actor": actor,
+            }
+            self._event("document_moved", details)
+            self._record_revision("document_moved", actor, "documents", item["document"]["document_id"], item["document"])
+        details = {
+            "source": manifest["source_relative"], "destination": str(destination_relative),
+            "collections": len(manifest["directories"]), "documents": len(moved_documents),
+            "bytes": manifest["total_bytes"], "actor": actor, "at": utc_now(),
+        }
+        self._event("webdav_collection_moved", details)
+        self._record_revision(
+            "webdav_collection_moved", actor, "collections",
+            hashlib.sha256(str(destination_relative).encode()).hexdigest(), details,
+        )
+        return {**details, "resources": moved_documents, "directories_relative": manifest["directories"]}
 
     def soft_delete_document(self, reference: str, actor: str) -> dict[str, Any]:
         """Move a document into a private recovery area and retain its metadata."""
