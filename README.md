@@ -68,6 +68,9 @@ Optionale Speichergrenzen nach RFC 4331, 507-Fehler und der vollständige
 Lebenszyklus von Office-Sperren einschließlich Refresh und gesperrter leerer
 Ressourcen stehen in
 [WebDAV-Speichergrenzen und robuste Locks](docs/WEBDAV_QUOTA_UND_LOCKS.md).
+Die sichere Zuordnung von Lock-Token, ETags und Sync-Token zu genau der im
+`If`-Header bezeichneten Ressource ist in
+[WebDAV-Bedingungen nach RFC 4918](docs/WEBDAV_IF_HEADER_RFC4918.md) dokumentiert.
 Fortsetzbare Downloads, `If-Range`, bedingte GET-/HEAD-Anfragen und sichere
 Mehrfachbereiche beschreibt
 [WebDAV-Downloads nach RFC 9110](docs/WEBDAV_DOWNLOADS_RFC9110.md).

@@ -88,6 +88,9 @@ MAX_PROPERTY_NODES = 256
 MAX_BYTE_RANGES = 8
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
 MAX_DIGEST_FIELD_BYTES = 2048
+MAX_IF_HEADER_BYTES = 16 * 1024
+MAX_IF_LISTS = 64
+MAX_IF_CONDITIONS = 256
 DIGEST_ALGORITHMS = {
     "sha-256": (hashlib.sha256, 32, 10),
     "sha-512": (hashlib.sha512, 64, 9),
@@ -786,7 +789,7 @@ def _lock_for(key: str) -> dict | None:
 
 def _require_lock(key: str, username: str) -> Response | None:
     lock = _lock_for(key)
-    token = _request_token()
+    token = _request_token(key)
     if lock and (lock.get("token") != token or lock.get("username") != username):
         return Response("resource is locked", 423)
     return None
@@ -809,10 +812,201 @@ def _active_locks() -> dict:
     return payload
 
 
-def _request_token() -> str:
-    values = " ".join((request.headers.get("If", ""), request.headers.get("Lock-Token", "")))
-    match = re.search(r"opaquelocktoken:[0-9a-fA-F-]+", values)
-    return match.group(0) if match else ""
+def _parse_if_header(value: str) -> list[tuple[str | None, list[list[tuple[bool, str, str]]]]]:
+    """Parse the bounded RFC 4918 If grammar without accepting loose substrings."""
+    if len(value.encode("utf-8")) > MAX_IF_HEADER_BYTES:
+        raise OverflowError("WebDAV If header is too large")
+    position = 0
+    list_count = 0
+    condition_count = 0
+
+    def whitespace() -> None:
+        nonlocal position
+        while position < len(value) and value[position] in " \t":
+            position += 1
+
+    def enclosed(start: str, end: str) -> str:
+        nonlocal position
+        if position >= len(value) or value[position] != start:
+            raise ValueError("invalid WebDAV If header")
+        closing = value.find(end, position + 1)
+        if closing < 0:
+            raise ValueError("invalid WebDAV If header")
+        result = value[position + 1:closing]
+        if not result or "\r" in result or "\n" in result or start in result:
+            raise ValueError("invalid WebDAV If header")
+        position = closing + 1
+        return result
+
+    def condition_list() -> list[tuple[bool, str, str]]:
+        nonlocal position, list_count, condition_count
+        if list_count >= MAX_IF_LISTS:
+            raise OverflowError("WebDAV If header contains too many lists")
+        list_count += 1
+        position += 1
+        conditions: list[tuple[bool, str, str]] = []
+        while True:
+            whitespace()
+            if position >= len(value):
+                raise ValueError("invalid WebDAV If header")
+            if value[position] == ")":
+                position += 1
+                if not conditions:
+                    raise ValueError("WebDAV If lists must not be empty")
+                return conditions
+            negated = False
+            if value[position:position + 3].casefold() == "not":
+                following = position + 3
+                if following >= len(value) or value[following] not in " \t":
+                    raise ValueError("invalid Not condition in WebDAV If header")
+                negated = True
+                position = following
+                whitespace()
+            if condition_count >= MAX_IF_CONDITIONS:
+                raise OverflowError("WebDAV If header contains too many conditions")
+            condition_count += 1
+            if value[position] == "<":
+                conditions.append((negated, "token", enclosed("<", ">")))
+            elif value[position] == "[":
+                conditions.append((negated, "etag", enclosed("[", "]")))
+            else:
+                raise ValueError("invalid condition in WebDAV If header")
+
+    whitespace()
+    if not value or position == len(value):
+        return []
+    groups: list[tuple[str | None, list[list[tuple[bool, str, str]]]]] = []
+    if value[position] == "(":
+        lists = []
+        while True:
+            whitespace()
+            if position >= len(value):
+                break
+            if value[position] != "(":
+                raise ValueError("tagged and untagged WebDAV If lists cannot be mixed")
+            lists.append(condition_list())
+        groups.append((None, lists))
+        return groups
+    while position < len(value):
+        whitespace()
+        if position >= len(value):
+            break
+        tag = enclosed("<", ">")
+        whitespace()
+        lists = []
+        while position < len(value) and value[position] == "(":
+            lists.append(condition_list())
+            whitespace()
+        if not lists:
+            raise ValueError("tagged WebDAV If resource requires a condition list")
+        groups.append((tag, lists))
+    return groups
+
+
+def _if_resource(tag: str | None, username: str, identity: dict) -> dict:
+    """Resolve a tagged URI only inside the authenticated WebDAV namespace."""
+    parsed = urlsplit(tag or request.path)
+    if parsed.netloc and parsed.netloc.casefold() != request.host.casefold():
+        raise PermissionError("WebDAV If resource belongs to another server")
+    if parsed.query or parsed.fragment:
+        raise ValueError("WebDAV If resource must not contain a query or fragment")
+    path = unquote(parsed.path)
+    tree_prefix = f"/webdav/files/{username}"
+    stable_prefix = f"/webdav/documents/{username}/"
+    if path.rstrip("/") == tree_prefix:
+        relative = ""
+        resource = _tree_path(relative)
+    elif path.startswith(tree_prefix + "/"):
+        relative = path[len(tree_prefix):].strip("/")
+        resource = _tree_path(relative)
+    elif path.startswith(stable_prefix):
+        leaf = path[len(stable_prefix):]
+        if "/" in leaf or "--" not in leaf:
+            raise ValueError("invalid stable WebDAV resource")
+        document_id, requested_name = leaf.split("--", 1)
+        document = _store().get_document(document_id)
+        resource = _document_path(document)
+        if requested_name != resource.name:
+            raise ValueError("invalid stable WebDAV resource")
+    else:
+        raise PermissionError("WebDAV If resource is outside this user tree")
+    if not _credential_allows_path(identity, resource):
+        raise PermissionError("WebDAV If resource is outside this credential")
+    document = None
+    if resource.is_file() and not resource.is_symlink():
+        document = _tree_document(resource)
+    collection = resource.is_dir() and not resource.is_symlink()
+    return {
+        "resource": resource,
+        "document": document,
+        "collection": collection,
+        "key": _lock_key(resource, document),
+        "etag": _etag(document) if document else "",
+    }
+
+
+def _if_condition_matches(condition: tuple[bool, str, str], state: dict, username: str, locks: dict) -> bool:
+    negated, kind, supplied = condition
+    matched = False
+    if kind == "etag":
+        matched = bool(state["etag"]) and not supplied.startswith("W/") and hmac.compare_digest(supplied, state["etag"])
+    elif supplied.casefold().startswith("opaquelocktoken:"):
+        lock = locks.get(state["key"])
+        matched = bool(lock) and lock.get("username") == username and hmac.compare_digest(str(lock.get("token", "")), supplied)
+    elif supplied.casefold().startswith("urn:uuid:") and state["collection"]:
+        if "sync_token" not in state:
+            state["sync_token"] = _collection_sync_token(username, state["resource"])
+        current = state["sync_token"]
+        matched = hmac.compare_digest(current, supplied)
+    return not matched if negated else matched
+
+
+def _if_header_error(username: str, identity: dict) -> Response | None:
+    """Evaluate RFC 4918 If lists and cache matching lock tokens by resource."""
+    if getattr(g, "_webdav_if_checked", False):
+        return None
+    value = request.headers.get("If", "")
+    g._webdav_if_checked = True
+    g._webdav_if_tokens = {}
+    if not value:
+        return None
+    try:
+        groups = _parse_if_header(value)
+        locks = _active_locks().get("locks", {})
+        for tag, lists in groups:
+            state = _if_resource(tag, username, identity)
+            successful = [
+                conditions for conditions in lists
+                if all(_if_condition_matches(condition, state, username, locks) for condition in conditions)
+            ]
+            if not successful:
+                return Response("WebDAV If precondition failed", 412)
+            tokens = {
+                supplied for conditions in successful for negated, kind, supplied in conditions
+                if not negated and kind == "token" and supplied.casefold().startswith("opaquelocktoken:")
+            }
+            if tokens:
+                g._webdav_if_tokens.setdefault(state["key"], set()).update(tokens)
+    except OverflowError as exc:
+        return Response(str(exc), 413)
+    except PermissionError:
+        return Response("WebDAV If precondition targets an inaccessible resource", 412)
+    except ValueError:
+        return Response("invalid WebDAV If header or resource", 400)
+    return None
+
+
+def _request_token(key: str) -> str:
+    tokens = getattr(g, "_webdav_if_tokens", {}).get(key, set())
+    return next(iter(tokens)) if len(tokens) == 1 else ""
+
+
+def _unlock_token() -> tuple[str, Response | None]:
+    value = request.headers.get("Lock-Token", "").strip()
+    match = re.fullmatch(r"<(opaquelocktoken:[0-9a-fA-F-]+)>", value)
+    if not match:
+        return "", Response("UNLOCK requires exactly one valid Lock-Token header", 400)
+    return match.group(1), None
 
 
 def _save_lock(
@@ -910,12 +1104,12 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
     existing = _lock_for(key)
 
     if not body.strip():
-        tokens = re.findall(r"opaquelocktoken:[0-9a-fA-F-]+", request.headers.get("If", ""))
-        if len(tokens) != 1 or not existing or existing.get("token") != tokens[0] or existing.get("username") != username:
+        token = _request_token(key)
+        if not token or not existing or existing.get("token") != token or existing.get("username") != username:
             error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:lock-token-matches-request-uri/></d:error>'
             return Response(error, 412, mimetype="application/xml")
         lock = _save_lock(
-            key, username, tokens[0], _timeout_seconds(), existing.get("owner", ""),
+            key, username, token, _timeout_seconds(), existing.get("owner", ""),
             href=str(existing.get("href", href)), depth=str(existing.get("depth", "0")),
         )
         _record_lock_audit("webdav_lock_refreshed", username, resource, lock)
@@ -1470,40 +1664,8 @@ def _collection_sync_token(username: str, collection: Path) -> str:
 
 
 def _sync_if_error(username: str, identity: dict) -> Response | None:
-    """Validate RFC 6578 collection tokens used as tagged If state tokens."""
-    value = request.headers.get("If", "")
-    if "urn:uuid:" not in value:
-        return None
-    pairs = re.findall(r"<([^>]+)>\s*\(\s*<(urn:uuid:[^>]+)>", value, re.I)
-    if not pairs:
-        untagged = re.findall(r"\(\s*<(urn:uuid:[^>]+)>", value, re.I)
-        if len(untagged) != 1:
-            return Response("invalid collection sync-token precondition", 412)
-        pairs = [(request.path, untagged[0])]
-    prefix = f"/webdav/files/{quote(username, safe='')}"
-    for resource_tag, supplied_token in pairs:
-        parsed = urlsplit(resource_tag)
-        if parsed.netloc and parsed.netloc.casefold() != request.host.casefold():
-            return Response("collection sync-token belongs to another server", 412)
-        tagged_path = unquote(parsed.path)
-        if tagged_path.rstrip("/") == prefix:
-            relative = ""
-        elif tagged_path.startswith(prefix + "/"):
-            relative = tagged_path[len(prefix):].strip("/")
-        else:
-            return Response("collection sync-token belongs to another user tree", 412)
-        try:
-            collection = _tree_path(relative)
-        except ValueError:
-            return Response("collection sync-token target is invalid", 412)
-        if not _credential_allows_path(identity, collection):
-            return Response("collection sync-token is outside this credential", 412)
-        if not collection.is_dir() or collection.is_symlink():
-            return Response("collection sync-token target is not a collection", 412)
-        current_token = str(_sync_state(username, collection)["token"])
-        if not hmac.compare_digest(supplied_token, current_token):
-            return Response("collection changed since synchronization", 412)
-    return None
+    """Validate all RFC 4918 If conditions, including RFC 6578 tokens."""
+    return _if_header_error(username, identity)
 
 
 def _sync_member_in_scope(relative: str, collection: Path, level: str) -> bool:
@@ -1770,7 +1932,9 @@ def file_tree(username: str, relative_path: str):
         return _lock_request(username, resource, document, request.url)
 
     if request.method == "UNLOCK":
-        token = _request_token()
+        token, token_error = _unlock_token()
+        if token_error is not None:
+            return token_error
         existing = _lock_for(key)
         if not existing or existing.get("token") != token or existing.get("username") != username:
             return Response("lock token does not match", 409)
@@ -1785,7 +1949,7 @@ def file_tree(username: str, relative_path: str):
             if request.headers.get("If-None-Match") == "*":
                 return Response("resource already exists", 412, {"ETag": current_etag})
             if_match = request.headers.get("If-Match", "")
-            if not _request_token() and not if_match:
+            if not _request_token(key) and not if_match:
                 return Response("existing resources require If-Match or a lock token", 428, {"ETag": current_etag})
             if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
                 return Response("resource changed since it was opened", 412, {"ETag": current_etag})
@@ -1965,6 +2129,10 @@ def endpoint(path: str):
 
     if document is None:
         return Response("not found", 404)
+    if request.method in WRITE_METHODS:
+        if_error = _if_header_error(username, identity)
+        if if_error is not None:
+            return if_error
     if request.method == "PROPPATCH":
         mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
         mutation_lock.__enter__()
@@ -1989,7 +2157,9 @@ def endpoint(path: str):
         response.headers.update(common_headers)
         return response
     if request.method == "UNLOCK":
-        token = _request_token()
+        token, token_error = _unlock_token()
+        if token_error is not None:
+            return token_error
         lock_path = _locks_path()
         with exclusive_file_lock(lock_path.with_suffix(".lock")):
             payload = _active_locks()
@@ -2002,7 +2172,7 @@ def endpoint(path: str):
         return Response("", 204)
     if request.method == "PUT":
         content = request.get_data()
-        token = _request_token()
+        token = _request_token(document["document_id"])
         lock = _active_locks().get("locks", {}).get(document["document_id"])
         if lock and (lock.get("token") != token or lock.get("username") != username):
             return Response("document is locked", 423, common_headers)

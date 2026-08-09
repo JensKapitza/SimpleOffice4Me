@@ -950,6 +950,132 @@ class WebDavDocumentTest(unittest.TestCase):
         lock_actions = {row.get("action") for row in self.store.logbook() if row.get("category") == "webdav-locks"}
         self.assertTrue({"webdav_lock_created", "webdav_lock_refreshed"}.issubset(lock_actions))
 
+    def test_if_header_never_applies_a_lock_token_tagged_to_another_resource(self):
+        target = f"{self.files}/angebot.odt"
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers=self.auth)
+        token = locked.headers["Lock-Token"].strip("<>")
+
+        foreign_tag = self.client.put(
+            target, data=b"must not be stored",
+            headers={**self.auth, "If": f"<http://localhost{self.files}/other.odt> (<{token}>)"},
+        )
+        cross_server = self.client.put(
+            target, data=b"must not be stored either",
+            headers={**self.auth, "If": f"<https://attacker.invalid{target}> (<{token}>)"},
+        )
+
+        self.assertEqual([412, 412], [foreign_tag.status_code, cross_server.status_code])
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+
+    def test_tagged_if_header_combines_lock_etag_and_not_conditions(self):
+        target = f"{self.files}/angebot.odt"
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers=self.auth)
+        token = locked.headers["Lock-Token"].strip("<>")
+        etag = self.client.get(target, headers=self.auth).headers["ETag"]
+        valid_if = f"<http://localhost{target}> (<{token}> [{etag}] Not <urn:example:unknown>)"
+
+        saved = self.client.put(target, data=b"checked", headers={**self.auth, "If": valid_if})
+        stale = self.client.put(
+            target, data=b"stale",
+            headers={**self.auth, "If": f"<{target}> (<{token}> [{etag}])"},
+        )
+
+        self.assertEqual(204, saved.status_code)
+        self.assertEqual(412, stale.status_code)
+        self.assertEqual(b"checked", (self.store.root / "angebot.odt").read_bytes())
+
+    def test_if_header_uses_or_between_lists_and_and_inside_each_list(self):
+        target = f"{self.files}/angebot.odt"
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers=self.auth)
+        token = locked.headers["Lock-Token"].strip("<>")
+        wrong = "opaquelocktoken:00000000-0000-0000-0000-000000000000"
+
+        saved = self.client.put(
+            target, data=b"second",
+            headers={**self.auth, "If": f"(<{wrong}>)(<{token}>)"},
+        )
+        rejected = self.client.put(
+            target, data=b"third",
+            headers={**self.auth, "If": f"(<{token}> [\"wrong\"])"},
+        )
+
+        self.assertEqual(204, saved.status_code)
+        self.assertEqual(412, rejected.status_code)
+        self.assertEqual(b"second", (self.store.root / "angebot.odt").read_bytes())
+
+    def test_tagged_source_lock_allows_copy_but_unrelated_tag_does_not(self):
+        target = f"{self.files}/angebot.odt"
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers=self.auth)
+        token = locked.headers["Lock-Token"].strip("<>")
+        copied = self.client.open(
+            target, method="COPY",
+            headers={
+                **self.auth,
+                "Destination": f"http://localhost{self.files}/Kopie.odt",
+                "If": f"<http://localhost{target}> (<{token}>)",
+            },
+        )
+        rejected = self.client.open(
+            target, method="COPY",
+            headers={
+                **self.auth,
+                "Destination": f"http://localhost{self.files}/Nicht-erlaubt.odt",
+                "If": f"<http://localhost{self.files}/Kopie.odt> (<{token}>)",
+            },
+        )
+
+        self.assertEqual(201, copied.status_code)
+        self.assertEqual(412, rejected.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "Kopie.odt").read_bytes())
+        self.assertFalse((self.store.root / "Nicht-erlaubt.odt").exists())
+
+    def test_if_header_rejects_malformed_mixed_and_oversized_input_before_write(self):
+        target = f"{self.files}/angebot.odt"
+        current = self.client.get(target, headers=self.auth).headers["ETag"]
+        malformed = self.client.put(
+            target, data=b"bad", headers={**self.auth, "If-Match": current, "If": "(<broken>"},
+        )
+        mixed = self.client.put(
+            target, data=b"bad", headers={**self.auth, "If-Match": current, "If": "(<urn:a>) </tag> (<urn:b>)"},
+        )
+        oversized = self.client.put(
+            target, data=b"bad",
+            headers={**self.auth, "If-Match": current, "If": "(" + " Not <urn:x>" * 1400 + ")"},
+        )
+
+        self.assertEqual([400, 400, 413], [malformed.status_code, mixed.status_code, oversized.status_code])
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+
+    def test_lock_refresh_requires_token_for_exact_request_uri(self):
+        target = f"{self.files}/angebot.odt"
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers=self.auth)
+        token = locked.headers["Lock-Token"].strip("<>")
+        wrong_resource = self.client.open(
+            target, method="LOCK",
+            headers={**self.auth, "If": f"<{self.files}/other.odt> (<{token}>)"},
+        )
+        refreshed = self.client.open(
+            target, method="LOCK",
+            headers={**self.auth, "If": f"<http://localhost{target}> (<{token}>)"},
+        )
+
+        self.assertEqual(412, wrong_resource.status_code)
+        self.assertEqual(200, refreshed.status_code)
+
+    def test_unlock_accepts_only_one_exact_lock_token_header(self):
+        target = f"{self.files}/angebot.odt"
+        locked = self.client.open(target, method="LOCK", data=self.lock_body, headers=self.auth)
+        token = locked.headers["Lock-Token"]
+        if_only = self.client.open(
+            target, method="UNLOCK", headers={**self.auth, "If": f"(<{token.strip('<>')}>)"},
+        )
+        malformed = self.client.open(
+            target, method="UNLOCK", headers={**self.auth, "Lock-Token": token + " " + token},
+        )
+        unlocked = self.client.open(target, method="UNLOCK", headers={**self.auth, "Lock-Token": token})
+
+        self.assertEqual([400, 400, 204], [if_only.status_code, malformed.status_code, unlocked.status_code])
+
     def test_lock_rejects_unsupported_scope_depth_and_recursive_collection(self):
         shared = self.lock_body.replace("exclusive", "shared")
         wrong_scope = self.client.open(f"{self.files}/angebot.odt", method="LOCK", data=shared, headers=self.auth)
