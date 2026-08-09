@@ -130,6 +130,114 @@ class WebDavDocumentTest(unittest.TestCase):
         payload = json.loads((self.store.control / "webdav-credentials.json").read_text())
         self.assertEqual(MAX_ACTIVE_CREDENTIALS, len(payload["users"]["jens"]["credentials"]))
 
+    def test_folder_scoped_credential_is_validated_displayed_and_audited(self):
+        (self.store.root / "Projekte").mkdir()
+        response = self.client.post(
+            f"/documents/{self.document['document_id']}/libreoffice",
+            data={
+                "action": "activate", "label": "Projekt-Laptop", "scope": "write",
+                "expires_days": "30", "path_prefix": "Projekte/",
+            },
+        )
+        with app.test_request_context():
+            with self.assertRaises(ValueError):
+                activate("jens", "jens", label="Traversal", path_prefix="../privat")
+            with self.assertRaises(ValueError):
+                activate("jens", "jens", label="Fehlt", path_prefix="NichtVorhanden")
+            with self.assertRaises(ValueError):
+                activate("jens", "jens", label="Steuerdaten", path_prefix=CONTROL_DIR)
+
+        payload = json.loads((self.store.control / "webdav-credentials.json").read_text())
+        record = next(item for item in payload["users"]["jens"]["credentials"] if item["label"] == "Projekt-Laptop")
+        page = response.get_data(as_text=True)
+        snapshots = list((self.store.history.root / "snapshots" / "webdav").glob("*.json"))
+
+        self.assertEqual("Projekte", record["path_prefix"])
+        self.assertIn("Projekt-Laptop", page)
+        self.assertIn("/webdav/files/jens/Projekte/", page)
+        self.assertNotIn(record["hash"], page)
+        self.assertTrue(any(json.loads(path.read_text()).get("path_prefix") == "Projekte" for path in snapshots))
+
+    def test_folder_scoped_credential_hides_siblings_and_stable_document_urls(self):
+        (self.store.root / "Projekte").mkdir()
+        (self.store.root / "Privat").mkdir()
+        allowed = self.store.create_document_at("Projekte/Plan.odt", b"plan", "jens")
+        private = self.store.create_document_at("Privat/Geheim.odt", b"secret", "jens")
+        with app.test_request_context():
+            password = activate("jens", "jens", label="Projekt", path_prefix="Projekte", expires_days=30)
+        auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        allowed_stable = f"/webdav/documents/jens/{allowed['document_id']}--Plan.odt"
+        private_stable = f"/webdav/documents/jens/{private['document_id']}--Geheim.odt"
+
+        listing = self.client.open(f"{self.files}/Projekte", method="PROPFIND", headers={**auth, "Depth": "1"})
+        stable_listing = self.client.open("/webdav/documents/jens", method="PROPFIND", headers={**auth, "Depth": "1"})
+        statuses = [
+            self.client.open(self.files, method="PROPFIND", headers=auth).status_code,
+            self.client.get(f"{self.files}/Privat/Geheim.odt", headers=auth).status_code,
+            self.client.get(private_stable, headers=auth).status_code,
+            self.client.open(f"{self.files}/Privat", method="OPTIONS", headers=auth).status_code,
+        ]
+
+        self.assertEqual(207, listing.status_code)
+        self.assertIn("Plan.odt", listing.get_data(as_text=True))
+        self.assertEqual(200, self.client.get(allowed_stable, headers=auth).status_code)
+        self.assertIn("Plan.odt", stable_listing.get_data(as_text=True))
+        self.assertNotIn("Geheim.odt", stable_listing.get_data(as_text=True))
+        self.assertEqual([404, 404, 404, 404], statuses)
+
+    def test_folder_scope_covers_writes_destinations_locks_and_sync_tokens(self):
+        (self.store.root / "Projekte").mkdir()
+        (self.store.root / "Privat").mkdir()
+        self.store.create_document_at("Projekte/Quelle.txt", b"source", "jens")
+        with app.test_request_context():
+            password = activate("jens", "jens", label="Projekt-Sync", path_prefix="Projekte", expires_days=30)
+        auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        scoped = f"{self.files}/Projekte"
+        sync_body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        initial = self.client.open(scoped, method="REPORT", data=sync_body, headers=auth)
+        token = ElementTree.fromstring(initial.data).findtext("{DAV:}sync-token")
+
+        created = self.client.put(f"{scoped}/Neu.txt", data=b"new", headers={**auth, "If-None-Match": "*"})
+        folder = self.client.open(f"{scoped}/Unterordner", method="MKCOL", headers=auth)
+        copied = self.client.open(
+            f"{scoped}/Quelle.txt", method="COPY",
+            headers={**auth, "Destination": f"http://localhost/webdav/files/jens/Projekte/Kopie.txt"},
+        )
+        moved_outside = self.client.open(
+            f"{scoped}/Quelle.txt", method="MOVE",
+            headers={**auth, "Destination": "http://localhost/webdav/files/jens/Privat/Quelle.txt"},
+        )
+        locked_outside = self.client.open(f"{self.files}/Privat/gesperrt.txt", method="LOCK", data=self.lock_body, headers=auth)
+        tagged_outside = self.client.put(
+            f"{scoped}/Token.txt", data=b"blocked",
+            headers={**auth, "If": f"<{self.files}/Privat/> (<{token}>)"},
+        )
+        boundary_delete = self.client.delete(scoped, headers=auth)
+
+        self.assertEqual([201, 201, 201, 502, 404, 412, 403], [created.status_code, folder.status_code, copied.status_code, moved_outside.status_code, locked_outside.status_code, tagged_outside.status_code, boundary_delete.status_code])
+        self.assertTrue((self.store.root / "Projekte").is_dir())
+        self.assertTrue((self.store.root / "Projekte" / "Quelle.txt").is_file())
+        self.assertTrue((self.store.root / "Projekte" / "Kopie.txt").is_file())
+        self.assertFalse((self.store.root / "Privat" / "Quelle.txt").exists())
+        self.assertFalse((self.store.root / "Projekte" / "Token.txt").exists())
+
+    def test_folder_scoped_read_access_remains_read_only_inside_boundary(self):
+        (self.store.root / "Archiv").mkdir()
+        self.store.create_document_at("Archiv/Beleg.pdf", b"pdf", "jens")
+        with app.test_request_context():
+            password = activate("jens", "jens", label="Archivprüfung", scope="read", path_prefix="Archiv", expires_days=30)
+        auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        root = f"{self.files}/Archiv"
+
+        options = self.client.open(root, method="OPTIONS", headers=auth)
+        listing = self.client.open(root, method="PROPFIND", headers={**auth, "Depth": "1"})
+        fetched = self.client.get(f"{root}/Beleg.pdf", headers=auth)
+        rejected = self.client.put(f"{root}/Neu.pdf", data=b"no", headers=auth)
+
+        self.assertEqual("OPTIONS, PROPFIND, REPORT, GET, HEAD", options.headers["Allow"])
+        self.assertEqual([207, 200, 403], [listing.status_code, fetched.status_code, rejected.status_code])
+        self.assertFalse((self.store.root / "Archiv" / "Neu.pdf").exists())
+
     def test_options_propfind_get_and_head_are_libreoffice_compatible(self):
         options = self.client.open(self.url, method="OPTIONS", headers=self.auth)
         listing = self.client.open("/webdav/documents/jens", method="PROPFIND", headers={**self.auth, "Depth": "1"})

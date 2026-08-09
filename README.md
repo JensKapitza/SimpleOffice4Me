@@ -76,6 +76,10 @@ mit `Content-Digest`, `Repr-Digest` und sicherer Algorithmuswahl beschreibt
 [WebDAV-Übertragungsintegrität nach RFC 9530](docs/WEBDAV_INTEGRITAET_RFC9530.md).
 Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
 [docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
+Wie diese Gerätezugänge zusätzlich auf genau einen Ordner begrenzt werden und
+`COPY`, `MOVE`, Locks sowie Sync-Token nach dem Rechteprinzip aus RFC 3744
+abgesichert sind, beschreibt
+[docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md](docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md).
 Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer
 Dateiinhalte ohne stilles Überschreiben beschreibt
 [docs/DATEI_WIEDERHERSTELLUNG.md](docs/DATEI_WIEDERHERSTELLUNG.md).

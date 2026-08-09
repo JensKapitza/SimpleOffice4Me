@@ -8,7 +8,8 @@ Rechteumfang und Ablaufdatum. Dadurch kann beispielsweise nur der verlorene
 Laptop widerrufen werden, ohne LibreOffice auf dem Arbeitsplatz oder den
 lesenden Backup-Client abzumelden.
 
-Zwei Rechteumfänge stehen zur Verfügung:
+Zwei Rechteumfänge stehen zur Verfügung und können zusätzlich auf genau einen
+vorhandenen Ordner samt Unterordnern begrenzt werden:
 
 - **Nur lesen** erlaubt `OPTIONS`, `PROPFIND`, `GET` und `HEAD`. Das ist für
   Prüfung, Export und lesende Backups gedacht.
@@ -28,8 +29,13 @@ unmittelbar nach dem Erzeugen angezeigt.
    `LibreOffice Büro-Laptop` vergeben.
 3. Den kleinsten notwendigen Rechteumfang und die Gültigkeit wählen.
 4. Das einmal angezeigte App-Passwort in den Zielclient übernehmen.
-5. Als Benutzername den SimpleOffice-Benutzernamen und als Adresse die
-   angezeigte Dokument- oder WebDAV-Wurzeladresse verwenden.
+5. Optional einen vorhandenen relativen Ordner wählen. Ein leerer Wert erlaubt
+   aus Kompatibilitätsgründen alle Dokumente.
+6. Als Benutzername den SimpleOffice-Benutzernamen und als Adresse die
+   gerätespezifische WebDAV-Adresse aus der Zugangstabelle verwenden.
+
+Die vollständige Sicherheits- und RFC-Auswertung der Ordnergrenze steht in
+[WEBDAV_ORDNERZUGAENGE_RFC3744.md](WEBDAV_ORDNERZUGAENGE_RFC3744.md).
 
 Die Client-Einrichtung für LibreOffice, Nautilus, Windows Explorer, Finder und
 FreeFileSync steht in
@@ -135,9 +141,9 @@ Automatisiert geprüft werden:
 
 ## Bekannte Grenzen und Rückkehr
 
-- Es gibt noch keine Dokument- oder Ordnerauswahl pro Gerätezugang; `read` und
-  `write` gelten für den benutzergebundenen WebDAV-Baum und werden durch die
-  normalen Dokumentregeln weiter eingeschränkt.
+- Ein Gerätezugang kann genau einen Ordner samt Nachkommen oder den gesamten
+  benutzergebundenen WebDAV-Baum umfassen. Für mehrere getrennte Ordner werden
+  getrennte Zugänge benötigt; dies hält Widerruf und Audit eindeutig.
 - Abgelaufene Metadaten bleiben sichtbar, bis sie widerrufen werden. Das dient
   Nachvollziehbarkeit und ändert keine Aufbewahrungsregel.
 - WebDAV ACL, OAuth für Desktop-Clients, Client-Zertifikate und automatische

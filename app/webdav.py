@@ -183,6 +183,7 @@ def _credential_records(value: object) -> list[dict]:
             "credential_id": "legacy",
             "label": "Bestehender Desktop-Zugang",
             "scope": "write",
+            "path_prefix": "",
             "expires_at": "",
         }]
     records = value.get("credentials", [])
@@ -210,6 +211,7 @@ def credentials_for(username: str) -> list[dict]:
             "credential_id": str(record.get("credential_id", "")),
             "label": str(record.get("label", "Desktop-Zugang")),
             "scope": "read" if record.get("scope") == "read" else "write",
+            "path_prefix": str(record.get("path_prefix", "")).strip(),
             "created_at": str(record.get("created_at", "")),
             "expires_at": str(record.get("expires_at", "")),
             "expired": _expired(record),
@@ -217,7 +219,47 @@ def credentials_for(username: str) -> list[dict]:
     return sorted(result, key=lambda item: item["created_at"], reverse=True)
 
 
-def activate(username: str, actor: str, *, label: str = "Desktop-Zugang", scope: str = "write", expires_days: int = 90) -> str:
+def _normalize_credential_prefix(value: str) -> str:
+    """Return an existing safe collection relative to the managed root."""
+    raw = str(value or "").strip()
+    if raw in {"", "."}:
+        return ""
+    if len(raw) > 500 or any(ord(character) < 32 for character in raw):
+        raise ValueError("WebDAV-Ordner darf höchstens 500 druckbare Zeichen enthalten.")
+    relative = _store()._safe_managed_relative_path(raw.rstrip("/"), require_name=True)
+    collection = _store().root / relative
+    if not collection.is_dir() or collection.is_symlink():
+        raise ValueError("WebDAV-Ordner muss vorhanden und eine reguläre Sammlung sein.")
+    return str(relative)
+
+
+def _credential_allows_path(identity: dict, resource: Path) -> bool:
+    """Apply a credential's collection boundary to existing and new resources."""
+    prefix = str(identity.get("path_prefix", "")).strip()
+    if not prefix:
+        return True
+    relative = _store().relative(resource)
+    if relative.startswith("[external]") or relative == ".":
+        return False
+    path = Path(relative)
+    boundary = Path(prefix)
+    return path == boundary or boundary in path.parents
+
+
+def _credential_is_boundary(identity: dict, resource: Path) -> bool:
+    prefix = str(identity.get("path_prefix", "")).strip()
+    return bool(prefix) and _store().relative(resource) == prefix
+
+
+def activate(
+    username: str,
+    actor: str,
+    *,
+    label: str = "Desktop-Zugang",
+    scope: str = "write",
+    expires_days: int = 90,
+    path_prefix: str = "",
+) -> str:
     """Create an independently revocable WebDAV app password and return it once."""
     label = " ".join(label.split()).strip()
     if not label or len(label) > 80 or any(ord(character) < 32 for character in label):
@@ -227,6 +269,7 @@ def activate(username: str, actor: str, *, label: str = "Desktop-Zugang", scope:
     if isinstance(expires_days, bool) or not 1 <= int(expires_days) <= 365:
         raise ValueError("Gültigkeit muss zwischen 1 und 365 Tagen liegen.")
     expires_days = int(expires_days)
+    path_prefix = _normalize_credential_prefix(path_prefix)
     credential_id = secrets.token_hex(12)
     password = f"{credential_id}.{secrets.token_urlsafe(24)}"
     salt = os.urandom(16)
@@ -234,6 +277,7 @@ def activate(username: str, actor: str, *, label: str = "Desktop-Zugang", scope:
         "credential_id": credential_id,
         "label": label,
         "scope": scope,
+        "path_prefix": path_prefix,
         "salt": salt.hex(),
         "hash": hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1).hex(),
         "created_at": utc_now(),
@@ -256,7 +300,7 @@ def activate(username: str, actor: str, *, label: str = "Desktop-Zugang", scope:
         atomic_json_write(path, payload)
     _store().history.record(
         "webdav_credential_created", actor, "webdav", hashlib.sha256(username.encode()).hexdigest()[:16],
-        {key: record[key] for key in ("credential_id", "label", "scope", "created_at", "expires_at")},
+        {key: record[key] for key in ("credential_id", "label", "scope", "path_prefix", "created_at", "expires_at")},
     )
     return password
 
@@ -287,7 +331,7 @@ def revoke(username: str, actor: str, credential_id: str = "") -> bool:
     for record in revoked:
         _store().history.record(
             "webdav_credential_revoked", actor, "webdav", hashlib.sha256(username.encode()).hexdigest()[:16],
-            {"credential_id": record.get("credential_id", ""), "label": record.get("label", ""), "scope": record.get("scope", "write"), "revoked_at": utc_now()},
+            {"credential_id": record.get("credential_id", ""), "label": record.get("label", ""), "scope": record.get("scope", "write"), "path_prefix": record.get("path_prefix", ""), "revoked_at": utc_now()},
         )
     return bool(revoked)
 
@@ -318,6 +362,7 @@ def _authenticate() -> dict | None:
                 "username": supplied.username,
                 "credential_id": str(record.get("credential_id", "legacy")),
                 "scope": "read" if record.get("scope") == "read" else "write",
+                "path_prefix": str(record.get("path_prefix", "")).strip(),
             }
     return None
 
@@ -715,7 +760,7 @@ def _lock_key(path: Path, document: dict | None = None) -> str:
     return "unmapped:" + hashlib.sha256(relative.encode("utf-8")).hexdigest()
 
 
-def _destination(username: str) -> tuple[Path, str]:
+def _destination(username: str, identity: dict) -> tuple[Path, str]:
     value = request.headers.get("Destination", "")
     if not value:
         raise ValueError("Destination header is required")
@@ -730,6 +775,8 @@ def _destination(username: str) -> tuple[Path, str]:
     if not relative:
         raise ValueError("the WebDAV root cannot be replaced")
     destination = _tree_path(relative)
+    if not _credential_allows_path(identity, destination):
+        raise PermissionError("destination is outside the credential's collection")
     return destination, _store().relative(destination)
 
 
@@ -1422,7 +1469,7 @@ def _collection_sync_token(username: str, collection: Path) -> str:
     return str(_sync_state(username, collection)["token"])
 
 
-def _sync_if_error(username: str) -> Response | None:
+def _sync_if_error(username: str, identity: dict) -> Response | None:
     """Validate RFC 6578 collection tokens used as tagged If state tokens."""
     value = request.headers.get("If", "")
     if "urn:uuid:" not in value:
@@ -1449,6 +1496,8 @@ def _sync_if_error(username: str) -> Response | None:
             collection = _tree_path(relative)
         except ValueError:
             return Response("collection sync-token target is invalid", 412)
+        if not _credential_allows_path(identity, collection):
+            return Response("collection sync-token is outside this credential", 412)
         if not collection.is_dir() or collection.is_symlink():
             return Response("collection sync-token target is not a collection", 412)
         current_token = str(_sync_state(username, collection)["token"])
@@ -1571,13 +1620,21 @@ def setup_document(document_id: str):
                     label=request.form.get("label", "Desktop-Zugang"),
                     scope=request.form.get("scope", "write"),
                     expires_days=int(request.form.get("expires_days", "90")),
+                    path_prefix=request.form.get("path_prefix", ""),
                 )
             except (TypeError, ValueError) as exc:
                 flash(str(exc) or "WebDAV-Zugang konnte nicht angelegt werden.")
     credentials = credentials_for(username)
+    for credential in credentials:
+        credential["webdav_url"] = _tree_url(
+            username, credential["path_prefix"], external=True, collection=True,
+        )
     configured = any(not item["expired"] for item in credentials)
     webdav_url = _resource_url(username, document, external=True)
-    webdav_root_url = _tree_url(username, external=True, collection=True)
+    webdav_root_url = next(
+        (item["webdav_url"] for item in credentials if not item["expired"]),
+        _tree_url(username, external=True, collection=True),
+    )
     return render_template(
         "documents/libreoffice.html",
         document=document,
@@ -1586,6 +1643,7 @@ def setup_document(document_id: str):
         configured=configured,
         generated_password=generated_password,
         credentials=credentials,
+        default_path_prefix="" if Path(str(document["last_path"])).parent == Path(".") else str(Path(str(document["last_path"])).parent),
         quota=_quota_state(),
     )
 
@@ -1600,6 +1658,12 @@ def file_tree(username: str, relative_path: str):
     if identity["username"] != username:
         return Response("not found", 404)
     allow = "OPTIONS, PROPFIND, REPORT, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, REPORT, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, LOCK, UNLOCK"
+    try:
+        resource = _tree_path(relative_path)
+    except ValueError:
+        return Response("not found", 404)
+    if not _credential_allows_path(identity, resource):
+        return Response("not found", 404)
     if request.method == "OPTIONS":
         return Response("", 204, {
             "DAV": "1, 2, sync-collection", "MS-Author-Via": "DAV", "Allow": allow,
@@ -1607,10 +1671,6 @@ def file_tree(username: str, relative_path: str):
         })
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
         return Response("this WebDAV credential is read-only", 403, {"Allow": allow})
-    try:
-        resource = _tree_path(relative_path)
-    except ValueError:
-        return Response("not found", 404)
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     if resource.is_file() and not resource.is_symlink():
@@ -1623,7 +1683,7 @@ def file_tree(username: str, relative_path: str):
         mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
         mutation_lock.__enter__()
         g._webdav_mutation_lock = mutation_lock
-        sync_error = _sync_if_error(username)
+        sync_error = _sync_if_error(username, identity)
         if sync_error is not None:
             return sync_error
 
@@ -1785,6 +1845,8 @@ def file_tree(username: str, relative_path: str):
         if is_collection:
             if resource == _store().root:
                 return Response("the WebDAV root cannot be deleted", 403)
+            if _credential_is_boundary(identity, resource):
+                return Response("the credential lacks access to the parent collection", 403)
             try:
                 _store().delete_empty_collection(_store().relative(resource), f"webdav:{username}")
             except ValueError as exc:
@@ -1801,7 +1863,7 @@ def file_tree(username: str, relative_path: str):
         if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
             return Response("resource changed since it was opened", 412, {"ETag": current_etag})
         try:
-            destination, destination_relative = _destination(username)
+            destination, destination_relative = _destination(username, identity)
         except PermissionError:
             return Response("destination is outside the authenticated WebDAV tree", 502)
         except ValueError as exc:
@@ -1865,6 +1927,8 @@ def endpoint(path: str):
             return Response("not found", 404)
         if requested_name != document_path.name:
             return Response("not found", 404)
+        if not _credential_allows_path(identity, document_path):
+            return Response("not found", 404)
 
     if request.method == "PROPFIND":
         depth = request.headers.get("Depth", "0")
@@ -1889,6 +1953,8 @@ def endpoint(path: str):
                     try:
                         item_path = _document_path(item)
                     except ValueError:
+                        continue
+                    if not _credential_allows_path(identity, item_path):
                         continue
                     responses.append(_prop_response(_resource_url(username, item), Path(item["last_path"]).name, document=item, username=username, resource=item_path, query=query))
         elif document is not None:
