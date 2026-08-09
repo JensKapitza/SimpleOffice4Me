@@ -61,6 +61,10 @@ def _sync_path() -> Path:
     return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-sync.json"
 
 
+def _properties_path() -> Path:
+    return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-properties.json"
+
+
 def _read_json(path: Path, fallback: dict) -> dict:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -70,9 +74,22 @@ def _read_json(path: Path, fallback: dict) -> dict:
 
 
 MAX_ACTIVE_CREDENTIALS = 10
-WRITE_METHODS = {"PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"}
+WRITE_METHODS = {"PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK", "PROPPATCH"}
 MAX_SYNC_CHANGES = 4096
 MAX_SYNC_TOKENS = 512
+MAX_PROPERTY_BODY = 64 * 1024
+MAX_PROPERTY_COUNT = 64
+MAX_STORED_PROPERTIES = 128
+MAX_PROPERTY_VALUE = 16 * 1024
+MAX_PROPERTY_NODES = 256
+PROTECTED_DAV_PROPERTIES = {
+    f"{{{DAV}}}{name}" for name in (
+        "creationdate", "getcontentlength",
+        "getcontenttype", "getetag", "getlastmodified", "lockdiscovery",
+        "resourcetype", "supportedlock", "supported-report-set", "sync-token",
+    )
+}
+MUTABLE_DAV_PROPERTIES = {f"{{{DAV}}}displayname", f"{{{DAV}}}getcontentlanguage"}
 
 
 def _credential_records(value: object) -> list[dict]:
@@ -364,19 +381,321 @@ def _lock_xml(lock: dict, href: str) -> str:
     return f'''<?xml version="1.0" encoding="utf-8"?><d:prop xmlns:d="DAV:"><d:lockdiscovery><d:activelock><d:locktype><d:write/></d:locktype><d:lockscope><d:exclusive/></d:lockscope><d:depth>0</d:depth><d:owner>{escape(lock.get("owner", ""))}</d:owner><d:timeout>Second-{seconds}</d:timeout><d:locktoken><d:href>{escape(lock["token"])}</d:href></d:locktoken><d:lockroot><d:href>{escape(href)}</d:href></d:lockroot></d:activelock></d:lockdiscovery></d:prop>'''
 
 
-def _prop_response(href: str, display_name: str, *, collection: bool = False, document: dict | None = None, sync_token: str = "") -> str:
-    locks = "<d:supportedlock><d:lockentry><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry></d:supportedlock><d:lockdiscovery/>"
-    if collection:
-        sync = "<d:supported-report-set><d:supported-report><d:report><d:sync-collection/></d:report></d:supported-report></d:supported-report-set>"
-        if sync_token:
-            sync += f"<d:sync-token>{escape(sync_token)}</d:sync-token>"
-        properties = f"<d:resourcetype><d:collection/></d:resourcetype><d:displayname>{escape(display_name)}</d:displayname>{locks}{sync}"
+def _safe_xml_root(body: bytes, expected_tag: str) -> ElementTree.Element:
+    """Parse bounded WebDAV XML without accepting entity declarations."""
+    if len(body) > MAX_PROPERTY_BODY:
+        raise OverflowError("WebDAV XML body is too large")
+    upper = body.upper()
+    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
+        raise PermissionError("external and declared XML entities are not allowed")
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError as exc:
+        raise ValueError("invalid WebDAV XML") from exc
+    if root.tag != expected_tag:
+        raise ValueError("unexpected WebDAV XML root")
+    if sum(1 for _ in root.iter()) > MAX_PROPERTY_NODES:
+        raise OverflowError("WebDAV XML contains too many elements")
+    return root
+
+
+def _property_resource_key(username: str, resource: Path, document: dict | None) -> str:
+    if document is not None:
+        stable = f"document:{document['document_id']}"
     else:
-        path = _document_path(document or {})
-        stat = path.stat()
-        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        properties = f"<d:resourcetype/><d:displayname>{escape(display_name)}</d:displayname><d:getcontentlength>{stat.st_size}</d:getcontentlength><d:getcontenttype>{escape(content_type)}</d:getcontenttype><d:getlastmodified>{formatdate(stat.st_mtime, usegmt=True)}</d:getlastmodified><d:getetag>{escape(_etag(document or {}))}</d:getetag>{locks}"
-    return f"<d:response><d:href>{escape(href)}</d:href><d:propstat><d:prop>{properties}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+        policy = _read_json(resource / POLICY_FILE, {})
+        folder_id = str(policy.get("folder_id", "")).strip()
+        stable = f"collection:{folder_id}" if folder_id else f"collection-path:{_store().relative(resource)}"
+    return f"{username}:{stable}"
+
+
+def _dead_properties(username: str, resource: Path, document: dict | None) -> dict[str, str]:
+    key = _property_resource_key(username, resource, document)
+    properties = _read_json(_properties_path(), {"resources": {}}).get("resources", {}).get(key, {})
+    if not isinstance(properties, dict):
+        return {}
+    return {
+        str(name): str(value) for name, value in properties.items()
+        if isinstance(name, str) and isinstance(value, str)
+    }
+
+
+def _content_language(username: str, resource: Path, document: dict | None) -> str:
+    serialized = _dead_properties(username, resource, document).get(f"{{{DAV}}}getcontentlanguage", "")
+    if not serialized:
+        return ""
+    try:
+        return (ElementTree.fromstring(serialized).text or "").strip()
+    except ElementTree.ParseError:
+        return ""
+
+
+def _xml_element(tag: str, text: str | None = None, child: ElementTree.Element | None = None) -> str:
+    element = ElementTree.Element(tag)
+    if text is not None:
+        element.text = text
+    if child is not None:
+        element.append(child)
+    return ElementTree.tostring(element, encoding="unicode", short_empty_elements=True)
+
+
+def _live_properties(display_name: str, *, collection: bool, document: dict | None, sync_token: str = "") -> dict[str, str]:
+    supported = ElementTree.Element(f"{{{DAV}}}supportedlock")
+    entry = ElementTree.SubElement(supported, f"{{{DAV}}}lockentry")
+    scope = ElementTree.SubElement(entry, f"{{{DAV}}}lockscope")
+    ElementTree.SubElement(scope, f"{{{DAV}}}exclusive")
+    locktype = ElementTree.SubElement(entry, f"{{{DAV}}}locktype")
+    ElementTree.SubElement(locktype, f"{{{DAV}}}write")
+    values = {
+        f"{{{DAV}}}displayname": _xml_element(f"{{{DAV}}}displayname", display_name),
+        f"{{{DAV}}}supportedlock": ElementTree.tostring(supported, encoding="unicode"),
+        f"{{{DAV}}}lockdiscovery": _xml_element(f"{{{DAV}}}lockdiscovery"),
+    }
+    if collection:
+        resource_type = ElementTree.Element(f"{{{DAV}}}resourcetype")
+        ElementTree.SubElement(resource_type, f"{{{DAV}}}collection")
+        report_set = ElementTree.Element(f"{{{DAV}}}supported-report-set")
+        supported_report = ElementTree.SubElement(report_set, f"{{{DAV}}}supported-report")
+        report = ElementTree.SubElement(supported_report, f"{{{DAV}}}report")
+        ElementTree.SubElement(report, f"{{{DAV}}}sync-collection")
+        values.update({
+            f"{{{DAV}}}resourcetype": ElementTree.tostring(resource_type, encoding="unicode"),
+            f"{{{DAV}}}supported-report-set": ElementTree.tostring(report_set, encoding="unicode"),
+        })
+        if sync_token:
+            values[f"{{{DAV}}}sync-token"] = _xml_element(f"{{{DAV}}}sync-token", sync_token)
+        return values
+    path = _document_path(document or {})
+    stat = path.stat()
+    values.update({
+        f"{{{DAV}}}resourcetype": _xml_element(f"{{{DAV}}}resourcetype"),
+        f"{{{DAV}}}getcontentlength": _xml_element(f"{{{DAV}}}getcontentlength", str(stat.st_size)),
+        f"{{{DAV}}}getcontenttype": _xml_element(f"{{{DAV}}}getcontenttype", mimetypes.guess_type(path.name)[0] or "application/octet-stream"),
+        f"{{{DAV}}}getlastmodified": _xml_element(f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True)),
+        f"{{{DAV}}}getetag": _xml_element(f"{{{DAV}}}getetag", _etag(document or {})),
+    })
+    return values
+
+
+def _parse_propfind(body: bytes) -> tuple[str, list[str]]:
+    if not body.strip():
+        return "allprop", []
+    root = _safe_xml_root(body, f"{{{DAV}}}propfind")
+    selectors = [child for child in root if child.tag in {f"{{{DAV}}}allprop", f"{{{DAV}}}propname", f"{{{DAV}}}prop"}]
+    if len(selectors) != 1:
+        raise ValueError("PROPFIND requires exactly one property selector")
+    selector = selectors[0]
+    include_nodes = root.findall(f"{{{DAV}}}include")
+    allowed = {selector, *include_nodes}
+    if len(include_nodes) > 1 or any(child not in allowed for child in root):
+        raise ValueError("PROPFIND contains an unsupported instruction")
+    if selector.tag != f"{{{DAV}}}allprop" and include_nodes:
+        raise ValueError("DAV:include is only valid with DAV:allprop")
+    if selector.tag == f"{{{DAV}}}prop":
+        if any(child.attrib or list(child) or (child.text or "").strip() for child in selector):
+            raise ValueError("PROPFIND property selectors must not contain values")
+        requested = [child.tag for child in selector]
+        return "prop", requested
+    if selector.tag == f"{{{DAV}}}propname":
+        if selector.attrib or list(selector) or (selector.text or "").strip():
+            raise ValueError("DAV:propname must be empty")
+        return "propname", []
+    if selector.attrib or list(selector) or (selector.text or "").strip():
+        raise ValueError("DAV:allprop must be empty")
+    include = include_nodes[0] if include_nodes else None
+    if include is not None and any(child.attrib or list(child) or (child.text or "").strip() for child in include):
+        raise ValueError("DAV:include property selectors must not contain values")
+    return "allprop", [child.tag for child in include] if include is not None else []
+
+
+def _empty_property(tag: str) -> str:
+    return ElementTree.tostring(ElementTree.Element(tag), encoding="unicode", short_empty_elements=True)
+
+
+def _prop_response(
+    href: str,
+    display_name: str,
+    *,
+    collection: bool = False,
+    document: dict | None = None,
+    sync_token: str = "",
+    username: str = "",
+    resource: Path | None = None,
+    query: tuple[str, list[str]] | None = None,
+) -> str:
+    live = _live_properties(display_name, collection=collection, document=document, sync_token=sync_token)
+    dead = _dead_properties(username, resource, document) if username and resource is not None else {}
+    mode, requested = query or ("allprop", [])
+    available = {**live, **dead}
+    if mode == "propname":
+        successful = [_empty_property(tag) for tag in available]
+        missing: list[str] = []
+    elif mode == "prop":
+        successful = [available[tag] for tag in requested if tag in available]
+        missing = [_empty_property(tag) for tag in requested if tag not in available]
+    else:
+        # RFC 4918 allprop includes dead properties and the live properties in
+        # that RFC. Extension properties such as sync-token require include.
+        extensions = {f"{{{DAV}}}sync-token", f"{{{DAV}}}supported-report-set"}
+        selected_live = {tag: value for tag, value in live.items() if tag not in extensions}
+        available = {**selected_live, **dead}
+        for tag in requested:
+            if tag in live:
+                available[tag] = live[tag]
+        successful = list(available.values())
+        missing = [_empty_property(tag) for tag in requested if tag not in available]
+    propstats = f'<d:propstat><d:prop>{"".join(successful)}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>'
+    if missing:
+        propstats += f'<d:propstat><d:prop>{"".join(missing)}</d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat>'
+    return f'<d:response><d:href>{escape(href)}</d:href>{propstats}</d:response>'
+
+
+def _parse_proppatch(body: bytes) -> list[tuple[str, str, str]]:
+    root = _safe_xml_root(body, f"{{{DAV}}}propertyupdate")
+    operations: list[tuple[str, str, str]] = []
+    for instruction in root:
+        if instruction.tag not in {f"{{{DAV}}}set", f"{{{DAV}}}remove"}:
+            raise ValueError("PROPPATCH only accepts set and remove instructions")
+        prop_nodes = list(instruction)
+        if len(prop_nodes) != 1 or prop_nodes[0].tag != f"{{{DAV}}}prop":
+            raise ValueError("each PROPPATCH instruction requires exactly one DAV:prop")
+        action = "set" if instruction.tag == f"{{{DAV}}}set" else "remove"
+        for element in prop_nodes[0]:
+            if action == "remove" and (element.attrib or list(element) or (element.text or "").strip()):
+                raise ValueError("properties in a remove instruction must be empty")
+            clone = ElementTree.fromstring(ElementTree.tostring(element, encoding="utf-8"))
+            clone.tail = None
+            language = prop_nodes[0].get("{http://www.w3.org/XML/1998/namespace}lang")
+            if language and "{http://www.w3.org/XML/1998/namespace}lang" not in clone.attrib:
+                clone.set("{http://www.w3.org/XML/1998/namespace}lang", language)
+            serialized = ElementTree.tostring(clone, encoding="unicode", short_empty_elements=True)
+            if len(serialized.encode("utf-8")) > MAX_PROPERTY_VALUE:
+                raise OverflowError("a WebDAV property value is too large")
+            operations.append((action, element.tag, serialized))
+    if not operations:
+        raise ValueError("PROPPATCH contains no property instructions")
+    if len(operations) > MAX_PROPERTY_COUNT:
+        raise OverflowError("PROPPATCH contains too many property instructions")
+    return operations
+
+
+def _live_property_value_valid(tag: str, serialized: str) -> bool:
+    if tag not in MUTABLE_DAV_PROPERTIES:
+        return True
+    element = ElementTree.fromstring(serialized)
+    if list(element):
+        return False
+    text = element.text or ""
+    if tag == f"{{{DAV}}}displayname":
+        return len(text.encode("utf-8")) <= 1024 and "\x00" not in text
+    return bool(re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", text.strip()))
+
+
+def _proppatch_response(href: str, statuses: list[tuple[str, int]]) -> Response:
+    groups: dict[int, list[str]] = {}
+    for tag, status in statuses:
+        groups.setdefault(status, []).append(_empty_property(tag))
+    labels = {200: "OK", 403: "Forbidden", 409: "Conflict", 424: "Failed Dependency", 507: "Insufficient Storage"}
+    parts = []
+    for status, properties in groups.items():
+        error = '<d:error><d:cannot-modify-protected-property/></d:error>' if status == 403 else ""
+        parts.append(f'<d:propstat><d:prop>{"".join(properties)}</d:prop><d:status>HTTP/1.1 {status} {labels[status]}</d:status>{error}</d:propstat>')
+    xml = f'<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>{escape(href)}</d:href>{"".join(parts)}</d:response></d:multistatus>'
+    return Response(xml, 207, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store"})
+
+
+def _apply_proppatch(username: str, resource: Path, document: dict | None, href: str) -> tuple[Response, bool]:
+    body = request.get_data(cache=True)
+    try:
+        operations = _parse_proppatch(body)
+    except OverflowError as exc:
+        return Response(str(exc), 413), False
+    except PermissionError:
+        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+        return Response(error, 400, mimetype="application/xml"), False
+    except ValueError as exc:
+        return Response(str(exc), 400), False
+
+    protected = {
+        index for index, (_, tag, _) in enumerate(operations)
+        if tag in PROTECTED_DAV_PROPERTIES or (tag.startswith(f"{{{DAV}}}") and tag not in MUTABLE_DAV_PROPERTIES) or not tag.startswith("{")
+    }
+    conflicts = {
+        index for index, (action, tag, serialized) in enumerate(operations)
+        if action == "set" and not _live_property_value_valid(tag, serialized)
+    }
+    if protected or conflicts:
+        statuses = [
+            (tag, 403 if index in protected else 409 if index in conflicts else 424)
+            for index, (_, tag, _) in enumerate(operations)
+        ]
+        return _proppatch_response(href, statuses), False
+
+    key = _property_resource_key(username, resource, document)
+    path = _properties_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    changed_names: list[str] = []
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"version": 1, "resources": {}})
+        resources = payload.setdefault("resources", {})
+        if not isinstance(resources, dict):
+            resources = {}
+            payload["resources"] = resources
+        current = resources.get(key, {})
+        proposed = dict(current) if isinstance(current, dict) else {}
+        for action, tag, serialized in operations:
+            before = proposed.get(tag)
+            if action == "set":
+                proposed[tag] = serialized
+            else:
+                proposed.pop(tag, None)
+            if proposed.get(tag) != before:
+                changed_names.append(tag)
+        if len(proposed) > MAX_STORED_PROPERTIES:
+            return _proppatch_response(href, [(tag, 507 if index == 0 else 424) for index, (_, tag, _) in enumerate(operations)]), False
+        if changed_names:
+            if proposed:
+                resources[key] = proposed
+            else:
+                resources.pop(key, None)
+            payload["version"] = 1
+            atomic_json_write(path, payload)
+
+    if changed_names:
+        audit_key = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        _store().history.record(
+            "webdav_properties_changed", f"webdav:{username}", "webdav-properties", audit_key,
+            {"resource": _store().relative(resource), "properties": sorted(set(changed_names)), "changed_at": utc_now(), "actor": f"webdav:{username}"},
+        )
+    return _proppatch_response(href, [(tag, 200) for _, tag, _ in operations]), bool(changed_names)
+
+
+def _copy_dead_properties(username: str, source: Path, source_document: dict, destination: Path, destination_document: dict) -> None:
+    """Preserve dead properties on COPY as recommended by RFC 4918 section 9.8.2."""
+    path = _properties_path()
+    if not path.exists():
+        return
+    source_key = _property_resource_key(username, source, source_document)
+    destination_key = _property_resource_key(username, destination, destination_document)
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"version": 1, "resources": {}})
+        resources = payload.get("resources", {})
+        source_properties = resources.get(source_key, {}) if isinstance(resources, dict) else {}
+        if not isinstance(source_properties, dict) or not source_properties:
+            return
+        resources[destination_key] = dict(source_properties)
+        atomic_json_write(path, payload)
+    _store().history.record(
+        "webdav_properties_copied", f"webdav:{username}", "webdav-properties",
+        hashlib.sha256(destination_key.encode("utf-8")).hexdigest(),
+        {
+            "source": _store().relative(source),
+            "destination": _store().relative(destination),
+            "properties": sorted(source_properties),
+            "copied_at": utc_now(),
+            "actor": f"webdav:{username}",
+        },
+    )
 
 
 def _visible_snapshot(collection: Path) -> dict[str, dict]:
@@ -579,17 +898,21 @@ def _sync_report(username: str, collection: Path) -> Response:
     if len(body) > 64 * 1024:
         return Response("REPORT body is too large", 413)
     try:
-        root = ElementTree.fromstring(body)
-    except ElementTree.ParseError:
+        root = _safe_xml_root(body, f"{{{DAV}}}sync-collection")
+    except OverflowError as exc:
+        return Response(str(exc), 413)
+    except PermissionError:
+        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+        return Response(error, 400, mimetype="application/xml")
+    except ValueError:
         return Response("invalid sync-collection XML", 400)
-    if root.tag != f"{{{DAV}}}sync-collection":
-        return Response("unsupported REPORT", 400)
     token_nodes = root.findall(f"{{{DAV}}}sync-token")
     level_nodes = root.findall(f"{{{DAV}}}sync-level")
     prop_nodes = root.findall(f"{{{DAV}}}prop")
     if len(token_nodes) != 1 or len(level_nodes) != 1 or len(prop_nodes) != 1:
         return Response("sync-token, sync-level and prop are required", 400)
     token_node, level_node = token_nodes[0], level_nodes[0]
+    query = ("prop", [child.tag for child in prop_nodes[0]])
     level = (level_node.text or "").strip()
     if level not in {"1", "infinite"}:
         return Response("sync-level must be 1 or infinite", 400)
@@ -635,13 +958,13 @@ def _sync_report(username: str, collection: Path) -> Response:
             continue
         resource = _store().root / relative
         if item.get("collection"):
-            responses.append(_prop_response(href, resource.name, collection=True))
+            responses.append(_prop_response(href, resource.name, collection=True, username=username, resource=resource, query=query))
         else:
             try:
                 document = _tree_document(resource)
             except ValueError:
                 continue
-            responses.append(_prop_response(href, resource.name, document=document))
+            responses.append(_prop_response(href, resource.name, document=document, username=username, resource=resource, query=query))
     xml = f'''<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}<d:sync-token>{escape(str(state["token"]))}</d:sync-token></d:multistatus>'''
     return Response(xml, 207, mimetype="application/xml")
 
@@ -683,8 +1006,8 @@ def setup_document(document_id: str):
     return render_template("documents/libreoffice.html", document=document, webdav_url=webdav_url, webdav_root_url=webdav_root_url, configured=configured, generated_password=generated_password, credentials=credentials)
 
 
-@bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
-@bp.route("/webdav/files/<username>/<path:relative_path>", methods=["OPTIONS", "PROPFIND", "REPORT", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
+@bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
+@bp.route("/webdav/files/<username>/<path:relative_path>", methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
 def file_tree(username: str, relative_path: str):
     """Hierarchical WebDAV namespace for desktop file managers and sync clients."""
     identity = _authenticate()
@@ -692,7 +1015,7 @@ def file_tree(username: str, relative_path: str):
         return _unauthorized()
     if identity["username"] != username:
         return Response("not found", 404)
-    allow = "OPTIONS, PROPFIND, REPORT, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, REPORT, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, LOCK, UNLOCK"
+    allow = "OPTIONS, PROPFIND, REPORT, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, REPORT, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, LOCK, UNLOCK"
     if request.method == "OPTIONS":
         return Response("", 204, {"DAV": "1, 2, sync-collection", "MS-Author-Via": "DAV", "Allow": allow})
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
@@ -728,23 +1051,33 @@ def file_tree(username: str, relative_path: str):
         depth = request.headers.get("Depth", "0")
         if depth not in {"0", "1"}:
             return Response("finite Depth required", 403)
+        body = request.get_data(cache=True)
+        try:
+            query = _parse_propfind(body)
+        except OverflowError as exc:
+            return Response(str(exc), 413)
+        except PermissionError:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+            return Response(error, 400, mimetype="application/xml")
+        except ValueError as exc:
+            return Response(str(exc), 400)
         href = _tree_url(username, _store().relative(resource), collection=is_collection)
-        wants_sync_token = b"sync-token" in request.get_data(cache=True)
+        wants_sync_token = query[0] == "propname" or f"{{{DAV}}}sync-token" in query[1]
         sync_token = _collection_sync_token(username, resource) if is_collection and wants_sync_token else ""
-        responses = [_prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token)]
+        responses = [_prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token, username=username, resource=resource, query=query)]
         if is_collection and depth == "1":
             for child in sorted(resource.iterdir(), key=lambda item: item.name.casefold()):
                 if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or child.is_symlink():
                     continue
                 child_href = _tree_url(username, _store().relative(child), collection=child.is_dir())
                 if child.is_dir():
-                    responses.append(_prop_response(child_href, child.name, collection=True))
+                    responses.append(_prop_response(child_href, child.name, collection=True, username=username, resource=child, query=query))
                 elif child.is_file():
                     try:
                         child_document = _tree_document(child)
                     except ValueError:
                         continue
-                    responses.append(_prop_response(child_href, child.name, document=child_document))
+                    responses.append(_prop_response(child_href, child.name, document=child_document, username=username, resource=child, query=query))
         return Response(f'''<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}</d:multistatus>''', 207, mimetype="application/xml")
 
     if request.method in {"GET", "HEAD"}:
@@ -752,6 +1085,9 @@ def file_tree(username: str, relative_path: str):
             return Response("not found", 404)
         data = resource.read_bytes()
         headers = {"ETag": _etag(document), "Content-Type": mimetypes.guess_type(resource.name)[0] or "application/octet-stream", "Content-Length": str(len(data)), "Cache-Control": "private, no-cache"}
+        content_language = _content_language(username, resource, document)
+        if content_language:
+            headers["Content-Language"] = content_language
         response = Response(data if request.method == "GET" else None, 200)
         response.headers.update(headers)
         return response
@@ -760,6 +1096,20 @@ def file_tree(username: str, relative_path: str):
     lock_error = _require_lock(key, username)
     if lock_error is not None and request.method != "UNLOCK":
         return lock_error
+
+    if request.method == "PROPPATCH":
+        if not is_collection and document is None:
+            return Response("not found", 404)
+        if document is not None:
+            try:
+                _store()._require_document_editable(document)
+            except ValueError as exc:
+                return Response(str(exc), 423)
+        href = _tree_url(username, _store().relative(resource), collection=is_collection)
+        response, changed = _apply_proppatch(username, resource, document, href)
+        if changed:
+            _record_sync_changes(username, _store().relative(resource))
+        return response
 
     if request.method == "MKCOL":
         if resource.exists():
@@ -777,10 +1127,15 @@ def file_tree(username: str, relative_path: str):
         token = _request_token() or f"opaquelocktoken:{uuid.uuid4()}"
         owner = ""
         try:
-            root = ElementTree.fromstring(request.get_data() or b"<lockinfo xmlns='DAV:'/>")
+            root = _safe_xml_root(request.get_data() or b"<lockinfo xmlns='DAV:'/>", f"{{{DAV}}}lockinfo")
             owner_node = root.find("{DAV:}owner")
             owner = "".join(owner_node.itertext()) if owner_node is not None else ""
-        except ElementTree.ParseError:
+        except OverflowError as exc:
+            return Response(str(exc), 413)
+        except PermissionError:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+            return Response(error, 400, mimetype="application/xml")
+        except ValueError:
             return Response("invalid LOCK body", 400)
         try:
             lock = _save_lock(key, username, token, _timeout_seconds(), owner)
@@ -879,6 +1234,7 @@ def file_tree(username: str, relative_path: str):
         try:
             if request.method == "COPY":
                 result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
+                _copy_dead_properties(username, resource, document, destination, result)
             else:
                 with exclusive_file_lock(_store().control / ".document-content.lock"):
                     result = _store().move_document(document["document_id"], _store().relative(destination.parent), f"webdav:{username}", destination_name=destination.name)
@@ -895,13 +1251,13 @@ def file_tree(username: str, relative_path: str):
 
 
 @bp.route("/webdav/", defaults={"path": ""}, methods=["OPTIONS", "PROPFIND"])
-@bp.route("/webdav/<path:path>", methods=["OPTIONS", "PROPFIND", "GET", "HEAD", "PUT", "LOCK", "UNLOCK"])
+@bp.route("/webdav/<path:path>", methods=["OPTIONS", "PROPFIND", "PROPPATCH", "GET", "HEAD", "PUT", "LOCK", "UNLOCK"])
 def endpoint(path: str):
     identity = _authenticate()
     if identity is None:
         return _unauthorized()
     username = identity["username"]
-    allow = "OPTIONS, PROPFIND, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, GET, HEAD, PUT, LOCK, UNLOCK"
+    allow = "OPTIONS, PROPFIND, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, GET, HEAD, PUT, LOCK, UNLOCK"
     if request.method == "OPTIONS":
         return Response("", 204, {"DAV": "1, 2", "MS-Author-Via": "DAV", "Allow": allow})
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
@@ -925,31 +1281,58 @@ def endpoint(path: str):
         depth = request.headers.get("Depth", "0")
         if depth not in {"0", "1"}:
             return Response("finite Depth required", 403)
+        try:
+            query = _parse_propfind(request.get_data(cache=True))
+        except OverflowError as exc:
+            return Response(str(exc), 413)
+        except PermissionError:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+            return Response(error, 400, mimetype="application/xml")
+        except ValueError as exc:
+            return Response(str(exc), 400)
         responses: list[str] = []
         if not parts:
-            responses.append(_prop_response(request.path, "SimpleOffice4Me", collection=True))
+            responses.append(_prop_response(request.path, "SimpleOffice4Me", collection=True, query=query))
         elif parts == ["documents", username]:
-            responses.append(_prop_response(request.path, "SimpleOffice Dokumente", collection=True))
+            responses.append(_prop_response(request.path, "SimpleOffice Dokumente", collection=True, query=query))
             if depth == "1":
                 for item in _store().list_documents():
                     try:
-                        _document_path(item)
+                        item_path = _document_path(item)
                     except ValueError:
                         continue
-                    responses.append(_prop_response(_resource_url(username, item), Path(item["last_path"]).name, document=item))
+                    responses.append(_prop_response(_resource_url(username, item), Path(item["last_path"]).name, document=item, username=username, resource=item_path, query=query))
         elif document is not None:
-            responses.append(_prop_response(request.path, document_path.name, document=document))
+            responses.append(_prop_response(request.path, document_path.name, document=document, username=username, resource=document_path, query=query))
         else:
             return Response("not found", 404)
         return Response(f'<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}</d:multistatus>', 207, mimetype="application/xml")
 
     if document is None:
         return Response("not found", 404)
+    if request.method == "PROPPATCH":
+        mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
+        mutation_lock.__enter__()
+        g._webdav_mutation_lock = mutation_lock
+        lock_error = _require_lock(document["document_id"], username)
+        if lock_error is not None:
+            return lock_error
+        try:
+            _store()._require_document_editable(document)
+        except ValueError as exc:
+            return Response(str(exc), 423)
+        response, changed = _apply_proppatch(username, document_path, document, request.path)
+        if changed:
+            _record_sync_changes(username, _store().relative(document_path))
+        return response
     current_etag = _etag(document)
     common_headers = {"ETag": current_etag, "Accept-Ranges": "bytes", "Cache-Control": "private, no-cache"}
     if request.method in {"GET", "HEAD"}:
         data = document_path.read_bytes()
         headers = {**common_headers, "Content-Type": "application/octet-stream", "Content-Length": str(len(data))}
+        content_language = _content_language(username, document_path, document)
+        if content_language:
+            headers["Content-Language"] = content_language
         response = Response(data if request.method == "GET" else None, 200)
         response.headers.update(headers)
         return response
@@ -957,10 +1340,15 @@ def endpoint(path: str):
         token = _request_token() or f"opaquelocktoken:{uuid.uuid4()}"
         owner = ""
         try:
-            root = ElementTree.fromstring(request.get_data() or b"<lockinfo xmlns='DAV:'/>")
+            root = _safe_xml_root(request.get_data() or b"<lockinfo xmlns='DAV:'/>", f"{{{DAV}}}lockinfo")
             owner_node = root.find("{DAV:}owner")
             owner = "".join(owner_node.itertext()) if owner_node is not None else ""
-        except ElementTree.ParseError:
+        except OverflowError as exc:
+            return Response(str(exc), 413)
+        except PermissionError:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+            return Response(error, 400, mimetype="application/xml")
+        except ValueError:
             return Response("invalid LOCK body", 400)
         try:
             lock = _save_lock(document["document_id"], username, token, _timeout_seconds(), owner)

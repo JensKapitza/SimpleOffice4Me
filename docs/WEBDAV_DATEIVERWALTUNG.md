@@ -75,6 +75,7 @@ Maßgeblich ist
 |---|---|---|
 | Sammlungen müssen hierarchische Mitglieder abbilden; Mitglied-URLs enden bei Sammlungen konsistent. | [RFC 4918 §5](https://www.rfc-editor.org/rfc/rfc4918.html#section-5) | Reale Ordner unter dem Dokumentstamm werden als Sammlungen angeboten; interne Metadaten, Historie, Richtliniendateien und Symlinks bleiben unsichtbar. |
 | `PROPFIND` muss Eigenschaften liefern und `Depth` berücksichtigen. | [§9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1) | `Depth: 0` und `1` liefern `207 Multi-Status`, starke ETags, Größe, Medientyp und Änderungszeit. `infinity` wird aus Last- und Datenschutzgründen abgewiesen. |
+| `PROPPATCH` muss `set` und `remove` in Dokumentreihenfolge und vollständig atomar verarbeiten; beliebige Dead Properties sollten möglich sein. | [§9.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.2) | Schreibende Gerätezugänge können begrenzte, benutzergebundene XML-Metadaten setzen und entfernen. Live Properties bleiben geschützt; Locks, Audit und Sync-Journal greifen. Details: [WEBDAV_EIGENSCHAFTEN_RFC4918.md](WEBDAV_EIGENSCHAFTEN_RFC4918.md). |
 | `MKCOL` muss eine Sammlung erzeugen; fehlt die übergeordnete Sammlung, ist `409` vorgesehen. | [§9.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.3) | Genau ein Ordner wird atomar angelegt und erhält die normale SimpleOffice-Ordnerpolitik. Erweiterte MKCOL-Anfragetexte werden mit `415` abgewiesen. |
 | `PUT` auf eine neue URL erzeugt eine Ressource; bei Austausch müssen Bedingungen und Sperren beachtet werden. | [§9.7](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.7), [§7.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.2) | Neue Dateien werden temporär geschrieben, synchronisiert und atomar umbenannt. Ein vorhandenes Dokument verlangt `If-Match` oder einen gültigen Lock-Token; blindes Überschreiben erhält `428`. |
 | `COPY` lässt die Quelle unverändert und `MOVE` ändert ihre URL-Zuordnung. | [§9.8](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.8), [§9.9](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9) | Reguläre Dateien können in existierende Ordner kopiert, verschoben und umbenannt werden. Kopien erhalten eine neue Dokument-ID; Verschiebungen behalten die ID. Fremde Hosts und Benutzerpfade werden abgewiesen. |
@@ -84,7 +85,7 @@ Maßgeblich ist
 | `If-Match` muss bei abweichendem Validator mit `412` fehlschlagen; `If-None-Match: *` schützt die Neuanlage. | [RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1), [§13.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2) | ETags sind SHA-256-basiert. Vorbedingungen werden nochmals unter derselben Dateisperre wie der Inhalt geprüft. |
 | Sammlungen können Änderungen seit einem undurchsichtigen Token effizient melden. | [RFC 6578 §3](https://www.rfc-editor.org/rfc/rfc6578.html#section-3) | `REPORT sync-collection`, `sync-level` 1/infinite, geänderte ETags und Lösch-Tombstones sind benutzergetrennt implementiert; Details stehen in [WEBDAV_SYNC_RFC6578.md](WEBDAV_SYNC_RFC6578.md). |
 
-`OPTIONS` meldet DAV-Klassen `1, 2`, `sync-collection` und die Methoden `PROPFIND`, `REPORT`, `GET`, `HEAD`,
+`OPTIONS` meldet DAV-Klassen `1, 2`, `sync-collection` und die Methoden `PROPFIND`, `PROPPATCH`, `REPORT`, `GET`, `HEAD`,
 `PUT`, `DELETE`, `MKCOL`, `COPY`, `MOVE`, `LOCK` und `UNLOCK`.
 
 ## Rechte, Sicherheit und Datenschutz
@@ -108,7 +109,7 @@ Maßgeblich ist
 ## Speicherung, Audit und Wiederherstellung
 
 Neuanlage, Überschreiben, Kopieren, Umbenennen/Verschieben, Löschung sowie das
-Anlegen und Entfernen von Ordnern erzeugen Ereignis- und Git-basierte
+Anlegen und Entfernen von Ordnern und tatsächliche Eigenschaftsänderungen erzeugen Ereignis- und Git-basierte
 Revisionsdatensätze mit Benutzer und Zeitpunkt. Beim Überschreiben wird der
 Vorgänger unter `.simpleoffice-meta/content-versions/` hashgeprüft gesichert.
 Eine Kopie bekommt eine neue ID und übernimmt nur Tags, Beschreibung und
@@ -134,6 +135,8 @@ wiederherstellen. Sicherheitsmodell, Konflikte und RFC-Abgrenzung stehen in
 - `412`: ETag ist veraltet, `If-None-Match: *` trifft auf eine vorhandene Datei
   oder COPY/MOVE würde ein Ziel ersetzen.
 - `415`: nicht unterstützter erweiterter `MKCOL`-Anfragetext.
+- `413`: WebDAV-Eigenschafts-XML oder ein Einzelwert überschreitet die feste
+  Schutzgrenze.
 - `423`: Lock-Token fehlt/falsch oder eine SimpleOffice-Sperre greift.
 - `428`: eine vorhandene Datei soll ohne ETag oder Lock überschrieben werden.
 - `502`: `Destination` verweist auf einen anderen Host oder Benutzerbaum.
@@ -150,8 +153,8 @@ seine stabilen Dokument-ID-URLs bleiben erhalten. Alte Einzelpasswörter werden
 rückwärtskompatibel als bestehender Schreibzugang gelesen. Ohne aktives
 App-Passwort ist kein WebDAV-Zugriff möglich.
 
-Bewusst noch nicht implementiert sind `PROPPATCH`, benutzerdefinierte Dead
-Properties, rekursive COPY-/MOVE-Operationen, `PROPFIND Depth: infinity`, Byte-Range-
+Bewusst noch nicht implementiert sind WebDAV ACL und serverseitige Suche über
+Dead Properties, rekursive COPY-/MOVE-Operationen, `PROPFIND Depth: infinity`, Byte-Range-
 Downloads, automatisches Zusammenführen binärer Office-Dateien und das
 Überschreiben vorhandener COPY-/MOVE-Ziele. Nicht standardkonforme Clients,
 die vorhandene Dateien ohne Lock und ohne `If-Match` speichern, erhalten
@@ -162,6 +165,8 @@ absichtlich `428` statt eines riskanten Erfolgs.
 Automatisiert geprüft werden realistische Abläufe für:
 
 - Wurzel- und Ordner-`PROPFIND`, versteckte Steuerpfade und begrenzte Tiefe;
+- `PROPPATCH`-Roundtrip, `propname`, fehlende Eigenschaften, atomaren Rollback,
+  geschützte Live Properties, Lock- und Rechtefehler sowie XML-Schutzgrenzen;
 - `MKCOL` und `PUT`-Neuanlage mit Dokument-ID, Hash und Audit;
 - ETag-geschütztes Speichern, veraltete und fehlende Vorbedingungen;
 - Lock-null-Erzeugung, `PUT`, Token-Übertragung und `UNLOCK`;

@@ -61,6 +61,9 @@ eingehängten FreeFileSync-Ziel ist in
 [docs/WEBDAV_DATEIVERWALTUNG.md](docs/WEBDAV_DATEIVERWALTUNG.md) dokumentiert.
 Der inkrementelle Änderungsabgleich für kompatible Clients folgt
 [RFC 6578](docs/WEBDAV_SYNC_RFC6578.md).
+Schreibbare, atomare Datei- und Ordnereigenschaften für Desktop-Clients sind
+unter [WebDAV-Eigenschaften nach RFC 4918](docs/WEBDAV_EIGENSCHAFTEN_RFC4918.md)
+beschrieben.
 Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
 [docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
 Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer

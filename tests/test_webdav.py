@@ -142,6 +142,182 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(len(fetched.data), int(head.headers["Content-Length"]))
         self.assertEqual(fetched.headers["ETag"], head.headers["ETag"])
 
+    def test_dead_properties_roundtrip_propname_and_remove(self):
+        target = f"{self.files}/angebot.odt"
+        update = '''<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test">
+          <d:set><d:prop><m:tags><m:tag>rechnung</m:tag><m:tag>kunde-a</m:tag></m:tags></d:prop></d:set>
+          <d:set><d:prop><m:rating>5</m:rating></d:prop></d:set>
+        </d:propertyupdate>'''
+        saved = self.client.open(target, method="PROPPATCH", data=update, headers=self.auth)
+        requested = self.client.open(
+            target, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:tags/><m:rating/><m:missing/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        names = self.client.open(
+            target, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:"><d:propname/></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        removed = self.client.open(
+            target, method="PROPPATCH",
+            data='<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:remove><d:prop><m:rating/></d:prop></d:remove></d:propertyupdate>',
+            headers=self.auth,
+        )
+        after = self.client.open(
+            target, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:rating/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+
+        self.assertEqual([207, 207, 207, 207, 207], [saved.status_code, requested.status_code, names.status_code, removed.status_code, after.status_code])
+        requested_xml = ElementTree.fromstring(requested.data)
+        tags = requested_xml.find(".//{urn:simpleoffice:test}tags")
+        self.assertEqual(["rechnung", "kunde-a"], [item.text for item in tags])
+        self.assertEqual("5", requested_xml.findtext(".//{urn:simpleoffice:test}rating"))
+        self.assertIn("404 Not Found", requested.get_data(as_text=True))
+        self.assertIsNotNone(ElementTree.fromstring(names.data).find(".//{urn:simpleoffice:test}tags"))
+        self.assertIn("404 Not Found", after.get_data(as_text=True))
+        self.assertTrue(list((self.store.history.root / "snapshots" / "webdav-properties").glob("*.json")))
+
+    def test_proppatch_is_atomic_and_live_properties_are_protected(self):
+        target = f"{self.files}/angebot.odt"
+        attempted = self.client.open(
+            target, method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test">
+              <d:set><d:prop><m:author>Jens</m:author></d:prop></d:set>
+              <d:set><d:prop><d:getetag>forged</d:getetag></d:prop></d:set>
+            </d:propertyupdate>''',
+            headers=self.auth,
+        )
+        checked = self.client.open(
+            target, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:author/><d:getetag/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+
+        text = attempted.get_data(as_text=True)
+        self.assertEqual(207, attempted.status_code)
+        self.assertIn("403 Forbidden", text)
+        self.assertIn("424 Failed Dependency", text)
+        self.assertIn("cannot-modify-protected-property", text)
+        self.assertIn("404 Not Found", checked.get_data(as_text=True))
+        self.assertEqual(f'"{self.document["sha256"]}"', ElementTree.fromstring(checked.data).findtext(".//{DAV:}getetag"))
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+
+    def test_writable_live_displayname_language_and_inherited_xml_lang(self):
+        target = f"{self.files}/angebot.odt"
+        saved = self.client.open(
+            target, method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test">
+              <d:set><d:prop xml:lang="de"><d:displayname>Angebot Kunde A</d:displayname><d:getcontentlanguage>de-DE</d:getcontentlanguage><m:note>Geprüft</m:note></d:prop></d:set>
+            </d:propertyupdate>''',
+            headers=self.auth,
+        )
+        properties = self.client.open(
+            target, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><d:displayname/><d:getcontentlanguage/><m:note/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        fetched = self.client.get(target, headers=self.auth)
+        invalid = self.client.open(
+            target, method="PROPPATCH",
+            data='<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:other>must roll back</m:other><d:getcontentlanguage>not a language!</d:getcontentlanguage></d:prop></d:set></d:propertyupdate>',
+            headers=self.auth,
+        )
+        check = self.client.open(
+            target, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:other/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+
+        root = ElementTree.fromstring(properties.data)
+        note = root.find(".//{urn:simpleoffice:test}note")
+        self.assertEqual([207, 207, 207], [saved.status_code, properties.status_code, invalid.status_code])
+        self.assertEqual("Angebot Kunde A", root.findtext(".//{DAV:}displayname"))
+        self.assertEqual("de", note.get("{http://www.w3.org/XML/1998/namespace}lang"))
+        self.assertEqual("de-DE", fetched.headers["Content-Language"])
+        self.assertIn("409 Conflict", invalid.get_data(as_text=True))
+        self.assertIn("424 Failed Dependency", invalid.get_data(as_text=True))
+        self.assertIn("404 Not Found", check.get_data(as_text=True))
+
+    def test_proppatch_honors_read_scope_locks_retention_and_user_boundary(self):
+        target = f"{self.files}/angebot.odt"
+        body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:status>review</m:status></d:prop></d:set></d:propertyupdate>'
+        with app.test_request_context():
+            read_password = activate("jens", "jens", label="Property Reader", scope="read", expires_days=30)
+        read_auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{read_password}".encode()).decode()}
+        read_only = self.client.open(target, method="PROPPATCH", data=body, headers=read_auth)
+        locked = self.client.open(target, method="LOCK", headers=self.auth)
+        missing_token = self.client.open(target, method="PROPPATCH", data=body, headers=self.auth)
+        token = locked.headers["Lock-Token"]
+        accepted = self.client.open(target, method="PROPPATCH", data=body, headers={**self.auth, "If": f"(<{token.strip('<>')}>)"})
+        foreign = self.client.open("/webdav/files/other/angebot.odt", method="PROPPATCH", data=body, headers=self.auth)
+        self.client.open(target, method="UNLOCK", headers={**self.auth, "Lock-Token": token})
+        metadata = self.store.get_document(self.document["document_id"])
+        metadata["cleanup_state"] = "staged"
+        self.store._save_document(metadata)
+        retention = self.client.open(target, method="PROPPATCH", data=body.replace("review", "changed"), headers=self.auth)
+
+        self.assertEqual([403, 423, 207, 404, 423], [read_only.status_code, missing_token.status_code, accepted.status_code, foreign.status_code, retention.status_code])
+
+    def test_proppatch_rejects_entities_malformed_xml_and_size_abuse(self):
+        target = f"{self.files}/angebot.odt"
+        entity = self.client.open(
+            target, method="PROPPATCH",
+            data='<!DOCTYPE x [<!ENTITY secret SYSTEM "file:///etc/passwd">]><d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:test"><d:set><d:prop><m:x>&secret;</m:x></d:prop></d:set></d:propertyupdate>',
+            headers=self.auth,
+        )
+        malformed = self.client.open(target, method="PROPPATCH", data="<broken", headers=self.auth)
+        oversized = self.client.open(target, method="PROPPATCH", data=b"x" * (64 * 1024 + 1), headers=self.auth)
+
+        self.assertEqual([400, 400, 413], [entity.status_code, malformed.status_code, oversized.status_code])
+        self.assertIn("no-external-entities", entity.get_data(as_text=True))
+        self.assertFalse((self.store.control / "webdav-properties.json").exists())
+
+    def test_collection_and_legacy_libreoffice_url_support_properties(self):
+        body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:label>Desktop</m:label></d:prop></d:set></d:propertyupdate>'
+        query = '<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:label/></d:prop></d:propfind>'
+        self.client.open(f"{self.files}/Kunden", method="MKCOL", headers=self.auth)
+        collection_saved = self.client.open(f"{self.files}/Kunden", method="PROPPATCH", data=body, headers=self.auth)
+        collection_read = self.client.open(f"{self.files}/Kunden", method="PROPFIND", data=query, headers={**self.auth, "Depth": "0"})
+        legacy_saved = self.client.open(self.url, method="PROPPATCH", data=body.replace("Desktop", "LibreOffice"), headers=self.auth)
+        legacy_read = self.client.open(self.url, method="PROPFIND", data=query, headers={**self.auth, "Depth": "0"})
+
+        self.assertEqual([207, 207, 207, 207], [collection_saved.status_code, collection_read.status_code, legacy_saved.status_code, legacy_read.status_code])
+        self.assertEqual("Desktop", ElementTree.fromstring(collection_read.data).findtext(".//{urn:simpleoffice:test}label"))
+        self.assertEqual("LibreOffice", ElementTree.fromstring(legacy_read.data).findtext(".//{urn:simpleoffice:test}label"))
+
+    def test_copy_move_and_sync_preserve_and_report_dead_properties(self):
+        target = f"{self.files}/angebot.odt"
+        body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:workflow>approved</m:workflow></d:prop></d:set></d:propertyupdate>'
+        sync_body = '<d:sync-collection xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:sync-token/><d:sync-level>1</d:sync-level><d:prop><d:getetag/><m:workflow/></d:prop></d:sync-collection>'
+        initial = self.client.open(self.files, method="REPORT", data=sync_body, headers=self.auth)
+        token = ElementTree.fromstring(initial.data).findtext("{DAV:}sync-token")
+        changed = self.client.open(target, method="PROPPATCH", data=body, headers=self.auth)
+        report = self.client.open(
+            self.files, method="REPORT",
+            data=sync_body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+            headers=self.auth,
+        )
+        copied = self.client.open(
+            target, method="COPY",
+            headers={**self.auth, "Destination": "http://localhost/webdav/files/jens/Kopie.odt"},
+        )
+        moved = self.client.open(
+            target, method="MOVE",
+            headers={**self.auth, "Destination": "http://localhost/webdav/files/jens/Verschoben.odt"},
+        )
+        propfind = '<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:workflow/></d:prop></d:propfind>'
+        copy_properties = self.client.open(f"{self.files}/Kopie.odt", method="PROPFIND", data=propfind, headers={**self.auth, "Depth": "0"})
+        move_properties = self.client.open(f"{self.files}/Verschoben.odt", method="PROPFIND", data=propfind, headers={**self.auth, "Depth": "0"})
+
+        self.assertEqual([207, 207, 201, 201, 207, 207], [changed.status_code, report.status_code, copied.status_code, moved.status_code, copy_properties.status_code, move_properties.status_code])
+        self.assertIn("angebot.odt", report.get_data(as_text=True))
+        self.assertIn("approved", report.get_data(as_text=True))
+        self.assertEqual("approved", ElementTree.fromstring(copy_properties.data).findtext(".//{urn:simpleoffice:test}workflow"))
+        self.assertEqual("approved", ElementTree.fromstring(move_properties.data).findtext(".//{urn:simpleoffice:test}workflow"))
+
     def test_lock_put_unlock_persists_and_audits_new_revision(self):
         lock_body = "<d:lockinfo xmlns:d='DAV:'><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype><d:owner>LibreOffice</d:owner></d:lockinfo>"
         locked = self.client.open(self.url, method="LOCK", data=lock_body, headers={**self.auth, "Timeout": "Second-600"})

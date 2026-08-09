@@ -21,6 +21,7 @@ verlinkt.
 
 - [Hierarchische WebDAV-Dateiverwaltung](WEBDAV_DATEIVERWALTUNG.md)
 - [Effizienter WebDAV-Änderungsabgleich nach RFC 6578](WEBDAV_SYNC_RFC6578.md)
+- [WebDAV-Eigenschaften und Metadaten nach RFC 4918](WEBDAV_EIGENSCHAFTEN_RFC4918.md)
 - [Getrennte WebDAV-Gerätezugänge](WEBDAV_ZUGAENGE.md)
 - [Sichere Datei- und Inhaltswiederherstellung](DATEI_WIEDERHERSTELLUNG.md)
 - [LibreOffice über WebDAV](LIBREOFFICE_WEBDAV.md)
