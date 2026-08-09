@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import tempfile
 import unittest
@@ -225,6 +226,110 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(b"first", matching_date.data)
         self.assertEqual(b"first office version", stale.data)
         self.assertEqual(b"first office version", weak.data)
+
+    def test_rfc9530_digests_cover_full_partial_and_multipart_downloads(self):
+        full = self.client.get(self.url, headers=self.auth)
+        head = self.client.head(f"{self.files}/angebot.odt", headers=self.auth)
+        partial = self.client.get(self.url, headers={**self.auth, "Range": "bytes=0-4"})
+        multiple = self.client.get(self.url, headers={**self.auth, "Range": "bytes=0-4,13-19"})
+        options = self.client.open(self.files, method="OPTIONS", headers=self.auth)
+
+        representation = "sha-256=:" + base64.b64encode(hashlib.sha256(b"first office version").digest()).decode() + ":"
+        first = "sha-256=:" + base64.b64encode(hashlib.sha256(b"first").digest()).decode() + ":"
+        multipart = "sha-256=:" + base64.b64encode(hashlib.sha256(multiple.data).digest()).decode() + ":"
+        self.assertEqual(representation, full.headers["Repr-Digest"])
+        self.assertEqual(representation, full.headers["Content-Digest"])
+        self.assertEqual(representation, head.headers["Repr-Digest"])
+        self.assertNotIn("Content-Digest", head.headers)
+        self.assertEqual(representation, partial.headers["Repr-Digest"])
+        self.assertEqual(first, partial.headers["Content-Digest"])
+        self.assertEqual(representation, multiple.headers["Repr-Digest"])
+        self.assertEqual(multipart, multiple.headers["Content-Digest"])
+        self.assertEqual("sha-512=9, sha-256=10", options.headers["Want-Content-Digest"])
+
+    def test_valid_content_digest_is_verified_before_put_and_describes_stored_result(self):
+        payload = b"integrity checked office version"
+        current = self.client.get(f"{self.files}/angebot.odt", headers=self.auth)
+        sha256 = base64.b64encode(hashlib.sha256(payload).digest()).decode()
+        sha512 = base64.b64encode(hashlib.sha512(payload).digest()).decode()
+
+        response = self.client.put(
+            f"{self.files}/angebot.odt",
+            data=payload,
+            headers={
+                **self.auth,
+                "If-Match": current.headers["ETag"],
+                "Content-Digest": f"sha-512=:{sha512}:, sha-256=:{sha256}:",
+            },
+        )
+
+        self.assertEqual(204, response.status_code)
+        self.assertEqual(payload, (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(f"sha-256=:{sha256}:", response.headers["Repr-Digest"])
+        self.assertEqual(f"{self.files}/angebot.odt", response.headers["Content-Location"])
+        self.assertEqual("sha-512=9, sha-256=10", response.headers["Want-Content-Digest"])
+        audits = [item for item in self.store.logbook() if item.get("action") == "webdav_content_digest_verified"]
+        snapshot = json.loads(next((self.store.history.root / "snapshots" / "webdav-integrity").glob("*.json")).read_text())
+        self.assertTrue(audits)
+        self.assertEqual(["sha-256", "sha-512"], snapshot["algorithms"])
+        self.assertNotIn(sha256, json.dumps(snapshot))
+
+    def test_sha512_digest_can_protect_new_file_and_stable_document_put(self):
+        created_payload = b"new synchronized file"
+        created_sha512 = base64.b64encode(hashlib.sha512(created_payload).digest()).decode()
+        created = self.client.put(
+            f"{self.files}/new.txt",
+            data=created_payload,
+            headers={**self.auth, "If-None-Match": "*", "Content-Digest": f"sha-512=:{created_sha512}:"},
+        )
+        stable_payload = b"stable url update"
+        stable_sha256 = base64.b64encode(hashlib.sha256(stable_payload).digest()).decode()
+        stable = self.client.put(
+            self.url,
+            data=stable_payload,
+            headers={**self.auth, "Content-Digest": f"sha-256=:{stable_sha256}:"},
+        )
+
+        self.assertEqual([201, 204], [created.status_code, stable.status_code])
+        self.assertEqual(created_payload, (self.store.root / "new.txt").read_bytes())
+        self.assertEqual(stable_payload, (self.store.root / "angebot.odt").read_bytes())
+        self.assertTrue(created.headers["Repr-Digest"].startswith("sha-256=:"))
+        self.assertEqual(f"sha-256=:{stable_sha256}:", stable.headers["Repr-Digest"])
+
+    def test_bad_malformed_and_unsupported_content_digests_never_mutate_files(self):
+        original = (self.store.root / "angebot.odt").read_bytes()
+        current = self.client.get(f"{self.files}/angebot.odt", headers=self.auth)
+        payload = b"must never be stored"
+        wrong = base64.b64encode(hashlib.sha256(b"different").digest()).decode()
+        valid = base64.b64encode(hashlib.sha256(payload).digest()).decode()
+        requests = [
+            (f"sha-256=:{wrong}:", 422),
+            ("sha-256=:not base64!:", 400),
+            ("md5=:CY9rzUYh03PK3k6DJie09g==:", 400),
+            (f"sha-256=:{valid}:, sha-256=:{valid}:", 400),
+        ]
+        responses = [
+            self.client.put(
+                f"{self.files}/angebot.odt",
+                data=payload,
+                headers={**self.auth, "If-Match": current.headers["ETag"], "Content-Digest": field},
+            )
+            for field, _status in requests
+        ]
+        new_file = self.client.put(
+            f"{self.files}/rejected.txt",
+            data=payload,
+            headers={**self.auth, "If-None-Match": "*", "Content-Digest": f"sha-256=:{wrong}:"},
+        )
+
+        self.assertEqual([status for _field, status in requests], [response.status_code for response in responses])
+        self.assertEqual(422, new_file.status_code)
+        self.assertEqual(original, (self.store.root / "angebot.odt").read_bytes())
+        self.assertFalse((self.store.root / "rejected.txt").exists())
+        self.assertTrue(all(response.headers["Want-Content-Digest"] for response in [*responses, new_file]))
+        actions = [item.get("action") for item in self.store.logbook()]
+        self.assertIn("webdav_content_digest_mismatch", actions)
+        self.assertIn("webdav_content_digest_rejected", actions)
 
     def test_download_stream_uses_one_open_file_snapshot_during_atomic_replace(self):
         response = self.client.get(self.url, headers=self.auth, buffered=False)

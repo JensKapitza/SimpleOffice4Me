@@ -71,6 +71,9 @@ Ressourcen stehen in
 Fortsetzbare Downloads, `If-Range`, bedingte GET-/HEAD-Anfragen und sichere
 Mehrfachbereiche beschreibt
 [WebDAV-Downloads nach RFC 9110](docs/WEBDAV_DOWNLOADS_RFC9110.md).
+Kryptografisch prüfbare Uploads und vollständige sowie fortgesetzte Downloads
+mit `Content-Digest`, `Repr-Digest` und sicherer Algorithmuswahl beschreibt
+[WebDAV-Übertragungsintegrität nach RFC 9530](docs/WEBDAV_INTEGRITAET_RFC9530.md).
 Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
 [docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
 Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer

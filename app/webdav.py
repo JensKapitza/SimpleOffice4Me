@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -85,6 +87,12 @@ MAX_PROPERTY_VALUE = 16 * 1024
 MAX_PROPERTY_NODES = 256
 MAX_BYTE_RANGES = 8
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
+MAX_DIGEST_FIELD_BYTES = 2048
+DIGEST_ALGORITHMS = {
+    "sha-256": (hashlib.sha256, 32, 10),
+    "sha-512": (hashlib.sha512, 64, 9),
+}
+DIGEST_PREFERENCE = "sha-512=9, sha-256=10"
 PROTECTED_DAV_PROPERTIES = {
     f"{{{DAV}}}{name}" for name in (
         "creationdate", "getcontentlength",
@@ -330,6 +338,19 @@ def _etag(document: dict) -> str:
     return f'"{sha256_file(path)}"'
 
 
+def _stored_integrity_headers(document: dict) -> dict[str, str]:
+    """Describe the stored representation after a successful state change."""
+    etag = _etag(document)
+    digest = bytes.fromhex(_etag_value(etag))
+    return {
+        "ETag": etag,
+        "Repr-Digest": _digest_value("sha-256", digest),
+        "Content-Location": request.path,
+        "Want-Content-Digest": DIGEST_PREFERENCE,
+        "Cache-Control": "private, no-cache",
+    }
+
+
 def _etag_value(value: str) -> str:
     return value.strip().removeprefix("W/").strip('"')
 
@@ -362,6 +383,100 @@ def _etag_list_matches(value: str, current_etag: str, *, weak: bool) -> bool:
         if _etag_value(candidate) == current:
             return True
     return False
+
+
+def _digest_value(algorithm: str, digest: bytes) -> str:
+    """Serialize an RFC 9530 digest as an RFC 8941 Byte Sequence."""
+    return f"{algorithm}=:{base64.b64encode(digest).decode('ascii')}:"
+
+
+def _parse_digest_field(value: str) -> dict[str, bytes]:
+    """Parse the supported subset of the RFC 9530 Structured Field dictionary.
+
+    Digest algorithms use byte-sequence values. Parameters, duplicate keys and
+    malformed Base64 are rejected instead of being interpreted ambiguously.
+    Unsupported algorithms are ignored only when at least one supported active
+    algorithm can be verified.
+    """
+    if not value or len(value.encode("utf-8")) > MAX_DIGEST_FIELD_BYTES:
+        raise ValueError("Content-Digest is empty or too large")
+    parsed: dict[str, bytes] = {}
+    saw_member = False
+    for raw_member in value.split(","):
+        member = raw_member.strip()
+        if not member:
+            raise ValueError("Content-Digest contains an empty member")
+        key, separator, encoded = member.partition("=")
+        key = key.strip().casefold()
+        saw_member = True
+        if separator != "=" or not re.fullmatch(r"[a-z*][a-z0-9_.*-]*", key):
+            raise ValueError("Content-Digest is not a valid dictionary")
+        if key in parsed:
+            raise ValueError("Content-Digest contains a duplicate algorithm")
+        if key not in DIGEST_ALGORITHMS:
+            continue
+        encoded = encoded.strip()
+        if ";" in encoded or len(encoded) < 2 or encoded[0] != ":" or encoded[-1] != ":":
+            raise ValueError("Content-Digest requires a byte-sequence value")
+        try:
+            decoded = base64.b64decode(encoded[1:-1], validate=True)
+        except (binascii.Error, ValueError):
+            raise ValueError("Content-Digest contains invalid Base64") from None
+        expected_length = DIGEST_ALGORITHMS[key][1]
+        if len(decoded) != expected_length:
+            raise ValueError(f"Content-Digest {key} has the wrong length")
+        parsed[key] = decoded
+    if not saw_member or not parsed:
+        raise ValueError("Content-Digest has no supported active algorithm")
+    return parsed
+
+
+def _digest_audit(username: str, resource: Path, action: str, algorithms: list[str], size: int) -> None:
+    """Record integrity decisions without copying client-supplied digest values."""
+    relative = _store().relative(resource)
+    _store().history.record(
+        action,
+        f"webdav:{username}",
+        "webdav-integrity",
+        hashlib.sha256(f"{username}:{relative}".encode()).hexdigest(),
+        {
+            "resource": relative,
+            "algorithms": sorted(algorithms),
+            "size": size,
+            "checked_at": utc_now(),
+            "actor": f"webdav:{username}",
+        },
+    )
+
+
+def _verify_content_digest(content: bytes, username: str, resource: Path) -> Response | None:
+    """Fail a PUT before quota checks or storage mutation when its digest differs."""
+    supplied = request.headers.get("Content-Digest")
+    if supplied is None:
+        return None
+    try:
+        parsed = _parse_digest_field(supplied)
+    except ValueError as exc:
+        _digest_audit(username, resource, "webdav_content_digest_rejected", [], len(content))
+        return Response(str(exc), 400, {"Want-Content-Digest": DIGEST_PREFERENCE})
+    algorithms = list(parsed)
+    mismatched = any(
+        not hmac.compare_digest(factory(content).digest(), parsed[name])
+        for name, (factory, _length, _weight) in DIGEST_ALGORITHMS.items()
+        if name in parsed
+    )
+    if mismatched:
+        _digest_audit(username, resource, "webdav_content_digest_mismatch", algorithms, len(content))
+        return Response("Content-Digest does not match the uploaded content", 422, {"Want-Content-Digest": DIGEST_PREFERENCE})
+    _digest_audit(username, resource, "webdav_content_digest_verified", algorithms, len(content))
+    return None
+
+
+def _content_digest_for_range(handle, start: int, end: int) -> bytes:
+    digest = hashlib.sha256()
+    for chunk in _iter_file_range(handle, start, end):
+        digest.update(chunk)
+    return digest.digest()
 
 
 def _parse_byte_ranges(value: str, size: int) -> list[tuple[int, int]]:
@@ -428,9 +543,11 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
         handle.seek(0)
         size = stat.st_size
         etag = f'"{digest.hexdigest()}"'
+        representation_digest = _digest_value("sha-256", digest.digest())
         last_modified = formatdate(stat.st_mtime, usegmt=True)
         headers = {
             "ETag": etag,
+            "Repr-Digest": representation_digest,
             "Last-Modified": last_modified,
             "Accept-Ranges": "bytes",
             "Cache-Control": "private, no-cache",
@@ -481,6 +598,7 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
                 start, end = ranges[0]
                 response_headers = {
                     **headers,
+                    "Content-Digest": _digest_value("sha-256", _content_digest_for_range(handle, start, end)),
                     "Content-Type": media_type,
                     "Content-Length": str(end - start + 1),
                     "Content-Range": f"bytes {start}-{end}/{size}",
@@ -506,6 +624,13 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
                 total_length += len(prefix) + end - start + 1 + 2
             closing = f"--{boundary}--\r\n".encode("ascii")
             total_length += len(closing)
+            content_digest = hashlib.sha256()
+            for prefix, start, end in parts:
+                content_digest.update(prefix)
+                for chunk in _iter_file_range(handle, start, end):
+                    content_digest.update(chunk)
+                content_digest.update(b"\r\n")
+            content_digest.update(closing)
 
             def multiple_ranges():
                 try:
@@ -519,7 +644,12 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
 
             return Response(
                 multiple_ranges(), 206,
-                {**headers, "Content-Type": f"multipart/byteranges; boundary={boundary}", "Content-Length": str(total_length)},
+                {
+                    **headers,
+                    "Content-Digest": _digest_value("sha-256", content_digest.digest()),
+                    "Content-Type": f"multipart/byteranges; boundary={boundary}",
+                    "Content-Length": str(total_length),
+                },
             )
 
         if request.method == "HEAD":
@@ -534,7 +664,15 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
             finally:
                 handle.close()
 
-        return Response(complete_file(), 200, {**headers, "Content-Type": media_type, "Content-Length": str(size)})
+        return Response(
+            complete_file(), 200,
+            {
+                **headers,
+                "Content-Digest": representation_digest,
+                "Content-Type": media_type,
+                "Content-Length": str(size),
+            },
+        )
     except Exception:
         handle.close()
         raise
@@ -1463,7 +1601,10 @@ def file_tree(username: str, relative_path: str):
         return Response("not found", 404)
     allow = "OPTIONS, PROPFIND, REPORT, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, REPORT, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, LOCK, UNLOCK"
     if request.method == "OPTIONS":
-        return Response("", 204, {"DAV": "1, 2, sync-collection", "MS-Author-Via": "DAV", "Allow": allow})
+        return Response("", 204, {
+            "DAV": "1, 2, sync-collection", "MS-Author-Via": "DAV", "Allow": allow,
+            "Want-Content-Digest": DIGEST_PREFERENCE,
+        })
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
         return Response("this WebDAV credential is read-only", 403, {"Allow": allow})
     try:
@@ -1588,6 +1729,9 @@ def file_tree(username: str, relative_path: str):
                 return Response("existing resources require If-Match or a lock token", 428, {"ETag": current_etag})
             if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
                 return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+            digest_error = _verify_content_digest(content, username, resource)
+            if digest_error is not None:
+                return digest_error
             quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
             if quota_error is not None:
                 return quota_error
@@ -1598,11 +1742,14 @@ def file_tree(username: str, relative_path: str):
                 return Response(str(exc), status)
             if _etag(updated) != current_etag:
                 _record_sync_changes(username, _store().relative(resource))
-            return Response("", 204, {"ETag": _etag(updated), "Cache-Control": "private, no-cache"})
+            return Response("", 204, _stored_integrity_headers(updated))
         if is_collection:
             return Response("cannot PUT a collection", 405)
         if request.headers.get("If-Match"):
             return Response("resource does not exist", 412)
+        digest_error = _verify_content_digest(content, username, resource)
+        if digest_error is not None:
+            return digest_error
         quota_error = _check_quota(username, "PUT", resource, len(content))
         if quota_error is not None:
             return quota_error
@@ -1620,7 +1767,7 @@ def file_tree(username: str, relative_path: str):
                 href=str(old_lock.get("href", request.url)), depth=str(old_lock.get("depth", "0")),
             )
         _record_sync_changes(username, _store().relative(resource))
-        return Response("", 201, {"ETag": _etag(created), "Cache-Control": "private, no-cache"})
+        return Response("", 201, _stored_integrity_headers(created))
 
     if request.method == "DELETE":
         if document:
@@ -1698,7 +1845,10 @@ def endpoint(path: str):
     username = identity["username"]
     allow = "OPTIONS, PROPFIND, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, GET, HEAD, PUT, LOCK, UNLOCK"
     if request.method == "OPTIONS":
-        return Response("", 204, {"DAV": "1, 2", "MS-Author-Via": "DAV", "Allow": allow})
+        return Response("", 204, {
+            "DAV": "1, 2", "MS-Author-Via": "DAV", "Allow": allow,
+            "Want-Content-Digest": DIGEST_PREFERENCE,
+        })
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
         return Response("this WebDAV credential is read-only", 403, {"Allow": allow})
 
@@ -1793,6 +1943,9 @@ def endpoint(path: str):
         if_match = request.headers.get("If-Match", "")
         if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
             return Response("document changed since it was opened", 412, common_headers)
+        digest_error = _verify_content_digest(content, username, document_path)
+        if digest_error is not None:
+            return digest_error
         quota_error = _check_quota(username, "PUT", document_path, len(content) - document_path.stat().st_size)
         if quota_error is not None:
             return quota_error
@@ -1805,5 +1958,5 @@ def endpoint(path: str):
             message = str(exc)
             status = 412 if "changed since" in message else 423 if "locked" in message or "staged" in message else 400
             return Response(str(exc), status, common_headers)
-        return Response("", 204, {"ETag": _etag(updated), "Cache-Control": "private, no-cache"})
+        return Response("", 204, _stored_integrity_headers(updated))
     return Response("method not allowed", 405)

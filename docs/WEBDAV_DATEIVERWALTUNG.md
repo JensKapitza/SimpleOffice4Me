@@ -163,6 +163,10 @@ Mehrfachbereichen fortsetzen. `If-Range` verhindert, dass Teilstücke einer alte
 und einer neuen Dateiversion zusammengesetzt werden. Vorbedingungen, 206/304/
 412/416-Antworten, Streaming und Schutzgrenzen erläutert
 [Fortsetzbare WebDAV-Downloads nach RFC 9110](WEBDAV_DOWNLOADS_RFC9110.md).
+Aktuelle Clients und Integrationsskripte können Uploads und vollständige oder
+fortgesetzte Downloads zusätzlich nach
+[RFC 9530 kryptografisch prüfen](WEBDAV_INTEGRITAET_RFC9530.md), ohne dass
+LibreOffice oder Dateimanager diese Erweiterung unterstützen müssen.
 
 ## Migration, Kompatibilität und Grenzen
 

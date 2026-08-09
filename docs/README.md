@@ -24,6 +24,7 @@ verlinkt.
 - [WebDAV-Eigenschaften und Metadaten nach RFC 4918](WEBDAV_EIGENSCHAFTEN_RFC4918.md)
 - [WebDAV-Speichergrenzen nach RFC 4331 und robuste Locks](WEBDAV_QUOTA_UND_LOCKS.md)
 - [Fortsetzbare WebDAV-Downloads und HTTP-Validatoren nach RFC 9110](WEBDAV_DOWNLOADS_RFC9110.md)
+- [WebDAV-Übertragungsintegrität mit Content- und Repr-Digest nach RFC 9530](WEBDAV_INTEGRITAET_RFC9530.md)
 - [Getrennte WebDAV-Gerätezugänge](WEBDAV_ZUGAENGE.md)
 - [Sichere Datei- und Inhaltswiederherstellung](DATEI_WIEDERHERSTELLUNG.md)
 - [LibreOffice über WebDAV](LIBREOFFICE_WEBDAV.md)
