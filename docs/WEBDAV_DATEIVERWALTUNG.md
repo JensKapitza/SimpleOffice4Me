@@ -81,7 +81,7 @@ Maßgeblich ist
 | `COPY` lässt die Quelle unverändert und `MOVE` ändert ihre URL-Zuordnung. | [§9.8](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.8), [§9.9](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9) | Reguläre Dateien können in existierende Ordner kopiert, verschoben und umbenannt werden. Kopien erhalten eine neue Dokument-ID; Verschiebungen behalten die ID. Fremde Hosts und Benutzerpfade werden abgewiesen. |
 | `DELETE` entfernt die URL-Zuordnung und muss Sperren berücksichtigen. | [§9.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.6) | Dateien verschwinden aus dem sichtbaren Baum, bleiben aber mit Hash, Metadaten und Audit in der privaten Wiederherstellungsablage. Nur leere Ordner können gelöscht werden. |
 | `Overwrite: F` muss vorhandene Ziele vor Ersetzung schützen. | [§10.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-10.6) | Ziele werden nie implizit ersetzt – auch bei fehlendem oder `T` gesetztem Header. Der Client muss das vorhandene Ziel ausdrücklich und separat behandeln. Das ist absichtlich strenger als der RFC-Standardwert. |
-| Exklusive Write-Locks verhindern kollidierende Schreibzugriffe und können auch eine noch nicht belegte URL sperren. | [§6](https://www.rfc-editor.org/rfc/rfc4918.html#section-6), [§7.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.3), [§9.10](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10) | `LOCK`/`UNLOCK` funktionieren für bestehende Dateien und LibreOffice-Lock-null-Abläufe. Token werden beim nachfolgenden `PUT` auf die neue Dokument-ID übertragen. |
+| Exklusive Write-Locks verhindern kollidierende Schreibzugriffe und können auch eine noch nicht belegte URL oder eine Collection sperren. | [§6](https://www.rfc-editor.org/rfc/rfc4918.html#section-6), [§7.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.3), [§7.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.4), [§9.10](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10) | `LOCK`/`UNLOCK` funktionieren für Dateien, LibreOffice-Lock-null-Abläufe und Collections mit Tiefe 0 oder infinity. Rekursive Sperren schützen vorhandene und neue Mitglieder; Details stehen in [WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md). |
 | `If-Match` muss bei abweichendem Validator mit `412` fehlschlagen; `If-None-Match: *` schützt die Neuanlage. | [RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1), [§13.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2) | ETags sind SHA-256-basiert. Vorbedingungen werden nochmals unter derselben Dateisperre wie der Inhalt geprüft. |
 | Sammlungen können Änderungen seit einem undurchsichtigen Token effizient melden. | [RFC 6578 §3](https://www.rfc-editor.org/rfc/rfc6578.html#section-3) | `REPORT sync-collection`, `sync-level` 1/infinite, geänderte ETags und Lösch-Tombstones sind benutzergetrennt implementiert; Details stehen in [WEBDAV_SYNC_RFC6578.md](WEBDAV_SYNC_RFC6578.md). |
 
@@ -193,6 +193,8 @@ Automatisiert geprüft werden realistische Abläufe für:
 - ETag-geschütztes Speichern, veraltete und fehlende Vorbedingungen;
 - gesperrte leere Ressource, `PUT`, Token-Übertragung, ausdrücklicher
   Lock-Refresh, `lockdiscovery` und `UNLOCK`;
+- rekursive Collection-Locks, geerbte Discovery, neue Mitglieder,
+  Überlappung, Ablauf sowie getrennte Quell- und Zielbedingungen;
 - Quota-Live-Properties, PROPPATCH-Schutz, erlaubte Verkleinerung sowie
   atomare 507-Ablehnung für PUT und COPY;
 - `COPY`, `MOVE`, Umbenennung, neue/stabile IDs und Metadatenherkunft;

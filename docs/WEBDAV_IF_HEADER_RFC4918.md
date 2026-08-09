@@ -115,8 +115,10 @@ Die Implementierung unterstützt die in SimpleOffice verwendeten
 `opaquelocktoken:`- und `urn:uuid:`-State-Tokens. Andere proprietäre
 State-Token-Schemata werden als nicht passend behandelt; mit `Not` können sie
 RFC-konform als nicht vorhandener Zustand geprüft werden. Rekursive
-Collection-Locks und überschreibendes COPY/MOVE bleiben unabhängig davon noch
-nicht implementiert.
+Collection-Locks verwenden dieselbe ressourcengenaue Auswertung und sind in
+[WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md)
+beschrieben. Überschreibendes COPY/MOVE bleibt unabhängig davon nicht
+implementiert.
 
 Die sichere Auswertung ist nicht separat abschaltbar, weil die frühere lose
 Token-Suche eine Umgehung der Ressourcenzuordnung erlaubte. Ein Rollback erfolgt

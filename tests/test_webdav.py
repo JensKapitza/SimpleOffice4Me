@@ -1076,7 +1076,7 @@ class WebDavDocumentTest(unittest.TestCase):
 
         self.assertEqual([400, 400, 204], [if_only.status_code, malformed.status_code, unlocked.status_code])
 
-    def test_lock_rejects_unsupported_scope_depth_and_recursive_collection(self):
+    def test_lock_rejects_unsupported_scope_and_depth_but_accepts_recursive_collection(self):
         shared = self.lock_body.replace("exclusive", "shared")
         wrong_scope = self.client.open(f"{self.files}/angebot.odt", method="LOCK", data=shared, headers=self.auth)
         wrong_depth = self.client.open(
@@ -1085,8 +1085,227 @@ class WebDavDocumentTest(unittest.TestCase):
         )
         recursive = self.client.open(self.files, method="LOCK", data=self.lock_body, headers=self.auth)
 
-        self.assertEqual([400, 400, 501], [wrong_scope.status_code, wrong_depth.status_code, recursive.status_code])
-        self.assertFalse((self.store.control / "webdav-locks.json").exists())
+        self.assertEqual([400, 400, 200], [wrong_scope.status_code, wrong_depth.status_code, recursive.status_code])
+        self.assertEqual("infinity", ElementTree.fromstring(recursive.data).findtext(".//{DAV:}depth"))
+
+    def test_depth_infinity_collection_lock_protects_existing_and_new_members(self):
+        folder = f"{self.files}/Projekte"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        self.client.put(f"{folder}/Plan.odt", data=b"first", headers=self.auth)
+        locked = self.client.open(
+            folder, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "infinity", "Timeout": "Second-600"},
+        )
+        token = locked.headers["Lock-Token"].strip("<>")
+        etag = self.client.get(f"{folder}/Plan.odt", headers=self.auth).headers["ETag"]
+
+        blocked_existing = self.client.put(
+            f"{folder}/Plan.odt", data=b"blocked",
+            headers={**self.auth, "If-Match": etag},
+        )
+        blocked_new = self.client.put(f"{folder}/Neu.odt", data=b"blocked", headers=self.auth)
+        blocked_folder = self.client.open(f"{folder}/Unterordner", method="MKCOL", headers=self.auth)
+        saved = self.client.put(
+            f"{folder}/Plan.odt", data=b"saved",
+            headers={**self.auth, "If": f"(<{token}>)"},
+        )
+        created = self.client.put(
+            f"{folder}/Neu.odt", data=b"new",
+            headers={**self.auth, "If": f"(<{token}>)"},
+        )
+        created_folder = self.client.open(
+            f"{folder}/Unterordner", method="MKCOL",
+            headers={**self.auth, "If": f"(<{token}>)"},
+        )
+
+        self.assertEqual(200, locked.status_code)
+        self.assertEqual([423, 423, 423], [blocked_existing.status_code, blocked_new.status_code, blocked_folder.status_code])
+        self.assertEqual([204, 201, 201], [saved.status_code, created.status_code, created_folder.status_code])
+        self.assertEqual(b"saved", (self.store.root / "Projekte" / "Plan.odt").read_bytes())
+
+    def test_inherited_lock_is_discoverable_on_descendants_without_leaking_token_elsewhere(self):
+        folder = f"{self.files}/Kunden"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        self.client.put(f"{folder}/A.odt", data=b"a", headers=self.auth)
+        locked = self.client.open(folder, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "infinity"})
+        token = locked.headers["Lock-Token"].strip("<>")
+        query = '<d:propfind xmlns:d="DAV:"><d:prop><d:lockdiscovery/></d:prop></d:propfind>'
+
+        child = self.client.open(
+            f"{folder}/A.odt", method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        root = self.client.open(
+            self.files, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+
+        self.assertEqual([207, 207], [child.status_code, root.status_code])
+        self.assertIn(token, child.get_data(as_text=True))
+        self.assertIn(f"{folder}", child.get_data(as_text=True))
+        self.assertNotIn(token, root.get_data(as_text=True))
+
+    def test_overlapping_recursive_locks_are_rejected_in_both_directions(self):
+        parent = f"{self.files}/Projekte"
+        child = f"{parent}/Unterordner"
+        self.client.open(parent, method="MKCOL", headers=self.auth)
+        self.client.open(child, method="MKCOL", headers=self.auth)
+        parent_lock = self.client.open(parent, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "infinity"})
+        child_conflict = self.client.open(child, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "0"})
+        self.client.open(parent, method="UNLOCK", headers={**self.auth, "Lock-Token": parent_lock.headers["Lock-Token"]})
+        child_lock = self.client.open(child, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "0"})
+        parent_conflict = self.client.open(parent, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "infinity"})
+
+        self.assertEqual(200, parent_lock.status_code)
+        self.assertEqual(423, child_conflict.status_code)
+        self.assertEqual(200, child_lock.status_code)
+        self.assertEqual(423, parent_conflict.status_code)
+        self.assertIn("no-conflicting-lock", parent_conflict.get_data(as_text=True))
+
+    def test_depth_zero_collection_lock_does_not_lock_members(self):
+        folder = f"{self.files}/Projekte"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        self.client.put(f"{folder}/Plan.odt", data=b"first", headers=self.auth)
+        locked = self.client.open(folder, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "0"})
+        current = self.client.get(f"{folder}/Plan.odt", headers=self.auth)
+        saved = self.client.put(
+            f"{folder}/Plan.odt", data=b"second",
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+        blocked_delete = self.client.delete(folder, headers=self.auth)
+
+        self.assertEqual(200, locked.status_code)
+        self.assertEqual(204, saved.status_code)
+        self.assertEqual(423, blocked_delete.status_code)
+
+    def test_collection_lock_copy_requires_token_for_source_and_destination(self):
+        folder = f"{self.files}/Projekte"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        self.client.put(f"{folder}/Quelle.odt", data=b"source", headers=self.auth)
+        locked = self.client.open(folder, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "infinity"})
+        token = locked.headers["Lock-Token"].strip("<>")
+        source = f"{folder}/Quelle.odt"
+        destination = f"{folder}/Kopie.odt"
+
+        missing_destination = self.client.open(
+            source, method="COPY",
+            headers={
+                **self.auth, "Destination": f"http://localhost{destination}",
+                "If": f"<http://localhost{source}> (<{token}>)",
+            },
+        )
+        copied = self.client.open(
+            source, method="COPY",
+            headers={
+                **self.auth, "Destination": f"http://localhost{destination}",
+                "If": f"<http://localhost{source}> (<{token}>) <http://localhost{destination}> (<{token}>)",
+            },
+        )
+
+        self.assertEqual(423, missing_destination.status_code)
+        self.assertEqual(201, copied.status_code)
+        self.assertEqual(b"source", (self.store.root / "Projekte" / "Kopie.odt").read_bytes())
+
+    def test_collection_lock_refresh_and_unlock_must_target_lock_root(self):
+        folder = f"{self.files}/Projekte"
+        child = f"{folder}/Plan.odt"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        self.client.put(child, data=b"plan", headers=self.auth)
+        locked = self.client.open(folder, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "infinity"})
+        token_header = locked.headers["Lock-Token"]
+        token = token_header.strip("<>")
+
+        child_refresh = self.client.open(child, method="LOCK", headers={**self.auth, "If": f"(<{token}>)"})
+        root_refresh = self.client.open(folder, method="LOCK", headers={**self.auth, "If": f"(<{token}>)", "Timeout": "Second-3600"})
+        child_unlock = self.client.open(child, method="UNLOCK", headers={**self.auth, "Lock-Token": token_header})
+        root_unlock = self.client.open(folder, method="UNLOCK", headers={**self.auth, "Lock-Token": token_header})
+        current = self.client.get(child, headers=self.auth)
+        saved = self.client.put(child, data=b"after", headers={**self.auth, "If-Match": current.headers["ETag"]})
+
+        self.assertEqual([412, 200, 409, 204, 204], [child_refresh.status_code, root_refresh.status_code, child_unlock.status_code, root_unlock.status_code, saved.status_code])
+
+    def test_collection_lock_applies_to_stable_url_and_is_released_with_deleted_root(self):
+        folder = f"{self.files}/Projekte"
+        child = f"{folder}/Plan.odt"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        created = self.client.put(child, data=b"first", headers=self.auth)
+        document = self.store.get_document("Projekte/Plan.odt")
+        stable = f"/webdav/documents/jens/{document['document_id']}--Plan.odt"
+        locked = self.client.open(folder, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "infinity"})
+        token = locked.headers["Lock-Token"].strip("<>")
+
+        blocked_stable = self.client.put(stable, data=b"blocked", headers=self.auth)
+        saved_stable = self.client.put(stable, data=b"saved", headers={**self.auth, "If": f"(<{token}>)"})
+        deleted_file = self.client.delete(child, headers={**self.auth, "If": f"(<{token}>)"})
+        deleted_root = self.client.delete(folder, headers={**self.auth, "If": f"(<{token}>)"})
+        recreated = self.client.open(folder, method="MKCOL", headers=self.auth)
+        created_without_old_token = self.client.put(f"{folder}/Neu.odt", data=b"new", headers=self.auth)
+
+        self.assertEqual(201, created.status_code)
+        self.assertEqual([423, 204, 204, 204, 201, 201], [
+            blocked_stable.status_code, saved_stable.status_code, deleted_file.status_code,
+            deleted_root.status_code, recreated.status_code, created_without_old_token.status_code,
+        ])
+
+    def test_expired_recursive_lock_no_longer_blocks_descendants(self):
+        folder = f"{self.files}/Projekte"
+        child = f"{folder}/Plan.odt"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        self.client.put(child, data=b"first", headers=self.auth)
+        self.client.open(folder, method="LOCK", data=self.lock_body, headers={**self.auth, "Depth": "infinity"})
+        lock_path = self.store.control / "webdav-locks.json"
+        payload = json.loads(lock_path.read_text())
+        next(iter(payload["locks"].values()))["expires_at"] = "2000-01-01T00:00:00+00:00"
+        lock_path.write_text(json.dumps(payload))
+        current = self.client.get(child, headers=self.auth)
+
+        saved = self.client.put(child, data=b"after expiry", headers={**self.auth, "If-Match": current.headers["ETag"]})
+
+        self.assertEqual(204, saved.status_code)
+        self.assertEqual(b"after expiry", (self.store.root / "Projekte" / "Plan.odt").read_bytes())
+
+    def test_empty_collection_delete_never_removes_unknown_internal_metadata(self):
+        folder = f"{self.files}/Projekte"
+        self.client.open(folder, method="MKCOL", headers=self.auth)
+        internal = self.store.root / "Projekte" / CONTROL_DIR
+        internal.mkdir()
+        (internal / "keep.bin").write_bytes(b"unknown")
+
+        deleted = self.client.delete(folder, headers=self.auth)
+
+        self.assertEqual(409, deleted.status_code)
+        self.assertEqual(b"unknown", (internal / "keep.bin").read_bytes())
+
+    def test_recursive_lock_respects_folder_scoped_device_boundary_and_audit(self):
+        (self.store.root / "Projekte").mkdir()
+        (self.store.root / "Privat").mkdir()
+        with app.test_request_context():
+            password = activate("jens", "jens", label="Projektgerät", path_prefix="Projekte", expires_days=30)
+        scoped_auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        folder = f"{self.files}/Projekte"
+
+        locked = self.client.open(folder, method="LOCK", data=self.lock_body, headers={**scoped_auth, "Depth": "infinity"})
+        token = locked.headers["Lock-Token"].strip("<>")
+        blocked = self.client.put(f"{folder}/Plan.odt", data=b"blocked", headers=scoped_auth)
+        created = self.client.put(f"{folder}/Plan.odt", data=b"plan", headers={**scoped_auth, "If": f"(<{token}>)"})
+        outside = self.client.open(self.files, method="LOCK", data=self.lock_body, headers={**scoped_auth, "Depth": "infinity"})
+        sibling = self.client.put(
+            f"{folder}/Zweite.odt", data=b"no",
+            headers={**scoped_auth, "If": f"<{self.files}/Privat> (<{token}>)"},
+        )
+        lock_record = next(iter(json.loads((self.store.control / "webdav-locks.json").read_text())["locks"].values()))
+        audit = [row for row in self.store.logbook() if row.get("action") == "webdav_lock_created"]
+        lock_snapshots = [
+            json.loads(path.read_text())
+            for path in (self.store.history.root / "snapshots" / "webdav-locks").glob("*.json")
+        ]
+
+        self.assertEqual([200, 423, 201, 404, 412], [locked.status_code, blocked.status_code, created.status_code, outside.status_code, sibling.status_code])
+        self.assertEqual("Projekte", lock_record["resource"])
+        self.assertEqual("infinity", lock_record["depth"])
+        self.assertTrue(audit)
+        self.assertTrue(any(row.get("depth") == "infinity" and row.get("resource") == "Projekte" for row in lock_snapshots))
+        self.assertFalse((self.store.root / "Projekte" / "Zweite.odt").exists())
 
     def test_rfc4331_quota_properties_are_explicit_protected_live_properties(self):
         app.config["WEBDAV_QUOTA_BYTES"] = 1024 * 1024

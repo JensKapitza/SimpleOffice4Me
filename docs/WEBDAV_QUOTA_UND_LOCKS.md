@@ -28,7 +28,7 @@ möglich.
 | Ein neuer LOCK **MUST** ein `lockinfo`-XML enthalten und die Antwort **MUST** `lockdiscovery` sowie bei neuen Locks `Lock-Token` enthalten. | Nur `exclusive`/`write` wird akzeptiert. Eigentümer, Lock-Wurzel, Tiefe, Restlaufzeit und Token erscheinen in LOCK-Antwort und PROPFIND. [RFC 4918 §9.10.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.1), [§14.11](https://www.rfc-editor.org/rfc/rfc4918.html#section-14.11) |
 | Ein LOCK ohne Body **MUST NOT** einen neuen Lock erzeugen; er aktualisiert genau den mit einem einzelnen Token im `If`-Header bezeichneten Lock. Der `Depth`-Header wird bei Refresh ignoriert und die Antwort enthält keinen neuen `Lock-Token`-Header. | Fehlender oder fremder Token liefert 412. Ein gültiger Refresh startet die begrenzte Laufzeit neu, bewahrt Eigentümer und Erstellungszeit und liefert aktualisiertes `lockdiscovery`. [RFC 4918 §7.7](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.7), [§9.10.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.2) |
 | Ein erfolgreicher LOCK auf einer noch nicht belegten URL **MUST** eine gesperrte leere reguläre Ressource anlegen. | Die leere Datei wird atomar als normales Dokument mit ID, Audit und Sync-Eintrag angelegt. Sie ist sofort per GET und PROPFIND sichtbar. Ein späteres PUT mit Lock-Token aktualisiert sie; UNLOCK vor PUT lässt die leere Datei bestehen. [RFC 4918 §7.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.3), [§9.10.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.4) |
-| LOCK-Tiefe darf nur `0` oder `infinity` sein. | Dateisperren werden effektiv mit Tiefe 0 gespeichert. Collection-Depth-0 ist möglich; rekursive Collection-Sperren werden mit 501 abgewiesen, weil deren sichere Vererbung noch nicht implementiert ist. [RFC 4918 §9.10.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.3) |
+| LOCK-Tiefe darf nur `0` oder `infinity` sein. | Dateisperren werden effektiv mit Tiefe 0 gespeichert. Collection-Depth-0 ist möglich; `Depth: infinity` schützt vorhandene und künftige Mitglieder. Vererbung, Überlappung und Discovery beschreibt [WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md). [RFC 4918 §9.10.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10.3) |
 
 ## Konfiguration und Bedienung
 
@@ -98,8 +98,8 @@ blind überschreiben.
 - Ein fehlgeschlagener Quota-Check legt keine Temporärdatei an. Scheitert der
   spätere atomare Schreibvorgang, bleibt die vorherige Datei erhalten.
 - `400` meldet ungültige Lock-Tiefe, Lock-Typ oder Lock-XML; `412` einen
-  fehlenden/falschen Refresh-Token; `423` einen kollidierenden Lock; `501` eine
-  nicht unterstützte rekursive Collection-Sperre.
+  fehlenden/falschen Refresh-Token; `423` einen exakten, geerbten oder
+  überlappenden Lock-Konflikt.
 - Alte Lock-Dateien ohne `href` oder `depth` bleiben lesbar und erhalten diese
   Felder beim nächsten erfolgreichen Refresh.
 
@@ -133,8 +133,9 @@ Abgedeckt sind:
   aktualisierte Laufzeit und vollständiges `lockdiscovery`;
 - leere Ressource nach LOCK auf unbelegter URL, Sichtbarkeit in GET/PROPFIND,
   anschließendes PUT und UNLOCK;
-- ungültige Tiefe, Shared-Lock, rekursive Collection-Sperre, falscher und
-  fehlender Refresh-Token sowie Rechte- und XML-Grenzen.
+- ungültige Tiefe, Shared-Lock, rekursive Collection-Sperre mit Vererbung,
+  Überlappung und Ablauf, falscher und fehlender Refresh-Token sowie Rechte-
+  und XML-Grenzen.
 
 ## Bekannte Grenzen und Deaktivierung
 
@@ -147,8 +148,9 @@ bei WebDAV-PUT und -COPY. Eine künftige benutzerspezifische Abrechnung benötig
 eine verbindliche Dateieigentümerschaft und darf nicht aus URL-Namen abgeleitet
 werden.
 
-Rekursive Collection-Locks, Shared Locks und WebDAV ACL sind nicht
-implementiert. Zur Rückkehr zum vorherigen Verhalten wird
+Shared Locks und WebDAV ACL sind nicht implementiert. Rekursive
+Collection-Locks sind in [WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md)
+dokumentiert. Zur Rückkehr zum vorherigen Verhalten wird
 `SIMPLEOFFICE_WEBDAV_QUOTA_MIB=0` gesetzt und der Dienst neu gestartet. LOCK
 kann nicht separat deaktiviert werden, ohne die angekündigte DAV-Klasse 2 und
 Desktop-Kompatibilität anzupassen; bestehende Locks laufen spätestens nach der

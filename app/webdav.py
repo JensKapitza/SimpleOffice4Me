@@ -787,11 +787,50 @@ def _lock_for(key: str) -> dict | None:
     return _active_locks().get("locks", {}).get(key)
 
 
-def _require_lock(key: str, username: str) -> Response | None:
-    lock = _lock_for(key)
-    token = _request_token(key)
-    if lock and (lock.get("token") != token or lock.get("username") != username):
-        return Response("resource is locked", 423)
+def _relative_is_within(candidate: str, collection: str) -> bool:
+    candidate_path = Path(candidate or ".")
+    collection_path = Path(collection or ".")
+    return candidate_path == collection_path or collection_path in candidate_path.parents
+
+
+def _lock_applies(stored_key: str, lock: dict, resource: Path, document: dict | None) -> bool:
+    key = _lock_key(resource, document)
+    if stored_key == key:
+        return True
+    root = str(lock.get("resource", "")).strip()
+    if not root or str(lock.get("depth", "0")) != "infinity":
+        return False
+    relative = _store().relative(resource)
+    return relative != root and _relative_is_within(relative, root)
+
+
+def _locks_for(resource: Path, document: dict | None = None, locks: dict | None = None) -> list[tuple[str, dict]]:
+    active = locks if locks is not None else _active_locks().get("locks", {})
+    return [
+        (stored_key, lock) for stored_key, lock in active.items()
+        if _lock_applies(stored_key, lock, resource, document)
+    ]
+
+
+def _conflicting_locks(resource: Path, document: dict | None, depth: str) -> list[tuple[str, dict]]:
+    active = _active_locks().get("locks", {})
+    conflicts = _locks_for(resource, document, active)
+    if depth == "infinity" and resource.is_dir() and not resource.is_symlink():
+        relative = _store().relative(resource)
+        known = {stored_key for stored_key, _lock in conflicts}
+        for stored_key, lock in active.items():
+            lock_resource = str(lock.get("resource", "")).strip()
+            if stored_key not in known and lock_resource and lock_resource != relative and _relative_is_within(lock_resource, relative):
+                conflicts.append((stored_key, lock))
+    return conflicts
+
+
+def _require_lock(resource: Path, document: dict | None, username: str) -> Response | None:
+    locks = _locks_for(resource, document)
+    token = _request_token(_lock_key(resource, document))
+    for _stored_key, lock in locks:
+        if lock.get("token") != token or lock.get("username") != username:
+            return Response("resource is locked", 423)
     return None
 
 
@@ -951,8 +990,10 @@ def _if_condition_matches(condition: tuple[bool, str, str], state: dict, usernam
     if kind == "etag":
         matched = bool(state["etag"]) and not supplied.startswith("W/") and hmac.compare_digest(supplied, state["etag"])
     elif supplied.casefold().startswith("opaquelocktoken:"):
-        lock = locks.get(state["key"])
-        matched = bool(lock) and lock.get("username") == username and hmac.compare_digest(str(lock.get("token", "")), supplied)
+        matched = any(
+            lock.get("username") == username and hmac.compare_digest(str(lock.get("token", "")), supplied)
+            for _stored_key, lock in _locks_for(state["resource"], state["document"], locks)
+        )
     elif supplied.casefold().startswith("urn:uuid:") and state["collection"]:
         if "sync_token" not in state:
             state["sync_token"] = _collection_sync_token(username, state["resource"])
@@ -1018,6 +1059,7 @@ def _save_lock(
     *,
     href: str = "",
     depth: str = "0",
+    resource: str = "",
 ) -> dict:
     path = _locks_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1032,6 +1074,7 @@ def _save_lock(
             "owner": owner[:200],
             "href": href or str(existing.get("href", "") if existing else ""),
             "depth": depth,
+            "resource": resource or str(existing.get("resource", "") if existing else ""),
             "created_at": existing.get("created_at", utc_now()) if existing else utc_now(),
             "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat(),
         }
@@ -1111,6 +1154,7 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
         lock = _save_lock(
             key, username, token, _timeout_seconds(), existing.get("owner", ""),
             href=str(existing.get("href", href)), depth=str(existing.get("depth", "0")),
+            resource=_store().relative(resource),
         )
         _record_lock_audit("webdav_lock_refreshed", username, resource, lock)
         return Response(_lock_xml(lock, href), 200, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store"})
@@ -1118,8 +1162,6 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
     depth = request.headers.get("Depth", "infinity").casefold()
     if depth not in {"0", "infinity"}:
         return Response("LOCK Depth must be 0 or infinity", 400)
-    if resource.is_dir() and depth == "infinity":
-        return Response("recursive collection locks are not implemented", 501)
 
     try:
         owner = _parse_lock_body(body)
@@ -1130,7 +1172,8 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
         return Response(error, 400, mimetype="application/xml")
     except ValueError as exc:
         return Response(str(exc), 400)
-    if existing:
+    effective_depth = depth if resource.is_dir() else "0"
+    if _conflicting_locks(resource, document, effective_depth):
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-conflicting-lock/></d:error>'
         return Response(error, 423, mimetype="application/xml")
     if document is not None:
@@ -1146,7 +1189,10 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
             return Response("parent collection does not exist", 409)
         provisional_key = key
         try:
-            _save_lock(provisional_key, username, token, _timeout_seconds(), owner, href=href, depth="0")
+            _save_lock(
+                provisional_key, username, token, _timeout_seconds(), owner,
+                href=href, depth="0", resource=_store().relative(resource),
+            )
             document = _store().create_document_at(
                 _store().relative(resource), b"", f"webdav:{username}",
                 max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
@@ -1159,7 +1205,10 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
         _record_sync_changes(username, _store().relative(resource))
         status = 201
     try:
-        lock = _save_lock(key, username, token, _timeout_seconds(), owner, href=href, depth="0" if not resource.is_dir() else depth)
+        lock = _save_lock(
+            key, username, token, _timeout_seconds(), owner,
+            href=href, depth=effective_depth, resource=_store().relative(resource),
+        )
     except PermissionError:
         return Response("locked", 423)
     _record_lock_audit("webdav_lock_created", username, resource, lock)
@@ -1327,7 +1376,8 @@ def _prop_response(
     resource: Path | None = None,
     query: tuple[str, list[str]] | None = None,
 ) -> str:
-    active_lock = _lock_for(_lock_key(resource, document)) if resource is not None else None
+    applicable = _locks_for(resource, document) if resource is not None else []
+    active_lock = applicable[0][1] if applicable else None
     live = _live_properties(
         display_name,
         collection=collection,
@@ -1898,7 +1948,7 @@ def file_tree(username: str, relative_path: str):
         )
 
     key = _lock_key(resource, document)
-    lock_error = _require_lock(key, username)
+    lock_error = _require_lock(resource, document, username)
     if lock_error is not None and request.method not in {"LOCK", "UNLOCK"}:
         return lock_error
 
@@ -1989,6 +2039,7 @@ def file_tree(username: str, relative_path: str):
             _save_lock(
                 created["document_id"], username, old_lock["token"], _timeout_seconds(), old_lock.get("owner", ""),
                 href=str(old_lock.get("href", request.url)), depth=str(old_lock.get("depth", "0")),
+                resource=_store().relative(resource),
             )
         _record_sync_changes(username, _store().relative(resource))
         return Response("", 201, _stored_integrity_headers(created))
@@ -2015,6 +2066,8 @@ def file_tree(username: str, relative_path: str):
                 _store().delete_empty_collection(_store().relative(resource), f"webdav:{username}")
             except ValueError as exc:
                 return Response(str(exc), 409)
+            if _lock_for(key):
+                _release_lock(key)
             _record_sync_changes(username, _store().relative(resource))
             return Response("", 204)
         return Response("not found", 404)
@@ -2036,7 +2089,7 @@ def file_tree(username: str, relative_path: str):
             return Response("destination exists; explicit replacement is required", 412)
         if not destination.parent.is_dir():
             return Response("destination parent does not exist", 409)
-        destination_lock = _require_lock(_lock_key(destination), username)
+        destination_lock = _require_lock(destination, None, username)
         if destination_lock is not None:
             return destination_lock
         if request.method == "COPY":
@@ -2130,14 +2183,14 @@ def endpoint(path: str):
     if document is None:
         return Response("not found", 404)
     if request.method in WRITE_METHODS:
+        mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
+        mutation_lock.__enter__()
+        g._webdav_mutation_lock = mutation_lock
         if_error = _if_header_error(username, identity)
         if if_error is not None:
             return if_error
     if request.method == "PROPPATCH":
-        mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
-        mutation_lock.__enter__()
-        g._webdav_mutation_lock = mutation_lock
-        lock_error = _require_lock(document["document_id"], username)
+        lock_error = _require_lock(document_path, document, username)
         if lock_error is not None:
             return lock_error
         try:
@@ -2172,10 +2225,10 @@ def endpoint(path: str):
         return Response("", 204)
     if request.method == "PUT":
         content = request.get_data()
-        token = _request_token(document["document_id"])
-        lock = _active_locks().get("locks", {}).get(document["document_id"])
-        if lock and (lock.get("token") != token or lock.get("username") != username):
-            return Response("document is locked", 423, common_headers)
+        lock_error = _require_lock(document_path, document, username)
+        if lock_error is not None:
+            lock_error.headers.update(common_headers)
+            return lock_error
         if_match = request.headers.get("If-Match", "")
         if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
             return Response("document changed since it was opened", 412, common_headers)

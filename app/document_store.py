@@ -1753,9 +1753,26 @@ class DocumentStore:
         collection = self.root / relative
         if not collection.is_dir() or collection.is_symlink():
             raise ValueError("collection does not exist")
-        visible = [item for item in collection.iterdir() if item.name != POLICY_FILE]
+        visible = [item for item in collection.iterdir() if item.name not in {POLICY_FILE, CONTROL_DIR}]
         if visible:
             raise ValueError("collection is not empty")
+        sidecars = collection / CONTROL_DIR
+        if sidecars.exists():
+            if not sidecars.is_dir() or sidecars.is_symlink():
+                raise ValueError("collection contains unknown internal metadata")
+            verified: list[Path] = []
+            for item in sidecars.iterdir():
+                try:
+                    document_id = str(uuid.UUID(item.stem))
+                except (ValueError, AttributeError):
+                    raise ValueError("collection contains retained portable metadata") from None
+                metadata = self._read_json(item, {}) if item.is_file() and not item.is_symlink() else {}
+                if metadata.get("document_id") != document_id:
+                    raise ValueError("collection contains unknown internal metadata")
+                verified.append(item)
+            for item in verified:
+                item.unlink()
+            sidecars.rmdir()
         (collection / POLICY_FILE).unlink(missing_ok=True)
         collection.rmdir()
         details = {"path": str(relative), "actor": actor, "at": utc_now()}
