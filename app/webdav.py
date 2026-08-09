@@ -12,7 +12,7 @@ import secrets
 import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
-from email.utils import formatdate
+from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 from xml.etree import ElementTree
@@ -83,6 +83,8 @@ MAX_PROPERTY_COUNT = 64
 MAX_STORED_PROPERTIES = 128
 MAX_PROPERTY_VALUE = 16 * 1024
 MAX_PROPERTY_NODES = 256
+MAX_BYTE_RANGES = 8
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
 PROTECTED_DAV_PROPERTIES = {
     f"{{{DAV}}}{name}" for name in (
         "creationdate", "getcontentlength",
@@ -330,6 +332,212 @@ def _etag(document: dict) -> str:
 
 def _etag_value(value: str) -> str:
     return value.strip().removeprefix("W/").strip('"')
+
+
+def _http_date_timestamp(value: str) -> int | None:
+    """Parse an IMF-fixdate for conditional requests; invalid dates are ignored."""
+    try:
+        parsed = parsedate_to_datetime(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _etag_list_matches(value: str, current_etag: str, *, weak: bool) -> bool:
+    if value.strip() == "*":
+        return True
+    current = _etag_value(current_etag)
+    for raw in value.split(","):
+        candidate = raw.strip()
+        if not candidate:
+            continue
+        is_weak = candidate.startswith("W/")
+        if not weak and is_weak:
+            continue
+        encoded = candidate[2:].strip() if is_weak else candidate
+        if len(encoded) < 2 or not encoded.startswith('"') or not encoded.endswith('"'):
+            continue
+        if _etag_value(candidate) == current:
+            return True
+    return False
+
+
+def _parse_byte_ranges(value: str, size: int) -> list[tuple[int, int]]:
+    """Parse a bounded RFC 9110 bytes range-set or raise ValueError for 416."""
+    unit, separator, ranges_value = value.partition("=")
+    if separator != "=" or unit.strip().casefold() != "bytes":
+        raise ValueError("unsupported range unit")
+    specifications = [item.strip() for item in ranges_value.split(",")]
+    if not specifications or any(not item for item in specifications) or len(specifications) > MAX_BYTE_RANGES:
+        raise ValueError("invalid or excessive range set")
+    ranges: list[tuple[int, int]] = []
+    for specification in specifications:
+        first, dash, last = specification.partition("-")
+        if dash != "-" or (not first and not last):
+            raise ValueError("invalid byte range")
+        try:
+            if not first:
+                suffix = int(last)
+                if suffix <= 0 or size <= 0:
+                    continue
+                start, end = max(0, size - suffix), size - 1
+            else:
+                start = int(first)
+                if start < 0:
+                    raise ValueError
+                if start >= size:
+                    continue
+                end = size - 1 if not last else min(int(last), size - 1)
+                if end < start:
+                    raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("invalid byte range") from None
+        ranges.append((start, end))
+    if not ranges:
+        raise ValueError("unsatisfiable byte range")
+    ordered = sorted(ranges)
+    if any(current[0] <= previous[1] for previous, current in zip(ordered, ordered[1:])):
+        raise ValueError("overlapping ranges are rejected")
+    return ranges
+
+
+def _iter_file_range(handle, start: int, end: int):
+    remaining = end - start + 1
+    handle.seek(start)
+    while remaining:
+        chunk = handle.read(min(DOWNLOAD_CHUNK_SIZE, remaining))
+        if not chunk:
+            break
+        remaining -= len(chunk)
+        yield chunk
+
+
+def _download_response(path: Path, username: str, document: dict, media_type: str) -> Response:
+    """Return a conditional, range-capable response from one stable open-file snapshot."""
+    try:
+        handle = path.open("rb")
+    except OSError:
+        return Response("not found", 404)
+    try:
+        stat = os.fstat(handle.fileno())
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: handle.read(DOWNLOAD_CHUNK_SIZE), b""):
+            digest.update(chunk)
+        handle.seek(0)
+        size = stat.st_size
+        etag = f'"{digest.hexdigest()}"'
+        last_modified = formatdate(stat.st_mtime, usegmt=True)
+        headers = {
+            "ETag": etag,
+            "Last-Modified": last_modified,
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "private, no-cache",
+        }
+        content_language = _content_language(username, path, document)
+        if content_language:
+            headers["Content-Language"] = content_language
+
+        if_match = request.headers.get("If-Match")
+        if if_match is not None and not _etag_list_matches(if_match, etag, weak=False):
+            handle.close()
+            return Response("", 412, headers)
+        if if_match is None:
+            unmodified = request.headers.get("If-Unmodified-Since")
+            unmodified_at = _http_date_timestamp(unmodified) if unmodified else None
+            if unmodified_at is not None and int(stat.st_mtime) > unmodified_at:
+                handle.close()
+                return Response("", 412, headers)
+
+        if_none_match = request.headers.get("If-None-Match")
+        if if_none_match is not None and _etag_list_matches(if_none_match, etag, weak=True):
+            handle.close()
+            return Response("", 304, headers)
+        if if_none_match is None:
+            modified = request.headers.get("If-Modified-Since")
+            modified_at = _http_date_timestamp(modified) if modified else None
+            if modified_at is not None and int(stat.st_mtime) <= modified_at:
+                handle.close()
+                return Response("", 304, headers)
+
+        range_header = request.headers.get("Range") if request.method == "GET" else None
+        if range_header and request.headers.get("If-Range"):
+            validator = request.headers["If-Range"].strip()
+            if validator.startswith('"') or validator.startswith("W/"):
+                range_allowed = not validator.startswith("W/") and validator == etag
+            else:
+                range_allowed = validator == last_modified
+            if not range_allowed:
+                range_header = None
+
+        if range_header:
+            try:
+                ranges = _parse_byte_ranges(range_header, size)
+            except ValueError:
+                handle.close()
+                return Response("", 416, {**headers, "Content-Range": f"bytes */{size}"})
+            if len(ranges) == 1:
+                start, end = ranges[0]
+                response_headers = {
+                    **headers,
+                    "Content-Type": media_type,
+                    "Content-Length": str(end - start + 1),
+                    "Content-Range": f"bytes {start}-{end}/{size}",
+                }
+
+                def single_range():
+                    try:
+                        yield from _iter_file_range(handle, start, end)
+                    finally:
+                        handle.close()
+
+                return Response(single_range(), 206, response_headers)
+
+            boundary = f"simpleoffice-{digest.hexdigest()[:24]}"
+            parts: list[tuple[bytes, int, int]] = []
+            total_length = 0
+            for start, end in ranges:
+                prefix = (
+                    f"--{boundary}\r\nContent-Type: {media_type}\r\n"
+                    f"Content-Range: bytes {start}-{end}/{size}\r\n\r\n"
+                ).encode("ascii")
+                parts.append((prefix, start, end))
+                total_length += len(prefix) + end - start + 1 + 2
+            closing = f"--{boundary}--\r\n".encode("ascii")
+            total_length += len(closing)
+
+            def multiple_ranges():
+                try:
+                    for prefix, start, end in parts:
+                        yield prefix
+                        yield from _iter_file_range(handle, start, end)
+                        yield b"\r\n"
+                    yield closing
+                finally:
+                    handle.close()
+
+            return Response(
+                multiple_ranges(), 206,
+                {**headers, "Content-Type": f"multipart/byteranges; boundary={boundary}", "Content-Length": str(total_length)},
+            )
+
+        if request.method == "HEAD":
+            handle.close()
+            response = Response(None, 200)
+            response.headers.update({**headers, "Content-Type": media_type, "Content-Length": str(size)})
+            return response
+
+        def complete_file():
+            try:
+                yield from _iter_file_range(handle, 0, size - 1)
+            finally:
+                handle.close()
+
+        return Response(complete_file(), 200, {**headers, "Content-Type": media_type, "Content-Length": str(size)})
+    except Exception:
+        handle.close()
+        raise
 
 
 def _resource_url(username: str, document: dict, *, external: bool = False) -> str:
@@ -1321,14 +1529,10 @@ def file_tree(username: str, relative_path: str):
     if request.method in {"GET", "HEAD"}:
         if document is None:
             return Response("not found", 404)
-        data = resource.read_bytes()
-        headers = {"ETag": _etag(document), "Content-Type": mimetypes.guess_type(resource.name)[0] or "application/octet-stream", "Content-Length": str(len(data)), "Cache-Control": "private, no-cache"}
-        content_language = _content_language(username, resource, document)
-        if content_language:
-            headers["Content-Language"] = content_language
-        response = Response(data if request.method == "GET" else None, 200)
-        response.headers.update(headers)
-        return response
+        return _download_response(
+            resource, username, document,
+            mimetypes.guess_type(resource.name)[0] or "application/octet-stream",
+        )
 
     key = _lock_key(resource, document)
     lock_error = _require_lock(key, username)
@@ -1563,14 +1767,7 @@ def endpoint(path: str):
     current_etag = _etag(document)
     common_headers = {"ETag": current_etag, "Accept-Ranges": "bytes", "Cache-Control": "private, no-cache"}
     if request.method in {"GET", "HEAD"}:
-        data = document_path.read_bytes()
-        headers = {**common_headers, "Content-Type": "application/octet-stream", "Content-Length": str(len(data))}
-        content_language = _content_language(username, document_path, document)
-        if content_language:
-            headers["Content-Language"] = content_language
-        response = Response(data if request.method == "GET" else None, 200)
-        response.headers.update(headers)
-        return response
+        return _download_response(document_path, username, document, "application/octet-stream")
     if request.method == "LOCK":
         response = _lock_request(username, document_path, document, request.url)
         response.headers.update(common_headers)

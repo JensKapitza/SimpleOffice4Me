@@ -143,6 +143,99 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(len(fetched.data), int(head.headers["Content-Length"]))
         self.assertEqual(fetched.headers["ETag"], head.headers["ETag"])
 
+    def test_single_ranges_resume_downloads_on_tree_and_stable_document_urls(self):
+        first = self.client.get(f"{self.files}/angebot.odt", headers={**self.auth, "Range": "bytes=0-4"})
+        suffix = self.client.get(self.url, headers={**self.auth, "Range": "bytes=-7"})
+        remainder = self.client.get(self.url, headers={**self.auth, "Range": "bytes=6-"})
+        head = self.client.head(self.url, headers={**self.auth, "Range": "bytes=0-4"})
+
+        self.assertEqual([206, 206, 206, 200], [first.status_code, suffix.status_code, remainder.status_code, head.status_code])
+        self.assertEqual(b"first", first.data)
+        self.assertEqual("bytes 0-4/20", first.headers["Content-Range"])
+        self.assertEqual(b"version", suffix.data)
+        self.assertEqual("bytes 13-19/20", suffix.headers["Content-Range"])
+        self.assertEqual(b"office version", remainder.data)
+        self.assertEqual("bytes", first.headers["Accept-Ranges"])
+        self.assertEqual("20", head.headers["Content-Length"])
+        self.assertEqual(b"", head.data)
+
+    def test_multiple_ranges_are_bounded_and_return_multipart_byteranges(self):
+        response = self.client.get(
+            self.url,
+            headers={**self.auth, "Range": "bytes=0-4,13-19"},
+        )
+
+        self.assertEqual(206, response.status_code)
+        self.assertTrue(response.headers["Content-Type"].startswith("multipart/byteranges; boundary="))
+        self.assertEqual(len(response.data), int(response.headers["Content-Length"]))
+        self.assertIn(b"Content-Range: bytes 0-4/20", response.data)
+        self.assertIn(b"Content-Range: bytes 13-19/20", response.data)
+        self.assertIn(b"\r\n\r\nfirst\r\n", response.data)
+        self.assertIn(b"\r\n\r\nversion\r\n", response.data)
+
+    def test_unsatisfiable_invalid_overlapping_and_excessive_ranges_return_416(self):
+        headers = [
+            "bytes=99-100",
+            "items=0-1",
+            "bytes=broken",
+            "bytes=0-5,3-8",
+            "bytes=" + ",".join(f"{number}-{number}" for number in range(9)),
+        ]
+        responses = [self.client.get(self.url, headers={**self.auth, "Range": value}) for value in headers]
+
+        self.assertEqual([416] * len(headers), [response.status_code for response in responses])
+        self.assertTrue(all(response.headers["Content-Range"] == "bytes */20" for response in responses))
+        self.assertTrue(all(response.headers["ETag"] for response in responses))
+
+    def test_etag_and_date_preconditions_follow_rfc_precedence(self):
+        current = self.client.get(self.url, headers=self.auth)
+        etag = current.headers["ETag"]
+        last_modified = current.headers["Last-Modified"]
+        not_modified = self.client.get(self.url, headers={**self.auth, "If-None-Match": etag})
+        weak_not_modified = self.client.head(self.url, headers={**self.auth, "If-None-Match": f"W/{etag}"})
+        stale_match = self.client.get(self.url, headers={**self.auth, "If-Match": '"stale"'})
+        weak_match = self.client.get(self.url, headers={**self.auth, "If-Match": f"W/{etag}"})
+        date_not_modified = self.client.get(self.url, headers={**self.auth, "If-Modified-Since": last_modified})
+        changed_since = self.client.get(self.url, headers={**self.auth, "If-Unmodified-Since": "Thu, 01 Jan 1970 00:00:00 GMT"})
+        invalid_date = self.client.get(self.url, headers={**self.auth, "If-Modified-Since": "not-a-date"})
+        etag_takes_precedence = self.client.get(
+            self.url,
+            headers={**self.auth, "If-None-Match": '"other"', "If-Modified-Since": last_modified},
+        )
+
+        self.assertEqual([304, 304, 412, 412, 304, 412, 200, 200], [
+            not_modified.status_code, weak_not_modified.status_code, stale_match.status_code,
+            weak_match.status_code, date_not_modified.status_code, changed_since.status_code,
+            invalid_date.status_code, etag_takes_precedence.status_code,
+        ])
+        self.assertEqual(b"", not_modified.data)
+        self.assertEqual(etag, not_modified.headers["ETag"])
+
+    def test_if_range_returns_partial_only_for_the_current_strong_validator(self):
+        current = self.client.get(self.url, headers=self.auth)
+        etag = current.headers["ETag"]
+        last_modified = current.headers["Last-Modified"]
+        matching_etag = self.client.get(self.url, headers={**self.auth, "Range": "bytes=0-4", "If-Range": etag})
+        matching_date = self.client.get(self.url, headers={**self.auth, "Range": "bytes=0-4", "If-Range": last_modified})
+        stale = self.client.get(self.url, headers={**self.auth, "Range": "bytes=0-4", "If-Range": '"stale"'})
+        weak = self.client.get(self.url, headers={**self.auth, "Range": "bytes=0-4", "If-Range": f"W/{etag}"})
+
+        self.assertEqual([206, 206, 200, 200], [matching_etag.status_code, matching_date.status_code, stale.status_code, weak.status_code])
+        self.assertEqual(b"first", matching_etag.data)
+        self.assertEqual(b"first", matching_date.data)
+        self.assertEqual(b"first office version", stale.data)
+        self.assertEqual(b"first office version", weak.data)
+
+    def test_download_stream_uses_one_open_file_snapshot_during_atomic_replace(self):
+        response = self.client.get(self.url, headers=self.auth, buffered=False)
+        replacement = self.store.root / ".replacement"
+        replacement.write_bytes(b"new file after response")
+        replacement.replace(self.store.root / "angebot.odt")
+
+        self.assertEqual(b"first office version", b"".join(response.response))
+        self.assertEqual("20", response.headers["Content-Length"])
+        self.assertEqual(b"new file after response", (self.store.root / "angebot.odt").read_bytes())
+
     def test_dead_properties_roundtrip_propname_and_remove(self):
         target = f"{self.files}/angebot.odt"
         update = '''<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test">

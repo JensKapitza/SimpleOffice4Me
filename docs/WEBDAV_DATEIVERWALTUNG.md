@@ -157,6 +157,13 @@ Lock-Discovery und 507-Verhalten sind in
 [WebDAV-Speichergrenzen und robuste Locks](WEBDAV_QUOTA_UND_LOCKS.md)
 dokumentiert.
 
+Downloads liefern starke ETags, `Last-Modified` und `Accept-Ranges: bytes`.
+Clients können abgebrochene Übertragungen mit Einzel-, Suffix- oder begrenzten
+Mehrfachbereichen fortsetzen. `If-Range` verhindert, dass Teilstücke einer alten
+und einer neuen Dateiversion zusammengesetzt werden. Vorbedingungen, 206/304/
+412/416-Antworten, Streaming und Schutzgrenzen erläutert
+[Fortsetzbare WebDAV-Downloads nach RFC 9110](WEBDAV_DOWNLOADS_RFC9110.md).
+
 ## Migration, Kompatibilität und Grenzen
 
 Es gibt keine Datenbankmigration. Der bisherige direkte LibreOffice-Link und
@@ -165,8 +172,8 @@ rückwärtskompatibel als bestehender Schreibzugang gelesen. Ohne aktives
 App-Passwort ist kein WebDAV-Zugriff möglich.
 
 Bewusst noch nicht implementiert sind WebDAV ACL und serverseitige Suche über
-Dead Properties, rekursive COPY-/MOVE-Operationen, `PROPFIND Depth: infinity`, Byte-Range-
-Downloads, automatisches Zusammenführen binärer Office-Dateien und das
+Dead Properties, rekursive COPY-/MOVE-Operationen, `PROPFIND Depth: infinity`,
+partielle Range-Uploads, automatisches Zusammenführen binärer Office-Dateien und das
 Überschreiben vorhandener COPY-/MOVE-Ziele. Nicht standardkonforme Clients,
 die vorhandene Dateien ohne Lock und ohne `If-Match` speichern, erhalten
 absichtlich `428` statt eines riskanten Erfolgs.

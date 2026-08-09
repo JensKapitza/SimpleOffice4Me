@@ -45,6 +45,12 @@ Maßgeblich ist [RFC 4918 – Web Distributed Authoring and Versioning](https://
 
 Zusätzlich folgt die Vorbedingungsprüfung [HTTP Semantics RFC 9110 §13](https://www.rfc-editor.org/rfc/rfc9110.html#section-13): Ein veraltetes `If-Match` erhält `412 Precondition Failed`. Die Prüfung wird innerhalb derselben Dateisperre wie das Schreiben wiederholt.
 
+Lesende Zugriffe unterstützen außerdem `Range`, `If-Range`, `If-None-Match`,
+`If-Modified-Since` und die zugehörigen 206/304/412/416-Antworten. LibreOffice
+und der verwendete WebDAV-Mount können dadurch abgebrochene Downloads sicher
+fortsetzen und unveränderte Inhalte ohne erneute Übertragung erkennen. Details
+und Grenzen stehen in [WEBDAV_DOWNLOADS_RFC9110.md](WEBDAV_DOWNLOADS_RFC9110.md).
+
 ### Bewusst nicht in der direkten Dokument-URL implementiert
 
 - `MKCOL`, `DELETE`, `MOVE` und `COPY` bleiben auf der stabilen Einzeldatei-URL gesperrt. Diese Methoden stehen im getrennten hierarchischen Dateibaum zur Verfügung.
@@ -71,7 +77,9 @@ Es gibt keine Datenbankmigration. Installationen ohne aktiviertes App-Passwort v
 
 - `401`: App-Passwort fehlt oder ist falsch.
 - `404`: Dokument, Dateiname oder Benutzerpfad passt nicht.
-- `412`: ETag ist veraltet; das aktuelle Dokument bleibt unverändert.
+- `412`: ETag oder Datums-Vorbedingung ist veraltet; das aktuelle Dokument bleibt unverändert.
+- `416`: angeforderter Downloadbereich ist ungültig oder nicht erfüllbar; die
+  Antwort meldet die aktuelle Dateilänge.
 - `413`: Anfrage überschreitet die Upload-Grenze.
 - `423`: fremde WebDAV-Sperre oder SimpleOffice-Bearbeitungssperre.
 - `409`: `UNLOCK` enthält keinen passenden Token.
@@ -80,7 +88,7 @@ Bei Fehlern vor dem atomaren Austausch bleibt das Original bestehen. Temporäre 
 
 ## Tests
 
-Automatisiert geprüft werden Aktivierung und Geheimnisschutz, `OPTIONS`, `PROPFIND`, `GET`, `HEAD`, `LOCK`, `PUT`, `UNLOCK`, persistierte Inhaltsrevisionen, Audit-Historie, Vorgängersicherung, ETag-Konflikte, fremde Sperren, falsche Zugangsdaten, Benutzertrennung, unbeschränkte Tiefenabfragen und Retention-Sperren. Zusätzlich läuft die vollständige Projektsuite in GitHub Actions.
+Automatisiert geprüft werden Aktivierung und Geheimnisschutz, `OPTIONS`, `PROPFIND`, `GET`, `HEAD`, Einzel-/Mehrfachbereiche, `If-Range`, ETag-/Datumsvalidatoren, `LOCK`, `PUT`, `UNLOCK`, persistierte Inhaltsrevisionen, Audit-Historie, Vorgängersicherung, ETag-Konflikte, fremde Sperren, falsche Zugangsdaten, Benutzertrennung, unbeschränkte Tiefenabfragen und Retention-Sperren. Zusätzlich läuft die vollständige Projektsuite in GitHub Actions.
 
 ## Deaktivierung und Rückkehr
 
