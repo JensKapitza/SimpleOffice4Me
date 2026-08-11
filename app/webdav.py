@@ -89,6 +89,8 @@ MAX_PROPERTY_NODES = 256
 MAX_BYTE_RANGES = 8
 DOWNLOAD_CHUNK_SIZE = 64 * 1024
 MAX_DIGEST_FIELD_BYTES = 2048
+MAX_HTTP_PRECONDITION_BYTES = 8192
+MAX_HTTP_PRECONDITION_TAGS = 64
 MAX_IF_HEADER_BYTES = 16 * 1024
 MAX_IF_LISTS = 64
 MAX_IF_CONDITIONS = 256
@@ -445,22 +447,140 @@ def _http_date_timestamp(value: str) -> int | None:
 
 
 def _etag_list_matches(value: str, current_etag: str, *, weak: bool) -> bool:
-    if value.strip() == "*":
-        return True
-    current = _etag_value(current_etag)
-    for raw in value.split(","):
-        candidate = raw.strip()
-        if not candidate:
-            continue
-        is_weak = candidate.startswith("W/")
-        if not weak and is_weak:
-            continue
-        encoded = candidate[2:].strip() if is_weak else candidate
-        if len(encoded) < 2 or not encoded.startswith('"') or not encoded.endswith('"'):
-            continue
-        if _etag_value(candidate) == current:
-            return True
-    return False
+    try:
+        wildcard, tags = _parse_http_etag_list(value)
+    except (OverflowError, ValueError):
+        return False
+    return wildcard or any(
+        (weak or not is_weak) and hmac.compare_digest(tag, current_etag)
+        for is_weak, tag in tags
+    )
+
+
+def _parse_http_etag_list(value: str) -> tuple[bool, list[tuple[bool, str]]]:
+    """Parse a bounded RFC 9110 entity-tag list without splitting quoted commas."""
+    if not value:
+        raise ValueError("HTTP ETag precondition is empty")
+    if len(value.encode("latin-1", errors="replace")) > MAX_HTTP_PRECONDITION_BYTES:
+        raise OverflowError("HTTP ETag precondition is too large")
+    value = value.strip()
+    if value == "*":
+        return True, []
+    tags: list[tuple[bool, str]] = []
+    position = 0
+    while position < len(value):
+        while position < len(value) and value[position] in " \t":
+            position += 1
+        weak = value[position:position + 2] == "W/"
+        if weak:
+            position += 2
+        if position >= len(value) or value[position] != '"':
+            raise ValueError("HTTP ETag precondition contains an invalid entity-tag")
+        start = position
+        position += 1
+        while position < len(value) and value[position] != '"':
+            character = ord(value[position])
+            if character != 0x21 and not 0x23 <= character <= 0x7E and not 0x80 <= character <= 0xFF:
+                raise ValueError("HTTP ETag precondition contains an invalid entity-tag")
+            position += 1
+        if position >= len(value):
+            raise ValueError("HTTP ETag precondition contains an unterminated entity-tag")
+        position += 1
+        tags.append((weak, value[start:position]))
+        if len(tags) > MAX_HTTP_PRECONDITION_TAGS:
+            raise OverflowError("HTTP ETag precondition contains too many entity-tags")
+        while position < len(value) and value[position] in " \t":
+            position += 1
+        if position == len(value):
+            break
+        if value[position] != ",":
+            raise ValueError("HTTP ETag precondition is not a valid list")
+        position += 1
+        if not value[position:].strip():
+            raise ValueError("HTTP ETag precondition contains an empty member")
+    return False, tags
+
+
+def _record_http_precondition_failure(
+    username: str, resource: Path, condition: str, status: int, reason: str,
+) -> None:
+    """Audit rejected mutations without retaining client-supplied validators."""
+    relative = _store().relative(resource)
+    _store().history.record(
+        "webdav_http_precondition_rejected",
+        f"webdav:{username}",
+        "webdav-preconditions",
+        hashlib.sha256(f"{username}:{request.method}:{relative}".encode()).hexdigest(),
+        {
+            "resource": relative,
+            "method": request.method,
+            "condition": condition,
+            "status": status,
+            "reason": reason,
+            "rejected_at": utc_now(),
+            "actor": f"webdav:{username}",
+        },
+    )
+
+
+def _http_precondition_error(username: str, resource: Path, document: dict | None) -> Response | None:
+    """Evaluate unsafe-request HTTP preconditions in RFC 9110 precedence order."""
+    exists = (document is not None and resource.is_file() and not resource.is_symlink()) or (
+        resource.is_dir() and not resource.is_symlink()
+    )
+    current_etag = _etag(document) if document is not None and exists else ""
+    modified_at: int | None = None
+    headers = {"Cache-Control": "private, no-cache"}
+    if exists:
+        try:
+            modified_at = int(resource.stat().st_mtime)
+            headers["Last-Modified"] = formatdate(modified_at, usegmt=True)
+        except OSError:
+            modified_at = None
+    if current_etag:
+        headers["ETag"] = current_etag
+
+    def reject(condition: str, reason: str, status: int = 412) -> Response:
+        _record_http_precondition_failure(username, resource, condition, status, reason)
+        return Response(reason, status, headers)
+
+    if_match = request.headers.get("If-Match")
+    if if_match is not None:
+        try:
+            wildcard, tags = _parse_http_etag_list(if_match)
+        except OverflowError as exc:
+            return reject("If-Match", str(exc), 413)
+        except ValueError as exc:
+            return reject("If-Match", str(exc), 400)
+        matches = exists and (
+            wildcard or bool(current_etag) and any(
+                not weak and hmac.compare_digest(tag, current_etag) for weak, tag in tags
+            )
+        )
+        if not matches:
+            return reject("If-Match", "If-Match precondition failed")
+    else:
+        unmodified = request.headers.get("If-Unmodified-Since")
+        unmodified_at = _http_date_timestamp(unmodified) if unmodified else None
+        if unmodified_at is not None and modified_at is not None and modified_at > unmodified_at:
+            return reject("If-Unmodified-Since", "If-Unmodified-Since precondition failed")
+
+    if_none_match = request.headers.get("If-None-Match")
+    if if_none_match is not None:
+        try:
+            wildcard, tags = _parse_http_etag_list(if_none_match)
+        except OverflowError as exc:
+            return reject("If-None-Match", str(exc), 413)
+        except ValueError as exc:
+            return reject("If-None-Match", str(exc), 400)
+        matches = exists and (
+            wildcard or bool(current_etag) and any(
+                hmac.compare_digest(tag, current_etag) for _weak, tag in tags
+            )
+        )
+        if matches:
+            return reject("If-None-Match", "If-None-Match precondition failed")
+    return None
 
 
 def _digest_value(algorithm: str, digest: bytes) -> str:
@@ -2089,6 +2209,9 @@ def file_tree(username: str, relative_path: str):
     if request.method == "PROPPATCH":
         if not is_collection and document is None:
             return Response("not found", 404)
+        precondition_error = _http_precondition_error(username, resource, document)
+        if precondition_error is not None:
+            return precondition_error
         if document is not None:
             try:
                 _store()._require_document_editable(document)
@@ -2105,6 +2228,9 @@ def file_tree(username: str, relative_path: str):
             return Response("resource already exists", 405)
         if request.get_data():
             return Response("extended MKCOL bodies are not supported", 415)
+        precondition_error = _http_precondition_error(username, resource, None)
+        if precondition_error is not None:
+            return precondition_error
         try:
             _store().create_collection(_store().relative(resource), f"webdav:{username}")
         except ValueError:
@@ -2127,16 +2253,15 @@ def file_tree(username: str, relative_path: str):
         return Response("", 204)
 
     if request.method == "PUT":
-        content = request.get_data()
         current_etag = _etag(document) if document else ""
         if document:
-            if request.headers.get("If-None-Match") == "*":
-                return Response("resource already exists", 412, {"ETag": current_etag})
+            precondition_error = _http_precondition_error(username, resource, document)
+            if precondition_error is not None:
+                return precondition_error
             if_match = request.headers.get("If-Match", "")
             if not _request_token(key) and not if_match:
                 return Response("existing resources require If-Match or a lock token", 428, {"ETag": current_etag})
-            if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
-                return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+            content = request.get_data()
             digest_error = _verify_content_digest(content, username, resource)
             if digest_error is not None:
                 return digest_error
@@ -2156,8 +2281,10 @@ def file_tree(username: str, relative_path: str):
             return Response("", 204, _stored_integrity_headers(updated))
         if is_collection:
             return Response("cannot PUT a collection", 405)
-        if request.headers.get("If-Match"):
-            return Response("resource does not exist", 412)
+        precondition_error = _http_precondition_error(username, resource, None)
+        if precondition_error is not None:
+            return precondition_error
+        content = request.get_data()
         digest_error = _verify_content_digest(content, username, resource)
         if digest_error is not None:
             return digest_error
@@ -2186,10 +2313,9 @@ def file_tree(username: str, relative_path: str):
 
     if request.method == "DELETE":
         if document:
-            if_match = request.headers.get("If-Match", "")
-            current_etag = _etag(document)
-            if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
-                return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+            precondition_error = _http_precondition_error(username, resource, document)
+            if precondition_error is not None:
+                return precondition_error
             try:
                 _store().soft_delete_document(document["document_id"], f"webdav:{username}")
             except ValueError as exc:
@@ -2205,6 +2331,9 @@ def file_tree(username: str, relative_path: str):
             depth = request.headers.get("Depth", "infinity").lower()
             if depth != "infinity":
                 return Response("collection DELETE requires Depth: infinity", 400)
+            precondition_error = _http_precondition_error(username, resource, None)
+            if precondition_error is not None:
+                return precondition_error
             collection_lock_error = _collection_lock_error(resource, username)
             if collection_lock_error is not None:
                 return collection_lock_error
@@ -2242,11 +2371,10 @@ def file_tree(username: str, relative_path: str):
             return Response("collection COPY requires Depth: 0 or infinity", 400)
         if request.method == "MOVE" and is_collection and depth != "infinity":
             return Response("collection MOVE requires Depth: infinity", 400)
-        if document is not None:
-            current_etag = _etag(document)
-            if_match = request.headers.get("If-Match", "")
-            if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
-                return Response("resource changed since it was opened", 412, {"ETag": current_etag})
+        precondition_error = _http_precondition_error(username, resource, document)
+        if precondition_error is not None:
+            return precondition_error
+        current_etag = _etag(document) if document is not None else ""
         try:
             destination, destination_relative = _destination(username, identity)
         except PermissionError:
@@ -2461,6 +2589,9 @@ def endpoint(path: str):
         lock_error = _require_lock(document_path, document, username)
         if lock_error is not None:
             return lock_error
+        precondition_error = _http_precondition_error(username, document_path, document)
+        if precondition_error is not None:
+            return precondition_error
         try:
             _store()._require_document_editable(document)
         except ValueError as exc:
@@ -2492,14 +2623,14 @@ def endpoint(path: str):
         _record_lock_audit("webdav_lock_released", username, document_path, existing)
         return Response("", 204)
     if request.method == "PUT":
-        content = request.get_data()
         lock_error = _require_lock(document_path, document, username)
         if lock_error is not None:
             lock_error.headers.update(common_headers)
             return lock_error
-        if_match = request.headers.get("If-Match", "")
-        if if_match and if_match != "*" and _etag_value(if_match) != _etag_value(current_etag):
-            return Response("document changed since it was opened", 412, common_headers)
+        precondition_error = _http_precondition_error(username, document_path, document)
+        if precondition_error is not None:
+            return precondition_error
+        content = request.get_data()
         digest_error = _verify_content_digest(content, username, document_path)
         if digest_error is not None:
             return digest_error

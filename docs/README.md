@@ -24,6 +24,7 @@ verlinkt.
 - [WebDAV-Eigenschaften und Metadaten nach RFC 4918](WEBDAV_EIGENSCHAFTEN_RFC4918.md)
 - [WebDAV-Speichergrenzen nach RFC 4331 und robuste Locks](WEBDAV_QUOTA_UND_LOCKS.md)
 - [Ressourcengenaue WebDAV-If-Bedingungen nach RFC 4918](WEBDAV_IF_HEADER_RFC4918.md)
+- [Einheitliche HTTP-Vorbedingungen für WebDAV nach RFC 9110](WEBDAV_HTTP_VORBEDINGUNGEN_RFC9110.md)
 - [Rekursive WebDAV-Ordnersperren nach RFC 4918](WEBDAV_COLLECTION_LOCKS_RFC4918.md)
 - [WebDAV-Ordner rekursiv kopieren und verschieben nach RFC 4918](WEBDAV_ORDNER_COPY_MOVE_RFC4918.md)
 - [Vorhandene WebDAV-Dateien sicher per MOVE ersetzen](WEBDAV_SICHERES_MOVE_ERSETZEN.md)

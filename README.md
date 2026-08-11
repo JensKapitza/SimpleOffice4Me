@@ -71,6 +71,9 @@ Ressourcen stehen in
 Die sichere Zuordnung von Lock-Token, ETags und Sync-Token zu genau der im
 `If`-Header bezeichneten Ressource ist in
 [WebDAV-Bedingungen nach RFC 4918](docs/WEBDAV_IF_HEADER_RFC4918.md) dokumentiert.
+Die [einheitlichen HTTP-Vorbedingungen nach RFC 9110](docs/WEBDAV_HTTP_VORBEDINGUNGEN_RFC9110.md)
+schützen PUT, DELETE, PROPPATCH, MKCOL, COPY und MOVE mit derselben ETag- und
+Datumsreihenfolge vor verlorenen Änderungen.
 Rekursive Ordnersperren, vererbte Lock-Discovery und Konfliktschutz für neue
 Dateien nach RFC 4918 beschreibt
 [WebDAV-Ordnersperren](docs/WEBDAV_COLLECTION_LOCKS_RFC4918.md).

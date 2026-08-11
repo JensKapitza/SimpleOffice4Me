@@ -322,6 +322,107 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(b"", not_modified.data)
         self.assertEqual(etag, not_modified.headers["ETag"])
 
+    def test_unsafe_etag_preconditions_support_lists_weak_comparison_and_precedence(self):
+        target = f"{self.files}/angebot.odt"
+        current = self.client.get(target, headers=self.auth)
+        etag = current.headers["ETag"]
+        saved = self.client.put(
+            target,
+            data=b"list-selected version",
+            headers={
+                **self.auth,
+                "If-Match": f'"other,opaque", {etag}',
+                "If-Unmodified-Since": "Thu, 01 Jan 1970 00:00:00 GMT",
+            },
+        )
+        fresh = self.client.get(target, headers=self.auth).headers["ETag"]
+        weak_match = self.client.put(
+            target, data=b"weak must fail", headers={**self.auth, "If-Match": f"W/{fresh}"},
+        )
+        none_match = self.client.put(
+            target,
+            data=b"none-match must fail",
+            headers={**self.auth, "If-Match": fresh, "If-None-Match": f'"other", W/{fresh}'},
+        )
+
+        self.assertEqual([204, 412, 412], [saved.status_code, weak_match.status_code, none_match.status_code])
+        self.assertEqual(b"list-selected version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(fresh, weak_match.headers["ETag"])
+        self.assertTrue(weak_match.headers["Last-Modified"])
+
+    def test_stale_dates_block_all_file_mutations_before_any_side_effect(self):
+        target = f"{self.files}/angebot.odt"
+        property_body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:test"><d:set><d:prop><m:state>unsafe</m:state></d:prop></d:set></d:propertyupdate>'
+        stale = {**self.auth, "If-Unmodified-Since": "Thu, 01 Jan 1970 00:00:00 GMT"}
+        deleted = self.client.delete(target, headers=stale)
+        property_change = self.client.open(target, method="PROPPATCH", data=property_body, headers=stale)
+        copied = self.client.open(
+            target, method="COPY",
+            headers={**stale, "Destination": f"http://localhost{self.files}/stale-copy.odt"},
+        )
+        moved = self.client.open(
+            target, method="MOVE",
+            headers={**stale, "Destination": f"http://localhost{self.files}/stale-move.odt"},
+        )
+
+        self.assertEqual([412, 412, 412, 412], [deleted.status_code, property_change.status_code, copied.status_code, moved.status_code])
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertFalse((self.store.root / "stale-copy.odt").exists())
+        self.assertFalse((self.store.root / "stale-move.odt").exists())
+        self.assertFalse((self.store.control / "webdav-properties.json").exists())
+
+    def test_invalid_etag_conditions_fail_closed_and_are_safely_audited(self):
+        target = f"{self.files}/angebot.odt"
+        secret = "validator-that-must-not-enter-history"
+        malformed = self.client.delete(target, headers={**self.auth, "If-None-Match": secret})
+        excessive = self.client.delete(
+            target,
+            headers={**self.auth, "If-Match": ", ".join(f'"tag-{number}"' for number in range(65))},
+        )
+        oversized = self.client.delete(
+            target, headers={**self.auth, "If-None-Match": f'"{("x" * 8192)}"'},
+        )
+
+        self.assertEqual([400, 413, 413], [malformed.status_code, excessive.status_code, oversized.status_code])
+        self.assertTrue((self.store.root / "angebot.odt").is_file())
+        events = [row for row in self.store.logbook() if row.get("action") == "webdav_http_precondition_rejected"]
+        self.assertEqual(3, len(events))
+        snapshots = list((self.store.history.root / "snapshots" / "webdav-preconditions").glob("*.json"))
+        self.assertTrue(snapshots)
+        self.assertNotIn(secret, "\n".join(path.read_text() for path in snapshots))
+
+    def test_collection_and_create_preconditions_use_resource_existence(self):
+        collection = f"{self.files}/Bedingt"
+        missing_match = self.client.open(
+            collection, method="MKCOL", headers={**self.auth, "If-Match": "*"},
+        )
+        created = self.client.open(
+            collection, method="MKCOL", headers={**self.auth, "If-None-Match": "*"},
+        )
+        blocked = self.client.open(
+            collection,
+            method="PROPPATCH",
+            data='<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:test"><d:set><d:prop><m:x>1</m:x></d:prop></d:set></d:propertyupdate>',
+            headers={**self.auth, "If-None-Match": "*"},
+        )
+
+        self.assertEqual([412, 201, 412], [missing_match.status_code, created.status_code, blocked.status_code])
+        self.assertTrue((self.store.root / "Bedingt").is_dir())
+
+    def test_invalid_unmodified_since_is_ignored_for_copy(self):
+        copied = self.client.open(
+            f"{self.files}/angebot.odt",
+            method="COPY",
+            headers={
+                **self.auth,
+                "If-Unmodified-Since": "not-an-http-date",
+                "Destination": f"http://localhost{self.files}/date-fallback.odt",
+            },
+        )
+
+        self.assertEqual(201, copied.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "date-fallback.odt").read_bytes())
+
     def test_if_range_returns_partial_only_for_the_current_strong_validator(self):
         current = self.client.get(self.url, headers=self.auth)
         etag = current.headers["ETag"]
