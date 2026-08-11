@@ -2352,15 +2352,196 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(403, foreign.status_code)
         self.assertIn("valid-sync-token", foreign.get_data(as_text=True))
 
-    def test_sync_report_rejects_bad_depth_shape_limit_and_file_target(self):
+    def test_sync_report_rejects_bad_depth_shape_invalid_limit_and_file_target(self):
         valid = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
         bad_depth = self.client.open(self.files, method="REPORT", data=valid, headers={**self.auth, "Depth": "1"})
         bad_shape = self.client.open(self.files, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"/>', headers=self.auth)
-        limited = self.client.open(self.files, method="REPORT", data=valid.replace("<d:prop>", "<d:limit><d:nresults>1</d:nresults></d:limit><d:prop>"), headers=self.auth)
+        limited = self.client.open(self.files, method="REPORT", data=valid.replace("<d:prop>", "<d:limit><d:nresults>0</d:nresults></d:limit><d:prop>"), headers=self.auth)
         file_target = self.client.open(f"{self.files}/angebot.odt", method="REPORT", data=valid, headers=self.auth)
 
-        self.assertEqual([400, 400, 507, 400], [bad_depth.status_code, bad_shape.status_code, limited.status_code, file_target.status_code])
-        self.assertIn("number-of-matches-within-limits", limited.get_data(as_text=True))
+        self.assertEqual([400, 400, 400, 400], [bad_depth.status_code, bad_shape.status_code, limited.status_code, file_target.status_code])
+        self.assertIn("positive integer", limited.get_data(as_text=True))
+
+    def test_sync_limit_pages_initial_inventory_without_duplicates(self):
+        self.store.create_document_at("alpha.txt", b"a", "jens")
+        self.store.create_document_at("beta.txt", b"b", "jens")
+        self.store.create_document_at("gamma.txt", b"c", "jens")
+        template = '<d:sync-collection xmlns:d="DAV:"><d:sync-token>{token}</d:sync-token><d:sync-level>infinite</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        token = ""
+        hrefs = []
+        pages = 0
+        while True:
+            response = self.client.open(
+                self.files, method="REPORT", data=template.format(token=token),
+                headers={**self.auth, "Depth": "0"},
+            )
+            root = ElementTree.fromstring(response.data)
+            pages += 1
+            for item in root.findall("{DAV:}response"):
+                status = item.findtext("{DAV:}status", "")
+                if "507" not in status:
+                    hrefs.append(item.findtext("{DAV:}href"))
+            token = root.findtext("{DAV:}sync-token")
+            if "507 Insufficient Storage" not in response.get_data(as_text=True):
+                break
+            self.assertEqual("result-count", response.headers["X-SimpleOffice-Sync-Limit"])
+            self.assertLess(pages, 10)
+
+        self.assertEqual(4, pages)
+        self.assertEqual(4, len(hrefs))
+        self.assertEqual(len(hrefs), len(set(hrefs)))
+        self.assertTrue(any(href.endswith("angebot.odt") for href in hrefs))
+        quiet = self.client.open(
+            self.files, method="REPORT", data=template.format(token=token), headers=self.auth,
+        )
+        self.assertEqual([], ElementTree.fromstring(quiet.data).findall("{DAV:}response"))
+
+    def test_sync_server_cap_pages_without_client_limit_and_audits_cursor(self):
+        self.store.create_document_at("alpha.txt", b"a", "jens")
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        with mock.patch("app.webdav.MAX_SYNC_PAGE_RESULTS", 1):
+            first = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+            token = ElementTree.fromstring(first.data).findtext("{DAV:}sync-token")
+            second = self.client.open(
+                self.files, method="REPORT",
+                data=body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+                headers=self.auth,
+            )
+
+        self.assertEqual([207, 207], [first.status_code, second.status_code])
+        self.assertIn("507 Insufficient Storage", first.get_data(as_text=True))
+        self.assertNotIn("507 Insufficient Storage", second.get_data(as_text=True))
+        events = [row for row in self.store.logbook() if row.get("action") == "webdav_sync_truncated"]
+        self.assertTrue(events)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-sync").glob("*.json")
+        ]
+        self.assertEqual(1, snapshots[-1]["returned"])
+        self.assertEqual(1, snapshots[-1]["remaining"])
+        self.assertNotIn("urn:uuid", json.dumps(snapshots[-1]))
+
+    def test_sync_paging_includes_parallel_change_after_partial_token(self):
+        self.store.create_document_at("zulu.txt", b"z", "jens")
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        first = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+        token = ElementTree.fromstring(first.data).findtext("{DAV:}sync-token")
+        first_href = next(
+            item.findtext("{DAV:}href") for item in ElementTree.fromstring(first.data).findall("{DAV:}response")
+            if "507" not in item.findtext("{DAV:}status", "")
+        )
+        path = first_href.rsplit("/", 1)[-1]
+        current = self.client.get(f"{self.files}/{path}", headers=self.auth)
+        changed = self.client.put(
+            f"{self.files}/{path}", data=b"parallel update",
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+        seen_after = []
+        for _page in range(6):
+            page = self.client.open(
+                self.files, method="REPORT",
+                data=body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+                headers=self.auth,
+            )
+            root = ElementTree.fromstring(page.data)
+            seen_after.extend(
+                item.findtext("{DAV:}href") for item in root.findall("{DAV:}response")
+                if "507" not in item.findtext("{DAV:}status", "")
+            )
+            token = root.findtext("{DAV:}sync-token")
+            if "507 Insufficient Storage" not in page.get_data(as_text=True):
+                break
+
+        self.assertEqual(204, changed.status_code)
+        self.assertIn(first_href, seen_after)
+        self.assertTrue(any(href.endswith("zulu.txt") for href in [first_href, *seen_after]))
+
+    def test_sync_paging_suppresses_removed_collection_descendants_across_boundary(self):
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        initial = self.client.open(self.files, method="REPORT", data=body.replace("<d:limit><d:nresults>1</d:nresults></d:limit>", ""), headers=self.auth)
+        token = ElementTree.fromstring(initial.data).findtext("{DAV:}sync-token")
+        self.client.open(f"{self.files}/Ordner", method="MKCOL", headers=self.auth)
+        self.client.put(f"{self.files}/Ordner/eins.txt", data=b"1", headers=self.auth)
+        self.client.put(f"{self.files}/Ordner/zwei.txt", data=b"2", headers=self.auth)
+        deleted = self.client.delete(f"{self.files}/Ordner", headers=self.auth)
+        report = self.client.open(
+            self.files, method="REPORT",
+            data=body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+            headers=self.auth,
+        )
+        text = report.get_data(as_text=True)
+
+        self.assertEqual(204, deleted.status_code)
+        self.assertEqual(1, len(ElementTree.fromstring(report.data).findall("{DAV:}response")))
+        self.assertIn("Ordner/", text)
+        self.assertNotIn("eins.txt", text)
+        self.assertNotIn("zwei.txt", text)
+        self.assertNotIn("507 Insufficient Storage", text)
+
+    def test_sync_limit_validation_and_partial_token_user_isolation(self):
+        base = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level>{limit}<d:prop><d:getetag/></d:prop></d:sync-collection>'
+        invalid = []
+        for limit in (
+            "<d:limit/>",
+            "<d:limit><d:nresults>-1</d:nresults></d:limit>",
+            "<d:limit><d:nresults>abc</d:nresults></d:limit>",
+            "<d:limit><d:nresults>1</d:nresults><d:nresults>2</d:nresults></d:limit>",
+        ):
+            invalid.append(self.client.open(self.files, method="REPORT", data=base.format(limit=limit), headers=self.auth))
+        self.store.create_document_at("alpha.txt", b"a", "jens")
+        partial = self.client.open(
+            self.files, method="REPORT",
+            data=base.format(limit="<d:limit><d:nresults>1</d:nresults></d:limit>"), headers=self.auth,
+        )
+        token = ElementTree.fromstring(partial.data).findtext("{DAV:}sync-token")
+        self.client.get("/auth/logout")
+        self.client.post("/auth/register", data={"username": "other", "password": "other-browser-password"})
+        with app.test_request_context():
+            password = activate("other", "other", label="Other", expires_days=30)
+        auth = {"Authorization": "Basic " + base64.b64encode(f"other:{password}".encode()).decode()}
+        foreign = self.client.open(
+            "/webdav/files/other", method="REPORT",
+            data=base.format(limit="").replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+            headers=auth,
+        )
+
+        self.assertEqual([400, 400, 400, 400], [item.status_code for item in invalid])
+        self.assertEqual(207, partial.status_code)
+        self.assertEqual(403, foreign.status_code)
+        self.assertIn("valid-sync-token", foreign.get_data(as_text=True))
+
+    def test_sync_paging_migrates_legacy_journal_without_changing_documents(self):
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        initial = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+        sync_path = self.store.control / "webdav-sync.json"
+        payload = json.loads(sync_path.read_text(encoding="utf-8"))
+        state = payload["users"]["jens"]["collections"]["."]
+        state.pop("path_revisions")
+        sync_path.write_text(json.dumps(payload), encoding="utf-8")
+        before = (self.store.root / "angebot.odt").read_bytes()
+
+        migrated = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+        persisted = json.loads(sync_path.read_text(encoding="utf-8"))
+        migrated_state = persisted["users"]["jens"]["collections"]["."]
+
+        self.assertEqual(207, initial.status_code)
+        self.assertEqual(207, migrated.status_code)
+        self.assertEqual(before, (self.store.root / "angebot.odt").read_bytes())
+        self.assertIn("angebot.odt", migrated_state["path_revisions"])
+        self.assertGreater(migrated_state["revision"], state["revision"])
+
+    def test_sync_report_rejects_external_entities_without_leaking_content(self):
+        response = self.client.open(
+            self.files, method="REPORT",
+            data='''<!DOCTYPE x [<!ENTITY leak SYSTEM "file:///etc/passwd">]>
+              <d:sync-collection xmlns:d="DAV:"><d:sync-token>&leak;</d:sync-token>
+              <d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>''',
+            headers=self.auth,
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("no-external-entities", response.get_data(as_text=True))
+        self.assertNotIn("root:", response.get_data(as_text=True))
 
     def test_sync_reports_remove_then_remap_as_changed_not_deleted(self):
         body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'

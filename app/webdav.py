@@ -97,6 +97,7 @@ MAX_ACTIVE_CREDENTIALS = 10
 WRITE_METHODS = {"PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK", "PROPPATCH"}
 MAX_SYNC_CHANGES = 4096
 MAX_SYNC_TOKENS = 512
+MAX_SYNC_PAGE_RESULTS = 500
 MAX_PROPERTY_BODY = 64 * 1024
 MAX_PROPERTY_COUNT = 64
 MAX_STORED_PROPERTIES = 128
@@ -2969,6 +2970,16 @@ def _record_sync_changes(username: str, *relative_paths: str) -> None:
             changes = state.get("changes", []) if isinstance(state.get("changes"), list) else []
             tokens = state.get("tokens", []) if isinstance(state.get("tokens"), list) else []
             revision = int(state.get("revision", 0))
+            path_revisions = state.get("path_revisions")
+            if not isinstance(path_revisions, dict):
+                path_revisions = {}
+                for relative, info in sorted(previous.items()):
+                    revision += 1
+                    changes.append({
+                        "revision": revision, "path": relative, "removed": False,
+                        "collection": bool(info.get("collection")),
+                    })
+                    path_revisions[relative] = revision
             for relative in normalized:
                 try:
                     Path(relative).relative_to(collection_relative) if collection_relative else Path(relative)
@@ -2982,10 +2993,15 @@ def _record_sync_changes(username: str, *relative_paths: str) -> None:
                     "removed": relative not in current,
                     "collection": bool((current.get(relative) or previous.get(relative) or {}).get("collection")),
                 })
+                if relative in current:
+                    path_revisions[relative] = revision
+                else:
+                    path_revisions.pop(relative, None)
                 tokens.append({"token": token, "revision": revision})
                 state["token"] = token
             state["revision"] = revision
             state["snapshot"] = current
+            state["path_revisions"] = path_revisions
             state["changes"] = changes[-MAX_SYNC_CHANGES:]
             minimum = state["changes"][0]["revision"] - 1 if state["changes"] else revision
             state["tokens"] = [item for item in tokens if int(item.get("revision", -1)) >= minimum][-MAX_SYNC_TOKENS:]
@@ -3004,13 +3020,26 @@ def _sync_state(username: str, collection: Path) -> dict:
         snapshot = _visible_snapshot(collection)
         state = collections.get(collection_key)
         if not isinstance(state, dict):
+            changes = []
+            path_revisions = {}
+            revision = 0
+            for relative, info in sorted(snapshot.items()):
+                revision += 1
+                changes.append({
+                    "revision": revision,
+                    "path": relative,
+                    "removed": False,
+                    "collection": bool(info.get("collection")),
+                })
+                path_revisions[relative] = revision
             token = _new_sync_token()
             state = {
-                "revision": 0,
+                "revision": revision,
                 "token": token,
-                "tokens": [{"token": token, "revision": 0}],
-                "changes": [],
+                "tokens": [{"token": token, "revision": revision}],
+                "changes": changes,
                 "snapshot": snapshot,
+                "path_revisions": path_revisions,
             }
             collections[collection_key] = state
         else:
@@ -3018,6 +3047,25 @@ def _sync_state(username: str, collection: Path) -> dict:
             changes = state.get("changes", []) if isinstance(state.get("changes"), list) else []
             tokens = state.get("tokens", []) if isinstance(state.get("tokens"), list) else []
             revision = int(state.get("revision", 0))
+            path_revisions = state.get("path_revisions")
+            if not isinstance(path_revisions, dict):
+                # A one-time, transport-only baseline makes pre-pagination
+                # journals safely resumable. Existing clients merely observe
+                # each current URL once more; document data is untouched.
+                path_revisions = {}
+                for relative, info in sorted(snapshot.items()):
+                    revision += 1
+                    changes.append({
+                        "revision": revision,
+                        "path": relative,
+                        "removed": False,
+                        "collection": bool(info.get("collection")),
+                    })
+                    path_revisions[relative] = revision
+                if snapshot:
+                    token = _new_sync_token()
+                    tokens.append({"token": token, "revision": revision})
+                    state["token"] = token
             for relative in sorted(set(previous) | set(snapshot)):
                 if previous.get(relative) == snapshot.get(relative):
                     continue
@@ -3029,10 +3077,15 @@ def _sync_state(username: str, collection: Path) -> dict:
                     "removed": relative not in snapshot,
                     "collection": bool((snapshot.get(relative) or previous.get(relative) or {}).get("collection")),
                 })
+                if relative in snapshot:
+                    path_revisions[relative] = revision
+                else:
+                    path_revisions.pop(relative, None)
                 tokens.append({"token": token, "revision": revision})
                 state["token"] = token
             state["revision"] = revision
             state["snapshot"] = snapshot
+            state["path_revisions"] = path_revisions
             state["changes"] = changes[-MAX_SYNC_CHANGES:]
             minimum = state["changes"][0]["revision"] - 1 if state["changes"] else revision
             retained = [item for item in tokens if int(item.get("revision", -1)) >= minimum]
@@ -3042,6 +3095,33 @@ def _sync_state(username: str, collection: Path) -> dict:
         payload["version"] = 1
         atomic_json_write(path, payload)
         return json.loads(json.dumps(state))
+
+
+def _sync_token_for_revision(username: str, collection: Path, revision: int) -> str:
+    """Return a persisted opaque token for an exactly processed revision."""
+    path = _sync_path()
+    collection_key = _store().relative(collection) or "."
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"version": 1, "users": {}})
+        state = payload.get("users", {}).get(username, {}).get("collections", {}).get(collection_key)
+        if not isinstance(state, dict):
+            raise ValueError("sync state is unavailable")
+        current_revision = int(state.get("revision", 0))
+        if revision < 0 or revision > current_revision:
+            raise ValueError("sync revision is unavailable")
+        changes = state.get("changes", []) if isinstance(state.get("changes"), list) else []
+        minimum = int(changes[0].get("revision", 0)) - 1 if changes else current_revision
+        if revision < minimum:
+            raise ValueError("sync revision has expired")
+        tokens = state.get("tokens", []) if isinstance(state.get("tokens"), list) else []
+        for item in reversed(tokens):
+            if isinstance(item, dict) and int(item.get("revision", -1)) == revision:
+                return str(item["token"])
+        token = _new_sync_token()
+        tokens.append({"token": token, "revision": revision})
+        state["tokens"] = tokens[-MAX_SYNC_TOKENS:]
+        atomic_json_write(path, payload)
+        return token
 
 
 def _collection_sync_token(username: str, collection: Path) -> str:
@@ -3070,6 +3150,90 @@ def _sync_member_in_scope(relative: str, collection: Path, level: str) -> bool:
     return nested != Path(".") and (level == "infinite" or len(nested.parts) == 1)
 
 
+def _sync_limit(root: ElementTree.Element) -> int:
+    nodes = root.findall(f"{{{DAV}}}limit")
+    if not nodes:
+        return MAX_SYNC_PAGE_RESULTS
+    if len(nodes) != 1:
+        raise ValueError("sync-collection accepts one limit")
+    results = nodes[0].findall(f"{{{DAV}}}nresults")
+    if len(results) != 1 or len(nodes[0]) != 1:
+        raise ValueError("DAV:limit requires one DAV:nresults")
+    value = (results[0].text or "").strip()
+    if not value.isdecimal() or int(value) < 1:
+        raise ValueError("DAV:nresults must be a positive integer")
+    return min(int(value), MAX_SYNC_PAGE_RESULTS)
+
+
+def _effective_sync_members(members: list[dict], level: str) -> list[dict]:
+    """Suppress descendant tombstones while advancing their sync cursor."""
+    removed_collections: dict[str, dict] = {}
+    effective: list[dict] = []
+    for original in sorted(members, key=lambda item: (int(item.get("revision", 0)), str(item.get("path", "")))):
+        item = dict(original)
+        relative = str(item["path"])
+        revision = int(item.get("revision", 0))
+        parent = next(
+            (
+                removed for path, removed in removed_collections.items()
+                if level == "infinite" and relative.startswith(path + "/")
+            ),
+            None,
+        )
+        if parent is not None:
+            parent["cursor_revision"] = max(int(parent.get("cursor_revision", 0)), revision)
+            continue
+        item["cursor_revision"] = revision
+        effective.append(item)
+        if item.get("removed") and item.get("collection"):
+            removed_collections[relative] = item
+    return effective
+
+
+def _sync_member_response(username: str, item: dict, query: tuple[str, list[str]]) -> str:
+    relative = str(item["path"])
+    resource = _store().root / relative
+    current_collection = resource.is_dir() and not resource.is_symlink()
+    current_file = resource.is_file() and not resource.is_symlink()
+    href = _tree_url(
+        username, relative,
+        collection=current_collection or (not current_file and bool(item.get("collection"))),
+    )
+    if item.get("removed") or (not current_collection and not current_file):
+        return f"<d:response><d:href>{escape(href)}</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response>"
+    if current_collection:
+        return _prop_response(
+            href, resource.name, collection=True, username=username,
+            resource=resource, query=query, searchable=True,
+        )
+    try:
+        document = _tree_document(resource)
+    except ValueError:
+        return f"<d:response><d:href>{escape(href)}</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response>"
+    return _prop_response(
+        href, resource.name, document=document, username=username,
+        resource=resource, query=query, searchable=True,
+    )
+
+
+def _sync_limit_response(username: str, collection: Path, responses: list[str], token: str) -> Response:
+    href = _tree_url(username, _store().relative(collection), collection=True)
+    responses.append(
+        f"<d:response><d:href>{escape(href)}</d:href>"
+        "<d:status>HTTP/1.1 507 Insufficient Storage</d:status>"
+        "<d:error><d:number-of-matches-within-limits/></d:error></d:response>"
+    )
+    xml = f'''<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}<d:sync-token>{escape(token)}</d:sync-token></d:multistatus>'''
+    return Response(
+        xml, 207, {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": "private, no-store",
+            "Vary": "Authorization, Depth",
+            "X-SimpleOffice-Sync-Limit": "result-count",
+        },
+    )
+
+
 def _sync_report(username: str, collection: Path) -> Response:
     if request.headers.get("Depth", "0") != "0":
         return Response("sync-collection requires Depth: 0", 400)
@@ -3095,9 +3259,10 @@ def _sync_report(username: str, collection: Path) -> Response:
     level = (level_node.text or "").strip()
     if level not in {"1", "infinite"}:
         return Response("sync-level must be 1 or infinite", 400)
-    if root.find(f"{{{DAV}}}limit") is not None:
-        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:number-of-matches-within-limits/></d:error>'
-        return Response(error, 507, mimetype="application/xml")
+    try:
+        page_limit = _sync_limit(root)
+    except ValueError as exc:
+        return Response(str(exc), 400)
 
     supplied_token = (token_node.text or "").strip()
     state = _sync_state(username, collection)
@@ -3114,38 +3279,58 @@ def _sync_report(username: str, collection: Path) -> Response:
         for change in state.get("changes", []):
             if int(change.get("revision", -1)) > since and _sync_member_in_scope(str(change.get("path", "")), collection, level):
                 latest[str(change["path"])] = change
-        members = [latest[key] for key in sorted(latest)]
+        members = list(latest.values())
     else:
+        path_revisions = state.get("path_revisions", {})
         members = [
-            {"path": relative, "removed": False, "collection": bool(info.get("collection"))}
+            {
+                "path": relative, "removed": False,
+                "collection": bool(info.get("collection")),
+                "revision": int(path_revisions.get(relative, state.get("revision", 0))),
+            }
             for relative, info in sorted(state.get("snapshot", {}).items())
             if _sync_member_in_scope(relative, collection, level)
         ]
-
-    removed_collections = {
-        str(item["path"]) for item in members
-        if item.get("removed") and item.get("collection")
-    }
+    members = _effective_sync_members(members, level)
     responses: list[str] = []
-    for item in members:
-        relative = str(item["path"])
-        if level == "infinite" and any(relative.startswith(parent + "/") for parent in removed_collections):
-            continue
-        href = _tree_url(username, relative, collection=bool(item.get("collection")))
-        if item.get("removed"):
-            responses.append(f"<d:response><d:href>{escape(href)}</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response>")
-            continue
-        resource = _store().root / relative
-        if item.get("collection"):
-            responses.append(_prop_response(href, resource.name, collection=True, username=username, resource=resource, query=query, searchable=True))
-        else:
-            try:
-                document = _tree_document(resource)
-            except ValueError:
-                continue
-            responses.append(_prop_response(href, resource.name, document=document, username=username, resource=resource, query=query, searchable=True))
+    consumed = 0
+    response_size = 256
+    for item in members[:page_limit]:
+        rendered = _sync_member_response(username, item, query)
+        rendered_size = len(rendered.encode("utf-8"))
+        if responses and response_size + rendered_size > MAX_PROPFIND_RESPONSE_BYTES:
+            break
+        if not responses and response_size + rendered_size > MAX_PROPFIND_RESPONSE_BYTES:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:number-of-matches-within-limits/></d:error>'
+            return Response(error, 507, mimetype="application/xml")
+        responses.append(rendered)
+        response_size += rendered_size
+        consumed += 1
+    if consumed < len(members):
+        cursor_revision = int(members[consumed - 1]["cursor_revision"])
+        try:
+            partial_token = _sync_token_for_revision(username, collection, cursor_revision)
+        except ValueError:
+            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:valid-sync-token/></d:error>'
+            return Response(error, 403, mimetype="application/xml")
+        _store().history.record(
+            "webdav_sync_truncated", f"webdav:{username}", "webdav-sync",
+            hashlib.sha256(f"{username}:{partial_token}".encode()).hexdigest(),
+            {
+                "collection": _store().relative(collection) or ".", "sync_level": level,
+                "returned": consumed, "remaining": len(members) - consumed,
+                "cursor_revision": cursor_revision, "actor": f"webdav:{username}",
+                "at": utc_now(),
+            },
+        )
+        return _sync_limit_response(username, collection, responses, partial_token)
     xml = f'''<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}<d:sync-token>{escape(str(state["token"]))}</d:sync-token></d:multistatus>'''
-    return Response(xml, 207, mimetype="application/xml")
+    return Response(
+        xml, 207, {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": "private, no-store", "Vary": "Authorization, Depth",
+        },
+    )
 
 
 @bp.route("/documents/<document_id>/libreoffice", methods=["GET", "POST"])
@@ -3249,6 +3434,9 @@ def file_tree(username: str, relative_path: str):
     if request.method == "REPORT":
         if not is_collection:
             return Response("sync-collection requires a collection", 400)
+        mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
+        mutation_lock.__enter__()
+        g._webdav_mutation_lock = mutation_lock
         return _sync_report(username, resource)
 
     if request.method == "SEARCH":

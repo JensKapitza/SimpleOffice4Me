@@ -68,7 +68,8 @@ Neue Dateien und Ordner erhalten außerdem
 Unicode-Normalisierung, Windows-Gerätenamen und Großschreibungs-/
 Normalisierungskollisionen werden ohne stille Umbenennung geprüft.
 Der inkrementelle Änderungsabgleich für kompatible Clients folgt
-[RFC 6578](docs/WEBDAV_SYNC_RFC6578.md).
+[RFC 6578](docs/WEBDAV_SYNC_RFC6578.md) und liefert große Bestände über
+fortsetzbare, revisionsfeste Teil-Token statt unbeschränkter Antworten.
 Schreibbare, atomare Datei- und Ordnereigenschaften für Desktop-Clients sind
 unter [WebDAV-Eigenschaften nach RFC 4918](docs/WEBDAV_EIGENSCHAFTEN_RFC4918.md)
 beschrieben.

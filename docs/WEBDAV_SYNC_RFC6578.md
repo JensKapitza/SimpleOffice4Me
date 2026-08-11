@@ -34,7 +34,8 @@ Maßgeblich ist
 | Sync-Tokens **MUST** gültige URIs sein und vom Client als undurchsichtig behandelt werden. Ein ungültiges Token verletzt `DAV:valid-sync-token`. | [§3.2](https://www.rfc-editor.org/rfc/rfc6578.html#section-3.2), [§4](https://www.rfc-editor.org/rfc/rfc6578.html#section-4) | Tokens sind zufällige `urn:uuid:`-URIs, werden exakt validiert und sind an Benutzer und Zielsammlung gebunden. Fremde, erfundene oder aus der Historie gefallene Tokens ergeben `403` mit `DAV:valid-sync-token`. |
 | `DAV:sync-token` **MUST** auf unterstützenden Sammlungen definiert und als WebDAV-`If`-State-Token verwendbar sein; bei `allprop` **SHOULD NOT** es ungefragt erscheinen. | [§4–5](https://www.rfc-editor.org/rfc/rfc6578.html#section-4) | Explizites `PROPFIND` liefert das geschützte Token. Getaggte `If`-Bedingungen werden vor Mutationen sammlungs- und benutzergebunden geprüft; veraltete Zustände ergeben `412`. Ein gewöhnliches `allprop` löst keinen teuren Vollabgleich aus. |
 | Server **MAY** Historie begrenzen, sollen Tokens aber nur bei Notwendigkeit ungültig machen. | [§3.1](https://www.rfc-editor.org/rfc/rfc6578.html#section-3.1), [§3.2](https://www.rfc-editor.org/rfc/rfc6578.html#section-3.2) | Pro Sammlung bleiben höchstens 4.096 Änderungen und 512 verwendbare Tokenstände erhalten. Danach muss der Client mit leerem Token sicher voll abgleichen. |
-| Ein vom Client verlangtes `limit` muss korrekt paginiert oder mit `DAV:number-of-matches-within-limits` abgewiesen werden. | [§3.6–3.7](https://www.rfc-editor.org/rfc/rfc6578.html#section-3.6) | Teil-Snapshots werden nicht vorgetäuscht: `DAV:limit` wird derzeit mit `507` und der vorgeschriebenen Fehlerbedingung abgewiesen. |
+| Der Server **MAY** große Ergebnisse kürzen. Dann **MUST** er `207 Multi-Status`, für die Request-URI `507` und ein Teil-Token liefern; `DAV:number-of-matches-within-limits` **SHOULD** den Grund nennen. Clients **MUST** diese Fortsetzung beherrschen. | [§3.6](https://www.rfc-editor.org/rfc/rfc6578.html#section-3.6) | Höchstens 500 Mitglied-URLs werden pro Antwort ausgegeben. Der zusätzliche `507`-Eintrag und `DAV:number-of-matches-within-limits` kennzeichnen eine unvollständige Seite; das undurchsichtige Teil-Token setzt exakt hinter der letzten vollständig verarbeiteten Revision fort. |
+| Ein Client **MAY** mit `DAV:limit/DAV:nresults` eine positive Höchstzahl verlangen. Kann der Server nicht innerhalb dieser Grenze kürzen, **MUST** er mit `DAV:number-of-matches-within-limits` scheitern. | [§3.7](https://www.rfc-editor.org/rfc/rfc6578.html#section-3.7), [§6.5](https://www.rfc-editor.org/rfc/rfc6578.html#section-6.5) | Positive ganzzahlige Limits werden bis zur sicheren Serverobergrenze eingehalten. Fehlende, doppelte, negative, nullwertige oder nichtnumerische `nresults` werden mit `400` abgewiesen. Nur wenn schon ein einzelnes Property-Ergebnis die 8-MiB-Antwortgrenze überschreiten würde, folgt ein eigenständiges `507`. |
 
 Zusätzlich bleiben die ETag- und Lock-Regeln aus
 [RFC 4918](https://www.rfc-editor.org/rfc/rfc4918.html) sowie die bedingten
@@ -60,6 +61,41 @@ dem Dateibaum. Die Dokument- und Git-Audit-Historie bleibt die maßgebliche
 Historie der Mutation – das Sync-Journal ist nur ein begrenzter Transportindex
 und ändert keine Aufbewahrungsregel.
 
+### Fortsetzbare große Bestände
+
+Jeder aktuelle Pfad und jede spätere Mutation besitzt eine monoton steigende,
+benutzer- und sammlungsgebundene Journalrevision. Die Zahl wird nicht an den
+Client ausgegeben. Für eine gekürzte Seite erzeugt SimpleOffice stattdessen ein
+zufälliges URI-Token, das intern auf die letzte vollständig verarbeitete
+Revision zeigt. Die nächste Anfrage mit diesem Token liefert alle späteren
+relevanten Zustände. Mehrere Änderungen derselben URL werden auf den jüngsten
+Zustand verdichtet; die URL erscheint je Antwort höchstens einmal.
+
+Dieses Verfahren ist absichtlich zustandsbasiert und kopiert weder Dateiinhalt
+noch vollständige Ergebnislisten in eine Sitzung. Dadurch gilt auch bei einer
+Änderung zwischen zwei Seiten:
+
+1. Noch nicht gelieferte Ausgangsmitglieder bleiben über ihre Revision
+   auffindbar.
+2. Eine inzwischen erneut geänderte URL wird mit ihrem neuesten Zustand
+   geliefert, auch wenn sie in einer früheren Seite bereits vorkam.
+3. Nach der letzten Seite bezeichnet das normale Token den aktuellen
+   vollständigen Journalstand; spätere Änderungen folgen im nächsten Lauf.
+4. Entfernte Sammlungen werden bei `infinite` einmal gemeldet. Die intern
+   verarbeiteten Kind-Tombstones verschieben den Cursor mit, ohne später als
+   einzelne Löschungen wieder aufzutauchen.
+
+REPORT, PUT, COPY, MOVE, DELETE und Property-Mutationen verwenden denselben
+Mutationslock. Eine einzelne Seite sieht deshalb einen konsistenten Baum. Das
+Token selbst bleibt über Prozessneustarts erhalten. Ein Client darf eine Seite
+nach Transportabbruch mit demselben Token erneut anfordern; er muss Antworten
+wie vom Standard vorgesehen anhand von URL und ETag idempotent anwenden.
+
+Eine gekürzte Seite wird revisionssicher als `webdav_sync_truncated` auditiert.
+Gespeichert werden Sammlung, Sync-Level, Anzahl gelieferter und verbleibender
+URLs sowie die interne Cursorrevision. Das geheime Token, Dateiinhalte und
+angeforderte Property-Werte stehen nicht im Audit.
+
 ## Rechte, Sicherheit und Datenschutz
 
 - `REPORT` verlangt dasselbe benutzergebundene App-Passwort wie `PROPFIND` und
@@ -74,6 +110,8 @@ und ändert keine Aufbewahrungsregel.
   keine Übertragung an Dritte und keine automatische Freigabe.
 - Der XML-Anfragetext ist auf 64 KiB begrenzt. Unbekannte Reports, fehlerhaftes
   XML und nicht unterstützte Ebenen werden ohne Mutation abgewiesen.
+- Eine Seite enthält höchstens 500 Mitglied-URLs und höchstens 8 MiB XML. Das
+  schützt Arbeitsspeicher und Desktop-Clients vor unkontrollierten Antworten.
 
 ## Bedienung und Interoperabilität
 
@@ -90,6 +128,23 @@ SimpleOffice behauptet keine direkte RFC-6578-Unterstützung durch FreeFileSync.
 Der Vorteil greift nur, wenn der verwendete WebDAV-Client oder Mount-Provider
 den REPORT nutzt.
 
+Clients, die `sync-collection` selbst aufrufen, verarbeiten eine Seite so:
+
+1. `207` lesen und alle normalen `DAV:response`-Elemente anwenden.
+2. Enthält die Antwort für die angefragte Sammlung den Status `507` und
+   `DAV:number-of-matches-within-limits`, ist sie noch nicht vollständig.
+3. Das enthaltene `DAV:sync-token` unverändert in der nächsten REPORT-Anfrage
+   senden. Das gilt auch, wenn der Client selbst kein `DAV:limit` angegeben hat.
+4. Erst eine `207`-Antwort ohne den `507`-Sammlungseintrag beendet den Lauf;
+   ihr Token wird für den nächsten späteren Abgleich gespeichert.
+
+LibreOffice, Nautilus/GVfs, Windows Explorer/WebClient, Finder und die von
+FreeFileSync verwendeten eingehängten Dateisysteme dürfen weiterhin mit
+PROPFIND arbeiten. Sie erhalten keine neue Pflichtkonfiguration. Die
+Paginierung verbessert direkt nur Implementierungen, die RFC 6578 entdecken
+und REPORT verwenden; sie verändert weder normale Dateioperationen noch
+Offline-Kopien.
+
 ## Fehler- und Ausfallverhalten
 
 - `400`: falsches Ziel, falsches `Depth`, ungültiges XML oder unvollständiger
@@ -97,32 +152,51 @@ den REPORT nutzt.
 - `401`: App-Passwort fehlt oder ist ungültig.
 - `403 DAV:valid-sync-token`: Token ist fremd, veraltet oder unbekannt; der
   Client wiederholt den Lauf mit leerem Token.
-- `507 DAV:number-of-matches-within-limits`: der Client verlangt eine derzeit
-  nicht unterstützte Ergebnisbegrenzung.
+- `507 DAV:number-of-matches-within-limits`: ein einzelnes Property-Ergebnis
+  kann nicht innerhalb der sicheren Antwortgröße geliefert werden. Es wird
+  kein irreführendes Teil-Token ausgegeben.
 - `413`: XML-Anfragetext überschreitet 64 KiB.
-- `207`: erfolgreicher Initial- oder Folgelauf; ein leerer Änderungssatz ist
-  normal und enthält trotzdem das aktuelle Token.
+- `207` ohne eingebettetes `507`: vollständiger Initial- oder Folgelauf; ein
+  leerer Änderungssatz ist normal und enthält trotzdem das aktuelle Token.
+- `207` mit eingebettetem `507` und
+  `DAV:number-of-matches-within-limits`: erfolgreiche, aber unvollständige
+  Seite. Bereits gelieferte Antworten gelten; mit dem Teil-Token fortsetzen.
 
 ## Migration, Rückwärtskompatibilität und Deaktivierung
 
 Es gibt keine Datenbank- oder Dokumentmigration. Der Journalzustand entsteht
 erst beim ersten `PROPFIND`/REPORT und kann bei deaktiviertem WebDAV ungenutzt
-bleiben. Alte Clients ignorieren die zusätzliche Capability und arbeiten wie
-zuvor. Zum Rückkehrverhalten kann der RFC-6578-Handler entfernt und die
-Journaldatei nach einer Sicherung gelöscht werden; Dokumente, Versionen,
-Freigaben, Auditdaten und Aufbewahrungsregeln bleiben unverändert. Clients
-müssen danach einmal vollständig per `PROPFIND` synchronisieren.
+bleiben. Bei einem schon vorhandenen Journal wird einmalig nur im privaten
+Transportindex eine Ausgangsrevision je sichtbarer URL ergänzt. Ein Client mit
+einem älteren Token kann diese URLs einmal erneut als geändert sehen; das ist
+idempotent und verhindert Lücken. Dokumente, ETags, Versionen, Rechte und
+Aufbewahrung ändern sich nicht.
+
+Alte Clients ignorieren die zusätzliche Capability und arbeiten wie zuvor.
+Zum Rückkehrverhalten kann der RFC-6578-Handler entfernt und die Journaldatei
+nach einer Sicherung gelöscht werden; Dokumente, Versionen, Freigaben,
+Auditdaten und Aufbewahrungsregeln bleiben unverändert. Clients müssen danach
+einmal vollständig per `PROPFIND` synchronisieren. Eine separate Lockerung der
+500er-Grenze ist bewusst nicht vorgesehen; eine höhere Grenze würde den
+Überlastungsschutz reduzieren.
 
 ## Tests und bekannte Grenzen
 
 Automatisiert geprüft werden Initialabgleich, `sync-level` 1 und `infinite`,
 Datei- und Ordneranlage, Inhaltsänderung, Lösch-Tombstone, Entfernen mit
 anschließender Neubelegung, wiederholter leerer Abgleich, Tokenwechsel,
-Benutzertrennung, ungültige Tokens, falsches `Depth`, unvollständiges XML,
-`limit` und REPORT auf eine Datei. Die vollständige Suite prüft zusätzlich
-WebDAV-Rechte, ETags, Locks, atomare Speicherung, Wiederherstellung und Audit.
+Benutzertrennung, ungültige Tokens, falsches `Depth`, unvollständiges XML und
+REPORT auf eine Datei. Für die Paginierung kommen mehrseitiger Initialabgleich,
+Client- und Serverlimit, ungültige `nresults`, eindeutige URLs, fortgesetzter
+Leerlauf, Mutation zwischen Seiten, fremdes Teil-Token, Audit sowie die
+Unterdrückung gelöschter Sammlungsnachfahren hinzu. Die vollständige Suite prüft
+zusätzlich WebDAV-Rechte, ETags, Locks, atomare Speicherung,
+Wiederherstellung und reale Dateioperationen.
 
-Bewusst nicht implementiert sind paginierte `DAV:limit`-Ergebnisse sowie
-verteilte Journale über mehrere unabhängig schreibende Serverknoten. Für Clusterbetrieb
-ist deshalb ein gemeinsamer Dokument- und Metadatenspeicher mit genau einem
-koordinierten Schreibpfad erforderlich.
+Bewusst nicht implementiert sind ein serverübergreifend verteiltes Journal
+und eine direkte FreeFileSync-spezifische API. Für Clusterbetrieb ist deshalb
+ein gemeinsamer Dokument- und Metadatenspeicher mit genau einem koordinierten
+Schreibpfad erforderlich. Die 4.096 Journaländerungen und 512 Tokenstände sind
+weiterhin begrenzt; verfällt ein sehr lange pausiertes Teil-Token, antwortet
+der Server sicher mit `403 DAV:valid-sync-token` und der Client beginnt mit
+leerem Token neu.
