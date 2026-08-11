@@ -19,6 +19,11 @@ beschrieben.
 
 Alternativ kann der Dienst einmalig über **Datei → Remote öffnen → Dienste verwalten → WebDAV** eingerichtet werden. Host, Port und Root-Pfad werden aus der angezeigten HTTPS-Adresse übernommen. Diese Bedienung entspricht der offiziellen LibreOffice-Hilfe zu [WebDAV-Remote-Dateien](https://help.libreoffice.org/latest/de/text/shared/guide/cmis-remote-files-setup.html) und zum [Öffnen und Speichern über WebDAV/HTTPS](https://help.libreoffice.org/latest/de/text/shared/guide/digitalsign_receive.html).
 
+ACL-fähige Clients können zusätzlich den geschützten aktuellen Principal und
+den wirksamen Lese-/Schreibumfang erkennen. Dafür ist keine Einstellung nötig;
+die Funktion verändert keine ACL oder Freigabe. Details stehen unter
+[WebDAV-Principal- und Rechteerkennung](WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md).
+
 ## Konfiguration und Voraussetzungen
 
 - Eine installierte LibreOffice-Version mit WebDAV-Unterstützung.

@@ -85,6 +85,7 @@ Maßgeblich ist
 | Exklusive Write-Locks verhindern kollidierende Schreibzugriffe und können auch eine noch nicht belegte URL oder eine Collection sperren. | [§6](https://www.rfc-editor.org/rfc/rfc4918.html#section-6), [§7.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.3), [§7.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.4), [§9.10](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10) | `LOCK`/`UNLOCK` funktionieren für Dateien, LibreOffice-Lock-null-Abläufe und Collections mit Tiefe 0 oder infinity. Rekursive Sperren schützen vorhandene und neue Mitglieder; Details stehen in [WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md). |
 | `If-Match` muss bei abweichendem Validator mit `412` fehlschlagen; `If-None-Match: *` schützt die Neuanlage. | [RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1), [§13.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2) | ETags sind SHA-256-basiert. Vorbedingungen werden nochmals unter derselben Dateisperre wie der Inhalt geprüft. |
 | Sammlungen können Änderungen seit einem undurchsichtigen Token effizient melden. | [RFC 6578 §3](https://www.rfc-editor.org/rfc/rfc6578.html#section-3) | `REPORT sync-collection`, `sync-level` 1/infinite, geänderte ETags und Lösch-Tombstones sind benutzergetrennt implementiert; Details stehen in [WEBDAV_SYNC_RFC6578.md](WEBDAV_SYNC_RFC6578.md). |
+| Clients benötigen einen geschützten, aktuellen Privilegiensatz, um unzulässige Aktionen in ihrer Oberfläche zu deaktivieren. | [RFC 3744 §3.7](https://www.rfc-editor.org/rfc/rfc3744.html#section-3.7), [§5.4](https://www.rfc-editor.org/rfc/rfc3744.html#section-5.4), [RFC 5397 §3](https://www.rfc-editor.org/rfc/rfc5397.html#section-3) | Dateien und Ordner liefern auf ausdrückliche Anfrage den aktuellen Benutzer-Principal und den konservativen `read`/`write`-Umfang des App-Passworts. Die private Principal-URL ist nur selbst sichtbar; es gibt bewusst keine ACL-Bearbeitung oder Compliance-Werbung. Details: [WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md](WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md). |
 
 `OPTIONS` meldet DAV-Klassen `1, 2`, `sync-collection` und die Methoden `PROPFIND`, `PROPPATCH`, `REPORT`, `GET`, `HEAD`,
 `PUT`, `DELETE`, `MKCOL`, `COPY`, `MOVE`, `LOCK` und `UNLOCK`.
@@ -222,6 +223,8 @@ Automatisiert geprüft werden realistische Abläufe für:
   geschützte Live Properties, Lock- und Rechtefehler sowie XML-Schutzgrenzen;
 - persistente Datei-/Ordner-Erstellungszeiten, HTTP-Änderungszeiten,
   COPY-/MOVE-Semantik und atomare ausgewählte Windows-Dateieigenschaften;
+- geschützte Principal-URLs, Lese-/Schreibprivilegien je Ressourcentyp,
+  private Principal-Sammlung, `allprop/include` und `need-privileges`-Fehler;
 - `MKCOL` und `PUT`-Neuanlage mit Dokument-ID, Hash und Audit;
 - ETag-geschütztes Speichern, veraltete und fehlende Vorbedingungen;
 - gesperrte leere Ressource, `PUT`, Token-Übertragung, ausdrücklicher

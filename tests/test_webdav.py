@@ -97,6 +97,10 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(207, listing.status_code)
         self.assertEqual(200, fetched.status_code)
         self.assertEqual([403, 403, 403], [put.status_code, folder.status_code, lock.status_code])
+        put_error = ElementTree.fromstring(put.data)
+        self.assertEqual(f"{self.files}/neu.txt", put_error.findtext(".//{DAV:}href"))
+        self.assertIsNotNone(put_error.find(".//{DAV:}privilege/{DAV:}write"))
+        self.assertEqual("private, no-store", put.headers["Cache-Control"])
         self.assertFalse((self.store.root / "neu.txt").exists())
 
     def test_expired_and_malformed_credentials_are_rejected(self):
@@ -3045,6 +3049,150 @@ class WebDavDocumentTest(unittest.TestCase):
         serialized = "\n".join(path.read_text(encoding="utf-8") for path in snapshots)
         self.assertIn("Win32LastModifiedTime", serialized)
         self.assertNotIn("2026-08-11T07:10:00Z", serialized)
+
+    def test_current_principal_and_privileges_are_resource_and_scope_aware(self):
+        folder_url = f"{self.files}/Rechte"
+        file_url = f"{folder_url}/Plan.odt"
+        self.assertEqual(201, self.client.open(folder_url, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.put(file_url, data=b"plan", headers=self.auth).status_code)
+        query = '''<d:propfind xmlns:d="DAV:"><d:prop>
+          <d:owner/><d:current-user-principal/><d:principal-collection-set/>
+          <d:current-user-privilege-set/>
+        </d:prop></d:propfind>'''
+
+        folder = self.client.open(
+            folder_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        file = self.client.open(
+            file_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        folder_root = ElementTree.fromstring(folder.data)
+        file_root = ElementTree.fromstring(file.data)
+        principal = "/webdav/principals/jens/self"
+
+        self.assertEqual([207, 207], [folder.status_code, file.status_code])
+        self.assertEqual(principal, folder_root.findtext(".//{DAV:}owner/{DAV:}href"))
+        self.assertEqual(principal, folder_root.findtext(".//{DAV:}current-user-principal/{DAV:}href"))
+        self.assertEqual(
+            "/webdav/principals/jens/",
+            folder_root.findtext(".//{DAV:}principal-collection-set/{DAV:}href"),
+        )
+        folder_privileges = {
+            child.tag.removeprefix("{DAV:}")
+            for privilege in folder_root.findall(
+                ".//{DAV:}current-user-privilege-set/{DAV:}privilege"
+            )
+            for child in privilege
+        }
+        file_privileges = {
+            child.tag.removeprefix("{DAV:}")
+            for privilege in file_root.findall(
+                ".//{DAV:}current-user-privilege-set/{DAV:}privilege"
+            )
+            for child in privilege
+        }
+        self.assertTrue({"read", "write", "write-properties", "write-content", "bind", "unbind", "unlock"} <= folder_privileges)
+        self.assertTrue({"read", "write", "write-properties", "write-content", "unlock"} <= file_privileges)
+        self.assertFalse({"bind", "unbind"} & file_privileges)
+        self.assertNotIn("write-acl", folder_privileges)
+
+    def test_read_only_principal_endpoint_is_private_and_self_consistent(self):
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="Principal Reader", scope="read", expires_days=30,
+            )
+        read_auth = {
+            "Authorization": "Basic "
+            + base64.b64encode(f"jens:{password}".encode()).decode()
+        }
+        query = '''<d:propfind xmlns:d="DAV:"><d:prop>
+          <d:displayname/><d:resourcetype/><d:principal-URL/>
+          <d:alternate-URI-set/><d:group-membership/>
+          <d:current-user-privilege-set/>
+        </d:prop></d:propfind>'''
+
+        principal = self.client.open(
+            "/webdav/principals/jens/self", method="PROPFIND", data=query,
+            headers={**read_auth, "Depth": "0"},
+        )
+        collection = self.client.open(
+            "/webdav/principals/jens/", method="PROPFIND", data=query,
+            headers={**read_auth, "Depth": "1"},
+        )
+        resource = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:"><d:prop><d:current-user-privilege-set/></d:prop></d:propfind>',
+            headers={**read_auth, "Depth": "0"},
+        )
+        root = ElementTree.fromstring(principal.data)
+        resource_root = ElementTree.fromstring(resource.data)
+
+        self.assertEqual([207, 207, 207], [principal.status_code, collection.status_code, resource.status_code])
+        self.assertIsNotNone(root.find(".//{DAV:}resourcetype/{DAV:}principal"))
+        self.assertEqual("jens", root.findtext(".//{DAV:}displayname"))
+        self.assertEqual(
+            "/webdav/principals/jens/self",
+            root.findtext(".//{DAV:}principal-URL/{DAV:}href"),
+        )
+        self.assertIsNotNone(root.find(".//{DAV:}alternate-URI-set"))
+        self.assertIsNotNone(root.find(".//{DAV:}group-membership"))
+        self.assertEqual(
+            2,
+            len(ElementTree.fromstring(collection.data).findall("{DAV:}response")),
+        )
+        privileges = {
+            child.tag.removeprefix("{DAV:}")
+            for privilege in resource_root.findall(
+                ".//{DAV:}current-user-privilege-set/{DAV:}privilege"
+            )
+            for child in privilege
+        }
+        self.assertEqual({"read", "read-current-user-privilege-set"}, privileges)
+
+    def test_principal_discovery_does_not_disclose_users_or_enable_acl_changes(self):
+        query = '<d:propfind xmlns:d="DAV:"><d:allprop/><d:include><d:current-user-principal/></d:include></d:propfind>'
+        included = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        allprop = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPFIND",
+            headers={**self.auth, "Depth": "0"},
+        )
+        protected = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:"><d:set><d:prop>
+              <d:owner><d:href>/webdav/principals/other/self</d:href></d:owner>
+              <d:current-user-principal><d:href>/webdav/principals/other/self</d:href></d:current-user-principal>
+            </d:prop></d:set></d:propertyupdate>''',
+            headers=self.auth,
+        )
+        foreign = self.client.open(
+            "/webdav/principals/other/", method="PROPFIND", headers=self.auth,
+        )
+        unknown = self.client.open(
+            "/webdav/principals/jens/not-self", method="PROPFIND", headers=self.auth,
+        )
+        unauthenticated = self.client.open(
+            "/webdav/principals/jens/self", method="PROPFIND",
+        )
+        infinite = self.client.open(
+            "/webdav/principals/jens/", method="PROPFIND",
+            headers={**self.auth, "Depth": "infinity"},
+        )
+        virtual_root = self.client.open(
+            "/webdav/", method="PROPFIND", headers={**self.auth, "Depth": "0"},
+        )
+
+        self.assertEqual(207, included.status_code)
+        self.assertIn("current-user-principal", included.get_data(as_text=True))
+        self.assertNotIn("current-user-principal", allprop.get_data(as_text=True))
+        self.assertEqual(207, protected.status_code)
+        self.assertIn("403 Forbidden", protected.get_data(as_text=True))
+        self.assertEqual([404, 404, 401, 403, 207], [foreign.status_code, unknown.status_code, unauthenticated.status_code, infinite.status_code, virtual_root.status_code])
+        self.assertEqual("private, no-store", included.headers["Cache-Control"])
 
 
 if __name__ == "__main__":

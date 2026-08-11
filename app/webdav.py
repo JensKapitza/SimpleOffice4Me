@@ -117,8 +117,10 @@ DIGEST_ALGORITHMS = {
 DIGEST_PREFERENCE = "sha-512=9, sha-256=10"
 PROTECTED_DAV_PROPERTIES = {
     f"{{{DAV}}}{name}" for name in (
-        "creationdate", "getcontentlength",
+        "alternate-URI-set", "creationdate", "current-user-principal",
+        "current-user-privilege-set", "getcontentlength",
         "getcontenttype", "getetag", "getlastmodified", "lockdiscovery",
+        "group-membership", "owner", "principal-collection-set", "principal-URL",
         "quota-available-bytes", "quota-used-bytes", "resourcetype",
         "supportedlock", "supported-report-set", "sync-token",
     )
@@ -459,6 +461,32 @@ def _authenticate() -> dict | None:
 
 def _unauthorized() -> Response:
     return Response("WebDAV authentication required", 401, {"WWW-Authenticate": 'Basic realm="SimpleOffice4Me Documents", charset="UTF-8"'})
+
+
+def _need_privileges_response(href: str, privilege: str, allow: str) -> Response:
+    """Give ACL-aware clients a useful least-privilege denial without exposing ACLs."""
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<d:error xmlns:d="DAV:"><d:need-privileges><d:resource>'
+        f'<d:href>{escape(href)}</d:href><d:privilege><d:{privilege}/></d:privilege>'
+        '</d:resource></d:need-privileges></d:error>'
+    )
+    return Response(
+        xml,
+        403,
+        {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": "private, no-store",
+            "Allow": allow,
+        },
+    )
+
+
+def _missing_method_privilege(method: str) -> str:
+    return {
+        "PROPPATCH": "write-properties",
+        "UNLOCK": "unlock",
+    }.get(method, "write")
 
 
 def _document_path(document: dict) -> Path:
@@ -1623,6 +1651,50 @@ def _resource_creationdate(
     return _rfc3339_timestamp((document or {}).get("first_seen_at"))
 
 
+def _principal_url(username: str, *, collection: bool = False) -> str:
+    return url_for(
+        "webdav.principal_resource",
+        username=username,
+        principal_id="" if collection else "self",
+    )
+
+
+def _href_property(tag: str, href: str) -> str:
+    element = ElementTree.Element(tag)
+    ElementTree.SubElement(element, f"{{{DAV}}}href").text = href
+    return ElementTree.tostring(element, encoding="unicode")
+
+
+def _access_control_live_properties(*, collection: bool) -> dict[str, str]:
+    """Expose the current credential's effective, read-only privilege view."""
+    identity = getattr(g, "_webdav_identity", None)
+    if not isinstance(identity, dict) or not identity.get("username"):
+        return {}
+    principal = _principal_url(identity["username"])
+    principal_collection = _principal_url(identity["username"], collection=True)
+    privileges = ["read", "read-current-user-privilege-set"]
+    if identity.get("scope") == "write":
+        privileges.extend(["write", "write-properties", "write-content", "unlock"])
+        if collection:
+            privileges.extend(["bind", "unbind"])
+    privilege_set = ElementTree.Element(f"{{{DAV}}}current-user-privilege-set")
+    for name in privileges:
+        privilege = ElementTree.SubElement(privilege_set, f"{{{DAV}}}privilege")
+        ElementTree.SubElement(privilege, f"{{{DAV}}}{name}")
+    return {
+        f"{{{DAV}}}owner": _href_property(f"{{{DAV}}}owner", principal),
+        f"{{{DAV}}}current-user-principal": _href_property(
+            f"{{{DAV}}}current-user-principal", principal,
+        ),
+        f"{{{DAV}}}principal-collection-set": _href_property(
+            f"{{{DAV}}}principal-collection-set", principal_collection,
+        ),
+        f"{{{DAV}}}current-user-privilege-set": ElementTree.tostring(
+            privilege_set, encoding="unicode",
+        ),
+    }
+
+
 def _live_properties(
     display_name: str,
     *,
@@ -1654,17 +1726,19 @@ def _live_properties(
             f"{{{DAV}}}ishidden",
             "1" if resource is not None and resource.name.startswith(".") else "0",
         ),
+        **_access_control_live_properties(collection=collection),
     }
-    path = resource or _document_path(document or {})
-    created_at = _resource_creationdate(path, document, collection=collection)
-    if created_at:
-        values[f"{{{DAV}}}creationdate"] = _xml_element(
-            f"{{{DAV}}}creationdate", created_at,
+    path = resource or (_document_path(document) if document else None)
+    if path is not None:
+        created_at = _resource_creationdate(path, document, collection=collection)
+        if created_at:
+            values[f"{{{DAV}}}creationdate"] = _xml_element(
+                f"{{{DAV}}}creationdate", created_at,
+            )
+        stat = path.stat()
+        values[f"{{{DAV}}}getlastmodified"] = _xml_element(
+            f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
         )
-    stat = path.stat()
-    values[f"{{{DAV}}}getlastmodified"] = _xml_element(
-        f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
-    )
     if collection:
         resource_type = ElementTree.Element(f"{{{DAV}}}resourcetype")
         ElementTree.SubElement(resource_type, f"{{{DAV}}}collection")
@@ -1685,6 +1759,8 @@ def _live_properties(
             values[f"{{{DAV}}}quota-used-bytes"] = _xml_element(
                 f"{{{DAV}}}quota-used-bytes", str(quota["used"])
             )
+        return values
+    if path is None:
         return values
     values.update({
         f"{{{DAV}}}resourcetype": _xml_element(f"{{{DAV}}}resourcetype"),
@@ -1754,6 +1830,15 @@ def _prop_response(
         resource=resource,
     )
     dead = _dead_properties(username, resource, document) if username and resource is not None else {}
+    propstats = _property_propstats(live, dead, query)
+    return f'<d:response><d:href>{escape(href)}</d:href>{propstats}</d:response>'
+
+
+def _property_propstats(
+    live: dict[str, str],
+    dead: dict[str, str],
+    query: tuple[str, list[str]] | None,
+) -> str:
     mode, requested = query or ("allprop", [])
     available = {**live, **dead}
     if mode == "propname":
@@ -1766,6 +1851,10 @@ def _prop_response(
         # RFC 4918 allprop includes dead properties and the live properties in
         # that RFC. Extension properties such as sync-token require include.
         extensions = {
+            f"{{{DAV}}}alternate-URI-set", f"{{{DAV}}}current-user-principal",
+            f"{{{DAV}}}current-user-privilege-set", f"{{{DAV}}}group-membership",
+            f"{{{DAV}}}owner", f"{{{DAV}}}principal-collection-set",
+            f"{{{DAV}}}principal-URL",
             f"{{{DAV}}}quota-available-bytes", f"{{{DAV}}}quota-used-bytes",
             f"{{{DAV}}}sync-token", f"{{{DAV}}}supported-report-set",
         }
@@ -1779,6 +1868,37 @@ def _prop_response(
     propstats = f'<d:propstat><d:prop>{"".join(successful)}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>'
     if missing:
         propstats += f'<d:propstat><d:prop>{"".join(missing)}</d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat>'
+    return propstats
+
+
+def _principal_prop_response(
+    href: str,
+    username: str,
+    *,
+    collection: bool,
+    query: tuple[str, list[str]],
+) -> str:
+    resource_type = ElementTree.Element(f"{{{DAV}}}resourcetype")
+    ElementTree.SubElement(
+        resource_type, f"{{{DAV}}}{'collection' if collection else 'principal'}",
+    )
+    live = {
+        f"{{{DAV}}}displayname": _xml_element(
+            f"{{{DAV}}}displayname",
+            "SimpleOffice Principals" if collection else username,
+        ),
+        f"{{{DAV}}}resourcetype": ElementTree.tostring(resource_type, encoding="unicode"),
+        **_access_control_live_properties(collection=collection),
+    }
+    if not collection:
+        live.update({
+            f"{{{DAV}}}alternate-URI-set": _xml_element(f"{{{DAV}}}alternate-URI-set"),
+            f"{{{DAV}}}principal-URL": _href_property(
+                f"{{{DAV}}}principal-URL", _principal_url(username),
+            ),
+            f"{{{DAV}}}group-membership": _xml_element(f"{{{DAV}}}group-membership"),
+        })
+    propstats = _property_propstats(live, {}, query)
     return f'<d:response><d:href>{escape(href)}</d:href>{propstats}</d:response>'
 
 
@@ -2434,6 +2554,7 @@ def file_tree(username: str, relative_path: str):
         return _unauthorized()
     if identity["username"] != username:
         return Response("not found", 404)
+    g._webdav_identity = identity
     allow = "OPTIONS, PROPFIND, REPORT, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, REPORT, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, LOCK, UNLOCK"
     try:
         resource = _tree_path(relative_path)
@@ -2447,7 +2568,9 @@ def file_tree(username: str, relative_path: str):
             "Want-Content-Digest": DIGEST_PREFERENCE,
         })
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
-        return Response("this WebDAV credential is read-only", 403, {"Allow": allow})
+        return _need_privileges_response(
+            request.path, _missing_method_privilege(request.method), allow,
+        )
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     if resource.is_file() and not resource.is_symlink():
@@ -2878,6 +3001,66 @@ def file_tree(username: str, relative_path: str):
     return Response("method not allowed", 405, {"Allow": allow})
 
 
+@bp.route(
+    "/webdav/principals/<username>/",
+    defaults={"principal_id": ""},
+    methods=["OPTIONS", "PROPFIND"],
+)
+@bp.route(
+    "/webdav/principals/<username>/<principal_id>",
+    methods=["OPTIONS", "PROPFIND"],
+)
+def principal_resource(username: str, principal_id: str):
+    """Expose only the authenticated user's stable, read-only principal resource."""
+    identity = _authenticate()
+    if identity is None:
+        return _unauthorized()
+    if identity["username"] != username or principal_id not in {"", "self"}:
+        return Response("not found", 404)
+    g._webdav_identity = identity
+    if request.method == "OPTIONS":
+        return Response("", 204, {
+            "DAV": "1", "Allow": "OPTIONS, PROPFIND",
+            "Cache-Control": "private, no-store",
+        })
+    depth = request.headers.get("Depth", "0")
+    if depth not in {"0", "1"}:
+        return Response("principal PROPFIND requires Depth: 0 or 1", 403)
+    try:
+        query = _parse_propfind(request.get_data(cache=True))
+    except OverflowError as exc:
+        return Response(str(exc), 413)
+    except PermissionError:
+        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+        return Response(error, 400, mimetype="application/xml")
+    except ValueError as exc:
+        return Response(str(exc), 400)
+    collection = principal_id == ""
+    href = _principal_url(username, collection=collection)
+    responses = [
+        _principal_prop_response(
+            href, username, collection=collection, query=query,
+        )
+    ]
+    if collection and depth == "1":
+        principal = _principal_url(username)
+        responses.append(
+            _principal_prop_response(
+                principal, username, collection=False, query=query,
+            )
+        )
+    xml = f'<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}</d:multistatus>'
+    return Response(
+        xml,
+        207,
+        {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": "private, no-store",
+            "Vary": "Authorization, Depth",
+        },
+    )
+
+
 @bp.route("/webdav/", defaults={"path": ""}, methods=["OPTIONS", "PROPFIND"])
 @bp.route("/webdav/<path:path>", methods=["OPTIONS", "PROPFIND", "PROPPATCH", "GET", "HEAD", "PUT", "LOCK", "UNLOCK"])
 def endpoint(path: str):
@@ -2885,6 +3068,7 @@ def endpoint(path: str):
     if identity is None:
         return _unauthorized()
     username = identity["username"]
+    g._webdav_identity = identity
     allow = "OPTIONS, PROPFIND, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, GET, HEAD, PUT, LOCK, UNLOCK"
     if request.method == "OPTIONS":
         return Response("", 204, {
@@ -2892,7 +3076,9 @@ def endpoint(path: str):
             "Want-Content-Digest": DIGEST_PREFERENCE,
         })
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
-        return Response("this WebDAV credential is read-only", 403, {"Allow": allow})
+        return _need_privileges_response(
+            request.path, _missing_method_privilege(request.method), allow,
+        )
 
     parts = [part for part in path.split("/") if part]
     if any(part in {".", ".."} for part in parts) or (len(parts) >= 2 and parts[1] != username):

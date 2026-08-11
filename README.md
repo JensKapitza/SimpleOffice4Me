@@ -108,6 +108,10 @@ Wie diese Gerätezugänge zusätzlich auf genau einen Ordner begrenzt werden und
 `COPY`, `MOVE`, Locks sowie Sync-Token nach dem Rechteprinzip aus RFC 3744
 abgesichert sind, beschreibt
 [docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md](docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md).
+Die geschützte, rein lesende
+[Principal- und Rechteerkennung nach RFC 3744/5397](docs/WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md)
+ermöglicht Desktop-Clients eine ressourcengenaue Read-only-Anzeige, ohne ACLs,
+Freigaben oder Ordnergrenzen über WebDAV veränderbar zu machen.
 Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer
 Dateiinhalte ohne stilles Überschreiben beschreibt
 [docs/DATEI_WIEDERHERSTELLUNG.md](docs/DATEI_WIEDERHERSTELLUNG.md).
