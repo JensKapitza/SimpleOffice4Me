@@ -7,6 +7,7 @@ machen:
 
 1. Eine über WebDAV gelöschte Datei lässt sich über **Wiederherstellen** in
    einen vorhandenen Ordner zurückholen.
+   Das gilt auch für jede einzelne Datei aus einem rekursiv gelöschten Ordner.
 2. Nach einem Speichern aus LibreOffice, Nautilus, Finder, Explorer oder einem
    Sync-Lauf lässt sich auf der Dokumentseite ein früherer Dateiinhalt als neue
    Revision wiederherstellen.
@@ -140,6 +141,14 @@ danach aktualisiert. Schlägt die Prüfung vorher fehl, bleibt die
 Wiederherstellungsdatei unverändert. Ein vorhandenes Ziel wird unter keinen
 Umständen entfernt oder ersetzt.
 
+Bei einem Collection-`DELETE` wird zuerst der vollständige Teilbaum nach
+`.simpleoffice-meta/webdav-collection-trash/<Vorgangs-ID>/tree/` umbenannt.
+Normale Fehler rollen Namensraum und Metadaten vollständig zurück. Bleibt nach
+einem harten Prozessabbruch ein staged Vorgang liegen, prüft und repariert ihn
+die Initialisierung anhand des internen Manifests. Einzelheiten und die
+RFC-4918-Auswertung stehen in
+[WEBDAV_ORDNER_LOESCHEN_RFC4918.md](WEBDAV_ORDNER_LOESCHEN_RFC4918.md).
+
 Bei einer Inhaltswiederherstellung wird der aktuelle Inhalt zuerst
 hashverifiziert archiviert; erst dann ersetzt eine temporär geschriebene Datei
 atomar den aktiven Inhalt. Fehlerhafte Archive werden nicht geöffnet oder
@@ -163,6 +172,8 @@ Interoperabilitätstests prüfen:
 
 - Soft-Delete über eine echte WebDAV-`DELETE`-Anfrage und anschließende
   bestätigte Rückholung;
+- rekursives Collection-`DELETE`, vollständiges Rollback, Wiederanlauf und
+  einzelne Rückholung eines enthaltenen Dokuments;
 - stabile Dokument-ID, Inhalt, Zielpfad, Suchzustand, Recovery- und Git-Audit;
 - Benutzertrennung bei Liste und direktem POST;
 - fehlende Bestätigung, belegtes Ziel und manipulierten Payload;

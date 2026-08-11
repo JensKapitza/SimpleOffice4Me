@@ -75,7 +75,9 @@ Rekursive Ordnersperren, vererbte Lock-Discovery und Konfliktschutz für neue
 Dateien nach RFC 4918 beschreibt
 [WebDAV-Ordnersperren](docs/WEBDAV_COLLECTION_LOCKS_RFC4918.md).
 Ganze Ordner lassen sich nach
-[RFC 4918 serverseitig kopieren und verschieben](docs/WEBDAV_ORDNER_COPY_MOVE_RFC4918.md),
+[RFC 4918 serverseitig kopieren und verschieben](docs/WEBDAV_ORDNER_COPY_MOVE_RFC4918.md)
+sowie
+[rekursiv löschen und einzeln wiederherstellen](docs/WEBDAV_ORDNER_LOESCHEN_RFC4918.md),
 einschließlich Rechte-, Lock-, Quota-, Audit- und Rollback-Schutz.
 Fortsetzbare Downloads, `If-Range`, bedingte GET-/HEAD-Anfragen und sichere
 Mehrfachbereiche beschreibt

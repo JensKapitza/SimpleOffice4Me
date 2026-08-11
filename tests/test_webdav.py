@@ -1376,16 +1376,178 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertIn("404 Not Found", response.get_data(as_text=True))
         self.assertEqual(201, created.status_code)
 
-    def test_collections_are_non_recursive_and_reserved_paths_are_hidden(self):
+    def test_collection_delete_is_recursive_recoverable_and_sync_visible(self):
+        report_body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        initial = self.client.open(self.files, method="REPORT", data=report_body, headers=self.auth)
+        token = ElementTree.fromstring(initial.data).findtext("{DAV:}sync-token")
         self.client.open(f"{self.files}/Ordner", method="MKCOL", headers=self.auth)
+        self.client.open(f"{self.files}/Ordner/Unterordner", method="MKCOL", headers=self.auth)
         self.client.put(f"{self.files}/Ordner/datei.txt", data=b"content", headers=self.auth)
-        non_empty = self.client.delete(f"{self.files}/Ordner", headers=self.auth)
+        self.client.put(f"{self.files}/Ordner/Unterordner/zweite.txt", data=b"second", headers=self.auth)
+        first = self.store.get_document("Ordner/datei.txt")
+        second = self.store.get_document("Ordner/Unterordner/zweite.txt")
+        portable = self.store.root / "Ordner" / CONTROL_DIR
+        portable.mkdir(exist_ok=True)
+        (portable / f"{first['document_id']}.json").write_text(json.dumps(first))
+
+        deleted = self.client.delete(f"{self.files}/Ordner", headers=self.auth)
+        incremental = self.client.open(
+            self.files, method="REPORT",
+            data=report_body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+            headers=self.auth,
+        )
+        page = self.client.get("/documents/recovery")
         missing_parent = self.client.open(f"{self.files}/fehlt/Kind", method="MKCOL", headers=self.auth)
         reserved = self.client.open(f"{self.files}/.simpleoffice-meta", method="PROPFIND", headers={**self.auth, "Depth": "0"})
 
-        self.assertEqual(409, non_empty.status_code)
+        self.assertEqual(204, deleted.status_code)
+        self.assertFalse((self.store.root / "Ordner").exists())
+        self.assertEqual(404, self.client.get(f"{self.files}/Ordner/datei.txt", headers=self.auth).status_code)
+        tombstones = [self.store.get_document(item["document_id"]) for item in (first, second)]
+        self.assertTrue(all(item["system_state"] == "webdav_deleted" for item in tombstones))
+        self.assertEqual(1, len({item["collection_recovery_id"] for item in tombstones}))
+        self.assertEqual([b"content", b"second"], [self.store._recovery_file(item).read_bytes() for item in tombstones])
+        recovery_tree = self.store._recovery_file(tombstones[0]).parent
+        self.assertTrue((recovery_tree / CONTROL_DIR / f"{first['document_id']}.json").is_file())
+        self.assertIn("datei.txt", page.get_data(as_text=True))
+        self.assertIn("zweite.txt", page.get_data(as_text=True))
+        self.assertIn("404 Not Found", incremental.get_data(as_text=True))
+        self.assertIn("Ordner/", incremental.get_data(as_text=True))
+        actions = {row.get("type") for row in self.store.logbook()}
+        self.assertTrue({"document_soft_deleted", "webdav_collection_soft_deleted"}.issubset(actions))
         self.assertEqual(409, missing_parent.status_code)
         self.assertEqual(404, reserved.status_code)
+
+    def test_collection_delete_requires_infinite_depth_and_preflights_retention(self):
+        self.client.open(f"{self.files}/Geschuetzt", method="MKCOL", headers=self.auth)
+        self.client.put(f"{self.files}/Geschuetzt/A.txt", data=b"a", headers=self.auth)
+        self.client.put(f"{self.files}/Geschuetzt/B.txt", data=b"b", headers=self.auth)
+        blocked = self.store.get_document("Geschuetzt/B.txt")
+        blocked["cleanup_state"] = "staged"
+        self.store._save_document(blocked)
+
+        wrong_depth = self.client.delete(
+            f"{self.files}/Geschuetzt", headers={**self.auth, "Depth": "0"},
+        )
+        retention = self.client.delete(f"{self.files}/Geschuetzt", headers=self.auth)
+
+        self.assertEqual(400, wrong_depth.status_code)
+        self.assertEqual(423, retention.status_code)
+        self.assertTrue((self.store.root / "Geschuetzt/A.txt").is_file())
+        self.assertTrue((self.store.root / "Geschuetzt/B.txt").is_file())
+        self.assertEqual("indexed", self.store.get_document("Geschuetzt/A.txt")["system_state"])
+
+    def test_collection_delete_requires_descendant_lock_token_then_destroys_lock(self):
+        self.client.open(f"{self.files}/Gesperrt", method="MKCOL", headers=self.auth)
+        child = f"{self.files}/Gesperrt/Plan.odt"
+        self.client.put(child, data=b"plan", headers=self.auth)
+        locked = self.client.open(child, method="LOCK", data=self.lock_body, headers=self.auth)
+        token = locked.headers["Lock-Token"]
+
+        rejected = self.client.delete(f"{self.files}/Gesperrt", headers=self.auth)
+        self.assertEqual(423, rejected.status_code)
+        self.assertTrue((self.store.root / "Gesperrt/Plan.odt").is_file())
+        accepted = self.client.delete(
+            f"{self.files}/Gesperrt",
+            headers={**self.auth, "If": f"<http://localhost{child}> ({token})"},
+        )
+
+        self.assertEqual(204, accepted.status_code)
+        locks = json.loads((self.store.control / "webdav-locks.json").read_text())["locks"]
+        self.assertEqual({}, locks)
+        actions = [row.get("action") for row in self.store.logbook()]
+        self.assertIn("webdav_lock_destroyed_by_delete", actions)
+
+    def test_collection_delete_refuses_unsafe_member_without_partial_change(self):
+        self.client.open(f"{self.files}/Unsicher", method="MKCOL", headers=self.auth)
+        self.client.put(f"{self.files}/Unsicher/sicher.txt", data=b"safe", headers=self.auth)
+        outside = Path(self.temp.name) / "outside.txt"
+        outside.write_bytes(b"outside")
+        (self.store.root / "Unsicher/verweis.txt").symlink_to(outside)
+
+        response = self.client.delete(f"{self.files}/Unsicher", headers=self.auth)
+
+        self.assertEqual(409, response.status_code)
+        self.assertTrue((self.store.root / "Unsicher/sicher.txt").is_file())
+        self.assertTrue((self.store.root / "Unsicher/verweis.txt").is_symlink())
+        self.assertEqual("indexed", self.store.get_document("Unsicher/sicher.txt")["system_state"])
+
+    def test_collection_delete_rolls_back_namespace_and_metadata_on_storage_failure(self):
+        self.client.open(f"{self.files}/Rollback-Loeschen", method="MKCOL", headers=self.auth)
+        self.client.put(f"{self.files}/Rollback-Loeschen/A.txt", data=b"a", headers=self.auth)
+        self.client.put(f"{self.files}/Rollback-Loeschen/B.txt", data=b"b", headers=self.auth)
+        original_save = DocumentStore._save_document
+        calls = 0
+
+        def fail_second(store, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated metadata failure")
+            return original_save(store, *args, **kwargs)
+
+        with mock.patch.object(DocumentStore, "_save_document", fail_second):
+            response = self.client.delete(f"{self.files}/Rollback-Loeschen", headers=self.auth)
+
+        self.assertEqual(507, response.status_code)
+        self.assertEqual(b"a", (self.store.root / "Rollback-Loeschen/A.txt").read_bytes())
+        self.assertEqual(b"b", (self.store.root / "Rollback-Loeschen/B.txt").read_bytes())
+        self.assertEqual("indexed", self.store.get_document("Rollback-Loeschen/A.txt")["system_state"])
+        self.assertEqual("indexed", self.store.get_document("Rollback-Loeschen/B.txt")["system_state"])
+        actions = [row.get("action") for row in self.store.logbook()]
+        self.assertIn("webdav_collection_delete_rolled_back", actions)
+
+    def test_interrupted_collection_delete_is_recovered_during_initialize(self):
+        self.client.open(f"{self.files}/Absturz", method="MKCOL", headers=self.auth)
+        self.client.put(f"{self.files}/Absturz/Plan.txt", data=b"plan", headers=self.auth)
+        document = self.store.get_document("Absturz/Plan.txt")
+        original_save = DocumentStore._save_document
+        interrupted = False
+
+        def interrupt_once(store, *args, **kwargs):
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                raise KeyboardInterrupt("simulated process interruption")
+            return original_save(store, *args, **kwargs)
+
+        with mock.patch.object(DocumentStore, "_save_document", interrupt_once):
+            with self.assertRaises(KeyboardInterrupt):
+                self.store.soft_delete_collection("Absturz", "webdav:jens")
+
+        self.assertFalse((self.store.root / "Absturz").exists())
+        recovered_store = DocumentStore(self.store.root)
+        recovered_store.initialize()
+
+        self.assertEqual(b"plan", (self.store.root / "Absturz/Plan.txt").read_bytes())
+        self.assertEqual("indexed", recovered_store.get_document(document["document_id"])["system_state"])
+        pending = list((self.store.control / "webdav-collection-trash").glob("*/manifest.json"))
+        self.assertEqual([], pending)
+        self.assertTrue(any(row.get("type") == "webdav_collection_delete_recovered" for row in recovered_store.logbook()))
+
+    def test_file_from_deleted_collection_can_be_restored_individually(self):
+        self.client.open(f"{self.files}/Alt", method="MKCOL", headers=self.auth)
+        self.client.put(f"{self.files}/Alt/Brief.odt", data=b"brief", headers=self.auth)
+        document = self.store.get_document("Alt/Brief.odt")
+        self.client.delete(f"{self.files}/Alt", headers=self.auth)
+        self.client.open(f"{self.files}/Neu", method="MKCOL", headers=self.auth)
+
+        restored = self.client.post(
+            f"/documents/recovery/{document['document_id']}/restore",
+            data={
+                "destination_path": "Neu/Brief.odt",
+                "expected_sha256": document["sha256"],
+                "confirm": "WIEDERHERSTELLEN",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, restored.status_code)
+        self.assertEqual(b"brief", (self.store.root / "Neu/Brief.odt").read_bytes())
+        metadata = self.store.get_document(document["document_id"])
+        self.assertEqual("indexed", metadata["system_state"])
+        self.assertTrue(metadata["recovery_history"][-1]["collection_recovery_id"])
+        self.assertNotIn("collection_recovery_id", metadata)
 
     def test_symlinks_and_retention_locks_cannot_be_bypassed(self):
         outside = Path(self.temp.name) / "outside"

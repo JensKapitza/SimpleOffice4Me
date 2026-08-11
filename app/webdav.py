@@ -1609,6 +1609,33 @@ def _release_collection_locks_after_move(username: str, source: Path) -> None:
         )
 
 
+def _release_collection_locks_after_delete(username: str, source: Path) -> None:
+    """Destroy every lock rooted on a successfully deleted collection member."""
+    source_relative = _store().relative(source)
+    path = _locks_path()
+    released: list[dict] = []
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _active_locks()
+        locks = payload.get("locks", {})
+        for stored_key, lock in list(locks.items()):
+            lock_resource = str(lock.get("resource", "")).strip()
+            if lock.get("username") != username or not lock_resource or not _relative_is_within(lock_resource, source_relative):
+                continue
+            released.append(dict(lock))
+            locks.pop(stored_key, None)
+        if released:
+            atomic_json_write(path, payload)
+    for lock in released:
+        _store().history.record(
+            "webdav_lock_destroyed_by_delete", f"webdav:{username}", "webdav-locks",
+            hashlib.sha256(f"{username}:{lock.get('resource', '')}".encode()).hexdigest(),
+            {
+                "resource": str(lock.get("resource", "")), "depth": str(lock.get("depth", "0")),
+                "deleted_at": utc_now(), "actor": f"webdav:{username}",
+            },
+        )
+
+
 def _visible_snapshot(collection: Path) -> dict[str, dict]:
     """Return the visible regular-file tree without following unsafe nodes."""
     store = _store()
@@ -2107,13 +2134,28 @@ def file_tree(username: str, relative_path: str):
                 return Response("the WebDAV root cannot be deleted", 403)
             if _credential_is_boundary(identity, resource):
                 return Response("the credential lacks access to the parent collection", 403)
+            depth = request.headers.get("Depth", "infinity").lower()
+            if depth != "infinity":
+                return Response("collection DELETE requires Depth: infinity", 400)
+            collection_lock_error = _collection_lock_error(resource, username)
+            if collection_lock_error is not None:
+                return collection_lock_error
             try:
-                _store().delete_empty_collection(_store().relative(resource), f"webdav:{username}")
-            except ValueError as exc:
-                return Response(str(exc), 409)
-            if _lock_for(key):
-                _release_lock(key)
-            _record_sync_changes(username, _store().relative(resource))
+                result = _store().soft_delete_collection(
+                    _store().relative(resource), f"webdav:{username}",
+                )
+            except OSError:
+                return _quota_error(username, "DELETE", resource, 0, "sufficient-disk-space")
+            except (RuntimeError, ValueError) as exc:
+                status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 409
+                return Response(str(exc), status)
+            changed_paths = []
+            source_relative = str(result["path"])
+            for nested in result["directories_relative"]:
+                changed_paths.append(source_relative if nested == Path(".") else str(Path(source_relative) / nested))
+            changed_paths.extend(str(item.get("deleted_from", "")) for item in result["resources"])
+            _release_collection_locks_after_delete(username, resource)
+            _record_sync_changes(username, *changed_paths)
             return Response("", 204)
         return Response("not found", 404)
 

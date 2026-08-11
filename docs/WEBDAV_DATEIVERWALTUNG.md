@@ -79,7 +79,7 @@ Maßgeblich ist
 | `MKCOL` muss eine Sammlung erzeugen; fehlt die übergeordnete Sammlung, ist `409` vorgesehen. | [§9.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.3) | Genau ein Ordner wird atomar angelegt und erhält die normale SimpleOffice-Ordnerpolitik. Erweiterte MKCOL-Anfragetexte werden mit `415` abgewiesen. |
 | `PUT` auf eine neue URL erzeugt eine Ressource; bei Austausch müssen Bedingungen und Sperren beachtet werden. | [§9.7](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.7), [§7.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.2) | Neue Dateien werden temporär geschrieben, synchronisiert und atomar umbenannt. Ein vorhandenes Dokument verlangt `If-Match` oder einen gültigen Lock-Token; blindes Überschreiben erhält `428`. |
 | `COPY` lässt die Quelle unverändert und `MOVE` ändert ihre URL-Zuordnung. | [§9.8](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.8), [§9.9](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9) | Reguläre Dateien können in existierende Ordner kopiert, verschoben und umbenannt werden. Kopien erhalten eine neue Dokument-ID; Verschiebungen behalten die ID. Fremde Hosts und Benutzerpfade werden abgewiesen. |
-| `DELETE` entfernt die URL-Zuordnung und muss Sperren berücksichtigen. | [§9.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.6) | Dateien verschwinden aus dem sichtbaren Baum, bleiben aber mit Hash, Metadaten und Audit in der privaten Wiederherstellungsablage. Nur leere Ordner können gelöscht werden. |
+| `DELETE` entfernt die URL-Zuordnung und muss Sperren berücksichtigen. Collection-`DELETE` wirkt immer mit Tiefe infinity. | [§9.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.6), [§9.6.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.6.1) | Dateien und nicht leere Ordner verschwinden atomar aus dem sichtbaren Baum, bleiben aber mit Hash, Metadaten und Audit in der privaten Wiederherstellungsablage. Alle Mitglieder, Rechte und Lock-Token werden vorab geprüft; Details stehen in [WEBDAV_ORDNER_LOESCHEN_RFC4918.md](WEBDAV_ORDNER_LOESCHEN_RFC4918.md). |
 | `Overwrite: F` muss vorhandene Ziele vor Ersetzung schützen. | [§10.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-10.6) | Ziele werden nie implizit ersetzt – auch bei fehlendem oder `T` gesetztem Header. Der Client muss das vorhandene Ziel ausdrücklich und separat behandeln. Das ist absichtlich strenger als der RFC-Standardwert. |
 | Exklusive Write-Locks verhindern kollidierende Schreibzugriffe und können auch eine noch nicht belegte URL oder eine Collection sperren. | [§6](https://www.rfc-editor.org/rfc/rfc4918.html#section-6), [§7.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.3), [§7.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.4), [§9.10](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10) | `LOCK`/`UNLOCK` funktionieren für Dateien, LibreOffice-Lock-null-Abläufe und Collections mit Tiefe 0 oder infinity. Rekursive Sperren schützen vorhandene und neue Mitglieder; Details stehen in [WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md). |
 | `If-Match` muss bei abweichendem Validator mit `412` fehlschlagen; `If-None-Match: *` schützt die Neuanlage. | [RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1), [§13.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2) | ETags sind SHA-256-basiert. Vorbedingungen werden nochmals unter derselben Dateisperre wie der Inhalt geprüft. |
@@ -125,6 +125,14 @@ hashgeprüft und ohne Überschreiben zurückholen. Frühere Inhalte nach einem
 WebDAV-Speichern lassen sich auf der Dokumentseite als neue Revision
 wiederherstellen. Sicherheitsmodell, Konflikte und RFC-Abgrenzung stehen in
 [DATEI_WIEDERHERSTELLUNG.md](DATEI_WIEDERHERSTELLUNG.md).
+
+Bei einem nicht leeren Ordner wird der vollständige Baum nach erfolgreicher
+Vorprüfung atomar unter
+`.simpleoffice-meta/webdav-collection-trash/<Vorgangs-ID>/tree/` verschoben.
+Jede enthaltene Datei erscheint anschließend einzeln unter
+**Wiederherstellen**. Normative Anforderungen, Wiederanlauf und Grenzen sind in
+[WEBDAV_ORDNER_LOESCHEN_RFC4918.md](WEBDAV_ORDNER_LOESCHEN_RFC4918.md)
+dokumentiert.
 
 ## Fehler- und Ausfallverhalten
 
@@ -201,8 +209,8 @@ Automatisiert geprüft werden realistische Abläufe für:
 - Soft-Delete, Wiederherstellungsdatei und vollständige Ereignishistorie;
 - bestätigte, benutzergetrennte Soft-Delete- und Inhaltswiederherstellung,
   belegte Ziele, veraltete Seitenzustände und manipulierte Payloads;
-- nicht leere Ordner, fehlende Eltern, fremde Hosts/Benutzer und vorhandene
-  Ziele;
+- nicht leere Ordner mit vollständiger Vorprüfung und Recovery, fehlende
+  Eltern, fremde Hosts/Benutzer und vorhandene Ziele;
 - falsche Zugangsdaten, Symlink-/Pfadgrenzen und Aufbewahrungssperren.
 
 Zusätzlich läuft die vollständige Testsuite auf allen in GitHub Actions
