@@ -59,6 +59,10 @@ ist in [docs/LIBREOFFICE_WEBDAV.md](docs/LIBREOFFICE_WEBDAV.md) beschrieben.
 Hierarchische Dateiverwaltung mit Nautilus, Windows Explorer, Finder und einem
 eingehängten FreeFileSync-Ziel ist in
 [docs/WEBDAV_DATEIVERWALTUNG.md](docs/WEBDAV_DATEIVERWALTUNG.md) dokumentiert.
+Neue Dateien und Ordner erhalten außerdem
+[plattformübergreifend sichere WebDAV-Namen](docs/WEBDAV_PORTABLE_DATEINAMEN.md):
+Unicode-Normalisierung, Windows-Gerätenamen und Großschreibungs-/
+Normalisierungskollisionen werden ohne stille Umbenennung geprüft.
 Der inkrementelle Änderungsabgleich für kompatible Clients folgt
 [RFC 6578](docs/WEBDAV_SYNC_RFC6578.md).
 Schreibbare, atomare Datei- und Ordnereigenschaften für Desktop-Clients sind

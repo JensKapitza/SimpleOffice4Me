@@ -101,6 +101,10 @@ Maßgeblich ist
   Verschieben und Löschen. Es gibt keine Umgehung durch einen Desktop-Client.
 - Pfade mit `..`, internen Steuerverzeichnissen, Richtliniendateien, NUL-Zeichen
   oder Symlinks werden abgewiesen. Spezialdateien werden nicht angeboten.
+- Neue Mitglieder müssen einen
+  [portablen Dateinamen](WEBDAV_PORTABLE_DATEINAMEN.md) besitzen. NFC,
+  Windows-Reservierungen und Großschreibungs-/Normalisierungskollisionen
+  werden vor der Ablage geprüft; vorhandene Altbestände bleiben erreichbar.
 - Basic Authentication ist ausschließlich über HTTPS sicher. Proxy- und
   Zertifikatkonfiguration sind Voraussetzung für entfernte Nutzung.
 - Inhalte, Dateinamen, Lock-Besitzer und Zugangsdaten werden an keinen externen
@@ -138,8 +142,9 @@ dokumentiert.
 
 - `401`: App-Passwort fehlt oder ist falsch.
 - `404`: Ressource oder authentifizierter Benutzerpfad fehlt.
-- `409`: Zielordner fehlt, Ordner ist nicht leer oder Operation kollidiert mit
-  dem Dateibaum.
+- `409`: Zielordner fehlt, Ordner ist nicht leer, Operation kollidiert mit dem
+  Dateibaum oder ein neuer Name ist nicht plattformübergreifend eindeutig. Bei
+  Namensfehlern nennen XML und `X-SimpleOffice-Name-Reason` den Grund.
 - `412`: ETag ist veraltet, `If-None-Match: *` trifft auf eine vorhandene Datei,
   `Overwrite: F` schützt ein Ziel oder COPY/Collection-MOVE würde es ersetzen.
 - `415`: nicht unterstützter erweiterter `MKCOL`-Anfragetext.
@@ -193,6 +198,11 @@ seine stabilen Dokument-ID-URLs bleiben erhalten. Alte Einzelpasswörter werden
 rückwärtskompatibel als bestehender Schreibzugang gelesen. Ohne aktives
 App-Passwort ist kein WebDAV-Zugriff möglich.
 
+Neue Namen werden plattformübergreifend validiert. Nicht portable Altdateien
+bleiben unter ihrer exakten URL nutzbar und können ID-stabil per `MOVE`
+bereinigt werden; Details, Standards und Grenzen stehen in
+[WEBDAV_PORTABLE_DATEINAMEN.md](WEBDAV_PORTABLE_DATEINAMEN.md).
+
 Bewusst noch nicht implementiert sind WebDAV ACL und serverseitige Suche über
 Dead Properties, rekursive COPY-/MOVE-Operationen, `PROPFIND Depth: infinity`,
 partielle Range-Uploads, automatisches Zusammenführen binärer Office-Dateien und das
@@ -222,6 +232,9 @@ Automatisiert geprüft werden realistische Abläufe für:
 - nicht leere Ordner mit vollständiger Vorprüfung und Recovery, fehlende
   Eltern, fremde Hosts/Benutzer und vorhandene Ziele;
 - falsche Zugangsdaten, Symlink-/Pfadgrenzen und Aufbewahrungssperren.
+- sichere Unicode-/Emoji-Namen, Windows-Gerätenamen, Bidi-/Steuerzeichen,
+  Segmentlängen, Großschreibungs- und Normalisierungskollisionen sowie
+  rückwärtskompatible Umbenennung nicht portabler Altbestände;
 - optionalen ClamAV-Scan vor Neu- und Überschreiben, Fundquarantäne,
   Scanner-/Kapazitätsausfall sowie Rechte-, ETag- und Digest-Ablehnung vor dem
   ersten Scanneraufruf.

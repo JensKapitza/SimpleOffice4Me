@@ -2440,8 +2440,8 @@ class DocumentStore:
         self._record_revision("webdav_collection_deleted", actor, "collections", hashlib.sha256(str(relative).encode()).hexdigest(), details)
 
     def _safe_managed_relative_path(self, value: str, *, require_name: bool = False) -> Path:
-        requested = Path(value.strip())
-        if (require_name and value.strip() in {"", "."}) or requested.is_absolute() or ".." in requested.parts:
+        requested = Path(value)
+        if (require_name and value in {"", "."}) or requested.is_absolute() or ".." in requested.parts:
             raise ValueError("path must remain inside the document store")
         if any(part in {"", CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or "\x00" in part for part in requested.parts):
             raise ValueError("path contains a reserved segment")

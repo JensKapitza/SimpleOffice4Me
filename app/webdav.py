@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import shutil
+import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from email.utils import formatdate, parsedate_to_datetime
@@ -108,6 +109,21 @@ PROTECTED_DAV_PROPERTIES = {
     )
 }
 MUTABLE_DAV_PROPERTIES = {f"{{{DAV}}}displayname", f"{{{DAV}}}getcontentlanguage"}
+WINDOWS_RESERVED_BASENAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+    *(f"COM{number}" for number in "¹²³"),
+    *(f"LPT{number}" for number in "¹²³"),
+}
+WINDOWS_FORBIDDEN_NAME_CHARACTERS = frozenset('<>:"/\\|?*')
+BIDI_CONTROL_CHARACTERS = frozenset(
+    chr(codepoint)
+    for codepoint in (*range(0x202A, 0x202F), *range(0x2066, 0x206A), 0x200E, 0x200F)
+)
+# Keep headroom for the exclusive ``.<name>.<uuid>.partial`` staging member
+# used by atomic PUT/COPY writes on filesystems with 255-byte segments.
+MAX_PORTABLE_NAME_BYTES = 200
 
 
 def _quota_state() -> dict[str, int] | None:
@@ -898,6 +914,98 @@ def _tree_path(relative_path: str) -> Path:
     if candidate.is_symlink():
         raise ValueError("symbolic links are not available over WebDAV")
     return candidate
+
+
+def _portable_name_key(name: str) -> str:
+    """Return a stable, conservative comparison key for desktop file systems."""
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFC", name).casefold())
+
+
+def _portable_name_reason(name: str) -> str:
+    """Explain why a new WebDAV member would not round-trip across target clients."""
+    if not name or name in {".", ".."}:
+        return "empty-or-relative-segment"
+    if name != unicodedata.normalize("NFC", name):
+        return "unicode-nfc-required"
+    if name.startswith(" ") or name.endswith((" ", ".")):
+        return "leading-or-trailing-space-or-dot"
+    if any(character in WINDOWS_FORBIDDEN_NAME_CHARACTERS for character in name):
+        return "windows-reserved-character"
+    if any(character in BIDI_CONTROL_CHARACTERS for character in name):
+        return "bidirectional-control-character"
+    if any(unicodedata.category(character) in {"Cc", "Cs", "Co", "Cn"} for character in name):
+        return "non-interchange-character"
+    basename = name.rstrip(" .").split(".", 1)[0].upper()
+    if basename in WINDOWS_RESERVED_BASENAMES:
+        return "windows-reserved-device-name"
+    try:
+        encoded_length = len(name.encode("utf-8"))
+    except UnicodeEncodeError:
+        return "invalid-unicode"
+    if encoded_length > MAX_PORTABLE_NAME_BYTES:
+        return "name-too-long"
+    return ""
+
+
+def _portable_name_error(
+    username: str,
+    resource: Path,
+    *,
+    exclude: Path | None = None,
+) -> Response | None:
+    """Reject ambiguous new names while leaving existing legacy resources operable."""
+    siblings: list[Path] = []
+    if resource.parent.is_dir() and not resource.parent.is_symlink():
+        siblings = list(resource.parent.iterdir())
+        if any(sibling != exclude and sibling.name == resource.name for sibling in siblings):
+            return None
+    elif resource.exists():
+        return None
+    reason = _portable_name_reason(resource.name)
+    if not reason and siblings:
+        requested_key = _portable_name_key(resource.name)
+        for sibling in siblings:
+            if sibling == exclude or sibling.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE}:
+                continue
+            if _portable_name_key(sibling.name) == requested_key:
+                reason = "case-or-normalization-collision"
+                break
+    if not reason:
+        return None
+
+    parent = _store().relative(resource.parent)
+    name_digest = hashlib.sha256(resource.name.encode("utf-8", errors="surrogatepass")).hexdigest()
+    actor = f"webdav:{username}"
+    _store().history.record(
+        "webdav_portable_name_rejected",
+        actor,
+        "webdav-name-policy",
+        hashlib.sha256(f"{username}:{parent}:{name_digest}".encode()).hexdigest(),
+        {
+            "actor": actor,
+            "method": request.method,
+            "parent": parent,
+            "name_sha256": name_digest,
+            "name_utf8_bytes": len(resource.name.encode("utf-8", errors="surrogatepass")),
+            "reason": reason,
+            "rejected_at": utc_now(),
+        },
+    )
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<d:error xmlns:d="DAV:" xmlns:s="urn:simpleoffice:webdav">'
+        f'<s:portable-file-name reason="{reason}"/>'
+        '</d:error>'
+    )
+    return Response(
+        xml,
+        409,
+        {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": "no-store",
+            "X-SimpleOffice-Name-Reason": reason,
+        },
+    )
 
 
 def _tree_document(path: Path) -> dict:
@@ -2231,6 +2339,9 @@ def file_tree(username: str, relative_path: str):
         precondition_error = _http_precondition_error(username, resource, None)
         if precondition_error is not None:
             return precondition_error
+        name_error = _portable_name_error(username, resource)
+        if name_error is not None:
+            return name_error
         try:
             _store().create_collection(_store().relative(resource), f"webdav:{username}")
         except ValueError:
@@ -2239,6 +2350,9 @@ def file_tree(username: str, relative_path: str):
         return Response("", 201)
 
     if request.method == "LOCK":
+        name_error = _portable_name_error(username, resource)
+        if name_error is not None:
+            return name_error
         return _lock_request(username, resource, document, request.url)
 
     if request.method == "UNLOCK":
@@ -2284,6 +2398,9 @@ def file_tree(username: str, relative_path: str):
         precondition_error = _http_precondition_error(username, resource, None)
         if precondition_error is not None:
             return precondition_error
+        name_error = _portable_name_error(username, resource)
+        if name_error is not None:
+            return name_error
         content = request.get_data()
         digest_error = _verify_content_digest(content, username, resource)
         if digest_error is not None:
@@ -2381,6 +2498,13 @@ def file_tree(username: str, relative_path: str):
             return Response("destination is outside the authenticated WebDAV tree", 502)
         except ValueError as exc:
             return Response(str(exc), 400)
+        name_error = _portable_name_error(
+            username,
+            destination,
+            exclude=resource if request.method == "MOVE" else None,
+        )
+        if name_error is not None:
+            return name_error
         replacing_document = None
         if destination == resource:
             status = 403 if request.method == "MOVE" else 412

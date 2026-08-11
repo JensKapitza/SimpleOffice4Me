@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 from unittest import mock
 from xml.etree import ElementTree
 
@@ -2560,6 +2561,152 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertFalse((self.store.root / "Rollback-Kopie").exists())
         rolled_back = [row for row in self.store.logbook() if row.get("type") == "document_soft_deleted"]
         self.assertTrue(rolled_back)
+
+    def test_portable_unicode_name_round_trips_through_propfind_and_get(self):
+        name = "Käse 📄.odt"
+        url = f"{self.files}/{quote(name, safe='')}"
+
+        created = self.client.put(url, data=b"portable office document", headers=self.auth)
+        listing = self.client.open(self.files, method="PROPFIND", headers={**self.auth, "Depth": "1"})
+        fetched = self.client.get(url, headers=self.auth)
+
+        self.assertEqual(201, created.status_code)
+        self.assertEqual(207, listing.status_code)
+        self.assertIn(quote(name, safe=""), listing.get_data(as_text=True))
+        self.assertEqual(b"portable office document", fetched.data)
+        self.assertTrue((self.store.root / name).is_file())
+
+    def test_new_names_reject_non_nfc_reserved_invisible_and_oversized_segments(self):
+        cases = {
+            "Cafe\u0301.txt": "unicode-nfc-required",
+            "CON.txt": "windows-reserved-device-name",
+            "COM¹.log": "windows-reserved-device-name",
+            "bad:name.txt": "windows-reserved-character",
+            "trailing.": "leading-or-trailing-space-or-dot",
+            " leading.txt": "leading-or-trailing-space-or-dot",
+            "report\u202Ecod.exe": "bidirectional-control-character",
+            "private\uE000.txt": "non-interchange-character",
+            f"{'a' * 201}.txt": "name-too-long",
+        }
+
+        for name, reason in cases.items():
+            with self.subTest(name=repr(name)):
+                response = self.client.put(
+                    f"{self.files}/{quote(name, safe='')}", data=b"must not appear", headers=self.auth,
+                )
+                self.assertEqual(409, response.status_code)
+                self.assertEqual(reason, response.headers["X-SimpleOffice-Name-Reason"])
+                self.assertIn("portable-file-name", response.get_data(as_text=True))
+                self.assertFalse((self.store.root / name).exists())
+
+        rejections = [
+            row for row in self.store.logbook()
+            if row.get("action") == "webdav_portable_name_rejected"
+        ]
+        self.assertEqual(len(cases), len(rejections))
+        snapshots = list((self.store.history.root / "snapshots" / "webdav-name-policy").glob("*.json"))
+        self.assertEqual(len(cases), len(snapshots))
+        serialized = "\n".join(path.read_text(encoding="utf-8") for path in snapshots)
+        self.assertNotIn("CON.txt", serialized)
+        self.assertNotIn("bad:name.txt", serialized)
+
+    def test_case_and_normalization_collisions_are_blocked_for_put_mkcol_and_copy(self):
+        source = f"{self.files}/Bericht.odt"
+        self.assertEqual(201, self.client.put(source, data=b"source", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.open(f"{self.files}/Daten", method="MKCOL", headers=self.auth).status_code)
+
+        put_collision = self.client.put(f"{self.files}/bericht.ODT", data=b"other", headers=self.auth)
+        folder_collision = self.client.open(f"{self.files}/daten", method="MKCOL", headers=self.auth)
+        copy_collision = self.client.open(
+            source,
+            method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{self.files}/BERICHT.ODT"},
+        )
+
+        self.assertEqual([409, 409, 409], [put_collision.status_code, folder_collision.status_code, copy_collision.status_code])
+        self.assertEqual(
+            ["case-or-normalization-collision"] * 3,
+            [put_collision.headers["X-SimpleOffice-Name-Reason"], folder_collision.headers["X-SimpleOffice-Name-Reason"], copy_collision.headers["X-SimpleOffice-Name-Reason"]],
+        )
+        self.assertEqual(b"source", (self.store.root / "Bericht.odt").read_bytes())
+        self.assertFalse((self.store.root / "bericht.ODT").exists())
+        self.assertFalse((self.store.root / "daten").exists())
+        self.assertFalse((self.store.root / "BERICHT.ODT").exists())
+
+    def test_legacy_non_nfc_resource_remains_editable_and_can_be_renamed_safely(self):
+        legacy_name = "Cafe\u0301.txt"
+        canonical_name = "Café.txt"
+        legacy_path = self.store.root / legacy_name
+        legacy_path.write_bytes(b"legacy")
+        self.store.scan()
+        before = self.store.get_document(legacy_name)
+        legacy_url = f"{self.files}/{quote(legacy_name, safe='')}"
+        canonical_url = f"{self.files}/{quote(canonical_name, safe='')}"
+
+        current = self.client.get(legacy_url, headers=self.auth)
+        updated = self.client.put(
+            legacy_url, data=b"legacy updated",
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+        collision = self.client.put(canonical_url, data=b"duplicate", headers=self.auth)
+        moved = self.client.open(
+            legacy_url,
+            method="MOVE",
+            headers={**self.auth, "Destination": f"http://localhost{canonical_url}"},
+        )
+        after = self.store.get_document(canonical_name)
+
+        self.assertEqual(204, updated.status_code)
+        self.assertEqual(409, collision.status_code)
+        self.assertEqual("case-or-normalization-collision", collision.headers["X-SimpleOffice-Name-Reason"])
+        self.assertEqual(201, moved.status_code)
+        self.assertFalse(legacy_path.exists())
+        self.assertEqual(b"legacy updated", (self.store.root / canonical_name).read_bytes())
+        self.assertEqual(before["document_id"], after["document_id"])
+
+    def test_case_only_move_is_allowed_but_copying_an_alias_is_not(self):
+        source_url = f"{self.files}/Plan.txt"
+        target_url = f"{self.files}/plan.txt"
+        self.assertEqual(201, self.client.put(source_url, data=b"plan", headers=self.auth).status_code)
+        before = self.store.get_document("Plan.txt")
+
+        copied = self.client.open(
+            source_url,
+            method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{target_url}"},
+        )
+        moved = self.client.open(
+            source_url,
+            method="MOVE",
+            headers={**self.auth, "Destination": f"http://localhost{target_url}"},
+        )
+        after = self.store.get_document("plan.txt")
+
+        self.assertEqual(409, copied.status_code)
+        self.assertEqual(201, moved.status_code)
+        self.assertFalse((self.store.root / "Plan.txt").exists())
+        self.assertEqual(b"plan", (self.store.root / "plan.txt").read_bytes())
+        self.assertEqual(before["document_id"], after["document_id"])
+
+    def test_lock_null_and_read_only_requests_cannot_bypass_name_policy_or_rights(self):
+        unsafe = f"{self.files}/NUL.txt"
+        locked = self.client.open(
+            unsafe, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "0", "Timeout": "Second-600"},
+        )
+        self.assertEqual(409, locked.status_code)
+        self.assertFalse((self.store.root / "NUL.txt").exists())
+
+        with app.test_request_context():
+            password = activate("jens", "jens", label="Read-only policy test", scope="read", expires_days=30)
+        read_auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        before = len([row for row in self.store.logbook() if row.get("action") == "webdav_portable_name_rejected"])
+        denied = self.client.put(f"{self.files}/AUX.txt", data=b"blocked by rights", headers=read_auth)
+        after = len([row for row in self.store.logbook() if row.get("action") == "webdav_portable_name_rejected"])
+
+        self.assertEqual(403, denied.status_code)
+        self.assertEqual(before, after)
+        self.assertFalse((self.store.root / "AUX.txt").exists())
 
 
 if __name__ == "__main__":
