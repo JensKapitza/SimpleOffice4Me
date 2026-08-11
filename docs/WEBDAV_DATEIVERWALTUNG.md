@@ -150,6 +150,10 @@ dokumentiert.
 - `507`: das optionale WebDAV-Kontingent oder der physisch freie Speicher
   reicht für den angeforderten Zuwachs nicht; die XML-Fehlerbedingung
   unterscheidet `quota-not-exceeded` und `sufficient-disk-space`.
+- `422`: bei aktivierter ClamAV-Prüfung wurde Schadcode erkannt; die Datei wird
+  isoliert und nicht veröffentlicht.
+- `503` mit `Retry-After: 60`: die aktivierte Virenprüfung ist vorübergehend
+  nicht sicher verfügbar; eine vorhandene Revision bleibt unverändert.
 - `502`: `Destination` verweist auf einen anderen Host oder Benutzerbaum.
 
 Uploads unterliegen `SIMPLEOFFICE_MAX_UPLOAD_MIB`. Temporärdateien werden nach
@@ -175,6 +179,11 @@ Aktuelle Clients und Integrationsskripte können Uploads und vollständige oder
 fortgesetzte Downloads zusätzlich nach
 [RFC 9530 kryptografisch prüfen](WEBDAV_INTEGRITAET_RFC9530.md), ohne dass
 LibreOffice oder Dateimanager diese Erweiterung unterstützen müssen.
+Mit `SIMPLEOFFICE_WEBDAV_CLAMAV=1` kann außerdem jeder Datei-`PUT` vor der
+atomaren Veröffentlichung in einer privaten Quarantäne mit ClamAV geprüft
+werden. Installation, Signaturupdates, Kapazitätsgrenze, Audit und bewusstes
+Fail-closed-Verhalten stehen in
+[ClamAV-Prüfung vor WebDAV-Uploads](WEBDAV_UPLOADS_CLAMAV.md).
 
 ## Migration, Kompatibilität und Grenzen
 
@@ -212,6 +221,9 @@ Automatisiert geprüft werden realistische Abläufe für:
 - nicht leere Ordner mit vollständiger Vorprüfung und Recovery, fehlende
   Eltern, fremde Hosts/Benutzer und vorhandene Ziele;
 - falsche Zugangsdaten, Symlink-/Pfadgrenzen und Aufbewahrungssperren.
+- optionalen ClamAV-Scan vor Neu- und Überschreiben, Fundquarantäne,
+  Scanner-/Kapazitätsausfall sowie Rechte-, ETag- und Digest-Ablehnung vor dem
+  ersten Scanneraufruf.
 
 Zusätzlich läuft die vollständige Testsuite auf allen in GitHub Actions
 konfigurierten Python-Versionen sowie der Dependency Audit.

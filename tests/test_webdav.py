@@ -8,6 +8,7 @@ from unittest import mock
 from xml.etree import ElementTree
 
 from app import app
+from app.attachment_security import ClamAV, ScanResult
 from app.db import ensure_auth_database
 from app.document_store import CONTROL_DIR, DocumentStore
 from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, revoke
@@ -16,9 +17,9 @@ from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, revoke
 class WebDavDocumentTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "MAX_CONTENT_LENGTH", "WEBDAV_QUOTA_BYTES")}
+        self.previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "MAX_CONTENT_LENGTH", "WEBDAV_QUOTA_BYTES", "WEBDAV_UPLOAD_SCAN", "WEBDAV_QUARANTINE_BYTES")}
         root = Path(self.temp.name) / "documents"
-        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "users.sqlite"), DOCUMENT_ROOT=str(root), MAX_CONTENT_LENGTH=1024 * 1024, WEBDAV_QUOTA_BYTES=0)
+        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "users.sqlite"), DOCUMENT_ROOT=str(root), MAX_CONTENT_LENGTH=1024 * 1024, WEBDAV_QUOTA_BYTES=0, WEBDAV_UPLOAD_SCAN=False, WEBDAV_QUARANTINE_BYTES=1024 * 1024)
         with app.app_context():
             ensure_auth_database()
         self.client = app.test_client()
@@ -708,6 +709,169 @@ class WebDavDocumentTest(unittest.TestCase):
         updated = self.store.get_document(self.document["document_id"])
         self.assertEqual(1, updated["content_revision"])
         self.assertTrue((self.store.control / updated["content_history"][-1]["archive"]).is_file())
+
+    def test_optional_clamav_scans_tree_and_stable_put_before_publish(self):
+        app.config["WEBDAV_UPLOAD_SCAN"] = True
+        observed = []
+
+        def clean_scan(_scanner, path):
+            observed.append((Path(path).read_bytes(), Path(path).stat().st_mode & 0o777))
+            return ScanResult("clean", "test signature database", "fake-clamav")
+
+        with mock.patch.object(ClamAV, "scan", autospec=True, side_effect=clean_scan) as scan:
+            created = self.client.put(
+                f"{self.files}/Geprueft.odt",
+                data=b"new checked file",
+                headers={**self.auth, "If-None-Match": "*"},
+            )
+            current = self.client.get(self.url, headers=self.auth)
+            updated = self.client.put(
+                self.url,
+                data=b"checked office revision",
+                headers={**self.auth, "If-Match": current.headers["ETag"]},
+            )
+
+        self.assertEqual([201, 204], [created.status_code, updated.status_code])
+        self.assertEqual(2, scan.call_count)
+        self.assertEqual(
+            [(b"new checked file", 0o600), (b"checked office revision", 0o600)],
+            observed,
+        )
+        self.assertEqual(b"new checked file", (self.store.root / "Geprueft.odt").read_bytes())
+        self.assertEqual(b"checked office revision", (self.store.root / "angebot.odt").read_bytes())
+        quarantine = self.store.control / "webdav-upload-quarantine"
+        self.assertEqual([], list(quarantine.iterdir()))
+        registry = json.loads((self.store.control / "malware-scan.json").read_text())
+        self.assertEqual(2, len([row for row in registry["scans"] if row.get("source_type") == "webdav-put"]))
+        actions = [row.get("action") for row in self.store.logbook()]
+        self.assertEqual(2, actions.count("webdav_upload_malware_scanned"))
+
+    def test_infected_webdav_put_is_quarantined_without_publishing(self):
+        app.config["WEBDAV_UPLOAD_SCAN"] = True
+        infected = ScanResult("infected", "Eicar-Test-Signature FOUND", "fake-clamav")
+        original_etag = self.client.get(f"{self.files}/angebot.odt", headers=self.auth).headers["ETag"]
+
+        with mock.patch.object(ClamAV, "scan", autospec=True, return_value=infected):
+            created = self.client.put(
+                f"{self.files}/Schadcode.bin",
+                data=b"not safe",
+                headers={**self.auth, "If-None-Match": "*"},
+            )
+            overwritten = self.client.put(
+                f"{self.files}/angebot.odt",
+                data=b"infected replacement",
+                headers={**self.auth, "If-Match": original_etag},
+            )
+
+        self.assertEqual([422, 422], [created.status_code, overwritten.status_code])
+        self.assertEqual("no-store", created.headers["Cache-Control"])
+        self.assertFalse((self.store.root / "Schadcode.bin").exists())
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        retained = list((self.store.control / "webdav-upload-quarantine").glob("*.infected"))
+        self.assertEqual(2, len(retained))
+        self.assertEqual([], list((self.store.control / "webdav-upload-quarantine").glob("*.pending")))
+        actions = [row.get("action") for row in self.store.logbook()]
+        self.assertEqual(2, actions.count("webdav_upload_malware_blocked"))
+
+    def test_scanner_failure_is_retryable_and_preserves_current_revision(self):
+        app.config["WEBDAV_UPLOAD_SCAN"] = True
+        current = self.client.get(self.url, headers=self.auth)
+
+        with mock.patch.object(ClamAV, "scan", autospec=True, side_effect=RuntimeError("daemon down")):
+            response = self.client.put(
+                self.url,
+                data=b"must stay quarantined",
+                headers={**self.auth, "If-Match": current.headers["ETag"]},
+            )
+
+        self.assertEqual(503, response.status_code)
+        self.assertEqual("60", response.headers["Retry-After"])
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(1, len(list((self.store.control / "webdav-upload-quarantine").glob("*.error"))))
+        self.assertTrue(any(row.get("action") == "webdav_upload_malware_scan_failed" for row in self.store.logbook()))
+
+    def test_quarantine_capacity_returns_507_before_scanner_or_mutation(self):
+        app.config.update(WEBDAV_UPLOAD_SCAN=True, WEBDAV_QUARANTINE_BYTES=8)
+        quarantine = self.store.control / "webdav-upload-quarantine"
+        quarantine.mkdir(mode=0o700)
+        (quarantine / "previous.infected").write_bytes(b"123456")
+
+        with mock.patch.object(ClamAV, "scan", autospec=True) as scan:
+            response = self.client.put(
+                f"{self.files}/ZuGross.bin",
+                data=b"7890",
+                headers={**self.auth, "If-None-Match": "*"},
+            )
+
+        self.assertEqual(507, response.status_code)
+        self.assertIn("sufficient-disk-space", response.get_data(as_text=True))
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        scan.assert_not_called()
+        self.assertFalse((self.store.root / "ZuGross.bin").exists())
+
+    def test_unsafe_quarantine_entry_fails_closed_before_scanner(self):
+        app.config["WEBDAV_UPLOAD_SCAN"] = True
+        quarantine = self.store.control / "webdav-upload-quarantine"
+        quarantine.mkdir(mode=0o700)
+        (quarantine / "unexpected-directory").mkdir()
+
+        with mock.patch.object(ClamAV, "scan", autospec=True) as scan:
+            response = self.client.put(
+                f"{self.files}/NichtFreigeben.bin",
+                data=b"untrusted",
+                headers={**self.auth, "If-None-Match": "*"},
+            )
+
+        self.assertEqual(503, response.status_code)
+        scan.assert_not_called()
+        self.assertFalse((self.store.root / "NichtFreigeben.bin").exists())
+
+    def test_rejected_puts_never_reach_optional_malware_scanner(self):
+        app.config["WEBDAV_UPLOAD_SCAN"] = True
+        with app.test_request_context():
+            read_password = activate("jens", "jens", label="Nur lesen", scope="read", expires_days=30)
+        read_auth = {
+            "Authorization": "Basic " + base64.b64encode(f"jens:{read_password}".encode()).decode()
+        }
+
+        with mock.patch.object(ClamAV, "scan", autospec=True) as scan:
+            forbidden = self.client.put(
+                f"{self.files}/Verboten.bin",
+                data=b"forbidden",
+                headers={**read_auth, "If-None-Match": "*"},
+            )
+            stale = self.client.put(
+                f"{self.files}/angebot.odt",
+                data=b"stale",
+                headers={**self.auth, "If-Match": '"wrong"'},
+            )
+            invalid_digest = self.client.put(
+                f"{self.files}/Digest.bin",
+                data=b"digest mismatch",
+                headers={
+                    **self.auth,
+                    "If-None-Match": "*",
+                    "Content-Digest": "sha-256=:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=:",
+                },
+            )
+
+        self.assertEqual([403, 412, 422], [forbidden.status_code, stale.status_code, invalid_digest.status_code])
+        scan.assert_not_called()
+        self.assertFalse((self.store.root / "Verboten.bin").exists())
+        self.assertFalse((self.store.root / "Digest.bin").exists())
+
+    def test_disabled_upload_scan_preserves_webdav_compatibility(self):
+        with mock.patch.object(ClamAV, "scan", autospec=True) as scan:
+            response = self.client.put(
+                f"{self.files}/OhneScanner.txt",
+                data=b"compatible default",
+                headers={**self.auth, "If-None-Match": "*"},
+            )
+
+        self.assertEqual(201, response.status_code)
+        scan.assert_not_called()
+        self.assertEqual(b"compatible default", (self.store.root / "OhneScanner.txt").read_bytes())
 
     def test_copy_move_and_soft_delete_keep_audit_and_recovery(self):
         self.client.open(f"{self.files}/Ablage", method="MKCOL", headers=self.auth)

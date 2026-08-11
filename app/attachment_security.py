@@ -32,6 +32,10 @@ class ScanResult:
     engine: str
 
 
+class QuarantineCapacityError(RuntimeError):
+    """The private upload quarantine cannot safely accept another payload."""
+
+
 class ClamAV:
     """Execute fixed ClamAV programs without a shell or network listener."""
 
@@ -95,8 +99,108 @@ class AttachmentSecurity:
         self.control = self.root / CONTROL_DIR
         self.manifests = self.control / "attachment-manifests"
         self.quarantine = self.control / "quarantine"
+        self.webdav_quarantine = self.control / "webdav-upload-quarantine"
         self.registry = self.control / "malware-scan.json"
         self.scanner = scanner or ClamAV()
+
+    def scan_webdav_upload(
+        self,
+        payload: bytes,
+        actor: str,
+        target_path: str,
+        max_quarantine_bytes: int,
+    ) -> dict[str, Any]:
+        """Scan one untrusted PUT body before it can enter the visible tree."""
+        if not actor.strip() or not target_path.strip():
+            raise ValueError("a named actor and target path are required")
+        self.control.mkdir(parents=True, exist_ok=True)
+        if self.webdav_quarantine.exists() and (
+            self.webdav_quarantine.is_symlink() or not self.webdav_quarantine.is_dir()
+        ):
+            raise RuntimeError("WebDAV quarantine is not a safe directory")
+        self.webdav_quarantine.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            os.chmod(self.webdav_quarantine, 0o700)
+        except OSError:
+            pass
+        used = 0
+        for candidate in self.webdav_quarantine.iterdir():
+            if candidate.is_symlink() or not candidate.is_file():
+                raise RuntimeError("WebDAV quarantine contains an unsafe entry")
+            used += candidate.stat().st_size
+        if len(payload) > max_quarantine_bytes or used + len(payload) > max_quarantine_bytes:
+            raise QuarantineCapacityError("WebDAV quarantine capacity is exhausted")
+
+        scan_id = uuid.uuid4().hex
+        pending = self.webdav_quarantine / f"{scan_id}.pending"
+        with pending.open("xb") as handle:
+            os.chmod(pending, 0o600)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        digest = hashlib.sha256(payload).hexdigest()
+        base = {
+            "scan_id": scan_id,
+            "scanned_at": utc_now(),
+            "actor": actor,
+            "source_type": "webdav-put",
+            "target_path": target_path,
+            "filename": Path(target_path).name,
+            "size": len(payload),
+            "sha256": digest,
+        }
+        try:
+            verdict = self.scanner.scan(pending)
+            if verdict.verdict not in {"clean", "infected"}:
+                raise RuntimeError("ClamAV returned an unsupported verdict")
+            record = {**base, **asdict(verdict)}
+            if verdict.verdict == "infected":
+                retained = self.webdav_quarantine / f"{scan_id}.infected"
+                pending.replace(retained)
+                record["quarantine_id"] = retained.name
+                self._record_scan(record)
+                self._record_webdav_scan_audit("webdav_upload_malware_blocked", record)
+                return record
+            self._record_scan(record)
+            self._record_webdav_scan_audit("webdav_upload_malware_scanned", record)
+            pending.unlink()
+            return record
+        except (OSError, RuntimeError) as exc:
+            error_path = self.webdav_quarantine / f"{scan_id}.error"
+            if pending.exists():
+                pending.replace(error_path)
+            record = {
+                **base,
+                "verdict": "error",
+                "detail": str(exc)[:1000],
+                "engine": "",
+                "quarantine_id": error_path.name if error_path.exists() else "",
+            }
+            try:
+                self._record_scan(record)
+                self._record_webdav_scan_audit("webdav_upload_malware_scan_failed", record)
+            except OSError:
+                pass
+            raise RuntimeError("WebDAV upload malware scan failed") from exc
+
+    def _record_webdav_scan_audit(self, action: str, record: dict[str, Any]) -> None:
+        snapshot = {
+            key: record.get(key)
+            for key in (
+                "scan_id", "scanned_at", "actor", "source_type", "target_path",
+                "filename", "size", "sha256", "verdict", "engine", "quarantine_id",
+            )
+            if record.get(key) not in {None, ""}
+        }
+        DocumentStore(self.root).history.record(
+            action,
+            str(record["actor"]),
+            "webdav-malware-scan",
+            hashlib.sha256(
+                f"{record['actor']}:{record['target_path']}:{record['scan_id']}".encode()
+            ).hexdigest(),
+            snapshot,
+        )
 
     @staticmethod
     def _safe_name(value: str, index: int) -> str:

@@ -10,6 +10,11 @@ SimpleOffice bewahrt eine importierte `.eml`-Originaldatei unverändert auf. Anh
 4. Nur bei ClamAV-Ergebnis `clean` erscheinen neue Dokumente.
 5. Unter `/documents/security` sehen Sicherheitsadministratoren Status und Prüfhistorie und können den Bestand prüfen oder Signaturen aktualisieren.
 
+Unabhängig davon kann SimpleOffice auch direkte Uploads aus LibreOffice,
+FreeFileSync und Dateimanagern vor ihrer WebDAV-Veröffentlichung prüfen. Diese
+optionale Betriebsart ist in [WEBDAV_UPLOADS_CLAMAV.md](WEBDAV_UPLOADS_CLAMAV.md)
+beschrieben.
+
 Freigegebene Dateien erhalten `attachment`, `source:eml`, `source-document:<ID>` und das Attribut `attachment_origin` mit Quell-ID, ursprünglichem Pfad, MIME-Teil, Inhaltstyp, SHA-256, Message-ID, Betreff und Absenderangabe. Die 30 Minuten gültige Vorschau ist an Benutzer und Quellhash gebunden.
 
 ## Installation und Konfiguration

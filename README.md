@@ -97,6 +97,10 @@ Dateiinhalte ohne stilles Überschreiben beschreibt
 Der bestätigungspflichtige Import von Mail-Anhängen, Herkunftskennzeichnung,
 Quarantäne und ClamAV-Betrieb sind in
 [docs/ANHAENGE_CLAMAV.md](docs/ANHAENGE_CLAMAV.md) dokumentiert.
+Wie neue und geänderte Dateien aus LibreOffice, FreeFileSync und Dateimanagern
+optional vor jeder WebDAV-Veröffentlichung fail-closed mit ClamAV geprüft
+werden, beschreibt
+[docs/WEBDAV_UPLOADS_CLAMAV.md](docs/WEBDAV_UPLOADS_CLAMAV.md).
 Die eigenständige Übertragung guter Offline-, Sidecar- und Suchkonzepte aus
 TagSpaces ist in [docs/TAGSPACES_ANSAETZE.md](docs/TAGSPACES_ANSAETZE.md)
 einschließlich Verbesserungen und Interoperabilitätsgrenzen beschrieben.

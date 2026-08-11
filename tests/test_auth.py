@@ -6,7 +6,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import MIB, app, configured_upload_limit_bytes, configured_webdav_quota_bytes, google_oauth_credentials
+from app import (
+    MIB,
+    app,
+    configured_upload_limit_bytes,
+    configured_webdav_quarantine_bytes,
+    configured_webdav_quota_bytes,
+    configured_webdav_upload_scan,
+    google_oauth_credentials,
+)
 from app import auth
 from app import db as database
 from app.secret_key import load_or_create_secret_key
@@ -73,6 +81,27 @@ class AuthTest(unittest.TestCase):
                 self.assertEqual(0, configured_webdav_quota_bytes())
         with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "999999999"}, clear=True):
             self.assertEqual(1024 * 1024 * MIB, configured_webdav_quota_bytes())
+
+    def test_webdav_clamav_is_opt_in_and_quarantine_capacity_is_bounded(self):
+        for value in ("1", "true", "YES", "on"):
+            with self.subTest(value=value), patch.dict(
+                "os.environ", {"SIMPLEOFFICE_WEBDAV_CLAMAV": value}, clear=True
+            ):
+                self.assertTrue(configured_webdav_upload_scan())
+        for value in ("", "0", "false", "disabled"):
+            with self.subTest(value=value), patch.dict(
+                "os.environ", {"SIMPLEOFFICE_WEBDAV_CLAMAV": value}, clear=True
+            ):
+                self.assertFalse(configured_webdav_upload_scan())
+
+        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "2048"}, clear=True):
+            self.assertEqual(2048 * MIB, configured_webdav_quarantine_bytes())
+        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "invalid"}, clear=True):
+            self.assertEqual(1024 * MIB, configured_webdav_quarantine_bytes())
+        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "0"}, clear=True):
+            self.assertEqual(MIB, configured_webdav_quarantine_bytes())
+        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "999999999"}, clear=True):
+            self.assertEqual(64 * 1024 * MIB, configured_webdav_quarantine_bytes())
 
     def test_google_web_oauth_json_is_loaded_from_protected_file(self):
         with tempfile.TemporaryDirectory() as temp:

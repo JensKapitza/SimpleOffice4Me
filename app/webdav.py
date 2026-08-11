@@ -23,6 +23,7 @@ from xml.sax.saxutils import escape
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .attachment_security import AttachmentSecurity, QuarantineCapacityError
 from .document_store import CONTROL_DIR, HISTORY_DIR, POLICY_FILE, DocumentStore, atomic_json_write, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
 
@@ -160,6 +161,35 @@ def _quota_error(username: str, operation: str, resource: Path, growth: int, con
     )
     xml = f'<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:{condition}/></d:error>'
     return Response(xml, 507, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store"})
+
+
+def _webdav_upload_scan_error(content: bytes, username: str, resource: Path) -> Response | None:
+    """Fail closed before a PUT body becomes a managed document revision."""
+    if not current_app.config.get("WEBDAV_UPLOAD_SCAN", False):
+        return None
+    try:
+        result = AttachmentSecurity(current_app.config["DOCUMENT_ROOT"]).scan_webdav_upload(
+            content,
+            f"webdav:{username}",
+            _store().relative(resource),
+            max(1, int(current_app.config["WEBDAV_QUARANTINE_BYTES"])),
+        )
+    except QuarantineCapacityError:
+        xml = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:sufficient-disk-space/></d:error>'
+        return Response(xml, 507, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store"})
+    except (OSError, RuntimeError, ValueError):
+        return Response(
+            "malware scanner unavailable; upload was not published",
+            503,
+            {"Retry-After": "60", "Cache-Control": "no-store"},
+        )
+    if result.get("verdict") != "clean":
+        return Response(
+            "malware detected; upload was quarantined and not published",
+            422,
+            {"Cache-Control": "no-store"},
+        )
+    return None
 
 
 def _check_quota(username: str, operation: str, resource: Path, growth: int) -> Response | None:
@@ -2081,6 +2111,9 @@ def file_tree(username: str, relative_path: str):
             quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
             if quota_error is not None:
                 return quota_error
+            scan_error = _webdav_upload_scan_error(content, username, resource)
+            if scan_error is not None:
+                return scan_error
             try:
                 updated = _store().replace_content(document["document_id"], content, f"webdav:{username}", expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
             except ValueError as exc:
@@ -2099,6 +2132,9 @@ def file_tree(username: str, relative_path: str):
         quota_error = _check_quota(username, "PUT", resource, len(content))
         if quota_error is not None:
             return quota_error
+        scan_error = _webdav_upload_scan_error(content, username, resource)
+        if scan_error is not None:
+            return scan_error
         try:
             created = _store().create_document_at(_store().relative(resource), content, f"webdav:{username}", max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
         except FileExistsError:
@@ -2390,6 +2426,9 @@ def endpoint(path: str):
         quota_error = _check_quota(username, "PUT", document_path, len(content) - document_path.stat().st_size)
         if quota_error is not None:
             return quota_error
+        scan_error = _webdav_upload_scan_error(content, username, document_path)
+        if scan_error is not None:
+            return scan_error
         try:
             updated = _store().replace_content(
                 document["document_id"], content, f"webdav:{username}",
