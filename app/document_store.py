@@ -1548,6 +1548,103 @@ class DocumentStore:
         self._record_revision("document_moved", actor, "documents", document["document_id"], document)
         return self.get_document(document["document_id"])
 
+    def replace_document_via_move(
+        self,
+        source_reference: str,
+        destination_reference: str,
+        actor: str,
+        *,
+        expected_source_sha256: str,
+        expected_destination_sha256: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Replace one destination from a MOVE source with recovery and rollback.
+
+        The destination keeps its stable identity, grants, tags and properties.
+        Its old payload enters immutable content history, while the consumed
+        source remains recoverable in the WebDAV trash. A source-side conflict
+        after the destination write restores the previous destination bytes.
+        """
+        self._require_actor(actor)
+        source = self.get_document(source_reference)
+        destination = self.get_document(destination_reference)
+        if source["document_id"] == destination["document_id"]:
+            raise ValueError("source and destination are the same document")
+        self._require_document_editable(source)
+        self._require_document_editable(destination)
+        source_path = self.root / str(source.get("last_path", ""))
+        destination_path = self.root / str(destination.get("last_path", ""))
+        if (
+            not source_path.is_file() or source_path.is_symlink()
+            or not destination_path.is_file() or destination_path.is_symlink()
+        ):
+            raise ValueError("MOVE replacement requires two available regular document files")
+        if source_path.stat().st_size > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+        source_content = source_path.read_bytes()
+        source_sha256 = hashlib.sha256(source_content).hexdigest()
+        destination_sha256 = sha256_file(destination_path)
+        if not expected_source_sha256 or not hmac.compare_digest(expected_source_sha256, source_sha256):
+            raise ValueError("source content changed since it was opened")
+        if not expected_destination_sha256 or not hmac.compare_digest(expected_destination_sha256, destination_sha256):
+            raise ValueError("destination content changed since it was opened")
+
+        destination_changed = not hmac.compare_digest(source_sha256, destination_sha256)
+        updated = self.replace_content(
+            destination["document_id"], source_content, actor,
+            expected_sha256=destination_sha256, source="webdav-move-overwrite", max_bytes=max_bytes,
+        )
+        try:
+            deleted = self.soft_delete_document(
+                source["document_id"], actor, expected_sha256=source_sha256,
+            )
+        except Exception as exc:
+            rollback_error = ""
+            if destination_changed:
+                archive = self.control / "content-versions" / destination["document_id"] / destination_sha256
+                try:
+                    previous_content = archive.read_bytes()
+                    self.replace_content(
+                        destination["document_id"], previous_content, actor,
+                        expected_sha256=source_sha256, source="webdav-move-overwrite-rollback",
+                        max_bytes=max(max_bytes, len(previous_content)),
+                    )
+                except Exception as rollback_exc:
+                    rollback_error = str(rollback_exc)
+            rollback = {
+                "source_document_id": source["document_id"],
+                "destination_document_id": destination["document_id"],
+                "source": str(source.get("last_path", "")),
+                "destination": str(destination.get("last_path", "")),
+                "reason": str(exc), "rollback_error": rollback_error,
+                "rolled_back": not rollback_error, "actor": actor, "at": utc_now(),
+            }
+            self._event("webdav_document_replace_rolled_back", rollback)
+            self._record_revision(
+                "webdav_document_replace_rolled_back", actor, "documents",
+                destination["document_id"], rollback,
+            )
+            if rollback_error:
+                raise RuntimeError("MOVE replacement failed and destination rollback failed") from exc
+            raise
+
+        details = {
+            "source_document_id": source["document_id"],
+            "destination_document_id": destination["document_id"],
+            "source": str(source.get("last_path", "")),
+            "destination": str(destination.get("last_path", "")),
+            "source_sha256": source_sha256,
+            "previous_destination_sha256": destination_sha256,
+            "recovery": deleted.get("recovery", ""),
+            "actor": actor, "at": utc_now(),
+        }
+        self._event("webdav_document_replaced_via_move", details)
+        self._record_revision(
+            "webdav_document_replaced_via_move", actor, "documents",
+            destination["document_id"], {**updated, "move_replacement": details},
+        )
+        return {"document": self.get_document(destination["document_id"]), "source_deleted": deleted}
+
     def create_document_at(
         self,
         relative_path: str,
@@ -2044,7 +2141,7 @@ class DocumentStore:
                 "directories_relative": manifest["directories"],
             }
 
-    def soft_delete_document(self, reference: str, actor: str) -> dict[str, Any]:
+    def soft_delete_document(self, reference: str, actor: str, *, expected_sha256: str = "") -> dict[str, Any]:
         """Move a document into a private recovery area and retain its metadata."""
         self._require_actor(actor)
         from .file_lock import exclusive_file_lock
@@ -2055,6 +2152,8 @@ class DocumentStore:
             source = self.root / str(metadata.get("last_path", ""))
             if not source.is_file() or source.is_symlink():
                 raise ValueError("only an available regular document file can be deleted")
+            if expected_sha256 and not hmac.compare_digest(expected_sha256, sha256_file(source)):
+                raise ValueError("document content changed since it was opened")
             previous_path = self.relative(source)
             deleted_at = utc_now()
             trash = self.control / "webdav-trash" / metadata["document_id"]

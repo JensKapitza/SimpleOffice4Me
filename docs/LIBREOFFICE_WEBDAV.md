@@ -45,6 +45,14 @@ Maßgeblich ist [RFC 4918 – Web Distributed Authoring and Versioning](https://
 
 Zusätzlich folgt die Vorbedingungsprüfung [HTTP Semantics RFC 9110 §13](https://www.rfc-editor.org/rfc/rfc9110.html#section-13): Ein veraltetes `If-Match` erhält `412 Precondition Failed`. Die Prüfung wird innerhalb derselben Dateisperre wie das Schreiben wiederholt.
 
+Verwendet LibreOffice beim sicheren Speichern die Folge „temporäre Datei per
+`PUT`, anschließend `MOVE` mit `Overwrite: T` auf den bisherigen Namen“, kann
+der hierarchische Dateibaum das Ziel jetzt konfliktgeschützt ersetzen. Ein
+getaggter Ziel-ETag oder dessen Lock-Token ist Pflicht; Ziel-ID, Rechte,
+Metadaten und alte Inhaltsversion bleiben erhalten, die temporäre Quelle bleibt
+wiederherstellbar. Details und Clientgrenzen stehen unter
+[Sicheres MOVE-Ersetzen](WEBDAV_SICHERES_MOVE_ERSETZEN.md).
+
 Lesende Zugriffe unterstützen außerdem `Range`, `If-Range`, `If-None-Match`,
 `If-Modified-Since` und die zugehörigen 206/304/412/416-Antworten. LibreOffice
 und der verwendete WebDAV-Mount können dadurch abgebrochene Downloads sicher

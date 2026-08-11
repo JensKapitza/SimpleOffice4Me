@@ -76,6 +76,7 @@ Dateien nach RFC 4918 beschreibt
 [WebDAV-Ordnersperren](docs/WEBDAV_COLLECTION_LOCKS_RFC4918.md).
 Ganze Ordner lassen sich nach
 [RFC 4918 serverseitig kopieren und verschieben](docs/WEBDAV_ORDNER_COPY_MOVE_RFC4918.md)
+und [vorhandene Dateien mit Ziel-ETag oder Lock sicher per MOVE ersetzen](docs/WEBDAV_SICHERES_MOVE_ERSETZEN.md)
 sowie
 [rekursiv löschen und einzeln wiederherstellen](docs/WEBDAV_ORDNER_LOESCHEN_RFC4918.md),
 einschließlich Rechte-, Lock-, Quota-, Audit- und Rollback-Schutz.

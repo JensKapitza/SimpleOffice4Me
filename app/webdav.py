@@ -1039,6 +1039,7 @@ def _if_header_error(username: str, identity: dict) -> Response | None:
     value = request.headers.get("If", "")
     g._webdav_if_checked = True
     g._webdav_if_tokens = {}
+    g._webdav_if_etags = {}
     if not value:
         return None
     try:
@@ -1058,6 +1059,12 @@ def _if_header_error(username: str, identity: dict) -> Response | None:
             }
             if tokens:
                 g._webdav_if_tokens.setdefault(state["key"], set()).update(tokens)
+            etags = {
+                supplied for conditions in successful for negated, kind, supplied in conditions
+                if not negated and kind == "etag"
+            }
+            if etags:
+                g._webdav_if_etags.setdefault(state["key"], set()).update(etags)
     except OverflowError as exc:
         return Response(str(exc), 413)
     except PermissionError:
@@ -1070,6 +1077,14 @@ def _if_header_error(username: str, identity: dict) -> Response | None:
 def _request_token(key: str) -> str:
     tokens = getattr(g, "_webdav_if_tokens", {}).get(key, set())
     return next(iter(tokens)) if len(tokens) == 1 else ""
+
+
+def _request_etag(key: str, current_etag: str) -> bool:
+    """Return whether a successful DAV If list named this strong ETag."""
+    return any(
+        not supplied.startswith("W/") and hmac.compare_digest(supplied, current_etag)
+        for supplied in getattr(g, "_webdav_if_etags", {}).get(key, set())
+    )
 
 
 def _unlock_token() -> tuple[str, Response | None]:
@@ -1637,6 +1652,23 @@ def _release_collection_locks_after_move(username: str, source: Path) -> None:
                 "released_at": utc_now(), "actor": f"webdav:{username}",
             },
         )
+
+
+def _release_file_lock_after_move(username: str, source: Path, document: dict) -> None:
+    """Release an explicit source lock after MOVE while retaining target locks."""
+    key = _lock_key(source, document)
+    lock = _lock_for(key)
+    if not lock or lock.get("username") != username:
+        return
+    _release_lock(key)
+    _store().history.record(
+        "webdav_lock_released_by_move", f"webdav:{username}", "webdav-locks",
+        hashlib.sha256(f"{username}:{lock.get('resource', '')}".encode()).hexdigest(),
+        {
+            "resource": lock.get("resource", ""), "token": lock.get("token", ""),
+            "released_at": utc_now(), "actor": f"webdav:{username}",
+        },
+    )
 
 
 def _release_collection_locks_after_delete(username: str, source: Path) -> None:
@@ -2221,13 +2253,36 @@ def file_tree(username: str, relative_path: str):
             return Response("destination is outside the authenticated WebDAV tree", 502)
         except ValueError as exc:
             return Response(str(exc), 400)
+        replacing_document = None
+        if destination == resource:
+            status = 403 if request.method == "MOVE" else 412
+            return Response("source and destination are the same resource", status)
         if destination.exists():
-            return Response("destination exists; explicit replacement is required", 412)
+            if overwrite == "F":
+                return Response("destination exists and Overwrite is F", 412)
+            if request.method != "MOVE" or is_collection or destination.is_symlink() or not destination.is_file():
+                return Response("only an existing regular file can be replaced by MOVE", 412)
+            try:
+                replacing_document = _tree_document(destination)
+            except ValueError:
+                return Response("destination is not an available managed document", 409)
+            destination_key = _lock_key(destination, replacing_document)
+            destination_etag = _etag(replacing_document)
+            if not _request_token(destination_key) and not _request_etag(destination_key, destination_etag):
+                return Response(
+                    "replacing an existing destination requires its tagged DAV If ETag or lock token",
+                    428, {"ETag": destination_etag, "Cache-Control": "private, no-cache"},
+                )
+            destination_lock = _require_lock(destination, replacing_document, username)
+            if destination_lock is not None:
+                destination_lock.headers.update({"ETag": destination_etag, "Cache-Control": "private, no-cache"})
+                return destination_lock
         if not destination.parent.is_dir():
             return Response("destination parent does not exist", 409)
-        destination_lock = _require_lock(destination, None, username)
-        if destination_lock is not None:
-            return destination_lock
+        if replacing_document is None:
+            destination_lock = _require_lock(destination, None, username)
+            if destination_lock is not None:
+                return destination_lock
         manifest = None
         if is_collection:
             if request.method == "MOVE":
@@ -2270,13 +2325,22 @@ def file_tree(username: str, relative_path: str):
             elif request.method == "COPY":
                 result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
                 _copy_dead_properties(username, resource, document, destination, result)
+            elif replacing_document is not None:
+                replacement = _store().replace_document_via_move(
+                    document["document_id"], replacing_document["document_id"], f"webdav:{username}",
+                    expected_source_sha256=_etag_value(current_etag),
+                    expected_destination_sha256=_etag_value(destination_etag),
+                    max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+                )
+                result = replacement["document"]
             else:
                 with exclusive_file_lock(_store().control / ".document-content.lock"):
                     result = _store().move_document(document["document_id"], _store().relative(destination.parent), f"webdav:{username}", destination_name=destination.name)
         except OSError:
             return _quota_error(username, request.method, destination, 0, "sufficient-disk-space")
         except (FileExistsError, RuntimeError, ValueError) as exc:
-            status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 403 if "itself" in str(exc) else 409
+            message = str(exc)
+            status = 507 if "too many" in message or "nesting depth" in message or "rollback failed" in message else 413 if "upload size limit" in message else 412 if "changed since" in message else 423 if "locked" in message or "staged" in message else 403 if "itself" in message else 409
             return Response(str(exc), status)
         changed_paths: list[str] = []
         if is_collection:
@@ -2295,10 +2359,14 @@ def file_tree(username: str, relative_path: str):
             _record_sync_changes(username, *(changed_paths or [destination_relative]))
         else:
             _record_sync_changes(username, *(changed_paths or [_store().relative(resource), destination_relative]))
+            if not is_collection:
+                _release_file_lock_after_move(username, resource, document)
         headers = {"Location": _tree_url(username, destination_relative, collection=is_collection)}
         if not is_collection:
-            headers["ETag"] = _etag(result)
-        return Response("", 201, headers)
+            headers.update(_stored_integrity_headers(result))
+            headers["Location"] = _tree_url(username, destination_relative)
+            headers["Content-Location"] = headers["Location"]
+        return Response("", 204 if replacing_document is not None else 201, headers)
 
     return Response("method not allowed", 405, {"Allow": allow})
 

@@ -27,17 +27,17 @@ Maßgeblich ist [RFC 4918](https://www.rfc-editor.org/rfc/rfc4918.html):
 | Dead Properties müssen beim MOVE erhalten bleiben. | [§ 9.9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9.1) | Stabile Ordner- und Dokument-IDs ziehen mit dem atomar umbenannten Baum um; die Property-Zuordnung bleibt dadurch unverändert. |
 | Ein erfolgreicher MOVE darf Quell-Locks nicht an das Ziel verschieben; vorhandene Zielbereich-Locks gelten anschließend. | [§ 7.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.6) | Alle expliziten Locks innerhalb der Quelle werden nach erfolgreichem MOVE auditierbar entfernt. Ein rekursiver Lock am Ziel-Elternordner wird dynamisch wirksam. COPY dupliziert keine Locks. |
 | Für jede veränderte gesperrte Ressource muss das passende Token im `If`-Header stehen. | [§ 7.5](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.5) | MOVE prüft Quellwurzel, getrennt gesperrte Nachfahren und Zielbereich. COPY benötigt keinen Quelltoken, wohl aber Tokens des veränderten Zielbereichs. |
-| `Overwrite: F` muss ein bestehendes Ziel schützen. | [§ 9.8.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.8.4), [§ 9.9.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9.3) | Bestehende Ziele ergeben immer `412`, auch bei `Overwrite: T`; siehe Sicherheitsentscheidung unten. |
+| `Overwrite: F` muss ein bestehendes Ziel schützen. | [§ 9.8.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.8.4), [§ 9.9.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9.3) | `F` ergibt immer `412`. Collection- und COPY-Ziele werden auch mit `T` nicht ersetzt. Für getaggte, konfliktgeschützte Datei-MOVE-Ersetzungen gilt [WEBDAV_SICHERES_MOVE_ERSETZEN.md](WEBDAV_SICHERES_MOVE_ERSETZEN.md). |
 | COPY und MOVE dürfen nicht gecacht werden. | [§ 9.8](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.8), [§ 9.9](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9) | Mutationsantworten enthalten keine cachebare Repräsentation. |
 
 ### Bewusste Sicherheitsentscheidung gegenüber dem Standardumfang
 
 RFC 4918 erlaubt bei `Overwrite: T` das Löschen oder Ersetzen eines bestehenden
-Ziels. SimpleOffice führt diese Variante absichtlich nicht aus. Ein Desktop-
-Client erhält `412 Precondition Failed` und muss einen eindeutigen Namen wählen
-oder das Ziel in einem getrennten, bestätigten Schritt löschen. Dadurch kann
-eine veraltete FreeFileSync- oder Dateimanager-Ansicht keine neuere Datei oder
-Ordnerstruktur unbemerkt ersetzen.
+Ziels. SimpleOffice führt dies für Ordner und COPY weiterhin nicht aus. Ein
+Datei-MOVE darf ein reguläres Ziel nur mit getaggtem aktuellem Ziel-ETag oder
+gültigem Ziel-Lock ersetzen. Dadurch funktionieren temporäre Office-
+Speichervorgänge, während eine veraltete FreeFileSync- oder Dateimanager-
+Ansicht keine neuere Datei oder Ordnerstruktur unbemerkt ersetzt.
 
 RFC 4918 beschreibt bei einzelnen Fehlern in rekursiven Operationen eine
 `207 Multi-Status`-Antwort und möglichst weit fortgesetzte Teiloperationen
@@ -107,11 +107,13 @@ Quelle, Ziel, Anzahl, Bytes, Benutzer und Zeit. Entfernte Quell-Locks werden als
 
 Wichtige Antworten:
 
-- `201 Created`: vollständiger Erfolg;
+- `201 Created`: vollständiger Erfolg an einem neuen Ziel;
+- `204 No Content`: vorhandene Datei sicher per MOVE ersetzt;
 - `400 Bad Request`: fehlendes/ungültiges Ziel, `Depth` oder `Overwrite`;
 - `403 Forbidden`: Wurzeloperation, Credential-Grenze oder Ziel in der Quelle;
 - `409 Conflict`: fehlender Ziel-Elternordner oder unsicherer Quellbaum;
-- `412 Precondition Failed`: Ziel existiert oder HTTP-Bedingung ist veraltet;
+- `412 Precondition Failed`: geschütztes Ziel existiert oder Bedingung ist veraltet;
+- `428 Precondition Required`: Datei-MOVE auf vorhandenes Ziel ohne dessen getaggten Validator;
 - `423 Locked`: notwendiges Quell- oder Zieltoken fehlt;
 - `507 Insufficient Storage`: Kontingent, Plattenplatz, Baumgröße oder
   unerwarteter Schreibfehler.
@@ -148,7 +150,9 @@ Die Tests decken insbesondere ab:
 
 - Partielle `207 Multi-Status`-Ergebnisse sind zugunsten eines konsistenten,
   vollständig zurückgerollten Ziels nicht implementiert.
-- Ziele werden nie automatisch überschrieben oder zusammengeführt.
+- Ordner und COPY-Ziele werden nie automatisch überschrieben oder zusammengeführt.
+- Datei-MOVE-Ersetzung erhält aus Sicherheitsgründen Ziel-ID und Zielrechte;
+  Quelle und Ziel bleiben vollständig wiederherstellbar dokumentiert.
 - Die atomare MOVE-Garantie gilt innerhalb des konfigurierten Dokumentenroots;
   Quelle und Ziel liegen konstruktionsbedingt auf demselben Dateisystem.
 - Externe Prozesse, die Dateien direkt im Dokumentenroot verändern, verwenden

@@ -1757,6 +1757,207 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(412, existing.status_code)
         self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
 
+    def test_move_can_safely_replace_a_file_with_tagged_destination_etag(self):
+        target = f"{self.files}/angebot.odt"
+        target_before = self.store.get_document("angebot.odt")
+        target_before["tags"] = ["vertrag", "freigegeben"]
+        target_before["grants"] = [{"username": "other", "role": "reader"}]
+        self.store._save_document(target_before)
+        property_body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:classification>intern</m:classification></d:prop></d:set></d:propertyupdate>'
+        self.client.open(target, method="PROPPATCH", data=property_body, headers=self.auth)
+        created = self.client.put(f"{self.files}/angebot.odt.tmp", data=b"saved by LibreOffice", headers=self.auth)
+        source = self.store.get_document("angebot.odt.tmp")
+        source["tags"] = ["temporaer"]
+        self.store._save_document(source)
+        target_etag = self.client.get(target, headers=self.auth).headers["ETag"]
+
+        moved = self.client.open(
+            f"{self.files}/angebot.odt.tmp", method="MOVE",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target}",
+                "If": f"<http://localhost{target}> ([{target_etag}])",
+            },
+        )
+
+        target_after = self.store.get_document("angebot.odt")
+        consumed = self.store.get_document(source["document_id"])
+        properties = self.client.open(
+            target, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:classification/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        recovery = self.store.control / consumed["recovery_path"]
+        versions = self.store.content_recovery_versions(target_after["document_id"])
+
+        self.assertEqual(201, created.status_code)
+        self.assertEqual(204, moved.status_code)
+        self.assertEqual(moved.headers["Location"], moved.headers["Content-Location"])
+        self.assertEqual(target_before["document_id"], target_after["document_id"])
+        self.assertEqual(["vertrag", "freigegeben"], target_after["tags"])
+        self.assertEqual([{"username": "other", "role": "reader"}], target_after["grants"])
+        self.assertEqual(b"saved by LibreOffice", (self.store.root / "angebot.odt").read_bytes())
+        self.assertFalse((self.store.root / "angebot.odt.tmp").exists())
+        self.assertEqual("webdav_deleted", consumed["system_state"])
+        self.assertEqual(b"saved by LibreOffice", recovery.read_bytes())
+        self.assertTrue(any(item["sha256"] == target_before["sha256"] for item in versions))
+        self.assertEqual("intern", ElementTree.fromstring(properties.data).findtext(".//{urn:simpleoffice:test}classification"))
+        actions = {row.get("type") for row in self.store.logbook()}
+        self.assertIn("webdav_document_replaced_via_move", actions)
+        self.assertIn("document_soft_deleted", actions)
+
+    def test_move_overwrite_requires_explicit_fresh_destination_guard(self):
+        source_url = f"{self.files}/save.tmp"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"candidate", headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+
+        missing = self.client.open(
+            source_url, method="MOVE",
+            headers={**self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}"},
+        )
+        forbidden = self.client.open(
+            source_url, method="MOVE",
+            headers={
+                **self.auth, "Overwrite": "F", "Destination": f"http://localhost{target_url}",
+                "If": f"<http://localhost{target_url}> ([{target_etag}])",
+            },
+        )
+        stale = self.client.open(
+            source_url, method="MOVE",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                "If": f'<http://localhost{target_url}> (["{"0" * 64}"])',
+            },
+        )
+
+        self.assertEqual(428, missing.status_code)
+        self.assertEqual(target_etag, missing.headers["ETag"])
+        self.assertEqual(412, forbidden.status_code)
+        self.assertEqual(412, stale.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"candidate", (self.store.root / "save.tmp").read_bytes())
+
+    def test_move_overwrite_accepts_target_lock_and_retains_it(self):
+        source_url = f"{self.files}/office-save.tmp"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"locked save", headers=self.auth)
+        source_document = self.store.get_document("office-save.tmp")
+        source_locked = self.client.open(
+            source_url, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "0", "Timeout": "Second-600"},
+        )
+        source_token = source_locked.headers["Lock-Token"].strip("<>")
+        locked = self.client.open(
+            target_url, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "0", "Timeout": "Second-600"},
+        )
+        token = locked.headers["Lock-Token"].strip("<>")
+
+        moved = self.client.open(
+            source_url, method="MOVE",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                "If": (
+                    f"<http://localhost{source_url}> (<{source_token}>) "
+                    f"<http://localhost{target_url}> (<{token}>)"
+                ),
+            },
+        )
+        blocked = self.client.put(target_url, data=b"without token", headers=self.auth)
+        current = self.client.get(target_url, headers=self.auth)
+        saved = self.client.put(
+            target_url, data=b"with token",
+            headers={
+                **self.auth, "If-Match": current.headers["ETag"],
+                "If": f"<http://localhost{target_url}> (<{token}>)",
+            },
+        )
+
+        self.assertEqual(200, locked.status_code)
+        self.assertEqual(200, source_locked.status_code)
+        self.assertEqual(204, moved.status_code)
+        self.assertEqual(423, blocked.status_code)
+        self.assertEqual(204, saved.status_code)
+        self.assertEqual(b"with token", (self.store.root / "angebot.odt").read_bytes())
+        locks = json.loads((self.store.control / "webdav-locks.json").read_text())["locks"]
+        self.assertNotIn(source_document["document_id"], locks)
+        self.assertIn(self.document["document_id"], locks)
+        actions = [json.loads(path.read_text()).get("action") for path in (self.store.history.root / "events").glob("*.json")]
+        self.assertIn("webdav_lock_released_by_move", actions)
+
+    def test_move_overwrite_rolls_destination_back_when_source_consumption_fails(self):
+        source_url = f"{self.files}/rollback-save.tmp"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"not committed", headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+
+        with mock.patch.object(DocumentStore, "soft_delete_document", side_effect=OSError("simulated trash failure")):
+            response = self.client.open(
+                source_url, method="MOVE",
+                headers={
+                    **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                    "If": f"<http://localhost{target_url}> ([{target_etag}])",
+                },
+            )
+
+        self.assertEqual(507, response.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"not committed", (self.store.root / "rollback-save.tmp").read_bytes())
+        actions = {row.get("type") for row in self.store.logbook()}
+        self.assertIn("webdav_document_replace_rolled_back", actions)
+
+    def test_move_overwrite_detects_late_source_change_and_restores_destination(self):
+        source_url = f"{self.files}/racing-save.tmp"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"initial temporary bytes", headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+        original_replace = DocumentStore.replace_content
+
+        def change_source_after_target_write(store, *args, **kwargs):
+            result = original_replace(store, *args, **kwargs)
+            if kwargs.get("source") == "webdav-move-overwrite":
+                (store.root / "racing-save.tmp").write_bytes(b"newer external bytes")
+            return result
+
+        with mock.patch.object(DocumentStore, "replace_content", change_source_after_target_write):
+            response = self.client.open(
+                source_url, method="MOVE",
+                headers={
+                    **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                    "If": f"<http://localhost{target_url}> ([{target_etag}])",
+                },
+            )
+
+        self.assertEqual(412, response.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"newer external bytes", (self.store.root / "racing-save.tmp").read_bytes())
+        actions = {row.get("type") for row in self.store.logbook()}
+        self.assertIn("webdav_document_replace_rolled_back", actions)
+
+    def test_move_overwrite_rechecks_destination_after_if_evaluation(self):
+        source_url = f"{self.files}/destination-race.tmp"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"candidate", headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+        original_move_replace = DocumentStore.replace_document_via_move
+
+        def change_destination_before_locked_check(store, *args, **kwargs):
+            (store.root / "angebot.odt").write_bytes(b"newer destination bytes")
+            return original_move_replace(store, *args, **kwargs)
+
+        with mock.patch.object(DocumentStore, "replace_document_via_move", change_destination_before_locked_check):
+            response = self.client.open(
+                source_url, method="MOVE",
+                headers={
+                    **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                    "If": f"<http://localhost{target_url}> ([{target_etag}])",
+                },
+            )
+
+        self.assertEqual(412, response.status_code)
+        self.assertEqual(b"newer destination bytes", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"candidate", (self.store.root / "destination-race.tmp").read_bytes())
+
     def test_rfc6578_initial_and_incremental_sync_reports_changes_and_tombstones(self):
         initial_body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
         properties = self.client.open(
