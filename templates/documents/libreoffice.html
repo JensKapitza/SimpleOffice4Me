@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-lg py-4">
+  <a class="text-decoration-none" href="{{ url_for('documents.detail', document_id=document.document_id) }}">← Dokument</a>
+  <h1 class="h3 mt-2">Dokumente auf dem Desktop bearbeiten</h1>
+  <p class="text-secondary text-break">{{ document.last_path }}</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% if generated_password %}
+  <div class="alert alert-warning">
+    <strong>App-Passwort jetzt kopieren.</strong> Es wird nur einmal angezeigt, gehört nicht in den Link und ersetzt keinen anderen Gerätezugang.
+    <div class="input-group mt-2"><input id="app-password" class="form-control font-monospace" readonly value="{{ generated_password }}"><button class="btn btn-outline-dark" type="button" data-copy="app-password">Kopieren</button></div>
+  </div>
+  {% endif %}
+  <div class="card mb-4"><div class="card-body">
+    {% if configured %}
+      <label class="form-label" for="webdav-url">WebDAV-Adresse</label>
+      <div class="input-group"><input id="webdav-url" class="form-control" readonly value="{{ webdav_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-url">Adresse kopieren</button></div>
+      <ol class="mt-3 mb-3">
+        <li>LibreOffice öffnen und <strong>Datei → Öffnen</strong> wählen.</li>
+        <li>Die WebDAV-Adresse in „Dateiname“ einfügen.</li>
+        <li>SimpleOffice-Benutzername und das oben erzeugte App-Passwort eingeben.</li>
+        <li>Mit <strong>Strg+S</strong> speichern. Die Änderung wird sofort versioniert zurückgeschrieben.</li>
+      </ol>
+      <label class="form-label mt-3" for="webdav-root-url">Dateiverwaltung und Synchronisation</label>
+      <div class="input-group"><input id="webdav-root-url" class="form-control" readonly value="{{ webdav_root_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-root-url">Wurzeladresse kopieren</button></div>
+      <p class="small text-secondary mt-2">Diese Adresse gehört zum zuletzt angelegten aktiven Zugang. Die gerätespezifische Adresse steht zusätzlich in der Tabelle. Sie kann in Nautilus, Finder, Windows Explorer oder FreeFileSync verwendet werden. Dort können Dateien mit einem Schreibzugang angelegt, gespeichert, kopiert, umbenannt, verschoben und kontrolliert gelöscht werden. Alternativ in LibreOffice: Datei → Remote öffnen → Dienste verwalten → WebDAV. HTTPS ist außerhalb des lokalen Rechners zwingend.</p>
+      {% if quota %}
+      <div class="border rounded p-3 mt-3">
+        <div class="d-flex justify-content-between gap-3"><strong>WebDAV-Speicher</strong><span>{{ (quota.used / 1048576)|round(1) }} von {{ (quota.limit / 1048576)|round(1) }} MiB belegt</span></div>
+        <div class="progress mt-2" role="progressbar" aria-label="WebDAV-Speicherbelegung" aria-valuenow="{{ quota.used }}" aria-valuemin="0" aria-valuemax="{{ quota.limit }}"><div class="progress-bar {% if quota.available == 0 %}bg-danger{% endif %}" style="width: {{ ([100, (quota.used * 100 / quota.limit)]|min)|round(1) }}%"></div></div>
+        <p class="small text-secondary mb-0 mt-2">Desktop-Clients können dieselben Werte über <code>DAV:quota-used-bytes</code> und <code>DAV:quota-available-bytes</code> lesen. Bei ausgeschöpftem Speicher bleiben gleich große oder kleinere Aktualisierungen möglich.</p>
+      </div>
+      {% endif %}
+    {% else %}
+      <p>Es gibt keinen aktiven WebDAV-Zugang. Lege unten ein separates App-Passwort für LibreOffice, Dateimanager oder Synchronisation an.</p>
+    {% endif %}
+
+    <h2 class="h5 mt-4">Neuen Gerätezugang anlegen</h2>
+    <form method="post" class="row g-2 align-items-end">
+      <input type="hidden" name="action" value="activate">
+      <div class="col-md-4"><label class="form-label" for="credential-label">Gerät oder Anwendung</label><input required maxlength="80" class="form-control" id="credential-label" name="label" placeholder="z. B. LibreOffice Laptop"></div>
+      <div class="col-md-3"><label class="form-label" for="credential-path">Freigegebener Ordner</label><input maxlength="500" class="form-control" id="credential-path" name="path_prefix" value="{{ default_path_prefix }}" placeholder="Leer = alle Dokumente"><div class="form-text">Relativer vorhandener Ordner; Unterordner sind eingeschlossen.</div></div>
+      <div class="col-md-2"><label class="form-label" for="credential-scope">Berechtigung</label><select class="form-select" id="credential-scope" name="scope"><option value="write">Lesen und schreiben</option><option value="read">Nur lesen</option></select></div>
+      <div class="col-md-1"><label class="form-label" for="credential-expiry">Gültigkeit</label><select class="form-select" id="credential-expiry" name="expires_days"><option value="30">30 Tage</option><option value="90" selected>90 Tage</option><option value="365">1 Jahr</option></select></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100">App-Passwort erzeugen</button></div>
+    </form>
+    <p class="small text-secondary mt-2">Für jedes Gerät einen eigenen Zugang und möglichst nur den tatsächlich benötigten Ordner verwenden. „Nur lesen“ eignet sich für Backup- und Prüfzwecke; LibreOffice und bidirektionale Synchronisation benötigen „Lesen und schreiben“.</p>
+
+    {% if credentials %}
+    <h2 class="h5 mt-4">Gerätezugänge</h2>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Bezeichnung</th><th>Ordner und Adresse</th><th>Rechte</th><th>Ablauf</th><th></th></tr></thead><tbody>
+      {% for credential in credentials %}<tr class="{% if credential.expired %}text-secondary{% endif %}"><td>{{ credential.label }}{% if credential.credential_id == 'legacy' %} <span class="badge text-bg-secondary">Bestand</span>{% endif %}</td><td><div>{% if credential.path_prefix %}<code>{{ credential.path_prefix }}</code>{% else %}Alle Dokumente{% endif %}</div><small class="text-break">{{ credential.webdav_url }}</small></td><td>{% if credential.scope == 'read' %}Nur lesen{% else %}Lesen und schreiben{% endif %}</td><td>{% if credential.expired %}<span class="badge text-bg-secondary">Abgelaufen</span>{% elif credential.expires_at %}{{ credential.expires_at[:10] }}{% else %}Ohne Ablauf (Bestand){% endif %}</td><td class="text-end"><form method="post"><input type="hidden" name="credential_id" value="{{ credential.credential_id }}"><button class="btn btn-sm btn-outline-danger" name="action" value="revoke">Widerrufen</button></form></td></tr>{% endfor %}
+    </tbody></table></div>
+    <form method="post"><button class="btn btn-outline-danger" name="action" value="revoke_all">Alle Zugänge widerrufen</button></form>
+    {% endif %}
+  </div></div>
+  <div class="alert alert-secondary small">Bei paralleler Bearbeitung verhindern WebDAV-Sperre und ETag-Prüfung ein unbemerktes Überschreiben. Bearbeitungs- und Aufbewahrungssperren gelten unverändert.</div>
+</main>
+{% endblock %}
+{% block script %}<script>document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const field=document.getElementById(button.dataset.copy);await navigator.clipboard.writeText(field.value);button.textContent='Kopiert'}))</script>{% endblock %}

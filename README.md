@@ -54,6 +54,62 @@ Objekte stehen in [docs/FRISTEN_UND_OBJEKTE.md](docs/FRISTEN_UND_OBJEKTE.md).
 Für den sicheren öffentlichen Betrieb von Freigabelinks und CardDAV siehe
 [docs/PROXY_HTTPS.md](docs/PROXY_HTTPS.md).
 
+Schreibendes Öffnen und Speichern von Dokumenten mit LibreOffice über WebDAV
+ist in [docs/LIBREOFFICE_WEBDAV.md](docs/LIBREOFFICE_WEBDAV.md) beschrieben.
+Hierarchische Dateiverwaltung mit Nautilus, Windows Explorer, Finder und einem
+eingehängten FreeFileSync-Ziel ist in
+[docs/WEBDAV_DATEIVERWALTUNG.md](docs/WEBDAV_DATEIVERWALTUNG.md) dokumentiert.
+Der inkrementelle Änderungsabgleich für kompatible Clients folgt
+[RFC 6578](docs/WEBDAV_SYNC_RFC6578.md).
+Schreibbare, atomare Datei- und Ordnereigenschaften für Desktop-Clients sind
+unter [WebDAV-Eigenschaften nach RFC 4918](docs/WEBDAV_EIGENSCHAFTEN_RFC4918.md)
+beschrieben.
+Optionale Speichergrenzen nach RFC 4331, 507-Fehler und der vollständige
+Lebenszyklus von Office-Sperren einschließlich Refresh und gesperrter leerer
+Ressourcen stehen in
+[WebDAV-Speichergrenzen und robuste Locks](docs/WEBDAV_QUOTA_UND_LOCKS.md).
+Die sichere Zuordnung von Lock-Token, ETags und Sync-Token zu genau der im
+`If`-Header bezeichneten Ressource ist in
+[WebDAV-Bedingungen nach RFC 4918](docs/WEBDAV_IF_HEADER_RFC4918.md) dokumentiert.
+Die [einheitlichen HTTP-Vorbedingungen nach RFC 9110](docs/WEBDAV_HTTP_VORBEDINGUNGEN_RFC9110.md)
+schützen PUT, DELETE, PROPPATCH, MKCOL, COPY und MOVE mit derselben ETag- und
+Datumsreihenfolge vor verlorenen Änderungen.
+Rekursive Ordnersperren, vererbte Lock-Discovery und Konfliktschutz für neue
+Dateien nach RFC 4918 beschreibt
+[WebDAV-Ordnersperren](docs/WEBDAV_COLLECTION_LOCKS_RFC4918.md).
+Ganze Ordner lassen sich nach
+[RFC 4918 serverseitig kopieren und verschieben](docs/WEBDAV_ORDNER_COPY_MOVE_RFC4918.md)
+und [vorhandene Dateien mit Ziel-ETag oder Lock sicher per MOVE ersetzen](docs/WEBDAV_SICHERES_MOVE_ERSETZEN.md)
+sowie
+[Vorlagen und Dateien mit Ziel-ETag oder Lock sicher per COPY auf vorhandene Ziele übernehmen](docs/WEBDAV_SICHERES_COPY_ERSETZEN.md) und
+[rekursiv löschen und einzeln wiederherstellen](docs/WEBDAV_ORDNER_LOESCHEN_RFC4918.md),
+einschließlich Rechte-, Lock-, Quota-, Audit- und Rollback-Schutz.
+Fortsetzbare Downloads, `If-Range`, bedingte GET-/HEAD-Anfragen und sichere
+Mehrfachbereiche beschreibt
+[WebDAV-Downloads nach RFC 9110](docs/WEBDAV_DOWNLOADS_RFC9110.md).
+Kryptografisch prüfbare Uploads und vollständige sowie fortgesetzte Downloads
+mit `Content-Digest`, `Repr-Digest` und sicherer Algorithmuswahl beschreibt
+[WebDAV-Übertragungsintegrität nach RFC 9530](docs/WEBDAV_INTEGRITAET_RFC9530.md).
+Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
+[docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
+Wie diese Gerätezugänge zusätzlich auf genau einen Ordner begrenzt werden und
+`COPY`, `MOVE`, Locks sowie Sync-Token nach dem Rechteprinzip aus RFC 3744
+abgesichert sind, beschreibt
+[docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md](docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md).
+Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer
+Dateiinhalte ohne stilles Überschreiben beschreibt
+[docs/DATEI_WIEDERHERSTELLUNG.md](docs/DATEI_WIEDERHERSTELLUNG.md).
+Der bestätigungspflichtige Import von Mail-Anhängen, Herkunftskennzeichnung,
+Quarantäne und ClamAV-Betrieb sind in
+[docs/ANHAENGE_CLAMAV.md](docs/ANHAENGE_CLAMAV.md) dokumentiert.
+Wie neue und geänderte Dateien aus LibreOffice, FreeFileSync und Dateimanagern
+optional vor jeder WebDAV-Veröffentlichung fail-closed mit ClamAV geprüft
+werden, beschreibt
+[docs/WEBDAV_UPLOADS_CLAMAV.md](docs/WEBDAV_UPLOADS_CLAMAV.md).
+Die eigenständige Übertragung guter Offline-, Sidecar- und Suchkonzepte aus
+TagSpaces ist in [docs/TAGSPACES_ANSAETZE.md](docs/TAGSPACES_ANSAETZE.md)
+einschließlich Verbesserungen und Interoperabilitätsgrenzen beschrieben.
+
 ## Start und Update
 
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
