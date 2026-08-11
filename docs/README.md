@@ -20,6 +20,7 @@ verlinkt.
 ## Dateien und Desktop-Integration
 
 - [Hierarchische WebDAV-Dateiverwaltung](WEBDAV_DATEIVERWALTUNG.md)
+- [Begrenzte rekursive WebDAV-Bestandsaufnahme nach RFC 4918](WEBDAV_REKURSIVE_PROPFIND_RFC4918.md)
 - [Portable WebDAV-Dateinamen für Windows, macOS und Linux](WEBDAV_PORTABLE_DATEINAMEN.md)
 - [Effizienter WebDAV-Änderungsabgleich nach RFC 6578](WEBDAV_SYNC_RFC6578.md)
 - [WebDAV-Eigenschaften und Metadaten nach RFC 4918](WEBDAV_EIGENSCHAFTEN_RFC4918.md)

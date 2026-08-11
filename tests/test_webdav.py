@@ -2708,6 +2708,165 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertFalse((self.store.root / "AUX.txt").exists())
 
+    def test_depth_infinity_returns_a_bounded_flat_snapshot_for_sync_clients(self):
+        project = f"{self.files}/Projekte"
+        nested = f"{project}/2026"
+        unicode_name = "Käse 📄.odt"
+        self.assertEqual(201, self.client.open(project, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.open(nested, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.put(f"{project}/Plan.txt", data=b"plan", headers=self.auth).status_code)
+        self.assertEqual(
+            201,
+            self.client.put(
+                f"{nested}/{quote(unicode_name, safe='')}", data=b"office", headers=self.auth,
+            ).status_code,
+        )
+        private = Path(self.temp.name) / "private"
+        private.mkdir()
+        (private / "Geheim.txt").write_bytes(b"must not be followed")
+        (self.store.root / "Projekte" / "Verknuepfung").symlink_to(
+            private, target_is_directory=True,
+        )
+        internal = self.store.root / "Projekte" / CONTROL_DIR
+        internal.mkdir(exist_ok=True)
+        (internal / "niemals-sichtbar.txt").write_bytes(b"private")
+        query = (
+            '<d:propfind xmlns:d="DAV:"><d:prop>'
+            '<d:displayname/><d:getetag/><d:sync-token/>'
+            '</d:prop></d:propfind>'
+        )
+
+        recursive = self.client.open(
+            self.files, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "infinity"},
+        )
+        implicit_recursive = self.client.open(project, method="PROPFIND", headers=self.auth)
+        root = ElementTree.fromstring(recursive.data)
+        hrefs = [node.text for node in root.findall("{DAV:}response/{DAV:}href")]
+
+        self.assertEqual(207, recursive.status_code)
+        self.assertEqual("private, no-store", recursive.headers["Cache-Control"])
+        vary = {
+            value.strip().casefold()
+            for value in recursive.headers["Vary"].split(",")
+        }
+        self.assertTrue({"authorization", "depth"}.issubset(vary))
+        self.assertIn("/webdav/files/jens/", hrefs)
+        self.assertIn("/webdav/files/jens/Projekte/", hrefs)
+        self.assertIn("/webdav/files/jens/Projekte/2026/", hrefs)
+        self.assertIn("/webdav/files/jens/Projekte/Plan.txt", hrefs)
+        self.assertIn(
+            f"/webdav/files/jens/Projekte/2026/{quote(unicode_name, safe='')}", hrefs,
+        )
+        self.assertEqual(len(hrefs), len(set(hrefs)))
+        self.assertNotIn(CONTROL_DIR, recursive.get_data(as_text=True))
+        self.assertNotIn("niemals-sichtbar", recursive.get_data(as_text=True))
+        self.assertNotIn("Geheim.txt", recursive.get_data(as_text=True))
+        self.assertNotIn("Verknuepfung", recursive.get_data(as_text=True))
+        self.assertEqual(207, implicit_recursive.status_code)
+        self.assertIn(quote(unicode_name, safe=""), implicit_recursive.get_data(as_text=True))
+
+    def test_recursive_propfind_respects_read_only_folder_scope(self):
+        (self.store.root / "Projekte").mkdir()
+        (self.store.root / "Projekte" / "Unterordner").mkdir()
+        (self.store.root / "Privat").mkdir()
+        self.store.create_document_at("Projekte/Plan.txt", b"plan", "jens")
+        self.store.create_document_at("Projekte/Unterordner/Notiz.txt", b"note", "jens")
+        self.store.create_document_at("Privat/Geheim.txt", b"secret", "jens")
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="FreeFileSync Lesetest", scope="read",
+                path_prefix="Projekte", expires_days=30,
+            )
+        auth = {
+            "Authorization": "Basic "
+            + base64.b64encode(f"jens:{password}".encode()).decode()
+        }
+
+        listing = self.client.open(
+            f"{self.files}/Projekte", method="PROPFIND",
+            headers={**auth, "Depth": "infinity"},
+        )
+        outside = self.client.open(
+            self.files, method="PROPFIND", headers={**auth, "Depth": "infinity"},
+        )
+        write = self.client.put(f"{self.files}/Projekte/Neu.txt", data=b"blocked", headers=auth)
+
+        body = listing.get_data(as_text=True)
+        self.assertEqual(207, listing.status_code)
+        self.assertIn("Plan.txt", body)
+        self.assertIn("Unterordner/Notiz.txt", body)
+        self.assertNotIn("Geheim.txt", body)
+        self.assertEqual(404, outside.status_code)
+        self.assertEqual(403, write.status_code)
+        self.assertFalse((self.store.root / "Projekte" / "Neu.txt").exists())
+
+    def test_recursive_propfind_rejects_member_and_depth_exhaustion_without_partial_result(self):
+        (self.store.root / "A").mkdir()
+        (self.store.root / "A" / "B").mkdir()
+        (self.store.root / "A" / "B" / "C").mkdir()
+        self.store.create_document_at("A/Datei.txt", b"content", "jens")
+
+        with mock.patch("app.webdav.MAX_WEBDAV_COLLECTION_MEMBERS", 1):
+            member_limit = self.client.open(
+                self.files, method="PROPFIND", headers={**self.auth, "Depth": "infinity"},
+            )
+        with mock.patch("app.webdav.MAX_WEBDAV_COLLECTION_DEPTH", 1):
+            depth_limit = self.client.open(
+                f"{self.files}/A", method="PROPFIND",
+                headers={**self.auth, "Depth": "infinity"},
+            )
+
+        self.assertEqual([507, 507], [member_limit.status_code, depth_limit.status_code])
+        self.assertEqual("member-count", member_limit.headers["X-SimpleOffice-Propfind-Limit"])
+        self.assertEqual("nesting-depth", depth_limit.headers["X-SimpleOffice-Propfind-Limit"])
+        self.assertIn("propfind-resource-limit", member_limit.get_data(as_text=True))
+        self.assertNotIn("Datei.txt", member_limit.get_data(as_text=True))
+        self.assertNotIn("Datei.txt", depth_limit.get_data(as_text=True))
+        audits = [
+            row for row in self.store.logbook()
+            if row.get("action") == "webdav_propfind_limit_rejected"
+        ]
+        self.assertEqual(2, len(audits))
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (
+                self.store.history.root / "snapshots" / "webdav-propfind"
+            ).glob("*.json")
+        ]
+        self.assertEqual(
+            {"member-count", "nesting-depth"},
+            {snapshot.get("reason") for snapshot in snapshots},
+        )
+
+    def test_propfind_response_size_is_limited_and_rejection_is_audited(self):
+        with mock.patch("app.webdav.MAX_PROPFIND_RESPONSE_BYTES", 128):
+            response = self.client.open(
+                self.files, method="PROPFIND", headers={**self.auth, "Depth": "0"},
+            )
+
+        self.assertEqual(507, response.status_code)
+        self.assertEqual("response-bytes", response.headers["X-SimpleOffice-Propfind-Limit"])
+        self.assertNotIn("multistatus", response.get_data(as_text=True))
+        snapshots = list(
+            (self.store.history.root / "snapshots" / "webdav-propfind").glob("*.json")
+        )
+        self.assertTrue(snapshots)
+        snapshot = json.loads(snapshots[-1].read_text(encoding="utf-8"))
+        self.assertEqual("response-bytes", snapshot["reason"])
+        self.assertGreater(snapshot["observed"], snapshot["limit"])
+
+    def test_recursive_propfind_uses_the_webdav_mutation_lock(self):
+        with mock.patch("app.webdav.exclusive_file_lock") as locking:
+            response = self.client.open(
+                self.files, method="PROPFIND",
+                headers={**self.auth, "Depth": "infinity"},
+            )
+
+        self.assertEqual(207, response.status_code)
+        lock_paths = [str(call.args[0]) for call in locking.call_args_list if call.args]
+        self.assertTrue(any(path.endswith("webdav-sync.mutation.lock") for path in lock_paths))
+
 
 if __name__ == "__main__":
     unittest.main()

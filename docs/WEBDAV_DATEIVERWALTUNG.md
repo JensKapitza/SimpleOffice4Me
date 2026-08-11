@@ -74,7 +74,7 @@ Maßgeblich ist
 | Anforderung | Standard | Implementierte Entscheidung |
 |---|---|---|
 | Sammlungen müssen hierarchische Mitglieder abbilden; Mitglied-URLs enden bei Sammlungen konsistent. | [RFC 4918 §5](https://www.rfc-editor.org/rfc/rfc4918.html#section-5) | Reale Ordner unter dem Dokumentstamm werden als Sammlungen angeboten; interne Metadaten, Historie, Richtliniendateien und Symlinks bleiben unsichtbar. |
-| `PROPFIND` muss Eigenschaften liefern und `Depth` berücksichtigen. | [§9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1) | `Depth: 0` und `1` liefern `207 Multi-Status`, starke ETags, Größe, Medientyp und Änderungszeit. `infinity` wird aus Last- und Datenschutzgründen abgewiesen. |
+| `PROPFIND` muss Eigenschaften liefern und `Depth` berücksichtigen; `infinity` sollte unterstützt und bei fehlendem Header angenommen werden. | [§9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1), [§10.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-10.2) | `Depth: 0`, `1` und begrenztes `infinity` liefern `207 Multi-Status`, starke ETags, Größe, Medientyp und Änderungszeit. Die rekursive Bestandsaufnahme ist auf 2.000 Mitglieder, 64 Ebenen und 8 MiB XML begrenzt; Details: [WEBDAV_REKURSIVE_PROPFIND_RFC4918.md](WEBDAV_REKURSIVE_PROPFIND_RFC4918.md). |
 | `PROPPATCH` muss `set` und `remove` in Dokumentreihenfolge und vollständig atomar verarbeiten; beliebige Dead Properties sollten möglich sein. | [§9.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.2) | Schreibende Gerätezugänge können begrenzte, benutzergebundene XML-Metadaten setzen und entfernen. Live Properties bleiben geschützt; Locks, Audit und Sync-Journal greifen. Details: [WEBDAV_EIGENSCHAFTEN_RFC4918.md](WEBDAV_EIGENSCHAFTEN_RFC4918.md). |
 | `MKCOL` muss eine Sammlung erzeugen; fehlt die übergeordnete Sammlung, ist `409` vorgesehen. | [§9.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.3) | Genau ein Ordner wird atomar angelegt und erhält die normale SimpleOffice-Ordnerpolitik. Erweiterte MKCOL-Anfragetexte werden mit `415` abgewiesen. |
 | `PUT` auf eine neue URL erzeugt eine Ressource; bei Austausch müssen Bedingungen und Sperren beachtet werden. | [§9.7](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.7), [§7.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.2) | Neue Dateien werden temporär geschrieben, synchronisiert und atomar umbenannt. Ein vorhandenes Dokument verlangt `If-Match` oder einen gültigen Lock-Token; blindes Überschreiben erhält `428`. |
@@ -155,7 +155,9 @@ dokumentiert.
   ohne getaggten Ziel-ETag beziehungsweise Ziel-Lock überschrieben werden.
 - `507`: das optionale WebDAV-Kontingent oder der physisch freie Speicher
   reicht für den angeforderten Zuwachs nicht; die XML-Fehlerbedingung
-  unterscheidet `quota-not-exceeded` und `sufficient-disk-space`.
+  unterscheidet `quota-not-exceeded` und `sufficient-disk-space`. Bei einer
+  rekursiven Bestandsaufnahme benennt `X-SimpleOffice-Propfind-Limit` statt
+  einer Teilliste das überschrittene Mitglieder-, Tiefen- oder XML-Limit.
 - `422`: bei aktivierter ClamAV-Prüfung wurde Schadcode erkannt; die Datei wird
   isoliert und nicht veröffentlicht.
 - `503` mit `Retry-After: 60`: die aktivierte Virenprüfung ist vorübergehend
@@ -204,9 +206,8 @@ bereinigt werden; Details, Standards und Grenzen stehen in
 [WEBDAV_PORTABLE_DATEINAMEN.md](WEBDAV_PORTABLE_DATEINAMEN.md).
 
 Bewusst noch nicht implementiert sind WebDAV ACL und serverseitige Suche über
-Dead Properties, rekursive COPY-/MOVE-Operationen, `PROPFIND Depth: infinity`,
-partielle Range-Uploads, automatisches Zusammenführen binärer Office-Dateien und das
-Überschreiben vorhandener COPY-/MOVE-Ziele. Nicht standardkonforme Clients,
+Dead Properties, partielle Range-Uploads sowie automatisches Zusammenführen
+binärer Office-Dateien. Nicht standardkonforme Clients,
 die vorhandene Dateien ohne Lock und ohne `If-Match` speichern, erhalten
 absichtlich `428` statt eines riskanten Erfolgs.
 
@@ -214,7 +215,8 @@ absichtlich `428` statt eines riskanten Erfolgs.
 
 Automatisiert geprüft werden realistische Abläufe für:
 
-- Wurzel- und Ordner-`PROPFIND`, versteckte Steuerpfade und begrenzte Tiefe;
+- Wurzel- und Ordner-`PROPFIND`, explizite und implizite rekursive Abfragen,
+  versteckte Steuerpfade, Symlinks, Rechte und Mitglieder-/Tiefen-/XML-Limits;
 - `PROPPATCH`-Roundtrip, `propname`, fehlende Eigenschaften, atomaren Rollback,
   geschützte Live Properties, Lock- und Rechtefehler sowie XML-Schutzgrenzen;
 - `MKCOL` und `PUT`-Neuanlage mit Dokument-ID, Hash und Audit;

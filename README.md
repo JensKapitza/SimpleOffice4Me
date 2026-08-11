@@ -59,6 +59,10 @@ ist in [docs/LIBREOFFICE_WEBDAV.md](docs/LIBREOFFICE_WEBDAV.md) beschrieben.
 Hierarchische Dateiverwaltung mit Nautilus, Windows Explorer, Finder und einem
 eingehängten FreeFileSync-Ziel ist in
 [docs/WEBDAV_DATEIVERWALTUNG.md](docs/WEBDAV_DATEIVERWALTUNG.md) dokumentiert.
+Vollständige Teilbäume können für Inventarisierung und Synchronisation
+[begrenzt und konsistent mit `PROPFIND Depth: infinity`](docs/WEBDAV_REKURSIVE_PROPFIND_RFC4918.md)
+erfasst werden; Mitgliederzahl, Verschachtelung und Antwortgröße bleiben gegen
+Überlastung geschützt.
 Neue Dateien und Ordner erhalten außerdem
 [plattformübergreifend sichere WebDAV-Namen](docs/WEBDAV_PORTABLE_DATEINAMEN.md):
 Unicode-Normalisierung, Windows-Gerätenamen und Großschreibungs-/

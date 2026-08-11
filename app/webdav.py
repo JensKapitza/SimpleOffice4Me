@@ -25,7 +25,17 @@ from flask import Blueprint, Response, current_app, flash, g, redirect, render_t
 
 from .auth import login_required
 from .attachment_security import AttachmentSecurity, QuarantineCapacityError
-from .document_store import CONTROL_DIR, HISTORY_DIR, POLICY_FILE, DocumentStore, atomic_json_write, sha256_file, utc_now
+from .document_store import (
+    CONTROL_DIR,
+    HISTORY_DIR,
+    MAX_WEBDAV_COLLECTION_DEPTH,
+    MAX_WEBDAV_COLLECTION_MEMBERS,
+    POLICY_FILE,
+    DocumentStore,
+    atomic_json_write,
+    sha256_file,
+    utc_now,
+)
 from .file_lock import exclusive_file_lock
 
 
@@ -95,6 +105,7 @@ MAX_HTTP_PRECONDITION_TAGS = 64
 MAX_IF_HEADER_BYTES = 16 * 1024
 MAX_IF_LISTS = 64
 MAX_IF_CONDITIONS = 256
+MAX_PROPFIND_RESPONSE_BYTES = 8 * 1024 * 1024
 DIGEST_ALGORITHMS = {
     "sha-256": (hashlib.sha256, 32, 10),
     "sha-512": (hashlib.sha512, 64, 9),
@@ -124,12 +135,27 @@ BIDI_CONTROL_CHARACTERS = frozenset(
 # Keep headroom for the exclusive ``.<name>.<uuid>.partial`` staging member
 # used by atomic PUT/COPY writes on filesystems with 255-byte segments.
 MAX_PORTABLE_NAME_BYTES = 200
+PROPFIND_XML_PREFIX = '<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">'
+PROPFIND_XML_SUFFIX = "</d:multistatus>"
+
+
+class _PropfindLimitError(Exception):
+    """Signal a bounded recursive listing that cannot be returned safely."""
+
+    def __init__(self, reason: str, observed: int, limit: int):
+        super().__init__(reason)
+        self.reason = reason
+        self.observed = observed
+        self.limit = limit
 
 
 def _quota_state() -> dict[str, int] | None:
     """Return repeatable RFC 4331 accounting for the visible managed tree."""
+    if hasattr(g, "_webdav_quota_state"):
+        return g._webdav_quota_state
     limit = max(0, int(current_app.config.get("WEBDAV_QUOTA_BYTES", 0)))
     if not limit:
+        g._webdav_quota_state = None
         return None
     root = _store().root
     used = 0
@@ -152,12 +178,14 @@ def _quota_state() -> dict[str, int] | None:
         physical_free = max(0, int(shutil.disk_usage(root).free))
     except OSError:
         physical_free = max(0, limit - used)
-    return {
+    state = {
         "limit": limit,
         "used": used,
         "available": min(max(0, limit - used), physical_free),
         "physical_free": physical_free,
     }
+    g._webdav_quota_state = state
+    return state
 
 
 def _quota_error(username: str, operation: str, resource: Path, growth: int, condition: str) -> Response:
@@ -1101,11 +1129,15 @@ def _release_lock(key: str) -> None:
 
 
 def _active_locks() -> dict:
+    if request.method == "PROPFIND" and hasattr(g, "_webdav_propfind_locks"):
+        return g._webdav_propfind_locks
     now = datetime.now(timezone.utc)
     payload = _read_json(_locks_path(), {"locks": {}})
     locks = payload.setdefault("locks", {})
     locks = {key: value for key, value in locks.items() if datetime.fromisoformat(value["expires_at"]).astimezone(timezone.utc) > now}
     payload["locks"] = locks
+    if request.method == "PROPFIND":
+        g._webdav_propfind_locks = payload
     return payload
 
 
@@ -1521,7 +1553,15 @@ def _property_resource_key(username: str, resource: Path, document: dict | None)
 
 def _dead_properties(username: str, resource: Path, document: dict | None) -> dict[str, str]:
     key = _property_resource_key(username, resource, document)
-    properties = _read_json(_properties_path(), {"resources": {}}).get("resources", {}).get(key, {})
+    if request.method == "PROPFIND":
+        if not hasattr(g, "_webdav_propfind_properties"):
+            g._webdav_propfind_properties = _read_json(
+                _properties_path(), {"resources": {}},
+            ).get("resources", {})
+        resources = g._webdav_propfind_properties
+    else:
+        resources = _read_json(_properties_path(), {"resources": {}}).get("resources", {})
+    properties = resources.get(key, {}) if isinstance(resources, dict) else {}
     if not isinstance(properties, dict):
         return {}
     return {
@@ -1687,6 +1727,104 @@ def _prop_response(
     if missing:
         propstats += f'<d:propstat><d:prop>{"".join(missing)}</d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat>'
     return f'<d:response><d:href>{escape(href)}</d:href>{propstats}</d:response>'
+
+
+def _propfind_members(resource: Path, depth: str) -> list[tuple[Path, bool, dict | None]]:
+    """Return a deterministic, bounded snapshot of DAV-compliant descendants."""
+    if depth == "0":
+        return []
+    members: list[tuple[Path, bool, dict | None]] = []
+    pending: list[tuple[Path, int]] = [(resource, 0)]
+    visited = 0
+    while pending:
+        parent, parent_depth = pending.pop()
+        try:
+            children = sorted(parent.iterdir(), key=lambda item: item.name.casefold())
+        except OSError as exc:
+            raise _PropfindLimitError("tree-changed", len(members), 0) from exc
+        nested_collections: list[tuple[Path, int]] = []
+        for child in children:
+            if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or child.is_symlink():
+                continue
+            visited += 1
+            if visited > MAX_WEBDAV_COLLECTION_MEMBERS:
+                raise _PropfindLimitError(
+                    "member-count", visited, MAX_WEBDAV_COLLECTION_MEMBERS,
+                )
+            child_depth = parent_depth + 1
+            if depth == "infinity" and child_depth > MAX_WEBDAV_COLLECTION_DEPTH:
+                raise _PropfindLimitError(
+                    "nesting-depth", child_depth, MAX_WEBDAV_COLLECTION_DEPTH,
+                )
+            try:
+                if child.is_dir():
+                    members.append((child, True, None))
+                    if depth == "infinity":
+                        nested_collections.append((child, child_depth))
+                elif child.is_file():
+                    try:
+                        document = _tree_document(child)
+                    except ValueError:
+                        continue
+                    members.append((child, False, document))
+            except OSError as exc:
+                raise _PropfindLimitError("tree-changed", len(members), 0) from exc
+        pending.extend(reversed(nested_collections))
+    return members
+
+
+def _propfind_limit_response(
+    username: str,
+    resource: Path,
+    error: _PropfindLimitError,
+) -> Response:
+    """Return a complete error instead of a truncated or ambiguous tree listing."""
+    actor = f"webdav:{username}"
+    relative = _store().relative(resource)
+    _store().history.record(
+        "webdav_propfind_limit_rejected",
+        actor,
+        "webdav-propfind",
+        hashlib.sha256(f"{username}:{relative}:{error.reason}".encode()).hexdigest(),
+        {
+            "actor": actor,
+            "resource": relative,
+            "reason": error.reason,
+            "observed": error.observed,
+            "limit": error.limit,
+            "rejected_at": utc_now(),
+        },
+    )
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<d:error xmlns:d="DAV:" xmlns:s="urn:simpleoffice:webdav">'
+        f'<s:propfind-resource-limit reason="{error.reason}"/>'
+        '</d:error>'
+    )
+    return Response(
+        xml,
+        507,
+        {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": "private, no-store",
+            "X-SimpleOffice-Propfind-Limit": error.reason,
+        },
+    )
+
+
+def _append_propfind_response(
+    responses: list[str], response: str, current_size: int,
+) -> int:
+    """Bound memory while constructing a potentially property-heavy result."""
+    size = current_size + len(response.encode("utf-8"))
+    if size > MAX_PROPFIND_RESPONSE_BYTES:
+        raise _PropfindLimitError("response-bytes", size, MAX_PROPFIND_RESPONSE_BYTES)
+    responses.append(response)
+    return size
+
+
+def _propfind_multistatus(responses: list[str]) -> str:
+    return PROPFIND_XML_PREFIX + "".join(responses) + PROPFIND_XML_SUFFIX
 
 
 def _parse_proppatch(body: bytes) -> list[tuple[str, str, str]]:
@@ -2269,9 +2407,9 @@ def file_tree(username: str, relative_path: str):
     if request.method == "PROPFIND":
         if not is_collection and document is None:
             return Response("not found", 404)
-        depth = request.headers.get("Depth", "0")
-        if depth not in {"0", "1"}:
-            return Response("finite Depth required", 403)
+        depth = request.headers.get("Depth", "infinity").casefold()
+        if depth not in {"0", "1", "infinity"}:
+            return Response("PROPFIND Depth must be 0, 1 or infinity", 400)
         body = request.get_data(cache=True)
         try:
             query = _parse_propfind(body)
@@ -2282,24 +2420,64 @@ def file_tree(username: str, relative_path: str):
             return Response(error, 400, mimetype="application/xml")
         except ValueError as exc:
             return Response(str(exc), 400)
+
+        # Keep a complete tree response consistent with the same lock used by
+        # PUT, COPY, MOVE, DELETE and property mutations. The XML is fully
+        # assembled before sending, so a client never receives a partial
+        # success followed by a server-side resource-limit failure.
+        mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
+        mutation_lock.__enter__()
+        g._webdav_mutation_lock = mutation_lock
+        is_collection = resource.is_dir() and not resource.is_symlink()
+        document = None
+        if resource.is_file() and not resource.is_symlink():
+            try:
+                document = _tree_document(resource)
+            except ValueError:
+                return Response("not found", 404)
+        elif not is_collection:
+            return Response("not found", 404)
+        effective_depth = depth if is_collection else "0"
         href = _tree_url(username, _store().relative(resource), collection=is_collection)
         wants_sync_token = query[0] == "propname" or f"{{{DAV}}}sync-token" in query[1]
         sync_token = _collection_sync_token(username, resource) if is_collection and wants_sync_token else ""
-        responses = [_prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token, username=username, resource=resource, query=query)]
-        if is_collection and depth == "1":
-            for child in sorted(resource.iterdir(), key=lambda item: item.name.casefold()):
-                if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or child.is_symlink():
-                    continue
-                child_href = _tree_url(username, _store().relative(child), collection=child.is_dir())
-                if child.is_dir():
-                    responses.append(_prop_response(child_href, child.name, collection=True, username=username, resource=child, query=query))
-                elif child.is_file():
-                    try:
-                        child_document = _tree_document(child)
-                    except ValueError:
-                        continue
-                    responses.append(_prop_response(child_href, child.name, document=child_document, username=username, resource=child, query=query))
-        return Response(f'''<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">{"".join(responses)}</d:multistatus>''', 207, mimetype="application/xml")
+        responses: list[str] = []
+        response_size = len((PROPFIND_XML_PREFIX + PROPFIND_XML_SUFFIX).encode("utf-8"))
+        try:
+            response_size = _append_propfind_response(
+                responses,
+                _prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token, username=username, resource=resource, query=query),
+                response_size,
+            )
+            for child, child_is_collection, child_document in _propfind_members(resource, effective_depth):
+                child_href = _tree_url(
+                    username, _store().relative(child), collection=child_is_collection,
+                )
+                response_size = _append_propfind_response(
+                    responses,
+                    _prop_response(
+                        child_href,
+                        child.name,
+                        collection=child_is_collection,
+                        document=child_document,
+                        username=username,
+                        resource=child,
+                        query=query,
+                    ),
+                    response_size,
+                )
+            xml = _propfind_multistatus(responses)
+        except _PropfindLimitError as exc:
+            return _propfind_limit_response(username, resource, exc)
+        return Response(
+            xml,
+            207,
+            {
+                "Content-Type": "application/xml; charset=utf-8",
+                "Cache-Control": "private, no-store",
+                "Vary": "Authorization, Depth",
+            },
+        )
 
     if request.method in {"GET", "HEAD"}:
         if document is None:
