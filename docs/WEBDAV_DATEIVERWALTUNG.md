@@ -86,8 +86,9 @@ Maßgeblich ist
 | `If-Match` muss bei abweichendem Validator mit `412` fehlschlagen; `If-None-Match: *` schützt die Neuanlage. | [RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1), [§13.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2) | ETags sind SHA-256-basiert. Vorbedingungen werden nochmals unter derselben Dateisperre wie der Inhalt geprüft. |
 | Sammlungen können Änderungen seit einem undurchsichtigen Token effizient melden. | [RFC 6578 §3](https://www.rfc-editor.org/rfc/rfc6578.html#section-3) | `REPORT sync-collection`, `sync-level` 1/infinite, geänderte ETags und Lösch-Tombstones sind benutzergetrennt implementiert; Details stehen in [WEBDAV_SYNC_RFC6578.md](WEBDAV_SYNC_RFC6578.md). |
 | Clients benötigen einen geschützten, aktuellen Privilegiensatz, um unzulässige Aktionen in ihrer Oberfläche zu deaktivieren. | [RFC 3744 §3.7](https://www.rfc-editor.org/rfc/rfc3744.html#section-3.7), [§5.4](https://www.rfc-editor.org/rfc/rfc3744.html#section-5.4), [RFC 5397 §3](https://www.rfc-editor.org/rfc/rfc5397.html#section-3) | Dateien und Ordner liefern auf ausdrückliche Anfrage den aktuellen Benutzer-Principal und den konservativen `read`/`write`-Umfang des App-Passworts. Die private Principal-URL ist nur selbst sichtbar; es gibt bewusst keine ACL-Bearbeitung oder Compliance-Werbung. Details: [WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md](WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md). |
+| Ein DASL-Server muss `DAV:basicsearch` anbieten, die Grammatik entdecken lassen, Scopes und dreiwertige Logik beachten und Ergebnisse als `207 Multi-Status` liefern. | [RFC 5323 §2](https://www.rfc-editor.org/rfc/rfc5323.html#section-2), [§3](https://www.rfc-editor.org/rfc/rfc5323.html#section-3), [§5](https://www.rfc-editor.org/rfc/rfc5323.html#section-5) | `SEARCH` filtert Namen, Größen, Zeiten sowie Live/Dead Properties innerhalb der Benutzer- und Geräteordnergrenze. AND/OR/NOT, Vergleiche, LIKE, Sortierung und Limits sind begrenzt umgesetzt; Details: [WEBDAV_SUCHE_RFC5323_TAGSPACES.md](WEBDAV_SUCHE_RFC5323_TAGSPACES.md). |
 
-`OPTIONS` meldet DAV-Klassen `1, 2`, `sync-collection` und die Methoden `PROPFIND`, `PROPPATCH`, `REPORT`, `GET`, `HEAD`,
+`OPTIONS` meldet DAV-Klassen `1, 2`, `sync-collection`, `DASL: <DAV:basicsearch>` und die Methoden `PROPFIND`, `PROPPATCH`, `REPORT`, `SEARCH`, `GET`, `HEAD`,
 `PUT`, `DELETE`, `MKCOL`, `COPY`, `MOVE`, `LOCK` und `UNLOCK`.
 
 ## Rechte, Sicherheit und Datenschutz
@@ -149,7 +150,8 @@ dokumentiert.
   Namensfehlern nennen XML und `X-SimpleOffice-Name-Reason` den Grund.
 - `412`: ETag ist veraltet, `If-None-Match: *` trifft auf eine vorhandene Datei,
   `Overwrite: F` schützt ein Ziel oder COPY/Collection-MOVE würde es ersetzen.
-- `415`: nicht unterstützter erweiterter `MKCOL`-Anfragetext.
+- `415`: nicht unterstützter erweiterter `MKCOL`-Anfragetext oder eine
+  `SEARCH`-Anfrage ohne `application/xml` beziehungsweise `text/xml`.
 - `413`: WebDAV-Eigenschafts-XML oder ein Einzelwert überschreitet die feste
   Schutzgrenze.
 - `423`: Lock-Token fehlt/falsch oder eine SimpleOffice-Sperre greift.
@@ -162,6 +164,8 @@ dokumentiert.
   einer Teilliste das überschrittene Mitglieder-, Tiefen- oder XML-Limit.
 - `422`: bei aktivierter ClamAV-Prüfung wurde Schadcode erkannt; die Datei wird
   isoliert und nicht veröffentlicht.
+- `422`: die angeforderte Suchgrammatik, ein optionaler Suchoperator oder ein
+  Mehrfach-Scope wird nicht unterstützt.
 - `503` mit `Retry-After: 60`: die aktivierte Virenprüfung ist vorübergehend
   nicht sicher verfügbar; eine vorhandene Revision bleibt unverändert.
 - `502`: `Destination` verweist auf einen anderen Host oder Benutzerbaum.
@@ -207,9 +211,12 @@ bleiben unter ihrer exakten URL nutzbar und können ID-stabil per `MOVE`
 bereinigt werden; Details, Standards und Grenzen stehen in
 [WEBDAV_PORTABLE_DATEINAMEN.md](WEBDAV_PORTABLE_DATEINAMEN.md).
 
-Bewusst noch nicht implementiert sind WebDAV ACL und serverseitige Suche über
-Dead Properties, partielle Range-Uploads sowie automatisches Zusammenführen
-binärer Office-Dateien. Nicht standardkonforme Clients,
+Bewusst noch nicht implementiert sind WebDAV ACL, Volltextsuche in
+Dateiinhalten, Query Schema Discovery, partielle Range-Uploads sowie
+automatisches Zusammenführen binärer Office-Dateien. Die begrenzte Suche über
+Live und Dead Properties steht in
+[WEBDAV_SUCHE_RFC5323_TAGSPACES.md](WEBDAV_SUCHE_RFC5323_TAGSPACES.md).
+Nicht standardkonforme Clients,
 die vorhandene Dateien ohne Lock und ohne `If-Match` speichern, erhalten
 absichtlich `428` statt eines riskanten Erfolgs.
 
@@ -223,6 +230,8 @@ Automatisiert geprüft werden realistische Abläufe für:
   geschützte Live Properties, Lock- und Rechtefehler sowie XML-Schutzgrenzen;
 - persistente Datei-/Ordner-Erstellungszeiten, HTTP-Änderungszeiten,
   COPY-/MOVE-Semantik und atomare ausgewählte Windows-Dateieigenschaften;
+- RFC-5323-Discovery, Name/Tag/Größe/Datum, dreiwertige Logik, Sortierung,
+  Client-/Serverlimits, Scope-Rechte und XML-Negativfälle;
 - geschützte Principal-URLs, Lese-/Schreibprivilegien je Ressourcentyp,
   private Principal-Sammlung, `allprop/include` und `need-privileges`-Fehler;
 - `MKCOL` und `PUT`-Neuanlage mit Dokument-ID, Hash und Audit;

@@ -37,6 +37,7 @@ verlinkt.
 - [Getrennte WebDAV-Gerätezugänge](WEBDAV_ZUGAENGE.md)
 - [Ordnergebundene Gerätezugänge nach RFC 3744](WEBDAV_ORDNERZUGAENGE_RFC3744.md)
 - [WebDAV-Principal- und Rechteerkennung nach RFC 3744/5397](WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md)
+- [Serverseitige WebDAV-Suche nach RFC 5323 und TagSpaces-Ansätzen](WEBDAV_SUCHE_RFC5323_TAGSPACES.md)
 - [Sichere Datei- und Inhaltswiederherstellung](DATEI_WIEDERHERSTELLUNG.md)
 - [LibreOffice über WebDAV](LIBREOFFICE_WEBDAV.md)
 - [Bestätigte Mail-Anhänge und ClamAV](ANHAENGE_CLAMAV.md)

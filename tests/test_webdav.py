@@ -42,6 +42,21 @@ class WebDavDocumentTest(unittest.TestCase):
         self.files = "/webdav/files/jens"
         self.lock_body = "<d:lockinfo xmlns:d='DAV:'><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype><d:owner>LibreOffice</d:owner></d:lockinfo>"
 
+    def search(self, *, scope=None, depth="infinity", select="<d:displayname/><d:getetag/>", where="", orderby="", limit="", auth=None, content_type="application/xml", endpoint=None):
+        body = f'''<d:searchrequest xmlns:d="DAV:" xmlns:t="urn:simpleoffice:test">
+          <d:basicsearch>
+            <d:select><d:prop>{select}</d:prop></d:select>
+            <d:from><d:scope><d:href>{scope or self.files}</d:href><d:depth>{depth}</d:depth></d:scope></d:from>
+            {f'<d:where>{where}</d:where>' if where else ''}
+            {orderby}
+            {f'<d:limit><d:nresults>{limit}</d:nresults></d:limit>' if limit != '' else ''}
+          </d:basicsearch>
+        </d:searchrequest>'''
+        return self.client.open(
+            endpoint or self.files, method="SEARCH", data=body,
+            headers={**(auth or self.auth), "Content-Type": content_type},
+        )
+
     def tearDown(self):
         app.config.update(self.previous)
         self.temp.cleanup()
@@ -93,7 +108,7 @@ class WebDavDocumentTest(unittest.TestCase):
         folder = self.client.open(f"{self.files}/blocked", method="MKCOL", headers=auth)
         lock = self.client.open(self.url, method="LOCK", headers=auth)
 
-        self.assertEqual("OPTIONS, PROPFIND, REPORT, GET, HEAD", options.headers["Allow"])
+        self.assertEqual("OPTIONS, PROPFIND, REPORT, SEARCH, GET, HEAD", options.headers["Allow"])
         self.assertEqual(207, listing.status_code)
         self.assertEqual(200, fetched.status_code)
         self.assertEqual([403, 403, 403], [put.status_code, folder.status_code, lock.status_code])
@@ -244,7 +259,7 @@ class WebDavDocumentTest(unittest.TestCase):
         fetched = self.client.get(f"{root}/Beleg.pdf", headers=auth)
         rejected = self.client.put(f"{root}/Neu.pdf", data=b"no", headers=auth)
 
-        self.assertEqual("OPTIONS, PROPFIND, REPORT, GET, HEAD", options.headers["Allow"])
+        self.assertEqual("OPTIONS, PROPFIND, REPORT, SEARCH, GET, HEAD", options.headers["Allow"])
         self.assertEqual([207, 200, 403], [listing.status_code, fetched.status_code, rejected.status_code])
         self.assertFalse((self.store.root / "Archiv" / "Neu.pdf").exists())
 
@@ -3193,6 +3208,215 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertIn("403 Forbidden", protected.get_data(as_text=True))
         self.assertEqual([404, 404, 401, 403, 207], [foreign.status_code, unknown.status_code, unauthenticated.status_code, infinite.status_code, virtual_root.status_code])
         self.assertEqual("private, no-store", included.headers["Cache-Control"])
+
+    def test_search_is_discoverable_and_matches_names_without_reading_file_bodies(self):
+        self.store.create_document_at("Projektplan.odt", b"needle-secret", "jens")
+        self.store.create_document_at("Foto.jpg", b"picture", "jens")
+        options = self.client.open(self.files, method="OPTIONS", headers=self.auth)
+        discovery = self.client.open(
+            self.files, method="PROPFIND",
+            data='''<d:propfind xmlns:d="DAV:"><d:prop>
+              <d:supported-method-set/><d:supported-query-grammar-set/>
+            </d:prop></d:propfind>''',
+            headers={**self.auth, "Depth": "0"},
+        )
+        result = self.search(
+            where='''<d:like caseless="yes"><d:prop><d:displayname/></d:prop>
+              <d:literal>%PLAN%</d:literal></d:like>''',
+        )
+
+        xml = ElementTree.fromstring(result.data)
+        hrefs = [item.findtext("{DAV:}href") for item in xml.findall("{DAV:}response")]
+        self.assertEqual(204, options.status_code)
+        self.assertIn("SEARCH", options.headers["Allow"])
+        self.assertEqual("<DAV:basicsearch>", options.headers["DASL"])
+        self.assertEqual(207, discovery.status_code)
+        self.assertIsNotNone(ElementTree.fromstring(discovery.data).find(".//{DAV:}basicsearch"))
+        self.assertEqual([f"{self.files}/Projektplan.odt"], hrefs)
+        self.assertNotIn(b"needle-secret", result.data)
+        self.assertEqual("private, no-store", result.headers["Cache-Control"])
+        audits = [row for row in self.store.logbook() if row.get("action") == "webdav_search_executed"]
+        self.assertTrue(audits)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-search").glob("*.json")
+        ]
+        executed = max((item for item in snapshots if item.get("matched") == 1), key=lambda item: item["at"])
+        self.assertEqual(1, executed["matched"])
+        self.assertNotIn("plan", json.dumps(executed).casefold())
+
+    def test_search_supports_dead_property_tags_three_valued_logic_and_caseless_like(self):
+        tagged = self.store.create_document_at("Rechnung.odt", b"invoice", "jens")
+        plain = self.store.create_document_at("Notiz.txt", b"note", "jens")
+        tagged_url = f"{self.files}/Rechnung.odt"
+        set_tag = self.client.open(
+            tagged_url, method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:" xmlns:t="urn:simpleoffice:test">
+              <d:set><d:prop><t:tag>Kunde-A</t:tag></d:prop></d:set>
+            </d:propertyupdate>''', headers=self.auth,
+        )
+        result = self.search(
+            select="<d:displayname/><t:tag/>",
+            where='''<d:and>
+              <d:is-defined><d:prop><t:tag/></d:prop></d:is-defined>
+              <d:like caseless="yes"><d:prop><t:tag/></d:prop><d:literal>kunde-%</d:literal></d:like>
+            </d:and>''',
+        )
+        missing_under_not = self.search(
+            where='''<d:not><d:eq><d:prop><t:missing/></d:prop>
+              <d:literal>anything</d:literal></d:eq></d:not>''',
+        )
+
+        self.assertEqual(207, set_tag.status_code)
+        self.assertEqual(tagged["document_id"], self.store.get_document("Rechnung.odt")["document_id"])
+        self.assertIn(tagged_url, result.get_data(as_text=True))
+        self.assertIn("Kunde-A", result.get_data(as_text=True))
+        self.assertNotIn(f"{self.files}/{plain['last_path']}", result.get_data(as_text=True))
+        self.assertEqual([], ElementTree.fromstring(missing_under_not.data).findall("{DAV:}response"))
+
+    def test_search_orders_typed_sizes_and_applies_client_limit(self):
+        self.store.create_document_at("klein.txt", b"1", "jens")
+        self.store.create_document_at("mittel.txt", b"12345", "jens")
+        self.store.create_document_at("gross.txt", b"x" * 100, "jens")
+        result = self.search(
+            select="<d:displayname/><d:getcontentlength/>",
+            where='''<d:and><d:not><d:is-collection/></d:not>
+              <d:gt><d:prop><d:getcontentlength/></d:prop><d:literal>0</d:literal></d:gt>
+            </d:and>''',
+            orderby='''<d:orderby><d:order><d:prop><d:getcontentlength/></d:prop>
+              <d:descending/></d:order></d:orderby>''',
+            limit="2",
+        )
+
+        root = ElementTree.fromstring(result.data)
+        responses = root.findall("{DAV:}response")
+        hrefs = [item.findtext("{DAV:}href") for item in responses]
+        lengths = [int(item.findtext(".//{DAV:}getcontentlength")) for item in responses]
+        self.assertEqual(207, result.status_code)
+        self.assertEqual(2, len(hrefs))
+        self.assertEqual(sorted(lengths, reverse=True), lengths)
+        self.assertEqual(f"{self.files}/gross.txt", hrefs[0])
+
+    def test_search_respects_folder_scoped_read_credentials_and_hides_other_paths(self):
+        (self.store.root / "Freigabe").mkdir()
+        (self.store.root / "Privat").mkdir()
+        self.store.create_document_at("Freigabe/Plan.odt", b"plan", "jens")
+        self.store.create_document_at("Privat/Geheim.odt", b"secret", "jens")
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="Suchclient", scope="read",
+                path_prefix="Freigabe", expires_days=30,
+            )
+        auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        endpoint = f"{self.files}/Freigabe"
+        allowed = self.search(
+            endpoint=endpoint, scope=endpoint, auth=auth,
+            where='<d:like caseless="yes"><d:prop><d:displayname/></d:prop><d:literal>%plan%</d:literal></d:like>',
+        )
+        outside = self.search(endpoint=endpoint, scope=self.files, auth=auth)
+        sibling = self.search(endpoint=endpoint, scope=f"{self.files}/Privat", auth=auth)
+        unauthenticated = self.client.open(
+            endpoint, method="SEARCH", data=b"<d:searchrequest xmlns:d='DAV:'/>",
+            headers={"Content-Type": "application/xml"},
+        )
+
+        self.assertEqual(207, allowed.status_code)
+        self.assertIn("Plan.odt", allowed.get_data(as_text=True))
+        self.assertNotIn("Geheim.odt", allowed.get_data(as_text=True))
+        self.assertEqual([409, 409, 401], [outside.status_code, sibling.status_code, unauthenticated.status_code])
+        self.assertIn("search-scope-valid", outside.get_data(as_text=True))
+
+    def test_search_rejects_unsupported_grammar_operators_scopes_and_unsafe_xml(self):
+        wrong_type = self.search(content_type="application/json")
+        malformed = self.client.open(
+            self.files, method="SEARCH", data="<broken>",
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+        unsupported = self.search(
+            where='<d:contains><d:prop><d:displayname/></d:prop><d:literal>x</d:literal></d:contains>',
+        )
+        multiple_body = f'''<d:searchrequest xmlns:d="DAV:"><d:basicsearch>
+          <d:select><d:prop><d:displayname/></d:prop></d:select><d:from>
+          <d:scope><d:href>{self.files}</d:href><d:depth>0</d:depth></d:scope>
+          <d:scope><d:href>{self.files}</d:href><d:depth>1</d:depth></d:scope>
+          </d:from></d:basicsearch></d:searchrequest>'''
+        multiple = self.client.open(
+            self.files, method="SEARCH", data=multiple_body,
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+        external = self.search(scope="https://example.invalid/webdav/files/jens")
+        entity = self.client.open(
+            self.files, method="SEARCH",
+            data='''<!DOCTYPE x [<!ENTITY leak SYSTEM "file:///etc/passwd">]>
+              <d:searchrequest xmlns:d="DAV:">&leak;</d:searchrequest>''',
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+
+        self.assertEqual([415, 400, 422, 422, 409, 400], [
+            wrong_type.status_code, malformed.status_code, unsupported.status_code,
+            multiple.status_code, external.status_code, entity.status_code,
+        ])
+        self.assertIn("search-multiple-scope-supported", multiple.get_data(as_text=True))
+        self.assertIn("search-scope-valid", external.get_data(as_text=True))
+        self.assertNotIn("root:", entity.get_data(as_text=True))
+
+    def test_search_result_limit_returns_complete_207_with_507_and_audit(self):
+        self.store.create_document_at("eins.txt", b"1", "jens")
+        self.store.create_document_at("zwei.txt", b"2", "jens")
+        with mock.patch("app.webdav.MAX_SEARCH_RESULTS", 1):
+            rejected = self.search(
+                where='<d:not><d:is-collection/></d:not>',
+            )
+            bounded = self.search(
+                where='<d:not><d:is-collection/></d:not>', limit="1",
+            )
+
+        rejected_root = ElementTree.fromstring(rejected.data)
+        self.assertEqual([207, 207], [rejected.status_code, bounded.status_code])
+        self.assertEqual("result-count", rejected.headers["X-SimpleOffice-Search-Limit"])
+        self.assertIn("507 Insufficient Storage", rejected.get_data(as_text=True))
+        self.assertEqual(1, len(rejected_root.findall("{DAV:}response")))
+        self.assertEqual(1, len(ElementTree.fromstring(bounded.data).findall("{DAV:}response")))
+        audits = [row for row in self.store.logbook() if row.get("action") == "webdav_search_limit_rejected"]
+        self.assertTrue(audits)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-search").glob("*.json")
+        ]
+        self.assertIn("result-count", {item.get("reason") for item in snapshots})
+
+    def test_search_file_scope_forces_depth_zero_and_hidden_control_data_is_never_visible(self):
+        result = self.search(
+            endpoint=f"{self.files}/angebot.odt",
+            scope=f"{self.files}/angebot.odt",
+            depth="infinity",
+        )
+        broad = self.search()
+
+        self.assertEqual(207, result.status_code)
+        self.assertEqual(1, len(ElementTree.fromstring(result.data).findall("{DAV:}response")))
+        body = broad.get_data(as_text=True)
+        self.assertNotIn(CONTROL_DIR, body)
+        self.assertNotIn("webdav-credentials.json", body)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-search").glob("*.json")
+        ]
+        self.assertIn("0", {item.get("depth") for item in snapshots})
+
+    def test_search_response_size_is_bounded_and_tree_snapshot_uses_mutation_lock(self):
+        self.store.create_document_at("Mehr-Inhalt.txt", b"content", "jens")
+        with mock.patch("app.webdav.MAX_PROPFIND_RESPONSE_BYTES", 128):
+            limited = self.search()
+        with mock.patch("app.webdav.exclusive_file_lock") as locking:
+            complete = self.search(limit="1")
+
+        self.assertEqual([207, 207], [limited.status_code, complete.status_code])
+        self.assertEqual("response-bytes", limited.headers["X-SimpleOffice-Search-Limit"])
+        self.assertIn("507 Insufficient Storage", limited.get_data(as_text=True))
+        self.assertNotIn("angebot.odt", limited.get_data(as_text=True))
+        lock_paths = [str(call.args[0]) for call in locking.call_args_list if call.args]
+        self.assertTrue(any(path.endswith("webdav-sync.mutation.lock") for path in lock_paths))
 
 
 if __name__ == "__main__":

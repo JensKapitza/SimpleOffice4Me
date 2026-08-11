@@ -125,6 +125,10 @@ werden, beschreibt
 Die eigenständige Übertragung guter Offline-, Sidecar- und Suchkonzepte aus
 TagSpaces ist in [docs/TAGSPACES_ANSAETZE.md](docs/TAGSPACES_ANSAETZE.md)
 einschließlich Verbesserungen und Interoperabilitätsgrenzen beschrieben.
+Die daraus abgeleitete, berechtigungsgebundene
+[serverseitige WebDAV-Suche nach RFC 5323](docs/WEBDAV_SUCHE_RFC5323_TAGSPACES.md)
+findet Namen, Größen, Zeitstempel und Dead-Property-Tags ohne Dateiinhalt oder
+externe Suchdienste und liefert bei Schutzgrenzen keine irreführende Teilliste.
 
 ## Start und Update
 

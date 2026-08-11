@@ -46,6 +46,17 @@ Tagging und Vorschau allein sind keine Sicherheitsfreigabe. Aus EML extrahierte 
 
 Anstelle eigener Office-Editoren stellt SimpleOffice bestehende Dateien über einen gesperrten, ETag-geschützten WebDAV-Endpunkt bereit. LibreOffice, Nautilus und kompatible Dateimanager speichern damit in die normale Versionierung zurück. App-Passwörter sind getrennt vom Web-Login und können widerrufen werden.
 
+### Standardisierte Suche statt eigener Index-API
+
+Die von TagSpaces überzeugend gelöste Kombination aus Namen, Tags, Größe,
+Datum sowie AND/OR/NOT ist eigenständig als begrenzte
+[`DAV:basicsearch`-Suche nach RFC 5323](WEBDAV_SUCHE_RFC5323_TAGSPACES.md)
+umgesetzt. Sie durchsucht Live und Dead Properties, verändert weder Namen noch
+Sidecars und prüft Benutzer- sowie Ordnergrenzen vor dem Durchlauf. Im
+Gegensatz zu einem ungeschützten lokalen Index kann ein Gerätezugang dadurch
+nicht über seinen freigegebenen Teilbaum hinaus suchen. Suchliterale und
+Treffernamen werden nicht im Audit gespeichert.
+
 ## Bedienung und FreeFileSync
 
 Auf der Dokumentseite **Sidecars für alle Dateien aktualisieren** wählen. Danach in FreeFileSync den Dokumentwurzelordner als Quelle oder Ziel verwenden und sicherstellen, dass versteckte `.simpleoffice`-Ordner nicht ausgeschlossen sind. Empfohlen ist zunächst **Vergleichen nach Dateiinhalt** oder nach Zeit und Größe mit Vorschau, bevor Änderungen ausgeführt werden.
