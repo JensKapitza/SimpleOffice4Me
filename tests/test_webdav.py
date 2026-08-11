@@ -1958,6 +1958,208 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(b"newer destination bytes", (self.store.root / "angebot.odt").read_bytes())
         self.assertEqual(b"candidate", (self.store.root / "destination-race.tmp").read_bytes())
 
+    def test_copy_can_safely_replace_a_file_without_replacing_target_metadata(self):
+        source_url = f"{self.files}/freigabe-vorlage.odt"
+        target_url = f"{self.files}/angebot.odt"
+        target_before = self.store.get_document("angebot.odt")
+        target_before["tags"] = ["kunde", "freigegeben"]
+        target_before["grants"] = [{"username": "other", "role": "reader"}]
+        self.store._save_document(target_before)
+        target_property = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:classification>ziel-vertraulich</m:classification></d:prop></d:set></d:propertyupdate>'
+        self.client.open(target_url, method="PROPPATCH", data=target_property, headers=self.auth)
+        self.client.put(source_url, data=b"copied office contents", headers=self.auth)
+        source = self.store.get_document("freigabe-vorlage.odt")
+        source["tags"] = ["vorlage"]
+        self.store._save_document(source)
+        source_property = target_property.replace("ziel-vertraulich", "quelle-oeffentlich")
+        self.client.open(source_url, method="PROPPATCH", data=source_property, headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+
+        copied = self.client.open(
+            source_url, method="COPY",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                "If": f"<http://localhost{target_url}> ([{target_etag}])",
+            },
+        )
+
+        target_after = self.store.get_document("angebot.odt")
+        source_after = self.store.get_document(source["document_id"])
+        properties = self.client.open(
+            target_url, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:classification/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        versions = self.store.content_recovery_versions(target_after["document_id"])
+
+        self.assertEqual(204, copied.status_code)
+        self.assertEqual(copied.headers["Location"], copied.headers["Content-Location"])
+        self.assertEqual(target_before["document_id"], target_after["document_id"])
+        self.assertEqual(["kunde", "freigegeben"], target_after["tags"])
+        self.assertEqual([{"username": "other", "role": "reader"}], target_after["grants"])
+        self.assertEqual(b"copied office contents", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"copied office contents", (self.store.root / "freigabe-vorlage.odt").read_bytes())
+        self.assertEqual("indexed", source_after["system_state"])
+        self.assertTrue(any(item["sha256"] == target_before["sha256"] for item in versions))
+        self.assertEqual("ziel-vertraulich", ElementTree.fromstring(properties.data).findtext(".//{urn:simpleoffice:test}classification"))
+        self.assertEqual(target_after["sha256"], copied.headers["ETag"].strip('"'))
+        self.assertIn("sha-256=", copied.headers["Repr-Digest"])
+        actions = {row.get("type") for row in self.store.logbook()}
+        self.assertIn("webdav_document_replaced_via_copy", actions)
+        self.assertIn("document_content_replaced", actions)
+
+    def test_copy_overwrite_requires_explicit_fresh_destination_guard(self):
+        source_url = f"{self.files}/copy-source.txt"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"candidate", headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+
+        missing = self.client.open(
+            source_url, method="COPY",
+            headers={**self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}"},
+        )
+        forbidden = self.client.open(
+            source_url, method="COPY",
+            headers={
+                **self.auth, "Overwrite": "F", "Destination": f"http://localhost{target_url}",
+                "If": f"<http://localhost{target_url}> ([{target_etag}])",
+            },
+        )
+        stale = self.client.open(
+            source_url, method="COPY",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                "If": f'<http://localhost{target_url}> (["{"0" * 64}"])',
+            },
+        )
+
+        self.assertEqual(428, missing.status_code)
+        self.assertEqual(target_etag, missing.headers["ETag"])
+        self.assertEqual(412, forbidden.status_code)
+        self.assertEqual(412, stale.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"candidate", (self.store.root / "copy-source.txt").read_bytes())
+
+    def test_copy_overwrite_needs_only_target_lock_and_retains_both_locks(self):
+        source_url = f"{self.files}/locked-source.txt"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"copy through locks", headers=self.auth)
+        source_document = self.store.get_document("locked-source.txt")
+        source_locked = self.client.open(
+            source_url, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "0", "Timeout": "Second-600"},
+        )
+        target_locked = self.client.open(
+            target_url, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "0", "Timeout": "Second-600"},
+        )
+        target_token = target_locked.headers["Lock-Token"].strip("<>")
+
+        copied = self.client.open(
+            source_url, method="COPY",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                "If": f"<http://localhost{target_url}> (<{target_token}>)",
+            },
+        )
+        blocked = self.client.put(target_url, data=b"without token", headers=self.auth)
+        locks = json.loads((self.store.control / "webdav-locks.json").read_text())["locks"]
+
+        self.assertEqual(200, source_locked.status_code)
+        self.assertEqual(200, target_locked.status_code)
+        self.assertEqual(204, copied.status_code)
+        self.assertEqual(423, blocked.status_code)
+        self.assertIn(source_document["document_id"], locks)
+        self.assertIn(self.document["document_id"], locks)
+        self.assertEqual(b"copy through locks", (self.store.root / "locked-source.txt").read_bytes())
+        self.assertEqual(b"copy through locks", (self.store.root / "angebot.odt").read_bytes())
+
+    def test_copy_overwrite_rechecks_source_and_destination_after_if_evaluation(self):
+        source_url = f"{self.files}/racing-copy.txt"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"initial source", headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+        original_copy_replace = DocumentStore.replace_document_via_copy
+
+        def change_source_before_locked_check(store, *args, **kwargs):
+            (store.root / "racing-copy.txt").write_bytes(b"newer source")
+            return original_copy_replace(store, *args, **kwargs)
+
+        with mock.patch.object(DocumentStore, "replace_document_via_copy", change_source_before_locked_check):
+            source_race = self.client.open(
+                source_url, method="COPY",
+                headers={
+                    **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                    "If": f"<http://localhost{target_url}> ([{target_etag}])",
+                },
+            )
+
+        self.assertEqual(412, source_race.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"newer source", (self.store.root / "racing-copy.txt").read_bytes())
+
+        source = self.store.get_document("racing-copy.txt")
+        source["sha256"] = hashlib.sha256(b"newer source").hexdigest()
+        source["content_sha256"] = source["sha256"]
+        self.store._save_document(source)
+        source_etag = self.client.get(source_url, headers=self.auth).headers["ETag"]
+
+        def change_destination_before_locked_check(store, *args, **kwargs):
+            (store.root / "angebot.odt").write_bytes(b"newer target")
+            return original_copy_replace(store, *args, **kwargs)
+
+        with mock.patch.object(DocumentStore, "replace_document_via_copy", change_destination_before_locked_check):
+            destination_race = self.client.open(
+                source_url, method="COPY",
+                headers={
+                    **self.auth, "If-Match": source_etag, "Overwrite": "T",
+                    "Destination": f"http://localhost{target_url}",
+                    "If": f"<http://localhost{target_url}> ([{target_etag}])",
+                },
+            )
+
+        self.assertEqual(412, destination_race.status_code)
+        self.assertEqual(b"newer target", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"newer source", (self.store.root / "racing-copy.txt").read_bytes())
+
+    def test_copy_overwrite_respects_target_retention_and_needs_no_visible_quota_growth(self):
+        source_url = f"{self.files}/quota-copy.txt"
+        target_url = f"{self.files}/angebot.odt"
+        self.client.put(source_url, data=b"replacement", headers=self.auth)
+        target_etag = self.client.get(target_url, headers=self.auth).headers["ETag"]
+        metadata = self.store.get_document("angebot.odt")
+        metadata["cleanup_state"] = "staged"
+        self.store._save_document(metadata)
+
+        blocked = self.client.open(
+            source_url, method="COPY",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                "If": f"<http://localhost{target_url}> ([{target_etag}])",
+            },
+        )
+        self.assertEqual(423, blocked.status_code)
+        self.assertEqual(b"first office version", (self.store.root / "angebot.odt").read_bytes())
+
+        metadata.pop("cleanup_state")
+        self.store._save_document(metadata)
+        visible_bytes = sum(
+            path.stat().st_size for path in self.store.root.rglob("*")
+            if path.is_file() and CONTROL_DIR not in path.parts and ".history" not in path.parts
+        )
+        app.config["WEBDAV_QUOTA_BYTES"] = visible_bytes
+        copied = self.client.open(
+            source_url, method="COPY",
+            headers={
+                **self.auth, "Overwrite": "T", "Destination": f"http://localhost{target_url}",
+                "If": f"<http://localhost{target_url}> ([{target_etag}])",
+            },
+        )
+
+        self.assertEqual(204, copied.status_code)
+        self.assertEqual(b"replacement", (self.store.root / "angebot.odt").read_bytes())
+        self.assertEqual(b"replacement", (self.store.root / "quota-copy.txt").read_bytes())
+
     def test_rfc6578_initial_and_incremental_sync_reports_changes_and_tombstones(self):
         initial_body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
         properties = self.client.open(

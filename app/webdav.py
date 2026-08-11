@@ -2260,8 +2260,8 @@ def file_tree(username: str, relative_path: str):
         if destination.exists():
             if overwrite == "F":
                 return Response("destination exists and Overwrite is F", 412)
-            if request.method != "MOVE" or is_collection or destination.is_symlink() or not destination.is_file():
-                return Response("only an existing regular file can be replaced by MOVE", 412)
+            if is_collection or destination.is_symlink() or not destination.is_file():
+                return Response("only an existing regular file can be replaced by COPY or MOVE", 412)
             try:
                 replacing_document = _tree_document(destination)
             except ValueError:
@@ -2298,7 +2298,12 @@ def file_tree(username: str, relative_path: str):
                 status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 409
                 return Response(str(exc), status)
         if request.method == "COPY":
-            growth = int(manifest["total_bytes"]) if manifest is not None and depth == "infinity" else resource.stat().st_size if document else 0
+            if replacing_document is not None:
+                growth = 0
+            elif manifest is not None and depth == "infinity":
+                growth = int(manifest["total_bytes"])
+            else:
+                growth = resource.stat().st_size if document else 0
             quota_error = _check_quota(username, "COPY", destination, growth)
             if quota_error is not None:
                 return quota_error
@@ -2322,6 +2327,13 @@ def file_tree(username: str, relative_path: str):
                     _store().relative(resource), destination_relative, f"webdav:{username}",
                 )
                 _release_collection_locks_after_move(username, resource)
+            elif request.method == "COPY" and replacing_document is not None:
+                result = _store().replace_document_via_copy(
+                    document["document_id"], replacing_document["document_id"], f"webdav:{username}",
+                    expected_source_sha256=_etag_value(current_etag),
+                    expected_destination_sha256=_etag_value(destination_etag),
+                    max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+                )
             elif request.method == "COPY":
                 result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
                 _copy_dead_properties(username, resource, document, destination, result)

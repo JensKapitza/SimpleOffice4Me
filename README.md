@@ -78,6 +78,7 @@ Ganze Ordner lassen sich nach
 [RFC 4918 serverseitig kopieren und verschieben](docs/WEBDAV_ORDNER_COPY_MOVE_RFC4918.md)
 und [vorhandene Dateien mit Ziel-ETag oder Lock sicher per MOVE ersetzen](docs/WEBDAV_SICHERES_MOVE_ERSETZEN.md)
 sowie
+[Vorlagen und Dateien mit Ziel-ETag oder Lock sicher per COPY auf vorhandene Ziele übernehmen](docs/WEBDAV_SICHERES_COPY_ERSETZEN.md) und
 [rekursiv löschen und einzeln wiederherstellen](docs/WEBDAV_ORDNER_LOESCHEN_RFC4918.md),
 einschließlich Rechte-, Lock-, Quota-, Audit- und Rollback-Schutz.
 Fortsetzbare Downloads, `If-Range`, bedingte GET-/HEAD-Anfragen und sichere

@@ -1645,6 +1645,70 @@ class DocumentStore:
         )
         return {"document": self.get_document(destination["document_id"]), "source_deleted": deleted}
 
+    def replace_document_via_copy(
+        self,
+        source_reference: str,
+        destination_reference: str,
+        actor: str,
+        *,
+        expected_source_sha256: str,
+        expected_destination_sha256: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Copy source bytes over a destination while preserving its identity.
+
+        COPY must leave the source untouched. The destination keeps its stable
+        ID, grants, tags, retention state and WebDAV properties; replace_content
+        archives the previous payload and performs the atomic write. Both
+        resource validators are checked again after HTTP precondition handling
+        so a late filesystem change cannot silently win.
+        """
+        self._require_actor(actor)
+        source = self.get_document(source_reference)
+        destination = self.get_document(destination_reference)
+        if source["document_id"] == destination["document_id"]:
+            raise ValueError("source and destination are the same document")
+        self._require_document_editable(source)
+        self._require_document_editable(destination)
+        source_path = self.root / str(source.get("last_path", ""))
+        destination_path = self.root / str(destination.get("last_path", ""))
+        if (
+            not source_path.is_file() or source_path.is_symlink()
+            or not destination_path.is_file() or destination_path.is_symlink()
+        ):
+            raise ValueError("COPY replacement requires two available regular document files")
+        if source_path.stat().st_size > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+
+        source_content = source_path.read_bytes()
+        source_sha256 = hashlib.sha256(source_content).hexdigest()
+        destination_sha256 = sha256_file(destination_path)
+        if not expected_source_sha256 or not hmac.compare_digest(expected_source_sha256, source_sha256):
+            raise ValueError("source content changed since it was opened")
+        if not expected_destination_sha256 or not hmac.compare_digest(expected_destination_sha256, destination_sha256):
+            raise ValueError("destination content changed since it was opened")
+
+        updated = self.replace_content(
+            destination["document_id"], source_content, actor,
+            expected_sha256=destination_sha256, source="webdav-copy-overwrite", max_bytes=max_bytes,
+        )
+        details = {
+            "source_document_id": source["document_id"],
+            "destination_document_id": destination["document_id"],
+            "source": str(source.get("last_path", "")),
+            "destination": str(destination.get("last_path", "")),
+            "source_sha256": source_sha256,
+            "previous_destination_sha256": destination_sha256,
+            "actor": actor,
+            "at": utc_now(),
+        }
+        self._event("webdav_document_replaced_via_copy", details)
+        self._record_revision(
+            "webdav_document_replaced_via_copy", actor, "documents",
+            destination["document_id"], {**updated, "copy_replacement": details},
+        )
+        return self.get_document(destination["document_id"])
+
     def create_document_at(
         self,
         relative_path: str,
