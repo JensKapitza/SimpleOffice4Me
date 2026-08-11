@@ -24,6 +24,7 @@ verlinkt.
 - [Portable WebDAV-Dateinamen für Windows, macOS und Linux](WEBDAV_PORTABLE_DATEINAMEN.md)
 - [Effizienter WebDAV-Änderungsabgleich nach RFC 6578](WEBDAV_SYNC_RFC6578.md)
 - [WebDAV-Eigenschaften und Metadaten nach RFC 4918](WEBDAV_EIGENSCHAFTEN_RFC4918.md)
+- [WebDAV-Zeitstempel und ausgewählte Windows-Dateieigenschaften](WEBDAV_ZEITSTEMPEL_MS_WDVME.md)
 - [WebDAV-Speichergrenzen nach RFC 4331 und robuste Locks](WEBDAV_QUOTA_UND_LOCKS.md)
 - [Ressourcengenaue WebDAV-If-Bedingungen nach RFC 4918](WEBDAV_IF_HEADER_RFC4918.md)
 - [Einheitliche HTTP-Vorbedingungen für WebDAV nach RFC 9110](WEBDAV_HTTP_VORBEDINGUNGEN_RFC9110.md)

@@ -1,8 +1,11 @@
 import base64
 import hashlib
 import json
+import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import quote
 from unittest import mock
@@ -11,7 +14,7 @@ from xml.etree import ElementTree
 from app import app
 from app.attachment_security import ClamAV, ScanResult
 from app.db import ensure_auth_database
-from app.document_store import CONTROL_DIR, DocumentStore
+from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, revoke
 
 
@@ -2866,6 +2869,182 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(207, response.status_code)
         lock_paths = [str(call.args[0]) for call in locking.call_args_list if call.args]
         self.assertTrue(any(path.endswith("webdav-sync.mutation.lock") for path in lock_paths))
+
+    def test_rfc_creationdate_and_getlastmodified_cover_files_and_collections(self):
+        folder_url = f"{self.files}/Zeitdaten"
+        file_url = f"{folder_url}/Bericht.odt"
+        self.assertEqual(201, self.client.open(folder_url, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.put(file_url, data=b"report", headers=self.auth).status_code)
+        query = (
+            '<d:propfind xmlns:d="DAV:"><d:prop>'
+            '<d:creationdate/><d:getlastmodified/>'
+            '</d:prop></d:propfind>'
+        )
+
+        folder = self.client.open(
+            folder_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        before = self.client.open(
+            file_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        folder_root = ElementTree.fromstring(folder.data)
+        before_root = ElementTree.fromstring(before.data)
+        folder_created = folder_root.findtext(".//{DAV:}creationdate")
+        file_created = before_root.findtext(".//{DAV:}creationdate")
+        modified_before = parsedate_to_datetime(
+            before_root.findtext(".//{DAV:}getlastmodified") or "",
+        )
+
+        policy = json.loads((self.store.root / "Zeitdaten" / POLICY_FILE).read_text())
+        document = self.store.get_document("Zeitdaten/Bericht.odt")
+        self.assertEqual("webdav:jens", policy["created_by"])
+        self.assertEqual(
+            datetime.fromisoformat(policy["created_at"]).astimezone(timezone.utc),
+            datetime.fromisoformat((folder_created or "").replace("Z", "+00:00")),
+        )
+        self.assertEqual(
+            datetime.fromisoformat(document["first_seen_at"]).astimezone(timezone.utc),
+            datetime.fromisoformat((file_created or "").replace("Z", "+00:00")),
+        )
+
+        path = self.store.root / "Zeitdaten" / "Bericht.odt"
+        future = path.stat().st_mtime + 5
+        path.touch()
+        os.utime(path, (future, future))
+        after = self.client.open(
+            file_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        after_root = ElementTree.fromstring(after.data)
+        modified_after = parsedate_to_datetime(
+            after_root.findtext(".//{DAV:}getlastmodified") or "",
+        )
+
+        self.assertEqual([207, 207, 207], [folder.status_code, before.status_code, after.status_code])
+        self.assertEqual(file_created, after_root.findtext(".//{DAV:}creationdate"))
+        self.assertGreater(modified_after, modified_before)
+
+    def test_creationdate_is_protected_preserved_by_move_and_reset_by_copy(self):
+        source_url = f"{self.files}/Original.odt"
+        moved_url = f"{self.files}/Verschoben.odt"
+        copied_url = f"{self.files}/Kopie.odt"
+        self.assertEqual(201, self.client.put(source_url, data=b"same body", headers=self.auth).status_code)
+        query = '<d:propfind xmlns:d="DAV:"><d:prop><d:creationdate/></d:prop></d:propfind>'
+
+        original = self.client.open(
+            source_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        copied = self.client.open(
+            source_url, method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{copied_url}"},
+        )
+        moved = self.client.open(
+            source_url, method="MOVE",
+            headers={**self.auth, "Destination": f"http://localhost{moved_url}"},
+        )
+        moved_props = self.client.open(
+            moved_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        copied_props = self.client.open(
+            copied_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        original_created = ElementTree.fromstring(original.data).findtext(".//{DAV:}creationdate")
+        moved_created = ElementTree.fromstring(moved_props.data).findtext(".//{DAV:}creationdate")
+        copied_created = ElementTree.fromstring(copied_props.data).findtext(".//{DAV:}creationdate")
+
+        protected = self.client.open(
+            moved_url, method="PROPPATCH",
+            data=(
+                '<d:propertyupdate xmlns:d="DAV:"><d:set><d:prop>'
+                '<d:creationdate>2000-01-01T00:00:00Z</d:creationdate>'
+                '<d:getlastmodified>Sat, 01 Jan 2000 00:00:00 GMT</d:getlastmodified>'
+                '</d:prop></d:set></d:propertyupdate>'
+            ),
+            headers=self.auth,
+        )
+
+        self.assertEqual([201, 201, 207, 207], [copied.status_code, moved.status_code, moved_props.status_code, copied_props.status_code])
+        self.assertEqual(original_created, moved_created)
+        self.assertNotEqual(original_created, copied_created)
+        protected_body = protected.get_data(as_text=True)
+        self.assertEqual(207, protected.status_code)
+        self.assertEqual(1, protected_body.count("403 Forbidden"))
+        self.assertIn("creationdate", protected_body)
+        self.assertIn("getlastmodified", protected_body)
+        self.assertIn("cannot-modify-protected-property", protected_body)
+
+    def test_windows_webdav_properties_round_trip_copy_and_fail_atomically(self):
+        source_url = f"{self.files}/Windows.odt"
+        copy_url = f"{self.files}/Windows-Kopie.odt"
+        self.assertEqual(201, self.client.put(source_url, data=b"windows", headers=self.auth).status_code)
+        update = '''
+        <d:propertyupdate xmlns:d="DAV:" xmlns:Z="urn:schemas-microsoft-com:" xmlns:Office="urn:schemas-microsoft-com:office:office">
+          <d:set><d:prop>
+            <Z:Win32FileAttributes>00000020</Z:Win32FileAttributes>
+            <Z:Win32CreationTime>2026-08-11T07:00:00Z</Z:Win32CreationTime>
+            <Z:Win32LastAccessTime>2026-08-11T07:05:00Z</Z:Win32LastAccessTime>
+            <Z:Win32LastModifiedTime>2026-08-11T07:10:00Z</Z:Win32LastModifiedTime>
+            <Office:specialFolderType>42</Office:specialFolderType>
+          </d:prop></d:set>
+        </d:propertyupdate>
+        '''
+        saved = self.client.open(source_url, method="PROPPATCH", data=update, headers=self.auth)
+        copied = self.client.open(
+            source_url, method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{copy_url}"},
+        )
+        query = '''
+        <d:propfind xmlns:d="DAV:" xmlns:Z="urn:schemas-microsoft-com:" xmlns:Office="urn:schemas-microsoft-com:office:office">
+          <d:prop><Z:Win32FileAttributes/><Z:Win32CreationTime/><Z:Win32LastAccessTime/><Z:Win32LastModifiedTime/><Office:specialFolderType/><d:iscollection/><d:isFolder/><d:ishidden/></d:prop>
+        </d:propfind>
+        '''
+        roundtrip = self.client.open(
+            copy_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        root = ElementTree.fromstring(roundtrip.data)
+
+        invalid = self.client.open(
+            copy_url, method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:" xmlns:Office="urn:schemas-microsoft-com:office:office" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><Office:specialFolderType>not-an-integer</Office:specialFolderType><m:must-not-stick>rollback</m:must-not-stick></d:prop></d:set></d:propertyupdate>''',
+            headers=self.auth,
+        )
+        after_invalid = self.client.open(
+            copy_url, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:must-not-stick/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="Windows read only", scope="read", expires_days=30,
+            )
+        read_auth = {
+            "Authorization": "Basic "
+            + base64.b64encode(f"jens:{password}".encode()).decode()
+        }
+        denied = self.client.open(copy_url, method="PROPPATCH", data=update, headers=read_auth)
+
+        self.assertEqual([207, 201, 207], [saved.status_code, copied.status_code, roundtrip.status_code])
+        self.assertEqual("00000020", root.findtext(".//{urn:schemas-microsoft-com:}Win32FileAttributes"))
+        self.assertEqual("2026-08-11T07:10:00Z", root.findtext(".//{urn:schemas-microsoft-com:}Win32LastModifiedTime"))
+        self.assertEqual("42", root.findtext(".//{urn:schemas-microsoft-com:office:office}specialFolderType"))
+        self.assertEqual("0", root.findtext(".//{DAV:}iscollection"))
+        self.assertEqual("f", root.findtext(".//{DAV:}isFolder"))
+        self.assertEqual("0", root.findtext(".//{DAV:}ishidden"))
+        invalid_body = invalid.get_data(as_text=True)
+        self.assertIn("409 Conflict", invalid_body)
+        self.assertIn("424 Failed Dependency", invalid_body)
+        self.assertIn("404 Not Found", after_invalid.get_data(as_text=True))
+        self.assertEqual(403, denied.status_code)
+        snapshots = list((self.store.history.root / "snapshots" / "webdav-properties").glob("*.json"))
+        serialized = "\n".join(path.read_text(encoding="utf-8") for path in snapshots)
+        self.assertIn("Win32LastModifiedTime", serialized)
+        self.assertNotIn("2026-08-11T07:10:00Z", serialized)
 
 
 if __name__ == "__main__":

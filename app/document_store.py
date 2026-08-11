@@ -212,7 +212,7 @@ class DocumentStore:
                     manifest["recovery_checked_at"] = utc_now()
                     atomic_json_write(manifest_path, manifest)
 
-    def ensure_folder_policy(self, folder: str | Path) -> Path:
+    def ensure_folder_policy(self, folder: str | Path, actor: str = "system") -> Path:
         folder_path = Path(folder).resolve()
         if self.root not in (folder_path, *folder_path.parents):
             raise ValueError("folder is outside the document root")
@@ -225,11 +225,14 @@ class DocumentStore:
             except (OSError, json.JSONDecodeError):
                 # Do not overwrite an invalid policy. It must be repaired visibly.
                 raise ValueError(f"invalid folder policy: {policy}")
+        created_at = utc_now()
         atomic_json_write(
             policy,
             {
-                "version": 1,
+                "version": 2,
                 "folder_id": str(uuid.uuid4()),
+                "created_at": created_at,
+                "created_by": actor,
                 "inherit": True,
                 "grants": [],
                 "scan": {
@@ -239,10 +242,13 @@ class DocumentStore:
                 "retention": {"rules": []},
             },
         )
-        self._event("folder_policy_created", {"path": self.relative(folder_path)})
+        self._event(
+            "folder_policy_created",
+            {"path": self.relative(folder_path), "actor": actor, "created_at": created_at},
+        )
         self._record_revision(
             "folder_policy_created",
-            "system",
+            actor,
             "policies",
             hashlib.sha256(self.relative(folder_path).encode("utf-8")).hexdigest(),
             self._read_json(policy, {}),
@@ -2400,7 +2406,7 @@ class DocumentStore:
         if destination.exists():
             raise FileExistsError("destination collection already exists")
         destination.mkdir()
-        self.ensure_folder_policy(destination)
+        self.ensure_folder_policy(destination, actor)
         details = {"path": self.relative(destination), "actor": actor, "at": utc_now()}
         self._event("webdav_collection_created", details)
         self._record_revision("webdav_collection_created", actor, "collections", hashlib.sha256(details["path"].encode()).hexdigest(), details)

@@ -41,6 +41,10 @@ from .file_lock import exclusive_file_lock
 
 bp = Blueprint("webdav", __name__)
 DAV = "DAV:"
+MICROSOFT_DAV = "urn:schemas-microsoft-com:"
+MICROSOFT_OFFICE = "urn:schemas-microsoft-com:office:office"
+ElementTree.register_namespace("Z", MICROSOFT_DAV)
+ElementTree.register_namespace("Office", MICROSOFT_OFFICE)
 
 
 def _release_mutation_lock() -> None:
@@ -120,6 +124,13 @@ PROTECTED_DAV_PROPERTIES = {
     )
 }
 MUTABLE_DAV_PROPERTIES = {f"{{{DAV}}}displayname", f"{{{DAV}}}getcontentlanguage"}
+MICROSOFT_CLIENT_PROPERTIES = {
+    f"{{{MICROSOFT_DAV}}}{name}" for name in (
+        "Win32FileAttributes", "Win32CreationTime",
+        "Win32LastAccessTime", "Win32LastModifiedTime",
+    )
+}
+MICROSOFT_SPECIAL_FOLDER = f"{{{MICROSOFT_OFFICE}}}specialFolderType"
 WINDOWS_RESERVED_BASENAMES = {
     "CON", "PRN", "AUX", "NUL",
     *(f"COM{number}" for number in range(1, 10)),
@@ -1589,6 +1600,29 @@ def _xml_element(tag: str, text: str | None = None, child: ElementTree.Element |
     return ElementTree.tostring(element, encoding="unicode", short_empty_elements=True)
 
 
+def _rfc3339_timestamp(value: object) -> str:
+    """Return a canonical UTC RFC 3339 value or leave unreliable legacy data undefined."""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _resource_creationdate(
+    resource: Path,
+    document: dict | None,
+    *,
+    collection: bool,
+) -> str:
+    if collection:
+        policy = _read_json(resource / POLICY_FILE, {})
+        return _rfc3339_timestamp(policy.get("created_at"))
+    return _rfc3339_timestamp((document or {}).get("first_seen_at"))
+
+
 def _live_properties(
     display_name: str,
     *,
@@ -1598,6 +1632,7 @@ def _live_properties(
     quota: dict[str, int] | None = None,
     lock: dict | None = None,
     href: str = "",
+    resource: Path | None = None,
 ) -> dict[str, str]:
     supported = ElementTree.Element(f"{{{DAV}}}supportedlock")
     entry = ElementTree.SubElement(supported, f"{{{DAV}}}lockentry")
@@ -1609,7 +1644,27 @@ def _live_properties(
         f"{{{DAV}}}displayname": _xml_element(f"{{{DAV}}}displayname", display_name),
         f"{{{DAV}}}supportedlock": ElementTree.tostring(supported, encoding="unicode"),
         f"{{{DAV}}}lockdiscovery": _lockdiscovery_xml(lock, href),
+        f"{{{DAV}}}iscollection": _xml_element(
+            f"{{{DAV}}}iscollection", "1" if collection else "0",
+        ),
+        f"{{{DAV}}}isFolder": _xml_element(
+            f"{{{DAV}}}isFolder", "t" if collection else "f",
+        ),
+        f"{{{DAV}}}ishidden": _xml_element(
+            f"{{{DAV}}}ishidden",
+            "1" if resource is not None and resource.name.startswith(".") else "0",
+        ),
     }
+    path = resource or _document_path(document or {})
+    created_at = _resource_creationdate(path, document, collection=collection)
+    if created_at:
+        values[f"{{{DAV}}}creationdate"] = _xml_element(
+            f"{{{DAV}}}creationdate", created_at,
+        )
+    stat = path.stat()
+    values[f"{{{DAV}}}getlastmodified"] = _xml_element(
+        f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
+    )
     if collection:
         resource_type = ElementTree.Element(f"{{{DAV}}}resourcetype")
         ElementTree.SubElement(resource_type, f"{{{DAV}}}collection")
@@ -1631,13 +1686,10 @@ def _live_properties(
                 f"{{{DAV}}}quota-used-bytes", str(quota["used"])
             )
         return values
-    path = _document_path(document or {})
-    stat = path.stat()
     values.update({
         f"{{{DAV}}}resourcetype": _xml_element(f"{{{DAV}}}resourcetype"),
         f"{{{DAV}}}getcontentlength": _xml_element(f"{{{DAV}}}getcontentlength", str(stat.st_size)),
         f"{{{DAV}}}getcontenttype": _xml_element(f"{{{DAV}}}getcontenttype", mimetypes.guess_type(path.name)[0] or "application/octet-stream"),
-        f"{{{DAV}}}getlastmodified": _xml_element(f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True)),
         f"{{{DAV}}}getetag": _xml_element(f"{{{DAV}}}getetag", _etag(document or {})),
     })
     return values
@@ -1699,6 +1751,7 @@ def _prop_response(
         quota=_quota_state() if collection and username else None,
         lock=active_lock,
         href=href,
+        resource=resource,
     )
     dead = _dead_properties(username, resource, document) if username and resource is not None else {}
     mode, requested = query or ("allprop", [])
@@ -1857,15 +1910,27 @@ def _parse_proppatch(body: bytes) -> list[tuple[str, str, str]]:
 
 
 def _live_property_value_valid(tag: str, serialized: str) -> bool:
-    if tag not in MUTABLE_DAV_PROPERTIES:
+    if tag not in MUTABLE_DAV_PROPERTIES | MICROSOFT_CLIENT_PROPERTIES | {MICROSOFT_SPECIAL_FOLDER}:
         return True
     element = ElementTree.fromstring(serialized)
     if list(element):
         return False
+    if tag in MICROSOFT_CLIENT_PROPERTIES | {MICROSOFT_SPECIAL_FOLDER} and element.attrib:
+        return False
     text = element.text or ""
     if tag == f"{{{DAV}}}displayname":
         return len(text.encode("utf-8")) <= 1024 and "\x00" not in text
-    return bool(re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", text.strip()))
+    if tag == f"{{{DAV}}}getcontentlanguage":
+        return bool(re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", text.strip()))
+    if len(text.encode("utf-8")) > 256 or "\x00" in text:
+        return False
+    if tag == MICROSOFT_SPECIAL_FOLDER:
+        try:
+            value = int(text, 10)
+        except ValueError:
+            return False
+        return -(2**31) <= value < 2**31 and text.strip() == str(value)
+    return True
 
 
 def _proppatch_response(href: str, statuses: list[tuple[str, int]]) -> Response:
