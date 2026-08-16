@@ -741,19 +741,18 @@ def detail(document_id: str):
     store = _store()
     document = store.record_access(document_id, str(g.user["username"]), "seen")
     query = request.args.get("link_query", "").strip()
-    linked_documents = {item["document_id"]: item for item in store._all_documents()}
+    linked_documents = store.relationship_targets(document)
     relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
     return render_template(
         "documents/detail.html",
         document=document,
         versions=store.versions(document_id),
         content_recovery_versions=store.content_recovery_versions(document_id),
-        logbook=store.logbook(document_id),
         relationships=relationships,
         shares=store.document_shares(document_id),
         retention=store.retention_status(document_id),
         link_query=query,
-        link_matches=[item for item in store.find_matches(query) if item["document_id"] != document_id] if query else [],
+        link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
         preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
         defaults=_settings().settings(),
     )

@@ -164,6 +164,36 @@ class LoginDashboardPerformanceTest(unittest.TestCase):
         self.assertEqual(200, documents.status_code)
         self.assertEqual(200, inbox.status_code)
 
+    def test_single_document_detail_does_not_scan_or_rewrite_fifty_thousand_sidecars(self):
+        root = Path(app.config["DOCUMENT_ROOT"])
+        root.mkdir(parents=True, exist_ok=True)
+        source = root / "einzeln.txt"
+        source.write_text("Nur diese Datei", encoding="utf-8")
+        store = DocumentStore(root)
+        store.scan()
+        document = store.get_document(source)
+        with store._db() as db:
+            db.executemany(
+                """INSERT INTO document_listing(
+                       document_id, path, state, has_notes, has_relationships, last_seen_at
+                   ) VALUES (?, ?, 'new', 0, 0, '')""",
+                [(f"unrelated-{number}", f"archive/{number}.dat") for number in range(50_146)],
+            )
+        self.client.post(
+            "/auth/login",
+            data={"username": "jens", "password": "sicheres-passwort"},
+        )
+
+        with patch.object(DocumentStore, "_all_documents", side_effect=AssertionError("full sidecar scan")), patch.object(
+            DocumentStore, "_save_document", side_effect=AssertionError("large sidecar rewrite")
+        ), patch.object(DocumentStore, "logbook", side_effect=AssertionError("eager audit scan")), patch(
+            "app.document_store.sha256_file", side_effect=AssertionError("content hashing")
+        ):
+            response = self.client.get(f"/documents/{document['document_id']}")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Nur diese Datei", response.get_data(as_text=True))
+
 
 if __name__ == "__main__":
     unittest.main()
