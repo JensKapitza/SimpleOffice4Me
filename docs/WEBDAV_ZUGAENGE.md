@@ -23,8 +23,10 @@ unmittelbar nach dem Erzeugen angezeigt.
 
 ## Bedienung und Konfiguration
 
-1. Ein Dokument in SimpleOffice öffnen und **In LibreOffice bearbeiten**
-   wählen.
+1. **Einstellungen → WebDAV-Zugang einrichten** öffnen. Dort kann unabhängig
+   von einem einzelnen Dokument ein allgemeiner Zugang für den vollständigen,
+   dem Benutzer erlaubten Dokumentbaum erzeugt werden. Alternativ führt
+   **In LibreOffice bearbeiten** an einem Dokument zur gerätebezogenen Ansicht.
 2. Unter **Neuen Gerätezugang anlegen** eine eindeutige Bezeichnung wie
    `LibreOffice Büro-Laptop` vergeben.
 3. Den kleinsten notwendigen Rechteumfang und die Gültigkeit wählen.
@@ -33,6 +35,12 @@ unmittelbar nach dem Erzeugen angezeigt.
    aus Kompatibilitätsgründen alle Dokumente.
 6. Als Benutzername den SimpleOffice-Benutzernamen und als Adresse die
    gerätespezifische WebDAV-Adresse aus der Zugangstabelle verwenden.
+
+Ein allgemeines App-Passwort ist nicht an eine Datei gebunden und kann in
+mehreren Pfaden verwendet werden. Es bleibt bis zum gewählten Ablaufdatum oder
+Widerruf gültig. Die leere Pfadgrenze bedeutet dabei nicht öffentliche
+Freigabe: Benutzertrennung, Dokumentrechte, Locks und Aufbewahrungssperren
+werden bei jeder Anfrage weiterhin geprüft.
 
 Die vollständige Sicherheits- und RFC-Auswertung der Ordnergrenze steht in
 [WEBDAV_ORDNERZUGAENGE_RFC3744.md](WEBDAV_ORDNERZUGAENGE_RFC3744.md).

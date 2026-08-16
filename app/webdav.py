@@ -3388,6 +3388,29 @@ def setup_document(document_id: str):
     )
 
 
+@bp.route("/settings/webdav", methods=["GET", "POST"])
+@login_required
+def setup_user_webdav():
+    """Manage one user's persistent, whole-tree WebDAV credentials."""
+    username = str(g.user["username"])
+    generated_password = ""
+    if request.method == "POST":
+        action = request.form.get("action", "activate")
+        if action == "revoke_all":
+            revoke(username, username); flash("Alle WebDAV-Zugänge wurden widerrufen.")
+        elif action == "revoke":
+            flash("WebDAV-Zugang wurde widerrufen." if revoke(username, username, request.form.get("credential_id", "")) else "Der WebDAV-Zugang war bereits widerrufen.")
+        else:
+            try:
+                generated_password = activate(username, username, label=request.form.get("label", "Allgemeiner Desktop-Zugang"), scope=request.form.get("scope", "write"), expires_days=int(request.form.get("expires_days", "365")), path_prefix="")
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or "WebDAV-Zugang konnte nicht angelegt werden.")
+    credentials = credentials_for(username)
+    for credential in credentials:
+        credential["webdav_url"] = _tree_url(username, credential["path_prefix"], external=True, collection=True)
+    return render_template("documents/webdav_settings.html", username=username, webdav_root_url=_tree_url(username, external=True, collection=True), generated_password=generated_password, credentials=credentials, quota=_quota_state())
+
+
 @bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
 @bp.route("/webdav/files/<username>/<path:relative_path>", methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
 def file_tree(username: str, relative_path: str):

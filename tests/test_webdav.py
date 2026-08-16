@@ -75,6 +75,27 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertNotIn(record["hash"], body)
         self.assertNotIn(record["salt"], body)
 
+    def test_user_settings_create_one_whole_tree_credential(self):
+        settings = self.client.get("/documents/settings").get_data(as_text=True)
+        self.assertIn("/settings/webdav", settings)
+        response = self.client.post("/settings/webdav", data={
+            "action": "activate", "label": "Mein Dateisystem",
+            "scope": "write", "expires_days": "365",
+            "path_prefix": "darf-nicht-übernommen-werden",
+        })
+        body = response.get_data(as_text=True)
+        payload = json.loads((self.store.control / "webdav-credentials.json").read_text())
+        record = next(item for item in payload["users"]["jens"]["credentials"] if item["label"] == "Mein Dateisystem")
+        self.assertEqual(200, response.status_code)
+        self.assertIn("App-Passwort jetzt kopieren", body)
+        self.assertIn("Alle Dokumente", body)
+        self.assertEqual("", record["path_prefix"])
+        self.assertNotIn(record["hash"], body)
+        self.assertNotIn(record["salt"], body)
+        password = body.split('id="app-password"', 1)[1].split('value="', 1)[1].split('"', 1)[0]
+        auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        self.assertEqual(207, self.client.open(self.files, method="PROPFIND", headers={**auth, "Depth": "1"}).status_code)
+
     def test_device_credentials_are_independent_and_individually_revocable(self):
         with app.test_request_context():
             second_password = activate("jens", "jens", label="Nautilus", scope="write", expires_days=90)
