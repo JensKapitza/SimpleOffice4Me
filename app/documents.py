@@ -1630,7 +1630,8 @@ def add_calendar_event():
             raise ValueError("unknown owner")
         calendar_id = request.form.get("calendar_id", "default")
         _calendars().get(calendar_id, actor, write=True)
-        event = _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id, _calendar_metadata())
+        metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
+        event = _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id, metadata)
         if request.form.get("rrule", "").strip() or request.form.get("rdates", "").strip():
             event = _calendar().set_recurrence(event["event_id"], {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "Europe/Berlin")}, actor, event.get("updated_at", ""))
         _calendars().record_event_move(event, calendar_id, actor)
@@ -1647,7 +1648,8 @@ def update_calendar_event(event_id: str):
         actor = str(g.user["username"]); calendar_id = request.form.get("calendar_id", "")
         if calendar_id: _calendars().get(calendar_id, actor, write=True)
         source_calendar_id = _calendar().get(event_id, actor).get("calendar_id") or "default"
-        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id, _calendar_metadata())
+        metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
+        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id, metadata)
         _calendars().record_event_move(event, source_calendar_id, actor)
         flash("Kalendertermin geändert.")
     except ValueError as exc:

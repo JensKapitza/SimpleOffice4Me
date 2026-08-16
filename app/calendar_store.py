@@ -19,6 +19,7 @@ from .file_lock import exclusive_file_lock
 from .recurrence import RecurrenceError, expand_event, recurrence_key, validate_recurrence
 from .calendar_alarms import MAX_OFFSET_SECONDS, alarm_instances, normalize_alarms, serialize_alarm
 from .calendar_metadata import metadata_lines, normalize_metadata
+from .calendar_description import description_fields
 
 
 class CalendarStore:
@@ -63,6 +64,8 @@ class CalendarStore:
             end = self._ics_datetime(event.get("end") or event["start"])
             uid = event.get("source_uid") or f'{event["event_id"]}@simpleoffice.local'
             lines.extend(["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{self._ics_escape(event['title'])}", f"DESCRIPTION:{self._ics_escape(event.get('reason', ''))}"])
+            if event.get("description_html"):
+                lines.append(f"X-ALT-DESC;FMTTYPE=text/html:{self._ics_escape(event['description_html'])}")
             tags = [tag["name"] for tag in event.get("tags", []) if tag.get("name")]
             if tags:
                 lines.append(f"CATEGORIES:{','.join(self._ics_escape(tag) for tag in tags)}")
@@ -163,7 +166,7 @@ class CalendarStore:
                 from .caldav import _parse_ics
                 grouped_ics = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me import//EN", *(line for component in component_group for line in component), "END:VCALENDAR", ""])
                 incoming = _parse_ics(grouped_ics)
-                event = self._event(existing["event_id"] if existing else "", incoming["title"], incoming.get("description") or "Aus iCalendar importiert", incoming["start"], incoming.get("end") or incoming["start"], (existing.get("contact_id") or "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", incoming.get("tags", []), existing)
+                event = self._event(existing["event_id"] if existing else "", incoming["title"], incoming.get("description") or "Aus iCalendar importiert", incoming["start"], incoming.get("end") or incoming["start"], (existing.get("contact_id") or "") if existing else "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", incoming.get("tags", []), existing, incoming)
                 event["source_uid"] = source_uid; event["source"] = "ical_import"
                 event["source_status"] = "cancelled" if incoming.get("status") == "cancelled" else "confirmed"
                 event["sequence"] = int(incoming.get("sequence", 0))
@@ -676,7 +679,8 @@ class CalendarStore:
         if any(tag["visibility"] not in ("private", "family", "external") for tag in valid_tags):
             raise ValueError("invalid tag visibility")
         changed_at = utc_now()
-        values = {"title": title.strip(), "reason": reason.strip(), "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, **normalize_metadata(metadata, existing)}
+        description = description_fields(reason, str((metadata or {}).get("description_html", "")), str((metadata or {}).get("description_format", "")), existing)
+        values = {"title": title.strip(), **description, "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, **normalize_metadata(metadata, existing)}
         changes = list(existing.get("changes", [])) if existing else []
         for field, new_value in values.items():
             old_value = existing.get(field, "") if existing else ""

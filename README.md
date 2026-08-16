@@ -38,6 +38,9 @@ Snooze dokumentiert
 Status, Zeitbelegung, Priorität, Ort, Ressourcen und sichere
 Konferenzzugänge nach RFC 5545/7986 beschreibt
 [docs/KALENDER_METADATEN_RFC5545_7986.md](docs/KALENDER_METADATEN_RFC5545_7986.md).
+Sicher bereinigte HTML-Beschreibungen aus Thunderbird, die parallele
+Reintextansicht und korrekte lokale Bearbeitungszeiten dokumentiert
+[docs/KALENDER_HTML_BESCHREIBUNGEN.md](docs/KALENDER_HTML_BESCHREIBUNGEN.md).
 Der optionale, ausschließlich manuell gestartete Google-Kalender-Abgleich mit
 inkrementellen Sync-Tokens und expliziter Konfliktentscheidung steht in
 [docs/GOOGLE_KALENDER_SYNC.md](docs/GOOGLE_KALENDER_SYNC.md).
