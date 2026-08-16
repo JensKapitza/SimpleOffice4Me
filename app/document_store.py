@@ -112,6 +112,7 @@ class DocumentStore:
         self.ssh_sources_path = self.control / SSH_SOURCES_FILE
         self.scan_status_path = self.control / "scan-status.json"
         self.note_snapshots = self.control / "note-snapshots"
+        self.document_access = self.control / "document-access"
         self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
@@ -129,6 +130,7 @@ class DocumentStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.documents.mkdir(parents=True, exist_ok=True)
         self.fingerprints.mkdir(parents=True, exist_ok=True)
+        self.document_access.mkdir(parents=True, exist_ok=True)
         self.ensure_folder_policy(self.root)
         with self._db() as db:
             db.executescript(
@@ -150,10 +152,20 @@ class DocumentStore:
                     state TEXT NOT NULL,
                     has_notes INTEGER NOT NULL,
                     has_relationships INTEGER NOT NULL,
-                    last_seen_at TEXT NOT NULL
+                    last_seen_at TEXT NOT NULL,
+                    version_series_id TEXT NOT NULL DEFAULT '',
+                    version_number INTEGER NOT NULL DEFAULT 1
                 );
                 CREATE INDEX IF NOT EXISTS document_listing_inbox
                     ON document_listing(state, has_notes, has_relationships, last_seen_at DESC);
+                CREATE TABLE IF NOT EXISTS document_relationship (
+                    source_id TEXT NOT NULL,
+                    target_id TEXT NOT NULL,
+                    propagates_retention INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(source_id, target_id)
+                );
+                CREATE INDEX IF NOT EXISTS document_relationship_target
+                    ON document_relationship(target_id, propagates_retention);
                 """
             )
             # Additive migration for indexes created before move detection was
@@ -164,6 +176,12 @@ class DocumentStore:
             if "inode" not in columns:
                 db.execute("ALTER TABLE scan_file ADD COLUMN inode INTEGER")
             db.execute("CREATE INDEX IF NOT EXISTS scan_file_inode ON scan_file(device, inode)")
+            listing_columns = {row[1] for row in db.execute("PRAGMA table_info(document_listing)")}
+            if "version_series_id" not in listing_columns:
+                db.execute("ALTER TABLE document_listing ADD COLUMN version_series_id TEXT NOT NULL DEFAULT ''")
+            if "version_number" not in listing_columns:
+                db.execute("ALTER TABLE document_listing ADD COLUMN version_number INTEGER NOT NULL DEFAULT 1")
+            db.execute("CREATE INDEX IF NOT EXISTS document_listing_versions ON document_listing(version_series_id, version_number)")
             try:
                 db.execute(
                     """CREATE VIRTUAL TABLE IF NOT EXISTS document_search
@@ -492,14 +510,23 @@ class DocumentStore:
         if share: self._record_share_access(payload, share, "link_viewed", remote_addr)
 
     def record_access(self, reference: str | Path, actor: str, access_type: str) -> dict[str, Any]:
-        """Persist who saw a document or received it as a search result."""
+        """Audit access without rewriting a potentially large document sidecar."""
         self._require_actor(actor)
         if access_type not in {"seen", "found"}: raise ValueError("unsupported document access type")
         document = self.get_document(reference)
         access = {"type": access_type, "actor": actor, "at": utc_now()}
-        document.setdefault("access_log", []).append(access)
-        document.setdefault(f"{access_type}_by", {})[actor] = access["at"]
-        self._save_document(document)
+        access_path = self.document_access / f"{document['document_id']}.json"
+        from .file_lock import exclusive_file_lock
+        with exclusive_file_lock(access_path.with_suffix(".lock")):
+            access_metadata = self._read_json(access_path, {})
+            access_metadata.setdefault("access_log", list(document.get("access_log", [])))
+            access_metadata.setdefault("seen_by", dict(document.get("seen_by", {})))
+            access_metadata.setdefault("found_by", dict(document.get("found_by", {})))
+            access_metadata["access_log"].append(access)
+            access_metadata["access_log"] = access_metadata["access_log"][-200:]
+            access_metadata[f"{access_type}_by"][actor] = access["at"]
+            atomic_json_write(access_path, access_metadata)
+        document.update(access_metadata)
         self._event(f"document_{access_type}", {"document_id": document["document_id"], **access})
         return document
 
@@ -644,6 +671,10 @@ class DocumentStore:
         metadata = self._read_json(self.documents / f"{reference_text}.json", {})
         if not metadata.get("document_id"):
             raise ValueError(f"unknown document: {reference}")
+        access_metadata = self._read_json(self.document_access / f"{metadata['document_id']}.json", {})
+        for key in ("access_log", "seen_by", "found_by"):
+            if key in access_metadata:
+                metadata[key] = access_metadata[key]
         return metadata
 
     def add_note(self, reference: str | Path, text: str, author: str = "") -> dict[str, Any]:
@@ -929,15 +960,52 @@ class DocumentStore:
         *,
         now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Explain inherited, tag, direct and transitive document deadlines."""
+        """Evaluate only the indexed retention component of one document."""
         focus = self.get_document(reference)
-        return self.retention_statuses(now=now)[focus["document_id"]]
+        # Keep the requested document current even while a background index is
+        # still filling the disposable projection.
+        self._refresh_listing_index(focus)
+        with self._db() as db:
+            rows = db.execute(
+                """WITH RECURSIVE connected(document_id) AS (
+                       VALUES (?)
+                       UNION
+                       SELECT relation.target_id
+                         FROM document_relationship AS relation
+                         JOIN connected ON relation.source_id = connected.document_id
+                        WHERE relation.propagates_retention = 1
+                       UNION
+                       SELECT relation.source_id
+                         FROM document_relationship AS relation
+                         JOIN connected ON relation.target_id = connected.document_id
+                        WHERE relation.propagates_retention = 1
+                   )
+                   SELECT document_id FROM connected""",
+                (focus["document_id"],),
+            ).fetchall()
+        documents: dict[str, dict[str, Any]] = {focus["document_id"]: focus}
+        for (document_id,) in rows:
+            if document_id in documents:
+                continue
+            metadata = self._read_json(self.documents / f"{document_id}.json", {})
+            if metadata.get("document_id"):
+                documents[document_id] = metadata
+        return self._retention_statuses(documents, now=now)[focus["document_id"]]
 
     def retention_statuses(
         self, *, now: datetime | None = None
     ) -> dict[str, dict[str, Any]]:
         """Evaluate the complete archive in one graph pass for large stores."""
         documents = {item["document_id"]: item for item in self._all_documents()}
+        return self._retention_statuses(documents, now=now)
+
+    def _retention_statuses(
+        self,
+        documents: dict[str, dict[str, Any]],
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Evaluate supplied documents without discovering any other sidecars."""
         evaluated = {
             document_id: evaluate_deadlines(document, self._deadline_rules(document), now=now)
             for document_id, document in documents.items()
@@ -2522,16 +2590,37 @@ class DocumentStore:
         return requested
 
     def versions(self, reference: str | Path) -> list[dict[str, Any]]:
-        """Return every version in the same document series, oldest first."""
+        """Return an indexed version series without loading every sidecar."""
         document = self.get_document(reference)
         series_id = document.get("version_series_id", document["document_id"])
-        return sorted(
-            [
-                item for item in self._all_documents()
-                if item.get("version_series_id", item.get("document_id")) == series_id
-            ],
-            key=lambda item: (int(item.get("version_number", 1)), item.get("first_seen_at", "")),
-        )
+        self._refresh_listing_index(document)
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT document_id FROM document_listing
+                    WHERE version_series_id = ?
+                    ORDER BY version_number, last_seen_at, document_id""",
+                (series_id,),
+            ).fetchall()
+        versions = []
+        for (document_id,) in rows:
+            metadata = document if document_id == document["document_id"] else self._read_json(
+                self.documents / f"{document_id}.json", {}
+            )
+            if metadata.get("document_id"):
+                versions.append(metadata)
+        return versions or [document]
+
+    def relationship_targets(self, document: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Load only sidecars explicitly referenced by one document."""
+        targets: dict[str, dict[str, Any]] = {}
+        for relationship in document.get("relationships", []):
+            document_id = str(relationship.get("target_document_id", ""))
+            if not document_id or document_id in targets:
+                continue
+            metadata = self._read_json(self.documents / f"{document_id}.json", {})
+            if metadata.get("document_id"):
+                targets[document_id] = metadata
+        return targets
 
     def offload_old_versions(self, reference: str | Path, archive_root: str | Path, actor: str) -> dict[str, Any]:
         """Move every non-current version to an external archive after hash verification."""
@@ -3244,13 +3333,16 @@ class DocumentStore:
         def update(db: sqlite3.Connection) -> None:
             db.execute(
                 """INSERT INTO document_listing(
-                       document_id, path, state, has_notes, has_relationships, last_seen_at
-                   ) VALUES (?, ?, ?, ?, ?, ?)
+                       document_id, path, state, has_notes, has_relationships, last_seen_at,
+                       version_series_id, version_number
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(document_id) DO UPDATE SET
                      path=excluded.path, state=excluded.state,
                      has_notes=excluded.has_notes,
                      has_relationships=excluded.has_relationships,
-                     last_seen_at=excluded.last_seen_at""",
+                     last_seen_at=excluded.last_seen_at,
+                     version_series_id=excluded.version_series_id,
+                     version_number=excluded.version_number""",
                 (
                     metadata["document_id"],
                     str(metadata.get("last_path", "")),
@@ -3258,7 +3350,24 @@ class DocumentStore:
                     int(bool(metadata.get("notes"))),
                     int(bool(metadata.get("relationships"))),
                     str(metadata.get("last_seen_at", "")),
+                    str(metadata.get("version_series_id", metadata["document_id"])),
+                    int(metadata.get("version_number", 1)),
                 ),
+            )
+            db.execute("DELETE FROM document_relationship WHERE source_id = ?", (metadata["document_id"],))
+            db.executemany(
+                """INSERT OR REPLACE INTO document_relationship(
+                       source_id, target_id, propagates_retention
+                   ) VALUES (?, ?, ?)""",
+                [
+                    (
+                        metadata["document_id"],
+                        str(link["target_document_id"]),
+                        int(link.get("propagates_retention") is True),
+                    )
+                    for link in metadata.get("relationships", [])
+                    if isinstance(link, dict) and link.get("target_document_id")
+                ],
             )
         if connection is not None:
             update(connection)

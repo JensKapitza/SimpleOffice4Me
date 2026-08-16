@@ -144,6 +144,8 @@ mit `update.sh` oder `update.bat`
 Der [getrennte Dokumentindex](docs/PERFORMANCE_INDEXDIENST.md) hält Login,
 Dashboard und WebDAV auch bei mehr als 50.000 Dateien reaktionsfähig und dokumentiert
 Ressourcenpriorisierung, Fehlerverhalten und Abschaltung.
+Die [schnelle Ansicht einzelner Dokumente](docs/SCHNELLE_DATEIANSICHT.md) verhindert
+Vollbestandsläufe, Hashing und große Metadaten-Schreibvorgänge beim Öffnen einer Datei.
 
 ## Teststand
 

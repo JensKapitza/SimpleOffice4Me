@@ -1,4 +1,4 @@
-{% if logbook is defined %}{% set items = logbook %}{% else %}{% set items = events %}{% endif %}
+{% if logbook is defined %}{% set items = logbook %}{% elif events is defined %}{% set items = events %}{% else %}{% set items = [] %}{% endif %}
 {% if items %}<div class="list-group">{% for event in items %}
 <div class="list-group-item"><div class="d-flex justify-content-between"><strong>{{ event.action or event.type }}</strong><small>{{ event.at }}</small></div><small class="text-muted">{{ event.actor or 'System/Scanner' }} · {{ event.category or event.source }}</small></div>
-{% endfor %}</div>{% else %}<p class="text-muted">Noch keine Ereignisse.</p>{% endif %}
+{% endfor %}</div>{% elif document is defined %}<p class="text-muted">Das Logbuch wird getrennt geladen, damit große Audit-Historien die Dokumentansicht nicht verzögern.</p><a class="btn btn-outline-secondary" href="{{ url_for('documents.logbook', q=document.document_id) }}">Logbuch öffnen</a>{% else %}<p class="text-muted">Noch keine Ereignisse.</p>{% endif %}
