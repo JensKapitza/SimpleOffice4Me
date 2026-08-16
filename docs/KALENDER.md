@@ -88,6 +88,13 @@ Ansichten und blockiert keine Buchungszeit mehr. Zeitpunkt und Benutzer der
 Statusänderung bleiben in der Status- und Git-Historie nachvollziehbar. Ein
 vollständiger Folgeimport mit `STATUS:CONFIRMED` aktiviert den Termin wieder.
 
+Gelöschte Termine verschwinden aus der aktiven Termin- und Monatsansicht, bleiben
+aber unter **Kalender → Gelöschte Termine** für weiterhin leseberechtigte
+Benutzer sichtbar. Die Übersicht zeigt den letzten Termininhalt, Eigentümer,
+Löschzeitpunkt und Akteur sowie die gespeicherte Feld- und Statushistorie. Sie
+ist eine reine Auditansicht: Gelöschte Termine werden nicht wieder in ICS oder
+CalDAV veröffentlicht und die Ansicht verändert oder revidiert keine Historie.
+
 Die Zuordnung einer externen `UID` gilt nur innerhalb desselben Benutzers und
 der Importquelle `ical_import`. Dadurch kann ein anderer Benutzer mit derselben
 UID weder einen fremden Termin ändern noch absagen. Sichtbarkeit und Tags neuer

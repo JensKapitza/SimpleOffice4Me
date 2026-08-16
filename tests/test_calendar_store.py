@@ -50,6 +50,22 @@ class CalendarStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not shared"):
                 store.set_lifecycle_status(event["event_id"], "cancelled", "other")
 
+    def test_deleted_event_keeps_content_actor_and_complete_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            event = store.add("Vertraulicher Termin", "Ursprünglicher Inhalt", "2026-07-25T10:00", "", "", "admin")
+            store.update(event["event_id"], "Geänderter Termin", "Neuer Inhalt", "2026-07-25T10:30", "", "", "admin", "private", "", [])
+
+            store.delete(event["event_id"], "admin")
+
+            deleted = store.get(event["event_id"], "admin")
+            self.assertEqual("deleted", deleted["status"])
+            self.assertEqual("admin", deleted["status_changed_by"])
+            self.assertEqual("Geänderter Termin", deleted["title"])
+            self.assertEqual("Neuer Inhalt", deleted["reason"])
+            self.assertTrue(any(change["field"] == "title" for change in deleted["changes"]))
+            self.assertEqual({"from": "active", "to": "deleted", "by": "admin"}, {key: deleted["status_history"][-1][key] for key in ("from", "to", "by")})
+
     def test_only_owner_can_change_event_sharing(self):
         with tempfile.TemporaryDirectory() as temp:
             store = CalendarStore(Path(temp))
