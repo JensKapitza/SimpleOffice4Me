@@ -59,11 +59,24 @@ ist in [docs/LIBREOFFICE_WEBDAV.md](docs/LIBREOFFICE_WEBDAV.md) beschrieben.
 Hierarchische Dateiverwaltung mit Nautilus, Windows Explorer, Finder und einem
 eingehängten FreeFileSync-Ziel ist in
 [docs/WEBDAV_DATEIVERWALTUNG.md](docs/WEBDAV_DATEIVERWALTUNG.md) dokumentiert.
+Vollständige Teilbäume können für Inventarisierung und Synchronisation
+[begrenzt und konsistent mit `PROPFIND Depth: infinity`](docs/WEBDAV_REKURSIVE_PROPFIND_RFC4918.md)
+erfasst werden; Mitgliederzahl, Verschachtelung und Antwortgröße bleiben gegen
+Überlastung geschützt.
+Neue Dateien und Ordner erhalten außerdem
+[plattformübergreifend sichere WebDAV-Namen](docs/WEBDAV_PORTABLE_DATEINAMEN.md):
+Unicode-Normalisierung, Windows-Gerätenamen und Großschreibungs-/
+Normalisierungskollisionen werden ohne stille Umbenennung geprüft.
 Der inkrementelle Änderungsabgleich für kompatible Clients folgt
-[RFC 6578](docs/WEBDAV_SYNC_RFC6578.md).
+[RFC 6578](docs/WEBDAV_SYNC_RFC6578.md) und liefert große Bestände über
+fortsetzbare, revisionsfeste Teil-Token statt unbeschränkter Antworten.
 Schreibbare, atomare Datei- und Ordnereigenschaften für Desktop-Clients sind
 unter [WebDAV-Eigenschaften nach RFC 4918](docs/WEBDAV_EIGENSCHAFTEN_RFC4918.md)
 beschrieben.
+Persistente Erstellungszeiten, HTTP-konforme Änderungszeiten und ausgewählte
+Windows-/Office-WebDAV-Eigenschaften einschließlich sicherer COPY-/MOVE-
+Semantik beschreibt
+[WebDAV-Zeitstempel und MS-WDVME-Interoperabilität](docs/WEBDAV_ZEITSTEMPEL_MS_WDVME.md).
 Optionale Speichergrenzen nach RFC 4331, 507-Fehler und der vollständige
 Lebenszyklus von Office-Sperren einschließlich Refresh und gesperrter leerer
 Ressourcen stehen in
@@ -96,6 +109,10 @@ Wie diese Gerätezugänge zusätzlich auf genau einen Ordner begrenzt werden und
 `COPY`, `MOVE`, Locks sowie Sync-Token nach dem Rechteprinzip aus RFC 3744
 abgesichert sind, beschreibt
 [docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md](docs/WEBDAV_ORDNERZUGAENGE_RFC3744.md).
+Die geschützte, rein lesende
+[Principal- und Rechteerkennung nach RFC 3744/5397](docs/WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md)
+ermöglicht Desktop-Clients eine ressourcengenaue Read-only-Anzeige, ohne ACLs,
+Freigaben oder Ordnergrenzen über WebDAV veränderbar zu machen.
 Die bestätigte, hashgeprüfte Rückholung gelöschter Dateien und früherer
 Dateiinhalte ohne stilles Überschreiben beschreibt
 [docs/DATEI_WIEDERHERSTELLUNG.md](docs/DATEI_WIEDERHERSTELLUNG.md).
@@ -109,6 +126,10 @@ werden, beschreibt
 Die eigenständige Übertragung guter Offline-, Sidecar- und Suchkonzepte aus
 TagSpaces ist in [docs/TAGSPACES_ANSAETZE.md](docs/TAGSPACES_ANSAETZE.md)
 einschließlich Verbesserungen und Interoperabilitätsgrenzen beschrieben.
+Die daraus abgeleitete, berechtigungsgebundene
+[serverseitige WebDAV-Suche nach RFC 5323](docs/WEBDAV_SUCHE_RFC5323_TAGSPACES.md)
+findet Namen, Größen, Zeitstempel und Dead-Property-Tags ohne Dateiinhalt oder
+externe Suchdienste und liefert bei Schutzgrenzen keine irreführende Teilliste.
 
 ## Start und Update
 

@@ -19,6 +19,11 @@ beschrieben.
 
 Alternativ kann der Dienst einmalig über **Datei → Remote öffnen → Dienste verwalten → WebDAV** eingerichtet werden. Host, Port und Root-Pfad werden aus der angezeigten HTTPS-Adresse übernommen. Diese Bedienung entspricht der offiziellen LibreOffice-Hilfe zu [WebDAV-Remote-Dateien](https://help.libreoffice.org/latest/de/text/shared/guide/cmis-remote-files-setup.html) und zum [Öffnen und Speichern über WebDAV/HTTPS](https://help.libreoffice.org/latest/de/text/shared/guide/digitalsign_receive.html).
 
+ACL-fähige Clients können zusätzlich den geschützten aktuellen Principal und
+den wirksamen Lese-/Schreibumfang erkennen. Dafür ist keine Einstellung nötig;
+die Funktion verändert keine ACL oder Freigabe. Details stehen unter
+[WebDAV-Principal- und Rechteerkennung](WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md).
+
 ## Konfiguration und Voraussetzungen
 
 - Eine installierte LibreOffice-Version mit WebDAV-Unterstützung.
@@ -36,7 +41,7 @@ Maßgeblich ist [RFC 4918 – Web Distributed Authoring and Versioning](https://
 | Norm | Abschnitt | Konsequenz in SimpleOffice |
 |---|---|---|
 | Ein DAV-Server **MUST** die unterstützten Klassen über `DAV` melden. | [§10.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-10.1) | `OPTIONS` meldet Klassen `1, 2` und alle unterstützten Methoden. |
-| `PROPFIND` **MUST** für DAV-Ressourcen verfügbar sein; `Depth` ist auszuwerten. | [§9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1) | Sammlungen und Dateien liefern `207`; nur `Depth: 0` und `1` werden akzeptiert. |
+| `PROPFIND` **MUST** für DAV-Ressourcen verfügbar sein; `Depth` ist auszuwerten. | [§9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1) | Sammlungen und Dateien liefern `207`. Der hierarchische Dateibaum unterstützt `Depth: 0`, `1` und begrenztes `infinity`; die dokument-ID-stabile Direkt-URL bleibt auf `0/1` begrenzt. |
 | Ein erfolgreicher exklusiver Write-Lock **MUST** konkurrierende Schreibzugriffe verhindern. | [§6.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-6.1), [§9.10](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10) | `LOCK` erzeugt einen undurchsichtigen Token; fremde oder tokenlose `PUT` erhalten `423`. |
 | Lock-Token **MUST** über `If` bei schreibenden Methoden eingereicht werden. | [§7.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.6), [§10.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-10.4) | SimpleOffice erkennt Token aus `If` und `Lock-Token`; `UNLOCK` prüft Token und Benutzer. |
 | Server **MUST NOT** einen Lock mit unendlicher Lebensdauer voraussetzen; Timeouts dürfen angepasst werden. | [§6.6](https://www.rfc-editor.org/rfc/rfc4918.html#section-6.6) | Timeouts werden auf 60 bis 3600 Sekunden begrenzt; Standard sind 30 Minuten. |
@@ -62,7 +67,10 @@ und Grenzen stehen in [WEBDAV_DOWNLOADS_RFC9110.md](WEBDAV_DOWNLOADS_RFC9110.md)
 ### Bewusst nicht in der direkten Dokument-URL implementiert
 
 - `MKCOL`, `DELETE`, `MOVE` und `COPY` bleiben auf der stabilen Einzeldatei-URL gesperrt. Diese Methoden stehen im getrennten hierarchischen Dateibaum zur Verfügung.
-- `Depth: infinity`: reduziert Last- und Informationsrisiken.
+- `Depth: infinity` auf der direkten Dokument-URL: Sie ist keine Sammlung.
+  Für vollständige, begrenzte Teilbäume dient der hierarchische Endpunkt;
+  Schutzgrenzen und RFC-Entscheidungen stehen in
+  [WEBDAV_REKURSIVE_PROPFIND_RFC4918.md](WEBDAV_REKURSIVE_PROPFIND_RFC4918.md).
 - Gemeinsame Links oder anonyme Schreibfreigaben: WebDAV bleibt benutzergebunden.
 - Feldweises oder binäres Zusammenführen paralleler Office-Dateien: Konflikte werden abgewiesen und müssen fachlich gelöst werden.
 - Browser-Start über ein proprietäres URI-Schema: Die WebDAV-Adresse wird kopiert, weil Betriebssysteme nicht einheitlich ein sicheres LibreOffice-Protokoll registrieren.

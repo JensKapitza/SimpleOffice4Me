@@ -38,7 +38,7 @@ festen Geräteumfang verwendet.
 | Ein Server muss vor Ausführung einer Methode die erforderlichen Privilegien prüfen. | MUST – [§7.1](https://www.rfc-editor.org/rfc/rfc3744.html#section-7.1), [Appendix B](https://www.rfc-editor.org/rfc/rfc3744.html#appendix-B) | Authentifizierung, Benutzerpfad, Ordnergrenze und Lese-/Schreibumfang werden vor Datei-, Lock-, Sync- oder Auditmutation geprüft. |
 | `MOVE` benötigt Rechte am Quell- und Zielkontext; `COPY` benötigt das Binden am Ziel. | MUST – [§7.3](https://www.rfc-editor.org/rfc/rfc3744.html#section-7.3), [§7.4](https://www.rfc-editor.org/rfc/rfc3744.html#section-7.4) | Quellressource und `Destination` müssen innerhalb derselben Geräteordnergrenze liegen. Ein Verschieben oder Kopieren hinaus wird vor jeder Mutation abgewiesen. |
 | Ein Lock beeinflusst Inhaltsänderungen und das Entsperren ist ein eigenes Privileg. | MUST – [§3.5](https://www.rfc-editor.org/rfc/rfc3744.html#section-3.5), [§7.5](https://www.rfc-editor.org/rfc/rfc3744.html#section-7.5) | `LOCK` und `UNLOCK` sind nur mit Schreibzugang und nur innerhalb des Ordners möglich. Ein bekannter Token hebt die Ordnergrenze nicht auf. |
-| ACL-Auswertung umfasst Principal- und Gruppenbeziehungen. | MUST für ACL-Server – [§6](https://www.rfc-editor.org/rfc/rfc3744.html#section-6) | Nicht implementiert: Die Gerätekennung ist kein durch `DAV:principal-URL` auffindbarer ACL-Principal. Es gibt keine vom Desktop-Client les- oder änderbare `DAV:acl`. |
+| ACL-Auswertung umfasst Principal- und Gruppenbeziehungen. | MUST für ACL-Server – [§6](https://www.rfc-editor.org/rfc/rfc3744.html#section-6) | Teilweise und nur lesend: Der angemeldete Benutzer besitzt eine private `DAV:principal-URL`; der Geräteumfang erscheint als `current-user-privilege-set`. Es gibt weiterhin keine vom Desktop-Client les- oder änderbare `DAV:acl`, Gruppen oder Compliance-Werbung. Details: [WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md](WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md). |
 | ACL-Informationen können selbst sensible Namen und Strukturen offenlegen. | Sicherheitsfolge – [§12](https://www.rfc-editor.org/rfc/rfc3744.html#section-12) | Die Oberfläche zeigt den Ordner nur dem angemeldeten Browserbenutzer. WebDAV-Antworten außerhalb der Grenze enthalten weder Eigenschaften noch Verzeichnislisten. |
 
 ### WebDAV, HTTP und Authentifizierung
@@ -193,9 +193,10 @@ Die Tests decken positiv und negativ ab:
 
 ## Bewusst nicht implementiert und bekannte Grenzen
 
-- Keine WebDAV-ACL-Bearbeitung mit `ACL`, `DAV:acl`, Principal-Discovery oder
-  Gruppen. Die feste Geräteordnergrenze ist kleiner, verständlicher und kann
-  nicht von einem Desktop-Client erweitert werden.
+- Keine WebDAV-ACL-Bearbeitung mit `ACL`, `DAV:acl`, Principal-Suche oder
+  Gruppen. Die rein lesende Current-Principal-Erkennung veröffentlicht nur
+  den angemeldeten Benutzer. Die feste Geräteordnergrenze ist kleiner,
+  verständlicher und kann nicht von einem Desktop-Client erweitert werden.
 - Ein Zugang umfasst genau einen Ordner mit allen Nachkommen. Mehrere
   voneinander getrennte Ordner benötigen getrennte Gerätezugänge.
 - Das nachträgliche Ändern der Grenze ist absichtlich nicht möglich. Erzeugen

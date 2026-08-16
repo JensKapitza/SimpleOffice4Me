@@ -1,16 +1,20 @@
 import base64
 import hashlib
 import json
+import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
+from urllib.parse import quote
 from unittest import mock
 from xml.etree import ElementTree
 
 from app import app
 from app.attachment_security import ClamAV, ScanResult
 from app.db import ensure_auth_database
-from app.document_store import CONTROL_DIR, DocumentStore
+from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, revoke
 
 
@@ -37,6 +41,21 @@ class WebDavDocumentTest(unittest.TestCase):
         self.url = f"/webdav/documents/jens/{self.document['document_id']}--angebot.odt"
         self.files = "/webdav/files/jens"
         self.lock_body = "<d:lockinfo xmlns:d='DAV:'><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype><d:owner>LibreOffice</d:owner></d:lockinfo>"
+
+    def search(self, *, scope=None, depth="infinity", select="<d:displayname/><d:getetag/>", where="", orderby="", limit="", auth=None, content_type="application/xml", endpoint=None):
+        body = f'''<d:searchrequest xmlns:d="DAV:" xmlns:t="urn:simpleoffice:test">
+          <d:basicsearch>
+            <d:select><d:prop>{select}</d:prop></d:select>
+            <d:from><d:scope><d:href>{scope or self.files}</d:href><d:depth>{depth}</d:depth></d:scope></d:from>
+            {f'<d:where>{where}</d:where>' if where else ''}
+            {orderby}
+            {f'<d:limit><d:nresults>{limit}</d:nresults></d:limit>' if limit != '' else ''}
+          </d:basicsearch>
+        </d:searchrequest>'''
+        return self.client.open(
+            endpoint or self.files, method="SEARCH", data=body,
+            headers={**(auth or self.auth), "Content-Type": content_type},
+        )
 
     def tearDown(self):
         app.config.update(self.previous)
@@ -89,10 +108,14 @@ class WebDavDocumentTest(unittest.TestCase):
         folder = self.client.open(f"{self.files}/blocked", method="MKCOL", headers=auth)
         lock = self.client.open(self.url, method="LOCK", headers=auth)
 
-        self.assertEqual("OPTIONS, PROPFIND, REPORT, GET, HEAD", options.headers["Allow"])
+        self.assertEqual("OPTIONS, PROPFIND, REPORT, SEARCH, GET, HEAD", options.headers["Allow"])
         self.assertEqual(207, listing.status_code)
         self.assertEqual(200, fetched.status_code)
         self.assertEqual([403, 403, 403], [put.status_code, folder.status_code, lock.status_code])
+        put_error = ElementTree.fromstring(put.data)
+        self.assertEqual(f"{self.files}/neu.txt", put_error.findtext(".//{DAV:}href"))
+        self.assertIsNotNone(put_error.find(".//{DAV:}privilege/{DAV:}write"))
+        self.assertEqual("private, no-store", put.headers["Cache-Control"])
         self.assertFalse((self.store.root / "neu.txt").exists())
 
     def test_expired_and_malformed_credentials_are_rejected(self):
@@ -236,7 +259,7 @@ class WebDavDocumentTest(unittest.TestCase):
         fetched = self.client.get(f"{root}/Beleg.pdf", headers=auth)
         rejected = self.client.put(f"{root}/Neu.pdf", data=b"no", headers=auth)
 
-        self.assertEqual("OPTIONS, PROPFIND, REPORT, GET, HEAD", options.headers["Allow"])
+        self.assertEqual("OPTIONS, PROPFIND, REPORT, SEARCH, GET, HEAD", options.headers["Allow"])
         self.assertEqual([207, 200, 403], [listing.status_code, fetched.status_code, rejected.status_code])
         self.assertFalse((self.store.root / "Archiv" / "Neu.pdf").exists())
 
@@ -2329,15 +2352,196 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertEqual(403, foreign.status_code)
         self.assertIn("valid-sync-token", foreign.get_data(as_text=True))
 
-    def test_sync_report_rejects_bad_depth_shape_limit_and_file_target(self):
+    def test_sync_report_rejects_bad_depth_shape_invalid_limit_and_file_target(self):
         valid = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
         bad_depth = self.client.open(self.files, method="REPORT", data=valid, headers={**self.auth, "Depth": "1"})
         bad_shape = self.client.open(self.files, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"/>', headers=self.auth)
-        limited = self.client.open(self.files, method="REPORT", data=valid.replace("<d:prop>", "<d:limit><d:nresults>1</d:nresults></d:limit><d:prop>"), headers=self.auth)
+        limited = self.client.open(self.files, method="REPORT", data=valid.replace("<d:prop>", "<d:limit><d:nresults>0</d:nresults></d:limit><d:prop>"), headers=self.auth)
         file_target = self.client.open(f"{self.files}/angebot.odt", method="REPORT", data=valid, headers=self.auth)
 
-        self.assertEqual([400, 400, 507, 400], [bad_depth.status_code, bad_shape.status_code, limited.status_code, file_target.status_code])
-        self.assertIn("number-of-matches-within-limits", limited.get_data(as_text=True))
+        self.assertEqual([400, 400, 400, 400], [bad_depth.status_code, bad_shape.status_code, limited.status_code, file_target.status_code])
+        self.assertIn("positive integer", limited.get_data(as_text=True))
+
+    def test_sync_limit_pages_initial_inventory_without_duplicates(self):
+        self.store.create_document_at("alpha.txt", b"a", "jens")
+        self.store.create_document_at("beta.txt", b"b", "jens")
+        self.store.create_document_at("gamma.txt", b"c", "jens")
+        template = '<d:sync-collection xmlns:d="DAV:"><d:sync-token>{token}</d:sync-token><d:sync-level>infinite</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        token = ""
+        hrefs = []
+        pages = 0
+        while True:
+            response = self.client.open(
+                self.files, method="REPORT", data=template.format(token=token),
+                headers={**self.auth, "Depth": "0"},
+            )
+            root = ElementTree.fromstring(response.data)
+            pages += 1
+            for item in root.findall("{DAV:}response"):
+                status = item.findtext("{DAV:}status", "")
+                if "507" not in status:
+                    hrefs.append(item.findtext("{DAV:}href"))
+            token = root.findtext("{DAV:}sync-token")
+            if "507 Insufficient Storage" not in response.get_data(as_text=True):
+                break
+            self.assertEqual("result-count", response.headers["X-SimpleOffice-Sync-Limit"])
+            self.assertLess(pages, 10)
+
+        self.assertEqual(4, pages)
+        self.assertEqual(4, len(hrefs))
+        self.assertEqual(len(hrefs), len(set(hrefs)))
+        self.assertTrue(any(href.endswith("angebot.odt") for href in hrefs))
+        quiet = self.client.open(
+            self.files, method="REPORT", data=template.format(token=token), headers=self.auth,
+        )
+        self.assertEqual([], ElementTree.fromstring(quiet.data).findall("{DAV:}response"))
+
+    def test_sync_server_cap_pages_without_client_limit_and_audits_cursor(self):
+        self.store.create_document_at("alpha.txt", b"a", "jens")
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        with mock.patch("app.webdav.MAX_SYNC_PAGE_RESULTS", 1):
+            first = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+            token = ElementTree.fromstring(first.data).findtext("{DAV:}sync-token")
+            second = self.client.open(
+                self.files, method="REPORT",
+                data=body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+                headers=self.auth,
+            )
+
+        self.assertEqual([207, 207], [first.status_code, second.status_code])
+        self.assertIn("507 Insufficient Storage", first.get_data(as_text=True))
+        self.assertNotIn("507 Insufficient Storage", second.get_data(as_text=True))
+        events = [row for row in self.store.logbook() if row.get("action") == "webdav_sync_truncated"]
+        self.assertTrue(events)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-sync").glob("*.json")
+        ]
+        self.assertEqual(1, snapshots[-1]["returned"])
+        self.assertEqual(1, snapshots[-1]["remaining"])
+        self.assertNotIn("urn:uuid", json.dumps(snapshots[-1]))
+
+    def test_sync_paging_includes_parallel_change_after_partial_token(self):
+        self.store.create_document_at("zulu.txt", b"z", "jens")
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        first = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+        token = ElementTree.fromstring(first.data).findtext("{DAV:}sync-token")
+        first_href = next(
+            item.findtext("{DAV:}href") for item in ElementTree.fromstring(first.data).findall("{DAV:}response")
+            if "507" not in item.findtext("{DAV:}status", "")
+        )
+        path = first_href.rsplit("/", 1)[-1]
+        current = self.client.get(f"{self.files}/{path}", headers=self.auth)
+        changed = self.client.put(
+            f"{self.files}/{path}", data=b"parallel update",
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+        seen_after = []
+        for _page in range(6):
+            page = self.client.open(
+                self.files, method="REPORT",
+                data=body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+                headers=self.auth,
+            )
+            root = ElementTree.fromstring(page.data)
+            seen_after.extend(
+                item.findtext("{DAV:}href") for item in root.findall("{DAV:}response")
+                if "507" not in item.findtext("{DAV:}status", "")
+            )
+            token = root.findtext("{DAV:}sync-token")
+            if "507 Insufficient Storage" not in page.get_data(as_text=True):
+                break
+
+        self.assertEqual(204, changed.status_code)
+        self.assertIn(first_href, seen_after)
+        self.assertTrue(any(href.endswith("zulu.txt") for href in [first_href, *seen_after]))
+
+    def test_sync_paging_suppresses_removed_collection_descendants_across_boundary(self):
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>infinite</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        initial = self.client.open(self.files, method="REPORT", data=body.replace("<d:limit><d:nresults>1</d:nresults></d:limit>", ""), headers=self.auth)
+        token = ElementTree.fromstring(initial.data).findtext("{DAV:}sync-token")
+        self.client.open(f"{self.files}/Ordner", method="MKCOL", headers=self.auth)
+        self.client.put(f"{self.files}/Ordner/eins.txt", data=b"1", headers=self.auth)
+        self.client.put(f"{self.files}/Ordner/zwei.txt", data=b"2", headers=self.auth)
+        deleted = self.client.delete(f"{self.files}/Ordner", headers=self.auth)
+        report = self.client.open(
+            self.files, method="REPORT",
+            data=body.replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+            headers=self.auth,
+        )
+        text = report.get_data(as_text=True)
+
+        self.assertEqual(204, deleted.status_code)
+        self.assertEqual(1, len(ElementTree.fromstring(report.data).findall("{DAV:}response")))
+        self.assertIn("Ordner/", text)
+        self.assertNotIn("eins.txt", text)
+        self.assertNotIn("zwei.txt", text)
+        self.assertNotIn("507 Insufficient Storage", text)
+
+    def test_sync_limit_validation_and_partial_token_user_isolation(self):
+        base = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level>{limit}<d:prop><d:getetag/></d:prop></d:sync-collection>'
+        invalid = []
+        for limit in (
+            "<d:limit/>",
+            "<d:limit><d:nresults>-1</d:nresults></d:limit>",
+            "<d:limit><d:nresults>abc</d:nresults></d:limit>",
+            "<d:limit><d:nresults>1</d:nresults><d:nresults>2</d:nresults></d:limit>",
+        ):
+            invalid.append(self.client.open(self.files, method="REPORT", data=base.format(limit=limit), headers=self.auth))
+        self.store.create_document_at("alpha.txt", b"a", "jens")
+        partial = self.client.open(
+            self.files, method="REPORT",
+            data=base.format(limit="<d:limit><d:nresults>1</d:nresults></d:limit>"), headers=self.auth,
+        )
+        token = ElementTree.fromstring(partial.data).findtext("{DAV:}sync-token")
+        self.client.get("/auth/logout")
+        self.client.post("/auth/register", data={"username": "other", "password": "other-browser-password"})
+        with app.test_request_context():
+            password = activate("other", "other", label="Other", expires_days=30)
+        auth = {"Authorization": "Basic " + base64.b64encode(f"other:{password}".encode()).decode()}
+        foreign = self.client.open(
+            "/webdav/files/other", method="REPORT",
+            data=base.format(limit="").replace("<d:sync-token/>", f"<d:sync-token>{token}</d:sync-token>"),
+            headers=auth,
+        )
+
+        self.assertEqual([400, 400, 400, 400], [item.status_code for item in invalid])
+        self.assertEqual(207, partial.status_code)
+        self.assertEqual(403, foreign.status_code)
+        self.assertIn("valid-sync-token", foreign.get_data(as_text=True))
+
+    def test_sync_paging_migrates_legacy_journal_without_changing_documents(self):
+        body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:limit><d:nresults>1</d:nresults></d:limit><d:prop><d:getetag/></d:prop></d:sync-collection>'
+        initial = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+        sync_path = self.store.control / "webdav-sync.json"
+        payload = json.loads(sync_path.read_text(encoding="utf-8"))
+        state = payload["users"]["jens"]["collections"]["."]
+        state.pop("path_revisions")
+        sync_path.write_text(json.dumps(payload), encoding="utf-8")
+        before = (self.store.root / "angebot.odt").read_bytes()
+
+        migrated = self.client.open(self.files, method="REPORT", data=body, headers=self.auth)
+        persisted = json.loads(sync_path.read_text(encoding="utf-8"))
+        migrated_state = persisted["users"]["jens"]["collections"]["."]
+
+        self.assertEqual(207, initial.status_code)
+        self.assertEqual(207, migrated.status_code)
+        self.assertEqual(before, (self.store.root / "angebot.odt").read_bytes())
+        self.assertIn("angebot.odt", migrated_state["path_revisions"])
+        self.assertGreater(migrated_state["revision"], state["revision"])
+
+    def test_sync_report_rejects_external_entities_without_leaking_content(self):
+        response = self.client.open(
+            self.files, method="REPORT",
+            data='''<!DOCTYPE x [<!ENTITY leak SYSTEM "file:///etc/passwd">]>
+              <d:sync-collection xmlns:d="DAV:"><d:sync-token>&leak;</d:sync-token>
+              <d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>''',
+            headers=self.auth,
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("no-external-entities", response.get_data(as_text=True))
+        self.assertNotIn("root:", response.get_data(as_text=True))
 
     def test_sync_reports_remove_then_remap_as_changed_not_deleted(self):
         body = '<d:sync-collection xmlns:d="DAV:"><d:sync-token/><d:sync-level>1</d:sync-level><d:prop><d:getetag/></d:prop></d:sync-collection>'
@@ -2560,6 +2764,840 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertFalse((self.store.root / "Rollback-Kopie").exists())
         rolled_back = [row for row in self.store.logbook() if row.get("type") == "document_soft_deleted"]
         self.assertTrue(rolled_back)
+
+    def test_portable_unicode_name_round_trips_through_propfind_and_get(self):
+        name = "Käse 📄.odt"
+        url = f"{self.files}/{quote(name, safe='')}"
+
+        created = self.client.put(url, data=b"portable office document", headers=self.auth)
+        listing = self.client.open(self.files, method="PROPFIND", headers={**self.auth, "Depth": "1"})
+        fetched = self.client.get(url, headers=self.auth)
+
+        self.assertEqual(201, created.status_code)
+        self.assertEqual(207, listing.status_code)
+        self.assertIn(quote(name, safe=""), listing.get_data(as_text=True))
+        self.assertEqual(b"portable office document", fetched.data)
+        self.assertTrue((self.store.root / name).is_file())
+
+    def test_new_names_reject_non_nfc_reserved_invisible_and_oversized_segments(self):
+        cases = {
+            "Cafe\u0301.txt": "unicode-nfc-required",
+            "CON.txt": "windows-reserved-device-name",
+            "COM¹.log": "windows-reserved-device-name",
+            "bad:name.txt": "windows-reserved-character",
+            "trailing.": "leading-or-trailing-space-or-dot",
+            " leading.txt": "leading-or-trailing-space-or-dot",
+            "report\u202Ecod.exe": "bidirectional-control-character",
+            "private\uE000.txt": "non-interchange-character",
+            f"{'a' * 201}.txt": "name-too-long",
+        }
+
+        for name, reason in cases.items():
+            with self.subTest(name=repr(name)):
+                response = self.client.put(
+                    f"{self.files}/{quote(name, safe='')}", data=b"must not appear", headers=self.auth,
+                )
+                self.assertEqual(409, response.status_code)
+                self.assertEqual(reason, response.headers["X-SimpleOffice-Name-Reason"])
+                self.assertIn("portable-file-name", response.get_data(as_text=True))
+                self.assertFalse((self.store.root / name).exists())
+
+        rejections = [
+            row for row in self.store.logbook()
+            if row.get("action") == "webdav_portable_name_rejected"
+        ]
+        self.assertEqual(len(cases), len(rejections))
+        snapshots = list((self.store.history.root / "snapshots" / "webdav-name-policy").glob("*.json"))
+        self.assertEqual(len(cases), len(snapshots))
+        serialized = "\n".join(path.read_text(encoding="utf-8") for path in snapshots)
+        self.assertNotIn("CON.txt", serialized)
+        self.assertNotIn("bad:name.txt", serialized)
+
+    def test_case_and_normalization_collisions_are_blocked_for_put_mkcol_and_copy(self):
+        source = f"{self.files}/Bericht.odt"
+        self.assertEqual(201, self.client.put(source, data=b"source", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.open(f"{self.files}/Daten", method="MKCOL", headers=self.auth).status_code)
+
+        put_collision = self.client.put(f"{self.files}/bericht.ODT", data=b"other", headers=self.auth)
+        folder_collision = self.client.open(f"{self.files}/daten", method="MKCOL", headers=self.auth)
+        copy_collision = self.client.open(
+            source,
+            method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{self.files}/BERICHT.ODT"},
+        )
+
+        self.assertEqual([409, 409, 409], [put_collision.status_code, folder_collision.status_code, copy_collision.status_code])
+        self.assertEqual(
+            ["case-or-normalization-collision"] * 3,
+            [put_collision.headers["X-SimpleOffice-Name-Reason"], folder_collision.headers["X-SimpleOffice-Name-Reason"], copy_collision.headers["X-SimpleOffice-Name-Reason"]],
+        )
+        self.assertEqual(b"source", (self.store.root / "Bericht.odt").read_bytes())
+        self.assertFalse((self.store.root / "bericht.ODT").exists())
+        self.assertFalse((self.store.root / "daten").exists())
+        self.assertFalse((self.store.root / "BERICHT.ODT").exists())
+
+    def test_legacy_non_nfc_resource_remains_editable_and_can_be_renamed_safely(self):
+        legacy_name = "Cafe\u0301.txt"
+        canonical_name = "Café.txt"
+        legacy_path = self.store.root / legacy_name
+        legacy_path.write_bytes(b"legacy")
+        self.store.scan()
+        before = self.store.get_document(legacy_name)
+        legacy_url = f"{self.files}/{quote(legacy_name, safe='')}"
+        canonical_url = f"{self.files}/{quote(canonical_name, safe='')}"
+
+        current = self.client.get(legacy_url, headers=self.auth)
+        updated = self.client.put(
+            legacy_url, data=b"legacy updated",
+            headers={**self.auth, "If-Match": current.headers["ETag"]},
+        )
+        collision = self.client.put(canonical_url, data=b"duplicate", headers=self.auth)
+        moved = self.client.open(
+            legacy_url,
+            method="MOVE",
+            headers={**self.auth, "Destination": f"http://localhost{canonical_url}"},
+        )
+        after = self.store.get_document(canonical_name)
+
+        self.assertEqual(204, updated.status_code)
+        self.assertEqual(409, collision.status_code)
+        self.assertEqual("case-or-normalization-collision", collision.headers["X-SimpleOffice-Name-Reason"])
+        self.assertEqual(201, moved.status_code)
+        self.assertFalse(legacy_path.exists())
+        self.assertEqual(b"legacy updated", (self.store.root / canonical_name).read_bytes())
+        self.assertEqual(before["document_id"], after["document_id"])
+
+    def test_case_only_move_is_allowed_but_copying_an_alias_is_not(self):
+        source_url = f"{self.files}/Plan.txt"
+        target_url = f"{self.files}/plan.txt"
+        self.assertEqual(201, self.client.put(source_url, data=b"plan", headers=self.auth).status_code)
+        before = self.store.get_document("Plan.txt")
+
+        copied = self.client.open(
+            source_url,
+            method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{target_url}"},
+        )
+        moved = self.client.open(
+            source_url,
+            method="MOVE",
+            headers={**self.auth, "Destination": f"http://localhost{target_url}"},
+        )
+        after = self.store.get_document("plan.txt")
+
+        self.assertEqual(409, copied.status_code)
+        self.assertEqual(201, moved.status_code)
+        self.assertFalse((self.store.root / "Plan.txt").exists())
+        self.assertEqual(b"plan", (self.store.root / "plan.txt").read_bytes())
+        self.assertEqual(before["document_id"], after["document_id"])
+
+    def test_lock_null_and_read_only_requests_cannot_bypass_name_policy_or_rights(self):
+        unsafe = f"{self.files}/NUL.txt"
+        locked = self.client.open(
+            unsafe, method="LOCK", data=self.lock_body,
+            headers={**self.auth, "Depth": "0", "Timeout": "Second-600"},
+        )
+        self.assertEqual(409, locked.status_code)
+        self.assertFalse((self.store.root / "NUL.txt").exists())
+
+        with app.test_request_context():
+            password = activate("jens", "jens", label="Read-only policy test", scope="read", expires_days=30)
+        read_auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        before = len([row for row in self.store.logbook() if row.get("action") == "webdav_portable_name_rejected"])
+        denied = self.client.put(f"{self.files}/AUX.txt", data=b"blocked by rights", headers=read_auth)
+        after = len([row for row in self.store.logbook() if row.get("action") == "webdav_portable_name_rejected"])
+
+        self.assertEqual(403, denied.status_code)
+        self.assertEqual(before, after)
+        self.assertFalse((self.store.root / "AUX.txt").exists())
+
+    def test_depth_infinity_returns_a_bounded_flat_snapshot_for_sync_clients(self):
+        project = f"{self.files}/Projekte"
+        nested = f"{project}/2026"
+        unicode_name = "Käse 📄.odt"
+        self.assertEqual(201, self.client.open(project, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.open(nested, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.put(f"{project}/Plan.txt", data=b"plan", headers=self.auth).status_code)
+        self.assertEqual(
+            201,
+            self.client.put(
+                f"{nested}/{quote(unicode_name, safe='')}", data=b"office", headers=self.auth,
+            ).status_code,
+        )
+        private = Path(self.temp.name) / "private"
+        private.mkdir()
+        (private / "Geheim.txt").write_bytes(b"must not be followed")
+        (self.store.root / "Projekte" / "Verknuepfung").symlink_to(
+            private, target_is_directory=True,
+        )
+        internal = self.store.root / "Projekte" / CONTROL_DIR
+        internal.mkdir(exist_ok=True)
+        (internal / "niemals-sichtbar.txt").write_bytes(b"private")
+        query = (
+            '<d:propfind xmlns:d="DAV:"><d:prop>'
+            '<d:displayname/><d:getetag/><d:sync-token/>'
+            '</d:prop></d:propfind>'
+        )
+
+        recursive = self.client.open(
+            self.files, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "infinity"},
+        )
+        implicit_recursive = self.client.open(project, method="PROPFIND", headers=self.auth)
+        root = ElementTree.fromstring(recursive.data)
+        hrefs = [node.text for node in root.findall("{DAV:}response/{DAV:}href")]
+
+        self.assertEqual(207, recursive.status_code)
+        self.assertEqual("private, no-store", recursive.headers["Cache-Control"])
+        vary = {
+            value.strip().casefold()
+            for value in recursive.headers["Vary"].split(",")
+        }
+        self.assertTrue({"authorization", "depth"}.issubset(vary))
+        self.assertIn("/webdav/files/jens/", hrefs)
+        self.assertIn("/webdav/files/jens/Projekte/", hrefs)
+        self.assertIn("/webdav/files/jens/Projekte/2026/", hrefs)
+        self.assertIn("/webdav/files/jens/Projekte/Plan.txt", hrefs)
+        self.assertIn(
+            f"/webdav/files/jens/Projekte/2026/{quote(unicode_name, safe='')}", hrefs,
+        )
+        self.assertEqual(len(hrefs), len(set(hrefs)))
+        self.assertNotIn(CONTROL_DIR, recursive.get_data(as_text=True))
+        self.assertNotIn("niemals-sichtbar", recursive.get_data(as_text=True))
+        self.assertNotIn("Geheim.txt", recursive.get_data(as_text=True))
+        self.assertNotIn("Verknuepfung", recursive.get_data(as_text=True))
+        self.assertEqual(207, implicit_recursive.status_code)
+        self.assertIn(quote(unicode_name, safe=""), implicit_recursive.get_data(as_text=True))
+
+    def test_recursive_propfind_respects_read_only_folder_scope(self):
+        (self.store.root / "Projekte").mkdir()
+        (self.store.root / "Projekte" / "Unterordner").mkdir()
+        (self.store.root / "Privat").mkdir()
+        self.store.create_document_at("Projekte/Plan.txt", b"plan", "jens")
+        self.store.create_document_at("Projekte/Unterordner/Notiz.txt", b"note", "jens")
+        self.store.create_document_at("Privat/Geheim.txt", b"secret", "jens")
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="FreeFileSync Lesetest", scope="read",
+                path_prefix="Projekte", expires_days=30,
+            )
+        auth = {
+            "Authorization": "Basic "
+            + base64.b64encode(f"jens:{password}".encode()).decode()
+        }
+
+        listing = self.client.open(
+            f"{self.files}/Projekte", method="PROPFIND",
+            headers={**auth, "Depth": "infinity"},
+        )
+        outside = self.client.open(
+            self.files, method="PROPFIND", headers={**auth, "Depth": "infinity"},
+        )
+        write = self.client.put(f"{self.files}/Projekte/Neu.txt", data=b"blocked", headers=auth)
+
+        body = listing.get_data(as_text=True)
+        self.assertEqual(207, listing.status_code)
+        self.assertIn("Plan.txt", body)
+        self.assertIn("Unterordner/Notiz.txt", body)
+        self.assertNotIn("Geheim.txt", body)
+        self.assertEqual(404, outside.status_code)
+        self.assertEqual(403, write.status_code)
+        self.assertFalse((self.store.root / "Projekte" / "Neu.txt").exists())
+
+    def test_recursive_propfind_rejects_member_and_depth_exhaustion_without_partial_result(self):
+        (self.store.root / "A").mkdir()
+        (self.store.root / "A" / "B").mkdir()
+        (self.store.root / "A" / "B" / "C").mkdir()
+        self.store.create_document_at("A/Datei.txt", b"content", "jens")
+
+        with mock.patch("app.webdav.MAX_WEBDAV_COLLECTION_MEMBERS", 1):
+            member_limit = self.client.open(
+                self.files, method="PROPFIND", headers={**self.auth, "Depth": "infinity"},
+            )
+        with mock.patch("app.webdav.MAX_WEBDAV_COLLECTION_DEPTH", 1):
+            depth_limit = self.client.open(
+                f"{self.files}/A", method="PROPFIND",
+                headers={**self.auth, "Depth": "infinity"},
+            )
+
+        self.assertEqual([507, 507], [member_limit.status_code, depth_limit.status_code])
+        self.assertEqual("member-count", member_limit.headers["X-SimpleOffice-Propfind-Limit"])
+        self.assertEqual("nesting-depth", depth_limit.headers["X-SimpleOffice-Propfind-Limit"])
+        self.assertIn("propfind-resource-limit", member_limit.get_data(as_text=True))
+        self.assertNotIn("Datei.txt", member_limit.get_data(as_text=True))
+        self.assertNotIn("Datei.txt", depth_limit.get_data(as_text=True))
+        audits = [
+            row for row in self.store.logbook()
+            if row.get("action") == "webdav_propfind_limit_rejected"
+        ]
+        self.assertEqual(2, len(audits))
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (
+                self.store.history.root / "snapshots" / "webdav-propfind"
+            ).glob("*.json")
+        ]
+        self.assertEqual(
+            {"member-count", "nesting-depth"},
+            {snapshot.get("reason") for snapshot in snapshots},
+        )
+
+    def test_propfind_response_size_is_limited_and_rejection_is_audited(self):
+        with mock.patch("app.webdav.MAX_PROPFIND_RESPONSE_BYTES", 128):
+            response = self.client.open(
+                self.files, method="PROPFIND", headers={**self.auth, "Depth": "0"},
+            )
+
+        self.assertEqual(507, response.status_code)
+        self.assertEqual("response-bytes", response.headers["X-SimpleOffice-Propfind-Limit"])
+        self.assertNotIn("multistatus", response.get_data(as_text=True))
+        snapshots = list(
+            (self.store.history.root / "snapshots" / "webdav-propfind").glob("*.json")
+        )
+        self.assertTrue(snapshots)
+        snapshot = json.loads(snapshots[-1].read_text(encoding="utf-8"))
+        self.assertEqual("response-bytes", snapshot["reason"])
+        self.assertGreater(snapshot["observed"], snapshot["limit"])
+
+    def test_recursive_propfind_uses_the_webdav_mutation_lock(self):
+        with mock.patch("app.webdav.exclusive_file_lock") as locking:
+            response = self.client.open(
+                self.files, method="PROPFIND",
+                headers={**self.auth, "Depth": "infinity"},
+            )
+
+        self.assertEqual(207, response.status_code)
+        lock_paths = [str(call.args[0]) for call in locking.call_args_list if call.args]
+        self.assertTrue(any(path.endswith("webdav-sync.mutation.lock") for path in lock_paths))
+
+    def test_rfc_creationdate_and_getlastmodified_cover_files_and_collections(self):
+        folder_url = f"{self.files}/Zeitdaten"
+        file_url = f"{folder_url}/Bericht.odt"
+        self.assertEqual(201, self.client.open(folder_url, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.put(file_url, data=b"report", headers=self.auth).status_code)
+        query = (
+            '<d:propfind xmlns:d="DAV:"><d:prop>'
+            '<d:creationdate/><d:getlastmodified/>'
+            '</d:prop></d:propfind>'
+        )
+
+        folder = self.client.open(
+            folder_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        before = self.client.open(
+            file_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        folder_root = ElementTree.fromstring(folder.data)
+        before_root = ElementTree.fromstring(before.data)
+        folder_created = folder_root.findtext(".//{DAV:}creationdate")
+        file_created = before_root.findtext(".//{DAV:}creationdate")
+        modified_before = parsedate_to_datetime(
+            before_root.findtext(".//{DAV:}getlastmodified") or "",
+        )
+
+        policy = json.loads((self.store.root / "Zeitdaten" / POLICY_FILE).read_text())
+        document = self.store.get_document("Zeitdaten/Bericht.odt")
+        self.assertEqual("webdav:jens", policy["created_by"])
+        self.assertEqual(
+            datetime.fromisoformat(policy["created_at"]).astimezone(timezone.utc),
+            datetime.fromisoformat((folder_created or "").replace("Z", "+00:00")),
+        )
+        self.assertEqual(
+            datetime.fromisoformat(document["first_seen_at"]).astimezone(timezone.utc),
+            datetime.fromisoformat((file_created or "").replace("Z", "+00:00")),
+        )
+
+        path = self.store.root / "Zeitdaten" / "Bericht.odt"
+        future = path.stat().st_mtime + 5
+        path.touch()
+        os.utime(path, (future, future))
+        after = self.client.open(
+            file_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        after_root = ElementTree.fromstring(after.data)
+        modified_after = parsedate_to_datetime(
+            after_root.findtext(".//{DAV:}getlastmodified") or "",
+        )
+
+        self.assertEqual([207, 207, 207], [folder.status_code, before.status_code, after.status_code])
+        self.assertEqual(file_created, after_root.findtext(".//{DAV:}creationdate"))
+        self.assertGreater(modified_after, modified_before)
+
+    def test_creationdate_is_protected_preserved_by_move_and_reset_by_copy(self):
+        source_url = f"{self.files}/Original.odt"
+        moved_url = f"{self.files}/Verschoben.odt"
+        copied_url = f"{self.files}/Kopie.odt"
+        self.assertEqual(201, self.client.put(source_url, data=b"same body", headers=self.auth).status_code)
+        query = '<d:propfind xmlns:d="DAV:"><d:prop><d:creationdate/></d:prop></d:propfind>'
+
+        original = self.client.open(
+            source_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        copied = self.client.open(
+            source_url, method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{copied_url}"},
+        )
+        moved = self.client.open(
+            source_url, method="MOVE",
+            headers={**self.auth, "Destination": f"http://localhost{moved_url}"},
+        )
+        moved_props = self.client.open(
+            moved_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        copied_props = self.client.open(
+            copied_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        original_created = ElementTree.fromstring(original.data).findtext(".//{DAV:}creationdate")
+        moved_created = ElementTree.fromstring(moved_props.data).findtext(".//{DAV:}creationdate")
+        copied_created = ElementTree.fromstring(copied_props.data).findtext(".//{DAV:}creationdate")
+
+        protected = self.client.open(
+            moved_url, method="PROPPATCH",
+            data=(
+                '<d:propertyupdate xmlns:d="DAV:"><d:set><d:prop>'
+                '<d:creationdate>2000-01-01T00:00:00Z</d:creationdate>'
+                '<d:getlastmodified>Sat, 01 Jan 2000 00:00:00 GMT</d:getlastmodified>'
+                '</d:prop></d:set></d:propertyupdate>'
+            ),
+            headers=self.auth,
+        )
+
+        self.assertEqual([201, 201, 207, 207], [copied.status_code, moved.status_code, moved_props.status_code, copied_props.status_code])
+        self.assertEqual(original_created, moved_created)
+        self.assertNotEqual(original_created, copied_created)
+        protected_body = protected.get_data(as_text=True)
+        self.assertEqual(207, protected.status_code)
+        self.assertEqual(1, protected_body.count("403 Forbidden"))
+        self.assertIn("creationdate", protected_body)
+        self.assertIn("getlastmodified", protected_body)
+        self.assertIn("cannot-modify-protected-property", protected_body)
+
+    def test_windows_webdav_properties_round_trip_copy_and_fail_atomically(self):
+        source_url = f"{self.files}/Windows.odt"
+        copy_url = f"{self.files}/Windows-Kopie.odt"
+        self.assertEqual(201, self.client.put(source_url, data=b"windows", headers=self.auth).status_code)
+        update = '''
+        <d:propertyupdate xmlns:d="DAV:" xmlns:Z="urn:schemas-microsoft-com:" xmlns:Office="urn:schemas-microsoft-com:office:office">
+          <d:set><d:prop>
+            <Z:Win32FileAttributes>00000020</Z:Win32FileAttributes>
+            <Z:Win32CreationTime>2026-08-11T07:00:00Z</Z:Win32CreationTime>
+            <Z:Win32LastAccessTime>2026-08-11T07:05:00Z</Z:Win32LastAccessTime>
+            <Z:Win32LastModifiedTime>2026-08-11T07:10:00Z</Z:Win32LastModifiedTime>
+            <Office:specialFolderType>42</Office:specialFolderType>
+          </d:prop></d:set>
+        </d:propertyupdate>
+        '''
+        saved = self.client.open(source_url, method="PROPPATCH", data=update, headers=self.auth)
+        copied = self.client.open(
+            source_url, method="COPY",
+            headers={**self.auth, "Destination": f"http://localhost{copy_url}"},
+        )
+        query = '''
+        <d:propfind xmlns:d="DAV:" xmlns:Z="urn:schemas-microsoft-com:" xmlns:Office="urn:schemas-microsoft-com:office:office">
+          <d:prop><Z:Win32FileAttributes/><Z:Win32CreationTime/><Z:Win32LastAccessTime/><Z:Win32LastModifiedTime/><Office:specialFolderType/><d:iscollection/><d:isFolder/><d:ishidden/></d:prop>
+        </d:propfind>
+        '''
+        roundtrip = self.client.open(
+            copy_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        root = ElementTree.fromstring(roundtrip.data)
+
+        invalid = self.client.open(
+            copy_url, method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:" xmlns:Office="urn:schemas-microsoft-com:office:office" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><Office:specialFolderType>not-an-integer</Office:specialFolderType><m:must-not-stick>rollback</m:must-not-stick></d:prop></d:set></d:propertyupdate>''',
+            headers=self.auth,
+        )
+        after_invalid = self.client.open(
+            copy_url, method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:prop><m:must-not-stick/></d:prop></d:propfind>',
+            headers={**self.auth, "Depth": "0"},
+        )
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="Windows read only", scope="read", expires_days=30,
+            )
+        read_auth = {
+            "Authorization": "Basic "
+            + base64.b64encode(f"jens:{password}".encode()).decode()
+        }
+        denied = self.client.open(copy_url, method="PROPPATCH", data=update, headers=read_auth)
+
+        self.assertEqual([207, 201, 207], [saved.status_code, copied.status_code, roundtrip.status_code])
+        self.assertEqual("00000020", root.findtext(".//{urn:schemas-microsoft-com:}Win32FileAttributes"))
+        self.assertEqual("2026-08-11T07:10:00Z", root.findtext(".//{urn:schemas-microsoft-com:}Win32LastModifiedTime"))
+        self.assertEqual("42", root.findtext(".//{urn:schemas-microsoft-com:office:office}specialFolderType"))
+        self.assertEqual("0", root.findtext(".//{DAV:}iscollection"))
+        self.assertEqual("f", root.findtext(".//{DAV:}isFolder"))
+        self.assertEqual("0", root.findtext(".//{DAV:}ishidden"))
+        invalid_body = invalid.get_data(as_text=True)
+        self.assertIn("409 Conflict", invalid_body)
+        self.assertIn("424 Failed Dependency", invalid_body)
+        self.assertIn("404 Not Found", after_invalid.get_data(as_text=True))
+        self.assertEqual(403, denied.status_code)
+        snapshots = list((self.store.history.root / "snapshots" / "webdav-properties").glob("*.json"))
+        serialized = "\n".join(path.read_text(encoding="utf-8") for path in snapshots)
+        self.assertIn("Win32LastModifiedTime", serialized)
+        self.assertNotIn("2026-08-11T07:10:00Z", serialized)
+
+    def test_current_principal_and_privileges_are_resource_and_scope_aware(self):
+        folder_url = f"{self.files}/Rechte"
+        file_url = f"{folder_url}/Plan.odt"
+        self.assertEqual(201, self.client.open(folder_url, method="MKCOL", headers=self.auth).status_code)
+        self.assertEqual(201, self.client.put(file_url, data=b"plan", headers=self.auth).status_code)
+        query = '''<d:propfind xmlns:d="DAV:"><d:prop>
+          <d:owner/><d:current-user-principal/><d:principal-collection-set/>
+          <d:current-user-privilege-set/>
+        </d:prop></d:propfind>'''
+
+        folder = self.client.open(
+            folder_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        file = self.client.open(
+            file_url, method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        folder_root = ElementTree.fromstring(folder.data)
+        file_root = ElementTree.fromstring(file.data)
+        principal = "/webdav/principals/jens/self"
+
+        self.assertEqual([207, 207], [folder.status_code, file.status_code])
+        self.assertEqual(principal, folder_root.findtext(".//{DAV:}owner/{DAV:}href"))
+        self.assertEqual(principal, folder_root.findtext(".//{DAV:}current-user-principal/{DAV:}href"))
+        self.assertEqual(
+            "/webdav/principals/jens/",
+            folder_root.findtext(".//{DAV:}principal-collection-set/{DAV:}href"),
+        )
+        folder_privileges = {
+            child.tag.removeprefix("{DAV:}")
+            for privilege in folder_root.findall(
+                ".//{DAV:}current-user-privilege-set/{DAV:}privilege"
+            )
+            for child in privilege
+        }
+        file_privileges = {
+            child.tag.removeprefix("{DAV:}")
+            for privilege in file_root.findall(
+                ".//{DAV:}current-user-privilege-set/{DAV:}privilege"
+            )
+            for child in privilege
+        }
+        self.assertTrue({"read", "write", "write-properties", "write-content", "bind", "unbind", "unlock"} <= folder_privileges)
+        self.assertTrue({"read", "write", "write-properties", "write-content", "unlock"} <= file_privileges)
+        self.assertFalse({"bind", "unbind"} & file_privileges)
+        self.assertNotIn("write-acl", folder_privileges)
+
+    def test_read_only_principal_endpoint_is_private_and_self_consistent(self):
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="Principal Reader", scope="read", expires_days=30,
+            )
+        read_auth = {
+            "Authorization": "Basic "
+            + base64.b64encode(f"jens:{password}".encode()).decode()
+        }
+        query = '''<d:propfind xmlns:d="DAV:"><d:prop>
+          <d:displayname/><d:resourcetype/><d:principal-URL/>
+          <d:alternate-URI-set/><d:group-membership/>
+          <d:current-user-privilege-set/>
+        </d:prop></d:propfind>'''
+
+        principal = self.client.open(
+            "/webdav/principals/jens/self", method="PROPFIND", data=query,
+            headers={**read_auth, "Depth": "0"},
+        )
+        collection = self.client.open(
+            "/webdav/principals/jens/", method="PROPFIND", data=query,
+            headers={**read_auth, "Depth": "1"},
+        )
+        resource = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPFIND",
+            data='<d:propfind xmlns:d="DAV:"><d:prop><d:current-user-privilege-set/></d:prop></d:propfind>',
+            headers={**read_auth, "Depth": "0"},
+        )
+        root = ElementTree.fromstring(principal.data)
+        resource_root = ElementTree.fromstring(resource.data)
+
+        self.assertEqual([207, 207, 207], [principal.status_code, collection.status_code, resource.status_code])
+        self.assertIsNotNone(root.find(".//{DAV:}resourcetype/{DAV:}principal"))
+        self.assertEqual("jens", root.findtext(".//{DAV:}displayname"))
+        self.assertEqual(
+            "/webdav/principals/jens/self",
+            root.findtext(".//{DAV:}principal-URL/{DAV:}href"),
+        )
+        self.assertIsNotNone(root.find(".//{DAV:}alternate-URI-set"))
+        self.assertIsNotNone(root.find(".//{DAV:}group-membership"))
+        self.assertEqual(
+            2,
+            len(ElementTree.fromstring(collection.data).findall("{DAV:}response")),
+        )
+        privileges = {
+            child.tag.removeprefix("{DAV:}")
+            for privilege in resource_root.findall(
+                ".//{DAV:}current-user-privilege-set/{DAV:}privilege"
+            )
+            for child in privilege
+        }
+        self.assertEqual({"read", "read-current-user-privilege-set"}, privileges)
+
+    def test_principal_discovery_does_not_disclose_users_or_enable_acl_changes(self):
+        query = '<d:propfind xmlns:d="DAV:"><d:allprop/><d:include><d:current-user-principal/></d:include></d:propfind>'
+        included = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPFIND", data=query,
+            headers={**self.auth, "Depth": "0"},
+        )
+        allprop = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPFIND",
+            headers={**self.auth, "Depth": "0"},
+        )
+        protected = self.client.open(
+            f"{self.files}/angebot.odt", method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:"><d:set><d:prop>
+              <d:owner><d:href>/webdav/principals/other/self</d:href></d:owner>
+              <d:current-user-principal><d:href>/webdav/principals/other/self</d:href></d:current-user-principal>
+            </d:prop></d:set></d:propertyupdate>''',
+            headers=self.auth,
+        )
+        foreign = self.client.open(
+            "/webdav/principals/other/", method="PROPFIND", headers=self.auth,
+        )
+        unknown = self.client.open(
+            "/webdav/principals/jens/not-self", method="PROPFIND", headers=self.auth,
+        )
+        unauthenticated = self.client.open(
+            "/webdav/principals/jens/self", method="PROPFIND",
+        )
+        infinite = self.client.open(
+            "/webdav/principals/jens/", method="PROPFIND",
+            headers={**self.auth, "Depth": "infinity"},
+        )
+        virtual_root = self.client.open(
+            "/webdav/", method="PROPFIND", headers={**self.auth, "Depth": "0"},
+        )
+
+        self.assertEqual(207, included.status_code)
+        self.assertIn("current-user-principal", included.get_data(as_text=True))
+        self.assertNotIn("current-user-principal", allprop.get_data(as_text=True))
+        self.assertEqual(207, protected.status_code)
+        self.assertIn("403 Forbidden", protected.get_data(as_text=True))
+        self.assertEqual([404, 404, 401, 403, 207], [foreign.status_code, unknown.status_code, unauthenticated.status_code, infinite.status_code, virtual_root.status_code])
+        self.assertEqual("private, no-store", included.headers["Cache-Control"])
+
+    def test_search_is_discoverable_and_matches_names_without_reading_file_bodies(self):
+        self.store.create_document_at("Projektplan.odt", b"needle-secret", "jens")
+        self.store.create_document_at("Foto.jpg", b"picture", "jens")
+        options = self.client.open(self.files, method="OPTIONS", headers=self.auth)
+        discovery = self.client.open(
+            self.files, method="PROPFIND",
+            data='''<d:propfind xmlns:d="DAV:"><d:prop>
+              <d:supported-method-set/><d:supported-query-grammar-set/>
+            </d:prop></d:propfind>''',
+            headers={**self.auth, "Depth": "0"},
+        )
+        result = self.search(
+            where='''<d:like caseless="yes"><d:prop><d:displayname/></d:prop>
+              <d:literal>%PLAN%</d:literal></d:like>''',
+        )
+
+        xml = ElementTree.fromstring(result.data)
+        hrefs = [item.findtext("{DAV:}href") for item in xml.findall("{DAV:}response")]
+        self.assertEqual(204, options.status_code)
+        self.assertIn("SEARCH", options.headers["Allow"])
+        self.assertEqual("<DAV:basicsearch>", options.headers["DASL"])
+        self.assertEqual(207, discovery.status_code)
+        self.assertIsNotNone(ElementTree.fromstring(discovery.data).find(".//{DAV:}basicsearch"))
+        self.assertEqual([f"{self.files}/Projektplan.odt"], hrefs)
+        self.assertNotIn(b"needle-secret", result.data)
+        self.assertEqual("private, no-store", result.headers["Cache-Control"])
+        audits = [row for row in self.store.logbook() if row.get("action") == "webdav_search_executed"]
+        self.assertTrue(audits)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-search").glob("*.json")
+        ]
+        executed = max((item for item in snapshots if item.get("matched") == 1), key=lambda item: item["at"])
+        self.assertEqual(1, executed["matched"])
+        self.assertNotIn("plan", json.dumps(executed).casefold())
+
+    def test_search_supports_dead_property_tags_three_valued_logic_and_caseless_like(self):
+        tagged = self.store.create_document_at("Rechnung.odt", b"invoice", "jens")
+        plain = self.store.create_document_at("Notiz.txt", b"note", "jens")
+        tagged_url = f"{self.files}/Rechnung.odt"
+        set_tag = self.client.open(
+            tagged_url, method="PROPPATCH",
+            data='''<d:propertyupdate xmlns:d="DAV:" xmlns:t="urn:simpleoffice:test">
+              <d:set><d:prop><t:tag>Kunde-A</t:tag></d:prop></d:set>
+            </d:propertyupdate>''', headers=self.auth,
+        )
+        result = self.search(
+            select="<d:displayname/><t:tag/>",
+            where='''<d:and>
+              <d:is-defined><d:prop><t:tag/></d:prop></d:is-defined>
+              <d:like caseless="yes"><d:prop><t:tag/></d:prop><d:literal>kunde-%</d:literal></d:like>
+            </d:and>''',
+        )
+        missing_under_not = self.search(
+            where='''<d:not><d:eq><d:prop><t:missing/></d:prop>
+              <d:literal>anything</d:literal></d:eq></d:not>''',
+        )
+
+        self.assertEqual(207, set_tag.status_code)
+        self.assertEqual(tagged["document_id"], self.store.get_document("Rechnung.odt")["document_id"])
+        self.assertIn(tagged_url, result.get_data(as_text=True))
+        self.assertIn("Kunde-A", result.get_data(as_text=True))
+        self.assertNotIn(f"{self.files}/{plain['last_path']}", result.get_data(as_text=True))
+        self.assertEqual([], ElementTree.fromstring(missing_under_not.data).findall("{DAV:}response"))
+
+    def test_search_orders_typed_sizes_and_applies_client_limit(self):
+        self.store.create_document_at("klein.txt", b"1", "jens")
+        self.store.create_document_at("mittel.txt", b"12345", "jens")
+        self.store.create_document_at("gross.txt", b"x" * 100, "jens")
+        result = self.search(
+            select="<d:displayname/><d:getcontentlength/>",
+            where='''<d:and><d:not><d:is-collection/></d:not>
+              <d:gt><d:prop><d:getcontentlength/></d:prop><d:literal>0</d:literal></d:gt>
+            </d:and>''',
+            orderby='''<d:orderby><d:order><d:prop><d:getcontentlength/></d:prop>
+              <d:descending/></d:order></d:orderby>''',
+            limit="2",
+        )
+
+        root = ElementTree.fromstring(result.data)
+        responses = root.findall("{DAV:}response")
+        hrefs = [item.findtext("{DAV:}href") for item in responses]
+        lengths = [int(item.findtext(".//{DAV:}getcontentlength")) for item in responses]
+        self.assertEqual(207, result.status_code)
+        self.assertEqual(2, len(hrefs))
+        self.assertEqual(sorted(lengths, reverse=True), lengths)
+        self.assertEqual(f"{self.files}/gross.txt", hrefs[0])
+
+    def test_search_respects_folder_scoped_read_credentials_and_hides_other_paths(self):
+        (self.store.root / "Freigabe").mkdir()
+        (self.store.root / "Privat").mkdir()
+        self.store.create_document_at("Freigabe/Plan.odt", b"plan", "jens")
+        self.store.create_document_at("Privat/Geheim.odt", b"secret", "jens")
+        with app.test_request_context():
+            password = activate(
+                "jens", "jens", label="Suchclient", scope="read",
+                path_prefix="Freigabe", expires_days=30,
+            )
+        auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        endpoint = f"{self.files}/Freigabe"
+        allowed = self.search(
+            endpoint=endpoint, scope=endpoint, auth=auth,
+            where='<d:like caseless="yes"><d:prop><d:displayname/></d:prop><d:literal>%plan%</d:literal></d:like>',
+        )
+        outside = self.search(endpoint=endpoint, scope=self.files, auth=auth)
+        sibling = self.search(endpoint=endpoint, scope=f"{self.files}/Privat", auth=auth)
+        unauthenticated = self.client.open(
+            endpoint, method="SEARCH", data=b"<d:searchrequest xmlns:d='DAV:'/>",
+            headers={"Content-Type": "application/xml"},
+        )
+
+        self.assertEqual(207, allowed.status_code)
+        self.assertIn("Plan.odt", allowed.get_data(as_text=True))
+        self.assertNotIn("Geheim.odt", allowed.get_data(as_text=True))
+        self.assertEqual([409, 409, 401], [outside.status_code, sibling.status_code, unauthenticated.status_code])
+        self.assertIn("search-scope-valid", outside.get_data(as_text=True))
+
+    def test_search_rejects_unsupported_grammar_operators_scopes_and_unsafe_xml(self):
+        wrong_type = self.search(content_type="application/json")
+        malformed = self.client.open(
+            self.files, method="SEARCH", data="<broken>",
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+        unsupported = self.search(
+            where='<d:contains><d:prop><d:displayname/></d:prop><d:literal>x</d:literal></d:contains>',
+        )
+        multiple_body = f'''<d:searchrequest xmlns:d="DAV:"><d:basicsearch>
+          <d:select><d:prop><d:displayname/></d:prop></d:select><d:from>
+          <d:scope><d:href>{self.files}</d:href><d:depth>0</d:depth></d:scope>
+          <d:scope><d:href>{self.files}</d:href><d:depth>1</d:depth></d:scope>
+          </d:from></d:basicsearch></d:searchrequest>'''
+        multiple = self.client.open(
+            self.files, method="SEARCH", data=multiple_body,
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+        external = self.search(scope="https://example.invalid/webdav/files/jens")
+        entity = self.client.open(
+            self.files, method="SEARCH",
+            data='''<!DOCTYPE x [<!ENTITY leak SYSTEM "file:///etc/passwd">]>
+              <d:searchrequest xmlns:d="DAV:">&leak;</d:searchrequest>''',
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+
+        self.assertEqual([415, 400, 422, 422, 409, 400], [
+            wrong_type.status_code, malformed.status_code, unsupported.status_code,
+            multiple.status_code, external.status_code, entity.status_code,
+        ])
+        self.assertIn("search-multiple-scope-supported", multiple.get_data(as_text=True))
+        self.assertIn("search-scope-valid", external.get_data(as_text=True))
+        self.assertNotIn("root:", entity.get_data(as_text=True))
+
+    def test_search_result_limit_returns_complete_207_with_507_and_audit(self):
+        self.store.create_document_at("eins.txt", b"1", "jens")
+        self.store.create_document_at("zwei.txt", b"2", "jens")
+        with mock.patch("app.webdav.MAX_SEARCH_RESULTS", 1):
+            rejected = self.search(
+                where='<d:not><d:is-collection/></d:not>',
+            )
+            bounded = self.search(
+                where='<d:not><d:is-collection/></d:not>', limit="1",
+            )
+
+        rejected_root = ElementTree.fromstring(rejected.data)
+        self.assertEqual([207, 207], [rejected.status_code, bounded.status_code])
+        self.assertEqual("result-count", rejected.headers["X-SimpleOffice-Search-Limit"])
+        self.assertIn("507 Insufficient Storage", rejected.get_data(as_text=True))
+        self.assertEqual(1, len(rejected_root.findall("{DAV:}response")))
+        self.assertEqual(1, len(ElementTree.fromstring(bounded.data).findall("{DAV:}response")))
+        audits = [row for row in self.store.logbook() if row.get("action") == "webdav_search_limit_rejected"]
+        self.assertTrue(audits)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-search").glob("*.json")
+        ]
+        self.assertIn("result-count", {item.get("reason") for item in snapshots})
+
+    def test_search_file_scope_forces_depth_zero_and_hidden_control_data_is_never_visible(self):
+        result = self.search(
+            endpoint=f"{self.files}/angebot.odt",
+            scope=f"{self.files}/angebot.odt",
+            depth="infinity",
+        )
+        broad = self.search()
+
+        self.assertEqual(207, result.status_code)
+        self.assertEqual(1, len(ElementTree.fromstring(result.data).findall("{DAV:}response")))
+        body = broad.get_data(as_text=True)
+        self.assertNotIn(CONTROL_DIR, body)
+        self.assertNotIn("webdav-credentials.json", body)
+        snapshots = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (self.store.history.root / "snapshots" / "webdav-search").glob("*.json")
+        ]
+        self.assertIn("0", {item.get("depth") for item in snapshots})
+
+    def test_search_response_size_is_bounded_and_tree_snapshot_uses_mutation_lock(self):
+        self.store.create_document_at("Mehr-Inhalt.txt", b"content", "jens")
+        with mock.patch("app.webdav.MAX_PROPFIND_RESPONSE_BYTES", 128):
+            limited = self.search()
+        with mock.patch("app.webdav.exclusive_file_lock") as locking:
+            complete = self.search(limit="1")
+
+        self.assertEqual([207, 207], [limited.status_code, complete.status_code])
+        self.assertEqual("response-bytes", limited.headers["X-SimpleOffice-Search-Limit"])
+        self.assertIn("507 Insufficient Storage", limited.get_data(as_text=True))
+        self.assertNotIn("angebot.odt", limited.get_data(as_text=True))
+        lock_paths = [str(call.args[0]) for call in locking.call_args_list if call.args]
+        self.assertTrue(any(path.endswith("webdav-sync.mutation.lock") for path in lock_paths))
 
 
 if __name__ == "__main__":

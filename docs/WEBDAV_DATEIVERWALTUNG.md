@@ -74,8 +74,9 @@ Maßgeblich ist
 | Anforderung | Standard | Implementierte Entscheidung |
 |---|---|---|
 | Sammlungen müssen hierarchische Mitglieder abbilden; Mitglied-URLs enden bei Sammlungen konsistent. | [RFC 4918 §5](https://www.rfc-editor.org/rfc/rfc4918.html#section-5) | Reale Ordner unter dem Dokumentstamm werden als Sammlungen angeboten; interne Metadaten, Historie, Richtliniendateien und Symlinks bleiben unsichtbar. |
-| `PROPFIND` muss Eigenschaften liefern und `Depth` berücksichtigen. | [§9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1) | `Depth: 0` und `1` liefern `207 Multi-Status`, starke ETags, Größe, Medientyp und Änderungszeit. `infinity` wird aus Last- und Datenschutzgründen abgewiesen. |
+| `PROPFIND` muss Eigenschaften liefern und `Depth` berücksichtigen; `infinity` sollte unterstützt und bei fehlendem Header angenommen werden. | [§9.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.1), [§10.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-10.2) | `Depth: 0`, `1` und begrenztes `infinity` liefern `207 Multi-Status`, starke ETags, Größe, Medientyp und Änderungszeit. Die rekursive Bestandsaufnahme ist auf 2.000 Mitglieder, 64 Ebenen und 8 MiB XML begrenzt; Details: [WEBDAV_REKURSIVE_PROPFIND_RFC4918.md](WEBDAV_REKURSIVE_PROPFIND_RFC4918.md). |
 | `PROPPATCH` muss `set` und `remove` in Dokumentreihenfolge und vollständig atomar verarbeiten; beliebige Dead Properties sollten möglich sein. | [§9.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.2) | Schreibende Gerätezugänge können begrenzte, benutzergebundene XML-Metadaten setzen und entfernen. Live Properties bleiben geschützt; Locks, Audit und Sync-Journal greifen. Details: [WEBDAV_EIGENSCHAFTEN_RFC4918.md](WEBDAV_EIGENSCHAFTEN_RFC4918.md). |
+| Persistente Ressourcen sollten `creationdate` und eine geschützte HTTP-Änderungszeit bereitstellen. | [§15.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-15.1), [§15.7](https://www.rfc-editor.org/rfc/rfc4918.html#section-15.7) | Neue Dateien und Ordner erhalten persistente Erstellungszeiten; `getlastmodified` wird für beide Ressourcentypen berechnet. MOVE bewahrt, COPY initialisiert neu. Ausgewählte Windows-Dateiattribute bleiben separate, ungefährliche Dead Properties; Details: [WEBDAV_ZEITSTEMPEL_MS_WDVME.md](WEBDAV_ZEITSTEMPEL_MS_WDVME.md). |
 | `MKCOL` muss eine Sammlung erzeugen; fehlt die übergeordnete Sammlung, ist `409` vorgesehen. | [§9.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.3) | Genau ein Ordner wird atomar angelegt und erhält die normale SimpleOffice-Ordnerpolitik. Erweiterte MKCOL-Anfragetexte werden mit `415` abgewiesen. |
 | `PUT` auf eine neue URL erzeugt eine Ressource; bei Austausch müssen Bedingungen und Sperren beachtet werden. | [§9.7](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.7), [§7.2](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.2) | Neue Dateien werden temporär geschrieben, synchronisiert und atomar umbenannt. Ein vorhandenes Dokument verlangt `If-Match` oder einen gültigen Lock-Token; blindes Überschreiben erhält `428`. |
 | `COPY` lässt die Quelle unverändert und `MOVE` ändert ihre URL-Zuordnung. | [§9.8](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.8), [§9.9](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.9) | Reguläre Dateien können in existierende Ordner kopiert, verschoben und umbenannt werden. Kopien erhalten eine neue Dokument-ID; Verschiebungen behalten die ID. Fremde Hosts und Benutzerpfade werden abgewiesen. |
@@ -84,8 +85,10 @@ Maßgeblich ist
 | Exklusive Write-Locks verhindern kollidierende Schreibzugriffe und können auch eine noch nicht belegte URL oder eine Collection sperren. | [§6](https://www.rfc-editor.org/rfc/rfc4918.html#section-6), [§7.3](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.3), [§7.4](https://www.rfc-editor.org/rfc/rfc4918.html#section-7.4), [§9.10](https://www.rfc-editor.org/rfc/rfc4918.html#section-9.10) | `LOCK`/`UNLOCK` funktionieren für Dateien, LibreOffice-Lock-null-Abläufe und Collections mit Tiefe 0 oder infinity. Rekursive Sperren schützen vorhandene und neue Mitglieder; Details stehen in [WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md). |
 | `If-Match` muss bei abweichendem Validator mit `412` fehlschlagen; `If-None-Match: *` schützt die Neuanlage. | [RFC 9110 §13.1.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1), [§13.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2) | ETags sind SHA-256-basiert. Vorbedingungen werden nochmals unter derselben Dateisperre wie der Inhalt geprüft. |
 | Sammlungen können Änderungen seit einem undurchsichtigen Token effizient melden. | [RFC 6578 §3](https://www.rfc-editor.org/rfc/rfc6578.html#section-3) | `REPORT sync-collection`, `sync-level` 1/infinite, geänderte ETags und Lösch-Tombstones sind benutzergetrennt implementiert; Details stehen in [WEBDAV_SYNC_RFC6578.md](WEBDAV_SYNC_RFC6578.md). |
+| Clients benötigen einen geschützten, aktuellen Privilegiensatz, um unzulässige Aktionen in ihrer Oberfläche zu deaktivieren. | [RFC 3744 §3.7](https://www.rfc-editor.org/rfc/rfc3744.html#section-3.7), [§5.4](https://www.rfc-editor.org/rfc/rfc3744.html#section-5.4), [RFC 5397 §3](https://www.rfc-editor.org/rfc/rfc5397.html#section-3) | Dateien und Ordner liefern auf ausdrückliche Anfrage den aktuellen Benutzer-Principal und den konservativen `read`/`write`-Umfang des App-Passworts. Die private Principal-URL ist nur selbst sichtbar; es gibt bewusst keine ACL-Bearbeitung oder Compliance-Werbung. Details: [WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md](WEBDAV_PRINCIPAL_RECHTE_RFC3744_5397.md). |
+| Ein DASL-Server muss `DAV:basicsearch` anbieten, die Grammatik entdecken lassen, Scopes und dreiwertige Logik beachten und Ergebnisse als `207 Multi-Status` liefern. | [RFC 5323 §2](https://www.rfc-editor.org/rfc/rfc5323.html#section-2), [§3](https://www.rfc-editor.org/rfc/rfc5323.html#section-3), [§5](https://www.rfc-editor.org/rfc/rfc5323.html#section-5) | `SEARCH` filtert Namen, Größen, Zeiten sowie Live/Dead Properties innerhalb der Benutzer- und Geräteordnergrenze. AND/OR/NOT, Vergleiche, LIKE, Sortierung und Limits sind begrenzt umgesetzt; Details: [WEBDAV_SUCHE_RFC5323_TAGSPACES.md](WEBDAV_SUCHE_RFC5323_TAGSPACES.md). |
 
-`OPTIONS` meldet DAV-Klassen `1, 2`, `sync-collection` und die Methoden `PROPFIND`, `PROPPATCH`, `REPORT`, `GET`, `HEAD`,
+`OPTIONS` meldet DAV-Klassen `1, 2`, `sync-collection`, `DASL: <DAV:basicsearch>` und die Methoden `PROPFIND`, `PROPPATCH`, `REPORT`, `SEARCH`, `GET`, `HEAD`,
 `PUT`, `DELETE`, `MKCOL`, `COPY`, `MOVE`, `LOCK` und `UNLOCK`.
 
 ## Rechte, Sicherheit und Datenschutz
@@ -101,6 +104,10 @@ Maßgeblich ist
   Verschieben und Löschen. Es gibt keine Umgehung durch einen Desktop-Client.
 - Pfade mit `..`, internen Steuerverzeichnissen, Richtliniendateien, NUL-Zeichen
   oder Symlinks werden abgewiesen. Spezialdateien werden nicht angeboten.
+- Neue Mitglieder müssen einen
+  [portablen Dateinamen](WEBDAV_PORTABLE_DATEINAMEN.md) besitzen. NFC,
+  Windows-Reservierungen und Großschreibungs-/Normalisierungskollisionen
+  werden vor der Ablage geprüft; vorhandene Altbestände bleiben erreichbar.
 - Basic Authentication ist ausschließlich über HTTPS sicher. Proxy- und
   Zertifikatkonfiguration sind Voraussetzung für entfernte Nutzung.
 - Inhalte, Dateinamen, Lock-Besitzer und Zugangsdaten werden an keinen externen
@@ -138,11 +145,13 @@ dokumentiert.
 
 - `401`: App-Passwort fehlt oder ist falsch.
 - `404`: Ressource oder authentifizierter Benutzerpfad fehlt.
-- `409`: Zielordner fehlt, Ordner ist nicht leer oder Operation kollidiert mit
-  dem Dateibaum.
+- `409`: Zielordner fehlt, Ordner ist nicht leer, Operation kollidiert mit dem
+  Dateibaum oder ein neuer Name ist nicht plattformübergreifend eindeutig. Bei
+  Namensfehlern nennen XML und `X-SimpleOffice-Name-Reason` den Grund.
 - `412`: ETag ist veraltet, `If-None-Match: *` trifft auf eine vorhandene Datei,
   `Overwrite: F` schützt ein Ziel oder COPY/Collection-MOVE würde es ersetzen.
-- `415`: nicht unterstützter erweiterter `MKCOL`-Anfragetext.
+- `415`: nicht unterstützter erweiterter `MKCOL`-Anfragetext oder eine
+  `SEARCH`-Anfrage ohne `application/xml` beziehungsweise `text/xml`.
 - `413`: WebDAV-Eigenschafts-XML oder ein Einzelwert überschreitet die feste
   Schutzgrenze.
 - `423`: Lock-Token fehlt/falsch oder eine SimpleOffice-Sperre greift.
@@ -150,9 +159,13 @@ dokumentiert.
   ohne getaggten Ziel-ETag beziehungsweise Ziel-Lock überschrieben werden.
 - `507`: das optionale WebDAV-Kontingent oder der physisch freie Speicher
   reicht für den angeforderten Zuwachs nicht; die XML-Fehlerbedingung
-  unterscheidet `quota-not-exceeded` und `sufficient-disk-space`.
+  unterscheidet `quota-not-exceeded` und `sufficient-disk-space`. Bei einer
+  rekursiven Bestandsaufnahme benennt `X-SimpleOffice-Propfind-Limit` statt
+  einer Teilliste das überschrittene Mitglieder-, Tiefen- oder XML-Limit.
 - `422`: bei aktivierter ClamAV-Prüfung wurde Schadcode erkannt; die Datei wird
   isoliert und nicht veröffentlicht.
+- `422`: die angeforderte Suchgrammatik, ein optionaler Suchoperator oder ein
+  Mehrfach-Scope wird nicht unterstützt.
 - `503` mit `Retry-After: 60`: die aktivierte Virenprüfung ist vorübergehend
   nicht sicher verfügbar; eine vorhandene Revision bleibt unverändert.
 - `502`: `Destination` verweist auf einen anderen Host oder Benutzerbaum.
@@ -193,10 +206,17 @@ seine stabilen Dokument-ID-URLs bleiben erhalten. Alte Einzelpasswörter werden
 rückwärtskompatibel als bestehender Schreibzugang gelesen. Ohne aktives
 App-Passwort ist kein WebDAV-Zugriff möglich.
 
-Bewusst noch nicht implementiert sind WebDAV ACL und serverseitige Suche über
-Dead Properties, rekursive COPY-/MOVE-Operationen, `PROPFIND Depth: infinity`,
-partielle Range-Uploads, automatisches Zusammenführen binärer Office-Dateien und das
-Überschreiben vorhandener COPY-/MOVE-Ziele. Nicht standardkonforme Clients,
+Neue Namen werden plattformübergreifend validiert. Nicht portable Altdateien
+bleiben unter ihrer exakten URL nutzbar und können ID-stabil per `MOVE`
+bereinigt werden; Details, Standards und Grenzen stehen in
+[WEBDAV_PORTABLE_DATEINAMEN.md](WEBDAV_PORTABLE_DATEINAMEN.md).
+
+Bewusst noch nicht implementiert sind WebDAV ACL, Volltextsuche in
+Dateiinhalten, Query Schema Discovery, partielle Range-Uploads sowie
+automatisches Zusammenführen binärer Office-Dateien. Die begrenzte Suche über
+Live und Dead Properties steht in
+[WEBDAV_SUCHE_RFC5323_TAGSPACES.md](WEBDAV_SUCHE_RFC5323_TAGSPACES.md).
+Nicht standardkonforme Clients,
 die vorhandene Dateien ohne Lock und ohne `If-Match` speichern, erhalten
 absichtlich `428` statt eines riskanten Erfolgs.
 
@@ -204,9 +224,16 @@ absichtlich `428` statt eines riskanten Erfolgs.
 
 Automatisiert geprüft werden realistische Abläufe für:
 
-- Wurzel- und Ordner-`PROPFIND`, versteckte Steuerpfade und begrenzte Tiefe;
+- Wurzel- und Ordner-`PROPFIND`, explizite und implizite rekursive Abfragen,
+  versteckte Steuerpfade, Symlinks, Rechte und Mitglieder-/Tiefen-/XML-Limits;
 - `PROPPATCH`-Roundtrip, `propname`, fehlende Eigenschaften, atomaren Rollback,
   geschützte Live Properties, Lock- und Rechtefehler sowie XML-Schutzgrenzen;
+- persistente Datei-/Ordner-Erstellungszeiten, HTTP-Änderungszeiten,
+  COPY-/MOVE-Semantik und atomare ausgewählte Windows-Dateieigenschaften;
+- RFC-5323-Discovery, Name/Tag/Größe/Datum, dreiwertige Logik, Sortierung,
+  Client-/Serverlimits, Scope-Rechte und XML-Negativfälle;
+- geschützte Principal-URLs, Lese-/Schreibprivilegien je Ressourcentyp,
+  private Principal-Sammlung, `allprop/include` und `need-privileges`-Fehler;
 - `MKCOL` und `PUT`-Neuanlage mit Dokument-ID, Hash und Audit;
 - ETag-geschütztes Speichern, veraltete und fehlende Vorbedingungen;
 - gesperrte leere Ressource, `PUT`, Token-Übertragung, ausdrücklicher
@@ -222,6 +249,9 @@ Automatisiert geprüft werden realistische Abläufe für:
 - nicht leere Ordner mit vollständiger Vorprüfung und Recovery, fehlende
   Eltern, fremde Hosts/Benutzer und vorhandene Ziele;
 - falsche Zugangsdaten, Symlink-/Pfadgrenzen und Aufbewahrungssperren.
+- sichere Unicode-/Emoji-Namen, Windows-Gerätenamen, Bidi-/Steuerzeichen,
+  Segmentlängen, Großschreibungs- und Normalisierungskollisionen sowie
+  rückwärtskompatible Umbenennung nicht portabler Altbestände;
 - optionalen ClamAV-Scan vor Neu- und Überschreiben, Fundquarantäne,
   Scanner-/Kapazitätsausfall sowie Rechte-, ETag- und Digest-Ablehnung vor dem
   ersten Scanneraufruf.
