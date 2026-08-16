@@ -18,6 +18,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
 import zipfile
 from collections import deque
@@ -46,6 +47,10 @@ SSH_SOURCES_FILE = "ssh-sources.json"
 MAX_WEBDAV_COLLECTION_MEMBERS = 2_000
 MAX_WEBDAV_COLLECTION_DEPTH = 64
 COLLECTION_TRASH_DIR = "webdav-collection-trash"
+_STORE_INITIALIZATION_LOCK = threading.Lock()
+_INITIALIZED_INDEXES: set[Path] = set()
+_WAL_CONFIGURATION_LOCK = threading.Lock()
+_WAL_CONFIGURED_INDEXES: set[Path] = set()
 
 
 def utc_now() -> str:
@@ -110,6 +115,17 @@ class DocumentStore:
         self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
+        if self.index_path not in _INITIALIZED_INDEXES or not self.index_path.is_file():
+            with _STORE_INITIALIZATION_LOCK:
+                if self.index_path not in _INITIALIZED_INDEXES or not self.index_path.is_file():
+                    self._initialize_once()
+                    _INITIALIZED_INDEXES.add(self.index_path)
+        # Recovery is intentionally not cached: an interrupted WebDAV DELETE
+        # can leave a new recovery journal at any time during this process.
+        self._recover_interrupted_collection_deletions()
+
+    def _initialize_once(self) -> None:
+        """Create or migrate the disposable index once per worker process."""
         self.root.mkdir(parents=True, exist_ok=True)
         self.documents.mkdir(parents=True, exist_ok=True)
         self.fingerprints.mkdir(parents=True, exist_ok=True)
@@ -128,6 +144,16 @@ class DocumentStore:
                     last_seen_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS scan_file_sha256 ON scan_file(sha256);
+                CREATE TABLE IF NOT EXISTS document_listing (
+                    document_id TEXT PRIMARY KEY,
+                    path TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    has_notes INTEGER NOT NULL,
+                    has_relationships INTEGER NOT NULL,
+                    last_seen_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS document_listing_inbox
+                    ON document_listing(state, has_notes, has_relationships, last_seen_at DESC);
                 """
             )
             # Additive migration for indexes created before move detection was
@@ -151,8 +177,6 @@ class DocumentStore:
                     document_id TEXT PRIMARY KEY, path TEXT, state TEXT, tags TEXT,
                     notes TEXT, attributes TEXT, content TEXT)"""
                 )
-        self._recover_interrupted_collection_deletions()
-
     def _recover_interrupted_collection_deletions(self) -> None:
         """Roll back a collection DELETE that stopped before it was committed."""
         recovery_root = self.control / COLLECTION_TRASH_DIR
@@ -1494,6 +1518,37 @@ class DocumentStore:
                 documents.append(metadata)
         return {"documents": documents, "page": page, "page_size": page_size, "total": total, "has_next": page * page_size < total}
 
+    def inbox_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
+        """Load an inbox page from the SQLite projection, never all sidecars.
+
+        The projection is disposable and is populated incrementally by the
+        index worker.  During an initial scan the page therefore stays fast
+        and simply grows as documents become available.
+        """
+        self.initialize()
+        page = max(1, page)
+        page_size = max(1, min(500, page_size))
+        where = "state = 'new' AND has_notes = 0 AND has_relationships = 0"
+        with self._db() as db:
+            total = int(db.execute(f"SELECT COUNT(*) FROM document_listing WHERE {where}").fetchone()[0])
+            rows = db.execute(
+                f"""SELECT document_id FROM document_listing WHERE {where}
+                    ORDER BY last_seen_at DESC, path LIMIT ? OFFSET ?""",
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+        documents = []
+        for (document_id,) in rows:
+            metadata = self._read_json(self.documents / f"{document_id}.json", {})
+            if metadata.get("document_id"):
+                documents.append(metadata)
+        return {
+            "documents": documents,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "has_next": page * page_size < total,
+        }
+
     def move_document(
         self,
         reference: str,
@@ -2738,6 +2793,9 @@ class DocumentStore:
                         (now, stat.st_dev, stat.st_ino, relative_path),
                     )
                     if metadata.get("document_id"):
+                        # Additive projections are rebuilt during an ordinary
+                        # scan without rehashing or extracting the file.
+                        self._refresh_listing_index(metadata, db)
                         return False, metadata.get("system_state") == "duplicate"
                     # The SQLite index is disposable. Rebuild a missing sidecar
                     # from its cached identity instead of hiding the damage.
@@ -3175,6 +3233,38 @@ class DocumentStore:
                 "INSERT INTO document_search(document_id, path, state, tags, notes, attributes, content) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 row,
             )
+        self._refresh_listing_index(metadata)
+
+    def _refresh_listing_index(
+        self,
+        metadata: dict[str, Any],
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        """Update the small projection used by login, dashboard and inbox."""
+        def update(db: sqlite3.Connection) -> None:
+            db.execute(
+                """INSERT INTO document_listing(
+                       document_id, path, state, has_notes, has_relationships, last_seen_at
+                   ) VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(document_id) DO UPDATE SET
+                     path=excluded.path, state=excluded.state,
+                     has_notes=excluded.has_notes,
+                     has_relationships=excluded.has_relationships,
+                     last_seen_at=excluded.last_seen_at""",
+                (
+                    metadata["document_id"],
+                    str(metadata.get("last_path", "")),
+                    str(metadata.get("state", "new") or "new"),
+                    int(bool(metadata.get("notes"))),
+                    int(bool(metadata.get("relationships"))),
+                    str(metadata.get("last_seen_at", "")),
+                ),
+            )
+        if connection is not None:
+            update(connection)
+            return
+        with self._db() as db:
+            update(db)
 
     def _all_documents(self) -> list[dict[str, Any]]:
         self.initialize()
@@ -3218,7 +3308,11 @@ class DocumentStore:
         # prevents transient writer contention from becoming an HTTP 500.
         connection = sqlite3.connect(self.index_path, timeout=15)
         connection.execute("PRAGMA busy_timeout = 15000")
-        connection.execute("PRAGMA journal_mode = WAL")
+        if self.index_path not in _WAL_CONFIGURED_INDEXES:
+            with _WAL_CONFIGURATION_LOCK:
+                if self.index_path not in _WAL_CONFIGURED_INDEXES:
+                    connection.execute("PRAGMA journal_mode = WAL")
+                    _WAL_CONFIGURED_INDEXES.add(self.index_path)
         return connection
 
     def _event(self, event_type: str, data: dict[str, Any]) -> None:

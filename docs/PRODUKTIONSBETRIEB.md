@@ -46,6 +46,8 @@ weiterhin einen HTTPS-Reverse-Proxy.
 | `--threads ANZAHL` | `SIMPLEOFFICE_WSGI_THREADS` | 4 | 1–64 |
 | `--channel-timeout SEKUNDEN` | `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` | 120 | 10–3600 |
 | – | `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` | 0 (deaktiviert) | 1–1.048.576 MiB oder 0 |
+| – | `SIMPLEOFFICE_BACKGROUND_INDEX` | 1 | `0`/`false`/`off` deaktiviert den automatischen Indexdienst |
+| – | `SIMPLEOFFICE_INDEX_YIELD_MS` | 1 | 0–100 ms Pause je Datei |
 
 Die Thread- und Timeout-Werte entsprechen den dokumentierten
 [Waitress-Serverargumenten](https://docs.pylonsproject.org/projects/waitress/en/stable/arguments.html#arguments-to-waitress-serve).
@@ -107,8 +109,9 @@ nicht unterstützt. Große Uploads können deshalb temporären Speicher belegen.
 - Ein erschöpfter Thread-Pool verzögert weitere Anfragen, beschädigt aber keine
   Dokumente. Für parallele OCR- oder große Upload-Aufgaben kann die Threadzahl
   bewusst erhöht werden.
-- Der Initialscan läuft wie bisher in einem Hintergrundthread und schreibt
-  seinen Status. Ein Serverabbruch ändert dessen Aufbewahrungsregeln nicht.
+- Der Initialscan läuft in einem getrennten, niedrig priorisierten Prozess und
+  schreibt seinen Status. Details stehen in
+  [Performance und Indexdienst](PERFORMANCE_INDEXDIENST.md).
 
 ## Migration und Rückwärtskompatibilität
 

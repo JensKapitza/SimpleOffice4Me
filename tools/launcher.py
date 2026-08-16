@@ -11,9 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
-import threading
-import time
 from pathlib import Path
 
 
@@ -68,6 +67,34 @@ def should_report_scan_progress(
         current_files - last_files >= SCAN_STATUS_FILE_INTERVAL
         or now - last_at >= SCAN_STATUS_TIME_INTERVAL
     )
+
+
+def background_index_enabled() -> bool:
+    value = os.environ.get("SIMPLEOFFICE_BACKGROUND_INDEX", "1").strip().casefold()
+    return value not in {"0", "false", "no", "off"}
+
+
+def start_index_worker(document_root: str) -> subprocess.Popen[bytes] | None:
+    """Start the rebuildable index in an isolated, low-priority process."""
+    if not background_index_enabled():
+        return None
+    command = [
+        sys.executable,
+        "-m",
+        "tools.index_worker",
+        "--root",
+        document_root,
+    ]
+    options: dict[str, object] = {
+        "cwd": str(PROJECT_ROOT),
+        "stdin": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        # BELOW_NORMAL_PRIORITY_CLASS.  Keep this literal to avoid pywin32.
+        options["creationflags"] = 0x00004000
+    else:
+        options["start_new_session"] = True
+    return subprocess.Popen(command, **options)
 
 
 def default_document_root() -> Path:
@@ -131,53 +158,24 @@ def start(configure_only: bool = False) -> None:
 
     # Imports happen after the environment and configuration are available.
     from app import app
-    from app.document_store import DocumentStore
-
-    store = DocumentStore(document_root)
     options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]))
-
-    def initial_scan() -> None:
-        store.set_scan_status({"state": "running", "files": 0, "new_files": 0, "duplicates": 0, "errors": 0})
-        last_reported_files = 0
-        last_reported_at = time.monotonic()
-
-        def report_progress(current: object) -> None:
-            nonlocal last_reported_files, last_reported_at
-            now = time.monotonic()
-            current_files = int(getattr(current, "files"))
-            if not should_report_scan_progress(current_files, last_reported_files, now, last_reported_at):
-                return
-            status = {
-                "state": "running",
-                "files": current_files,
-                "new_files": int(getattr(current, "new_files")),
-                "duplicates": int(getattr(current, "duplicates")),
-                "errors": int(getattr(current, "errors")),
-            }
-            store.set_scan_status(status)
-            print(
-                "Initialscan: "
-                f"files={status['files']} new={status['new_files']} "
-                f"duplicates={status['duplicates']} errors={status['errors']}",
-                flush=True,
-            )
-            last_reported_files = current_files
-            last_reported_at = now
-
-        try:
-            report = store.scan(report_progress)
-            store.set_scan_status({"state": "completed", "files": report.files, "new_files": report.new_files, "duplicates": report.duplicates, "errors": report.errors})
-            print(f"Initialscan abgeschlossen: files={report.files} new={report.new_files} duplicates={report.duplicates} errors={report.errors}")
-        except Exception as exc:
-            store.set_scan_status({"state": "failed", "error": str(exc)})
-            print(f"Initialscan fehlgeschlagen: {exc}", file=sys.stderr)
-
-    threading.Thread(target=initial_scan, name="simpleoffice-initial-scan", daemon=True).start()
+    try:
+        worker = start_index_worker(document_root)
+    except OSError as exc:
+        worker = None
+        from app.document_store import DocumentStore
+        DocumentStore(document_root).set_scan_status({"state": "failed", "error": f"Indexdienst konnte nicht gestartet werden: {exc}"})
+        print(f"Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
     host = str(options["host"])
     port = int(options["port"])
+    index_message = (
+        f"Indexdienst PID {worker.pid} startet getrennt."
+        if worker is not None else
+        "Automatischer Indexdienst ist deaktiviert oder nicht verfügbar."
+    )
     print(
         f"SimpleOffice4Me läuft mit Waitress unter http://{host}:{port} "
-        f"({options['threads']} Threads); Initialscan läuft im Hintergrund.",
+        f"({options['threads']} Threads); {index_message}",
         flush=True,
     )
     from waitress import serve
