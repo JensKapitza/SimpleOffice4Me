@@ -144,12 +144,9 @@ def _invoice_products() -> list[dict[str, str]]:
 def _system_overview() -> dict:
     root = _store().root
     storage = shutil.disk_usage(root)
-    devices=[]
-    for mount in _store()._mounted_roots():
-        try:
-            usage=shutil.disk_usage(mount); devices.append({"path":str(mount),"total":usage.total,"free":usage.free})
-        except OSError: pass
-    return {"time": datetime.now().astimezone(), "root": str(root), "storage": storage, "devices": devices}
+    # Enumerating every OS mount can block login on unavailable SMB/NFS media.
+    # External archives remain available through their explicit discovery UI.
+    return {"time": datetime.now().astimezone(), "root": str(root), "storage": storage}
 
 
 def _calendar_tags() -> list[dict[str, str]]:
@@ -229,7 +226,12 @@ def index():
     except ValueError: page = 1
     result = _store().document_page(page=page)
     documents = result["documents"]
-    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), defaults=_settings().settings(), **result)
+    return render_template(
+        "documents/index.html",
+        document_tree=_document_tree(documents),
+        defaults=_settings().settings(),
+        **result,
+    )
 
 
 @bp.get("/search")
@@ -265,8 +267,16 @@ def refresh_document_search():
 @bp.get("/dashboard")
 @login_required
 def dashboard():
-    documents = _store().list_documents()
-    return render_template("documents/dashboard.html", system=_system_overview(), inbox=[item for item in documents if _is_unprocessed(item)], todos=_todos().items(), pending=_calendar().pending_bookings(), scan_status=_store().scan_status())
+    inbox = _store().inbox_page(page=1, page_size=8)
+    return render_template(
+        "documents/dashboard.html",
+        system=_system_overview(),
+        inbox=inbox["documents"],
+        inbox_total=inbox["total"],
+        todos=_todos().items(),
+        pending=_calendar().pending_bookings(),
+        scan_status=_store().scan_status(),
+    )
 
 
 @bp.route("/objects", methods=("GET", "POST"))
@@ -584,8 +594,19 @@ def toggle_todo(item_id: str):
 @bp.route("/inbox")
 @login_required
 def inbox():
-    documents = [item for item in _store().list_documents() if _is_unprocessed(item)]
-    return render_template("documents/index.html", documents=documents, document_tree=_document_tree(documents), inbox_only=True, defaults=_settings().settings(), page=1, page_size=max(1, len(documents)), total=len(documents), has_next=False)
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError:
+        page = 1
+    result = _store().inbox_page(page=page)
+    documents = result["documents"]
+    return render_template(
+        "documents/index.html",
+        document_tree=_document_tree(documents),
+        inbox_only=True,
+        defaults=_settings().settings(),
+        **result,
+    )
 
 
 @bp.route("/images")

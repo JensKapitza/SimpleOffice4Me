@@ -141,6 +141,9 @@ Konfiguration und Sicherheitsgrenzen stehen unter
 [Produktionsbetrieb mit Waitress](docs/PRODUKTIONSBETRIEB.md). Updates laufen
 mit `update.sh` oder `update.bat`
 über ein sicheres `git pull --ff-only`.
+Der [getrennte Dokumentindex](docs/PERFORMANCE_INDEXDIENST.md) hält Login,
+Dashboard und WebDAV auch bei mehr als 50.000 Dateien reaktionsfähig und dokumentiert
+Ressourcenpriorisierung, Fehlerverhalten und Abschaltung.
 
 ## Teststand
 
