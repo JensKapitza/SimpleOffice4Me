@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import shutil
+import threading
 import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -73,6 +74,10 @@ def _credentials_path() -> Path:
     return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-credentials.json"
 
 
+def _credential_usage_path() -> Path:
+    return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-credential-usage.json"
+
+
 def _locks_path() -> Path:
     return Path(current_app.config["DOCUMENT_ROOT"]) / CONTROL_DIR / "webdav-locks.json"
 
@@ -94,6 +99,9 @@ def _read_json(path: Path, fallback: dict) -> dict:
 
 
 MAX_ACTIVE_CREDENTIALS = 10
+CREDENTIAL_USAGE_WRITE_INTERVAL_SECONDS = 15 * 60
+_credential_usage_cache: dict[tuple[str, str, str], float] = {}
+_credential_usage_cache_lock = threading.Lock()
 WRITE_METHODS = {"PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK", "PROPPATCH"}
 MAX_SYNC_CHANGES = 4096
 MAX_SYNC_TOKENS = 512
@@ -310,22 +318,130 @@ def _expired(record: dict, now: datetime | None = None) -> bool:
     return expires <= (now or datetime.now(timezone.utc))
 
 
+def _nonnegative_int(value: object) -> int:
+    """Treat corrupt optional counters as absent instead of breaking settings."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def credentials_for(username: str) -> list[dict]:
     """Return display-safe credential metadata without password material."""
     users = _read_json(_credentials_path(), {"users": {}}).get("users", {})
     value = users.get(username) if isinstance(users, dict) else None
+    usage_users = _read_json(_credential_usage_path(), {"users": {}}).get("users", {})
+    usage = usage_users.get(username, {}) if isinstance(usage_users, dict) else {}
+    if not isinstance(usage, dict):
+        usage = {}
     result = []
     for record in _credential_records(value):
+        credential_id = str(record.get("credential_id", ""))
+        last_use = usage.get(credential_id, {})
+        if not isinstance(last_use, dict):
+            last_use = {}
         result.append({
-            "credential_id": str(record.get("credential_id", "")),
+            "credential_id": credential_id,
             "label": str(record.get("label", "Desktop-Zugang")),
             "scope": "read" if record.get("scope") == "read" else "write",
             "path_prefix": str(record.get("path_prefix", "")).strip(),
             "created_at": str(record.get("created_at", "")),
             "expires_at": str(record.get("expires_at", "")),
             "expired": _expired(record),
+            "rotated_at": str(record.get("rotated_at", "")),
+            "rotation_count": _nonnegative_int(record.get("rotation_count", 0)),
+            "last_used_at": str(last_use.get("last_used_at", "")),
+            "last_method": str(last_use.get("method", "")),
+            "last_client": str(last_use.get("client", "")),
         })
     return sorted(result, key=lambda item: item["created_at"], reverse=True)
+
+
+def _client_family(user_agent: str) -> str:
+    """Reduce a User-Agent to a small, non-identifying interoperability label."""
+    value = user_agent.casefold()
+    for marker, label in (
+        ("libreoffice", "LibreOffice"),
+        ("freefilesync", "FreeFileSync"),
+        ("microsoft-webdav-miniredir", "Windows Explorer"),
+        ("webdavfs", "macOS Finder"),
+        ("gvfs", "Nautilus/GVfs"),
+        ("davfs2", "davfs2"),
+    ):
+        if marker in value:
+            return label
+    return "WebDAV-Client"
+
+
+def _forget_credential_usage(username: str, *credential_ids: str) -> None:
+    """Remove stale usage metadata after revoke or rotation."""
+    ids = {value for value in credential_ids if value}
+    if not ids:
+        return
+    path = _credential_usage_path()
+    try:
+        with exclusive_file_lock(path.with_suffix(".lock")):
+            payload = _read_json(path, {"version": 1, "users": {}})
+            users = payload.get("users")
+            if not isinstance(users, dict):
+                users = {}; payload["users"] = users
+            usage = users.get(username)
+            if isinstance(usage, dict):
+                for credential_id in ids:
+                    usage.pop(credential_id, None)
+                if not usage:
+                    users.pop(username, None)
+            payload["version"] = 1
+            atomic_json_write(path, payload)
+    except (OSError, RuntimeError, ValueError):
+        pass
+    root_key = str(_credentials_path())
+    with _credential_usage_cache_lock:
+        for credential_id in ids:
+            _credential_usage_cache.pop((root_key, username, credential_id), None)
+
+
+def _record_credential_use(username: str, credential_id: str) -> None:
+    """Persist coarse last-use data at most once per 15 minutes and never fail auth."""
+    if not credential_id:
+        return
+    now = datetime.now(timezone.utc)
+    cache_key = (str(_credentials_path()), username, credential_id)
+    with _credential_usage_cache_lock:
+        previous = _credential_usage_cache.get(cache_key, 0.0)
+        if now.timestamp() - previous < CREDENTIAL_USAGE_WRITE_INTERVAL_SECONDS:
+            return
+        _credential_usage_cache[cache_key] = now.timestamp()
+    try:
+        path = _credential_usage_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(path.with_suffix(".lock")):
+            payload = _read_json(path, {"version": 1, "users": {}})
+            users = payload.get("users")
+            if not isinstance(users, dict):
+                users = {}; payload["users"] = users
+            usage = users.setdefault(username, {})
+            if not isinstance(usage, dict):
+                usage = {}; users[username] = usage
+            current = usage.get(credential_id, {})
+            try:
+                last_used = datetime.fromisoformat(str(current.get("last_used_at", ""))).astimezone(timezone.utc)
+            except (AttributeError, TypeError, ValueError):
+                last_used = datetime.min.replace(tzinfo=timezone.utc)
+            if (now - last_used).total_seconds() < CREDENTIAL_USAGE_WRITE_INTERVAL_SECONDS:
+                return
+            usage[credential_id] = {
+                "last_used_at": now.isoformat(),
+                "method": request.method if request.method in {"OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"} else "OTHER",
+                "client": _client_family(request.headers.get("User-Agent", "")),
+            }
+            payload["version"] = 1
+            atomic_json_write(path, payload)
+    except (OSError, RuntimeError, ValueError):
+        # Usage telemetry is deliberately fail-open; authentication and file I/O
+        # must never depend on this optional, coarse status projection.
+        with _credential_usage_cache_lock:
+            _credential_usage_cache.pop(cache_key, None)
 
 
 def _normalize_credential_prefix(value: str) -> str:
@@ -442,7 +558,52 @@ def revoke(username: str, actor: str, credential_id: str = "") -> bool:
             "webdav_credential_revoked", actor, "webdav", hashlib.sha256(username.encode()).hexdigest()[:16],
             {"credential_id": record.get("credential_id", ""), "label": record.get("label", ""), "scope": record.get("scope", "write"), "path_prefix": record.get("path_prefix", ""), "revoked_at": utc_now()},
         )
+    _forget_credential_usage(username, *(str(record.get("credential_id", "")) for record in revoked))
     return bool(revoked)
+
+
+def rotate(username: str, actor: str, credential_id: str, expires_days: int = 365) -> str:
+    """Atomically replace one app password while preserving its scope and label."""
+    if isinstance(expires_days, bool) or not 1 <= int(expires_days) <= 365:
+        raise ValueError("Gültigkeit muss zwischen 1 und 365 Tagen liegen.")
+    expires_days = int(expires_days)
+    path = _credentials_path()
+    old_id = credential_id
+    rotated: dict = {}
+    password = ""
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        payload = _read_json(path, {"version": 2, "users": {}})
+        users = payload.get("users")
+        if not isinstance(users, dict):
+            raise ValueError("WebDAV-Zugang wurde nicht gefunden.")
+        records = _credential_records(users.get(username))
+        target_index = next((index for index, record in enumerate(records) if hmac.compare_digest(str(record.get("credential_id", "")), credential_id)), None)
+        if target_index is None:
+            raise ValueError("WebDAV-Zugang wurde nicht gefunden.")
+        previous = records[target_index]
+        new_id = secrets.token_hex(12) if credential_id == "legacy" else credential_id
+        password = f"{new_id}.{secrets.token_urlsafe(24)}"
+        salt = os.urandom(16)
+        rotated = {
+            **previous,
+            "credential_id": new_id,
+            "salt": salt.hex(),
+            "hash": hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1).hex(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat(),
+            "rotated_at": utc_now(),
+            "rotated_by": actor,
+            "rotation_count": _nonnegative_int(previous.get("rotation_count", 0)) + 1,
+        }
+        records[target_index] = rotated
+        users[username] = {"credentials": records}
+        payload["version"] = 2
+        atomic_json_write(path, payload)
+    _forget_credential_usage(username, old_id, str(rotated["credential_id"]))
+    _store().history.record(
+        "webdav_credential_rotated", actor, "webdav", hashlib.sha256(username.encode()).hexdigest()[:16],
+        {key: rotated[key] for key in ("credential_id", "label", "scope", "path_prefix", "expires_at", "rotated_at", "rotation_count")},
+    )
+    return password
 
 
 def _authenticate() -> dict | None:
@@ -467,12 +628,14 @@ def _authenticate() -> dict | None:
         except (KeyError, ValueError):
             continue
         if hmac.compare_digest(actual, expected):
-            return {
+            identity = {
                 "username": supplied.username,
                 "credential_id": str(record.get("credential_id", "legacy")),
                 "scope": "read" if record.get("scope") == "read" else "write",
                 "path_prefix": str(record.get("path_prefix", "")).strip(),
             }
+            _record_credential_use(identity["username"], identity["credential_id"])
+            return identity
     return None
 
 
@@ -3400,6 +3563,14 @@ def setup_user_webdav():
             revoke(username, username); flash("Alle WebDAV-Zugänge wurden widerrufen.")
         elif action == "revoke":
             flash("WebDAV-Zugang wurde widerrufen." if revoke(username, username, request.form.get("credential_id", "")) else "Der WebDAV-Zugang war bereits widerrufen.")
+        elif action == "rotate":
+            try:
+                if request.form.get("confirm_rotation") != "ROTATE":
+                    raise ValueError("Bitte die sofortige Ungültigkeit des alten Passworts bestätigen.")
+                generated_password = rotate(username, username, request.form.get("credential_id", ""), int(request.form.get("expires_days", "365")))
+                flash("App-Passwort ersetzt. Das alte Passwort ist ab sofort ungültig.")
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or "WebDAV-Passwort konnte nicht ersetzt werden.")
         else:
             try:
                 generated_password = activate(username, username, label=request.form.get("label", "Allgemeiner Desktop-Zugang"), scope=request.form.get("scope", "write"), expires_days=int(request.form.get("expires_days", "365")), path_prefix="")
