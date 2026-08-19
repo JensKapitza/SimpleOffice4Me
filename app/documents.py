@@ -1369,7 +1369,13 @@ def calendar():
     except ValueError:
         shown_month = date.today().replace(day=1)
     events_by_day: dict[int, list[dict]] = {}
-    events = [event for event in _calendar().events(actor) if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
+    visible_events = _calendar().events(actor)
+    deleted_events = sorted(
+        (event for event in visible_events if event.get("status") == "deleted"),
+        key=lambda event: event.get("status_changed_at") or event.get("updated_at") or "",
+        reverse=True,
+    )
+    events = [event for event in visible_events if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
     month_lower = datetime(shown_month.year, shown_month.month, 1, tzinfo=timezone.utc)
     next_month = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1)
     month_upper = datetime(next_month.year, next_month.month, 1, tzinfo=timezone.utc)
@@ -1414,7 +1420,7 @@ def calendar():
             subject = f"Terminbestätigung: {event['title']}"
             body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
             event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
 
 
 @bp.post("/calendar/google/preview")
@@ -1630,7 +1636,8 @@ def add_calendar_event():
             raise ValueError("unknown owner")
         calendar_id = request.form.get("calendar_id", "default")
         _calendars().get(calendar_id, actor, write=True)
-        event = _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id, _calendar_metadata())
+        metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
+        event = _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id, metadata)
         if request.form.get("rrule", "").strip() or request.form.get("rdates", "").strip():
             event = _calendar().set_recurrence(event["event_id"], {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "Europe/Berlin")}, actor, event.get("updated_at", ""))
         _calendars().record_event_move(event, calendar_id, actor)
@@ -1647,7 +1654,8 @@ def update_calendar_event(event_id: str):
         actor = str(g.user["username"]); calendar_id = request.form.get("calendar_id", "")
         if calendar_id: _calendars().get(calendar_id, actor, write=True)
         source_calendar_id = _calendar().get(event_id, actor).get("calendar_id") or "default"
-        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id, _calendar_metadata())
+        metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
+        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id, metadata)
         _calendars().record_event_move(event, source_calendar_id, actor)
         flash("Kalendertermin geändert.")
     except ValueError as exc:

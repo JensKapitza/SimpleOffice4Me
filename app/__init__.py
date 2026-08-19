@@ -256,6 +256,36 @@ def format_datetime(value, format='%Y-%m-%d'):
     return value.strftime(format)
 
 
+@app.template_filter("calendar_input_datetime")
+def calendar_input_datetime(value):
+    """Format an ISO instant for datetime-local without changing wall time."""
+    if not value:
+        return ""
+    try:
+        return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00")).strftime("%Y-%m-%dT%H:%M")
+    except ValueError:
+        return ""
+
+
+@app.template_filter("calendar_display_datetime")
+def calendar_display_datetime(value):
+    if not value:
+        return ""
+    try:
+        parsed = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        suffix = parsed.strftime(" %Z") if parsed.tzname() else ""
+        return parsed.strftime("%d.%m.%Y, %H:%M") + suffix
+    except ValueError:
+        return str(value)
+
+
+@app.template_filter("safe_calendar_html")
+def safe_calendar_html(value):
+    from markupsafe import Markup
+    from .calendar_description import sanitize_calendar_html
+    return Markup(sanitize_calendar_html(str(value or "")))
+
+
 @app.after_request
 def add_header(response):
     """Add caching headers for static assets when not in debug mode."""

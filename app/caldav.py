@@ -154,6 +154,8 @@ def _event_ics(event: dict) -> str:
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//CalDAV//EN", "CALSCALE:GREGORIAN", "BEGIN:VEVENT", f"UID:{esc(uid)}", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"DTSTART:{stamp(event['start'])}"]
     if event.get("end"): lines.append(f"DTEND:{stamp(event['end'])}")
     lines.extend([f"SUMMARY:{esc(event['title'])}", f"DESCRIPTION:{esc(event.get('reason', ''))}"])
+    if event.get("description_html"):
+        lines.append(f"X-ALT-DESC;FMTTYPE=text/html:{esc(event['description_html'])}")
     tags = [tag.get("name", "") for tag in event.get("tags", []) if tag.get("name")]
     if tags: lines.append("CATEGORIES:" + ",".join(esc(tag) for tag in tags))
     metadata_event = {**event, "ical_status": "cancelled" if event.get("status") == "cancelled" else event.get("ical_status", "confirmed")}
@@ -207,7 +209,7 @@ def _validate_scheduling_write(actor: str, previous: dict | None, values: dict) 
         return
     if previous.get("organizer", {}).get("email", "").casefold() != organizer:
         raise PermissionError("attendee cannot replace organizer")
-    protected = ("source_uid", "title", "reason", "start", "end", "status", "sequence", "tags", "ical_status", "transparency", "classification", "priority", "location", "event_url", "resources", "conferences")
+    protected = ("source_uid", "title", "reason", "description_html", "description_format", "start", "end", "status", "sequence", "tags", "ical_status", "transparency", "classification", "priority", "location", "event_url", "resources", "conferences")
     normalized = {**values, "source_uid": values.get("uid"), "reason": values.get("description", "")}
     if any(previous.get(key) != normalized.get(key) for key in protected):
         raise PermissionError("attendee changed organizer-controlled event data")
@@ -332,6 +334,7 @@ def _freebusy_response(actor: str, content: str) -> Response:
 
 
 def _parse_ics(content: str) -> dict:
+    from .calendar_description import html_to_text, sanitize_calendar_html, split_content_line
     if len(content.encode("utf-8")) > 1024 * 1024:
         raise ValueError("calendar resource exceeds 1 MiB")
     unfolded: list[str] = []
@@ -377,9 +380,9 @@ def _parse_ics(content: str) -> dict:
         fields: dict[str, tuple[str, str]] = {}; repeated: dict[str, list[tuple[str, str]]] = {"ATTENDEE": [], "RDATE": [], "EXDATE": [], "CONFERENCE": []}
         for line in lines:
             if ":" not in line: continue
-            left, value = line.split(":", 1); key = left.split(";", 1)[0].upper()
+            left, value = split_content_line(line); key = left.split(";", 1)[0].upper()
             if key in repeated: repeated[key].append((left, value))
-            elif key in {"UID", "SUMMARY", "DESCRIPTION", "DTSTART", "DTEND", "CATEGORIES", "STATUS", "SEQUENCE", "ORGANIZER", "RRULE", "RECURRENCE-ID", "TRANSP", "CLASS", "PRIORITY", "LOCATION", "URL", "RESOURCES"}:
+            elif key in {"UID", "SUMMARY", "DESCRIPTION", "X-ALT-DESC", "DTSTART", "DTEND", "CATEGORIES", "STATUS", "SEQUENCE", "ORGANIZER", "RRULE", "RECURRENCE-ID", "TRANSP", "CLASS", "PRIORITY", "LOCATION", "URL", "RESOURCES"}:
                 if key in fields and key in {"UID", "DTSTART", "DTEND", "RRULE", "RECURRENCE-ID"}:
                     raise ValueError(f"{key} must not occur more than once in a VEVENT")
                 fields[key] = (left, value)
@@ -440,7 +443,13 @@ def _parse_ics(content: str) -> dict:
         "resources": [unescape(item).strip() for item in fields.get("RESOURCES", ("", ""))[1].split(",") if item.strip()],
         "conferences": conferences,
     })
-    return {"uid": uid, "title": unescape(fields.get("SUMMARY", ("", "Ohne Titel"))[1]).strip() or "Ohne Titel", "description": unescape(fields.get("DESCRIPTION", ("", ""))[1]), "start": start, "end": end, "timezone": tzid, "recurrence": recurrence, "recurrence_overrides": overrides, "alarms": alarms, "status": "cancelled" if status == "CANCELLED" else "active", "sequence": sequence, "tags": [{"name": unescape(tag).strip(), "visibility": "private"} for tag in fields.get("CATEGORIES", ("", ""))[1].split(",") if tag.strip()], "organizer": person(fields["ORGANIZER"]) if "ORGANIZER" in fields else {}, "participants": participants, "raw_ics": content, **metadata}
+    rich_entry = fields.get("X-ALT-DESC", ("", ""))
+    description_entry = fields.get("DESCRIPTION", ("", ""))
+    rich_html = sanitize_calendar_html(unescape(rich_entry[1])) if "FMTTYPE=TEXT/HTML" in rich_entry[0].upper() else ""
+    if not rich_html and "FMTTYPE=TEXT/HTML" in description_entry[0].upper():
+        rich_html = sanitize_calendar_html(unescape(description_entry[1]))
+    plain = ("" if "FMTTYPE=TEXT/HTML" in description_entry[0].upper() else unescape(description_entry[1])) or html_to_text(rich_html)
+    return {"uid": uid, "title": unescape(fields.get("SUMMARY", ("", "Ohne Titel"))[1]).strip() or "Ohne Titel", "description": plain, "description_html": rich_html, "description_format": "html" if rich_html else "text", "start": start, "end": end, "timezone": tzid, "recurrence": recurrence, "recurrence_overrides": overrides, "alarms": alarms, "status": "cancelled" if status == "CANCELLED" else "active", "sequence": sequence, "tags": [{"name": unescape(tag).strip(), "visibility": "private"} for tag in fields.get("CATEGORIES", ("", ""))[1].split(",") if tag.strip()], "organizer": person(fields["ORGANIZER"]) if "ORGANIZER" in fields else {}, "participants": participants, "raw_ics": content, **metadata}
 
 
 def _xml_root() -> ElementTree.Element:
