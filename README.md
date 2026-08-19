@@ -108,6 +108,9 @@ mit `Content-Digest`, `Repr-Digest` und sicherer Algorithmuswahl beschreibt
 [WebDAV-Übertragungsintegrität nach RFC 9530](docs/WEBDAV_INTEGRITAET_RFC9530.md).
 Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
 [docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
+Das [gemeinsame virtuelle Dateisystem mit vererbbaren Benutzerrechten und optionalem SFTP](docs/VIRTUELLES_DATEISYSTEM_SFTP.md)
+stellt denselben erlaubten Dateibaum zusätzlich shellfrei für `sftp` und
+`sshfs` bereit.
 Wie diese Gerätezugänge zusätzlich auf genau einen Ordner begrenzt werden und
 `COPY`, `MOVE`, Locks sowie Sync-Token nach dem Rechteprinzip aus RFC 3744
 abgesichert sind, beschreibt

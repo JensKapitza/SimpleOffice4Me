@@ -21,6 +21,12 @@ dependencies = [
 security = [
   "pip-audit>=2.7,<3",
 ]
+sftp = [
+  "paramiko>=3.5,<5",
+]
+
+[project.scripts]
+simpleoffice-sftp = "app.sftp_server:serve"
 
 [tool.setuptools]
 packages = ["app"]
