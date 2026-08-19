@@ -23,8 +23,10 @@ unmittelbar nach dem Erzeugen angezeigt.
 
 ## Bedienung und Konfiguration
 
-1. Ein Dokument in SimpleOffice öffnen und **In LibreOffice bearbeiten**
-   wählen.
+1. **Einstellungen → WebDAV-Zugang einrichten** öffnen. Dort kann unabhängig
+   von einem einzelnen Dokument ein allgemeiner Zugang für den vollständigen,
+   dem Benutzer erlaubten Dokumentbaum erzeugt werden. Alternativ führt
+   **In LibreOffice bearbeiten** an einem Dokument zur gerätebezogenen Ansicht.
 2. Unter **Neuen Gerätezugang anlegen** eine eindeutige Bezeichnung wie
    `LibreOffice Büro-Laptop` vergeben.
 3. Den kleinsten notwendigen Rechteumfang und die Gültigkeit wählen.
@@ -33,6 +35,12 @@ unmittelbar nach dem Erzeugen angezeigt.
    aus Kompatibilitätsgründen alle Dokumente.
 6. Als Benutzername den SimpleOffice-Benutzernamen und als Adresse die
    gerätespezifische WebDAV-Adresse aus der Zugangstabelle verwenden.
+
+Ein allgemeines App-Passwort ist nicht an eine Datei gebunden und kann in
+mehreren Pfaden verwendet werden. Es bleibt bis zum gewählten Ablaufdatum oder
+Widerruf gültig. Die leere Pfadgrenze bedeutet dabei nicht öffentliche
+Freigabe: Benutzertrennung, Dokumentrechte, Locks und Aufbewahrungssperren
+werden bei jeder Anfrage weiterhin geprüft.
 
 Die vollständige Sicherheits- und RFC-Auswertung der Ordnergrenze steht in
 [WEBDAV_ORDNERZUGAENGE_RFC3744.md](WEBDAV_ORDNERZUGAENGE_RFC3744.md).
@@ -96,6 +104,45 @@ erweitert.
   Betriebssystems oder Clients übernommen werden. Sie gehören nicht in
   Kommandozeilen, URLs, Protokolle oder gemeinsam genutzte Konfigurationsdateien.
 
+## Passwortwechsel und datensparsame Nutzungsübersicht
+
+In **Einstellungen → WebDAV für Desktop-Programme** kann jedes Gerätepasswort
+einzeln ersetzt werden. Der Server tauscht Salt, `scrypt`-Hash, Ablaufdatum und
+Rotationszähler unter derselben exklusiven Sperre aus. Dadurch gibt es keinen
+Zwischenzustand mit zwei gültigen Passwörtern: Nach erfolgreichem Ersetzen ist
+das alte Passwort sofort ungültig, während Bezeichnung, Pfadgrenze und
+Rechteumfang unverändert bleiben. Das neue Passwort erscheint genau einmal.
+Der Vorgang erfordert eine ausdrückliche Bestätigung und wird ohne Passwort,
+Salt oder Hash in der Git-basierten Audit-Historie protokolliert.
+
+Die Geräteübersicht zeigt außerdem den letzten grob erfassten Zugriff mit
+Zeitpunkt, WebDAV-Methode und einer begrenzten Clientfamilie wie LibreOffice,
+FreeFileSync, Nautilus, Explorer oder Finder. Dabei gelten folgende Grenzen:
+
+- Es werden weder IP-Adresse noch vollständiger `User-Agent`, Dateiname,
+  angeforderter Pfad oder Dokumentinhalt gespeichert.
+- Eine erfolgreiche Anmeldung schreibt je Prozess und Gerätezugang höchstens
+  einmal in 15 Minuten in die kleine Nutzungsprojektion. Wiederholte GET-,
+  PROPFIND- oder Office-Anfragen bleiben damit im schnellen Lesepfad.
+- Die Projektion ist keine revisionssichere Zugriffsstatistik. Dateiänderungen
+  bleiben weiterhin im normalen Audit; die Übersicht dient ausschließlich der
+  Entscheidung, ob ein Gerätepasswort noch benutzt oder widerrufen wird.
+- Ist die Projektion gesperrt, beschädigt oder nicht beschreibbar, bleibt eine
+  gültige WebDAV-Anmeldung funktionsfähig. Die Anzeige darf veraltet sein,
+  Dateioperationen werden deswegen aber nicht blockiert.
+
+Diese Gestaltung folgt dem Schutzraum-Modell aus
+[RFC 7617 §2.2](https://www.rfc-editor.org/rfc/rfc7617.html#section-2.2):
+Clients dürfen Zugangsdaten innerhalb des URI-Präfixes wiederverwenden. Ein
+serverseitiger Passwortwechsel muss deshalb den gesamten Zugang atomar
+ungültig machen, statt nur einzelne URLs abzumelden. Die
+[Sicherheitsanforderungen aus RFC 7617 §4](https://www.rfc-editor.org/rfc/rfc7617.html#section-4)
+fordern TLS und eine nicht trivial wiederherstellbare Speicherung; beides gilt
+unverändert. Nach
+[RFC 4918 §20.1](https://www.rfc-editor.org/rfc/rfc4918.html#section-20.1)
+bleibt Autorisierung für jede WebDAV-Ressource erforderlich. Rotieren oder
+Beobachten eines Gerätezugangs erweitert daher keine Dokumentrechte.
+
 ## Fehler- und Ausfallverhalten
 
 - `401 Unauthorized`: Passwort fehlt, ist falsch, abgelaufen oder widerrufen.
@@ -109,6 +156,9 @@ erweitert.
   neuen vollständigen Zustand, nie eine teilweise JSON-Datei.
 - Bei vollem Limit oder ungültigen Eingaben wird kein Geheimnis gespeichert.
   Bereits vorhandene Gerätezugänge bleiben unverändert.
+- Scheitert die optionale Nutzungsprojektion, wird die Anmeldung nicht
+  abgewiesen. Scheitert dagegen der atomare Austausch der geheimen
+  Zugangsdaten, wird kein neues Passwort ausgegeben.
 
 ## Migration und Rückwärtskompatibilität
 
@@ -136,6 +186,10 @@ Automatisiert geprüft werden:
 - Begrenzung auf zehn aktive Zugänge;
 - einmalige Geheimnisanzeige sowie Ausschluss von Hash und Salt aus HTML und
   Audit;
+- atomare Rotation, sofortige Ablehnung des alten Passworts, Erhalt von
+  Rechteumfang und Pfadgrenze sowie Bestätigung in der Oberfläche;
+- gedrosselte, datensparsame Letztnutzung und ausfallsichere Authentifizierung
+  bei nicht beschreibbarer Nutzungsprojektion;
 - weiterhin alle WebDAV-Pfad-, Lock-, ETag-, Versions-, Rechte- und
   Interoperabilitätstests.
 
@@ -147,7 +201,9 @@ Automatisiert geprüft werden:
 - Abgelaufene Metadaten bleiben sichtbar, bis sie widerrufen werden. Das dient
   Nachvollziehbarkeit und ändert keine Aufbewahrungsregel.
 - WebDAV ACL, OAuth für Desktop-Clients, Client-Zertifikate und automatische
-  Passwortrotation sind nicht implementiert.
+  zeitgesteuerte Passwortrotation sind nicht implementiert. Der Wechsel wird
+  bewusst vom Benutzer ausgelöst, weil er das gespeicherte Passwort danach in
+  seinen Desktop-Clients aktualisieren muss.
 - **Widerrufen** deaktiviert nur das gewählte Gerät. **Alle Zugänge
   widerrufen** stellt das frühere vollständig deaktivierte Verhalten her,
   ohne Dateien, Versionen oder Auditdaten zu löschen.

@@ -15,7 +15,7 @@ from app import app
 from app.attachment_security import ClamAV, ScanResult
 from app.db import ensure_auth_database
 from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
-from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, revoke
+from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, credentials_for, revoke, rotate
 
 
 class WebDavDocumentTest(unittest.TestCase):
@@ -75,6 +75,27 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertNotIn(record["hash"], body)
         self.assertNotIn(record["salt"], body)
 
+    def test_user_settings_create_one_whole_tree_credential(self):
+        settings = self.client.get("/documents/settings").get_data(as_text=True)
+        self.assertIn("/settings/webdav", settings)
+        response = self.client.post("/settings/webdav", data={
+            "action": "activate", "label": "Mein Dateisystem",
+            "scope": "write", "expires_days": "365",
+            "path_prefix": "darf-nicht-übernommen-werden",
+        })
+        body = response.get_data(as_text=True)
+        payload = json.loads((self.store.control / "webdav-credentials.json").read_text())
+        record = next(item for item in payload["users"]["jens"]["credentials"] if item["label"] == "Mein Dateisystem")
+        self.assertEqual(200, response.status_code)
+        self.assertIn("App-Passwort jetzt kopieren", body)
+        self.assertIn("Alle Dokumente", body)
+        self.assertEqual("", record["path_prefix"])
+        self.assertNotIn(record["hash"], body)
+        self.assertNotIn(record["salt"], body)
+        password = body.split('id="app-password"', 1)[1].split('value="', 1)[1].split('"', 1)[0]
+        auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        self.assertEqual(207, self.client.open(self.files, method="PROPFIND", headers={**auth, "Depth": "1"}).status_code)
+
     def test_device_credentials_are_independent_and_individually_revocable(self):
         with app.test_request_context():
             second_password = activate("jens", "jens", label="Nautilus", scope="write", expires_days=90)
@@ -95,6 +116,76 @@ class WebDavDocumentTest(unittest.TestCase):
         self.assertTrue(events)
         snapshot = json.loads(next((self.store.history.root / "snapshots" / "webdav").glob("*.json")).read_text())
         self.assertEqual(first_id, snapshot["credential_id"])
+
+    def test_rotation_atomically_invalidates_old_password_and_preserves_scope(self):
+        payload = json.loads((self.store.control / "webdav-credentials.json").read_text())
+        before = payload["users"]["jens"]["credentials"][0]
+        before["rotation_count"] = "corrupt-legacy-counter"
+        (self.store.control / "webdav-credentials.json").write_text(json.dumps(payload))
+        with app.test_request_context():
+            replacement = rotate("jens", "jens", before["credential_id"], 90)
+        replacement_auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{replacement}".encode()).decode()}
+
+        self.assertEqual(401, self.client.get(self.url, headers=self.auth).status_code)
+        self.assertEqual(200, self.client.get(self.url, headers=replacement_auth).status_code)
+        after = json.loads((self.store.control / "webdav-credentials.json").read_text())["users"]["jens"]["credentials"][0]
+        self.assertEqual(before["credential_id"], after["credential_id"])
+        self.assertEqual(before["label"], after["label"])
+        self.assertEqual(before["scope"], after["scope"])
+        self.assertNotEqual(before["hash"], after["hash"])
+        self.assertEqual(1, after["rotation_count"])
+        snapshots = list((self.store.history.root / "events").glob("*.json"))
+        self.assertTrue(any("webdav_credential_rotated" in path.read_text() for path in snapshots))
+
+    def test_settings_rotation_requires_confirmation_and_shows_secret_once(self):
+        record = json.loads((self.store.control / "webdav-credentials.json").read_text())["users"]["jens"]["credentials"][0]
+        denied = self.client.post("/settings/webdav", data={
+            "action": "rotate", "credential_id": record["credential_id"], "expires_days": "365",
+        })
+        self.assertIn("sofortige Ungültigkeit", denied.get_data(as_text=True))
+        self.assertEqual(200, self.client.get(self.url, headers=self.auth).status_code)
+
+        rotated = self.client.post("/settings/webdav", data={
+            "action": "rotate", "credential_id": record["credential_id"],
+            "expires_days": "365", "confirm_rotation": "ROTATE",
+        })
+        body = rotated.get_data(as_text=True)
+        password = body.split('id="app-password"', 1)[1].split('value="', 1)[1].split('"', 1)[0]
+        new_auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
+        self.assertIn("Das alte Passwort ist ab sofort ungültig", body)
+        self.assertEqual(401, self.client.get(self.url, headers=self.auth).status_code)
+        self.assertEqual(200, self.client.get(self.url, headers=new_auth).status_code)
+        follow_up = self.client.get("/settings/webdav").get_data(as_text=True)
+        self.assertNotIn(password, follow_up)
+
+    def test_last_use_is_coarse_private_and_write_throttled(self):
+        first = self.client.open(self.files, method="PROPFIND", headers={
+            **self.auth, "Depth": "0", "User-Agent": "LibreOffice/26.2 confidential-build-detail",
+        })
+        usage_path = self.store.control / "webdav-credential-usage.json"
+        first_payload = json.loads(usage_path.read_text())
+        record = json.loads((self.store.control / "webdav-credentials.json").read_text())["users"]["jens"]["credentials"][0]
+        usage = first_payload["users"]["jens"][record["credential_id"]]
+
+        second = self.client.get(self.url, headers={**self.auth, "User-Agent": "SecretClient/99 serial-123"})
+        second_payload = json.loads(usage_path.read_text())
+        with app.test_request_context():
+            display = credentials_for("jens")[0]
+
+        self.assertEqual([207, 200], [first.status_code, second.status_code])
+        self.assertEqual(first_payload, second_payload)
+        self.assertEqual("PROPFIND", usage["method"])
+        self.assertEqual("LibreOffice", usage["client"])
+        self.assertNotIn("confidential-build-detail", usage_path.read_text())
+        self.assertNotIn("serial-123", usage_path.read_text())
+        self.assertEqual("LibreOffice", display["last_client"])
+        self.assertTrue(display["last_used_at"])
+
+    def test_usage_projection_failure_never_blocks_valid_webdav_authentication(self):
+        with mock.patch("app.webdav.atomic_json_write", side_effect=OSError("read-only usage storage")):
+            response = self.client.get(self.url, headers=self.auth)
+
+        self.assertEqual(200, response.status_code)
 
     def test_read_only_credential_advertises_and_enforces_least_privilege(self):
         with app.test_request_context():
