@@ -4,13 +4,17 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-import paramiko
-
 from app.document_store import DocumentStore
-from app.sftp_server import RestrictedSFTP, _BufferedWriteHandle
 from app.virtual_filesystem import VirtualFileSystem
 
+try:
+    import paramiko
+    from app.sftp_server import RestrictedSFTP, _BufferedWriteHandle
+except ImportError:  # The production SFTP service is an optional installation.
+    paramiko = None
 
+
+@unittest.skipUnless(paramiko is not None, "install the optional sftp extra to test its adapter")
 class SftpVirtualFilesystemTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
