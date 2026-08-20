@@ -19,6 +19,8 @@ verlinkt.
 
 ## Dateien und Desktop-Integration
 
+- [Erststart-Assistent für Windows, Linux, DAV und SFTP](ERSTSTART_UND_DESKTOP_SETUP.md)
+- [Virtuelles Dateisystem mit Ordnerrechten und SFTP/SSHFS](VIRTUELLES_DATEISYSTEM_SFTP.md)
 - [Hierarchische WebDAV-Dateiverwaltung](WEBDAV_DATEIVERWALTUNG.md)
 - [Begrenzte rekursive WebDAV-Bestandsaufnahme nach RFC 4918](WEBDAV_REKURSIVE_PROPFIND_RFC4918.md)
 - [Portable WebDAV-Dateinamen für Windows, macOS und Linux](WEBDAV_PORTABLE_DATEINAMEN.md)

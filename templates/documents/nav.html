@@ -20,6 +20,7 @@
       <div class="navbar-nav border-top border-xl-0 pt-2 pt-xl-0 align-items-xl-center">
         <a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a>
         <a class="nav-link" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a>
+        <a class="nav-link" href="{{ url_for('documents.first_run_setup') }}"><i class="fas fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Einrichten</a>
         <a class="nav-link" href="{{ url_for('documents.settings') }}"><i class="fas fa-cog me-1" aria-hidden="true"></i>{{ tr('settings') }}</a>
         <form method="post" action="{{ url_for('documents.set_language') }}" class="px-xl-2"><label class="visually-hidden" for="language">Language</label><select class="form-select form-select-sm" id="language" name="language" onchange="this.form.submit()" aria-label="Language"><option value="de" {% if g.language == 'de' %}selected{% endif %}>DE</option><option value="en" {% if g.language == 'en' %}selected{% endif %}>EN</option></select></form>
         <span class="navbar-text px-xl-2 small">{{ g.user['display_name'] or g.user['username'] }}</span><a class="nav-link" href="{{ url_for('auth.logout') }}">{{ tr('logout') }}</a>

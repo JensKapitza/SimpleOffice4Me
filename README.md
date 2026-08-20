@@ -108,6 +108,9 @@ mit `Content-Digest`, `Repr-Digest` und sicherer Algorithmuswahl beschreibt
 [WebDAV-Übertragungsintegrität nach RFC 9530](docs/WEBDAV_INTEGRITAET_RFC9530.md).
 Getrennte, ablaufende Lese- und Schreibzugänge je Gerät sind in
 [docs/WEBDAV_ZUGAENGE.md](docs/WEBDAV_ZUGAENGE.md) beschrieben.
+Das [gemeinsame virtuelle Dateisystem mit vererbbaren Benutzerrechten und optionalem SFTP](docs/VIRTUELLES_DATEISYSTEM_SFTP.md)
+stellt denselben erlaubten Dateibaum zusätzlich shellfrei für `sftp` und
+`sshfs` bereit.
 Wie diese Gerätezugänge zusätzlich auf genau einen Ordner begrenzt werden und
 `COPY`, `MOVE`, Locks sowie Sync-Token nach dem Rechteprinzip aus RFC 3744
 abgesichert sind, beschreibt
@@ -135,6 +138,13 @@ findet Namen, Größen, Zeitstempel und Dead-Property-Tags ohne Dateiinhalt oder
 externe Suchdienste und liefert bei Schutzgrenzen keine irreführende Teilliste.
 
 ## Start und Update
+
+Nach der ersten Anmeldung führt **Einrichten** schrittweise durch HTTPS,
+getrennte App-Passwörter, Ordnerrechte sowie die Anbindung von Windows und
+Linux per WebDAV, CalDAV, CardDAV und SFTP/SSHFS. Die vollständige
+[Erststart- und Desktop-Anleitung](docs/ERSTSTART_UND_DESKTOP_SETUP.md) kann im
+Assistenten auch als persönliche, geheimnisfreie Textdatei heruntergeladen
+werden.
 
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
 die lokale Python-Umgebung, installieren die Anwendung und starten den

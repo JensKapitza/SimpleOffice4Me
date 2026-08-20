@@ -16,6 +16,7 @@ from app.attachment_security import ClamAV, ScanResult
 from app.db import ensure_auth_database
 from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 from app.webdav import MAX_ACTIVE_CREDENTIALS, activate, credentials_for, revoke, rotate
+from app.virtual_filesystem import VirtualFileSystem
 
 
 class WebDavDocumentTest(unittest.TestCase):
@@ -95,6 +96,47 @@ class WebDavDocumentTest(unittest.TestCase):
         password = body.split('id="app-password"', 1)[1].split('value="', 1)[1].split('"', 1)[0]
         auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
         self.assertEqual(207, self.client.open(self.files, method="PROPFIND", headers={**auth, "Depth": "1"}).status_code)
+
+    def test_folder_acl_filters_listing_and_denies_write_for_readers(self):
+        root = Path(app.config["DOCUMENT_ROOT"])
+        (root / "private").mkdir()
+        (root / "private" / "secret.txt").write_bytes(b"secret")
+        self.store.scan()
+        acl = VirtualFileSystem(root, {"admin"})
+        acl.set_grants(".", {"jens": "manage", "bob": "read"}, "admin")
+        acl.set_grants("private", {"jens": "manage"}, "admin", inherit=False)
+        self.client.post("/auth/register", data={"username": "bob", "password": "bob-browser-passwort"})
+        with app.test_request_context():
+            password = activate("bob", "bob", label="SFTP/WebDAV", scope="write", expires_days=30)
+        auth = {"Authorization": "Basic " + base64.b64encode(f"bob:{password}".encode()).decode()}
+
+        listing = self.client.open(self.files.replace("jens", "bob"), method="PROPFIND", headers={**auth, "Depth": "infinity"})
+        hidden = self.client.get("/webdav/files/bob/private/secret.txt", headers=auth)
+        denied = self.client.put("/webdav/files/bob/angebot.odt", data=b"blocked", headers=auth)
+        stable_denied = self.client.put(
+            f"/webdav/documents/bob/{self.document['document_id']}--angebot.odt",
+            data=b"blocked through stable URL", headers=auth,
+        )
+
+        self.assertEqual(207, listing.status_code)
+        self.assertIn("angebot.odt", listing.get_data(as_text=True))
+        self.assertNotIn("private", listing.get_data(as_text=True))
+        self.assertEqual(404, hidden.status_code)
+        self.assertEqual(403, denied.status_code)
+        self.assertEqual(403, stable_denied.status_code)
+        self.assertEqual(b"first office version", (root / "angebot.odt").read_bytes())
+
+    def test_single_user_can_bootstrap_configurable_folder_access(self):
+        response = self.client.post("/settings/webdav", data={
+            "action": "save_access", "folder": ".", "inherit": "1",
+            "access_jens": "manage",
+        })
+        policy = json.loads((Path(app.config["DOCUMENT_ROOT"]) / POLICY_FILE).read_text())
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Ordnerrechte gespeichert", response.get_data(as_text=True))
+        self.assertTrue(policy["access_enabled"])
+        self.assertEqual([{"principal": "jens", "role": "manage"}], policy["grants"])
 
     def test_device_credentials_are_independent_and_individually_revocable(self):
         with app.test_request_context():

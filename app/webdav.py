@@ -39,6 +39,8 @@ from .document_store import (
     utc_now,
 )
 from .file_lock import exclusive_file_lock
+from .virtual_filesystem import VirtualFileSystem
+from .db import get_db
 
 
 bp = Blueprint("webdav", __name__)
@@ -47,6 +49,39 @@ MICROSOFT_DAV = "urn:schemas-microsoft-com:"
 MICROSOFT_OFFICE = "urn:schemas-microsoft-com:office:office"
 ElementTree.register_namespace("Z", MICROSOFT_DAV)
 ElementTree.register_namespace("Office", MICROSOFT_OFFICE)
+
+
+def _vfs() -> VirtualFileSystem:
+    return VirtualFileSystem.from_environment(current_app.config["DOCUMENT_ROOT"])
+
+
+def _document_access_context(username: str) -> tuple[VirtualFileSystem, list[str], bool]:
+    users = [str(row[0]) for row in get_db().execute("SELECT username FROM user ORDER BY username").fetchall()]
+    configured = {
+        value.strip() for value in os.environ.get("SIMPLEOFFICE_DOCUMENT_ADMINS", "").split(",")
+        if value.strip()
+    }
+    # A single-user installation remains administrable without an additional
+    # bootstrap step. Multi-user installations require an explicit admin.
+    bootstrap_admin = len(users) == 1 and users[0] == username
+    administrators = configured | ({username} if bootstrap_admin else set())
+    return VirtualFileSystem(current_app.config["DOCUMENT_ROOT"], administrators), users, username in administrators
+
+
+def _access_folders(vfs: VirtualFileSystem, username: str, administrator: bool) -> list[str]:
+    folders = ["."]
+    for parent, names, _files in os.walk(vfs.root, followlinks=False):
+        names[:] = sorted(
+            [name for name in names if name not in {CONTROL_DIR, HISTORY_DIR} and not (Path(parent) / name).is_symlink()],
+            key=str.casefold,
+        )
+        for name in names:
+            relative = vfs.relative(Path(parent) / name)
+            if administrator or vfs.allows(username, relative, "manage"):
+                folders.append(relative)
+            if len(folders) >= 2_000:
+                return folders
+    return folders
 
 
 def _release_mutation_lock() -> None:
@@ -606,14 +641,12 @@ def rotate(username: str, actor: str, credential_id: str, expires_days: int = 36
     return password
 
 
-def _authenticate() -> dict | None:
-    supplied = request.authorization
-    if not supplied or supplied.type.casefold() != "basic" or not supplied.username or not supplied.password:
-        return None
+def authenticate_password(username: str, password: str, *, record_use: bool = False) -> dict | None:
+    """Verify one protocol app password without requiring an HTTP request."""
     users = _read_json(_credentials_path(), {"users": {}}).get("users", {})
-    value = users.get(supplied.username) if isinstance(users, dict) else None
+    value = users.get(username) if isinstance(users, dict) else None
     records = _credential_records(value)
-    selector = supplied.password.partition(".")[0] if "." in supplied.password else ""
+    selector = password.partition(".")[0] if "." in password else ""
     if selector:
         selected = [record for record in records if record.get("credential_id") == selector]
         candidates = selected or [record for record in records if record.get("credential_id") == "legacy"]
@@ -623,20 +656,28 @@ def _authenticate() -> dict | None:
         if _expired(record):
             continue
         try:
-            actual = hashlib.scrypt(supplied.password.encode(), salt=bytes.fromhex(record["salt"]), n=2**14, r=8, p=1)
+            actual = hashlib.scrypt(password.encode(), salt=bytes.fromhex(record["salt"]), n=2**14, r=8, p=1)
             expected = bytes.fromhex(record["hash"])
         except (KeyError, ValueError):
             continue
         if hmac.compare_digest(actual, expected):
             identity = {
-                "username": supplied.username,
+                "username": username,
                 "credential_id": str(record.get("credential_id", "legacy")),
                 "scope": "read" if record.get("scope") == "read" else "write",
                 "path_prefix": str(record.get("path_prefix", "")).strip(),
             }
-            _record_credential_use(identity["username"], identity["credential_id"])
+            if record_use:
+                _record_credential_use(identity["username"], identity["credential_id"])
             return identity
     return None
+
+
+def _authenticate() -> dict | None:
+    supplied = request.authorization
+    if not supplied or supplied.type.casefold() != "basic" or not supplied.username or not supplied.password:
+        return None
+    return authenticate_password(supplied.username, supplied.password, record_use=True)
 
 
 def _unauthorized() -> Response:
@@ -1480,6 +1521,8 @@ def _if_resource(tag: str | None, username: str, identity: dict) -> dict:
         raise PermissionError("WebDAV If resource is outside this user tree")
     if not _credential_allows_path(identity, resource):
         raise PermissionError("WebDAV If resource is outside this credential")
+    if not _vfs().allows(username, resource, "read"):
+        raise PermissionError("WebDAV If resource is outside this user's folder rights")
     document = None
     if resource.is_file() and not resource.is_symlink():
         document = _tree_document(resource)
@@ -2119,7 +2162,7 @@ def _principal_prop_response(
     return f'<d:response><d:href>{escape(href)}</d:href>{propstats}</d:response>'
 
 
-def _propfind_members(resource: Path, depth: str) -> list[tuple[Path, bool, dict | None]]:
+def _propfind_members(resource: Path, depth: str, username: str = "") -> list[tuple[Path, bool, dict | None]]:
     """Return a deterministic, bounded snapshot of DAV-compliant descendants."""
     if depth == "0":
         return []
@@ -2135,6 +2178,8 @@ def _propfind_members(resource: Path, depth: str) -> list[tuple[Path, bool, dict
         nested_collections: list[tuple[Path, int]] = []
         for child in children:
             if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or child.is_symlink():
+                continue
+            if username and not _vfs().allows(username, child, "read"):
                 continue
             visited += 1
             if visited > MAX_WEBDAV_COLLECTION_MEMBERS:
@@ -2737,7 +2782,7 @@ def _search_response(
     effective_depth = query["scope_depth"] if scope_collection else "0"
     candidates = [(scope, scope_collection, scope_document)]
     try:
-        candidates.extend(_propfind_members(scope, effective_depth))
+        candidates.extend(_propfind_members(scope, effective_depth, username))
     except _PropfindLimitError as exc:
         return _search_limit_response(
             username, scope, depth=effective_depth, scanned=exc.observed,
@@ -3455,6 +3500,12 @@ def _sync_report(username: str, collection: Path) -> Response:
             if _sync_member_in_scope(relative, collection, level)
         ]
     members = _effective_sync_members(members, level)
+    # A sync token is scoped to the user, but an ACL can change independently
+    # of the change journal. Never disclose a path that is currently hidden.
+    members = [
+        item for item in members
+        if _vfs().allows(username, _store().root / str(item.get("path", "")), "read")
+    ]
     responses: list[str] = []
     consumed = 0
     response_size = 256
@@ -3556,6 +3607,7 @@ def setup_document(document_id: str):
 def setup_user_webdav():
     """Manage one user's persistent, whole-tree WebDAV credentials."""
     username = str(g.user["username"])
+    access_vfs, users, access_administrator = _document_access_context(username)
     generated_password = ""
     if request.method == "POST":
         action = request.form.get("action", "activate")
@@ -3571,6 +3623,20 @@ def setup_user_webdav():
                 flash("App-Passwort ersetzt. Das alte Passwort ist ab sofort ungültig.")
             except (TypeError, ValueError) as exc:
                 flash(str(exc) or "WebDAV-Passwort konnte nicht ersetzt werden.")
+        elif action == "save_access":
+            folder = request.form.get("folder", ".")
+            try:
+                grants = {
+                    candidate: request.form.get(f"access_{candidate}", "")
+                    for candidate in users
+                }
+                access_vfs.set_grants(
+                    folder, grants, username,
+                    inherit=request.form.get("inherit") == "1",
+                )
+                flash("Ordnerrechte gespeichert. WebDAV und SFTP verwenden dieselbe Regel.")
+            except (OSError, PermissionError, ValueError) as exc:
+                flash(f"Ordnerrechte konnten nicht gespeichert werden: {exc}")
         else:
             try:
                 generated_password = activate(username, username, label=request.form.get("label", "Allgemeiner Desktop-Zugang"), scope=request.form.get("scope", "write"), expires_days=int(request.form.get("expires_days", "365")), path_prefix="")
@@ -3579,7 +3645,19 @@ def setup_user_webdav():
     credentials = credentials_for(username)
     for credential in credentials:
         credential["webdav_url"] = _tree_url(username, credential["path_prefix"], external=True, collection=True)
-    return render_template("documents/webdav_settings.html", username=username, webdav_root_url=_tree_url(username, external=True, collection=True), generated_password=generated_password, credentials=credentials, quota=_quota_state())
+    folders = _access_folders(access_vfs, username, access_administrator)
+    selected_folder = request.args.get("folder", request.form.get("folder", "."))
+    if selected_folder not in folders:
+        selected_folder = "."
+    selected_policy = access_vfs.access_policy(selected_folder)
+    return render_template(
+        "documents/webdav_settings.html", username=username,
+        webdav_root_url=_tree_url(username, external=True, collection=True),
+        generated_password=generated_password, credentials=credentials,
+        quota=_quota_state(), access_users=users, access_folders=folders,
+        selected_folder=selected_folder, selected_policy=selected_policy,
+        access_administrator=access_administrator,
+    )
 
 
 @bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
@@ -3605,10 +3683,24 @@ def file_tree(username: str, relative_path: str):
             "DASL": "<DAV:basicsearch>", "Want-Content-Digest": DIGEST_PREFERENCE,
             "Cache-Control": "private, no-store", "Vary": "Authorization",
         })
+    acl_target = resource if resource.exists() else resource.parent
+    if not _vfs().allows(username, acl_target, "read"):
+        # Hidden resources are indistinguishable from absent resources.
+        return Response("not found", 404)
     if identity["scope"] != "write" and request.method in WRITE_METHODS:
         return _need_privileges_response(
             request.path, _missing_method_privilege(request.method), allow,
         )
+    if request.method in WRITE_METHODS:
+        write_target = resource.parent if request.method in {"MKCOL"} or (request.method in {"PUT", "LOCK"} and not resource.exists()) else resource
+        if not _vfs().allows(username, write_target, "write"):
+            return _need_privileges_response(
+                request.path, _missing_method_privilege(request.method), allow,
+            )
+        if request.method in {"DELETE", "MOVE"} and resource != _store().root and not _vfs().allows(username, resource.parent, "write"):
+            return _need_privileges_response(
+                request.path, _missing_method_privilege(request.method), allow,
+            )
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     if resource.is_file() and not resource.is_symlink():
@@ -3683,7 +3775,7 @@ def file_tree(username: str, relative_path: str):
                 _prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token, username=username, resource=resource, query=query, searchable=True),
                 response_size,
             )
-            for child, child_is_collection, child_document in _propfind_members(resource, effective_depth):
+            for child, child_is_collection, child_document in _propfind_members(resource, effective_depth, username):
                 child_href = _tree_url(
                     username, _store().relative(child), collection=child_is_collection,
                 )
@@ -3911,6 +4003,14 @@ def file_tree(username: str, relative_path: str):
             return Response("destination is outside the authenticated WebDAV tree", 502)
         except ValueError as exc:
             return Response(str(exc), 400)
+        if not _vfs().allows(username, destination.parent, "write"):
+            return _need_privileges_response(
+                request.path, _missing_method_privilege(request.method), allow,
+            )
+        if destination.exists() and not _vfs().allows(username, destination, "write"):
+            return _need_privileges_response(
+                request.path, _missing_method_privilege(request.method), allow,
+            )
         name_error = _portable_name_error(
             username,
             destination,
@@ -4142,6 +4242,8 @@ def endpoint(path: str):
             return Response("not found", 404)
         if not _credential_allows_path(identity, document_path):
             return Response("not found", 404)
+        if not _vfs().allows(username, document_path, "read"):
+            return Response("not found", 404)
 
     if request.method == "PROPFIND":
         depth = request.headers.get("Depth", "0")
@@ -4169,6 +4271,8 @@ def endpoint(path: str):
                         continue
                     if not _credential_allows_path(identity, item_path):
                         continue
+                    if not _vfs().allows(username, item_path, "read"):
+                        continue
                     responses.append(_prop_response(_resource_url(username, item), Path(item["last_path"]).name, document=item, username=username, resource=item_path, query=query))
         elif document is not None:
             responses.append(_prop_response(request.path, document_path.name, document=document, username=username, resource=document_path, query=query))
@@ -4178,6 +4282,8 @@ def endpoint(path: str):
 
     if document is None:
         return Response("not found", 404)
+    if request.method in WRITE_METHODS and not _vfs().allows(username, document_path, "write"):
+        return _need_privileges_response(request.path, _missing_method_privilege(request.method), allow)
     if request.method in WRITE_METHODS:
         mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
         mutation_lock.__enter__()

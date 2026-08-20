@@ -8,6 +8,7 @@ import mimetypes
 import os
 import shutil
 import subprocess
+import secrets
 from pathlib import Path
 from urllib.parse import urlencode
 from calendar import month_name, monthcalendar
@@ -33,6 +34,7 @@ from .replication_store import CATEGORIES, ReplicationStore
 from .object_store import ObjectStore
 from .attachment_security import AttachmentSecurity, ClamAV
 from .db import get_db
+from .setup_store import SetupStore
 
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
@@ -72,6 +74,40 @@ def _todos() -> TodoStore:
 
 def _settings() -> SettingsStore:
     return SettingsStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _setup() -> SetupStore:
+    return SetupStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _remote_setup_context(username: str) -> dict[str, Any]:
+    """Return display-safe service state and request-derived client URLs."""
+    from .webdav import credentials_for
+
+    root = request.url_root.rstrip("/")
+    host = request.host.split(":", 1)[0].strip("[]") or "server.example"
+    carddav = _contacts().carddav()
+    carddav_enabled = any(item.get("username") == username and item.get("enabled") is True for item in carddav.get("accounts", []))
+    caldav_enabled = any(item.get("username") == username and item.get("enabled") is True for item in _calendars()._read_auth().get("accounts", []))
+    try:
+        sftp_port = int(os.environ.get("SIMPLEOFFICE_SFTP_PORT", "2222"))
+    except ValueError:
+        sftp_port = 2222
+    if not 1 <= sftp_port <= 65535:
+        sftp_port = 2222
+    host_key = Path(os.environ.get("SIMPLEOFFICE_SFTP_HOST_KEY", "")).expanduser()
+    return {
+        "username": username, "origin": root, "host": host,
+        "secure_transport": request.is_secure or host in {"localhost", "127.0.0.1", "::1"},
+        "webdav_url": f"{root}/webdav/files/{username}/",
+        "caldav_url": f"{root}/caldav/calendars/{username}/",
+        "carddav_url": f"{root}/carddav/addressbooks/{username}/contacts/",
+        "webdav_enabled": any(not item.get("expired") for item in credentials_for(username)),
+        "caldav_enabled": caldav_enabled, "carddav_enabled": carddav_enabled,
+        "sftp_port": sftp_port, "sftp_ready": bool(host_key.is_file()),
+        "sshfs_command": f"sshfs -p {sftp_port} {username}@{host}:/ ~/SimpleOffice",
+        "nautilus_sftp": f"sftp://{username}@{host}:{sftp_port}/",
+    }
 
 
 def _forms() -> FormStore:
@@ -276,7 +312,55 @@ def dashboard():
         todos=_todos().items(),
         pending=_calendar().pending_bookings(),
         scan_status=_store().scan_status(),
+        setup_status=_setup().status(str(g.user["username"])),
     )
+
+
+@bp.get("/setup")
+@login_required
+def first_run_setup():
+    username = str(g.user["username"])
+    return render_template("documents/setup.html", setup=_setup().status(username), remote=_remote_setup_context(username), credentials=None)
+
+
+@bp.post("/setup/access")
+@login_required
+def first_run_access():
+    """Create separate one-time credentials for all three DAV services."""
+    from .webdav import activate
+
+    username = str(g.user["username"])
+    if not _remote_setup_context(username)["secure_transport"]:
+        return Response("HTTPS ist vor dem Erzeugen von App-Passwörtern erforderlich.\n", 400, content_type="text/plain; charset=utf-8")
+    credentials = {
+        "webdav": activate(username, username, label="Erststart: Dateien und SFTP", scope="write", expires_days=365),
+        "caldav": secrets.token_urlsafe(24),
+        "carddav": secrets.token_urlsafe(24),
+    }
+    _calendars().activate(username, credentials["caldav"], username)
+    _contacts().activate_carddav(username, credentials["carddav"], username)
+    flash("Drei getrennte App-Passwörter wurden erzeugt. Sie werden nur auf dieser Seite angezeigt.")
+    return render_template("documents/setup.html", setup=_setup().status(username), remote=_remote_setup_context(username), credentials=credentials)
+
+
+@bp.post("/setup/complete")
+@login_required
+def complete_first_run_setup():
+    username = str(g.user["username"])
+    try:
+        _setup().complete(username, request.form.get("platform", "windows"), username)
+        flash("Erststart abgeschlossen. Der Assistent bleibt über Einstellungen erreichbar.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.first_run_setup"))
+
+
+@bp.get("/setup/export.txt")
+@login_required
+def export_first_run_setup():
+    remote = _remote_setup_context(str(g.user["username"]))
+    text = render_template("documents/setup_export.txt", remote=remote)
+    return Response(text, content_type="text/plain; charset=utf-8", headers={"Content-Disposition": "attachment; filename=SimpleOffice-Einrichtung.txt"})
 
 
 @bp.route("/objects", methods=("GET", "POST"))
