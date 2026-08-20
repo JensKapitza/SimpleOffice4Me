@@ -139,6 +139,13 @@ externe Suchdienste und liefert bei Schutzgrenzen keine irreführende Teilliste.
 
 ## Start und Update
 
+Nach der ersten Anmeldung führt **Einrichten** schrittweise durch HTTPS,
+getrennte App-Passwörter, Ordnerrechte sowie die Anbindung von Windows und
+Linux per WebDAV, CalDAV, CardDAV und SFTP/SSHFS. Die vollständige
+[Erststart- und Desktop-Anleitung](docs/ERSTSTART_UND_DESKTOP_SETUP.md) kann im
+Assistenten auch als persönliche, geheimnisfreie Textdatei heruntergeladen
+werden.
+
 `start.sh` (Linux), `start.bat` (Windows) und `start.command` (macOS) erzeugen
 die lokale Python-Umgebung, installieren die Anwendung und starten den
 Ersteinrichtungs-Assistenten. Anschließend läuft die Anwendung mit dem

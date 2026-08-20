@@ -1,0 +1,17 @@
+SimpleOffice – persönliche Einrichtungsdaten
+============================================
+
+Benutzer: {{ remote.username }}
+Server: {{ remote.origin }}
+WebDAV (Dateien): {{ remote.webdav_url }}
+CalDAV (Kalender): {{ remote.caldav_url }}
+CardDAV (Kontakte): {{ remote.carddav_url }}
+Nautilus SFTP: {{ remote.nautilus_sftp }}
+SSHFS:
+  mkdir -p ~/SimpleOffice
+  {{ remote.sshfs_command }}
+
+Die Datei enthält absichtlich keine Passwörter. App-Passwörter werden im
+Einrichtungsassistenten einmalig angezeigt und können dort widerrufen werden.
+Außerhalb des Servers ausschließlich HTTPS verwenden. SFTP stellt nur das
+virtuelle Dateisystem bereit und erlaubt keine Shell.
