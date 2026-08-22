@@ -234,6 +234,9 @@ app.register_blueprint(webdav.bp)
 from . import contact_audit
 app.register_blueprint(contact_audit.bp)
 
+from . import mail_routes
+app.register_blueprint(mail_routes.bp)
+
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
 
