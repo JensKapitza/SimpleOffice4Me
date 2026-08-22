@@ -82,6 +82,7 @@ def _setup() -> SetupStore:
 
 def _remote_setup_context(username: str) -> dict[str, Any]:
     """Return display-safe service state and request-derived client URLs."""
+    from .ssh_keys import keys_for
     from .webdav import credentials_for
 
     root = request.url_root.rstrip("/")
@@ -105,7 +106,21 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         "webdav_enabled": any(not item.get("expired") for item in credentials_for(username)),
         "caldav_enabled": caldav_enabled, "carddav_enabled": carddav_enabled,
         "sftp_port": sftp_port, "sftp_ready": bool(host_key.is_file()),
-        "sshfs_command": f"sshfs -p {sftp_port} {username}@{host}:/ ~/SimpleOffice",
+        "ssh_key_count": len([item for item in keys_for(current_app.config["DOCUMENT_ROOT"], username) if not item["expired"]]),
+        "sshfs_command": (
+            f"sshfs -p {sftp_port} {username}@{host}:/ ~/SimpleOffice -o "
+            "IdentityFile=~/.ssh/id_ed25519,IdentitiesOnly=yes,reconnect,"
+            "ServerAliveInterval=15,ServerAliveCountMax=3"
+        ),
+        "rsync_enabled": os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
+        "rsync_pull_command": (
+            f"rsync -a --delete -e 'ssh -p {sftp_port} -i ~/.ssh/id_ed25519' "
+            f"{username}@{host}:/Projekte/ ./Projekte/"
+        ),
+        "rsync_push_command": (
+            f"rsync -a --delete -e 'ssh -p {sftp_port} -i ~/.ssh/id_ed25519' "
+            f"./Projekte/ {username}@{host}:/Projekte/"
+        ),
         "nautilus_sftp": f"sftp://{username}@{host}:{sftp_port}/",
     }
 

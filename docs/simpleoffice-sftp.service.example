@@ -1,0 +1,27 @@
+[Unit]
+Description=SimpleOffice shell-free SFTP virtual filesystem
+After=network.target
+
+[Service]
+Type=simple
+User=simpleoffice
+Group=simpleoffice
+WorkingDirectory=/opt/simpleoffice
+EnvironmentFile=/etc/simpleoffice/sftp.env
+Environment=SIMPLEOFFICE_RSYNC_ENABLED=true
+Environment=SIMPLEOFFICE_RSYNC_MAX_BYTES=2147483648
+Environment=SIMPLEOFFICE_RSYNC_MAX_FILES=100000
+Environment=SIMPLEOFFICE_RSYNC_TIMEOUT=3600
+ExecStart=/opt/simpleoffice/.venv/bin/simpleoffice-sftp
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/simpleoffice/documents
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

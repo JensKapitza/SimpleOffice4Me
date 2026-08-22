@@ -50,7 +50,8 @@ Windows stellt SFTP nicht nativ als Laufwerk bereit. Optional können
 [WinFsp](https://winfsp.dev/) und
 [SSHFS-Win](https://github.com/winfsp/sshfs-win) installiert werden. Der
 Assistent zeigt den passenden UNC-Pfad. Der SimpleOffice-Dienst bietet nur
-SFTP, keine Shell und keine Befehlsausführung.
+SFTP, keine allgemeine Shell. Optional kann ausschließlich der validierte
+rsync-Servermodus für einen berechtigten virtuellen Ordner aktiviert werden.
 
 ## Linux
 

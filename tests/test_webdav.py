@@ -97,6 +97,30 @@ class WebDavDocumentTest(unittest.TestCase):
         auth = {"Authorization": "Basic " + base64.b64encode(f"jens:{password}".encode()).decode()}
         self.assertEqual(207, self.client.open(self.files, method="PROPFIND", headers={**auth, "Depth": "1"}).status_code)
 
+    def test_user_can_add_and_revoke_own_sshfs_public_key(self):
+        key_type = b"ssh-ed25519"
+        blob = len(key_type).to_bytes(4, "big") + key_type + b"browser-test-public-key"
+        public_key = f"ssh-ed25519 {base64.b64encode(blob).decode()} laptop-comment"
+        created = self.client.post("/settings/webdav", data={
+            "action": "add_ssh_key", "public_key": public_key,
+            "ssh_key_label": "Laptop SSHFS", "ssh_key_scope": "read",
+            "ssh_key_expires_days": "90",
+        })
+        body = created.get_data(as_text=True)
+        payload = json.loads((self.store.control / "ssh-authorized-keys.json").read_text())
+        record = payload["users"]["jens"][0]
+        self.assertEqual(200, created.status_code)
+        self.assertIn("Laptop SSHFS", body)
+        self.assertIn(record["fingerprint"], body)
+        self.assertNotIn("laptop-comment", json.dumps(payload))
+
+        revoked = self.client.post("/settings/webdav", data={
+            "action": "revoke_ssh_key", "ssh_key_id": record["key_id"],
+        }, follow_redirects=True)
+        self.assertIn("SSH-Schlüssel widerrufen", revoked.get_data(as_text=True))
+        payload = json.loads((self.store.control / "ssh-authorized-keys.json").read_text())
+        self.assertEqual([], payload["users"]["jens"])
+
     def test_folder_acl_filters_listing_and_denies_write_for_readers(self):
         root = Path(app.config["DOCUMENT_ROOT"])
         (root / "private").mkdir()

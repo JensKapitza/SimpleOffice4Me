@@ -11,6 +11,8 @@ import stat
 import threading
 from pathlib import Path
 
+from .attachment_security import AttachmentSecurity
+from .ssh_keys import authenticate_key
 from .virtual_filesystem import VirtualFileSystem
 
 try:  # Optional dependency; the web application does not require Paramiko.
@@ -36,13 +38,26 @@ def _sftp_status(exc: BaseException) -> int:
     return library.SFTP_FAILURE
 
 
+def _bounded_environment_integer(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return max(minimum, min(value, maximum))
+
+
+def _password_authentication_enabled() -> bool:
+    return os.environ.get("SIMPLEOFFICE_SFTP_PASSWORD_AUTH", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
 if paramiko is not None:
     class _BufferedWriteHandle(paramiko.SFTPHandle):
-        def __init__(self, vfs: VirtualFileSystem, actor: str, path: str, flags: int):
+        def __init__(self, vfs: VirtualFileSystem, actor: str, path: str, flags: int, app=None):
             super().__init__(flags)
             self.vfs, self.actor, self.path = vfs, actor, path
             self.buffer = io.BytesIO()
             self.expected_sha256 = ""
+            self.app = app
             resource = vfs.resolve(path)
             if resource.is_file() and not resource.is_symlink():
                 original = vfs.read_bytes(actor, path)
@@ -68,10 +83,21 @@ if paramiko is not None:
 
         def close(self):
             try:
+                content = self.buffer.getvalue()
+                if self.app is not None and self.app.config.get("WEBDAV_UPLOAD_SCAN", False):
+                    scan = AttachmentSecurity(self.vfs.root).scan_webdav_upload(
+                        content, self.actor, self.path,
+                        int(self.app.config.get("WEBDAV_QUARANTINE_BYTES", 1024 * 1024 * 1024)),
+                        source_type="sftp-write",
+                    )
+                    if scan.get("verdict") != "clean":
+                        raise PermissionError("malware scan rejected the SFTP upload")
                 self.vfs.write_bytes(
-                    self.actor, self.path, self.buffer.getvalue(),
+                    self.actor, self.path, content,
                     expected_sha256=self.expected_sha256,
-                    max_bytes=int(os.environ.get("SIMPLEOFFICE_SFTP_MAX_BYTES", 512 * 1024 * 1024)),
+                    max_bytes=_bounded_environment_integer(
+                        "SIMPLEOFFICE_SFTP_MAX_BYTES", 512 * 1024 * 1024, 1, 8 * 1024 * 1024 * 1024,
+                    ),
                 )
                 return paramiko.SFTP_OK
             except (OSError, RuntimeError, ValueError) as exc:
@@ -88,6 +114,7 @@ if paramiko is not None:
             self.vfs = server.vfs
             self.actor = f"sftp:{server.username}"
             self.scope = server.identity.get("scope", "read")
+            self.app = getattr(server, "app", None)
 
         @staticmethod
         def _attributes(path: Path):
@@ -127,7 +154,7 @@ if paramiko is not None:
                     self.vfs.require(
                         self.actor, resource if resource.exists() else resource.parent, "write",
                     )
-                    return _BufferedWriteHandle(self.vfs, self.actor, path, flags)
+                    return _BufferedWriteHandle(self.vfs, self.actor, path, flags, self.app)
                 except (OSError, ValueError) as exc:
                     return _sftp_status(exc)
             try:
@@ -170,6 +197,47 @@ if paramiko is not None:
             except (OSError, ValueError) as exc:
                 return _sftp_status(exc)
 
+        def posix_rename(self, oldpath, newpath):
+            if self.scope != "write":
+                return paramiko.SFTP_PERMISSION_DENIED
+            try:
+                self.vfs.rename(self.actor, oldpath, newpath, replace=True)
+                return paramiko.SFTP_OK
+            except (OSError, RuntimeError, ValueError) as exc:
+                return _sftp_status(exc)
+
+        def chattr(self, path, attr):
+            """Support the SFTP v3 size attribute used by truncate(2)."""
+            if self.scope != "write":
+                return paramiko.SFTP_PERMISSION_DENIED
+            if getattr(attr, "st_size", None) is None:
+                atime = getattr(attr, "st_atime", None)
+                mtime = getattr(attr, "st_mtime", None)
+                if atime is None and mtime is None:
+                    # POSIX ownership and mode changes are intentionally not
+                    # projected onto the service account.
+                    return paramiko.SFTP_OK
+                try:
+                    self.vfs.set_times(
+                        self.actor, path, atime=atime, mtime=mtime,
+                    )
+                    return paramiko.SFTP_OK
+                except (OSError, RuntimeError, ValueError) as exc:
+                    return _sftp_status(exc)
+            try:
+                size = int(attr.st_size)
+                maximum = _bounded_environment_integer(
+                    "SIMPLEOFFICE_SFTP_MAX_BYTES", 512 * 1024 * 1024, 1, 8 * 1024 * 1024 * 1024,
+                )
+                if size < 0 or size > maximum:
+                    raise ValueError("invalid file size")
+                content = self.vfs.read_bytes(self.actor, path)
+                resized = content[:size] if size <= len(content) else content + b"\0" * (size - len(content))
+                self.vfs.write_bytes(self.actor, path, resized, max_bytes=maximum)
+                return paramiko.SFTP_OK
+            except (OSError, RuntimeError, ValueError) as exc:
+                return _sftp_status(exc)
+
         def symlink(self, target_path, path):
             return paramiko.SFTP_OP_UNSUPPORTED
 
@@ -183,27 +251,84 @@ if paramiko is not None:
             self.username = ""
             self.identity = None
             self.vfs = None
+            self.failed_attempts = 0
+
+        def _failed(self):
+            self.failed_attempts += 1
+            return paramiko.AUTH_FAILED
+
+        def _accept(self, username, identity):
+            self.username, self.identity = username, identity
+            self.vfs = VirtualFileSystem.from_environment(self.app.config["DOCUMENT_ROOT"])
+            return paramiko.AUTH_SUCCESSFUL
 
         def check_auth_password(self, username, password):
+            if not _password_authentication_enabled() or self.failed_attempts >= 5:
+                return self._failed()
             from .webdav import authenticate_password
             with self.app.app_context():
                 identity = authenticate_password(username, password, record_use=True)
                 if identity is None:
-                    return paramiko.AUTH_FAILED
-                self.username, self.identity = username, identity
-                self.vfs = VirtualFileSystem.from_environment(self.app.config["DOCUMENT_ROOT"])
-                return paramiko.AUTH_SUCCESSFUL
+                    return self._failed()
+                return self._accept(username, identity)
+
+        def check_auth_publickey(self, username, key):
+            if self.failed_attempts >= 5:
+                return self._failed()
+            with self.app.app_context():
+                identity = authenticate_key(
+                    self.app.config["DOCUMENT_ROOT"], username, key.get_name(), key.asbytes(),
+                )
+                return self._accept(username, identity) if identity is not None else self._failed()
 
         def get_allowed_auths(self, username):
-            return "password"
+            return "publickey,password" if _password_authentication_enabled() else "publickey"
 
         def check_channel_request(self, kind, chanid):
             return paramiko.OPEN_SUCCEEDED if kind == "session" else paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
+        def check_channel_shell_request(self, channel):
+            return False
+
+        def check_channel_exec_request(self, channel, command):
+            if os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+                return False
+            try:
+                from .rsync_server import RestrictedRsyncSession, parse_rsync_command
+                request = parse_rsync_command(command)
+                # Authorization is checked before accepting the channel and is
+                # checked again for every committed filesystem operation.
+                target = self.vfs.resolve(request.virtual_path)
+                if target.exists():
+                    self.vfs.require(f"rsync:{self.username}", target, "read")
+                elif request.sender:
+                    return False
+                else:
+                    self.vfs.require(f"rsync:{self.username}", target.parent, "write")
+                if not request.sender and self.identity.get("scope") != "write":
+                    return False
+                RestrictedRsyncSession(self, channel, request).start()
+                return True
+            except (OSError, RuntimeError, UnicodeError, ValueError):
+                return False
+
+        def check_channel_forward_agent_request(self, channel):
+            return False
+
+        def check_port_forward_request(self, address, port):
+            return False
+
 
 def _serve_client(client: socket.socket, host_key, app) -> None:
     library = _require_paramiko()
-    transport = library.Transport(client)
+    transport = library.Transport(client, disabled_algorithms={
+        "kex": ["diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1"],
+        "macs": ["hmac-md5", "hmac-md5-96", "hmac-sha1-96"],
+        "pubkeys": ["ssh-rsa"],
+    })
+    transport.banner_timeout = 15
+    transport.auth_timeout = 30
+    transport.channel_timeout = 30
     transport.add_server_key(host_key)
     transport.set_subsystem_handler("sftp", library.SFTPServer, RestrictedSFTP)
     server = _AuthenticationServer(app)
@@ -226,14 +351,24 @@ def serve() -> None:
         raise RuntimeError("SFTP host key permissions are too broad; use chmod 600")
     host_key = library.PKey.from_path(str(key_path))
     host = os.environ.get("SIMPLEOFFICE_SFTP_BIND", "127.0.0.1")
-    port = int(os.environ.get("SIMPLEOFFICE_SFTP_PORT", "2222"))
+    port = _bounded_environment_integer("SIMPLEOFFICE_SFTP_PORT", 2222, 1, 65535)
     from . import app
-    listener = socket.create_server((host, port), backlog=20)
+    max_clients = _bounded_environment_integer("SIMPLEOFFICE_SFTP_MAX_CLIENTS", 32, 1, 512)
+    capacity = threading.BoundedSemaphore(max_clients)
+    listener = socket.create_server((host, port), backlog=max_clients)
     try:
         while True:
             client, _address = listener.accept()
+            if not capacity.acquire(blocking=False):
+                client.close()
+                continue
             client.settimeout(30)
-            threading.Thread(target=_serve_client, args=(client, host_key, app), daemon=True).start()
+            def run_client(connection=client):
+                try:
+                    _serve_client(connection, host_key, app)
+                finally:
+                    capacity.release()
+            threading.Thread(target=run_client, daemon=True).start()
     finally:
         listener.close()
 
