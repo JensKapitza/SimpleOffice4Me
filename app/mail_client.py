@@ -8,12 +8,15 @@ import imaplib
 import json
 import os
 import re
+import smtplib
 import socket
 import ssl
 import uuid
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from email import policy
 from email.parser import BytesParser
+from email.utils import formatdate, getaddresses, make_msgid
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +30,8 @@ from .revision_history import RevisionHistory
 MAX_MESSAGE_BYTES = 100 * 1024 * 1024
 MAX_MESSAGES_PER_RUN = 1000
 MAX_SCRIPT_BYTES = 1024 * 1024
+MAX_OUTBOUND_BYTES = 25 * 1024 * 1024
+MAX_RECIPIENTS = 100
 
 
 def _safe_id(value: str) -> str:
@@ -78,13 +83,17 @@ class MailStore:
 
     def accounts(self, actor: str) -> list[dict[str, Any]]:
         rows = self._read(self.accounts_path, {"accounts": []}).get("accounts", [])
-        return [{k: v for k, v in row.items() if k != "password"} for row in rows if row.get("owner") == actor]
+        return [{k: v for k, v in row.items() if k not in {"password", "smtp_password"}} for row in rows if row.get("owner") == actor]
 
-    def account(self, actor: str, account_id: str, password: str = "") -> dict[str, Any]:
+    def _owned_row(self, actor: str, account_id: str) -> dict[str, Any]:
         account_id = _safe_id(account_id)
         row = next((x for x in self._read(self.accounts_path, {"accounts": []}).get("accounts", []) if x.get("id") == account_id and x.get("owner") == actor), None)
         if row is None:
             raise KeyError("mail account does not exist")
+        return dict(row)
+
+    def account(self, actor: str, account_id: str, password: str = "") -> dict[str, Any]:
+        row = self._owned_row(actor, account_id)
         result = dict(row)
         if password:
             result["plain_password"] = password
@@ -96,6 +105,33 @@ class MailStore:
         if not result["plain_password"]:
             raise ValueError("password is required for this operation")
         return result
+
+    def smtp_account(self, actor: str, account_id: str, password: str = "") -> dict[str, Any]:
+        """Return an owned account with a separately resolved SMTP secret."""
+        row = self._owned_row(actor, account_id)
+        # Older stored accounts remain usable without a migration.
+        row.setdefault("smtp_host", row["host"])
+        row.setdefault("smtp_port", 587)
+        row.setdefault("smtp_security", "starttls")
+        row.setdefault("smtp_username", row["username"])
+        row.setdefault("smtp_from", row["username"])
+        if password:
+            row["smtp_plain_password"] = password
+        elif row.get("smtp_password"):
+            row["smtp_plain_password"] = self.secrets.decrypt(str(row["smtp_password"]))
+        else:
+            env_name = str(row.get("smtp_password_env", ""))
+            row["smtp_plain_password"] = os.environ.get(env_name, "") if env_name else ""
+            if not row["smtp_plain_password"]:
+                # Explicitly configured reuse is convenient for common combined mail accounts.
+                if row.get("password"):
+                    row["smtp_plain_password"] = self.secrets.decrypt(str(row["password"]))
+                else:
+                    imap_env = str(row.get("password_env", ""))
+                    row["smtp_plain_password"] = os.environ.get(imap_env, "") if imap_env else ""
+        if not row["smtp_plain_password"]:
+            raise ValueError("SMTP password is required for this operation")
+        return row
 
     def save_account(self, actor: str, data: dict[str, Any], password: str, remember: bool) -> dict[str, Any]:
         host = str(data.get("host", "")).strip()
@@ -109,12 +145,22 @@ class MailStore:
             raise ValueError("only TLS or STARTTLS is supported")
         port = int(data.get("port", 993 if mode == "tls" else 143))
         sieve_port = int(data.get("sieve_port", 4190))
-        if not 1 <= port <= 65535 or not 1 <= sieve_port <= 65535:
+        smtp_mode = str(data.get("smtp_security", "starttls"))
+        if smtp_mode not in {"tls", "starttls"}:
+            raise ValueError("SMTP supports only TLS or STARTTLS")
+        smtp_port = int(data.get("smtp_port", 465 if smtp_mode == "tls" else 587))
+        if not 1 <= port <= 65535 or not 1 <= sieve_port <= 65535 or not 1 <= smtp_port <= 65535:
             raise ValueError("invalid port")
         account_id = str(data.get("id", "")).strip() or uuid.uuid4().hex
         _safe_id(account_id)
         payload = self._read(self.accounts_path, {"version": 1, "accounts": []})
         previous = next((x for x in payload["accounts"] if x.get("id") == account_id and x.get("owner") == actor), None)
+        smtp_host = str(data.get("smtp_host", host)).strip()[:253] or host
+        if any(char in smtp_host for char in "/\\\x00"):
+            raise ValueError("invalid SMTP server name")
+        smtp_from = str(data.get("smtp_from", username)).strip()[:320] or username
+        if len(_mailboxes(smtp_from)) != 1:
+            raise ValueError("exactly one SMTP sender address is required")
         row = {
             "id": account_id, "owner": actor, "label": str(data.get("label", host)).strip()[:120] or host,
             "host": host, "port": port, "security": mode, "username": username,
@@ -123,13 +169,20 @@ class MailStore:
             "sieve_port": sieve_port, "sieve_security": "starttls",
             "password_env": str(data.get("password_env", "")).strip()[:120],
             "password": self.secrets.encrypt(password) if remember and password else (previous or {}).get("password", ""),
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port, "smtp_security": smtp_mode,
+            "smtp_username": str(data.get("smtp_username", username)).strip()[:320] or username,
+            "smtp_from": smtp_from,
+            "smtp_password_env": str(data.get("smtp_password_env", "")).strip()[:120],
+            "smtp_password": self.secrets.encrypt(str(data.get("smtp_password", ""))) if remember and data.get("smtp_password") else (previous or {}).get("smtp_password", ""),
             "updated_at": utc_now(),
         }
         payload["accounts"] = [x for x in payload["accounts"] if not (x.get("id") == account_id and x.get("owner") == actor)] + [row]
         self.control.mkdir(parents=True, exist_ok=True)
         atomic_json_write(self.accounts_path, payload)
-        safe = {k: v for k, v in row.items() if k != "password"}
+        safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
         safe["password_saved"] = bool(row["password"])
+        safe["smtp_password_saved"] = bool(row["smtp_password"])
         self.history.record("mail_account_updated" if previous else "mail_account_created", actor, "mail-accounts", account_id, safe)
         return safe
 
@@ -192,6 +245,127 @@ class MailStore:
         if changed:
             self.history.record("mail_archive_access_initialized", actor, "policies", hashlib.sha256(f"mail:{actor}:{account_id}".encode()).hexdigest(), {"account_id": account_id, "owner": actor, "role": "manage", "inherit": True})
         return folder
+
+    def archive_outbound(self, actor: str, account: dict[str, Any], raw: bytes, state: str, detail: dict[str, Any]) -> dict[str, Any]:
+        """Persist the exact submitted EML before transport and audit its state."""
+        if len(raw) > MAX_OUTBOUND_BYTES:
+            raise ValueError("outbound message exceeds 25 MiB")
+        digest = hashlib.sha512(raw).hexdigest()
+        self.ensure_private_archive(actor, account["id"])
+        year = datetime.now(timezone.utc).strftime("%Y")
+        path = f"email/{_owner_key(actor)}/{account['id']}/sent/{year}/{digest}.eml"
+        documents = DocumentStore(self.root)
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        documents.ensure_folder_policy(target.parent, actor)
+        if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
+            document = documents.get_document(path)
+        else:
+            document = documents.create_document_at(path, raw, actor, max_bytes=MAX_OUTBOUND_BYTES)
+            documents.set_tags(document["document_id"], ["email", "source:smtp", "direction:outbound", f"imap-account:{account['id']}"], actor)
+        origin = {"account_id": account["id"], "sha512": digest, "state": state, **detail}
+        documents.set_attribute(document["document_id"], "email_origin", origin, actor)
+        self.history.record(f"smtp_message_{state}", actor, "mail-outbound", document["document_id"], origin)
+        return {"document_id": document["document_id"], "path": path, "sha512": digest}
+
+
+def _mailboxes(value: str) -> list[str]:
+    if "\r" in value or "\n" in value:
+        raise ValueError("mail addresses must not contain line breaks")
+    parsed = [address.strip() for _, address in getaddresses([value]) if address.strip()]
+    if not parsed or len(parsed) > MAX_RECIPIENTS:
+        raise ValueError("one to 100 recipients are required")
+    for address in parsed:
+        local, separator, domain = address.rpartition("@")
+        if not separator or not local or "." not in domain or len(address) > 254 or any(char.isspace() for char in address):
+            raise ValueError(f"invalid recipient address: {address[:80]}")
+    if len({value.casefold() for value in parsed}) != len(parsed):
+        raise ValueError("duplicate recipients are not allowed")
+    return parsed
+
+
+class SmtpSubmission:
+    """Authenticated RFC 6409 submission with mandatory local EML archiving."""
+
+    def __init__(self, store: MailStore, timeout: int = 30):
+        self.store, self.timeout = store, timeout
+
+    @staticmethod
+    def compose(account: dict[str, Any], recipients: str, subject: str, body: str, calendar_data: str = "") -> tuple[bytes, list[str], str]:
+        targets = _mailboxes(recipients)
+        sender = _mailboxes(str(account.get("smtp_from", account.get("username", ""))))
+        if len(sender) != 1:
+            raise ValueError("exactly one sender address is required")
+        if not subject.strip() or len(subject.encode("utf-8")) > 998 or "\r" in subject or "\n" in subject:
+            raise ValueError("a safe subject is required")
+        if len(body.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("message body exceeds 1 MiB")
+        message = EmailMessage(policy=policy.SMTP)
+        message["From"] = sender[0]
+        message["To"] = ", ".join(targets)
+        message["Subject"] = subject.strip()
+        message["Date"] = formatdate(localtime=True)
+        message_id = make_msgid(domain=sender[0].rsplit("@", 1)[1])
+        message["Message-ID"] = message_id
+        message.set_content(body or "")
+        if calendar_data:
+            encoded = calendar_data.encode("utf-8")
+            if len(encoded) > 1024 * 1024 or "BEGIN:VCALENDAR" not in calendar_data.upper() or "END:VCALENDAR" not in calendar_data.upper():
+                raise ValueError("calendar data must be one VCALENDAR up to 1 MiB")
+            method_match = re.search(r"(?im)^METHOD\s*:\s*([A-Z-]+)\s*$", calendar_data)
+            if method_match is None:
+                raise ValueError("iTIP calendar data requires METHOD")
+            method = method_match.group(1).upper()
+            if method not in {"REQUEST", "REPLY", "CANCEL", "COUNTER", "DECLINECOUNTER", "PUBLISH"}:
+                raise ValueError("unsupported iTIP method")
+            message.add_attachment(encoded, maintype="text", subtype="calendar", params={"method": method, "charset": "UTF-8"}, filename="termin.ics")
+        raw = message.as_bytes(policy=policy.SMTP)
+        if len(raw) > MAX_OUTBOUND_BYTES:
+            raise ValueError("outbound message exceeds 25 MiB")
+        return raw, targets, message_id
+
+    def _connect(self, account: dict[str, Any]):
+        context = ssl.create_default_context()
+        if account["smtp_security"] == "tls":
+            client = smtplib.SMTP_SSL(account["smtp_host"], account["smtp_port"], timeout=self.timeout, context=context)
+            client.ehlo()
+        else:
+            client = smtplib.SMTP(account["smtp_host"], account["smtp_port"], timeout=self.timeout)
+            client.ehlo()
+            if not client.has_extn("starttls"):
+                client.close()
+                raise RuntimeError("SMTP server does not advertise STARTTLS")
+            client.starttls(context=context)
+            client.ehlo()
+        client.login(account["smtp_username"], account["smtp_plain_password"])
+        return client
+
+    def test(self, account: dict[str, Any]) -> dict[str, Any]:
+        client = self._connect(account)
+        try:
+            return {"ok": True, "features": sorted(client.esmtp_features)}
+        finally:
+            try: client.quit()
+            except Exception: client.close()
+
+    def send(self, actor: str, account: dict[str, Any], recipients: str, subject: str, body: str, calendar_data: str = "") -> dict[str, Any]:
+        raw, targets, message_id = self.compose(account, recipients, subject, body, calendar_data)
+        detail = {"message_id": message_id, "from": account["smtp_from"], "recipients": targets, "subject": subject.strip()[:500], "calendar": bool(calendar_data), "at": utc_now()}
+        archived = self.store.archive_outbound(actor, account, raw, "pending", detail)
+        try:
+            client = self._connect(account)
+            try:
+                refused = client.sendmail(account["smtp_from"], targets, raw)
+                if refused:
+                    raise RuntimeError(f"SMTP refused {len(refused)} recipient(s)")
+            finally:
+                try: client.quit()
+                except Exception: client.close()
+        except Exception as exc:
+            self.store.archive_outbound(actor, account, raw, "failed", {**detail, "error": str(exc)[:500]})
+            raise
+        self.store.archive_outbound(actor, account, raw, "sent", detail)
+        return {**archived, "message_id": message_id, "recipients": len(targets)}
 
 
 class ImapArchive:

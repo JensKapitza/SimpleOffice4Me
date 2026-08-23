@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
-from .mail_client import ImapArchive, MailStore, ManageSieveClient
+from .mail_client import ImapArchive, MailStore, ManageSieveClient, SmtpSubmission
 
 bp = Blueprint("mail_client", __name__, url_prefix="/documents/mail")
 
@@ -74,6 +74,38 @@ def archive(account_id: str):
     except Exception as exc:
         current_app.logger.warning("IMAP archive failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Archivlauf abgebrochen: {exc}")
+    return redirect(url_for("mail_client.index", account=account_id))
+
+
+@bp.post("/accounts/<account_id>/smtp/test")
+@login_required
+def test_smtp(account_id: str):
+    try:
+        store = _store()
+        account = store.smtp_account(_actor(), account_id, request.form.get("smtp_password", ""))
+        result = SmtpSubmission(store).test(account)
+        store.history.record("smtp_account_tested", _actor(), "mail-accounts", account_id, {"host": account["smtp_host"], "port": account["smtp_port"], "security": account["smtp_security"], "features": result["features"]})
+        flash(f"SMTP-Anmeldung erfolgreich: {len(result['features'])} Server-Fähigkeiten.")
+    except Exception as exc:
+        current_app.logger.warning("SMTP connection test failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"SMTP-Anmeldung fehlgeschlagen: {exc}")
+    return redirect(url_for("mail_client.index", account=account_id))
+
+
+@bp.post("/accounts/<account_id>/send")
+@login_required
+def send(account_id: str):
+    try:
+        store = _store()
+        account = store.smtp_account(_actor(), account_id, request.form.get("smtp_password", ""))
+        result = SmtpSubmission(store).send(
+            _actor(), account, request.form.get("recipients", ""), request.form.get("subject", ""),
+            request.form.get("body", ""), request.form.get("calendar_data", ""),
+        )
+        flash(f"Nachricht an {result['recipients']} Empfänger versandt und als unveränderte EML archiviert.")
+    except Exception as exc:
+        current_app.logger.warning("SMTP submission failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Versand fehlgeschlagen: {exc}. Ein bereits erzeugter Versandversuch bleibt im Archiv nachvollziehbar.")
     return redirect(url_for("mail_client.index", account=account_id))
 
 

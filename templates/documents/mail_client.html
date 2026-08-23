@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
-{% block title %}IMAP-Client{% endblock %}
+{% block title %}IMAP-Client und SMTP{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main class="container-fluid py-4">
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
-  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4"><div><h1 class="h3">IMAP-Client und E-Mail-Archiv</h1><p class="text-secondary mb-0">Nachrichten werden ausschließlich gelesen und als unveränderte EML kopiert. Der Client setzt keine Flags und löscht nichts.</p></div></div>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4"><div><h1 class="h3">IMAP, SMTP und E-Mail-Archiv</h1><p class="text-secondary mb-0">Eingang wird nur gelesen. Vor jedem SMTP-Versand wird die vollständige EML im privaten Archiv gesichert; Versandfehler bleiben nachvollziehbar.</p></div></div>
   <div class="row g-4">
     <section class="col-xl-5"><div class="card"><div class="card-header"><strong>Serverkonfiguration</strong></div><div class="card-body">
       <form method="post" action="{{ url_for('mail_client.save_account') }}" class="row g-3">
@@ -20,6 +20,14 @@
         <div class="col-md-6"><label class="form-label">ManageSieve-Server</label><input class="form-control" name="sieve_host" value="{{ selected.sieve_host if selected else '' }}" placeholder="wie IMAP-Server"></div>
         <div class="col-md-3"><label class="form-label">Sieve-Port</label><input class="form-control" type="number" min="1" max="65535" name="sieve_port" value="{{ selected.sieve_port if selected else 4190 }}"></div>
         <div class="col-md-3"><label class="form-label">Passwort-Env</label><input class="form-control" name="password_env" value="{{ selected.password_env if selected else '' }}" placeholder="optional"></div>
+        <div class="col-12"><hr><h2 class="h6">SMTP Submission</h2><p class="small text-secondary">Ohne eigenes SMTP-Passwort wird das gespeicherte IMAP-Passwort verwendet.</p></div>
+        <div class="col-md-6"><label class="form-label">SMTP-Server</label><input class="form-control" name="smtp_host" value="{{ selected.smtp_host if selected else '' }}" placeholder="wie IMAP-Server"></div>
+        <div class="col-md-3"><label class="form-label">SMTP-Port</label><input class="form-control" type="number" min="1" max="65535" name="smtp_port" value="{{ selected.smtp_port if selected else 587 }}"></div>
+        <div class="col-md-3"><label class="form-label">SMTP-Transport</label><select class="form-select" name="smtp_security"><option value="starttls" {% if not selected or selected.smtp_security|default('starttls') == 'starttls' %}selected{% endif %}>STARTTLS (587)</option><option value="tls" {% if selected and selected.smtp_security|default('') == 'tls' %}selected{% endif %}>TLS (465)</option></select></div>
+        <div class="col-md-6"><label class="form-label">SMTP-Benutzer</label><input class="form-control" name="smtp_username" value="{{ selected.smtp_username if selected else '' }}" placeholder="wie IMAP-Benutzer"></div>
+        <div class="col-md-6"><label class="form-label">Absenderadresse</label><input class="form-control" type="email" name="smtp_from" value="{{ selected.smtp_from if selected else '' }}" placeholder="wie IMAP-Benutzer"></div>
+        <div class="col-md-6"><label class="form-label">Eigenes SMTP-Passwort</label><input class="form-control" type="password" name="smtp_password" autocomplete="new-password"><div class="form-text">Optional; wird nur zusammen mit der obigen Speicheroption verschlüsselt abgelegt.</div></div>
+        <div class="col-md-6"><label class="form-label">SMTP-Passwort-Env</label><input class="form-control" name="smtp_password_env" value="{{ selected.smtp_password_env if selected else '' }}" placeholder="optional"></div>
         <div class="col-12"><button class="btn btn-primary">Konfiguration speichern</button></div>
       </form>
     </div></div></section>
@@ -30,6 +38,17 @@
           <form class="col-md-7 d-flex flex-wrap gap-2" method="post" action="{{ url_for('mail_client.archive', account_id=account.id) }}"><input class="form-control form-control-sm w-auto" type="number" min="1" max="1000" name="limit" value="250" aria-label="Maximale Nachrichten"><input class="form-control form-control-sm flex-grow-1" type="password" name="password" placeholder="Passwort, falls nicht gespeichert"><div class="form-check align-self-center"><input class="form-check-input" type="checkbox" value="1" name="extract_attachments" id="extract-{{ account.id }}"><label class="form-check-label small" for="extract-{{ account.id }}">Anhänge bestätigen und mit ClamAV prüfen</label></div><button class="btn btn-sm btn-primary">Jetzt kopieren</button></form></div>
         </article>{% else %}<p class="text-secondary mb-0">Noch kein IMAP-Konto konfiguriert.</p>{% endfor %}
       </div></div>
+      {% if selected %}<div class="card mb-4"><div class="card-header"><strong>Nachricht oder Kalendereinladung senden</strong></div><div class="card-body">
+        <div class="alert alert-secondary small">Die Nachricht wird vor dem ersten Netzwerkaufruf als EML archiviert. Das Archiv ist privat und über dieselben Dokumentrechte erreichbar.</div>
+        <form method="post" action="{{ url_for('mail_client.send', account_id=selected.id) }}" class="row g-3">
+          <div class="col-md-8"><label class="form-label">Empfänger</label><input class="form-control" required name="recipients" placeholder="person@example.org, team@example.org"></div>
+          <div class="col-md-4"><label class="form-label">SMTP-Passwort</label><input class="form-control" type="password" name="smtp_password" placeholder="falls nicht gespeichert"></div>
+          <div class="col-12"><label class="form-label">Betreff</label><input class="form-control" required maxlength="998" name="subject"></div>
+          <div class="col-12"><label class="form-label">Reintext</label><textarea class="form-control" rows="6" maxlength="1048576" name="body"></textarea></div>
+          <div class="col-12"><label class="form-label">Optional: vollständige iTIP-/ICS-Daten</label><textarea class="form-control font-monospace" rows="8" maxlength="1048576" name="calendar_data" placeholder="BEGIN:VCALENDAR&#10;VERSION:2.0&#10;METHOD:REQUEST&#10;…&#10;END:VCALENDAR"></textarea><div class="form-text">Erlaubt: REQUEST, REPLY, CANCEL, COUNTER, DECLINECOUNTER oder PUBLISH. Die ICS wird als <code>text/calendar</code> angehängt.</div></div>
+          <div class="col-12 d-flex gap-2"><button class="btn btn-primary">Archivieren und senden</button><button class="btn btn-outline-secondary" formaction="{{ url_for('mail_client.test_smtp', account_id=selected.id) }}" formnovalidate>Nur SMTP-Login testen</button></div>
+        </form>
+      </div></div>{% endif %}
       {% if selected %}<div class="card"><div class="card-header"><strong>Sieve-Skripte</strong></div><div class="card-body"><p class="small text-secondary">Speichern erstellt immer zuerst eine lokale, auditierte Version. Upload und Aktivierung sind getrennte, bewusste Aktionen.</p>
         <div class="mb-3">{% for row in scripts %}<a class="btn btn-sm btn-outline-secondary me-1" href="{{ url_for('mail_client.index', account=selected.id, script=row.name) }}">{{ row.name }}</a>{% else %}<span class="text-secondary small">Noch kein Skript.</span>{% endfor %}</div>
         <form method="post" action="{{ url_for('mail_client.save_sieve', account_id=selected.id) }}" class="row g-3"><div class="col-md-6"><label class="form-label">Skriptname</label><input class="form-control" required pattern="[A-Za-z0-9_.-]{1,128}" name="name" value="{{ script_name or 'main' }}"></div><div class="col-md-6"><label class="form-label">Passwort für Upload</label><input class="form-control" type="password" name="password"></div><div class="col-12"><label class="form-label">Sieve</label><textarea class="form-control font-monospace" rows="16" name="content" spellcheck="false" required>{{ script_content }}</textarea></div><div class="col-12 d-flex flex-wrap gap-3"><button class="btn btn-outline-primary">Nur versioniert speichern</button><button class="btn btn-primary" name="upload" value="1">Speichern und hochladen</button><button class="btn btn-warning" name="upload" value="1" formaction="{{ url_for('mail_client.save_sieve', account_id=selected.id) }}" onclick="this.form.querySelector('[name=activate]').value='1'">Hochladen und aktivieren</button><input type="hidden" name="activate" value="0"></div></form>

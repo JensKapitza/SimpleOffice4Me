@@ -1,10 +1,11 @@
-# IMAP-Client, Sieve und unveränderliches E-Mail-Archiv
+# IMAP-, SMTP- und Sieve-Client mit unveränderlichem E-Mail-Archiv
 
 ## Zweck und Nutzen
 
 Der Reiter **IMAP** verwaltet benutzergebundene Mailkonten, prüft die Anmeldung,
 kopiert Nachrichten als unveränderte `.eml`-Dateien in das Dokumentarchiv und
-verwaltet Sieve-Skripte mit lokaler Git-Versionierung. Der Archivclient verändert
+verwaltet Sieve-Skripte mit lokaler Git-Versionierung und versendet Nachrichten
+oder iTIP-Kalendereinladungen über authentifiziertes SMTP Submission. Der Archivclient verändert
 den Mailserver nicht: Er verwendet `EXAMINE`, UID-Suche und `BODY.PEEK[]`, aber
 niemals `STORE`, `COPY`, `MOVE`, `DELETE` oder `EXPUNGE`.
 
@@ -28,8 +29,31 @@ niemals `STORE`, `COPY`, `MOVE`, `DELETE` oder `EXPUNGE`.
   implizites TLS oder STARTTLS mit System-CA-Prüfung; Klartext-IMAP ist nicht
   implementiert. Netzwerkoperationen besitzen ein 30-Sekunden-Limit.
 - IMAP ist laut [RFC 9051 Abschnitt 1](https://www.rfc-editor.org/rfc/rfc9051.html#section-1)
-  kein Mailversandprotokoll. Termine werden deshalb **nicht** über IMAP versandt.
-  Dafür wäre getrennt SMTP Submission nach RFC 6409 plus iTIP nötig.
+  kein Mailversandprotokoll. Der Versand erfolgt daher getrennt über SMTP Submission.
+
+### SMTP Submission und iTIP
+
+- [RFC 6409 Abschnitt 3.1](https://www.rfc-editor.org/rfc/rfc6409.html#section-3.1)
+  reserviert Port 587 für Message Submission; [Abschnitt 4.3](https://www.rfc-editor.org/rfc/rfc6409.html#section-4.3)
+  verlangt standardmäßig Authentifizierung. SimpleOffice verwendet SMTP AUTH nur
+  nach erfolgreichem TLS-Handshake. Port 25 und unverschlüsseltes SMTP sind nicht
+  implementiert.
+- [RFC 8314 Abschnitt 3](https://www.rfc-editor.org/rfc/rfc8314.html#section-3)
+  empfiehlt TLS für Mail-Zugriff und Submission. Unterstützt werden implizites TLS
+  auf dem üblichen Port 465 und STARTTLS auf 587, jeweils mit System-CA- und
+  Hostnamenprüfung. Fehlt bei STARTTLS die Serverfähigkeit, wird abgebrochen.
+- [RFC 6409 Abschnitt 5.1](https://www.rfc-editor.org/rfc/rfc6409.html#section-5.1)
+  empfiehlt gültige Adresssyntax. Absender und ein bis 100 Empfänger werden vor
+  dem Netzwerkzugriff geprüft; Zeilenumbrüche, doppelte Empfänger und unvollständige
+  Domains werden abgewiesen.
+- Nachrichten erhalten `Date` und `Message-ID` gemäß
+  [RFC 5322 Abschnitt 3.6](https://www.rfc-editor.org/rfc/rfc5322.html#section-3.6).
+  Die fertigen SMTP-Bytes werden **vor** Verbindungsaufbau unverändert archiviert.
+- Kalendereinladungen nutzen `text/calendar` und die iTIP-Methoden `REQUEST`,
+  `REPLY`, `CANCEL`, `COUNTER`, `DECLINECOUNTER` oder `PUBLISH` aus
+  [RFC 5546 Abschnitt 3.2](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2).
+  SimpleOffice transportiert die angegebene VCALENDAR-Datei, erfindet aber keine
+  Teilnehmerberechtigungen oder Zustellbestätigungen.
 
 ### Nachrichtenformat und Archividentität
 
@@ -70,18 +94,30 @@ niemals `STORE`, `COPY`, `MOVE`, `DELETE` oder `EXPUNGE`.
    Ohne bestätigte Extraktion wird nur die originale EML archiviert.
 6. Sieve-Skripte können lokal gespeichert, hochgeladen oder hochgeladen und
    aktiviert werden. Jede Speicherung erzeugt eine Git-Auditversion.
+7. Für SMTP Server, Port, Transport, Benutzer und Absender konfigurieren. Ein
+   separates SMTP-Passwort ist optional; andernfalls wird das IMAP-Passwort
+   wiederverwendet. **Nur SMTP-Login testen** versendet nichts.
+8. Empfänger, Betreff und Reintext eingeben. Optional vollständige iTIP-/ICS-Daten
+   ergänzen. **Archivieren und senden** schreibt zuerst die EML ins private Archiv.
 
 ## Rechte, Sicherheit und Datenschutz
 
 - Konten, Zugangsdaten, Archivzustand und Sieve-Skripte sind pro SimpleOffice-
   Benutzer getrennt. Ein Benutzer kann keine fremde Konto-ID verwenden.
 - Geheimnisse erscheinen weder in Templates, Audit-Snapshots noch Logs.
+- SMTP- und IMAP-Passwörter können getrennt über verschlüsselte Speicherung oder
+  geschützte Umgebungsvariablen bereitgestellt werden. Eine explizite Eingabe gilt
+  nur für die jeweilige Aktion.
 - Das verschlüsselte Passwort ist an den dauerhaften Installationsschlüssel
   gebunden. Geht dieser verloren, muss das Mailpasswort neu eingetragen werden.
 - Die Archivdateien liegen unter `email/<Benutzer-Hash>/<Konto>/<Jahr>/<SHA-512>.eml` und werden
   als normale Dokumente mit Ordnerrechten, Metadaten und Audit behandelt.
 - Sieve verändert den künftigen Zustellpfad auf dem Mailserver. Aktivierung ist
   deshalb nie Bestandteil des bloßen Speicherns.
+- Ausgehende EML liegen unter
+  `email/<Benutzer-Hash>/<Konto>/sent/<Jahr>/<SHA-512>.eml`. Der Zustand
+  `pending`, `sent` oder `failed`, Empfänger, Absender und Message-ID stehen in
+  getrennten Dokumentmetadaten; die EML selbst bleibt unverändert.
 
 ## Auswertung des bereitgestellten ZIP-Pakets
 
@@ -112,6 +148,13 @@ Skripte. Aus dem ZIP wurde kein Quellcode übernommen.
   wird erneut gelesen und über SHA-512 dedupliziert.
 - Fehlender oder fehlerhafter ClamAV verhindert die Anhangsübernahme, nicht aber
   die zuvor gespeicherte originale EML.
+- Kann die ausgehende EML nicht atomar archiviert und registriert werden, findet
+  **kein SMTP-Netzwerkzugriff** statt. Schlägt der Transport fehl, bleibt die EML
+  mit Zustand `failed` und gekürzter Fehlerangabe erhalten. Nach erfolgreicher
+  Serverannahme wird `sent` auditiert. Eine SMTP-Annahme ist keine Garantie für
+  die spätere Zustellung beim Empfänger.
+- Das Senden ist synchron und auf 30 Sekunden je Netzwerkoperation begrenzt. Es
+  gibt keine automatische Wiederholung, um Doppelzustellungen zu vermeiden.
 
 ## Migration, Rückwärtskompatibilität und Deaktivierung
 
@@ -124,8 +167,10 @@ entfernen; Mailserverdaten werden dadurch nicht verändert.
 ## Tests und bekannte Grenzen
 
 Automatisiert geprüft werden Verschlüsselung, Benutzertrennung, Skriptversionen,
-Navigation, bytegleiche EML-Ablage, UIDVALIDITY-Herkunft und das Fehlen sämtlicher
-mutierender IMAP-Kommandos. Echte Server unterscheiden sich bei SASL-Mechanismen:
-ManageSieve unterstützt derzeit nur `PLAIN` innerhalb TLS. OAuth2, SCRAM,
-`CHECKSCRIPT`, serverseitiger Skriptdownload, Hintergrundplanung und SMTP/iTIP-
-Versand sind dokumentierte nächste Ausbaustufen.
+Navigation, bytegleiche EML-Ablage, UIDVALIDITY-Herkunft, das Fehlen sämtlicher
+mutierender IMAP-Kommandos, Archiv-vor-Versand, Fehlerarchiv, Header-Injection,
+Empfängerduplikate und MIME-iTIP. Echte Server unterscheiden sich bei SASL-
+Mechanismen: SMTP nutzt die von Python ausgehandelte AUTH-Methode; ManageSieve
+unterstützt derzeit nur `PLAIN` innerhalb TLS. OAuth2, SCRAM für ManageSieve,
+`CHECKSCRIPT`, serverseitiger Skriptdownload, DSN-Auswertung, Versandwarteschlange,
+automatische Wiederholung und Hintergrundplanung sind bewusst nicht implementiert.

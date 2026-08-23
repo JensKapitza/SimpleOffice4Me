@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from app import app
 from app.db import ensure_auth_database
-from app.mail_client import ImapArchive, MailStore, ManageSieveClient, SecretBox
+from app.document_store import DocumentStore
+from app.mail_client import ImapArchive, MailStore, ManageSieveClient, SecretBox, SmtpSubmission
 from app.virtual_filesystem import VirtualFileSystem
 
 
@@ -44,6 +45,24 @@ class DuplexBuffer:
     def readline(self): return self.replies.readline()
     def write(self, value): self.written.extend(value); return len(value)
     def flush(self): pass
+
+
+class FakeSmtp:
+    esmtp_features = {"starttls": "", "size": "26214400"}
+
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.sent = []
+        self.closed = False
+
+    def sendmail(self, sender, recipients, raw):
+        self.sent.append((sender, recipients, raw))
+        if self.fail:
+            raise RuntimeError("submission unavailable")
+        return {}
+
+    def quit(self): self.closed = True
+    def close(self): self.closed = True
 
 
 class MailClientTests(unittest.TestCase):
@@ -114,6 +133,38 @@ class MailClientTests(unittest.TestCase):
             self.assertNotIn("secret-password", body)
         finally:
             app.config.update(previous)
+
+    def test_smtp_archives_exact_eml_before_sending_and_marks_sent(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        smtp = FakeSmtp()
+        with patch.object(SmtpSubmission, "_connect", return_value=smtp):
+            result = SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Termin", "Bitte teilnehmen", "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:one@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+        self.assertEqual(1, result["recipients"])
+        archived = self.root / result["path"]
+        self.assertEqual(smtp.sent[0][2], archived.read_bytes())
+        parsed = __import__("email").message_from_bytes(archived.read_bytes())
+        self.assertIn("text/calendar", parsed.as_string())
+        document = DocumentStore(self.root).get_document(result["document_id"])
+        self.assertEqual("sent", document["attributes"]["email_origin"]["state"])
+
+    def test_smtp_failure_remains_archived_and_audited(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        with patch.object(SmtpSubmission, "_connect", return_value=FakeSmtp(fail=True)):
+            with self.assertRaisesRegex(RuntimeError, "unavailable"):
+                SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Fehler", "Inhalt")
+        sent = list((self.root / "email").rglob("*.eml"))
+        self.assertEqual(1, len(sent))
+        document = DocumentStore(self.root).get_document(sent[0])
+        self.assertEqual("failed", document["attributes"]["email_origin"]["state"])
+        actions = [json.loads(path.read_text())["action"] for path in (self.root / ".simpleoffice-history" / "events").glob("*.json")]
+        self.assertIn("smtp_message_pending", actions)
+        self.assertIn("smtp_message_failed", actions)
+
+    def test_smtp_rejects_header_injection_and_duplicate_recipients(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        with self.assertRaises(ValueError): SmtpSubmission.compose(account, "bob@example.test\r\nBcc: victim@example.test", "Hallo", "Text")
+        with self.assertRaises(ValueError): SmtpSubmission.compose(account, "bob@example.test, BOB@example.test", "Hallo", "Text")
+        with self.assertRaises(ValueError): SmtpSubmission.compose(account, "bob@example.test", "Hallo\r\nBcc: victim@example.test", "Text")
 
 
 if __name__ == "__main__": unittest.main()
