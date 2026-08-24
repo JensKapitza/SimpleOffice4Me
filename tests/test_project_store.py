@@ -60,8 +60,8 @@ class ProjectStoreTests(unittest.TestCase):
 
     def test_time_group_becomes_one_invoice_line_and_keeps_private_evidence(self):
         project = self.store.create_project({"title": "Kundenanlage"}, "jens")
-        first = self.store.add_task(project["project_id"], {"title": "A"}, "jens")
-        second = self.store.add_task(project["project_id"], {"title": "B"}, "jens")
+        first = self.store.add_task(project["project_id"], {"title": "A", "status": "completed"}, "jens")
+        second = self.store.add_task(project["project_id"], {"title": "B", "status": "completed"}, "jens")
         entry_a = self.store.book_time(project["project_id"], first["task_id"], "2026-08-24", "1", "A intern", "jens", "0")
         entry_b = self.store.book_time(project["project_id"], second["task_id"], "2026-08-24", "1", "B intern", "jens", "0")
 
@@ -81,3 +81,21 @@ class ProjectStoreTests(unittest.TestCase):
                 "title": "Doppelt", "invoice_text": "Doppelt", "hours": "1", "minutes": "0",
                 "entry_ids": [entry_a["entry_id"]],
             }, "jens")
+
+    def test_time_groups_only_offer_completed_and_unused_task_entries(self):
+        project = self.store.create_project({"title": "Kundenanlage"}, "jens")
+        completed = self.store.add_task(project["project_id"], {"title": "Fertig", "status": "completed"}, "jens")
+        open_task = self.store.add_task(project["project_id"], {"title": "Offen", "status": "in_progress"}, "jens")
+        ready = self.store.book_time(project["project_id"], completed["task_id"], "2026-08-24", "1", "", "jens", "0")
+        blocked = self.store.book_time(project["project_id"], open_task["task_id"], "2026-08-24", "1", "", "jens", "0")
+        self.assertEqual([ready["entry_id"]], [entry["entry_id"] for entry in self.store.available_time_group_entries(project["project_id"])])
+        with self.assertRaisesRegex(ValueError, "only be grouped after their task is completed"):
+            self.store.create_time_group(project["project_id"], {
+                "title": "Zu früh", "invoice_text": "Zu früh", "hours": "1", "minutes": "0",
+                "entry_ids": [blocked["entry_id"]],
+            }, "jens")
+        self.store.create_time_group(project["project_id"], {
+            "title": "Fertig", "invoice_text": "Fertig", "hours": "1", "minutes": "0",
+            "entry_ids": [ready["entry_id"]],
+        }, "jens")
+        self.assertEqual([], self.store.available_time_group_entries(project["project_id"]))

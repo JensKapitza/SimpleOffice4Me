@@ -29,6 +29,11 @@ bis 24 und Minuten von 0 bis 59. Im Bereich „Zeitgruppen und Abrechnung“ wer
 die gewünschten Buchungen gewählt, ein interner Gruppenname, der Rechnungstext
 und die tatsächlich abzurechnende Dauer angegeben.
 
+Eine Zeitbuchung wird nur angeboten und serverseitig akzeptiert, wenn ihre
+Aufgabe abgeschlossen (`completed`) ist. Jede Buchung darf höchstens einer
+aktiven Zeitgruppe angehören und verschwindet nach der Gruppierung aus der
+Auswahlliste.
+
 Die Ansicht „Rechnungssichere Daten“ liefert genau die Positionen, die eine
 spätere Rechnung übernehmen darf. Gruppierte Einzelbuchungen erscheinen dort
 nicht zusätzlich und können deshalb nicht doppelt abgerechnet werden.

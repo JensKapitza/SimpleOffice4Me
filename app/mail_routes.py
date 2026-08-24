@@ -43,7 +43,8 @@ def index():
 def save_account():
     try:
         row = _store().save_account(_actor(), request.form.to_dict(), request.form.get("password", ""), request.form.get("remember_password") == "1")
-        flash("IMAP-Konfiguration gespeichert. Das Passwort wurde nur bei aktivierter Speicherung verschlüsselt abgelegt.")
+        state = "gespeichert und für diese Installation entsperrbar" if row["password_saved"] else "nicht gespeichert"
+        flash(f"IMAP-Konfiguration gespeichert. Das IMAP-Passwort ist {state}.")
         return redirect(url_for("mail_client.index", account=row["id"]))
     except (ValueError, RuntimeError) as exc:
         flash(str(exc))

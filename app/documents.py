@@ -522,7 +522,11 @@ def project_detail(project_id: str):
             linked_documents.append(_store().get_document(document_id))
         except ValueError:
             continue
-    return render_template("documents/project_detail.html", project=project, linked_documents=linked_documents, billing=_projects().billing_projection(project_id, str(g.user["username"])))
+    return render_template(
+        "documents/project_detail.html", project=project, linked_documents=linked_documents,
+        billing=_projects().billing_projection(project_id, str(g.user["username"])),
+        available_time_group_entries=_projects().available_time_group_entries(project_id),
+    )
 
 
 @bp.post("/projects/<project_id>/tasks")
