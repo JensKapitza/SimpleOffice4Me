@@ -230,6 +230,7 @@ def load_logged_in_user():
 FEATURE_BLUEPRINTS = {
     "documents": "documents", "calendar": "documents", "contacts": "documents",
     "mail_routes": "mail", "contact_audit": "contacts", "webdav": "webdav",
+    "datalogger": "datalogger",
 }
 
 

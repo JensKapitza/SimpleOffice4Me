@@ -243,6 +243,9 @@ app.register_blueprint(mail_routes.bp)
 from . import admin
 app.register_blueprint(admin.bp)
 
+from . import datalogger
+app.register_blueprint(datalogger.bp)
+
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
 
