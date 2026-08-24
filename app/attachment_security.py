@@ -47,7 +47,8 @@ class ClamAV:
         requested = os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip()
         if requested:
             candidate = Path(requested)
-            if not candidate.is_absolute() or candidate.name not in {"clamdscan", "clamscan"}:
+            scanner_name = candidate.name.casefold()
+            if not candidate.is_absolute() or scanner_name not in {"clamdscan", "clamscan", "clamdscan.exe", "clamscan.exe"}:
                 raise RuntimeError("SIMPLEOFFICE_CLAMAV_SCANNER must be an absolute clamdscan or clamscan path")
             if not candidate.is_file():
                 raise RuntimeError("configured ClamAV scanner is unavailable")
@@ -68,7 +69,7 @@ class ClamAV:
     def scan(self, path: Path) -> ScanResult:
         executable = self.executable()
         command = [executable, "--no-summary"]
-        if Path(executable).name == "clamdscan" and os.name != "nt":
+        if Path(executable).name.casefold() == "clamdscan" and os.name != "nt":
             command.append("--fdpass")
         command.append(str(path))
         try:

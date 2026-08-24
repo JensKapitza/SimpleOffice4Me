@@ -115,6 +115,31 @@ def ensure_auth_database() -> None:
             FOREIGN KEY (user_id) REFERENCES user (id)
         )"""
     )
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS mcp_token (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            token_prefix TEXT NOT NULL,
+            can_write INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            last_used_at TEXT,
+            revoked_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES user (id)
+        )"""
+    )
+    get_db().execute("CREATE INDEX IF NOT EXISTS mcp_token_user ON mcp_token(user_id, revoked_at)")
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS mcp_operation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL,
+            occurred_at TEXT NOT NULL, actor_id INTEGER NOT NULL, token_id INTEGER NOT NULL,
+            tool TEXT NOT NULL, target_id TEXT, outcome TEXT NOT NULL, error_type TEXT,
+            FOREIGN KEY (actor_id) REFERENCES user(id), FOREIGN KEY (token_id) REFERENCES mcp_token(id)
+        )"""
+    )
+    get_db().execute("CREATE INDEX IF NOT EXISTS mcp_operation_time ON mcp_operation(occurred_at DESC)")
     get_db().commit()
 
 

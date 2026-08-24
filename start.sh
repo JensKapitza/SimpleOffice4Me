@@ -20,6 +20,7 @@ Optionen:
   --port PORT                 HTTP-Port (Standard: aus Ersteinrichtung)
   --threads ANZAHL            Waitress-Worker-Threads (Standard: 4)
   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
+  --check-system              Systemwerkzeuge prüfen, ohne Serverstart
   --help                      Diese Hilfe anzeigen
 
 Beispiel:
@@ -73,6 +74,8 @@ while [ "$#" -gt 0 ]; do
       case "$2" in *[!0-9]*|'') echo "Timeout muss eine ganze Zahl sein." >&2; exit 2 ;; esac
       [ "$2" -ge 10 ] && [ "$2" -le 3600 ] || { echo "Timeout muss zwischen 10 und 3600 Sekunden liegen." >&2; exit 2; }
       export SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT="$2"; shift 2 ;;
+    --check-system)
+      exec "$PYTHON" "$ROOT/tools/system_requirements.py" ;;
     --help|-h)
       usage; exit 0 ;;
     *)
@@ -84,6 +87,8 @@ if ! command -v "$PYTHON" >/dev/null 2>&1; then
   echo "Python 3 wurde nicht gefunden. Bitte Python 3.10 oder neuer installieren." >&2
   exit 1
 fi
+
+"$PYTHON" "$ROOT/tools/system_requirements.py" --missing-only
 
 if [ ! -x "$VENV/bin/python" ]; then
   "$PYTHON" -m venv "$VENV"

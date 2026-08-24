@@ -29,3 +29,15 @@ class TemplateShellTests(unittest.TestCase):
         index = (TEMPLATES / "documents" / "index.html").read_text(encoding="utf-8")
         self.assertIn("data-document-tree", index)
         self.assertIn("Alle aufklappen", index)
+
+    def test_main_navigation_stacks_and_scrolls_responsively(self):
+        navigation = (TEMPLATES / "documents" / "nav.html").read_text(encoding="utf-8")
+        stylesheet = (ROOT / "static" / "css" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("navbar-expand-xxl", navigation)
+        self.assertIn("navigation-primary", navigation)
+        self.assertIn("navigation-actions", navigation)
+        self.assertIn("@media (max-width: 1399.98px)", stylesheet)
+        self.assertIn("overflow-y: auto", stylesheet)
+        self.assertIn("@media (min-width: 1400px)", stylesheet)
+        self.assertIn(".app-navbar .navigation-primary", stylesheet)
+        self.assertIn("flex-wrap: wrap", stylesheet)

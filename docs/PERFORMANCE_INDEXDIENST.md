@@ -108,6 +108,33 @@ je Seite.
 - Die erste Anzeige während eines Neuaufbaus kann unvollständig sein, blockiert
   aber nicht. Sie wächst mit der Indexprojektion.
 
+## Kontrolliertes Stoppen und Aktualisieren
+
+`stop.sh` beziehungsweise `stop.bat` beendet zuerst den Indexprozess und danach
+den Webprozess mit dem normalen Betriebssystemsignal. Der Launcher wartet beim
+eigenen Ende bis zu zehn Sekunden auf den Indexer. Es wird kein fremder Prozess
+nur aufgrund einer wiederverwendeten PID beendet: Die private PID-Datei unter
+`instance/run` enthält zusätzlich Prozessrolle, Startkennung und einen erwarteten
+Kommandozeilenmarker. Stimmen diese Merkmale nicht überein, gilt der Eintrag als
+veraltet und wird lediglich entfernt.
+
+`update.sh` und `update.bat` prüfen zuerst auf lokale Änderungen. War der Dienst
+aktiv, wird er danach kontrolliert gestoppt, das Fast-Forward-Update eingespielt
+und anschließend wieder gestartet. War er vorher gestoppt, bleibt er gestoppt.
+Schlägt das Beenden fehl, findet kein Git-Update statt. Damit laufen während des
+Austauschs von Python-Dateien weder alter Indexcode noch ein alter WSGI-Prozess.
+
+```bash
+./stop.sh
+./update.sh
+./start.sh
+```
+
+Unter Windows entsprechend `stop.bat`, `update.bat` und `start.bat` verwenden.
+Ein erzwungenes `kill -9` beziehungsweise `taskkill /F` ist absichtlich nicht
+Teil der Skripte; bei einem hängenden Prozess bleiben Status und PID-Datei zur
+Diagnose erhalten.
+
 ## Migration und Rückwärtskompatibilität
 
 `document_listing` ist eine additive, löschbare SQLite-Projektion. Beim ersten
