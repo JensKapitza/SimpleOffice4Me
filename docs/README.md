@@ -44,6 +44,7 @@ verlinkt.
 - [Sichere Datei- und Inhaltswiederherstellung](DATEI_WIEDERHERSTELLUNG.md)
 - [LibreOffice über WebDAV](LIBREOFFICE_WEBDAV.md)
 - [Bestätigte Mail-Anhänge und ClamAV](ANHAENGE_CLAMAV.md)
+- [IMAP-Client, Sieve und unveränderliches E-Mail-Archiv](IMAP_SIEVE_EMAIL_ARCHIV.md)
 - [ClamAV-Prüfung vor WebDAV-Uploads](WEBDAV_UPLOADS_CLAMAV.md)
 - [Eigenständig umgesetzte Ansätze aus TagSpaces](TAGSPACES_ANSAETZE.md)
 
