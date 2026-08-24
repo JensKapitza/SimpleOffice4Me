@@ -3,15 +3,15 @@ setlocal EnableExtensions
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
-call :parse_args %*
-if errorlevel 1 exit /b %errorlevel%
-
 where py >nul 2>nul
 if %errorlevel%==0 (
   set "PYTHON=py -3"
 ) else (
   set "PYTHON=python"
 )
+
+call :parse_args %*
+if errorlevel 1 exit /b %errorlevel%
 
 if not exist ".venv\Scripts\python.exe" (
   %PYTHON% -m venv ".venv"
@@ -35,6 +35,7 @@ if /I "%~1"=="--host" goto :host
 if /I "%~1"=="--port" goto :port
 if /I "%~1"=="--threads" goto :threads
 if /I "%~1"=="--channel-timeout" goto :channel_timeout
+if /I "%~1"=="--check-system" goto :check_system
 if /I "%~1"=="--help" goto :help
 if /I "%~1"=="-h" goto :help
 echo Unbekannte Option: %~1
@@ -111,6 +112,10 @@ shift
 shift
 goto :parse_args
 
+:check_system
+%PYTHON% "%ROOT%tools\system_requirements.py"
+exit /b %errorlevel%
+
 :missing_value
 echo Option %~1 benoetigt einen Wert.
 exit /b 2
@@ -128,6 +133,7 @@ echo   --host ADRESSE              Bind-Adresse ^(Standard: 127.0.0.1^)
 echo   --port PORT                 HTTP-Port aus Ersteinrichtung ueberschreiben
 echo   --threads ANZAHL            Waitress-Worker-Threads ^(Standard: 4^)
 echo   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung ^(Standard: 120^)
+echo   --check-system              Systemwerkzeuge pruefen, ohne Serverstart
 echo   --help                      Diese Hilfe anzeigen
 echo.
 echo Beispiel:

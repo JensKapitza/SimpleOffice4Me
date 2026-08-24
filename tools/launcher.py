@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -157,6 +158,8 @@ def start(configure_only: bool = False) -> None:
     os.environ["SIMPLEOFFICE_DOCUMENT_ROOT"] = document_root
 
     # Imports happen after the environment and configuration are available.
+    from tools.service_control import register, unregister
+    register("web", os.getpid(), "launcher.py")
     from app import app
     options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]))
     try:
@@ -180,7 +183,25 @@ def start(configure_only: bool = False) -> None:
     )
     from waitress import serve
 
-    serve(app, **options)
+    previous_handlers: dict[int, object] = {}
+    def request_stop(signum: int, _frame: object) -> None:
+        raise SystemExit(128 + signum)
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        previous_handlers[signum] = signal.signal(signum, request_stop)
+    try:
+        serve(app, **options)
+    finally:
+        if worker is not None and worker.poll() is None:
+            worker.terminate()
+            try:
+                worker.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                print("Indexdienst reagiert nicht auf SIGTERM; PID-Datei bleibt zur Diagnose erhalten.", file=sys.stderr)
+            else:
+                unregister("index", worker.pid)
+        unregister("web", os.getpid())
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
 
 
 def main() -> None:

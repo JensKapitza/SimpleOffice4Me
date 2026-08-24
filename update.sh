@@ -10,5 +10,13 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
+WAS_RUNNING=0
+if "${PYTHON:-python3}" "$ROOT/tools/service_control.py" status >/dev/null 2>&1; then
+  WAS_RUNNING=1
+  "$ROOT/stop.sh"
+fi
 git pull --ff-only
-exec "$ROOT/start.sh" "$@"
+if [ "$WAS_RUNNING" -eq 1 ]; then
+  exec "$ROOT/start.sh" "$@"
+fi
+echo "Update abgeschlossen. SimpleOffice4Me war vorher gestoppt und bleibt gestoppt."
