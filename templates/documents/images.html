@@ -14,7 +14,7 @@
   <div class="row g-3">
     {% for picture in pictures %}
     <div class="col-sm-6 col-lg-3"><div class="card h-100">
-      <a href="{{ url_for('documents.image_preview', document_id=picture.document_id) }}"><img class="card-img-top" loading="lazy" src="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></a>
+      <a href="{{ url_for('documents.image_preview', document_id=picture.document_id) }}"><img class="card-img-top" loading="lazy" src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></a>
       <div class="card-body"><small class="d-block text-break">{{ picture.last_path }}</small><small class="text-muted">{{ picture.first_seen_at }}</small>
         {% if picture.image_analysis %}<div class="small text-secondary mt-1">{{ picture.image_analysis.format|default('?') }} · {{ picture.image_analysis.width|default('?') }} × {{ picture.image_analysis.height|default('?') }} px{% if picture.image_analysis.exif.Model %} · {{ picture.image_analysis.exif.Model }}{% endif %}</div>{% if picture.image_analysis.ocr_characters %}<div class="small text-secondary">OCR: {{ picture.image_analysis.ocr_characters }} Zeichen</div>{% endif %}{% endif %}
         <form method="post" action="{{ url_for('documents.set_document_tags', document_id=picture.document_id) }}"><input class="form-control form-control-sm my-1" name="tags" value="{{ picture.tags|join(', ') }}" placeholder="Tags"><button class="btn btn-sm btn-outline-primary">Tags speichern</button><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=picture.document_id) }}">Verwalten / freigeben</a></form>

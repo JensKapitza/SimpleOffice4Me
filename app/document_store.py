@@ -38,6 +38,7 @@ from .search_query import compile_query
 
 
 CONTROL_DIR = ".simpleoffice-meta"
+PREVIEW_CACHE_DIR = ".webcache"
 POLICY_FILE = ".simpleoffice-folder.json"
 EVENT_FILE = "events.ndjson"
 HISTORY_DIR = ".simpleoffice-history"
@@ -842,7 +843,7 @@ class DocumentStore:
                 candidate = folder / name
                 try:
                     if (
-                        name not in {CONTROL_DIR, HISTORY_DIR}
+                        name not in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR}
                         and not candidate.is_symlink()
                         and candidate.stat().st_dev == root_device
                     ):
@@ -1636,7 +1637,7 @@ class DocumentStore:
         requested = Path(destination_folder.strip())
         if not destination_folder.strip() or requested.is_absolute() or ".." in requested.parts:
             raise ValueError("choose a relative destination folder inside the document store")
-        if any(part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} for part in requested.parts):
+        if any(part in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, POLICY_FILE} for part in requested.parts):
             raise ValueError("the destination folder is reserved for system metadata")
         destination_directory = (self.root / requested).resolve()
         try:
@@ -1965,6 +1966,8 @@ class DocumentStore:
             safe_names: list[str] = []
             for name in sorted(names, key=str.casefold):
                 child = parent / name
+                if name == PREVIEW_CACHE_DIR:
+                    continue
                 if name == CONTROL_DIR:
                     if child.is_symlink() or not child.is_dir():
                         raise ValueError("collection contains unsafe internal metadata")
@@ -2541,7 +2544,7 @@ class DocumentStore:
         collection = self.root / relative
         if not collection.is_dir() or collection.is_symlink():
             raise ValueError("collection does not exist")
-        visible = [item for item in collection.iterdir() if item.name not in {POLICY_FILE, CONTROL_DIR}]
+        visible = [item for item in collection.iterdir() if item.name not in {POLICY_FILE, CONTROL_DIR, PREVIEW_CACHE_DIR}]
         if visible:
             raise ValueError("collection is not empty")
         sidecars = collection / CONTROL_DIR
@@ -2571,7 +2574,7 @@ class DocumentStore:
         requested = Path(value)
         if (require_name and value in {"", "."}) or requested.is_absolute() or ".." in requested.parts:
             raise ValueError("path must remain inside the document store")
-        if any(part in {"", CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or "\x00" in part for part in requested.parts):
+        if any(part in {"", CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, POLICY_FILE} or "\x00" in part for part in requested.parts):
             raise ValueError("path contains a reserved segment")
         candidate = self.root / requested
         if candidate.is_symlink():
@@ -2757,6 +2760,7 @@ class DocumentStore:
         progress: Callable[[ScanReport], None] | None = None,
         file_progress: Callable[[Path], None] | None = None,
         verify_hashes: bool = False,
+        post_file: Callable[[Path], None] | None = None,
     ) -> ScanReport:
         self.initialize()
         files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
@@ -2780,7 +2784,7 @@ class DocumentStore:
                 self._event("folder_policy_invalid", {"path": self.relative(current_path), "error": str(exc)})
                 continue
             for path in entries:
-                if path.name in (POLICY_FILE, CONTROL_DIR, HISTORY_DIR):
+                if path.name in (POLICY_FILE, CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR):
                     continue
                 try:
                     if path.is_symlink():
@@ -2794,6 +2798,7 @@ class DocumentStore:
                         elif target.is_file():
                             if file_progress: file_progress(target)
                             created, duplicate = self._scan_file(target, force_hash=verify_hashes)
+                            if post_file: post_file(target)
                             files += 1
                             new_files += int(created)
                             duplicates += int(duplicate)
@@ -2813,6 +2818,7 @@ class DocumentStore:
                         continue
                     if file_progress: file_progress(path)
                     created, duplicate = self._scan_file(path, force_hash=verify_hashes)
+                    if post_file: post_file(path)
                     files += 1
                     new_files += int(created)
                     duplicates += int(duplicate)
@@ -2832,6 +2838,12 @@ class DocumentStore:
     def set_scan_status(self, status: dict[str, Any]) -> None:
         self.initialize()
         atomic_json_write(self.scan_status_path, {**status, "updated_at": utc_now()})
+
+    def set_preview_metadata(self, reference: str, preview: dict[str, Any]) -> None:
+        """Persist index-worker preview state without touching document content."""
+        metadata = self.get_document(reference)
+        metadata["preview"] = preview
+        self._save_document(metadata)
 
     def relative(self, path: Path) -> str:
         resolved = path.resolve()
