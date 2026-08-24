@@ -50,5 +50,6 @@ verlinkt.
 
 ## Betrieb
 
+- [Benutzerrechte und datensparsame Fehlerprotokolle](BENUTZER_RECHTE_FEHLERPROTOKOLL.md)
 - [Produktionsbetrieb mit Waitress](PRODUKTIONSBETRIEB.md)
 - [HTTPS und Reverse Proxy](PROXY_HTTPS.md)
