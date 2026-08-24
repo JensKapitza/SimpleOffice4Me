@@ -198,6 +198,27 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual(2, len(third["results"]))
             self.assertFalse(third["has_next"])
 
+    def test_boolean_retrieval_combines_tags_names_and_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "angebot.txt").write_text("Liefertermin am Freitag", encoding="utf-8")
+            (root / "notiz.txt").write_text("anderer Inhalt", encoding="utf-8")
+            store = DocumentStore(root); store.scan()
+            store.set_tags("angebot.txt", ["rechnung"], author="tester")
+            store.set_tags("notiz.txt", ["intern"], author="tester")
+
+            results = store.search(
+                "tag:rechnung UND (name:angebot ODER text:nichtvorhanden)"
+            )
+
+            self.assertEqual(["angebot.txt"], [item["path"] for item in results])
+
+    def test_invalid_retrieval_query_does_not_fall_back_to_broad_search(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = DocumentStore(temp)
+            with self.assertRaisesRegex(ValueError, "Klammer"):
+                store.search("tag:rechnung UND (name:angebot")
+
     def test_tags_support_prefix_and_wildcard_matching(self):
         self.assertTrue(DocumentStore.tag_matches("dank", "danke"))
         self.assertTrue(DocumentStore.tag_matches("dan*", "danke"))

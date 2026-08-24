@@ -277,10 +277,25 @@ def index():
     except ValueError: page = 1
     result = _store().document_page(page=page)
     documents = result["documents"]
+    quick_query = request.args.get("quick", "").strip()
+    quick_results, quick_error = [], ""
+    if quick_query:
+        try:
+            # JSON quoting produces a parser-safe phrase even for umlauts,
+            # whitespace and operator-looking input supplied by a user.
+            literal = json.dumps(quick_query + "*", ensure_ascii=False)
+            quick_results = _store().search_page(
+                f"name: {literal} ODER tag: {literal}", page_size=25
+            )["results"]
+        except ValueError as exc:
+            quick_error = str(exc)
     return render_template(
         "documents/index.html",
         document_tree=_document_tree(documents),
         defaults=_settings().settings(),
+        quick_query=quick_query,
+        quick_results=quick_results,
+        quick_error=quick_error,
         **result,
     )
 
@@ -294,14 +309,21 @@ def document_search():
     except ValueError:
         page = 1
     result = {"results": [], "page": page, "page_size": 25, "has_next": False}
+    error = ""
     if query:
         # Never scan or backfill here: an initial scan may take a long time and
         # runs independently in the launcher.  The existing index can answer
         # immediately and is extended as the background scan progresses.
-        result = _store().search_page(query, page=page)
-        for item in result["results"]:
-            _store().record_access(item["document_id"], str(g.user["username"]), "found")
-    return render_template("documents/search.html", query=query, scan_status=_store().scan_status(), **result)
+        try:
+            result = _store().search_page(query, page=page)
+            for item in result["results"]:
+                _store().record_access(item["document_id"], str(g.user["username"]), "found")
+        except ValueError as exc:
+            error = str(exc)
+    return render_template(
+        "documents/search.html", query=query, error=error,
+        scan_status=_store().scan_status(), **result
+    )
 
 
 @bp.post("/search/index")
