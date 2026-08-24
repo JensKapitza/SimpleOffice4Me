@@ -8,7 +8,7 @@ from unittest.mock import patch
 from app import app
 from app.db import ensure_auth_database
 from app.document_store import DocumentStore
-from app.mail_client import ImapArchive, MailStore, ManageSieveClient, SecretBox, SmtpSubmission
+from app.mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SecretBox, SmtpSubmission
 from app.virtual_filesystem import VirtualFileSystem
 
 
@@ -118,6 +118,34 @@ class MailClientTests(unittest.TestCase):
         vfs = VirtualFileSystem(self.root)
         self.assertTrue(vfs.allows("alice", f"email/{owner_key}/{self.account['id']}", "write"))
         self.assertFalse(vfs.allows("bob", f"email/{owner_key}/{self.account['id']}", "read"))
+
+    def test_imap_authentication_diagnostic_names_method_and_safe_alternatives(self):
+        account = self.store.account("alice", self.account["id"])
+        diagnostic = ImapArchive.authentication_diagnostic(
+            account, {"IMAP4REV1", "LOGINDISABLED", "AUTH=XOAUTH2", "AUTH=PLAIN"},
+            __import__("imaplib").IMAP4.error(b"[AUTHENTICATIONFAILED] rejected"),
+        )
+        error = ImapAuthenticationError(diagnostic)
+        self.assertIn("IMAP LOGIN over TLS", str(error))
+        self.assertIn("XOAUTH2", str(error))
+        self.assertIn("App-Passwort", str(error))
+        self.assertNotIn("secret-password", str(error))
+        self.assertEqual("AUTHENTICATIONFAILED", diagnostic["reason"])
+
+    def test_imap_auto_uses_sasl_plain_when_login_is_disabled(self):
+        class PlainOnlyImap:
+            capabilities = (b"IMAP4rev1", b"LOGINDISABLED", b"AUTH=PLAIN")
+            def authenticate(self, mechanism, callback):
+                self.mechanism = mechanism
+                self.payload = callback(b"")
+                return "OK", [b"authenticated"]
+        fake = PlainOnlyImap()
+        account = self.store.account("alice", self.account["id"])
+        with patch("app.mail_client.imaplib.IMAP4_SSL", return_value=fake):
+            connected = ImapArchive(self.store)._connect(account)
+        self.assertIs(fake, connected)
+        self.assertEqual("PLAIN", fake.mechanism)
+        self.assertEqual(b"\0alice@example.test\0secret-password", fake.payload)
 
     def test_web_tab_requires_login_and_does_not_render_saved_password(self):
         previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}

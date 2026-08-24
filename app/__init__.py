@@ -178,6 +178,7 @@ app.config['GOOGLE_OAUTH_REDIRECT_URI'] = os.environ.get('SIMPLEOFFICE_GOOGLE_RE
 app.config['GOOGLE_OAUTH_REDIRECT_URIS'] = google_oauth_redirect_uris()
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['MCP_ENABLED'] = os.environ.get('SIMPLEOFFICE_MCP', '1').strip().casefold() in {'1', 'true', 'yes', 'on'}
 
 
 @app.errorhandler(RequestEntityTooLarge)
@@ -243,6 +244,8 @@ app.register_blueprint(mail_routes.bp)
 from . import admin
 app.register_blueprint(admin.bp)
 
+from . import mcp
+app.register_blueprint(mcp.bp)
 from . import datalogger
 app.register_blueprint(datalogger.bp)
 

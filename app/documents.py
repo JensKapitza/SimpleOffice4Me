@@ -36,6 +36,7 @@ from .attachment_security import AttachmentSecurity, ClamAV
 from .preview_service import PreviewService
 from .db import get_db
 from .setup_store import SetupStore
+from .mail_client import MailStore, SmtpSubmission
 
 
 bp = Blueprint("documents", __name__, url_prefix="/documents")
@@ -81,6 +82,12 @@ def _setup() -> SetupStore:
     return SetupStore(current_app.config["DOCUMENT_ROOT"])
 
 
+def _mail() -> MailStore:
+    secret = current_app.config["SECRET_KEY"]
+    raw = secret.encode("utf-8") if isinstance(secret, str) else bytes(secret)
+    return MailStore(current_app.config["DOCUMENT_ROOT"], raw)
+
+
 def _remote_setup_context(username: str) -> dict[str, Any]:
     """Return display-safe service state and request-derived client URLs."""
     from .ssh_keys import keys_for
@@ -97,7 +104,12 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         sftp_port = 2222
     if not 1 <= sftp_port <= 65535:
         sftp_port = 2222
-    host_key = Path(os.environ.get("SIMPLEOFFICE_SFTP_HOST_KEY", "")).expanduser()
+    host_key = Path(os.environ.get("SIMPLEOFFICE_SFTP_HOST_KEY", str(Path(current_app.root_path).parent / "instance" / "sftp_host_rsa_key"))).expanduser()
+    try:
+        import paramiko  # noqa: F401
+        sftp_dependency = True
+    except ImportError:
+        sftp_dependency = False
     return {
         "username": username, "origin": root, "host": host,
         "secure_transport": request.is_secure or host in {"localhost", "127.0.0.1", "::1"},
@@ -106,7 +118,8 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         "carddav_url": f"{root}/carddav/addressbooks/{username}/contacts/",
         "webdav_enabled": any(not item.get("expired") for item in credentials_for(username)),
         "caldav_enabled": caldav_enabled, "carddav_enabled": carddav_enabled,
-        "sftp_port": sftp_port, "sftp_ready": bool(host_key.is_file()),
+        "sftp_port": sftp_port, "sftp_ready": bool(host_key.is_file() and sftp_dependency),
+        "sftp_key_ready": bool(host_key.is_file()), "sftp_dependency": sftp_dependency,
         "ssh_key_count": len([item for item in keys_for(current_app.config["DOCUMENT_ROOT"], username) if not item["expired"]]),
         "sshfs_command": (
             f"sshfs -p {sftp_port} {username}@{host}:/ ~/SimpleOffice -o "
@@ -1601,7 +1614,32 @@ def calendar():
             subject = f"Terminbestätigung: {event['title']}"
             body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
             event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+
+
+@bp.post("/calendar/<event_id>/invite-email")
+@login_required
+def send_calendar_invitation(event_id: str):
+    actor = str(g.user["username"])
+    recipient = request.form.get("recipient", "").strip()
+    try:
+        event = next(item for item in _calendar().events(actor) if item.get("event_id") == event_id)
+        if not _calendar()._can_edit(event, actor):
+            raise PermissionError("Für diesen Termin fehlt das Bearbeitungsrecht.")
+        store = _mail()
+        account = store.smtp_account(actor, request.form.get("account_id", ""), request.form.get("smtp_password", ""))
+        calendar_data = _itip().export(event_id, actor, "REQUEST", recipient, "", str(g.user["email"] or account.get("smtp_from", "")))
+        result = SmtpSubmission(store).send(
+            actor, account, recipient, f"Termineinladung: {event.get('title', 'Termin')}",
+            request.form.get("body", "Bitte den beigefügten Termin prüfen."), calendar_data,
+        )
+        flash(f"Einladung an {result['recipients']} Empfänger versandt und als EML archiviert.")
+    except StopIteration:
+        flash("Termin wurde nicht gefunden.")
+    except Exception as exc:
+        current_app.logger.warning("Calendar invitation submission failed for %s: %s", actor, type(exc).__name__)
+        flash(f"Einladung konnte nicht versandt werden: {exc}")
+    return redirect(url_for("documents.calendar") + "#scheduling")
 
 
 @bp.post("/calendar/google/preview")

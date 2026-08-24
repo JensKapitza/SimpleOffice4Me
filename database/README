@@ -1,0 +1,14 @@
+# Lokale Laufzeitdatenbanken
+
+`my.sqlite`, `translation.sqlite` sowie deren `-journal`, `-wal` und `-shm`
+Dateien sind lokale Laufzeitdaten. Sie enthalten unter anderem Benutzer,
+Zugangstoken und Auditdaten und werden deshalb nicht versioniert.
+
+Beim ersten Start legt SimpleOffice4Me die benötigte Datenbank an und ergänzt
+fehlende Tabellen und Spalten additiv. Vor einem Update sollte das Verzeichnis
+gesichert werden. Eine bereits vorhandene `database/my.sqlite` darf nicht durch
+eine Datei aus Git ersetzt werden.
+
+Für Entwicklung und Tests sollten temporäre Datenbankpfade über die
+Anwendungskonfiguration verwendet werden. Eine reale Datenbank gehört weder in
+Commits noch in Test-Fixtures.

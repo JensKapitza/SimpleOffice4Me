@@ -19,7 +19,8 @@ verlinkt.
 
 ## Dateien und Desktop-Integration
 
-- [Schnelle Dokument- und Retrieval-Suche mit UND/ODER](DOKUMENTSUCHE_RETRIEVAL.md)
+- [Systemwerkzeuge, ClamAV und Vorschau-Konverter](SYSTEMWERKZEUGE_VORSCHAU.md)
+- [Schnelle Dokument- und Retrieval-Suche mit UND/ODER/NICHT/XOR/NOR und Teilstrings](DOKUMENTSUCHE_RETRIEVAL.md)
 - [Erststart-Assistent für Windows, Linux, DAV und SFTP](ERSTSTART_UND_DESKTOP_SETUP.md)
 - [Virtuelles Dateisystem mit Ordnerrechten, SFTP/SSHFS und rsync](VIRTUELLES_DATEISYSTEM_SFTP.md)
 - [GoodSync und FreeFileSync sicher über SFTP](GOODSYNC_FREEFILESYNC.md)

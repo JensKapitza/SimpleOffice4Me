@@ -28,7 +28,30 @@ sudo freshclam
 sudo systemctl enable --now clamav-daemon
 ```
 
-Fedora/RHEL: `sudo dnf install clamav clamav-update clamd && sudo freshclam`. macOS/Homebrew: `brew install clamav && freshclam`.
+Fedora/RHEL: `sudo dnf install clamav clamav-update clamd && sudo freshclam`.
+
+macOS mit Homebrew: `brew install clamav && freshclam`. Alternativ bietet ClamAV
+ein offizielles Universal-PKG für Intel und Apple Silicon an. Es installiert
+nach `/usr/local/clamav`; dieser Pfad muss gegebenenfalls in `PATH` aufgenommen
+werden.
+
+Windows: Den offiziellen EXE-Installer oder das portable ZIP von ClamAV
+verwenden, `freshclam.conf` aus dem Muster erzeugen und anschließend
+`freshclam.exe` ausführen. Anders als die Debian-Pakete richtet das offizielle
+Windows-Paket die Konfiguration und einen Dienst nicht vollständig automatisch
+ein. Der Scanner kann danach über `SIMPLEOFFICE_CLAMAV_SCANNER` auf den
+installierten absoluten Pfad gesetzt werden.
+
+Primärquellen: [ClamAV-Installation für Linux, macOS und Windows](https://docs.clamav.net/manual/Installing.html),
+[Windows-FAQ](https://docs.clamav.net/faq/faq-win32.html) und
+[Signaturverwaltung](https://docs.clamav.net/manual/Usage/SignatureManagement.html).
+
+Mit `./start.sh --check-system` beziehungsweise `start.bat --check-system` wird
+ohne Serverstart geprüft, ob Scanner, `freshclam`, ImageMagick, Poppler,
+FFmpeg und LibreOffice gefunden werden. Beim normalen Start erscheinen nur
+Hinweise zu fehlenden Werkzeugen und der für das erkannte System passende
+Installationsbefehl. Die Prüfung installiert nichts und benötigt keine
+Administratorrechte.
 
 - `SIMPLEOFFICE_SECURITY_ADMINS=alice,bob`: Benutzer für Serverprüfung und Signaturupdate; ohne Wert gibt es keinen Web-Administrator.
 - `SIMPLEOFFICE_CLAMAV_SCANNER=/usr/bin/clamdscan`: optionaler absoluter Pfad; nur `clamdscan` oder `clamscan` werden akzeptiert.

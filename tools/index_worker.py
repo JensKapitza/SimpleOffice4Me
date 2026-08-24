@@ -137,7 +137,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me document index worker")
     parser.add_argument("--root", required=True, type=Path)
     args = parser.parse_args()
-    raise SystemExit(run_index(args.root))
+    from tools.service_control import register, unregister
+    register("index", os.getpid(), "index_worker")
+    try:
+        result = run_index(args.root)
+    finally:
+        unregister("index", os.getpid())
+    raise SystemExit(result)
 
 
 if __name__ == "__main__":

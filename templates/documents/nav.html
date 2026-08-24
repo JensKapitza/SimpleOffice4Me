@@ -1,9 +1,9 @@
-<nav class="navbar navbar-expand-xl navbar-dark app-navbar sticky-top" aria-label="Hauptnavigation">
+<nav class="navbar navbar-expand-xxl navbar-dark app-navbar sticky-top" aria-label="Hauptnavigation">
   <div class="container-fluid">
     <a class="navbar-brand fw-semibold" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-box-archive me-2" aria-hidden="true"></i>SimpleOffice</a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-navigation" aria-controls="main-navigation" aria-expanded="false" aria-label="Navigation öffnen"><span class="navbar-toggler-icon"></span></button>
     <div class="collapse navbar-collapse" id="main-navigation">
-      <div class="navbar-nav me-auto gap-xl-1">
+      <div class="navbar-nav navigation-primary me-auto gap-xxl-1">
         <a class="nav-link" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-gauge me-1" aria-hidden="true"></i>{{ tr('overview') }}</a>
         <a class="nav-link" href="{{ url_for('documents.projects') }}"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>Projekte</a>
         <a class="nav-link" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1" aria-hidden="true"></i>Objekte</a>
@@ -19,13 +19,14 @@
         <a class="nav-link" href="{{ url_for('datalogger.index') }}"><i class="fas fa-chart-line me-1" aria-hidden="true"></i>Datenlogger</a>
         <a class="nav-link" href="{{ url_for('documents.security_center') }}"><i class="fas fa-shield-virus me-1" aria-hidden="true"></i>Sicherheit</a>
       </div>
-      <div class="navbar-nav border-top border-xl-0 pt-2 pt-xl-0 align-items-xl-center">
+      <div class="navbar-nav navigation-actions border-top border-xxl-0 pt-2 pt-xxl-0 align-items-xxl-center">
         <a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a>
         <a class="nav-link" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a>
         <a class="nav-link" href="{{ url_for('documents.first_run_setup') }}"><i class="fas fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Einrichten</a>
         <a class="nav-link" href="{{ url_for('documents.settings') }}"><i class="fas fa-cog me-1" aria-hidden="true"></i>{{ tr('settings') }}</a>
-        <form method="post" action="{{ url_for('documents.set_language') }}" class="px-xl-2"><label class="visually-hidden" for="language">Language</label><select class="form-select form-select-sm" id="language" name="language" onchange="this.form.submit()" aria-label="Language"><option value="de" {% if g.language == 'de' %}selected{% endif %}>DE</option><option value="en" {% if g.language == 'en' %}selected{% endif %}>EN</option></select></form>
-        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear me-1" aria-hidden="true"></i>Administration</a>{% endif %}<span class="navbar-text px-xl-2 small">{{ g.user['display_name'] or g.user['username'] }}</span><a class="nav-link" href="{{ url_for('auth.logout') }}">{{ tr('logout') }}</a>
+        <a class="nav-link" href="{{ url_for('mcp.settings') }}"><i class="fas fa-plug me-1" aria-hidden="true"></i>MCP</a>
+        <form method="post" action="{{ url_for('documents.set_language') }}" class="px-xxl-2"><label class="visually-hidden" for="language">Language</label><select class="form-select form-select-sm" id="language" name="language" onchange="this.form.submit()" aria-label="Language"><option value="de" {% if g.language == 'de' %}selected{% endif %}>DE</option><option value="en" {% if g.language == 'en' %}selected{% endif %}>EN</option></select></form>
+        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear me-1" aria-hidden="true"></i>Administration</a>{% endif %}<span class="navbar-text px-xxl-2 small">{{ g.user['display_name'] or g.user['username'] }}</span><a class="nav-link" href="{{ url_for('auth.logout') }}">{{ tr('logout') }}</a>
       </div>
     </div>
   </div>
