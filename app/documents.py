@@ -486,7 +486,7 @@ def project_detail(project_id: str):
             linked_documents.append(_store().get_document(document_id))
         except ValueError:
             continue
-    return render_template("documents/project_detail.html", project=project, linked_documents=linked_documents)
+    return render_template("documents/project_detail.html", project=project, linked_documents=linked_documents, billing=_projects().billing_projection(project_id, str(g.user["username"])))
 
 
 @bp.post("/projects/<project_id>/tasks")
@@ -515,11 +515,40 @@ def update_project_task(project_id: str, task_id: str):
 @login_required
 def book_project_task_time(project_id: str, task_id: str):
     try:
-        entry = _projects().book_time(project_id, task_id, request.form.get("date", ""), request.form.get("hours", ""), request.form.get("note", ""), str(g.user["username"]))
-        flash(f"{entry['minutes'] / 60:g} Stunden gebucht.")
+        entry = _projects().book_time(project_id, task_id, request.form.get("date", ""), request.form.get("hours", ""), request.form.get("note", ""), str(g.user["username"]), request.form.get("minutes"))
+        flash(f"{entry['minutes'] // 60}:{entry['minutes'] % 60:02d} Stunden gebucht.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
+
+
+@bp.post("/projects/<project_id>/time-groups")
+@login_required
+def create_project_time_group(project_id: str):
+    try:
+        _projects().create_time_group(project_id, {
+            "title": request.form.get("title", ""),
+            "invoice_text": request.form.get("invoice_text", ""),
+            "hours": request.form.get("hours", ""),
+            "minutes": request.form.get("minutes", ""),
+            "entry_ids": request.form.getlist("entry_ids"),
+        }, str(g.user["username"]))
+        flash("Abrechnungsgruppe wurde angelegt. Einzelzeiten bleiben intern erhalten.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.project_detail", project_id=project_id) + "#abrechnung")
+
+
+@bp.get("/projects/<project_id>/billing.json")
+@login_required
+def project_billing_projection(project_id: str):
+    try:
+        projection = _projects().billing_projection(project_id, str(g.user["username"]))
+    except ValueError:
+        abort(404)
+    # This endpoint is deliberately invoice-safe: internal composition and
+    # notes never leave the project page.
+    return {"project_id": projection["project_id"], "project_title": projection["project_title"], "lines": projection["lines"]}
 
 
 @bp.post("/projects/<project_id>/notes")

@@ -48,6 +48,10 @@ verlinkt.
 - [ClamAV-Prüfung vor WebDAV-Uploads](WEBDAV_UPLOADS_CLAMAV.md)
 - [Eigenständig umgesetzte Ansätze aus TagSpaces](TAGSPACES_ANSAETZE.md)
 
+## Projekte und Abrechnung
+
+- [Minutengenaue Projektzeiten und private Abrechnungsgruppen](PROJEKTZEITEN_UND_ABRECHNUNGSGRUPPEN.md)
+
 ## Betrieb
 
 - [Produktionsbetrieb mit Waitress](PRODUKTIONSBETRIEB.md)
