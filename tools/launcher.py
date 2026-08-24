@@ -18,6 +18,11 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# Direct execution (``python tools/launcher.py``) otherwise exposes only the
+# tools directory on sys.path. Keep that supported for existing installations
+# while the platform starters use the unambiguous module invocation below.
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 CONFIG_PATH = PROJECT_ROOT / "instance" / "simpleoffice.json"
 SCAN_STATUS_FILE_INTERVAL = 250
 SCAN_STATUS_TIME_INTERVAL = 2.0

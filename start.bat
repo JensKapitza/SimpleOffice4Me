@@ -21,7 +21,7 @@ if not exist ".venv\Scripts\python.exe" (
 call ".venv\Scripts\activate.bat"
 python -m pip install --disable-pip-version-check --editable "%ROOT%"
 if errorlevel 1 goto :install_error
-python "%ROOT%tools\launcher.py" start
+python -m tools.launcher start
 exit /b %errorlevel%
 
 :parse_args

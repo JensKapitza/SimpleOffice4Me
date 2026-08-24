@@ -95,4 +95,5 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 
 "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT"
-exec "$VENV/bin/python" "$ROOT/tools/launcher.py" start "$@"
+cd "$ROOT"
+exec "$VENV/bin/python" -m tools.launcher start "$@"
