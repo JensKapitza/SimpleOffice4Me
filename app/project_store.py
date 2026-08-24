@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import date
 from pathlib import Path
@@ -47,6 +48,7 @@ class ProjectStore:
             "status": self._state(values.get("status"), PROJECT_STATES, "open"),
             "planned_start": str(values.get("planned_start", "")).strip(), "planned_end": str(values.get("planned_end", "")).strip(),
             "resources": self._values(values.get("resources")), "notes": [], "links": [], "document_ids": [], "tasks": [],
+            "time_groups": [],
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
         }
         self._write_change(project, actor, "project_created")
@@ -78,21 +80,110 @@ class ProjectStore:
         self._touch(project, actor); self._write_change(project, actor, "project_task_created")
         return task
 
-    def book_time(self, project_id: str, task_id: str, entry_date: str, hours: Any, note: str, actor: str) -> dict[str, Any]:
+    def book_time(self, project_id: str, task_id: str, entry_date: str, hours: Any, note: str, actor: str, minute_part: Any = None) -> dict[str, Any]:
         project = self.project(project_id); task = self._task(project, task_id)
         self._require(actor, entry_date, "entry date")
         try:
             booked_date = date.fromisoformat(str(entry_date)).isoformat()
-            minutes = round(float(str(hours).replace(",", ".")) * 60)
+            minutes = self._duration_minutes(hours, minute_part)
         except (TypeError, ValueError):
-            raise ValueError("date and hours are invalid")
+            raise ValueError("date and duration are invalid")
         if not 1 <= minutes <= 24 * 60:
-            raise ValueError("hours must be between 0.02 and 24")
+            raise ValueError("duration must be between one minute and 24 hours")
         entry = {"entry_id": str(uuid.uuid4()), "date": booked_date, "minutes": minutes, "note": str(note).strip(), "created_at": utc_now(), "created_by": actor}
         task.setdefault("time_entries", []).append(entry)
         task["updated_at"] = utc_now(); task["updated_by"] = actor
         self._touch(project, actor); self._write_change(project, actor, "project_task_time_booked")
         return entry
+
+    def create_time_group(self, project_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
+        """Combine time entries into one billable line without losing evidence."""
+        project = self.project(project_id)
+        self._require(actor, values.get("title", ""), "group title")
+        self._require(actor, values.get("invoice_text", ""), "invoice text")
+        entry_ids = self._values(values.get("entry_ids"))
+        entries = {
+            entry["entry_id"]: (task, entry)
+            for task in project.get("tasks", [])
+            for entry in task.get("time_entries", [])
+        }
+        if not entry_ids or not set(entry_ids) <= set(entries):
+            raise ValueError("choose at least one valid time entry")
+        already_grouped = {
+            entry_id
+            for group in project.get("time_groups", [])
+            if group.get("status", "open") != "cancelled"
+            for entry_id in group.get("entry_ids", [])
+        }
+        if set(entry_ids) & already_grouped:
+            raise ValueError("a time entry can only belong to one active billing group")
+        minutes = self._duration_minutes(values.get("hours", ""), values.get("minutes"))
+        if not 1 <= minutes <= 24 * 60:
+            raise ValueError("billable duration must be between one minute and 24 hours")
+        now = utc_now()
+        group = {
+            "group_id": str(uuid.uuid4()),
+            "title": str(values["title"]).strip(),
+            "invoice_text": str(values["invoice_text"]).strip(),
+            "billable_minutes": minutes,
+            "entry_ids": entry_ids,
+            "status": "open",
+            "created_at": now,
+            "created_by": actor,
+            "updated_at": now,
+            "updated_by": actor,
+        }
+        project.setdefault("time_groups", []).append(group)
+        self._touch(project, actor)
+        self._write_change(project, actor, "project_time_group_created")
+        return group
+
+    def billing_projection(self, project_id: str, actor: str) -> dict[str, Any]:
+        """Return invoice-safe lines and creator-only group evidence separately."""
+        self._require(actor, project_id, "project")
+        project = self.project(project_id)
+        entries = {
+            entry["entry_id"]: {**entry, "task_id": task["task_id"], "task_title": task["title"]}
+            for task in project.get("tasks", [])
+            for entry in task.get("time_entries", [])
+        }
+        grouped: set[str] = set()
+        lines = []
+        private_groups = []
+        for group in project.get("time_groups", []):
+            if group.get("status", "open") == "cancelled":
+                continue
+            grouped.update(group.get("entry_ids", []))
+            lines.append({
+                "source_type": "time_group", "source_id": group["group_id"],
+                "description": group["invoice_text"], "minutes": int(group["billable_minutes"]),
+            })
+            if group.get("created_by") == actor:
+                private_groups.append({**group, "entries": [entries[item] for item in group.get("entry_ids", []) if item in entries]})
+        for entry_id, entry in entries.items():
+            if entry_id not in grouped:
+                lines.append({
+                    "source_type": "time_entry", "source_id": entry_id,
+                    "description": entry.get("note") or entry["task_title"], "minutes": int(entry["minutes"]),
+                })
+        return {"project_id": project_id, "project_title": project["title"], "lines": lines, "private_groups": private_groups}
+
+    @staticmethod
+    def _duration_minutes(hours: Any, minute_part: Any = None) -> int:
+        """Parse separate hours/minutes, HH:MM, or legacy decimal hours exactly."""
+        if minute_part is not None:
+            hour_text, minute_text = str(hours).strip(), str(minute_part).strip()
+            if not re.fullmatch(r"\d{1,2}", hour_text or "0") or not re.fullmatch(r"\d{1,2}", minute_text or "0"):
+                raise ValueError("invalid duration")
+            hour_value, minute_value = int(hour_text or 0), int(minute_text or 0)
+            if minute_value > 59:
+                raise ValueError("minutes must be between 0 and 59")
+            return hour_value * 60 + minute_value
+        text = str(hours).strip()
+        match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", text)
+        if match:
+            return int(match.group(1)) * 60 + int(match.group(2))
+        return round(float(text.replace(",", ".")) * 60)
 
     def update_task(self, project_id: str, task_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
         project = self.project(project_id); task = self._task(project, task_id)

@@ -45,3 +45,39 @@ class ProjectStoreTests(unittest.TestCase):
         self.assertEqual("in_progress", stored["status"])
         self.assertEqual(120, entry["minutes"])
         self.assertEqual(120, stored["time_entries"][0]["minutes"])
+
+    def test_exact_hours_and_minutes_do_not_use_decimal_fraction(self):
+        project = self.store.create_project({"title": "Test"}, "jens")
+        task = self.store.add_task(project["project_id"], {"title": "Montage"}, "jens")
+
+        exact_hour = self.store.book_time(project["project_id"], task["task_id"], "2026-08-24", "1", "", "jens", "0")
+        hour_and_two = self.store.book_time(project["project_id"], task["task_id"], "2026-08-24", "1", "", "jens", "2")
+        colon = self.store.book_time(project["project_id"], task["task_id"], "2026-08-24", "1:30", "", "jens")
+
+        self.assertEqual(60, exact_hour["minutes"])
+        self.assertEqual(62, hour_and_two["minutes"])
+        self.assertEqual(90, colon["minutes"])
+
+    def test_time_group_becomes_one_invoice_line_and_keeps_private_evidence(self):
+        project = self.store.create_project({"title": "Kundenanlage"}, "jens")
+        first = self.store.add_task(project["project_id"], {"title": "A"}, "jens")
+        second = self.store.add_task(project["project_id"], {"title": "B"}, "jens")
+        entry_a = self.store.book_time(project["project_id"], first["task_id"], "2026-08-24", "1", "A intern", "jens", "0")
+        entry_b = self.store.book_time(project["project_id"], second["task_id"], "2026-08-24", "1", "B intern", "jens", "0")
+
+        group = self.store.create_time_group(project["project_id"], {
+            "title": "Installation intern", "invoice_text": "Installation",
+            "hours": "1", "minutes": "30", "entry_ids": [entry_a["entry_id"], entry_b["entry_id"]],
+        }, "jens")
+
+        own = self.store.billing_projection(project["project_id"], "jens")
+        other = self.store.billing_projection(project["project_id"], "kollege")
+        self.assertEqual([{"source_type": "time_group", "source_id": group["group_id"], "description": "Installation", "minutes": 90}], own["lines"])
+        self.assertEqual(["A intern", "B intern"], [item["note"] for item in own["private_groups"][0]["entries"]])
+        self.assertEqual([], other["private_groups"])
+
+        with self.assertRaisesRegex(ValueError, "only belong to one"):
+            self.store.create_time_group(project["project_id"], {
+                "title": "Doppelt", "invoice_text": "Doppelt", "hours": "1", "minutes": "0",
+                "entry_ids": [entry_a["entry_id"]],
+            }, "jens")
