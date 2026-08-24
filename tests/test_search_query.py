@@ -32,6 +32,29 @@ class SearchQueryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "zu viele Teile"):
             compile_query(" ".join(["wort"] * 101))
 
+    def test_not_xor_and_nor_use_exact_sql_evaluation(self):
+        excluded = compile_query("c UND NICHT (a ODER b)")
+        self.assertTrue(excluded.requires_sql)
+        self.assertIn("NOT", excluded.where)
+        exclusive = compile_query("tag:a XOR tag:b")
+        self.assertTrue(exclusive.requires_sql)
+        self.assertIn("CASE WHEN", exclusive.where)
+        neither = compile_query("tag:a NOR tag:b")
+        self.assertTrue(neither.requires_sql)
+        self.assertIn("NOT", neither.where)
+
+    def test_contains_operator_supports_field_and_all_fields(self):
+        field = compile_query('name ~ "Teil vom Namen"')
+        self.assertTrue(field.requires_sql)
+        self.assertEqual(field.parameters, ("%Teil vom Namen%",))
+        all_fields = compile_query("~fragment")
+        self.assertTrue(all_fields.requires_sql)
+        self.assertEqual(len(all_fields.parameters), 6)
+
+    def test_missing_contains_value_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Nach ~ fehlt"):
+            compile_query("tag ~")
+
 
 if __name__ == "__main__":
     unittest.main()

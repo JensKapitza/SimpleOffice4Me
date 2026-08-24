@@ -5,7 +5,7 @@ from __future__ import annotations
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
-from .mail_client import ImapArchive, MailStore, ManageSieveClient, SmtpSubmission
+from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpSubmission
 
 bp = Blueprint("mail_client", __name__, url_prefix="/documents/mail")
 
@@ -53,13 +53,19 @@ def save_account():
 @bp.post("/accounts/<account_id>/test")
 @login_required
 def test_account(account_id: str):
+    store = _store()
     try:
-        account = _store().account(_actor(), account_id, request.form.get("password", ""))
-        result = ImapArchive(_store()).test(account)
+        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        result = ImapArchive(store).test(account)
+        store.history.record("imap_account_tested", _actor(), "mail-accounts", account_id, {"result": "success", "folders": result["folders"], "capabilities": result["capabilities"]})
         flash(f"IMAP-Anmeldung erfolgreich: {result['folders']} Ordner, {len(result['capabilities'])} Fähigkeiten.")
+    except ImapAuthenticationError as exc:
+        store.history.record("imap_authentication_failed", _actor(), "mail-accounts", account_id, exc.diagnostic)
+        current_app.logger.warning("IMAP authentication failed for %s using %s; reason=%s", _actor(), exc.diagnostic["attempted"], exc.diagnostic["reason"])
+        flash(f"IMAP-Anmeldung fehlgeschlagen: {exc}")
     except Exception as exc:
         current_app.logger.warning("IMAP connection test failed for %s: %s", _actor(), type(exc).__name__)
-        flash(f"IMAP-Anmeldung fehlgeschlagen: {exc}")
+        flash(f"IMAP-Verbindung fehlgeschlagen ({type(exc).__name__}). Prüfen Sie Server, Port, TLS-Modus und das Administrator-Fehlerprotokoll.")
     return redirect(url_for("mail_client.index", account=account_id))
 
 

@@ -9,6 +9,17 @@ oder iTIP-Kalendereinladungen über authentifiziertes SMTP Submission. Der Archi
 den Mailserver nicht: Er verwendet `EXAMINE`, UID-Suche und `BODY.PEEK[]`, aber
 niemals `STORE`, `COPY`, `MOVE`, `DELETE` oder `EXPUNGE`.
 
+Der Login-Test nennt ausdrücklich das verwendete Verfahren **IMAP LOGIN** oder
+**SASL PLAIN über TLS**, die vor der Anmeldung angekündigten `AUTH=`-Mechanismen und
+`LOGINDISABLED`. Bei typischen Anbieterfehlern weist er auf IMAP-Freischaltung,
+vollständigen Benutzernamen, App-Passwort und angekündigtes OAuth hin. OAuth2
+selbst ist noch nicht implementiert. Diagnose und Audit enthalten weder das
+Passwort noch ungekürzte, potenziell sensible Serverantworten.
+Im Modus **Automatisch** wird LOGIN verwendet; meldet der Server jedoch
+`LOGINDISABLED` und `AUTH=PLAIN`, wechselt der Client sicher zu SASL PLAIN.
+Beide Verfahren sind nur innerhalb einer zertifikatsgeprüften TLS-Verbindung
+zulässig und können in der Kontoeinstellung ausdrücklich festgelegt werden.
+
 ## Maßgebliche Standards und Entscheidungen
 
 ### IMAP
@@ -97,8 +108,9 @@ niemals `STORE`, `COPY`, `MOVE`, `DELETE` oder `EXPUNGE`.
 7. Für SMTP Server, Port, Transport, Benutzer und Absender konfigurieren. Ein
    separates SMTP-Passwort ist optional; andernfalls wird das IMAP-Passwort
    wiederverwendet. **Nur SMTP-Login testen** versendet nichts.
-8. Empfänger, Betreff und Reintext eingeben. Optional vollständige iTIP-/ICS-Daten
-   ergänzen. **Archivieren und senden** schreibt zuerst die EML ins private Archiv.
+8. Empfänger, Betreff und Reintext eingeben. **Archivieren und senden** schreibt
+   zuerst die EML ins private Archiv. Termineinladungen werden im **Kalender**
+   beim bestehenden Termin erzeugt; dort SMTP-Konto und Empfänger wählen.
 
 ## Rechte, Sicherheit und Datenschutz
 

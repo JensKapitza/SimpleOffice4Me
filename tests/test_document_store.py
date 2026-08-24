@@ -213,6 +213,28 @@ class DocumentStoreTest(unittest.TestCase):
 
             self.assertEqual(["angebot.txt"], [item["path"] for item in results])
 
+    def test_advanced_retrieval_not_xor_nor_and_contains_use_only_index(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "kunde-alpha.txt").write_text("zulu", encoding="utf-8")
+            (root / "kunde-beta.txt").write_text("zulu verboten", encoding="utf-8")
+            (root / "sonstig.txt").write_text("anderes", encoding="utf-8")
+            store = DocumentStore(root); store.scan()
+            store.set_tags("kunde-alpha.txt", ["intern"], author="tester")
+            store.set_tags("kunde-beta.txt", ["intern", "extern"], author="tester")
+            store.set_tags("sonstig.txt", ["extern"], author="tester")
+
+            self.assertEqual(["kunde-alpha.txt"], [x["path"] for x in store.search("zulu UND NICHT verboten")])
+            self.assertEqual(
+                ["kunde-alpha.txt", "sonstig.txt"],
+                sorted(x["path"] for x in store.search("tag:intern XOR tag:extern")),
+            )
+            self.assertEqual([], store.search("tag:intern NOR tag:extern"))
+            self.assertEqual(
+                ["kunde-alpha.txt", "kunde-beta.txt"],
+                sorted(x["path"] for x in store.search("name ~ kunde-")),
+            )
+
     def test_invalid_retrieval_query_does_not_fall_back_to_broad_search(self):
         with tempfile.TemporaryDirectory() as temp:
             store = DocumentStore(temp)

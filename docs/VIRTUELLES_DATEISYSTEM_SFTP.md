@@ -54,6 +54,21 @@ ssh-keygen -t ed25519 -f /etc/simpleoffice/sftp_host_ed25519_key -N ''
 chmod 600 /etc/simpleoffice/sftp_host_ed25519_key
 ```
 
+Für eine lokale Ersteinrichtung ohne systemweiten Service stehen dieselben
+plattformübergreifenden Prüfungen bereit:
+
+```bash
+./start-sftp.sh status       # nur prüfen
+./start-sftp.sh init         # fehlenden Schlüssel einmalig erzeugen
+./start-sftp.sh              # getrennten Dienst im Vordergrund starten
+```
+
+Unter Windows heißen die Befehle `start-sftp.bat status`, `init` und
+`start-sftp.bat`. `init` überschreibt niemals einen vorhandenen Schlüssel.
+Eine vorhandene Einrichtung mit `SIMPLEOFFICE_SFTP_HOST_KEY` bleibt maßgeblich.
+Für Dauerbetrieb ist weiterhin die mitgelieferte systemd-Beispieldatei unter
+`docs/simpleoffice-sftp.service.example` vorgesehen.
+
 Konfiguration über geschützte Umgebung beziehungsweise den Service-Manager:
 
 ```bash
