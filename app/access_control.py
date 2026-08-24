@@ -19,6 +19,7 @@ FEATURES = {
     "webdav": "WebDAV-Einstellungen",
     "sync": "Synchronisation und Replikation",
     "projects": "Projekte und Zeiterfassung",
+    "datalogger": "Datenlogger und Sensoren",
 }
 
 

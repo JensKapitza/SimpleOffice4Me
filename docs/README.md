@@ -55,6 +55,8 @@ verlinkt.
 
 ## Betrieb
 
+- [Persistenter Datenlogger für Dateien, Linux und HTTP/JSON-Sensoren](DATENLOGGER_SENSOREN.md)
+
 - [Benutzerrechte und datensparsame Fehlerprotokolle](BENUTZER_RECHTE_FEHLERPROTOKOLL.md)
 - [Produktionsbetrieb mit Waitress](PRODUKTIONSBETRIEB.md)
 - [HTTPS und Reverse Proxy](PROXY_HTTPS.md)
