@@ -65,6 +65,14 @@ db.sqlite3-journal
 instance/
 .webassets-cache
 
+# Local SimpleOffice runtime databases. These contain accounts, tokens and
+# audit data and must never be committed. Keep database/README and helper
+# programs tracked.
+database/*.sqlite
+database/*.sqlite-journal
+database/*.sqlite-shm
+database/*.sqlite-wal
+
 # Scrapy stuff:
 .scrapy
 
