@@ -34,6 +34,7 @@ from flask.cli import with_appcontext
 
 from .retention import evaluate_deadlines, parse_deadline
 from .revision_history import RevisionHistory
+from .search_query import compile_query
 
 
 CONTROL_DIR = ".simpleoffice-meta"
@@ -1197,6 +1198,7 @@ class DocumentStore:
         query = query.strip()
         if not query:
             return {"results": [], "page": 1, "page_size": page_size, "has_next": False}
+        compiled = compile_query(query)
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
         limit = page_size + 1
@@ -1206,15 +1208,12 @@ class DocumentStore:
             try:
                 rows = db.execute(
                     "SELECT document_id, path, state FROM document_search WHERE document_search MATCH ? LIMIT ? OFFSET ?",
-                    (query, limit, offset),
+                    (compiled.fts, limit, offset),
                 ).fetchall()
             except sqlite3.OperationalError:
-                pattern = f"%{query.replace('*', '%')}%"
                 rows = db.execute(
-                    """SELECT document_id, path, state FROM document_search
-                    WHERE path LIKE ? OR state LIKE ? OR tags LIKE ? OR notes LIKE ?
-                       OR attributes LIKE ? OR content LIKE ? LIMIT ? OFFSET ?""",
-                    (pattern, pattern, pattern, pattern, pattern, pattern, limit, offset),
+                    f"SELECT document_id, path, state FROM document_search WHERE {compiled.where} LIMIT ? OFFSET ?",
+                    (*compiled.parameters, limit, offset),
                 ).fetchall()
         results = [{"document_id": row[0], "path": row[1], "state": row[2]} for row in rows]
         return {
