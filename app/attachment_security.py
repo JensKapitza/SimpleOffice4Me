@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -308,7 +309,50 @@ class AttachmentSecurity:
             payload["scans"] = payload["scans"][-2000:]
             atomic_json_write(self.registry, payload)
 
+    @staticmethod
+    def safe_error_code(exc: BaseException) -> str:
+        """Return an actionable category without persisting paths or secrets."""
+        message = str(exc).casefold()
+        if isinstance(exc, subprocess.TimeoutExpired) or "timed out" in message:
+            return "timeout"
+        if "not installed" in message or "not in path" in message:
+            return "scanner_not_installed"
+        if "unavailable" in message or "daemon" in message:
+            return "scanner_unavailable"
+        if "permission" in message or isinstance(exc, PermissionError):
+            return "permission_denied"
+        if "freshclam" in message:
+            return "signature_update_failed"
+        return "scanner_error"
+
+    def record_event(
+        self,
+        action: str,
+        actor: str,
+        outcome: str,
+        *,
+        detail: str = "",
+        counts: dict[str, int] | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        record: dict[str, Any] = {
+            "event_id": uuid.uuid4().hex,
+            "event_type": "server_action",
+            "action": action,
+            "occurred_at": utc_now(),
+            "actor": actor,
+            "outcome": outcome,
+            "detail": str(detail)[:160],
+        }
+        if counts is not None:
+            record["counts"] = {key: int(value) for key, value in counts.items()}
+        if duration_ms is not None:
+            record["duration_ms"] = max(0, int(duration_ms))
+        self._record_scan(record)
+
     def scan_documents(self, actor: str, max_files: int = 10000) -> dict[str, int]:
+        started = time.monotonic()
+        self.record_event("server_scan", actor, "started", detail="Bestandsprüfung gestartet")
         result = {"clean": 0, "infected": 0, "errors": 0, "skipped": 0}
         for count, document in enumerate(DocumentStore(self.root)._all_documents()):
             if count >= max_files: result["skipped"] += 1; continue
@@ -318,10 +362,26 @@ class AttachmentSecurity:
                 verdict = self.scanner.scan(path)
                 result[verdict.verdict] += 1
                 self._record_scan({"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "document_id": document["document_id"], "filename": path.name, "sha256": sha256_file(path), **asdict(verdict)})
-            except (OSError, RuntimeError): result["errors"] += 1
+            except (OSError, RuntimeError) as exc:
+                result["errors"] += 1
+                self._record_scan({
+                    "scan_id": uuid.uuid4().hex, "event_type": "file_scan",
+                    "scanned_at": utc_now(), "actor": actor,
+                    "document_id": document.get("document_id", ""),
+                    "filename": path.name, "verdict": "error", "engine": "",
+                    "detail": self.safe_error_code(exc),
+                })
+        self.record_event(
+            "server_scan", actor, "completed", detail="Bestandsprüfung abgeschlossen",
+            counts=result, duration_ms=round((time.monotonic() - started) * 1000),
+        )
         DocumentStore(self.root).history.record("managed_documents_malware_scanned", actor, "security", "clamav", result)
         return result
 
     def recent_scans(self) -> list[dict[str, Any]]:
         try: return list(reversed(json.loads(self.registry.read_text(encoding="utf-8")).get("scans", [])))[:100]
         except (OSError, json.JSONDecodeError): return []
+
+    def recent_events(self) -> list[dict[str, Any]]:
+        """Return file verdicts and server actions as one useful timeline."""
+        return self.recent_scans()

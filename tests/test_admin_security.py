@@ -64,6 +64,18 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(403, self.worker.get("/admin/users").status_code)
         self.assertEqual(403, self.worker.get("/admin/logs").status_code)
 
+    def test_application_admin_can_use_clamav_server_actions_without_env_allowlist(self):
+        page = self.admin.get("/documents/security")
+        body = page.get_data(as_text=True)
+        self.assertEqual(200, page.status_code)
+        self.assertIn("Verwaltete Dateien jetzt scannen", body)
+        self.assertNotIn("ausschließlich für Administratoren", body)
+
+        worker_page = self.worker.get("/documents/security")
+        self.assertEqual(200, worker_page.status_code)
+        self.assertIn("ausschließlich für Administratoren", worker_page.get_data(as_text=True))
+        self.assertEqual(403, self.worker.post("/documents/security/scan-now").status_code)
+
     def test_multiple_administrators_are_supported(self):
         self.update_worker(is_admin="1")
         with app.app_context():
