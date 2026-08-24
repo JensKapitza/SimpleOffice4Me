@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "simpleoffice": {
+      "type": "streamable-http",
+      "url": "https://office.example.test/mcp",
+      "headers": {"Authorization": "Bearer ${SIMPLEOFFICE_MCP_TOKEN}"}
+    }
+  }
+}
