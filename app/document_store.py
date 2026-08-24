@@ -1453,679 +1453,2162 @@ class DocumentStore:
                 "created_at": str(change.get("at", "")),
                 "replaced_by": str(change.get("actor", "")),
                 "size": int(change.get("previous_size", 0)),
-                "available": archive.is_file() and not archivny��-�G����ƭy�e"]))
-            flash(f"{form['name']} gespeichert.")
-        except ValueError as exc:
-            flash(str(exc))
-        return redirect(url_for("documents.form_records", form_id=form_id))
-    records = _forms().records(form_id)
-    return render_template("documents/form_records.html", form=form, records=records,
-                           relation_choices=_form_relation_choices(form, str(g.user["username"])),
-                           invoice_products=_invoice_products() if form.get("layout") == "invoice" else [])
+                "available": archive.is_file() and not archive.is_symlink(),
+            }
+        return sorted(versions.values(), key=lambda item: item["created_at"], reverse=True)
 
-
-@bp.route("/forms/<form_id>/<record_id>", methods=("GET", "POST"))
-@login_required
-def form_record_detail(form_id: str, record_id: str):
-    try:
-        form = _forms().definition(form_id)
-        record = _forms().record(form_id, record_id)
-    except ValueError:
-        abort(404)
-    if request.method == "POST":
-        try:
-            record = _forms().save_record(form_id, request.form.to_dict(), str(g.user["username"]), record_id)
-            flash("Formular gespeichert. Der vorherige Stand bleibt in der Historie.")
-        except ValueError as exc:
-            flash(str(exc))
-        return redirect(url_for("documents.form_record_detail", form_id=form_id, record_id=record_id))
-    return render_template("documents/form_record_detail.html", form=form, record=record,
-                           relation_choices=_form_relation_choices(form, str(g.user["username"])),
-                           invoice_products=_invoice_products() if form.get("layout") == "invoice" else [])
-
-
-@bp.post("/forms/definitions")
-@login_required
-def save_form_definition():
-    try:
-        definition = json.loads(request.form.get("definition", "{}"))
-        form = _forms().save_definition(definition, str(g.user["username"]))
-        flash(f"Formularvorlage {form['name']} gespeichert.")
-    except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        flash(f"Formularvorlage ungültig: {exc}")
-    return redirect(url_for("documents.forms"))
-
-
-@bp.get("/contacts/<contact_id>")
-@login_required
-def contact_detail(contact_id: str):
-    actor = str(g.user["username"])
-    try:
-        contact = _contacts().get(contact_id, actor)
-    except ValueError:
-        abort(404)
-    users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
-    return render_template("documents/contact_detail.html", contact=contact, users=users, is_owner=not contact.get("owner") or contact.get("owner") == actor)
-
-
-@bp.post("/contacts")
-@login_required
-def save_contact():
-    contact_id = request.form.get("contact_id", "")
-    try:
-        contact = _contacts().upsert(request.form.to_dict(), str(g.user["username"]), contact_id)
-        flash("Kontakt gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-        contact = None
-    if contact_id and contact is not None:
-        return redirect(url_for("documents.contact_detail", contact_id=contact["contact_id"]))
-    return redirect(url_for("documents.contacts"))
-
-
-@bp.get("/contacts/export.vcf")
-@login_required
-def export_contacts():
-    payload = _contacts().export_vcards(str(g.user["username"])).encode("utf-8")
-    return send_file(io.BytesIO(payload), as_attachment=True, download_name="simpleoffice-kontakte.vcf", mimetype="text/vcard; charset=utf-8")
-
-
-@bp.post("/contacts/import")
-@login_required
-def import_contacts():
-    uploaded = request.files.get("contacts_file")
-    if uploaded is None or not uploaded.filename:
-        flash("Bitte eine .vcf-Datei auswählen.")
-        return redirect(url_for("documents.contacts"))
-    try:
-        imported = _contacts().import_vcards(uploaded.read().decode("utf-8-sig"), str(g.user["username"]))
-        flash(f"{imported} Kontakt(e) importiert.")
-    except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Kontaktimport fehlgeschlagen: {exc}")
-    return redirect(url_for("documents.contacts"))
-
-
-@bp.post("/contacts/<contact_id>/addresses")
-@login_required
-def add_contact_address(contact_id: str):
-    try:
-        _contacts().add_address(contact_id, request.form.get("label", ""), request.form.get("address", ""), str(g.user["username"]))
-        flash("Adresse gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.contact_detail", contact_id=contact_id))
-
-
-@bp.post("/contacts/<contact_id>/sharing")
-@login_required
-def share_contact(contact_id: str):
-    actor = str(g.user["username"])
-    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
-    managers = request.form.getlist("managers")
-    unknown = sorted(set(managers) - valid_users)
-    try:
-        if unknown:
-            raise ValueError(f"unknown users: {', '.join(unknown)}")
-        _contacts().share(contact_id, managers, actor)
-        flash("Verwaltungsfreigabe gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.contact_detail", contact_id=contact_id))
-
-
-@bp.post("/contacts/schema")
-@login_required
-def save_contact_schema():
-    try:
-        aliases = json.loads(request.form.get("aliases", "{}"))
-        if not isinstance(aliases, dict) or not all(isinstance(value, list) for value in aliases.values()):
-            raise ValueError("aliases must be a JSON object whose values are lists")
-        _contacts().save_schema(request.form.get("required", "").split(","), aliases, str(g.user["username"]))
-        flash("Kontaktfeld-Zuordnung gespeichert.")
-    except (json.JSONDecodeError, ValueError) as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.contacts"))
-
-
-@bp.post("/contacts/carddav")
-@login_required
-def activate_carddav():
-    try:
-        _contacts().activate_carddav(str(g.user["username"]), request.form.get("password", ""), str(g.user["username"]))
-        endpoint = url_for("carddav.endpoint", path=f"addressbooks/{g.user['username']}/default/", _external=True)
-        flash(f"CardDAV aktiviert. Thunderbird-URL: {endpoint}")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.contacts"))
-
-
-@bp.route("/calendar")
-@login_required
-def calendar():
-    actor = str(g.user["username"])
-    reminder_now = datetime.now(timezone.utc)
-    try:
-        reminders = _calendar().due_alarms(actor, reminder_now - timedelta(hours=12), reminder_now + timedelta(days=7))
-    except ValueError as exc:
-        reminders = []
-        flash(f"Erinnerungen konnten nicht berechnet werden: {exc}")
-    calendars = _calendars().calendars(actor)
-    calendar_map = {item["calendar_id"]: item for item in calendars}
-    requested_month = request.args.get("month", date.today().strftime("%Y-%m"))
-    try:
-        shown_month = date.fromisoformat(f"{requested_month}-01")
-    except ValueError:
-        shown_month = date.today().replace(day=1)
-    events_by_day: dict[int, list[dict]] = {}
-    visible_events = _calendar().events(actor)
-    deleted_events = sorted(
-        (event for event in visible_events if event.get("status") == "deleted"),
-        key=lambda event: event.get("status_changed_at") or event.get("updated_at") or "",
-        reverse=True,
-    )
-    events = [event for event in visible_events if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
-    month_lower = datetime(shown_month.year, shown_month.month, 1, tzinfo=timezone.utc)
-    next_month = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1)
-    month_upper = datetime(next_month.year, next_month.month, 1, tzinfo=timezone.utc)
-    try:
-        occurrences = _calendar().occurrences(actor, month_lower, month_upper)
-    except ValueError as exc:
-        occurrences = []; flash(f"Serientermine konnten nicht dargestellt werden: {exc}")
-    for event in events:
-        collection = calendar_map.get(event.get("calendar_id") or "default", {"name": "Persönlich", "color": "#2563eb"})
-        event["calendar_name"] = collection["name"]; event["calendar_color"] = collection["color"]
-    for event in occurrences:
-        collection = calendar_map.get(event.get("calendar_id") or "default", {"name": "Persönlich", "color": "#2563eb"})
-        event["calendar_name"] = collection["name"]; event["calendar_color"] = collection["color"]
-        try:
-            event_day = datetime.fromisoformat(event["start"].replace("Z", "+00:00")).date()
-        except (KeyError, ValueError):
-            continue
-        if event_day.year == shown_month.year and event_day.month == shown_month.month:
-            events_by_day.setdefault(event_day.day, []).append(event)
-    previous = (shown_month.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-    following = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
-    users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
-    for event in events:
-        # Events created before calendar sharing was introduced do not have
-        # these fields.  Normalize only the in-memory view so opening the
-        # calendar stays backwards compatible without rewriting user data.
-        event["access"] = event.get("access") if isinstance(event.get("access"), dict) else {}
-        event["managers"] = event.get("managers") if isinstance(event.get("managers"), list) else []
-        if event.get("requester_email") or event.get("source") == "external_booking":
-            event["origin"] = "external"; event["origin_label"] = "Externe Buchung"; event["origin_class"] = "text-bg-warning"
-        elif event.get("source_uid") or event.get("source") == "ical_import":
-            event["origin"] = "imported"; event["origin_label"] = "Importiert"; event["origin_class"] = "text-bg-secondary"
-        elif event.get("owner") and event.get("owner") != actor:
-            event["origin"] = "shared"; event["origin_label"] = f"Von {event['owner']}"; event["origin_class"] = "text-bg-info"
-        else:
-            event["origin"] = "own"; event["origin_label"] = "Von mir angelegt"; event["origin_class"] = "text-bg-primary"
-        event["can_edit"] = _calendar()._can_edit(event, actor)
-        event["is_owner"] = (event.get("owner") or actor) == actor
-        event["access_role"] = "owner" if event["is_owner"] else event.get("access", {}).get(actor, "edit" if actor in event.get("managers", []) else "read")
-        if event.get("status") == "confirmed" and event.get("requester_email"):
-            ics_url = url_for("documents.download_booking_confirmation", event_id=event["event_id"], _external=True)
-            subject = f"Terminbestätigung: {event['title']}"
-            body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
-            event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
-
-
-@bp.post("/calendar/google/preview")
-@login_required
-def preview_google_calendar_sync():
-    actor = str(g.user["username"])
-    try:
-        status = _google_calendar().status(actor)
-        _calendars().get(status["target_calendar_id"], actor, write=True)
-        result = _google_calendar().synchronize(actor, apply=False)
-        flash(f"Google-Vorschau: {result['received']} Änderungen empfangen, {result['applicable']} anwendbar, {len(result['conflicts'])} Konflikte. Kalenderdaten und Sync-Token blieben unverändert.")
-    except (GoogleCalendarError, ValueError) as exc:
-        flash(f"Google-Kalender konnte nicht geprüft werden: {exc}")
-    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
-
-
-@bp.post("/calendar/google/sync")
-@login_required
-def apply_google_calendar_sync():
-    actor = str(g.user["username"])
-    try:
-        status = _google_calendar().status(actor)
-        _calendars().get(status["target_calendar_id"], actor, write=True)
-        result = _google_calendar().synchronize(actor, apply=True)
-        if result["conflicts"]:
-            flash(f"Google-Abgleich: {result['applied']} Änderungen gespeichert; {len(result['conflicts'])} lokale Konflikte blieben unverändert. Bitte zuerst manuell auflösen.")
-        else:
-            flash(f"Google-Abgleich abgeschlossen: {result['applied']} Änderungen gespeichert, keine Konflikte.")
-    except (GoogleCalendarError, ValueError) as exc:
-        flash(f"Google-Kalender wurde nicht geändert: {exc}")
-    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
-
-
-@bp.post("/calendar/google/conflicts/<strategy>")
-@login_required
-def resolve_google_calendar_conflicts(strategy: str):
-    actor = str(g.user["username"])
-    try:
-        status = _google_calendar().status(actor)
-        _calendars().get(status["target_calendar_id"], actor, write=True)
-        result = _google_calendar().synchronize(actor, apply=True, conflict_policy=strategy)
-        flash(f"Google-Konflikte aufgelöst: {result['applied']} Google-Versionen übernommen, {result['kept_local']} lokale Versionen beibehalten.")
-    except (GoogleCalendarError, ValueError) as exc:
-        flash(f"Google-Konflikte wurden nicht aufgelöst: {exc}")
-    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
-
-
-@bp.post("/calendar/google/reset")
-@login_required
-def reset_google_calendar_sync():
-    _google_calendar().disable(str(g.user["username"]))
-    flash("Google-Sync-Zustand entfernt. Importierte Termine bleiben erhalten; der nächste Abgleich prüft den Kalender vollständig.")
-    return redirect(url_for("documents.calendar") + "#google-calendar-sync")
-
-
-@bp.post("/calendar/scheduling/import")
-@login_required
-def import_itip_message():
-    uploaded = request.files.get("itip_file")
-    try:
-        if uploaded is None or not uploaded.filename:
-            raise ValueError("Bitte eine iTIP-/ICS-Datei auswählen.")
-        payload = uploaded.stream.read(MAX_MESSAGE_BYTES + 1)
-        if len(payload) > MAX_MESSAGE_BYTES:
-            raise ValueError("iTIP message exceeds 1 MiB")
-        message = _itip().receive(payload.decode("utf-8-sig"), str(g.user["username"]), "file-import")
-        flash(f"{message['method']}-Nachricht geprüft und zur Bestätigung vorgemerkt.")
-    except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Termin-Nachricht abgewiesen: {exc}")
-    return redirect(url_for("documents.calendar") + "#scheduling")
-
-
-@bp.post("/calendar/scheduling/<message_id>/apply")
-@login_required
-def apply_itip_message(message_id: str):
-    try:
-        _itip().apply(message_id, str(g.user["username"]), request.form.get("calendar_id", "default"))
-        flash("Termin-Nachricht angewendet und revisionssicher protokolliert.")
-    except (ItipConflict, ValueError) as exc:
-        flash(f"Termin-Nachricht konnte nicht angewendet werden: {exc}")
-    return redirect(url_for("documents.calendar") + "#scheduling")
-
-
-@bp.post("/calendar/scheduling/<message_id>/reject")
-@login_required
-def reject_itip_message(message_id: str):
-    try:
-        _itip().reject(message_id, str(g.user["username"]), request.form.get("reason", ""))
-        flash("Termin-Nachricht abgelehnt; Kalenderdaten blieben unverändert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar") + "#scheduling")
-
-
-@bp.get("/calendar/<event_id>/scheduling.ics")
-@login_required
-def export_itip_message(event_id: str):
-    method = request.args.get("method", "REQUEST")
-    try:
-        payload = _itip().export(event_id, str(g.user["username"]), method, request.args.get("attendee", ""), request.args.get("partstat", ""), str(g.user["email"] or ""))
-    except ValueError as exc:
-        return Response(str(exc), 403, {"Content-Type": "text/plain; charset=utf-8"})
-    return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name=f"termin-{method.casefold()}-{event_id}.ics", mimetype=f"text/calendar; method={method.upper()}; charset=utf-8")
-
-
-@bp.post("/calendar/scheduling/access")
-@login_required
-def update_caldav_scheduling_access():
-    actor = str(g.user["username"])
-    users = {str(row["username"]) for row in get_db().execute("SELECT username FROM user").fetchall()}
-    try:
-        _scheduling_access().update(
+    def restore_content_version(
+        self,
+        reference: str | Path,
+        archived_sha256: str,
+        expected_current_sha256: str,
+        actor: str,
+        *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Restore one verified archived payload with a current-version precondition."""
+        self._require_actor(actor)
+        if not re.fullmatch(r"[0-9a-f]{64}", archived_sha256):
+            raise ValueError("unknown archived content version")
+        metadata = self.get_document(reference)
+        self._require_document_editable(metadata)
+        path = self.root / str(metadata.get("last_path", ""))
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("document file is unavailable")
+        current_sha256 = sha256_file(path)
+        if not expected_current_sha256 or not hmac.compare_digest(expected_current_sha256, current_sha256):
+            raise ValueError("document content changed since the recovery page was opened")
+        if hmac.compare_digest(archived_sha256, current_sha256):
+            raise ValueError("the selected version is already current")
+        known = {item["sha256"] for item in self.content_recovery_versions(reference) if item["available"]}
+        if archived_sha256 not in known:
+            raise ValueError("archived content version is unavailable")
+        archive = self.control / "content-versions" / metadata["document_id"] / archived_sha256
+        if archive.is_symlink() or not archive.is_file() or sha256_file(archive) != archived_sha256:
+            raise ValueError("archived content version failed integrity verification")
+        if archive.stat().st_size > max_bytes:
+            raise ValueError("archived content version exceeds the configured upload size limit")
+        return self.replace_content(
+            reference,
+            archive.read_bytes(),
             actor,
-            request.form.get("enabled") == "1",
-            [username for username in users if request.form.get(f"messages_{username}") == "1"],
-            [username for username in users if request.form.get(f"freebusy_{username}") == "1"],
-            users,
+            expected_sha256=current_sha256,
+            source="recovery",
+            max_bytes=max_bytes,
+            restored_from_sha256=archived_sha256,
         )
-        flash("CalDAV-Terminplanung und Freigaben wurden gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar") + "#scheduling-access")
+
+    def find_matches(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Find possible version parents by ID, path, name and all human metadata."""
+        needle = query.strip().casefold()
+        if not needle:
+            return []
+        matches: list[dict[str, Any]] = []
+        for metadata in self._all_documents():
+            path = metadata.get("last_path", "")
+            haystack = " ".join(
+                [metadata.get("document_id", ""), path, metadata.get("state", ""), " ".join(metadata.get("tags", [])),
+                 " ".join(note.get("text", "") for note in metadata.get("notes", [])), json.dumps(metadata.get("attributes", {}), ensure_ascii=False)]
+            ).casefold()
+            tag_hit = any(self.tag_matches(needle, tag) for tag in metadata.get("tags", []))
+            if needle not in haystack and not tag_hit:
+                continue
+            score = 100 if needle in (metadata.get("document_id", "").casefold(), path.casefold()) else 10
+            if Path(path).name.casefold() == needle:
+                score = 90
+            elif needle in Path(path).name.casefold():
+                score = 60
+            matches.append({"document_id": metadata["document_id"], "path": path, "state": metadata.get("state"), "version": metadata.get("version_number", 1), "score": score})
+        return sorted(matches, key=lambda item: (-item["score"], item["path"]))[:limit]
+
+    @staticmethod
+    def tag_matches(pattern: str, tag: str) -> bool:
+        """Case-insensitive tag matching with optional ``*`` wildcard support."""
+        pattern = pattern.strip().casefold()
+        tag = tag.strip().casefold()
+        if not pattern or not tag:
+            return False
+        return fnmatch.fnmatchcase(tag, pattern) if "*" in pattern else tag.startswith(pattern)
+
+    def graph(self, reference: str | Path) -> dict[str, Any]:
+        """Return one document, its versions and all inbound/outbound graph edges."""
+        document = self.get_document(reference)
+        document_id = document["document_id"]
+        documents = self._all_documents()
+        visible_ids = {document_id}
+        edges: list[dict[str, Any]] = []
+        for item in documents:
+            for link in item.get("relationships", []):
+                target_id = link.get("target_document_id")
+                if item.get("document_id") == document_id or target_id == document_id:
+                    visible_ids.add(item["document_id"])
+                    if target_id:
+                        visible_ids.add(target_id)
+                    edges.append({"source": item["document_id"], "target": target_id or f"text:{link['id']}", **link})
+        series_id = document.get("version_series_id", document_id)
+        for item in documents:
+            if item.get("version_series_id", item.get("document_id")) == series_id:
+                visible_ids.add(item["document_id"])
+        nodes = [
+            {
+                "id": item["document_id"],
+                "path": item.get("last_path"),
+                "state": item.get("state"),
+                "version_number": item.get("version_number", 1),
+                "notes": len(item.get("notes", [])),
+            }
+            for item in documents
+            if item.get("document_id") in visible_ids
+        ]
+        nodes.extend({"id": edge["target"], "path": edge.get("target_text", "Freitext"), "state": "reference", "version_number": 0, "notes": 0} for edge in edges if edge["target"].startswith("text:"))
+        return {"focus_document_id": document_id, "nodes": nodes, "edges": edges}
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        """List the known documents without treating the SQLite cache as truth."""
+        return sorted(
+            self._all_documents(),
+            key=lambda item: (item.get("last_seen_at", ""), item.get("last_path", "")),
+            reverse=True,
+        )
+
+    def document_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
+        """Load only one document page from the scan index for large archives."""
+        self.initialize()
+        page = max(1, page); page_size = max(1, min(500, page_size))
+        with self._db() as db:
+            total = int(db.execute("SELECT COUNT(DISTINCT document_id) FROM scan_file").fetchone()[0])
+            rows = db.execute("SELECT document_id FROM scan_file GROUP BY document_id ORDER BY MAX(last_seen_at) DESC, MAX(relative_path) LIMIT ? OFFSET ?", (page_size, (page - 1) * page_size)).fetchall()
+        documents = []
+        for (document_id,) in rows:
+            metadata = self._read_json(self.documents / f"{document_id}.json", {})
+            if metadata.get("document_id"):
+                documents.append(metadata)
+        return {"documents": documents, "page": page, "page_size": page_size, "total": total, "has_next": page * page_size < total}
+
+    def inbox_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
+        """Load an inbox page from the SQLite projection, never all sidecars.
+
+        The projection is disposable and is populated incrementally by the
+        index worker.  During an initial scan the page therefore stays fast
+        and simply grows as documents become available.
+        """
+        self.initialize()
+        page = max(1, page)
+        page_size = max(1, min(500, page_size))
+        where = "state = 'new' AND has_notes = 0 AND has_relationships = 0"
+        with self._db() as db:
+            total = int(db.execute(f"SELECT COUNT(*) FROM document_listing WHERE {where}").fetchone()[0])
+            rows = db.execute(
+                f"""SELECT document_id FROM document_listing WHERE {where}
+                    ORDER BY last_seen_at DESC, path LIMIT ? OFFSET ?""",
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+        documents = []
+        for (document_id,) in rows:
+            metadata = self._read_json(self.documents / f"{document_id}.json", {})
+            if metadata.get("document_id"):
+                documents.append(metadata)
+        return {
+            "documents": documents,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "has_next": page * page_size < total,
+        }
+
+    def move_document(
+        self,
+        reference: str,
+        destination_folder: str,
+        actor: str,
+        *,
+        destination_name: str = "",
+        allow_locked: bool = False,
+    ) -> dict[str, Any]:
+        """Move or rename a managed file without changing its stable ID."""
+        self._require_actor(actor)
+        document = self.get_document(reference)
+        if not allow_locked:
+            self._require_document_editable(document)
+        source = self.root / str(document.get("last_path", ""))
+        if not source.is_file() or source.is_symlink():
+            raise ValueError("only an available regular document file can be moved")
+        requested = Path(destination_folder.strip())
+        if not destination_folder.strip() or requested.is_absolute() or ".." in requested.parts:
+            raise ValueError("choose a relative destination folder inside the document store")
+        if any(part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} for part in requested.parts):
+            raise ValueError("the destination folder is reserved for system metadata")
+        destination_directory = (self.root / requested).resolve()
+        try:
+            destination_directory.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError("destination must remain inside the document store") from exc
+        requested_name = destination_name.strip() or source.name
+        if Path(requested_name).name != requested_name or requested_name in {"", ".", "..", POLICY_FILE}:
+            raise ValueError("choose a safe destination file name")
+        destination = destination_directory / requested_name
+        if destination == source:
+            return document
+        if destination.exists():
+            raise ValueError("a file with the same name already exists in the destination folder")
+        destination_directory.mkdir(parents=True, exist_ok=True)
+        self.ensure_folder_policy(destination_directory)
+        previous_path = str(document.get("last_path", ""))
+        shutil.move(str(source), str(destination))
+        relative_path = self.relative(destination)
+        document["last_path"] = relative_path
+        document["last_seen_at"] = utc_now()
+        document.setdefault("location_history", []).append({"from": previous_path, "to": relative_path, "at": document["last_seen_at"], "actor": actor})
+        document["location_history"] = document["location_history"][-200:]
+        self._write_xattrs(destination, document["document_id"], document.get("sha256", ""), document.get("tags", []))
+        self._save_document(document)
+        self._refresh_search_index(document)
+        with self._db() as db:
+            db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+        self._scan_file(destination)
+        fingerprint_path = self.fingerprints / f"{document.get('sha256', '')}.json"
+        fingerprint = self._read_json(fingerprint_path, {})
+        if fingerprint:
+            paths = set(fingerprint.get("paths", [])); paths.discard(previous_path); paths.add(relative_path)
+            fingerprint["paths"] = sorted(paths); fingerprint["last_seen_at"] = utc_now()
+            atomic_json_write(fingerprint_path, fingerprint)
+        self._event("document_moved", {"document_id": document["document_id"], "from": previous_path, "to": relative_path, "actor": actor})
+        self._record_revision("document_moved", actor, "documents", document["document_id"], document)
+        return self.get_document(document["document_id"])
+
+    def replace_document_via_move(
+        self,
+        source_reference: str,
+        destination_reference: str,
+        actor: str,
+        *,
+        expected_source_sha256: str,
+        expected_destination_sha256: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Replace one destination from a MOVE source with recovery and rollback.
+
+        The destination keeps its stable identity, grants, tags and properties.
+        Its old payload enters immutable content history, while the consumed
+        source remains recoverable in the WebDAV trash. A source-side conflict
+        after the destination write restores the previous destination bytes.
+        """
+        self._require_actor(actor)
+        source = self.get_document(source_reference)
+        destination = self.get_document(destination_reference)
+        if source["document_id"] == destination["document_id"]:
+            raise ValueError("source and destination are the same document")
+        self._require_document_editable(source)
+        self._require_document_editable(destination)
+        source_path = self.root / str(source.get("last_path", ""))
+        destination_path = self.root / str(destination.get("last_path", ""))
+        if (
+            not source_path.is_file() or source_path.is_symlink()
+            or not destination_path.is_file() or destination_path.is_symlink()
+        ):
+            raise ValueError("MOVE replacement requires two available regular document files")
+        if source_path.stat().st_size > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+        source_content = source_path.read_bytes()
+        source_sha256 = hashlib.sha256(source_content).hexdigest()
+        destination_sha256 = sha256_file(destination_path)
+        if not expected_source_sha256 or not hmac.compare_digest(expected_source_sha256, source_sha256):
+            raise ValueError("source content changed since it was opened")
+        if not expected_destination_sha256 or not hmac.compare_digest(expected_destination_sha256, destination_sha256):
+            raise ValueError("destination content changed since it was opened")
+
+        destination_changed = not hmac.compare_digest(source_sha256, destination_sha256)
+        updated = self.replace_content(
+            destination["document_id"], source_content, actor,
+            expected_sha256=destination_sha256, source="webdav-move-overwrite", max_bytes=max_bytes,
+        )
+        try:
+            deleted = self.soft_delete_document(
+                source["document_id"], actor, expected_sha256=source_sha256,
+            )
+        except Exception as exc:
+            rollback_error = ""
+            if destination_changed:
+                archive = self.control / "content-versions" / destination["document_id"] / destination_sha256
+                try:
+                    previous_content = archive.read_bytes()
+                    self.replace_content(
+                        destination["document_id"], previous_content, actor,
+                        expected_sha256=source_sha256, source="webdav-move-overwrite-rollback",
+                        max_bytes=max(max_bytes, len(previous_content)),
+                    )
+                except Exception as rollback_exc:
+                    rollback_error = str(rollback_exc)
+            rollback = {
+                "source_document_id": source["document_id"],
+                "destination_document_id": destination["document_id"],
+                "source": str(source.get("last_path", "")),
+                "destination": str(destination.get("last_path", "")),
+                "reason": str(exc), "rollback_error": rollback_error,
+                "rolled_back": not rollback_error, "actor": actor, "at": utc_now(),
+            }
+            self._event("webdav_document_replace_rolled_back", rollback)
+            self._record_revision(
+                "webdav_document_replace_rolled_back", actor, "documents",
+                destination["document_id"], rollback,
+            )
+            if rollback_error:
+                raise RuntimeError("MOVE replacement failed and destination rollback failed") from exc
+            raise
+
+        details = {
+            "source_document_id": source["document_id"],
+            "destination_document_id": destination["document_id"],
+            "source": str(source.get("last_path", "")),
+            "destination": str(destination.get("last_path", "")),
+            "source_sha256": source_sha256,
+            "previous_destination_sha256": destination_sha256,
+            "recovery": deleted.get("recovery", ""),
+            "actor": actor, "at": utc_now(),
+        }
+        self._event("webdav_document_replaced_via_move", details)
+        self._record_revision(
+            "webdav_document_replaced_via_move", actor, "documents",
+            destination["document_id"], {**updated, "move_replacement": details},
+        )
+        return {"document": self.get_document(destination["document_id"]), "source_deleted": deleted}
+
+    def replace_document_via_copy(
+        self,
+        source_reference: str,
+        destination_reference: str,
+        actor: str,
+        *,
+        expected_source_sha256: str,
+        expected_destination_sha256: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Copy source bytes over a destination while preserving its identity.
+
+        COPY must leave the source untouched. The destination keeps its stable
+        ID, grants, tags, retention state and WebDAV properties; replace_content
+        archives the previous payload and performs the atomic write. Both
+        resource validators are checked again after HTTP precondition handling
+        so a late filesystem change cannot silently win.
+        """
+        self._require_actor(actor)
+        source = self.get_document(source_reference)
+        destination = self.get_document(destination_reference)
+        if source["document_id"] == destination["document_id"]:
+            raise ValueError("source and destination are the same document")
+        self._require_document_editable(source)
+        self._require_document_editable(destination)
+        source_path = self.root / str(source.get("last_path", ""))
+        destination_path = self.root / str(destination.get("last_path", ""))
+        if (
+            not source_path.is_file() or source_path.is_symlink()
+            or not destination_path.is_file() or destination_path.is_symlink()
+        ):
+            raise ValueError("COPY replacement requires two available regular document files")
+        if source_path.stat().st_size > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+
+        source_content = source_path.read_bytes()
+        source_sha256 = hashlib.sha256(source_content).hexdigest()
+        destination_sha256 = sha256_file(destination_path)
+        if not expected_source_sha256 or not hmac.compare_digest(expected_source_sha256, source_sha256):
+            raise ValueError("source content changed since it was opened")
+        if not expected_destination_sha256 or not hmac.compare_digest(expected_destination_sha256, destination_sha256):
+            raise ValueError("destination content changed since it was opened")
+
+        updated = self.replace_content(
+            destination["document_id"], source_content, actor,
+            expected_sha256=destination_sha256, source="webdav-copy-overwrite", max_bytes=max_bytes,
+        )
+        details = {
+            "source_document_id": source["document_id"],
+            "destination_document_id": destination["document_id"],
+            "source": str(source.get("last_path", "")),
+            "destination": str(destination.get("last_path", "")),
+            "source_sha256": source_sha256,
+            "previous_destination_sha256": destination_sha256,
+            "actor": actor,
+            "at": utc_now(),
+        }
+        self._event("webdav_document_replaced_via_copy", details)
+        self._record_revision(
+            "webdav_document_replaced_via_copy", actor, "documents",
+            destination["document_id"], {**updated, "copy_replacement": details},
+        )
+        return self.get_document(destination["document_id"])
+
+    def create_document_at(
+        self,
+        relative_path: str,
+        content: bytes,
+        actor: str,
+        *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        """Atomically create a new regular file at an existing managed folder."""
+        self._require_actor(actor)
+        if len(content) > max_bytes:
+            raise ValueError("document exceeds the configured upload size limit")
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        destination = self.root / relative
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination collection does not exist")
+        self.ensure_folder_policy(destination.parent)
+        self.initialize()
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            if destination.exists():
+                raise FileExistsError("destination resource already exists")
+            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
+            try:
+                with temporary.open("xb") as handle:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+            self._scan_file(destination, force_hash=True)
+            metadata = self.get_document(destination)
+            metadata.setdefault("content_history", []).append({
+                "number": 1,
+                "at": utc_now(),
+                "actor": actor,
+                "source": "webdav",
+                "previous_sha256": "",
+                "sha256": metadata["sha256"],
+                "previous_size": 0,
+                "size": len(content),
+                "archive": "",
+            })
+            metadata["content_revision"] = 1
+            self._save_document(metadata)
+            self._event("document_created", {"document_id": metadata["document_id"], "path": self.relative(destination), "actor": actor, "sha256": metadata["sha256"]})
+            self._record_revision("document_created", actor, "documents", metadata["document_id"], metadata)
+            return metadata
+
+    def copy_document(self, reference: str, destination_path: str, actor: str) -> dict[str, Any]:
+        """Create an independent, audited copy without carrying access grants."""
+        self._require_actor(actor)
+        source_metadata = self.get_document(reference)
+        self._require_document_editable(source_metadata)
+        source = self.root / str(source_metadata.get("last_path", ""))
+        if not source.is_file() or source.is_symlink():
+            raise ValueError("only an available regular document file can be copied")
+        relative = self._safe_managed_relative_path(destination_path, require_name=True)
+        destination = self.root / relative
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination collection does not exist")
+        self.ensure_folder_policy(destination.parent)
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            if destination.exists():
+                raise FileExistsError("destination resource already exists")
+            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
+            try:
+                shutil.copyfile(source, temporary)
+                if sha256_file(temporary) != sha256_file(source):
+                    raise RuntimeError("copied document could not be verified")
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+            self._scan_file(destination, force_hash=True)
+            copied = self.get_document(destination)
+            copied["tags"] = list(source_metadata.get("tags", []))
+            copied["tagged_at"] = dict(source_metadata.get("tagged_at", {}))
+            copied["attributes"] = {
+                key: value for key, value in source_metadata.get("attributes", {}).items()
+                if key in {"description", "attachment_origin", "malware_scan"}
+            }
+            copied["attributes"]["copied_from"] = source_metadata["document_id"]
+            self._write_xattrs(destination, copied["document_id"], copied.get("sha256", ""), copied["tags"])
+            self._save_document(copied)
+            self._refresh_search_index(copied)
+            details = {"document_id": copied["document_id"], "copied_from": source_metadata["document_id"], "path": self.relative(destination), "actor": actor}
+            self._event("document_copied", details)
+            self._record_revision("document_copied", actor, "documents", copied["document_id"], copied)
+            return copied
+
+    def collection_manifest(
+        self,
+        relative_path: str,
+        actor: str,
+        *,
+        depth: str = "infinity",
+        max_members: int = MAX_WEBDAV_COLLECTION_MEMBERS,
+        max_depth: int = MAX_WEBDAV_COLLECTION_DEPTH,
+    ) -> dict[str, Any]:
+        """Preflight a bounded collection tree without following unsafe nodes."""
+        self._require_actor(actor)
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        source = self.root / relative
+        if not source.is_dir() or source.is_symlink():
+            raise ValueError("source collection does not exist")
+        if depth == "0":
+            return {
+                "source": source, "source_relative": str(relative), "directories": [Path(".")],
+                "files": [], "member_count": 0, "total_bytes": 0,
+            }
+        if depth != "infinity":
+            raise ValueError("collection operation requires Depth: 0 or infinity")
+        directories: list[Path] = [Path(".")]
+        files: list[dict[str, Any]] = []
+        total_bytes = 0
+        member_count = 0
+        for current, names, filenames in os.walk(source, topdown=True, followlinks=False):
+            parent = Path(current)
+            nested_parent = parent.relative_to(source)
+            if len(nested_parent.parts) > max_depth:
+                raise ValueError("collection exceeds the supported nesting depth")
+            safe_names: list[str] = []
+            for name in sorted(names, key=str.casefold):
+                child = parent / name
+                if name == CONTROL_DIR:
+                    if child.is_symlink() or not child.is_dir():
+                        raise ValueError("collection contains unsafe internal metadata")
+                    for sidecar in child.iterdir():
+                        if sidecar.is_symlink() or not sidecar.is_file():
+                            raise ValueError("collection contains unknown internal metadata")
+                        try:
+                            document_id = str(uuid.UUID(sidecar.stem))
+                        except (ValueError, AttributeError):
+                            raise ValueError("collection contains unknown internal metadata") from None
+                        portable = self._read_json(sidecar, {})
+                        if portable.get("document_id") != document_id:
+                            raise ValueError("collection contains unknown internal metadata")
+                        portable_path = self.root / str(portable.get("last_path", ""))
+                        try:
+                            portable_path.resolve().relative_to(source.resolve())
+                        except (OSError, ValueError):
+                            raise ValueError("collection contains out-of-scope internal metadata") from None
+                        registered = self.get_document(document_id)
+                        active_match = (
+                            registered.get("last_path") == portable.get("last_path")
+                            and portable_path.is_file() and not portable_path.is_symlink()
+                        )
+                        deleted_match = (
+                            registered.get("system_state") == "webdav_deleted"
+                            and registered.get("deleted_from") == portable.get("last_path")
+                            and not portable_path.exists()
+                        )
+                        if not active_match and not deleted_match:
+                            raise ValueError("collection contains stale internal metadata")
+                    continue
+                if name == HISTORY_DIR:
+                    raise ValueError("collection contains a reserved history directory")
+                if child.is_symlink() or not child.is_dir():
+                    raise ValueError("collection contains a symbolic link or special directory")
+                nested = child.relative_to(source)
+                if len(nested.parts) > max_depth:
+                    raise ValueError("collection exceeds the supported nesting depth")
+                directories.append(nested)
+                safe_names.append(name)
+                member_count += 1
+            names[:] = safe_names
+            for name in sorted(filenames, key=str.casefold):
+                if name == POLICY_FILE:
+                    policy = parent / name
+                    if policy.is_symlink() or not policy.is_file():
+                        raise ValueError("collection contains an unsafe folder policy")
+                    loaded_policy = self._read_json(policy, {})
+                    if not isinstance(loaded_policy, dict) or not loaded_policy.get("folder_id"):
+                        raise ValueError("collection contains an invalid folder policy")
+                    continue
+                child = parent / name
+                if child.is_symlink() or not child.is_file():
+                    raise ValueError("collection contains a symbolic link or special file")
+                nested = child.relative_to(source)
+                if len(nested.parts) > max_depth:
+                    raise ValueError("collection exceeds the supported nesting depth")
+                document = self.get_document(child)
+                self._require_document_editable(document)
+                size = child.stat().st_size
+                files.append({"nested": nested, "document": document, "size": size})
+                total_bytes += size
+                member_count += 1
+            if member_count > max_members:
+                raise ValueError("collection contains too many resources for one operation")
+        return {
+            "source": source,
+            "source_relative": str(relative),
+            "directories": directories,
+            "files": files,
+            "member_count": member_count,
+            "total_bytes": total_bytes,
+        }
+
+    def copy_collection(
+        self,
+        source_path: str,
+        destination_path: str,
+        actor: str,
+        *,
+        depth: str = "infinity",
+    ) -> dict[str, Any]:
+        """Copy a collection with new IDs/grants and recoverable rollback."""
+        if depth not in {"0", "infinity"}:
+            raise ValueError("collection COPY requires Depth: 0 or infinity")
+        manifest = self.collection_manifest(source_path, actor, depth=depth)
+        destination_relative = self._safe_managed_relative_path(destination_path, require_name=True)
+        destination = self.root / destination_relative
+        source = manifest["source"]
+        if source == destination or source in destination.parents:
+            raise ValueError("a collection cannot be copied into itself")
+        if destination.exists():
+            raise FileExistsError("destination resource already exists")
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination parent collection does not exist")
+        directories = manifest["directories"] if depth == "infinity" else [Path(".")]
+        file_entries = manifest["files"] if depth == "infinity" else []
+        created_documents: list[dict[str, Any]] = []
+        created_directories: list[Path] = []
+        try:
+            for nested in sorted(directories, key=lambda item: (len(item.parts), str(item).casefold())):
+                target = destination if nested == Path(".") else destination / nested
+                self.create_collection(self.relative(target), actor)
+                created_directories.append(target)
+            for entry in file_entries:
+                target = destination / entry["nested"]
+                copied = self.copy_document(entry["document"]["document_id"], self.relative(target), actor)
+                created_documents.append({
+                    "source": manifest["source"] / entry["nested"],
+                    "source_document": entry["document"],
+                    "destination": target,
+                    "destination_document": copied,
+                })
+        except Exception:
+            for item in reversed(created_documents):
+                try:
+                    self.soft_delete_document(item["destination_document"]["document_id"], actor)
+                except (OSError, ValueError):
+                    pass
+            for directory in sorted(created_directories, key=lambda item: len(item.parts), reverse=True):
+                try:
+                    self.delete_empty_collection(self.relative(directory), actor)
+                except (OSError, ValueError):
+                    pass
+            self._record_revision(
+                "webdav_collection_copy_rolled_back", actor, "collections",
+                hashlib.sha256(f"{source_path}:{destination_path}".encode()).hexdigest(),
+                {"source": source_path, "destination": destination_path, "at": utc_now(), "actor": actor},
+            )
+            raise
+        details = {
+            "source": manifest["source_relative"],
+            "destination": str(destination_relative),
+            "depth": depth,
+            "collections": len(created_directories),
+            "documents": len(created_documents),
+            "bytes": sum(int(item["destination"].stat().st_size) for item in created_documents),
+            "actor": actor,
+            "at": utc_now(),
+        }
+        self._event("webdav_collection_copied", details)
+        self._record_revision(
+            "webdav_collection_copied", actor, "collections",
+            hashlib.sha256(str(destination_relative).encode()).hexdigest(), details,
+        )
+        return {**details, "resources": created_documents, "directories_relative": directories}
+
+    def move_collection(self, source_path: str, destination_path: str, actor: str) -> dict[str, Any]:
+        """Atomically remap a collection and retain every document's stable ID."""
+        manifest = self.collection_manifest(source_path, actor)
+        destination_relative = self._safe_managed_relative_path(destination_path, require_name=True)
+        destination = self.root / destination_relative
+        source = manifest["source"]
+        if source == self.root:
+            raise ValueError("the document root cannot be moved")
+        if source == destination or source in destination.parents:
+            raise ValueError("a collection cannot be moved into itself")
+        if destination.exists():
+            raise FileExistsError("destination resource already exists")
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination parent collection does not exist")
+        snapshots = {
+            entry["document"]["document_id"]: json.loads(json.dumps(entry["document"]))
+            for entry in manifest["files"]
+        }
+        moved_documents: list[dict[str, Any]] = []
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            source.replace(destination)
+            try:
+                changed_at = utc_now()
+                for entry in manifest["files"]:
+                    document = json.loads(json.dumps(entry["document"]))
+                    previous_path = str(document.get("last_path", ""))
+                    target = destination / entry["nested"]
+                    relative = self.relative(target)
+                    document["last_path"] = relative
+                    document["last_seen_at"] = changed_at
+                    document.setdefault("location_history", []).append({
+                        "from": previous_path, "to": relative, "at": changed_at, "actor": actor,
+                    })
+                    document["location_history"] = document["location_history"][-200:]
+                    self._write_xattrs(target, document["document_id"], document.get("sha256", ""), document.get("tags", []))
+                    self._save_document(document)
+                    self._refresh_search_index(document)
+                    with self._db() as db:
+                        db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+                    self._scan_file(target)
+                    moved_documents.append({"before": previous_path, "after": relative, "document": document})
+                for item in moved_documents:
+                    fingerprint_path = self.fingerprints / f"{item['document'].get('sha256', '')}.json"
+                    fingerprint = self._read_json(fingerprint_path, {})
+                    if fingerprint:
+                        paths = set(fingerprint.get("paths", []))
+                        paths.discard(item["before"])
+                        paths.add(item["after"])
+                        fingerprint["paths"] = sorted(paths)
+                        fingerprint["last_seen_at"] = changed_at
+                        atomic_json_write(fingerprint_path, fingerprint)
+            except Exception:
+                if destination.exists() and not source.exists():
+                    destination.replace(source)
+                for document_id, snapshot in snapshots.items():
+                    self._save_document(snapshot)
+                    self._refresh_search_index(snapshot)
+                    old_path = self.root / str(snapshot.get("last_path", ""))
+                    if old_path.is_file() and not old_path.is_symlink():
+                        self._scan_file(old_path)
+                self._record_revision(
+                    "webdav_collection_move_rolled_back", actor, "collections",
+                    hashlib.sha256(f"{source_path}:{destination_path}".encode()).hexdigest(),
+                    {"source": source_path, "destination": destination_path, "at": utc_now(), "actor": actor},
+                )
+                raise
+        for item in moved_documents:
+            details = {
+                "document_id": item["document"]["document_id"], "from": item["before"],
+                "to": item["after"], "actor": actor,
+            }
+            self._event("document_moved", details)
+            self._record_revision("document_moved", actor, "documents", item["document"]["document_id"], item["document"])
+        details = {
+            "source": manifest["source_relative"], "destination": str(destination_relative),
+            "collections": len(manifest["directories"]), "documents": len(moved_documents),
+            "bytes": manifest["total_bytes"], "actor": actor, "at": utc_now(),
+        }
+        self._event("webdav_collection_moved", details)
+        self._record_revision(
+            "webdav_collection_moved", actor, "collections",
+            hashlib.sha256(str(destination_relative).encode()).hexdigest(), details,
+        )
+        return {**details, "resources": moved_documents, "directories_relative": manifest["directories"]}
+
+    def soft_delete_collection(self, source_path: str, actor: str) -> dict[str, Any]:
+        """Atomically unmap a collection and retain every document for recovery."""
+        self._require_actor(actor)
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            manifest = self.collection_manifest(source_path, actor)
+            source = manifest["source"]
+            if source == self.root:
+                raise ValueError("the document root cannot be deleted")
+            deletion_id = str(uuid.uuid4())
+            operation = self.control / COLLECTION_TRASH_DIR / deletion_id
+            staged = operation / "tree"
+            snapshots = {
+                entry["document"]["document_id"]: json.loads(json.dumps(entry["document"]))
+                for entry in manifest["files"]
+            }
+            entries = {
+                entry["document"]["document_id"]: {
+                    "nested": str(entry["nested"]),
+                    "deleted_from": str(entry["document"].get("last_path", "")),
+                    "sha256": str(entry["document"].get("sha256", "")),
+                    "size": int(entry["size"]),
+                }
+                for entry in manifest["files"]
+            }
+            operation.mkdir(parents=True)
+            operation_manifest = {
+                "version": 1,
+                "deletion_id": deletion_id,
+                "state": "prepared",
+                "source": manifest["source_relative"],
+                "actor": actor,
+                "prepared_at": utc_now(),
+                "directories": [str(item) for item in manifest["directories"]],
+                "entries": entries,
+                "document_snapshots": snapshots,
+            }
+            manifest_path = operation / "manifest.json"
+            deleted_documents: list[dict[str, Any]] = []
+            try:
+                atomic_json_write(manifest_path, operation_manifest)
+                source.replace(staged)
+                operation_manifest["state"] = "staged"
+                operation_manifest["staged_at"] = utc_now()
+                atomic_json_write(manifest_path, operation_manifest)
+                deleted_at = utc_now()
+                for entry in manifest["files"]:
+                    metadata = json.loads(json.dumps(entry["document"]))
+                    previous_path = str(metadata.get("last_path", ""))
+                    recovery = staged / entry["nested"]
+                    if recovery.is_symlink() or not recovery.is_file():
+                        raise RuntimeError("collection recovery payload became unavailable")
+                    if sha256_file(recovery) != str(metadata.get("sha256", "")):
+                        raise RuntimeError("collection recovery payload failed integrity verification")
+                    metadata["deleted_at"] = deleted_at
+                    metadata["deleted_by"] = actor
+                    metadata["deleted_from"] = previous_path
+                    metadata["deleted_collection_root"] = manifest["source_relative"]
+                    metadata["collection_recovery_id"] = deletion_id
+                    metadata["recovery_path"] = str(recovery.relative_to(self.control))
+                    metadata["last_path"] = ""
+                    metadata["system_state"] = "webdav_deleted"
+                    metadata.setdefault("location_history", []).append({
+                        "from": previous_path, "to": "[webdav-collection-trash]",
+                        "at": deleted_at, "actor": actor,
+                    })
+                    metadata["location_history"] = metadata["location_history"][-200:]
+                    self._save_document(metadata)
+                    self._refresh_search_index(metadata)
+                    with self._db() as db:
+                        db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+                    fingerprint_path = self.fingerprints / f"{metadata.get('sha256', '')}.json"
+                    fingerprint = self._read_json(fingerprint_path, {})
+                    if fingerprint:
+                        fingerprint["paths"] = sorted(set(fingerprint.get("paths", [])) - {previous_path})
+                        fingerprint["last_seen_at"] = deleted_at
+                        atomic_json_write(fingerprint_path, fingerprint)
+                    deleted_documents.append(metadata)
+                operation_manifest["state"] = "committed"
+                operation_manifest["committed_at"] = utc_now()
+                operation_manifest.pop("document_snapshots", None)
+                atomic_json_write(manifest_path, operation_manifest)
+            except Exception:
+                if staged.exists() and not source.exists():
+                    staged.replace(source)
+                for snapshot in snapshots.values():
+                    self._save_document(snapshot)
+                    self._refresh_search_index(snapshot)
+                    original = self.root / str(snapshot.get("last_path", ""))
+                    if original.is_file() and not original.is_symlink():
+                        self._scan_file(original, force_hash=True)
+                manifest_path.unlink(missing_ok=True)
+                if operation.exists() and not any(operation.iterdir()):
+                    operation.rmdir()
+                self._record_revision(
+                    "webdav_collection_delete_rolled_back", actor, "collections",
+                    hashlib.sha256(source_path.encode()).hexdigest(),
+                    {"source": source_path, "at": utc_now(), "actor": actor},
+                )
+                raise
+            for metadata in deleted_documents:
+                details = {
+                    "document_id": metadata["document_id"],
+                    "from": metadata["deleted_from"],
+                    "deleted_at": metadata["deleted_at"],
+                    "actor": actor,
+                    "recovery": metadata["recovery_path"],
+                    "collection_recovery_id": deletion_id,
+                }
+                self._event("document_soft_deleted", details)
+                self._record_revision(
+                    "document_soft_deleted", actor, "documents", metadata["document_id"], metadata,
+                )
+            details = {
+                "deletion_id": deletion_id,
+                "path": manifest["source_relative"],
+                "collections": len(manifest["directories"]),
+                "documents": len(deleted_documents),
+                "bytes": manifest["total_bytes"],
+                "actor": actor,
+                "at": utc_now(),
+            }
+            self._event("webdav_collection_soft_deleted", details)
+            self._record_revision(
+                "webdav_collection_soft_deleted", actor, "collections",
+                hashlib.sha256(manifest["source_relative"].encode()).hexdigest(), details,
+            )
+            return {
+                **details,
+                "resources": deleted_documents,
+                "directories_relative": manifest["directories"],
+            }
+
+    def soft_delete_document(self, reference: str, actor: str, *, expected_sha256: str = "") -> dict[str, Any]:
+        """Move a document into a private recovery area and retain its metadata."""
+        self._require_actor(actor)
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            self._require_document_editable(metadata)
+            source = self.root / str(metadata.get("last_path", ""))
+            if not source.is_file() or source.is_symlink():
+                raise ValueError("only an available regular document file can be deleted")
+            if expected_sha256 and not hmac.compare_digest(expected_sha256, sha256_file(source)):
+                raise ValueError("document content changed since it was opened")
+            previous_path = self.relative(source)
+            deleted_at = utc_now()
+            trash = self.control / "webdav-trash" / metadata["document_id"]
+            trash.mkdir(parents=True, exist_ok=True)
+            destination = trash / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}--{source.name}"
+            source.replace(destination)
+            metadata["deleted_at"] = deleted_at
+            metadata["deleted_by"] = actor
+            metadata["deleted_from"] = previous_path
+            metadata["recovery_path"] = str(destination.relative_to(self.control))
+            metadata["last_path"] = ""
+            metadata["system_state"] = "webdav_deleted"
+            metadata.setdefault("location_history", []).append({"from": previous_path, "to": "[webdav-trash]", "at": deleted_at, "actor": actor})
+            metadata["location_history"] = metadata["location_history"][-200:]
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            with self._db() as db:
+                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+            fingerprint_path = self.fingerprints / f"{metadata.get('sha256', '')}.json"
+            fingerprint = self._read_json(fingerprint_path, {})
+            if fingerprint:
+                fingerprint["paths"] = sorted(set(fingerprint.get("paths", [])) - {previous_path})
+                fingerprint["last_seen_at"] = deleted_at
+                atomic_json_write(fingerprint_path, fingerprint)
+            details = {"document_id": metadata["document_id"], "from": previous_path, "deleted_at": deleted_at, "actor": actor, "recovery": str(destination.relative_to(self.control))}
+            self._event("document_soft_deleted", details)
+            self._record_revision("document_soft_deleted", actor, "documents", metadata["document_id"], metadata)
+            return details
+
+    @staticmethod
+    def _recovery_owner(metadata: dict[str, Any]) -> str:
+        actor = str(metadata.get("deleted_by", ""))
+        if not actor:
+            actor = next((str(item.get("actor", "")) for item in reversed(metadata.get("location_history", [])) if item.get("to") == "[webdav-trash]"), "")
+        return actor.removeprefix("webdav:")
+
+    def _recovery_file(self, metadata: dict[str, Any]) -> Path:
+        collection_recovery_id = str(metadata.get("collection_recovery_id", ""))
+        if collection_recovery_id:
+            try:
+                collection_recovery_id = str(uuid.UUID(collection_recovery_id))
+            except ValueError:
+                raise ValueError("collection recovery identity is invalid") from None
+            operation = self.control / COLLECTION_TRASH_DIR / collection_recovery_id
+            manifest = self._read_json(operation / "manifest.json", {})
+            entry = manifest.get("entries", {}).get(metadata.get("document_id", ""))
+            if (
+                manifest.get("deletion_id") != collection_recovery_id
+                or manifest.get("state") != "committed"
+                or not isinstance(entry, dict)
+                or entry.get("sha256") != metadata.get("sha256")
+            ):
+                raise ValueError("collection recovery manifest is unavailable")
+            tree = operation / "tree"
+            candidate = tree / str(entry.get("nested", ""))
+            try:
+                candidate.resolve().relative_to(tree.resolve())
+            except (OSError, ValueError):
+                raise ValueError("collection recovery path is invalid") from None
+            expected_path = str(candidate.relative_to(self.control))
+            if metadata.get("recovery_path") != expected_path:
+                raise ValueError("collection recovery path does not match its manifest")
+            if candidate.is_file() and not candidate.is_symlink():
+                return candidate
+            raise ValueError("collection recovery payload is unavailable")
+        trash_root = self.control / "webdav-trash" / metadata["document_id"]
+        recovery_path = str(metadata.get("recovery_path", ""))
+        candidates = [self.control / recovery_path] if recovery_path else sorted(trash_root.glob("*"), reverse=True)
+        for candidate in candidates:
+            try:
+                candidate.resolve().relative_to(trash_root.resolve())
+            except (OSError, ValueError):
+                continue
+            if candidate.is_file() and not candidate.is_symlink():
+                return candidate
+        raise ValueError("recovery payload is unavailable")
+
+    def recovery_items(self, actor: str) -> list[dict[str, Any]]:
+        """List only soft-deleted documents owned by the authenticated user."""
+        self._require_actor(actor)
+        items = []
+        for metadata in self._all_documents():
+            if metadata.get("system_state") != "webdav_deleted" or self._recovery_owner(metadata) != actor:
+                continue
+            try:
+                recovery = self._recovery_file(metadata)
+                size = recovery.stat().st_size
+                available = True
+            except (OSError, ValueError):
+                size = 0
+                available = False
+            items.append({
+                "document_id": metadata["document_id"],
+                "deleted_from": str(metadata.get("deleted_from", "")),
+                "deleted_at": str(metadata.get("deleted_at", "")),
+                "sha256": str(metadata.get("sha256", "")),
+                "size": size,
+                "available": available,
+            })
+        return sorted(items, key=lambda item: item["deleted_at"], reverse=True)
+
+    def restore_soft_deleted(self, reference: str, destination_path: str, expected_sha256: str, actor: str) -> dict[str, Any]:
+        """Atomically restore a user's verified WebDAV deletion without overwriting."""
+        self._require_actor(actor)
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            if metadata.get("system_state") != "webdav_deleted":
+                raise ValueError("document is not in WebDAV recovery")
+            if self._recovery_owner(metadata) != actor:
+                raise PermissionError("document recovery belongs to another user")
+            source = self._recovery_file(metadata)
+            actual_sha256 = sha256_file(source)
+            if not expected_sha256 or not hmac.compare_digest(expected_sha256, str(metadata.get("sha256", ""))):
+                raise ValueError("recovery entry changed since the page was opened")
+            if not hmac.compare_digest(actual_sha256, expected_sha256):
+                raise ValueError("recovery payload failed integrity verification")
+            relative = self._safe_managed_relative_path(destination_path or str(metadata.get("deleted_from", "")), require_name=True)
+            destination = self.root / relative
+            if not destination.parent.is_dir() or destination.parent.is_symlink():
+                raise ValueError("destination collection does not exist")
+            if destination.exists():
+                raise FileExistsError("destination already exists; recovery never overwrites a file")
+            self.ensure_folder_policy(destination.parent)
+            source.replace(destination)
+            restored_at = utc_now()
+            previous_recovery = str(metadata.get("recovery_path", source.relative_to(self.control)))
+            metadata["last_path"] = self.relative(destination)
+            metadata["last_seen_at"] = restored_at
+            metadata["system_state"] = "indexed"
+            metadata["restored_at"] = restored_at
+            metadata["restored_by"] = actor
+            metadata.setdefault("location_history", []).append({"from": "[webdav-trash]", "to": metadata["last_path"], "at": restored_at, "actor": actor})
+            metadata["location_history"] = metadata["location_history"][-200:]
+            metadata.setdefault("recovery_history", []).append({
+                "deleted_at": metadata.get("deleted_at", ""), "deleted_by": metadata.get("deleted_by", ""),
+                "recovery": previous_recovery, "restored_at": restored_at, "restored_by": actor,
+                "destination": metadata["last_path"], "sha256": actual_sha256,
+                "collection_recovery_id": metadata.get("collection_recovery_id", ""),
+                "deleted_collection_root": metadata.get("deleted_collection_root", ""),
+            })
+            metadata["recovery_history"] = metadata["recovery_history"][-200:]
+            metadata.pop("recovery_path", None)
+            metadata.pop("collection_recovery_id", None)
+            metadata.pop("deleted_collection_root", None)
+            self._write_xattrs(destination, metadata["document_id"], actual_sha256, metadata.get("tags", []))
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            stat = destination.stat()
+            with self._db() as db:
+                db.execute(
+                    """INSERT INTO scan_file(relative_path, document_id, sha256, size, modified_ns, device, inode, last_seen_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(relative_path) DO UPDATE SET document_id=excluded.document_id, sha256=excluded.sha256,
+                         size=excluded.size, modified_ns=excluded.modified_ns, device=excluded.device, inode=excluded.inode,
+                         last_seen_at=excluded.last_seen_at""",
+                    (metadata["last_path"], metadata["document_id"], actual_sha256, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, restored_at),
+                )
+            fingerprint_path = self.fingerprints / f"{actual_sha256}.json"
+            fingerprint = self._read_json(fingerprint_path, {})
+            fingerprint.update({
+                "sha256": actual_sha256, "first_seen_at": fingerprint.get("first_seen_at", metadata.get("first_seen_at", restored_at)),
+                "last_seen_at": restored_at, "paths": sorted({*fingerprint.get("paths", []), metadata["last_path"]}),
+                "seen_count": int(fingerprint.get("seen_count", 0)) + 1,
+            })
+            atomic_json_write(fingerprint_path, fingerprint)
+            details = {"document_id": metadata["document_id"], "to": metadata["last_path"], "restored_at": restored_at, "actor": actor, "sha256": actual_sha256}
+            self._event("document_restored", details)
+            self._record_revision("document_restored", actor, "documents", metadata["document_id"], metadata)
+            return metadata
+
+    def create_collection(self, relative_path: str, actor: str) -> Path:
+        """Create exactly one collection; RFC 4918 requires its parent to exist."""
+        self._require_actor(actor)
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        destination = self.root / relative
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("parent collection does not exist")
+        if destination.exists():
+            raise FileExistsError("destination collection already exists")
+        destination.mkdir()
+        self.ensure_folder_policy(destination, actor)
+        details = {"path": self.relative(destination), "actor": actor, "at": utc_now()}
+        self._event("webdav_collection_created", details)
+        self._record_revision("webdav_collection_created", actor, "collections", hashlib.sha256(details["path"].encode()).hexdigest(), details)
+        return destination
+
+    def delete_empty_collection(self, relative_path: str, actor: str) -> None:
+        """Delete an empty collection while leaving retention-managed contents alone."""
+        self._require_actor(actor)
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        collection = self.root / relative
+        if not collection.is_dir() or collection.is_symlink():
+            raise ValueError("collection does not exist")
+        visible = [item for item in collection.iterdir() if item.name not in {POLICY_FILE, CONTROL_DIR}]
+        if visible:
+            raise ValueError("collection is not empty")
+        sidecars = collection / CONTROL_DIR
+        if sidecars.exists():
+            if not sidecars.is_dir() or sidecars.is_symlink():
+                raise ValueError("collection contains unknown internal metadata")
+            verified: list[Path] = []
+            for item in sidecars.iterdir():
+                try:
+                    document_id = str(uuid.UUID(item.stem))
+                except (ValueError, AttributeError):
+                    raise ValueError("collection contains retained portable metadata") from None
+                metadata = self._read_json(item, {}) if item.is_file() and not item.is_symlink() else {}
+                if metadata.get("document_id") != document_id:
+                    raise ValueError("collection contains unknown internal metadata")
+                verified.append(item)
+            for item in verified:
+                item.unlink()
+            sidecars.rmdir()
+        (collection / POLICY_FILE).unlink(missing_ok=True)
+        collection.rmdir()
+        details = {"path": str(relative), "actor": actor, "at": utc_now()}
+        self._event("webdav_collection_deleted", details)
+        self._record_revision("webdav_collection_deleted", actor, "collections", hashlib.sha256(str(relative).encode()).hexdigest(), details)
+
+    def _safe_managed_relative_path(self, value: str, *, require_name: bool = False) -> Path:
+        requested = Path(value)
+        if (require_name and value in {"", "."}) or requested.is_absolute() or ".." in requested.parts:
+            raise ValueError("path must remain inside the document store")
+        if any(part in {"", CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or "\x00" in part for part in requested.parts):
+            raise ValueError("path contains a reserved segment")
+        candidate = self.root / requested
+        if candidate.is_symlink():
+            raise ValueError("symbolic links are not available over WebDAV")
+        resolved_parent = candidate.parent.resolve()
+        try:
+            resolved_parent.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError("path must remain inside the document store") from exc
+        current = self.root
+        for part in requested.parts[:-1]:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("symbolic links are not available over WebDAV")
+        return requested
+
+    def versions(self, reference: str | Path) -> list[dict[str, Any]]:
+        """Return an indexed version series without loading every sidecar."""
+        document = self.get_document(reference)
+        series_id = document.get("version_series_id", document["document_id"])
+        self._refresh_listing_index(document)
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT document_id FROM document_listing
+                    WHERE version_series_id = ?
+                    ORDER BY version_number, last_seen_at, document_id""",
+                (series_id,),
+            ).fetchall()
+        versions = []
+        for (document_id,) in rows:
+            metadata = document if document_id == document["document_id"] else self._read_json(
+                self.documents / f"{document_id}.json", {}
+            )
+            if metadata.get("document_id"):
+                versions.append(metadata)
+        return versions or [document]
+
+    def relationship_targets(self, document: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Load only sidecars explicitly referenced by one document."""
+        targets: dict[str, dict[str, Any]] = {}
+        for relationship in document.get("relationships", []):
+            document_id = str(relationship.get("target_document_id", ""))
+            if not document_id or document_id in targets:
+                continue
+            metadata = self._read_json(self.documents / f"{document_id}.json", {})
+            if metadata.get("document_id"):
+                targets[document_id] = metadata
+        return targets
+
+    def offload_old_versions(self, reference: str | Path, archive_root: str | Path, actor: str) -> dict[str, Any]:
+        """Move every non-current version to an external archive after hash verification."""
+        self._require_actor(actor)
+        versions = self.versions(reference)
+        if len(versions) < 2:
+            raise ValueError("the document has no older versions to offload")
+        target_root = Path(archive_root).expanduser().resolve()
+        if not target_root.is_dir() or target_root == self.root or self.root in target_root.parents:
+            raise ValueError("choose a mounted archive directory outside the document store")
+        archive = self.register_external_archive(target_root, target_root.name, ["version-archive"], actor)
+        current = max(versions, key=lambda item: int(item.get("version_number", 1)))
+        moved: list[str] = []
+        for version in versions:
+            if version["document_id"] == current["document_id"] or version.get("storage_state") == "external_archive":
+                continue
+            source = self.root / version.get("last_path", "")
+            if not source.is_file() or source.is_symlink():
+                continue
+            directory = target_root / ".simpleoffice-documents" / version["version_series_id"] / f"v{version.get('version_number', 1)}"
+            directory.mkdir(parents=True, exist_ok=True)
+            destination = directory / source.name
+            if destination.exists():
+                destination = directory / f"{destination.stem}-{version['document_id'][:8]}{destination.suffix}"
+            temporary = destination.with_suffix(destination.suffix + ".part")
+            shutil.copy2(source, temporary)
+            if sha256_file(temporary) != version.get("sha256"):
+                temporary.unlink(missing_ok=True)
+                raise RuntimeError(f"hash verification failed for {source.name}; local file was retained")
+            temporary.replace(destination)
+            version.setdefault("archive_locations", []).append({
+                "archive_id": archive["archive_id"], "path": str(destination.relative_to(target_root)), "moved_at": utc_now(), "moved_by": actor,
+            })
+            version["storage_state"] = "external_archive"
+            version["local_deleted_at"] = utc_now()
+            self._save_document(version)
+            self._refresh_search_index(version)
+            with self._db() as db:
+                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (version.get("last_path", ""),))
+            source.unlink()
+            self._event("document_version_offloaded", {"document_id": version["document_id"], "archive_id": archive["archive_id"], "actor": actor})
+            self._record_revision("document_version_offloaded", actor, "documents", version["document_id"], version)
+            moved.append(version["document_id"])
+        return {"archive": archive, "current_document_id": current["document_id"], "moved_document_ids": moved}
+
+    def note_wiki(self) -> list[dict[str, Any]]:
+        """Return all document notes as a single, newest-first wiki feed."""
+        entries: list[dict[str, Any]] = []
+        for document in self._all_documents():
+            for note in document.get("notes", []):
+                entries.append({
+                    **note,
+                    "document_id": document["document_id"],
+                    "path": document.get("last_path", ""),
+                    "version_number": document.get("version_number", 1),
+                })
+        return sorted(entries, key=lambda item: item.get("created_at", ""), reverse=True)
+
+    def logbook(self, reference: str | Path | None = None) -> list[dict[str, Any]]:
+        """Read the append-only activity trail, optionally for one document."""
+        document_id = self.get_document(reference)["document_id"] if reference is not None else None
+        entries: list[dict[str, Any]] = []
+        events_dir = self.history.root / "events"
+        if events_dir.exists():
+            for path in events_dir.glob("*.json"):
+                event = self._read_json(path, {})
+                if event and (document_id is None or event.get("key") == document_id):
+                    entries.append({**event, "source": "revision"})
+        if self.events.exists():
+            try:
+                for line in self.events.read_text(encoding="utf-8").splitlines():
+                    event = json.loads(line)
+                    if not isinstance(event, dict):
+                        continue
+                    related = event.get("document_id") or event.get("source_document_id")
+                    if document_id is None or related == document_id:
+                        entries.append({**event, "source": "scanner"})
+            except (OSError, json.JSONDecodeError):
+                pass
+        return sorted(entries, key=lambda item: item.get("at", ""), reverse=True)
+
+    def logbook_page(self, *, page: int = 1, page_size: int = 50, query: str = "", actor: str = "", action: str = "", from_at: str = "", to_at: str = "") -> dict[str, Any]:
+        """Return a bounded, filtered audit-log page instead of loading all events."""
+        page = max(1, int(page))
+        page_size = min(100, max(10, int(page_size)))
+        needed = page * page_size + 1
+        query, actor, action = query.casefold().strip(), actor.casefold().strip(), action.casefold().strip()
+
+        def matches(event: dict[str, Any]) -> bool:
+            timestamp = str(event.get("at", ""))
+            if from_at and timestamp < from_at:
+                return False
+            if to_at and timestamp > f"{to_at}T23:59:59.999999+00:00":
+                return False
+            if actor and actor not in str(event.get("actor", "")).casefold():
+                return False
+            if action and action not in str(event.get("action", event.get("type", ""))).casefold():
+                return False
+            return not query or query in json.dumps(event, ensure_ascii=False).casefold()
+
+        def take(items):
+            found = []
+            for item in items:
+                if matches(item):
+                    found.append(item)
+                    if len(found) >= needed:
+                        break
+            return found
+
+        history_dir = self.history.root / "events"
+        history_events = take(
+            {**self._read_json(path, {}), "source": "revision"}
+            for path in sorted(history_dir.glob("*.json"), reverse=True)
+        ) if history_dir.exists() else []
+        if self.events.exists() and not any((query, actor, action, from_at, to_at)):
+            with self.events.open(encoding="utf-8") as source:
+                scanner_lines = list(deque(source, maxlen=needed))
+        elif self.events.exists():
+            with self.events.open(encoding="utf-8") as source:
+                scanner_lines = list(source)
+        else:
+            scanner_lines = []
+        scanner_events = take(
+            {**event, "source": "scanner"}
+            for line in reversed(scanner_lines)
+            for event in [json.loads(line)]
+            if isinstance(event, dict)
+        )
+        merged = sorted([*history_events, *scanner_events], key=lambda item: item.get("at", ""), reverse=True)
+        start = (page - 1) * page_size
+        return {"events": merged[start:start + page_size], "page": page, "has_next": len(merged) > start + page_size}
+
+    def scan(
+        self,
+        progress: Callable[[ScanReport], None] | None = None,
+        file_progress: Callable[[Path], None] | None = None,
+        verify_hashes: bool = False,
+    ) -> ScanReport:
+        self.initialize()
+        files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
+        # Device/inode tracking prevents a deliberately allowed symlink from
+        # walking back into an already visited directory tree.
+        pending = [self.root]
+        visited_directories: set[tuple[int, int]] = set()
+        while pending:
+            current_path = pending.pop()
+            try:
+                current_stat = current_path.stat()
+                key = (current_stat.st_dev, current_stat.st_ino)
+                if key in visited_directories:
+                    self._event("directory_cycle_skipped", {"path": self.relative(current_path)})
+                    continue
+                visited_directories.add(key)
+                options = self._scan_options(current_path)
+                entries = sorted(current_path.iterdir(), key=lambda entry: entry.name.lower())
+            except (OSError, ValueError) as exc:
+                errors += 1
+                self._event("folder_policy_invalid", {"path": self.relative(current_path), "error": str(exc)})
+                continue
+            for path in entries:
+                if path.name in (POLICY_FILE, CONTROL_DIR, HISTORY_DIR):
+                    continue
+                try:
+                    if path.is_symlink():
+                        symlinks += 1
+                        target = path.resolve(strict=True)
+                        self._event("symlink_seen", {"path": self.relative(path), "target": str(target)})
+                        if not options["follow_symlinks"]:
+                            continue
+                        if target.is_dir():
+                            pending.append(target)
+                        elif target.is_file():
+                            if file_progress: file_progress(target)
+                            created, duplicate = self._scan_file(target, force_hash=verify_hashes)
+                            files += 1
+                            new_files += int(created)
+                            duplicates += int(duplicate)
+                        continue
+                    entry_stat = path.stat(follow_symlinks=False)
+                    if path.is_dir():
+                        if entry_stat.st_dev != current_stat.st_dev and not options["allow_other_filesystems"]:
+                            skipped_boundaries += 1
+                            self._event(
+                                "filesystem_boundary_skipped",
+                                {"path": self.relative(path), "device": entry_stat.st_dev},
+                            )
+                            continue
+                        pending.append(path)
+                        continue
+                    if not path.is_file():
+                        continue
+                    if file_progress: file_progress(path)
+                    created, duplicate = self._scan_file(path, force_hash=verify_hashes)
+                    files += 1
+                    new_files += int(created)
+                    duplicates += int(duplicate)
+                except (OSError, ValueError) as exc:
+                    errors += 1
+                    self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
+                if progress:
+                    progress(ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors))
+        report = ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors)
+        if progress: progress(report)
+        return report
+
+    def scan_status(self) -> dict[str, Any]:
+        self.initialize()
+        return self._read_json(self.scan_status_path, {"state": "idle", "updated_at": None})
+
+    def set_scan_status(self, status: dict[str, Any]) -> None:
+        self.initialize()
+        atomic_json_write(self.scan_status_path, {**status, "updated_at": utc_now()})
+
+    def relative(self, path: Path) -> str:
+        resolved = path.resolve()
+        if resolved == self.root:
+            return "."
+        try:
+            return str(resolved.relative_to(self.root))
+        except ValueError:
+            return f"[external] {resolved}"
+
+    def _scan_options(self, folder: Path) -> dict[str, bool]:
+        """Read the policy of a folder inside the managed tree.
+
+        A symlink target outside the tree has no implicit permission to escape
+        further boundaries. The link itself must have been explicitly allowed
+        by the policy of its parent directory.
+        """
+        try:
+            self.ensure_folder_policy(folder)
+            policy = self._read_json(folder / POLICY_FILE, {})
+        except ValueError:
+            policy = {}
+        configured = policy.get("scan", {}) if isinstance(policy.get("scan", {}), dict) else {}
+        return {
+            "follow_symlinks": configured.get("follow_symlinks") is True,
+            "allow_other_filesystems": configured.get("allow_other_filesystems") is True,
+        }
+
+    def _scan_file(self, path: Path, force_hash: bool = False) -> tuple[bool, bool]:
+        stat = path.stat()
+        relative_path = self.relative(path)
+        now = utc_now()
+        cached: tuple[str, str] | None = None
+        previous_path = ""
+        if not force_hash:
+            with self._db() as db:
+                row = db.execute(
+                    """SELECT document_id, sha256 FROM scan_file
+                       WHERE relative_path = ? AND size = ? AND modified_ns = ?""",
+                    (relative_path, stat.st_size, stat.st_mtime_ns),
+                ).fetchone()
+                if row:
+                    metadata = self._read_json(self.documents / f"{row[0]}.json", {})
+                    db.execute(
+                        """UPDATE scan_file SET last_seen_at = ?, device = ?, inode = ?
+                           WHERE relative_path = ?""",
+                        (now, stat.st_dev, stat.st_ino, relative_path),
+                    )
+                    if metadata.get("document_id"):
+                        # Additive projections are rebuilt during an ordinary
+                        # scan without rehashing or extracting the file.
+                        self._refresh_listing_index(metadata, db)
+                        return False, metadata.get("system_state") == "duplicate"
+                    # The SQLite index is disposable. Rebuild a missing sidecar
+                    # from its cached identity instead of hiding the damage.
+                    cached = (row[0], row[1])
+                else:
+                    moved = db.execute(
+                        """SELECT relative_path, document_id, sha256 FROM scan_file
+                           WHERE device = ? AND inode = ? AND size = ? AND modified_ns = ?
+                           ORDER BY last_seen_at DESC LIMIT 1""",
+                        (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns),
+                    ).fetchone()
+                    if moved:
+                        previous_path, document_id, digest = moved
+                        cached = (document_id, digest)
+
+        xattrs = self._read_xattrs(path)
+        if cached:
+            document_id, digest = cached
+        else:
+            digest = sha256_file(path)
+            document_id = xattrs.get("document_id") or str(uuid.uuid4())
+        metadata_path = self.documents / f"{document_id}.json"
+        created = not metadata_path.exists()
+        metadata = self._read_json(metadata_path, {})
+        original_sha256 = metadata.get("original_sha256", digest)
+        integrity_changed = original_sha256 != digest
+        existing_tags = metadata.get("tags", xattrs.get("tags", []))
+        detected_tags = self._filename_tags(path.name)
+        all_tags = sorted({*existing_tags, *detected_tags}, key=str.casefold)
+        tagged_at = metadata.get("tagged_at", {})
+        if not isinstance(tagged_at, dict):
+            tagged_at = {}
+        for tag in all_tags:
+            tagged_at.setdefault(tag, metadata.get("first_seen_at", now))
+        if previous_path and previous_path != relative_path:
+            metadata["location_history"] = [
+                *metadata.get("location_history", []),
+                {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"},
+            ]
+            with self._db() as db:
+                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+            self._event(
+                "file_move_detected",
+                {"document_id": document_id, "from": previous_path, "to": relative_path},
+            )
+        metadata.update(
+            {
+                "version": 1,
+                "document_id": document_id,
+                "sha256": digest,
+                "first_seen_at": metadata.get("first_seen_at", now),
+                "last_seen_at": now,
+                "last_path": relative_path,
+                "tags": all_tags,
+                "tagged_at": tagged_at,
+                "original_sha256": original_sha256,
+                "content_sha256": digest,
+                "notes": metadata.get("notes", []),
+                "relationships": metadata.get("relationships", []),
+                "state": metadata.get("state", "new"),
+                "state_history": metadata.get("state_history", []),
+                "version_series_id": metadata.get("version_series_id", document_id),
+                "version_number": metadata.get("version_number", 1),
+                "attributes": metadata.get("attributes", {}),
+                "deadlines": metadata.get("deadlines", []),
+            }
+        )
+        atomic_json_write(metadata_path, metadata)
+        self._write_xattrs(path, document_id, digest, metadata["tags"])
+
+        fingerprint_path = self.fingerprints / f"{digest}.json"
+        fingerprint = self._read_json(fingerprint_path, {})
+        known_paths = set(fingerprint.get("paths", []))
+        if previous_path:
+            known_paths.discard(previous_path)
+        duplicate = bool(known_paths and relative_path not in known_paths)
+        known_paths.add(relative_path)
+        fingerprint.update(
+            {
+                "sha256": digest,
+                "first_seen_at": fingerprint.get("first_seen_at", now),
+                "last_seen_at": now,
+                "paths": sorted(known_paths),
+                "seen_count": int(fingerprint.get("seen_count", 0)) + 1,
+            }
+        )
+        atomic_json_write(fingerprint_path, fingerprint)
+        metadata["system_state"] = "integrity_changed" if integrity_changed else ("duplicate" if duplicate else "indexed")
+        if self._is_image(path):
+            self._apply_image_analysis(path, metadata)
+        self._apply_document_text_extraction(path, metadata)
+        self._save_document(metadata)
+        if integrity_changed:
+            self._event(
+                "integrity_changed",
+                {"document_id": document_id, "expected_sha256": original_sha256, "observed_sha256": digest},
+            )
+        self._refresh_search_index(metadata)
+        with self._db() as db:
+            db.execute(
+                """INSERT INTO scan_file(
+                       relative_path, document_id, sha256, size, modified_ns, device, inode, last_seen_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(relative_path) DO UPDATE SET document_id=excluded.document_id,
+                     sha256=excluded.sha256, size=excluded.size, modified_ns=excluded.modified_ns,
+                     device=excluded.device, inode=excluded.inode, last_seen_at=excluded.last_seen_at""",
+                (
+                    relative_path, document_id, digest, stat.st_size, stat.st_mtime_ns,
+                    stat.st_dev, stat.st_ino, now,
+                ),
+            )
+        self._event(
+            "file_seen",
+            {"path": relative_path, "document_id": document_id, "sha256": digest, "first_seen": created, "duplicate": duplicate},
+        )
+        return created, duplicate
+
+    @staticmethod
+    def _filename_tags(filename: str) -> list[str]:
+        """Keep the complete filename stem and useful words as non-destructive tags."""
+        stem = Path(filename).stem.strip()
+        if not stem:
+            return []
+        words = [part.strip() for part in re.split(r"[\s_.-]+", stem) if len(part.strip()) > 1]
+        return [stem, *words]
+
+    @staticmethod
+    def _is_image(path: Path) -> bool:
+        return path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
+
+    def _apply_document_text_extraction(self, path: Path, metadata: dict[str, Any], force: bool = False) -> bool:
+        """Store extracted text beside a document and make it part of full-text search."""
+        current = metadata.get("text_extraction", {})
+        if not force and current.get("source_sha256") == metadata.get("sha256") and "extracted_text" in metadata:
+            return False
+        analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "extracted_at": utc_now(), "status": "completed"}
+        native_text = ""
+        image_text = ""
+        try:
+            if self._is_image(path):
+                native_text = metadata.get("ocr_text", "")
+                analysis["kind"] = "image"
+            elif path.suffix.lower() == ".pdf":
+                native_text = self._pdf_text(path)
+                image_text = self._pdf_image_ocr(path)
+                analysis["kind"] = "pdf"
+            else:
+                native_text, kind = self._file_text(path)
+                analysis["kind"] = kind
+        except RuntimeError as exc:
+            analysis["status"] = "partial"
+            analysis["error"] = str(exc)
+        combined = "\n".join(part for part in (native_text, image_text) if part).strip()
+        metadata["extracted_text"] = combined
+        metadata["text_extraction"] = {**analysis, "native_characters": len(native_text), "image_ocr_characters": len(image_text), "characters": len(combined)}
+        return True
+
+    @staticmethod
+    def _pdf_text(path: Path) -> str:
+        executable = shutil.which("pdftotext")
+        if executable:
+            try:
+                result = subprocess.run([executable, "-layout", str(path), "-"], capture_output=True, text=True, timeout=90, check=False)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError("PDF text extraction timed out after 90 seconds") from exc
+            if result.returncode == 0:
+                return "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
+
+        # GitHub Actions and portable installations do not necessarily provide
+        # Poppler's pdftotext binary. Keep a pure-Python fallback available.
+        try:
+            from pypdf import PdfReader
+
+            reader = PdfReader(str(path))
+            return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        except Exception as exc:
+            if executable:
+                raise RuntimeError(result.stderr.strip() or "PDF text extraction failed") from exc
+            raise RuntimeError("PDF text extraction requires pypdf when pdftotext is unavailable") from exc
+
+    def _pdf_image_ocr(self, path: Path) -> str:
+        executable = shutil.which("pdfimages")
+        if not executable:
+            return ""
+        with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-images-") as temp:
+            output_prefix = Path(temp) / "image"
+            try:
+                result = subprocess.run([executable, "-png", str(path), str(output_prefix)], capture_output=True, text=True, timeout=120, check=False)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError("PDF image extraction timed out after 120 seconds") from exc
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "PDF image extraction failed")
+            texts: list[str] = []
+            for image_path in sorted(Path(temp).glob("image-*.png"))[:100]:
+                try:
+                    text = self._image_ocr(image_path)
+                    if text:
+                        texts.append(text)
+                except RuntimeError:
+                    continue
+            return "\n".join(texts)
+
+    @staticmethod
+    def _file_text(path: Path) -> tuple[str, str]:
+        suffix = path.suffix.lower()
+        if suffix in {".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".log", ".eml", ".ics", ".vcf", ".py", ".java", ".js", ".css", ".sql", ".yml", ".yaml"}:
+            return path.read_text(encoding="utf-8", errors="replace"), "plain_text"
+        if suffix in {".docx", ".odt", ".xlsx", ".ods"}:
+            try:
+                with zipfile.ZipFile(path) as archive:
+                    text_parts = []
+                    for name in archive.namelist():
+                        if not name.endswith(".xml") or name.startswith("docProps/"):
+                            continue
+                        try:
+                            root = ElementTree.fromstring(archive.read(name))
+                            text_parts.extend(value.strip() for value in root.itertext() if value.strip())
+                        except ElementTree.ParseError:
+                            continue
+                return "\n".join(text_parts), "office_zip"
+            except (OSError, zipfile.BadZipFile) as exc:
+                raise RuntimeError(f"office document extraction failed: {exc}") from exc
+        return "", "unsupported"
+
+    def _apply_image_analysis(self, path: Path, metadata: dict[str, Any], force: bool = False) -> None:
+        """Keep analysis local; failures are recorded with the document, not hidden."""
+        current = metadata.get("image_analysis", {})
+        if not force and current.get("source_sha256") == metadata.get("sha256"):
+            return
+        analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "analyzed_at": utc_now(), "exif": {}, "ocr_status": "not_run"}
+        generated_tags = {"bild", f"format-{path.suffix.lower().lstrip('.')}"}
+        try:
+            from PIL import ExifTags, Image
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                analysis["format"] = image.format or path.suffix.lstrip(".").upper()
+                analysis["width"], analysis["height"] = image.size
+                exif: dict[str, Any] = {}
+                raw_exif = image.getexif()
+                for key, value in raw_exif.items():
+                    label = ExifTags.TAGS.get(key, str(key))
+                    if label in {"Make", "Model", "Software", "DateTime", "DateTimeOriginal", "DateTimeDigitized", "Orientation"}:
+                        exif[label] = str(value)
+                    elif label == "GPSInfo" and value:
+                        gps = self._gps_data(value, ExifTags.GPSTAGS)
+                        if gps:
+                            exif["GPS"] = gps
+                analysis["exif"] = exif
+                camera = " ".join(part for part in (exif.get("Make", ""), exif.get("Model", "")) if part).strip()
+                if camera:
+                    generated_tags.add(f"kamera-{self._tag_token(camera)}")
+                date_value = exif.get("DateTimeOriginal") or exif.get("DateTime")
+                if date_value and len(date_value) >= 4 and date_value[:4].isdigit():
+                    generated_tags.add(f"jahr-{date_value[:4]}")
+        except ImportError:
+            analysis["metadata_error"] = "Pillow is not installed"
+        except (OSError, ValueError, SyntaxError) as exc:
+            analysis["metadata_error"] = str(exc)
+
+        try:
+            ocr_text = self._image_ocr(path)
+            metadata["ocr_text"] = ocr_text
+            analysis["ocr_status"] = "completed"
+            analysis["ocr_characters"] = len(ocr_text)
+            generated_tags.update(self._ocr_tags(ocr_text))
+        except RuntimeError as exc:
+            analysis["ocr_status"] = "unavailable"
+            analysis["ocr_error"] = str(exc)
+        metadata["image_analysis"] = analysis
+        metadata["tags"] = sorted({*metadata.get("tags", []), *generated_tags}, key=str.casefold)
+
+    @staticmethod
+    def _gps_data(value: Any, labels: dict[int, str]) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {"present": True}
+        data = {labels.get(key, str(key)): str(item) for key, item in value.items()}
+        return {"present": True, **data}
+
+    @staticmethod
+    def _tag_token(value: str) -> str:
+        token = re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
+        return token[:64] or "unbekannt"
+
+    @classmethod
+    def _ocr_tags(cls, text: str) -> set[str]:
+        ignored = {"aber", "alle", "auch", "dass", "der", "die", "das", "den", "dem", "des", "eine", "einer", "einem", "einen", "für", "mit", "nach", "oder", "und", "von", "zum", "zur", "this", "that", "with", "from", "your"}
+        words = [cls._tag_token(word) for word in re.findall(r"[A-Za-zÄÖÜäöüß0-9]{4,}", text)]
+        unique = list(dict.fromkeys(word for word in words if word not in ignored and word != "unbekannt" and not word.isdigit() and len(word) >= 4))
+        return set(unique[:12])
+
+    @staticmethod
+    def _image_ocr(path: Path) -> str:
+        executable = shutil.which("tesseract")
+        if not executable:
+            raise RuntimeError("Tesseract OCR is not installed")
+        environment = ocr_subprocess_environment()
+        try:
+            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=90, check=False, env=environment)
+            if result.returncode != 0 and "deu" in result.stderr.lower():
+                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=90, check=False, env=environment)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("OCR timed out after 90 seconds") from exc
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Tesseract OCR failed")
+        return " ".join(result.stdout.split())
+
+    def _save_document(self, metadata: dict[str, Any]) -> None:
+        atomic_json_write(self.documents / f"{metadata['document_id']}.json", metadata)
+        relative_path = str(metadata.get("last_path", ""))
+        if relative_path and not relative_path.startswith("[external]"):
+            document_path = self.root / relative_path
+            if document_path.is_file() and not document_path.is_symlink():
+                atomic_json_write(document_path.parent / CONTROL_DIR / f"{metadata['document_id']}.json", metadata)
+                self._write_context_xattrs(document_path, metadata)
+
+    def _write_note_snapshot(self, document: dict[str, Any], note: dict[str, Any]) -> Path:
+        """Create once; a note itself is immutable, so its PDF is a stable snapshot."""
+        path = self.note_snapshots / f"{note['id']}.pdf"
+        if path.exists():
+            return path
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.units import mm
+            from reportlab.pdfgen.canvas import Canvas
+        except ImportError as exc:
+            raise RuntimeError("reportlab is required for note PDF snapshots") from exc
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        canvas = Canvas(str(temporary), pagesize=A4, pageCompression=1)
+        width, height = A4
+        x, y = 20 * mm, height - 20 * mm
+        canvas.setFont("Helvetica-Bold", 14)
+        canvas.drawString(x, y, "SimpleOffice4Me - Notiz-Snapshot")
+        y -= 10 * mm
+        canvas.setFont("Helvetica", 9)
+        for line in (f"Dokument: {document.get('last_path', '')}", f"Dokument-ID: {document['document_id']}", f"Notiz-ID: {note['id']}", f"Autor: {note.get('author', '')}", f"Erstellt: {note.get('created_at', '')}"):
+            canvas.drawString(x, y, line[:150])
+            y -= 5 * mm
+        y -= 4 * mm
+        canvas.setFont("Helvetica", 11)
+        words = note.get("text", "").split()
+        line = ""
+        for word in words or [""]:
+            candidate = f"{line} {word}".strip()
+            if canvas.stringWidth(candidate, "Helvetica", 11) > width - 40 * mm:
+                canvas.drawString(x, y, line)
+                y -= 6 * mm
+                if y < 20 * mm:
+                    canvas.showPage(); y = height - 20 * mm; canvas.setFont("Helvetica", 11)
+                line = word
+            else:
+                line = candidate
+        canvas.drawString(x, y, line)
+        canvas.save()
+        temporary.replace(path)
+        return path
+
+    @staticmethod
+    def _write_context_xattrs(path: Path, metadata: dict[str, Any]) -> None:
+        if not hasattr(os, "setxattr"):
+            return
+        try:
+            os.setxattr(path, "user.simpleoffice.state", str(metadata.get("state", "new")).encode("utf-8"))
+            notes = json.dumps(metadata.get("notes", []), ensure_ascii=False).encode("utf-8")
+            if len(notes) <= 2048:
+                os.setxattr(path, "user.simpleoffice.notes", notes)
+            else:
+                os.setxattr(path, "user.simpleoffice.notes_ref", f"{CONTROL_DIR}/{metadata['document_id']}.json".encode("utf-8"))
+        except OSError:
+            return
+
+    def _record_revision(self, action: str, actor: str, category: str, key: str, snapshot: dict[str, Any]) -> None:
+        commit = self.history.record(action, actor, category, key, snapshot)
+        self._event("revision_recorded", {"action": action, "actor": actor, "commit": commit, "key": key})
+
+    @staticmethod
+    def _require_actor(actor: str) -> None:
+        if not actor.strip():
+            raise ValueError("a named user is required for every write action")
+
+    def _deadline_rules(
+        self, metadata: dict[str, Any]
+    ) -> list[tuple[dict[str, Any], str, str]]:
+        rules: list[tuple[dict[str, Any], str, str]] = [
+            (rule, "document", metadata["document_id"])
+            for rule in metadata.get("deadlines", [])
+            if isinstance(rule, dict)
+        ]
+        relative_path = Path(str(metadata.get("last_path", "")))
+        if relative_path.is_absolute() or str(relative_path).startswith("[external]"):
+            return rules
+        document_folder = (self.root / relative_path).parent.resolve()
+        try:
+            document_folder.relative_to(self.root)
+        except ValueError:
+            return rules
+        folders = [self.root]
+        current = self.root
+        for part in document_folder.relative_to(self.root).parts:
+            current = current / part
+            folders.append(current)
+        for folder in folders:
+            policy = self._read_json(folder / POLICY_FILE, {})
+            retention = policy.get("retention", {})
+            configured = retention.get("rules", []) if isinstance(retention, dict) else []
+            source = self.relative(folder)
+            rules.extend(
+                (rule, "folder", source) for rule in configured if isinstance(rule, dict)
+            )
+        return rules
+
+    def _require_document_editable(self, metadata: dict[str, Any]) -> None:
+        if metadata.get("cleanup_state") == "staged":
+            raise ValueError("document is staged for manual deletion and cannot be edited")
+        status = self.retention_status(metadata["document_id"])
+        if status["work_locked"]:
+            raise ValueError(
+                f"document is locked since {status['work_until']}; only deadline and cleanup actions remain allowed"
+            )
+
+    def _refresh_search_index(self, metadata: dict[str, Any]) -> None:
+        row = (
+            metadata["document_id"],
+            metadata.get("last_path", ""),
+            metadata.get("state", ""),
+            " ".join(metadata.get("tags", [])),
+            "\n".join(note.get("text", "") for note in metadata.get("notes", [])),
+            json.dumps(metadata.get("attributes", {}), ensure_ascii=False),
+            "\n".join(part for part in (metadata.get("extracted_text", ""), metadata.get("ocr_text", "")) if part),
+        )
+        with self._db() as db:
+            db.execute("DELETE FROM document_search WHERE document_id = ?", (metadata["document_id"],))
+            db.execute(
+                "INSERT INTO document_search(document_id, path, state, tags, notes, attributes, content) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                row,
+            )
+        self._refresh_listing_index(metadata)
+
+    def _refresh_listing_index(
+        self,
+        metadata: dict[str, Any],
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        """Update the small projection used by login, dashboard and inbox."""
+        def update(db: sqlite3.Connection) -> None:
+            db.execute(
+                """INSERT INTO document_listing(
+                       document_id, path, state, has_notes, has_relationships, last_seen_at,
+                       version_series_id, version_number
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(document_id) DO UPDATE SET
+                     path=excluded.path, state=excluded.state,
+                     has_notes=excluded.has_notes,
+                     has_relationships=excluded.has_relationships,
+                     last_seen_at=excluded.last_seen_at,
+                     version_series_id=excluded.version_series_id,
+                     version_number=excluded.version_number""",
+                (
+                    metadata["document_id"],
+                    str(metadata.get("last_path", "")),
+                    str(metadata.get("state", "new") or "new"),
+                    int(bool(metadata.get("notes"))),
+                    int(bool(metadata.get("relationships"))),
+                    str(metadata.get("last_seen_at", "")),
+                    str(metadata.get("version_series_id", metadata["document_id"])),
+                    int(metadata.get("version_number", 1)),
+                ),
+            )
+            db.execute("DELETE FROM document_relationship WHERE source_id = ?", (metadata["document_id"],))
+            db.executemany(
+                """INSERT OR REPLACE INTO document_relationship(
+                       source_id, target_id, propagates_retention
+                   ) VALUES (?, ?, ?)""",
+                [
+                    (
+                        metadata["document_id"],
+                        str(link["target_document_id"]),
+                        int(link.get("propagates_retention") is True),
+                    )
+                    for link in metadata.get("relationships", [])
+                    if isinstance(link, dict) and link.get("target_document_id")
+                ],
+            )
+        if connection is not None:
+            update(connection)
+            return
+        with self._db() as db:
+            update(db)
+
+    def _all_documents(self) -> list[dict[str, Any]]:
+        self.initialize()
+        return [
+            metadata
+            for path in self.documents.glob("*.json")
+            if (metadata := self._read_json(path, {})).get("document_id")
+        ]
+
+    @staticmethod
+    def _mounted_roots() -> list[Path]:
+        """Return mounted volume roots without recursively scanning drives."""
+        roots: set[Path] = set()
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
+                mask = ctypes.windll.kernel32.GetLogicalDrives()
+                for index in range(26):
+                    if mask & (1 << index):
+                        roots.add(Path(f"{chr(65 + index)}:/"))
+            except (AttributeError, OSError):
+                pass
+        elif sys.platform == "darwin":
+            roots.add(Path("/Volumes"))
+            if Path("/Volumes").is_dir():
+                roots.update(path for path in Path("/Volumes").iterdir() if path.is_dir())
+        else:
+            try:
+                for line in Path("/proc/mounts").read_text(encoding="utf-8").splitlines():
+                    fields = line.split()
+                    if len(fields) > 1:
+                        roots.add(Path(fields[1].replace("\\040", " ")))
+            except OSError:
+                roots.update(path for path in (Path("/media"), Path("/mnt")) if path.is_dir())
+        return sorted((path for path in roots if path.is_dir()), key=str)
+
+    def _db(self) -> sqlite3.Connection:
+        self.control.mkdir(parents=True, exist_ok=True)
+        # The scanner and web requests use short independent connections. WAL
+        # permits readers while the scanner updates the index; the timeout also
+        # prevents transient writer contention from becoming an HTTP 500.
+        connection = sqlite3.connect(self.index_path, timeout=15)
+        connection.execute("PRAGMA busy_timeout = 15000")
+        if self.index_path not in _WAL_CONFIGURED_INDEXES:
+            with _WAL_CONFIGURATION_LOCK:
+                if self.index_path not in _WAL_CONFIGURED_INDEXES:
+                    connection.execute("PRAGMA journal_mode = WAL")
+                    _WAL_CONFIGURED_INDEXES.add(self.index_path)
+        return connection
+
+    def _event(self, event_type: str, data: dict[str, Any]) -> None:
+        self.control.mkdir(parents=True, exist_ok=True)
+        record = {"at": utc_now(), "type": event_type, **data}
+        with self.events.open("a", encoding="utf-8") as destination:
+            destination.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+    @staticmethod
+    def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            return loaded if isinstance(loaded, dict) else default
+        except (OSError, json.JSONDecodeError):
+            return default
+
+    @staticmethod
+    def _read_xattrs(path: Path) -> dict[str, Any]:
+        if not hasattr(os, "getxattr"):
+            return {}
+        try:
+            result: dict[str, Any] = {}
+            for key, name in (("document_id", "user.simpleoffice.id"), ("sha256", "user.simpleoffice.sha256"), ("tags", "user.simpleoffice.tags")):
+                try:
+                    value = os.getxattr(path, name).decode("utf-8")
+                    result[key] = json.loads(value) if key == "tags" else value
+                except OSError:
+                    pass
+            return result
+        except OSError:
+            return {}
+
+    @staticmethod
+    def _write_xattrs(path: Path, document_id: str, digest: str, tags: list[str]) -> None:
+        if not hasattr(os, "setxattr"):
+            return
+        try:
+            os.setxattr(path, "user.simpleoffice.id", document_id.encode("utf-8"))
+            os.setxattr(path, "user.simpleoffice.sha256", digest.encode("utf-8"))
+            os.setxattr(path, "user.simpleoffice.tags", json.dumps(tags).encode("utf-8"))
+        except OSError:
+            # FAT, SMB and backup media often do not support xattrs. Sidecars are enough.
+            return
 
 
-@bp.post("/calendar/caldav")
-@login_required
-def activate_caldav():
-    actor = str(g.user["username"])
-    try:
-        _calendars().activate(actor, request.form.get("password", ""), actor)
-        flash(f"CalDAV aktiviert. Thunderbird-URL: {url_for('caldav.endpoint', path='', _external=True)}")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar") + "#caldav")
+@click.command("init-document-store")
+@click.argument("root", type=click.Path(path_type=Path))
+def init_document_store_command(root: Path) -> None:
+    """Create the control files and a rebuildable index for ROOT."""
+    DocumentStore(root).initialize()
+    click.echo(f"Document store initialized: {root}")
 
 
-@bp.post("/calendar/collections")
-@login_required
-def create_calendar_collection():
-    actor = str(g.user["username"])
-    try:
-        _calendars().create(request.form.get("name", ""), actor, request.form.get("color", "#2563eb"), request.form.get("timezone", "Europe/Berlin"), request.form.get("description", ""))
-        flash("Kalender angelegt.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar") + "#caldav")
-
-
-@bp.post("/calendar/collections/<calendar_id>/sharing")
-@login_required
-def share_calendar_collection(calendar_id: str):
-    actor = str(g.user["username"]); valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
-    try:
-        _calendars().update_sharing(calendar_id, {user: request.form.get(f"access_{user}", "") for user in valid_users}, actor)
-        flash("Kalenderfreigaben gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar") + "#caldav")
-
-
-@bp.get("/calendar/export.ics")
-@login_required
-def export_calendar():
-    payload = _calendar().export_ics(str(g.user["username"])).encode("utf-8")
-    return send_file(io.BytesIO(payload), as_attachment=True, download_name="simpleoffice-kalender.ics", mimetype="text/calendar; charset=utf-8")
-
-
-@bp.post("/calendar/import")
-@login_required
-def import_calendar():
-    uploaded = request.files.get("calendar_file")
-    if uploaded is None or not uploaded.filename:
-        flash("Bitte eine .ics-Datei auswählen.")
-        return redirect(url_for("documents.calendar"))
-    try:
-        imported = _calendar().import_ics(uploaded.read().decode("utf-8-sig"), str(g.user["username"]))
-        flash(f"{imported} Kalendertermin(e) importiert.")
-    except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Kalenderimport fehlgeschlagen: {exc}")
-    return redirect(url_for("documents.calendar"))
-
-
-@bp.post("/calendar/import/preview")
-@login_required
-def preview_calendar_import():
-    uploaded = request.files.get("calendar_file")
-    if uploaded is None or not uploaded.filename:
-        flash("Bitte eine .ics-Datei auswählen.")
-        return redirect(url_for("documents.calendar") + "#calendar-import")
-    try:
-        payload = uploaded.stream.read(MAX_PREVIEW_BYTES + 1)
-        if len(payload) > MAX_PREVIEW_BYTES:
-            raise ValueError(f"iCalendar preview is limited to {MAX_PREVIEW_BYTES // 1024} KiB")
-        preview = preview_ics(payload.decode("utf-8-sig"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Kalendervorschau fehlgeschlagen: {exc}")
-        return redirect(url_for("documents.calendar") + "#calendar-import")
-    return render_template(
-        "documents/calendar_import_preview.html",
-        preview=preview,
-        filename=uploaded.filename,
+@click.command("scan-documents")
+@click.option("--root", type=click.Path(path_type=Path), default=None, help="Document root; defaults to SIMPLEOFFICE_DOCUMENT_ROOT.")
+@click.option(
+    "--verify-hashes",
+    is_flag=True,
+    help="Recalculate every SHA-256 checksum even when size and modification time are unchanged.",
+)
+@with_appcontext
+def scan_documents_command(root: Path | None, verify_hashes: bool) -> None:
+    """Scan documents and update the repairable index."""
+    store = DocumentStore(root or current_app.config["DOCUMENT_ROOT"])
+    report = store.scan(verify_hashes=verify_hashes)
+    click.echo(
+        f"files={report.files} new={report.new_files} duplicates={report.duplicates} "
+        f"symlinks={report.symlinks} boundaries={report.skipped_boundaries} errors={report.errors}"
     )
 
 
-@bp.post("/calendar")
-@login_required
-def add_calendar_event():
-    actor = str(g.user["username"])
-    owner = request.form.get("owner", actor).strip() or actor
-    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
-    try:
-        if owner not in valid_users:
-            raise ValueError("unknown owner")
-        calendar_id = request.form.get("calendar_id", "default")
-        _calendars().get(calendar_id, actor, write=True)
-        metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
-        event = _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id, metadata)
-        if request.form.get("rrule", "").strip() or request.form.get("rdates", "").strip():
-            event = _calendar().set_recurrence(event["event_id"], {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "Europe/Berlin")}, actor, event.get("updated_at", ""))
-        _calendars().record_event_move(event, calendar_id, actor)
-        flash("Kalendertermin gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar"))
+@click.command("document-note")
+@click.argument("document")
+@click.argument("text")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def document_note_command(document: str, text: str, actor: str) -> None:
+    """Add TEXT as a note to DOCUMENT (ID or relative file path)."""
+    note = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_note(document, text, actor)
+    click.echo(note["id"])
 
 
-@bp.post("/calendar/<event_id>")
-@login_required
-def update_calendar_event(event_id: str):
-    try:
-        actor = str(g.user["username"]); calendar_id = request.form.get("calendar_id", "")
-        if calendar_id: _calendars().get(calendar_id, actor, write=True)
-        source_calendar_id = _calendar().get(event_id, actor).get("calendar_id") or "default"
-        metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
-        event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id, metadata)
-        _calendars().record_event_move(event, source_calendar_id, actor)
-        flash("Kalendertermin geändert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar"))
+@click.command("document-state")
+@click.argument("document")
+@click.argument("state")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def document_state_command(document: str, state: str, actor: str) -> None:
+    """Set the human workflow STATE of DOCUMENT."""
+    changed = DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_state(document, state, actor)
+    click.echo(json.dumps(changed, ensure_ascii=False))
 
 
-@bp.post("/calendar/<event_id>/participants")
-@login_required
-def update_calendar_participants(event_id: str):
-    participants = []
-    try:
-        for line in request.form.get("participants", "").splitlines():
-            if not line.strip(): continue
-            email, name, role, status, rsvp = (line.split("|") + ["", "", "", "", ""])[:5]
-            participants.append({"email": email.strip(), "name": name.strip(), "role": role.strip() or "required", "status": status.strip() or "needs-action", "rsvp": rsvp.strip().lower() in {"1", "true", "ja", "yes"}})
-        _calendar().set_participants(event_id, participants, str(g.user["username"]))
-        flash("Teilnehmer gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
+@click.command("document-link")
+@click.argument("source")
+@click.argument("target")
+@click.option("--type", "relation_type", default="related", show_default=True)
+@click.option("--label", default="")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def document_link_command(source: str, target: str, relation_type: str, label: str, actor: str) -> None:
+    """Link SOURCE to TARGET for the document mindmap."""
+    link = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_link(source, target, relation_type, label, actor)
+    click.echo(link["id"])
 
 
-@bp.post("/calendar/<event_id>/recurrence")
-@login_required
-def update_calendar_recurrence(event_id: str):
-    actor = str(g.user["username"])
-    try:
-        previous = _calendar().get(event_id, actor); calendar_id = previous.get("calendar_id") or "default"
-        event = _calendar().set_recurrence(event_id, {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "")}, actor, request.form.get("expected_updated_at", ""))
-        _calendars().record_event_move(event, calendar_id, actor)
-        flash("Serienregel gespeichert und für CalDAV synchronisiert.")
-    except ValueError as exc:
-        flash(f"Serienregel nicht gespeichert: {exc}")
-    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
+@click.command("document-graph")
+@click.argument("document")
+@with_appcontext
+def document_graph_command(document: str) -> None:
+    """Print graph data for DOCUMENT as JSON."""
+    graph = DocumentStore(current_app.config["DOCUMENT_ROOT"]).graph(document)
+    click.echo(json.dumps(graph, ensure_ascii=False, indent=2))
 
 
-@bp.post("/calendar/<event_id>/occurrence")
-@login_required
-def update_calendar_occurrence(event_id: str):
-    actor = str(g.user["username"])
-    try:
-        previous = _calendar().get(event_id, actor); calendar_id = previous.get("calendar_id") or "default"
-        event = _calendar().set_occurrence_exception(event_id, request.form.get("recurrence_id", ""), actor, status=request.form.get("occurrence_status", "active"), start=request.form.get("occurrence_start", ""), end=request.form.get("occurrence_end", ""), title=request.form.get("occurrence_title", ""), reason=request.form.get("occurrence_reason", ""), expected_updated_at=request.form.get("expected_updated_at", ""))
-        _calendars().record_event_move(event, calendar_id, actor)
-        flash("Einzelne Serieninstanz revisionssicher geändert.")
-    except ValueError as exc:
-        flash(f"Serieninstanz nicht geändert: {exc}")
-    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
+@click.command("document-attribute")
+@click.argument("document")
+@click.argument("key")
+@click.argument("value")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def document_attribute_command(document: str, key: str, value: str, actor: str) -> None:
+    """Set a freely modelled KEY/VALUE attribute on DOCUMENT."""
+    DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_attribute(document, key, value, actor)
+    click.echo(key)
 
 
-@bp.post("/calendar/<event_id>/alarms")
-@login_required
-def add_calendar_alarm(event_id: str):
-    actor = str(g.user["username"])
-    try:
-        previous = _calendar().get(event_id, actor)
-        minutes = int(request.form.get("minutes", "15"))
-        if not 0 <= minutes <= 527040:
-            raise ValueError("Erinnerungsabstand muss zwischen 0 und 527040 Minuten liegen.")
-        direction = request.form.get("direction", "before")
-        related = request.form.get("related", "start")
-        if direction not in {"before", "after"} or related not in {"start", "end"}:
-            raise ValueError("Ungültiger Erinnerungsbezug.")
-        alarms = list(previous.get("alarms", []))
-        alarms.append({"action": "DISPLAY", "description": request.form.get("description", "").strip() or previous.get("title", "Erinnerung"), "trigger": {"kind": "relative", "seconds": minutes * 60 * (-1 if direction == "before" else 1), "related": related}})
-        event = _calendar().set_alarms(event_id, alarms, actor, request.form.get("expected_updated_at", ""))
-        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Lokale Kalendererinnerung gespeichert und für CalDAV synchronisiert.")
-    except (TypeError, ValueError) as exc:
-        flash(f"Erinnerung nicht gespeichert: {exc}")
-    return redirect(url_for("documents.calendar") + "#reminders")
+@click.command("document-deadline")
+@click.argument("document")
+@click.argument("expires_at")
+@click.option("--kind", type=click.Choice(["retention", "work"]), default="retention")
+@click.option("--label", default="")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def document_deadline_command(
+    document: str, expires_at: str, kind: str, label: str, actor: str
+) -> None:
+    """Append one retention or work deadline to DOCUMENT."""
+    deadline = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_deadline(
+        document, kind, expires_at, label, actor
+    )
+    click.echo(json.dumps(deadline, ensure_ascii=False))
 
 
-@bp.post("/calendar/<event_id>/alarms/delete")
-@login_required
-def delete_calendar_alarm(event_id: str):
-    actor = str(g.user["username"])
-    try:
-        previous = _calendar().get(event_id, actor); alarm_uid = request.form.get("alarm_uid", "")
-        alarms = [item for item in previous.get("alarms", []) if item.get("uid") != alarm_uid]
-        if len(alarms) == len(previous.get("alarms", [])):
-            raise ValueError("Unbekannte Kalendererinnerung.")
-        event = _calendar().set_alarms(event_id, alarms, actor, request.form.get("expected_updated_at", ""))
-        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Kalendererinnerung entfernt.")
-    except ValueError as exc:
-        flash(f"Erinnerung nicht entfernt: {exc}")
-    return redirect(url_for("documents.calendar") + "#reminders")
+@click.command("retention-status")
+@click.argument("document")
+@with_appcontext
+def retention_status_command(document: str) -> None:
+    """Explain every direct, inherited and transitive deadline."""
+    status = DocumentStore(current_app.config["DOCUMENT_ROOT"]).retention_status(document)
+    click.echo(json.dumps(status, ensure_ascii=False, indent=2))
 
 
-@bp.post("/calendar/<event_id>/alarms/acknowledge")
-@login_required
-def acknowledge_calendar_alarm(event_id: str):
-    actor = str(g.user["username"])
-    try:
-        previous = _calendar().get(event_id, actor)
-        event = _calendar().acknowledge_alarm(event_id, request.form.get("alarm_uid", ""), actor)
-        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Erinnerung bestätigt.")
-    except ValueError as exc:
-        flash(f"Erinnerung nicht bestätigt: {exc}")
-    return redirect(url_for("documents.calendar") + "#reminders")
+@click.command("retention-cleanup")
+@click.option("--destination", default="Aussonderung", show_default=True)
+@click.option("--apply", is_flag=True, help="Move eligible files after an explicit confirmation.")
+@click.option("--confirm", default="", help="Required value for --apply: AUSSONDERN")
+@click.option("--user", "actor", required=True)
+@with_appcontext
+def retention_cleanup_command(destination: str, apply: bool, confirm: str, actor: str) -> None:
+    """Preview cleanup candidates or move them; never delete document files."""
+    if apply and confirm != "AUSSONDERN":
+        raise click.UsageError("--apply requires --confirm AUSSONDERN")
+    result = DocumentStore(current_app.config["DOCUMENT_ROOT"]).cleanup_expired(
+        destination, actor, apply=apply
+    )
+    click.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
 
-@bp.post("/calendar/<event_id>/alarms/snooze")
-@login_required
-def snooze_calendar_alarm(event_id: str):
-    actor = str(g.user["username"])
-    try:
-        previous = _calendar().get(event_id, actor)
-        event = _calendar().snooze_alarm(event_id, request.form.get("alarm_uid", ""), actor, int(request.form.get("minutes", "10")))
-        _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Erinnerung wurde verschoben.")
-    except (TypeError, ValueError) as exc:
-        flash(f"Erinnerung nicht verschoben: {exc}")
-    return redirect(url_for("documents.calendar") + "#reminders")
+@click.command("search-documents")
+@click.argument("query")
+@click.option("--limit", default=50, show_default=True)
+@with_appcontext
+def search_documents_command(query: str, limit: int) -> None:
+    """Search document paths, states, tags, notes and domain attributes."""
+    results = DocumentStore(current_app.config["DOCUMENT_ROOT"]).search(query, limit)
+    click.echo(json.dumps(results, ensure_ascii=False, indent=2))
 
 
-@bp.get("/calendar/reminders.json")
-@login_required
-def calendar_reminders_json():
-    now = datetime.now(timezone.utc)
-    try:
-        lower = datetime.fromisoformat(request.args.get("from", "").replace("Z", "+00:00")) if request.args.get("from") else now - timedelta(hours=12)
-        upper = datetime.fromisoformat(request.args.get("to", "").replace("Z", "+00:00")) if request.args.get("to") else now + timedelta(days=7)
-        rows = _calendar().due_alarms(str(g.user["username"]), lower, upper, request.args.get("calendar_id", ""))
-        return Response(json.dumps({"generated_at": now.isoformat(timespec="seconds"), "reminders": rows}, ensure_ascii=False), mimetype="application/json")
-    except ValueError as exc:
-        return Response(json.dumps({"error": str(exc)}, ensure_ascii=False), 400, mimetype="application/json")
-
-
-@bp.post("/calendar/<event_id>/delete")
-@login_required
-def delete_calendar_event(event_id: str):
-    try:
-        _calendar().delete(event_id, str(g.user["username"]))
-        flash("Kalendertermin gelöscht.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar"))
-
-
-@bp.post("/calendar/<event_id>/sharing")
-@login_required
-def share_calendar_event(event_id: str):
-    actor = str(g.user["username"])
-    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
-    permissions = {username: request.form.get(f"access_{username}", "") for username in valid_users}
-    unknown = sorted(set(request.form.getlist("users")) - valid_users)
-    try:
-        if unknown:
-            raise ValueError(f"unknown users: {', '.join(unknown)}")
-        _calendar().share(event_id, permissions, actor)
-        flash("Lesen- und Bearbeitungsrechte für den Termin gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar") + f"#event-{event_id}")
-
-
-@bp.get("/calendar/published/<audience>")
-def published_calendar(audience: str):
-    try:
-        return render_template("documents/published_calendar.html", audience=audience, events=_calendar().visible_events(audience))
-    except ValueError:
-        abort(404)
-
-
-@bp.post("/calendar/booking-settings")
-@login_required
-def save_booking_settings():
-    try:
-        _calendar().save_booking_settings(request.form.get("enabled") == "1", int(request.form.get("duration_minutes", "60")), request.form.get("start_time", "09:00"), request.form.get("end_time", "17:00"), str(g.user["username"]), request.form.get("timezone", "Europe/Berlin"))
-        flash("Externe Buchungseinstellungen gespeichert.")
-    except (TypeError, ValueError) as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar"))
-
-
-@bp.post("/calendar/bookings/<event_id>/confirm")
-@login_required
-def confirm_booking(event_id: str):
-    try:
-        event = _calendar().confirm_booking(event_id, str(g.user["username"]))
-        if event.get("confirmation_delivery", {}).get("status") == "sent":
-            flash("Buchung bestätigt und ICS-E-Mail versendet.")
-        else:
-            flash("Buchung bestätigt und verbindlich blockiert. E-Mail-Versand ist ausstehend; die ICS-Datei kann im Termin heruntergeladen werden.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.calendar"))
-
-
-@bp.get("/calendar/bookings/<event_id>/confirmation.ics")
-@login_required
-def download_booking_confirmation(event_id: str):
-    try:
-        payload = _calendar().booking_ics(event_id, str(g.user["username"])).encode("utf-8")
-    except ValueError:
-        abort(404)
-    return send_file(io.BytesIO(payload), as_attachment=True, download_name=f"terminbestaetigung-{event_id}.ics", mimetype="text/calendar; charset=utf-8")
-
-
-@bp.route("/calendar/book", methods=("GET", "POST"))
-def book_calendar_slot():
-    from datetime import date
-    selected_day = request.values.get("date", date.today().isoformat())
-    try:
-        slots = _calendar().available_slots(date.fromisoformat(selected_day))
-        if request.method == "POST":
-            _calendar().request_booking(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("name", ""), request.form.get("email", ""), request.form.get("start", ""), request.form.get("end", ""))
-            return render_template("documents/book_calendar.html", date=selected_day, slots=slots, sent=True)
-        return render_template("documents/book_calendar.html", date=selected_day, slots=slots)
-    except ValueError as exc:
-        return render_template("documents/book_calendar.html", date=selected_day, slots=[], error=str(exc)), 400
-
-
-@bp.get("/contacts/<contact_id>.vcf")
-@login_required
-def download_contact_vcard(contact_id: str):
-    try:
-        card = _contacts().vcard(contact_id, str(g.user["username"]))
-    except ValueError:
-        abort(404)
-    return Response(card, mimetype="text/vcard", headers={"Content-Disposition": f'attachment; filename="contact-{contact_id}.vcf"'})
+def init_app(app: Any) -> None:
+    app.cli.add_command(init_document_store_command)
+    app.cli.add_command(scan_documents_command)
+    app.cli.add_command(document_note_command)
+    app.cli.add_command(document_state_command)
+    app.cli.add_command(document_link_command)
+    app.cli.add_command(document_graph_command)
+    app.cli.add_command(document_attribute_command)
+    app.cli.add_command(document_deadline_command)
+    app.cli.add_command(retention_status_command)
+    app.cli.add_command(retention_cleanup_command)
+    app.cli.add_command(search_documents_command)
