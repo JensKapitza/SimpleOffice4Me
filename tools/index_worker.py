@@ -15,6 +15,7 @@ from pathlib import Path
 
 from app.document_store import DocumentStore
 from app.file_lock import exclusive_file_lock
+from app.preview_service import PreviewService, detect_preview_tools
 from tools.launcher import should_report_scan_progress
 
 
@@ -48,6 +49,10 @@ def run_index(root: str | Path) -> int:
         delay = _bounded_environment("SIMPLEOFFICE_INDEX_DELAY_SECONDS", 2, 0, 300)
         yield_ms = _bounded_environment("SIMPLEOFFICE_INDEX_YIELD_MS", 1, 0, 100)
         lower_process_priority()
+        tools = detect_preview_tools()
+        previews = PreviewService(root, tools)
+        store.set_scan_status({"state": "detecting_tools", "preview_tools": tools["commands"]})
+        print("Vorschauwerkzeuge: " + ", ".join(f"{name}={'ja' if available else 'nein'}" for name, available in tools["commands"].items()), flush=True)
         started = time.monotonic()
         store.set_scan_status({
             "state": "starting",
@@ -57,6 +62,7 @@ def run_index(root: str | Path) -> int:
             "errors": 0,
             "process_id": os.getpid(),
             "delay_seconds": delay,
+            "preview_tools": tools["commands"],
         })
         if delay:
             time.sleep(delay)
@@ -77,6 +83,7 @@ def run_index(root: str | Path) -> int:
                 "duplicates": int(getattr(current, "duplicates")),
                 "errors": int(getattr(current, "errors")),
                 "process_id": os.getpid(),
+                "preview_tools": tools["commands"],
             }
             store.set_scan_status(status)
             print(
@@ -92,17 +99,27 @@ def run_index(root: str | Path) -> int:
             if yield_ms:
                 time.sleep(yield_ms / 1000)
 
+        def generate_preview(path: Path) -> None:
+            if not previews.supports(path):
+                return
+            metadata = store.get_document(path)
+            current = metadata.get("preview", {})
+            if current.get("status") == "ready" and current.get("source_sha256") == metadata.get("sha256") and previews.cached_path(metadata):
+                return
+            store.set_preview_metadata(metadata["document_id"], previews.generate(path, metadata))
+
         store.set_scan_status({
             "state": "running", "files": 0, "new_files": 0,
-            "duplicates": 0, "errors": 0, "process_id": os.getpid(),
+            "duplicates": 0, "errors": 0, "process_id": os.getpid(), "preview_tools": tools["commands"],
         })
         try:
-            report = store.scan(report_progress, yield_to_web)
+            report = store.scan(report_progress, yield_to_web, post_file=generate_preview)
             elapsed = round(time.monotonic() - started, 3)
             store.set_scan_status({
                 "state": "completed", "files": report.files,
                 "new_files": report.new_files, "duplicates": report.duplicates,
                 "errors": report.errors, "duration_seconds": elapsed,
+                "preview_tools": tools["commands"],
             })
             print(
                 f"Index abgeschlossen: files={report.files} new={report.new_files} "
@@ -111,7 +128,7 @@ def run_index(root: str | Path) -> int:
             )
             return 0
         except Exception as exc:
-            store.set_scan_status({"state": "failed", "error": str(exc)})
+            store.set_scan_status({"state": "failed", "error": str(exc), "preview_tools": tools["commands"]})
             print(f"Index fehlgeschlagen: {exc}", file=sys.stderr, flush=True)
             return 1
 

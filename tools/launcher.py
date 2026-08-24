@@ -98,6 +98,30 @@ def start_index_worker(document_root: str) -> subprocess.Popen[bytes] | None:
     return subprocess.Popen(command, **options)
 
 
+def datalogger_enabled() -> bool:
+    return os.environ.get("SIMPLEOFFICE_DATALOGGER", "1").strip().casefold() not in {"0", "false", "no", "off"}
+
+
+def start_datalogger_worker(document_root: str) -> subprocess.Popen[bytes] | None:
+    """Run periodic sensor I/O outside all WSGI request threads."""
+    if not datalogger_enabled():
+        return None
+    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        options["creationflags"] = 0x00004000
+    return subprocess.Popen([sys.executable, "-m", "tools.datalogger_worker", "--root", document_root], **options)
+
+
+def stop_worker(worker: subprocess.Popen[bytes] | None) -> None:
+    if worker is None or worker.poll() is not None:
+        return
+    worker.terminate()
+    try:
+        worker.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        print(f"Hintergrunddienst PID {worker.pid} reagiert nicht auf SIGTERM; kein erzwungenes Beenden.", file=sys.stderr)
+
+
 def default_document_root() -> Path:
     documents = Path.home() / "Documents"
     return documents / "SimpleOffice4Me"
@@ -169,6 +193,11 @@ def start(configure_only: bool = False) -> None:
         from app.document_store import DocumentStore
         DocumentStore(document_root).set_scan_status({"state": "failed", "error": f"Indexdienst konnte nicht gestartet werden: {exc}"})
         print(f"Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
+    try:
+        datalogger_worker = start_datalogger_worker(document_root)
+    except OSError as exc:
+        datalogger_worker = None
+        print(f"Datenloggerdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
     host = str(options["host"])
     port = int(options["port"])
     index_message = (
@@ -191,14 +220,10 @@ def start(configure_only: bool = False) -> None:
     try:
         serve(app, **options)
     finally:
-        if worker is not None and worker.poll() is None:
-            worker.terminate()
-            try:
-                worker.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                print("Indexdienst reagiert nicht auf SIGTERM; PID-Datei bleibt zur Diagnose erhalten.", file=sys.stderr)
-            else:
-                unregister("index", worker.pid)
+        stop_worker(worker)
+        stop_worker(datalogger_worker)
+        if worker is not None and worker.poll() is not None:
+            unregister("index", worker.pid)
         unregister("web", os.getpid())
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)

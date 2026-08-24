@@ -10,6 +10,10 @@ SimpleOffice4Me soll zu einer selbst betriebenen, einfachen Dokumentenverwaltung
 ausgebaut werden. Die fachliche und technische Erweiterung ist in
 [docs/PAPERLESS_ERWEITERUNG.md](docs/PAPERLESS_ERWEITERUNG.md) beschrieben.
 
+Schnelle, lokal erzeugte Vorschaubilder und PDF-/Office-Collagen laufen im getrennten
+Indexdienst; Werkzeugerkennung, Installation, Grenzen und Deaktivierung stehen in
+[docs/DOKUMENTVORSCHAU_INDEXDIENST.md](docs/DOKUMENTVORSCHAU_INDEXDIENST.md).
+
 Der erste dateibasierte Eingangskorb mit Prüfsummen, Chronik und einem
 neu aufbaubaren Index ist umgesetzt. Die Installation und der erste Scan stehen
 in [docs/ERSTER_START.md](docs/ERSTER_START.md).

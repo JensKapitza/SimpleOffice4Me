@@ -33,6 +33,7 @@ from .project_store import ProjectStore
 from .replication_store import CATEGORIES, ReplicationStore
 from .object_store import ObjectStore
 from .attachment_security import AttachmentSecurity, ClamAV
+from .preview_service import PreviewService
 from .db import get_db
 from .setup_store import SetupStore
 
@@ -816,6 +817,36 @@ def image_preview(document_id: str):
     return send_file(path)
 
 
+@bp.get("/<document_id>/thumbnail")
+@login_required
+def document_thumbnail(document_id: str):
+    document = _document_or_404(document_id)
+    path = PreviewService(_store().root).cached_path(document, "thumbnail")
+    if path is None:
+        original = _store().root / document.get("last_path", "")
+        if not original.is_file() or original.is_symlink():
+            abort(404)
+        path = original
+        max_age = 0
+    else:
+        max_age = 31536000
+    response = send_file(path, conditional=True, etag=True, max_age=max_age)
+    response.headers["Cache-Control"] = f"private, max-age={max_age}" + (", immutable" if max_age else ", no-cache")
+    return response
+
+
+@bp.get("/<document_id>/collage")
+@login_required
+def document_collage(document_id: str):
+    document = _document_or_404(document_id)
+    path = PreviewService(_store().root).cached_path(document, "collage")
+    if path is None:
+        abort(404)
+    response = send_file(path, conditional=True, etag=True, max_age=31536000)
+    response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
+    return response
+
+
 @bp.post("/<document_id>/tags")
 @login_required
 def set_document_tags(document_id: str):
@@ -903,7 +934,7 @@ def detail(document_id: str):
         retention=store.retention_status(document_id),
         link_query=query,
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
-        preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
+        preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "thumbnail_url": url_for("documents.document_thumbnail", document_id=document_id), "collage_url": url_for("documents.document_collage", document_id=document_id) if document.get("preview", {}).get("collage") else "", "preview_status": document.get("preview", {}).get("status", "pending"), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
         defaults=_settings().settings(),
     )
 
