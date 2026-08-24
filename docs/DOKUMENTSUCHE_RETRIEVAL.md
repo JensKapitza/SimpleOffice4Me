@@ -21,11 +21,20 @@ Die **Erweiterte Suche** unterstützt:
 | `rechnung angebot` | beide Begriffe (implizites UND) |
 | `rechnung UND bezahlt` | beide Begriffe |
 | `rechnung ODER gutschrift` | mindestens ein Begriff |
+| `c UND NICHT (a ODER b)` | `c` muss vorkommen, `a` und `b` dürfen nicht vorkommen |
+| `tag:intern XOR tag:extern` | genau einer der beiden Tags |
+| `tag:a NOR tag:b` | weder Tag `a` noch Tag `b` |
+| `name ~ angebot` | Teilstring statt Token-/Wortsuche |
 | `tag:rechnung UND (name:angebot ODER text:liefertermin)` | Felder und Gruppierung |
 | `name:ange*` | Wortanfang |
 | `text: "nächste Woche"` | genaue Wortgruppe |
 
-Englische Operatoren `AND` und `OR` sind gleichwertig. Verfügbare Felder sind
+Englische Operatoren `AND`, `OR` und `NOT` sind gleichwertig zu `UND`, `ODER`
+und `NICHT`. `XOR` bedeutet exklusives Oder; `NOR` negiert beide Seiten.
+Die Bindungsstärke ist `NOT`, `AND`, `XOR`, dann `OR`/`NOR`; Klammern sind bei
+gemischten Ausdrücken empfohlen. `~` beziehungsweise `CONTAINS` sucht einen
+Teilstring und kann als `name ~ teil` oder feldübergreifend als `~teil`
+geschrieben werden. Verfügbare Felder sind
 `tag:`, `name:`, `text:`, `notiz:`, `status:` und `attribut:`; die deutschen
 Aliase `datei:`, `inhalt:` und `pfad:` werden ebenfalls akzeptiert.
 
@@ -60,11 +69,14 @@ bleiben unverändert.
 
 ## Tests und bekannte Grenzen
 
-Automatisierte Tests decken UND/ODER, Klammern, Feldfilter, Präfixe, Unicode,
+Automatisierte Tests decken UND/ODER/NICHT/XOR/NOR, Klammern, Feldfilter,
+Teilstrings, Präfixe, Unicode,
 ungültige Syntax, Komplexitätsgrenzen und eine kombinierte Abfrage gegen den
-realen Index ab. Nicht implementiert sind `NICHT`/`NOT`, Relevanzgewichtung,
-unscharfe Schreibweisen und semantische Vektorsuche. Die Ergebnismenge ist
-bewusst seitenweise begrenzt.
+realen Index ab. Negation, XOR, NOR und Teilstrings werden für korrekte
+Boolesche Semantik parametrisiert gegen die Indexprojektion ausgewertet; sie
+lesen weiterhin keine Originaldateien. Nicht implementiert sind
+Relevanzgewichtung, unscharfe Schreibweisen und semantische Vektorsuche. Die
+Ergebnismenge ist bewusst seitenweise begrenzt.
 
 ## Standards
 

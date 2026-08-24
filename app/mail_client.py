@@ -34,6 +34,19 @@ MAX_OUTBOUND_BYTES = 25 * 1024 * 1024
 MAX_RECIPIENTS = 100
 
 
+class ImapAuthenticationError(RuntimeError):
+    """Safe, actionable IMAP authentication failure without credentials."""
+
+    def __init__(self, diagnostic: dict[str, Any]):
+        self.diagnostic = diagnostic
+        mechanisms = ", ".join(diagnostic["advertised_authentication"]) or "nicht angekündigt"
+        hints = " ".join(diagnostic["hints"])
+        super().__init__(
+            f"Anmeldeverfahren {diagnostic['attempted']} abgewiesen. "
+            f"Vom Server angekündigte AUTH-Verfahren: {mechanisms}. {hints}"
+        )
+
+
 def _safe_id(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
         raise ValueError("invalid account identifier")
@@ -143,6 +156,9 @@ class MailStore:
         mode = str(data.get("security", "tls"))
         if mode not in {"tls", "starttls"}:
             raise ValueError("only TLS or STARTTLS is supported")
+        auth_method = str(data.get("auth_method", "auto")).lower()
+        if auth_method not in {"auto", "login", "plain"}:
+            raise ValueError("IMAP authentication method must be auto, login or plain")
         port = int(data.get("port", 993 if mode == "tls" else 143))
         sieve_port = int(data.get("sieve_port", 4190))
         smtp_mode = str(data.get("smtp_security", "starttls"))
@@ -164,6 +180,7 @@ class MailStore:
         row = {
             "id": account_id, "owner": actor, "label": str(data.get("label", host)).strip()[:120] or host,
             "host": host, "port": port, "security": mode, "username": username,
+            "auth_method": auth_method,
             "folder": str(data.get("folder", "INBOX")).strip()[:500] or "INBOX",
             "sieve_host": str(data.get("sieve_host", host)).strip()[:253] or host,
             "sieve_port": sieve_port, "sieve_security": "starttls",
@@ -387,10 +404,51 @@ class ImapArchive:
         else:
             connection = imaplib.IMAP4(account["host"], account["port"], timeout=timeout)
             connection.starttls(ssl_context=context)
-        status, _ = connection.login(account["username"], account["plain_password"])
+        capabilities = {
+            (value.decode("ascii", "replace") if isinstance(value, bytes) else str(value)).upper()
+            for value in connection.capabilities
+        }
+        advertised = {value[5:] for value in capabilities if value.startswith("AUTH=")}
+        configured_method = str(account.get("auth_method", "auto")).lower()
+        method = "plain" if configured_method == "plain" or (configured_method == "auto" and "LOGINDISABLED" in capabilities and "PLAIN" in advertised) else "login"
+        attempted = "SASL PLAIN over TLS" if method == "plain" else "IMAP LOGIN over TLS"
+        try:
+            if method == "plain":
+                status, _ = connection.authenticate(
+                    "PLAIN", lambda _challenge: f"\0{account['username']}\0{account['plain_password']}".encode("utf-8")
+                )
+            else:
+                status, _ = connection.login(account["username"], account["plain_password"])
+        except imaplib.IMAP4.error as exc:
+            diagnostic = self.authentication_diagnostic(account, capabilities, exc, attempted)
+            try: connection.logout()
+            except Exception: pass
+            raise ImapAuthenticationError(diagnostic) from None
         if status != "OK":
-            raise RuntimeError("IMAP login failed")
+            raise ImapAuthenticationError(self.authentication_diagnostic(account, capabilities, attempted=attempted))
         return connection
+
+    @staticmethod
+    def authentication_diagnostic(account: dict[str, Any], capabilities: set[str], error: BaseException | None = None, attempted: str = "IMAP LOGIN over TLS") -> dict[str, Any]:
+        advertised = sorted(value[5:] for value in capabilities if value.startswith("AUTH=") and len(value) > 5)
+        hints = []
+        if "LOGINDISABLED" in capabilities:
+            hints.append("Der Server verbietet IMAP LOGIN; verwenden Sie ein App-Passwort oder einen Anbieter mit freigeschaltetem IMAP.")
+        if any(value in advertised for value in ("XOAUTH2", "OAUTHBEARER")):
+            hints.append("Der Server bietet OAuth an; diese Installation unterstützt dafür noch keinen interaktiven OAuth-Login.")
+        hints.append("Prüfen Sie vollständigen Benutzernamen, IMAP-Freigabe und ein gegebenenfalls erforderliches App-Passwort beim Anbieter.")
+        reason = ""
+        if error:
+            # Authentication replies are untrusted and may contain identifiers.
+            # Keep only a small classifiable status, never the supplied secret.
+            raw = str(error).upper()
+            reason = next((item for item in ("AUTHENTICATIONFAILED", "AUTHORIZATIONFAILED", "UNAVAILABLE") if item in raw), "rejected")
+        return {
+            "host": str(account.get("host", ""))[:253], "port": int(account.get("port", 0)),
+            "transport": account.get("security", ""), "attempted": attempted,
+            "advertised_authentication": advertised, "login_disabled": "LOGINDISABLED" in capabilities,
+            "reason": reason, "hints": hints,
+        }
 
     def test(self, account: dict[str, Any]) -> dict[str, Any]:
         connection = self._connect(account)

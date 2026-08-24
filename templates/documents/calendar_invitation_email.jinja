@@ -1,0 +1,22 @@
+<section class="card mb-4" id="smtp-invitation">
+  {% set invite_events = events|selectattr('can_edit')|list %}
+  <div class="card-header"><strong>Termin per E-Mail einladen</strong></div>
+  <div class="card-body">
+    {% if mail_accounts and invite_events %}
+    <p class="small text-secondary">SimpleOffice erzeugt die iTIP-REQUEST aus dem bestehenden Termin. Die vollständige EML wird vor dem SMTP-Aufruf im privaten Archiv gespeichert.</p>
+    <form method="post" action="{{ url_for('documents.send_calendar_invitation', event_id=invite_events[0].event_id) }}" class="row g-2" id="calendar-invite-form">
+      <div class="col-md-5"><label class="form-label">Termin</label><select class="form-select" id="calendar-invite-event">{% for event in invite_events %}<option value="{{ event.event_id }}">{{ event.title }} · {{ event.start|calendar_display_datetime }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label">SMTP-Konto</label><select class="form-select" name="account_id">{% for account in mail_accounts %}<option value="{{ account.id }}">{{ account.label }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="form-label">Empfänger</label><input required type="email" class="form-control" name="recipient"></div>
+      <div class="col-md-4"><label class="form-label">SMTP-Passwort</label><input type="password" class="form-control" name="smtp_password" placeholder="falls nicht gespeichert"></div>
+      <div class="col-md-8"><label class="form-label">Begleittext</label><input class="form-control" name="body" value="Bitte den beigefügten Termin prüfen."></div>
+      <div class="col-12"><button class="btn btn-primary">Vor Versand archivieren und einladen</button></div>
+    </form>
+    <script>document.getElementById('calendar-invite-event')?.addEventListener('change', function () { document.getElementById('calendar-invite-form').action = {{ url_for('documents.calendar')|tojson }} + '/' + encodeURIComponent(this.value) + '/invite-email'; });</script>
+    {% elif not mail_accounts %}
+    <div class="alert alert-secondary mb-0">Zuerst im Reiter IMAP ein SMTP-Konto konfigurieren. Einladungen werden anschließend hier beim Kalender erstellt und versandt.</div>
+    {% else %}
+    <p class="text-secondary mb-0">Für eine Einladung zunächst einen Termin anlegen.</p>
+    {% endif %}
+  </div>
+</section>

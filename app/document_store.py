@@ -1207,6 +1207,8 @@ class DocumentStore:
         self.initialize()
         with self._db() as db:
             try:
+                if compiled.requires_sql:
+                    raise sqlite3.OperationalError("advanced boolean query requires SQL evaluation")
                 rows = db.execute(
                     "SELECT document_id, path, state FROM document_search WHERE document_search MATCH ? LIMIT ? OFFSET ?",
                     (compiled.fts, limit, offset),
