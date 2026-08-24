@@ -93,6 +93,7 @@ def ocr_subprocess_environment() -> dict[str, str]:
 class ScanReport:
     files: int = 0
     new_files: int = 0
+    updated_files: int = 0
     duplicates: int = 0
     symlinks: int = 0
     skipped_boundaries: int = 0
@@ -2765,7 +2766,7 @@ class DocumentStore:
         post_file: Callable[[Path], None] | None = None,
     ) -> ScanReport:
         self.initialize()
-        files = new_files = duplicates = symlinks = skipped_boundaries = errors = 0
+        files = new_files = updated_files = duplicates = symlinks = skipped_boundaries = errors = 0
         # Device/inode tracking prevents a deliberately allowed symlink from
         # walking back into an already visited directory tree.
         pending = [self.root]
@@ -2799,10 +2800,11 @@ class DocumentStore:
                             pending.append(target)
                         elif target.is_file():
                             if file_progress: file_progress(target)
-                            created, duplicate = self._scan_file(target, force_hash=verify_hashes)
+                            created, updated, duplicate = self._scan_file(target, force_hash=verify_hashes)
                             if post_file: post_file(target)
                             files += 1
                             new_files += int(created)
+                            updated_files += int(updated)
                             duplicates += int(duplicate)
                         continue
                     entry_stat = path.stat(follow_symlinks=False)
@@ -2819,17 +2821,18 @@ class DocumentStore:
                     if not path.is_file():
                         continue
                     if file_progress: file_progress(path)
-                    created, duplicate = self._scan_file(path, force_hash=verify_hashes)
+                    created, updated, duplicate = self._scan_file(path, force_hash=verify_hashes)
                     if post_file: post_file(path)
                     files += 1
                     new_files += int(created)
+                    updated_files += int(updated)
                     duplicates += int(duplicate)
                 except (OSError, ValueError) as exc:
                     errors += 1
                     self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
                 if progress:
-                    progress(ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors))
-        report = ScanReport(files, new_files, duplicates, symlinks, skipped_boundaries, errors)
+                    progress(ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors))
+        report = ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors)
         if progress: progress(report)
         return report
 
@@ -2874,7 +2877,7 @@ class DocumentStore:
             "allow_other_filesystems": configured.get("allow_other_filesystems") is True,
         }
 
-    def _scan_file(self, path: Path, force_hash: bool = False) -> tuple[bool, bool]:
+    def _scan_file(self, path: Path, force_hash: bool = False) -> tuple[bool, bool, bool]:
         stat = path.stat()
         relative_path = self.relative(path)
         now = utc_now()
@@ -2898,7 +2901,7 @@ class DocumentStore:
                         # Additive projections are rebuilt during an ordinary
                         # scan without rehashing or extracting the file.
                         self._refresh_listing_index(metadata, db)
-                        return False, metadata.get("system_state") == "duplicate"
+                        return False, False, metadata.get("system_state") == "duplicate"
                     # The SQLite index is disposable. Rebuild a missing sidecar
                     # from its cached identity instead of hiding the damage.
                     cached = (row[0], row[1])
@@ -2914,13 +2917,16 @@ class DocumentStore:
                         cached = (document_id, digest)
 
         xattrs = self._read_xattrs(path)
+        known_identity = cached is not None or bool(xattrs.get("document_id"))
         if cached:
             document_id, digest = cached
         else:
             digest = sha256_file(path)
             document_id = xattrs.get("document_id") or str(uuid.uuid4())
         metadata_path = self.documents / f"{document_id}.json"
-        created = not metadata_path.exists()
+        metadata_exists = metadata_path.exists()
+        created = not metadata_exists and not known_identity
+        updated = not created
         metadata = self._read_json(metadata_path, {})
         original_sha256 = metadata.get("original_sha256", digest)
         integrity_changed = original_sha256 != digest
@@ -3013,7 +3019,7 @@ class DocumentStore:
             "file_seen",
             {"path": relative_path, "document_id": document_id, "sha256": digest, "first_seen": created, "duplicate": duplicate},
         )
-        return created, duplicate
+        return created, updated, duplicate
 
     @staticmethod
     def _filename_tags(filename: str) -> list[str]:
@@ -3501,7 +3507,7 @@ def scan_documents_command(root: Path | None, verify_hashes: bool) -> None:
     store = DocumentStore(root or current_app.config["DOCUMENT_ROOT"])
     report = store.scan(verify_hashes=verify_hashes)
     click.echo(
-        f"files={report.files} new={report.new_files} duplicates={report.duplicates} "
+        f"files={report.files} new={report.new_files} updated={report.updated_files} duplicates={report.duplicates} "
         f"symlinks={report.symlinks} boundaries={report.skipped_boundaries} errors={report.errors}"
     )
 

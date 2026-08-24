@@ -132,6 +132,21 @@ def endpoint():
     return jsonify({"jsonrpc":"2.0","result":data,"id":rpc_id})
 
 
+@bp.get("/mcp")
+def endpoint_capabilities():
+    """Reject unsupported MCP GET/SSE without falling into the legacy template route."""
+    if current_app.config.get("MCP_ENABLED", True) is not True:
+        abort(404)
+    response = jsonify({
+        "error": "MCP uses authenticated JSON-RPC POST requests at this URL.",
+        "endpoint": "/mcp",
+        "settings": "/settings/mcp",
+    })
+    response.status_code = 405
+    response.headers["Allow"] = "POST"
+    return response
+
+
 @bp.route("/settings/mcp",methods=["GET","POST"])
 @login_required
 def settings():

@@ -24,6 +24,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
+from jinja2 import TemplateNotFound
 
 
 MIB = 1024 * 1024
@@ -387,7 +388,10 @@ def index(myFile="index.html",lang=None):
     if lang is not None:
         g.current_lang = lang
 
-    return renderwithbs4(myFile)
+    try:
+        return renderwithbs4(myFile)
+    except TemplateNotFound:
+        abort(404)
 
 
 @app.get('/')

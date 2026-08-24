@@ -91,7 +91,7 @@ class IndexProcessIsolationTest(unittest.TestCase):
         ), patch("tools.index_worker.lower_process_priority"), patch.object(
             DocumentStore,
             "scan",
-            return_value=ScanReport(files=10_000, new_files=25),
+            return_value=ScanReport(files=10_000, new_files=25, updated_files=40),
         ):
             self.assertEqual(0, run_index(temp))
             status = DocumentStore(temp).scan_status()
@@ -99,6 +99,7 @@ class IndexProcessIsolationTest(unittest.TestCase):
         self.assertEqual("completed", status["state"])
         self.assertEqual(10_000, status["files"])
         self.assertEqual(25, status["new_files"])
+        self.assertEqual(40, status["updated_files"])
 
     def test_launcher_starts_separate_python_worker_and_can_disable_it(self):
         process = type("Process", (), {"pid": 123})()
