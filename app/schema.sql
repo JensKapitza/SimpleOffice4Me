@@ -4,7 +4,12 @@ DROP TABLE IF EXISTS post;
 CREATE TABLE user (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL
+  password TEXT NOT NULL,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  is_disabled INTEGER NOT NULL DEFAULT 0,
+  auth_version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT,
+  updated_at TEXT
 );
 
 CREATE TABLE oauth_identity (

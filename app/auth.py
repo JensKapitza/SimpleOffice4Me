@@ -6,11 +6,12 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from flask import Blueprint, flash, g, redirect, render_template, request, session, url_for, current_app
+from flask import Blueprint, abort, flash, g, redirect, render_template, request, session, url_for, current_app
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
 from .google_sync import sync_google_account
+from .access_control import audit, has_feature
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -42,6 +43,7 @@ def _google_config() -> dict[str, str] | None:
 def _login_user(user) -> None:
     session.clear()
     session['user_id'] = user['id']
+    session['auth_version'] = user['auth_version']
 
 
 def _google_username(db, email: str) -> str:
@@ -74,9 +76,10 @@ def register():
             error = 'Der Benutzername ist bereits vergeben.'
 
         if error is None:
+            first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
             db.execute(
-                'INSERT INTO user (username, password) VALUES (?, ?)',
-                (username, generate_password_hash(password))
+                'INSERT INTO user (username, password, is_admin, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+                (username, generate_password_hash(password), int(first_user))
             )
             db.commit()
             return redirect(url_for('auth.login'))
@@ -101,11 +104,15 @@ def login():
             error = 'Benutzername oder Passwort ist falsch.'
         elif not check_password_hash(user['password'], password):
             error = 'Benutzername oder Passwort ist falsch.'
+        elif user['is_disabled']:
+            error = 'Dieses Konto ist gesperrt. Bitte einen Administrator kontaktieren.'
 
         if error is None:
             _login_user(user)
+            audit("login", "session", outcome="success", actor=user)
             return redirect(url_for('home'))
 
+        audit("login", "session", outcome="denied")
         flash(error)
 
 
@@ -171,11 +178,18 @@ def google_callback():
         # user selected the same text as a username. Explicit linking can be
         # added later from an authenticated account page.
         username = _google_username(db, email)
-        db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)', (username, generate_password_hash(secrets.token_urlsafe(32)), str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google'))
+        first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
+        db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', (username, generate_password_hash(secrets.token_urlsafe(32)), str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', int(first_user)))
         identity = db.execute('SELECT * FROM user WHERE username = ?', (username,)).fetchone()
         created = True
         db.execute('INSERT INTO oauth_identity (provider, subject, user_id, email) VALUES (?, ?, ?, ?)', ('google', subject, identity['id'], email))
     db.execute('UPDATE user SET display_name = ?, email = ?, avatar_url = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?', (str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', identity['id']))
+    identity = db.execute('SELECT * FROM user WHERE id = ?', (identity['id'],)).fetchone()
+    if identity['is_disabled']:
+        db.rollback()
+        audit("google_login", "session", outcome="denied")
+        flash('Dieses Konto ist gesperrt. Bitte einen Administrator kontaktieren.')
+        return redirect(url_for('auth.login'))
     expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(token.get('expires_in', 0) or 0))).isoformat()
     previous = db.execute('SELECT refresh_token FROM oauth_token WHERE provider = ? AND user_id = ?', ('google', identity['id'])).fetchone()
     refresh_token = str(token.get('refresh_token', '')).strip() or (previous['refresh_token'] if previous else '')
@@ -188,6 +202,7 @@ def google_callback():
         current_app.logger.exception('Google data sync failed')
         flash('Google-Anmeldung erfolgreich; Kontakt- und Kalenderimport wird beim nächsten Google-Login erneut versucht.')
     _login_user(identity)
+    audit("google_login", "session", outcome="success", actor=identity)
     flash('Konto mit Google erstellt und angemeldet.' if created else 'Mit Google angemeldet.')
     return redirect(url_for('home'))
 
@@ -198,9 +213,48 @@ def load_logged_in_user():
     if user_id is None:
         g.user = None
     else:
-        g.user = get_db().execute(
+        user = get_db().execute(
             'SELECT * FROM user WHERE id = ?', (user_id,)
         ).fetchone()
+        if user is not None and session.get('auth_version') is None:
+            # One-time compatibility for sessions created before this additive
+            # migration. All subsequent permission changes are version checked.
+            session['auth_version'] = user['auth_version']
+        if user is None or user['is_disabled'] or session.get('auth_version') != user['auth_version']:
+            session.clear()
+            g.user = None
+        else:
+            g.user = user
+
+
+FEATURE_BLUEPRINTS = {
+    "documents": "documents", "calendar": "documents", "contacts": "documents",
+    "mail_routes": "mail", "contact_audit": "contacts", "webdav": "webdav",
+}
+
+
+@bp.before_app_request
+def enforce_feature_permission():
+    if g.get("user") is None:
+        return None
+    endpoint = request.endpoint or ""
+    blueprint = endpoint.split(".", 1)[0]
+    feature = FEATURE_BLUEPRINTS.get(blueprint)
+    if blueprint == "documents":
+        leaf = endpoint.split(".", 1)[-1]
+        if leaf.startswith(("calendar", "caldav", "itip", "google_calendar")):
+            feature = "calendar"
+        elif leaf.startswith(("contact", "carddav")):
+            feature = "contacts"
+        elif leaf.startswith(("project", "time_")):
+            feature = "projects"
+        elif leaf.startswith(("replication", "sync")):
+            feature = "sync"
+        elif leaf.startswith(("webdav", "dav_")):
+            feature = "webdav"
+    if feature and not has_feature(g.user, feature):
+        abort(403, description="Diese Funktion wurde für Ihr Konto gesperrt.")
+    return None
 
 
 @bp.route('/logout')

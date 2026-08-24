@@ -8,6 +8,8 @@ import json
 import sys
 import datetime
 import locale
+import secrets
+import traceback
 
 from .applogging import initlogging
 from .secret_key import load_or_create_secret_key
@@ -20,6 +22,7 @@ from flask import Flask, send_from_directory, \
     g, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 
 
@@ -237,7 +240,62 @@ app.register_blueprint(contact_audit.bp)
 from . import mail_routes
 app.register_blueprint(mail_routes.bp)
 
+from . import admin
+app.register_blueprint(admin.bp)
+
 from .settings_store import SettingsStore, translate, ui_literal_translations
+
+
+@app.before_request
+def assign_request_id():
+    g.request_id = secrets.token_hex(8)
+
+
+@app.after_request
+def publish_request_id(response):
+    response.headers["X-Request-ID"] = getattr(g, "request_id", "")
+    return response
+
+
+@app.errorhandler(403)
+def forbidden(error):
+    return render_template("errors/403.html", message=getattr(error, "description", "Zugriff verweigert.")), 403
+
+
+@app.errorhandler(Exception)
+def unhandled_application_error(error):
+    if isinstance(error, HTTPException):
+        return error
+    if app.testing and app.config.get("PROPAGATE_EXCEPTIONS", True):
+        raise error
+    request_id = getattr(g, "request_id", secrets.token_hex(8))
+    exception_type = type(error).__name__[:120]
+    endpoint = (request.endpoint or "")[:160]
+    path = request.path[:500]
+    frames = [
+        {"file": Path(frame.filename).name[:160], "line": frame.lineno, "function": frame.name[:160]}
+        for frame in traceback.extract_tb(error.__traceback__)[-12:]
+    ]
+    try:
+        from .access_control import error_fingerprint, utc_now
+        from .db import get_db
+        actor = getattr(g, "user", None)
+        dbh = get_db()
+        dbh.execute(
+            """INSERT OR IGNORE INTO application_error(
+                   occurred_at, request_id, actor_id, exception_type, endpoint,
+                   method, path, fingerprint, frames
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (utc_now(), request_id, actor["id"] if actor else None, exception_type,
+             endpoint, request.method[:12], path,
+             error_fingerprint(exception_type, endpoint, request.method[:12], path),
+             json.dumps(frames, ensure_ascii=False)),
+        )
+        dbh.commit()
+    except Exception:
+        pass
+    app.logger.error("Unhandled application error request_id=%s type=%s endpoint=%s", request_id, exception_type, endpoint)
+    return render_template("errors/500.html", request_id=request_id), 500
 
 
 @app.before_request

@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime, timezone
 
 import click
 from flask import current_app, g
@@ -56,6 +57,51 @@ def ensure_auth_database() -> None:
     for name in ("display_name", "email", "avatar_url", "profile_source", "profile_updated_at"):
         if name not in columns:
             get_db().execute(f"ALTER TABLE user ADD COLUMN {name} TEXT")
+    additions = {
+        "is_admin": "INTEGER NOT NULL DEFAULT 0",
+        "is_disabled": "INTEGER NOT NULL DEFAULT 0",
+        "auth_version": "INTEGER NOT NULL DEFAULT 1",
+        "created_at": "TEXT",
+        "updated_at": "TEXT",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            get_db().execute(f"ALTER TABLE user ADD COLUMN {name} {definition}")
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    get_db().execute("UPDATE user SET created_at = COALESCE(created_at, ?), updated_at = COALESCE(updated_at, ?)", (now, now))
+    # Existing installations gain one recoverable administrator without
+    # widening any other account. The oldest account is the documented owner.
+    if get_db().execute("SELECT COUNT(*) FROM user WHERE is_admin = 1").fetchone()[0] == 0:
+        get_db().execute("UPDATE user SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM user)")
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS user_permission (
+            user_id INTEGER NOT NULL, feature TEXT NOT NULL, enabled INTEGER NOT NULL,
+            updated_at TEXT NOT NULL, updated_by INTEGER,
+            PRIMARY KEY(user_id, feature), FOREIGN KEY(user_id) REFERENCES user(id)
+        )"""
+    )
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS security_event (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL,
+            actor_id INTEGER, actor_name TEXT, action TEXT NOT NULL,
+            target_type TEXT NOT NULL, target_id TEXT, outcome TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '{}'
+        )"""
+    )
+    get_db().execute(
+        """CREATE TABLE IF NOT EXISTS application_error (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL,
+            request_id TEXT NOT NULL UNIQUE, actor_id INTEGER, exception_type TEXT NOT NULL,
+            endpoint TEXT, method TEXT NOT NULL, path TEXT NOT NULL,
+            fingerprint TEXT NOT NULL, frames TEXT NOT NULL DEFAULT '[]',
+            resolved_at TEXT, resolved_by INTEGER
+        )"""
+    )
+    error_columns = {row[1] for row in get_db().execute("PRAGMA table_info(application_error)").fetchall()}
+    if "frames" not in error_columns:
+        get_db().execute("ALTER TABLE application_error ADD COLUMN frames TEXT NOT NULL DEFAULT '[]'")
+    get_db().execute("CREATE INDEX IF NOT EXISTS security_event_time ON security_event(occurred_at DESC)")
+    get_db().execute("CREATE INDEX IF NOT EXISTS application_error_time ON application_error(occurred_at DESC)")
     get_db().execute(
         """CREATE TABLE IF NOT EXISTS oauth_token (
             provider TEXT NOT NULL,
