@@ -39,6 +39,7 @@ from .document_store import (
     utc_now,
 )
 from .file_lock import exclusive_file_lock
+from .ssh_keys import add_key, keys_for, revoke_key
 from .virtual_filesystem import VirtualFileSystem
 from .db import get_db
 
@@ -3637,6 +3638,25 @@ def setup_user_webdav():
                 flash("Ordnerrechte gespeichert. WebDAV und SFTP verwenden dieselbe Regel.")
             except (OSError, PermissionError, ValueError) as exc:
                 flash(f"Ordnerrechte konnten nicht gespeichert werden: {exc}")
+        elif action == "add_ssh_key":
+            try:
+                add_key(
+                    current_app.config["DOCUMENT_ROOT"], username,
+                    request.form.get("public_key", ""),
+                    label=request.form.get("ssh_key_label", "SSHFS-Schlüssel"),
+                    scope=request.form.get("ssh_key_scope", "write"),
+                    expires_days=int(request.form.get("ssh_key_expires_days", "365")),
+                    actor=username,
+                )
+                flash("SSH-Public-Key hinterlegt. Der private Schlüssel bleibt ausschließlich auf deinem Gerät.")
+            except (OSError, PermissionError, TypeError, ValueError) as exc:
+                flash(str(exc) or "SSH-Schlüssel konnte nicht hinterlegt werden.")
+        elif action == "revoke_ssh_key":
+            removed = revoke_key(
+                current_app.config["DOCUMENT_ROOT"], username,
+                request.form.get("ssh_key_id", ""), actor=username,
+            )
+            flash("SSH-Schlüssel widerrufen." if removed else "Der SSH-Schlüssel war bereits widerrufen.")
         else:
             try:
                 generated_password = activate(username, username, label=request.form.get("label", "Allgemeiner Desktop-Zugang"), scope=request.form.get("scope", "write"), expires_days=int(request.form.get("expires_days", "365")), path_prefix="")
@@ -3657,6 +3677,7 @@ def setup_user_webdav():
         quota=_quota_state(), access_users=users, access_folders=folders,
         selected_folder=selected_folder, selected_policy=selected_policy,
         access_administrator=access_administrator,
+        ssh_keys=keys_for(current_app.config["DOCUMENT_ROOT"], username),
     )
 
 

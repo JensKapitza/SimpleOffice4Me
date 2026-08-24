@@ -109,6 +109,8 @@ class AttachmentSecurity:
         actor: str,
         target_path: str,
         max_quarantine_bytes: int,
+        *,
+        source_type: str = "webdav-put",
     ) -> dict[str, Any]:
         """Scan one untrusted PUT body before it can enter the visible tree."""
         if not actor.strip() or not target_path.strip():
@@ -143,7 +145,7 @@ class AttachmentSecurity:
             "scan_id": scan_id,
             "scanned_at": utc_now(),
             "actor": actor,
-            "source_type": "webdav-put",
+            "source_type": source_type,
             "target_path": target_path,
             "filename": Path(target_path).name,
             "size": len(payload),

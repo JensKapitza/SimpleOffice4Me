@@ -10,6 +10,12 @@ Nautilus SFTP: {{ remote.nautilus_sftp }}
 SSHFS:
   mkdir -p ~/SimpleOffice
   {{ remote.sshfs_command }}
+{% if remote.rsync_enabled %}
+rsync Download:
+  {{ remote.rsync_pull_command }}
+rsync Upload:
+  {{ remote.rsync_push_command }}
+{% endif %}
 
 Die Datei enthält absichtlich keine Passwörter. App-Passwörter werden im
 Einrichtungsassistenten einmalig angezeigt und können dort widerrufen werden.

@@ -47,7 +47,7 @@ class VirtualFileSystem:
 
     @staticmethod
     def username(actor: str) -> str:
-        return actor.split(":", 1)[1] if actor.startswith(("webdav:", "sftp:")) else actor
+        return actor.split(":", 1)[1] if actor.startswith(("webdav:", "sftp:", "rsync:")) else actor
 
     @classmethod
     def from_environment(cls, root: str | Path) -> "VirtualFileSystem":
@@ -203,22 +203,39 @@ class VirtualFileSystem:
         self.require(actor, resource.parent, "write")
         return self.store.create_collection(self.relative(resource), actor)
 
-    def remove(self, actor: str, path: str | Path) -> None:
+    def remove(self, actor: str, path: str | Path, *, expected_sha256: str = "") -> None:
         resource = self.require(actor, path, "write")
         self.require(actor, resource.parent, "write")
         if resource.is_dir():
             self.store.delete_empty_collection(self.relative(resource), actor)
         else:
             document = self.store.get_document(resource)
-            self.store.soft_delete_document(document["document_id"], actor)
+            self.store.soft_delete_document(
+                document["document_id"], actor, expected_sha256=expected_sha256,
+            )
 
-    def rename(self, actor: str, source: str | Path, destination: str | Path) -> None:
+    def rename(
+        self, actor: str, source: str | Path, destination: str | Path,
+        *, replace: bool = False,
+    ) -> None:
         source_path = self.require(actor, source, "write")
         destination_path = self.resolve(destination)
         self.require(actor, source_path.parent, "write")
         self.require(actor, destination_path.parent, "write")
         if destination_path.exists():
-            raise FileExistsError(self.relative(destination_path))
+            if not replace:
+                raise FileExistsError(self.relative(destination_path))
+            self.require(actor, destination_path, "write")
+            if source_path.is_dir() or destination_path.is_dir():
+                raise ValueError("POSIX replacement is limited to regular files")
+            source_document = self.store.get_document(source_path)
+            destination_document = self.store.get_document(destination_path)
+            self.store.replace_document_via_move(
+                source_document["document_id"], destination_document["document_id"], actor,
+                expected_source_sha256=hashlib.sha256(source_path.read_bytes()).hexdigest(),
+                expected_destination_sha256=hashlib.sha256(destination_path.read_bytes()).hexdigest(),
+            )
+            return
         if source_path.is_dir():
             self.store.move_collection(self.relative(source_path), self.relative(destination_path), actor)
         else:
@@ -227,6 +244,29 @@ class VirtualFileSystem:
                 document["document_id"], self.relative(destination_path.parent), actor,
                 destination_name=destination_path.name,
             )
+
+    def set_times(
+        self, actor: str, path: str | Path, *, atime: float | None = None,
+        mtime: float | None = None,
+    ) -> None:
+        """Set portable timestamps without exposing ownership or mode changes."""
+        resource = self.require(actor, path, "write")
+        current = resource.stat(follow_symlinks=False)
+        accessed = current.st_atime if atime is None else float(atime)
+        modified = current.st_mtime if mtime is None else float(mtime)
+        # Keep platform-dependent timestamp conversion away from extreme input.
+        if not 0 <= accessed <= 4102444800 or not 0 <= modified <= 4102444800:
+            raise ValueError("timestamp is outside the supported range")
+        os.utime(resource, (accessed, modified), follow_symlinks=False)
+        details = {
+            "path": self.relative(resource), "atime": accessed, "mtime": modified,
+            "actor": self.username(actor), "updated_at": utc_now(),
+        }
+        self.store._event("document_times_updated", details)
+        self.store.history.record(
+            "document_times_updated", self.username(actor), "documents",
+            hashlib.sha256(details["path"].encode()).hexdigest(), details,
+        )
 
     def set_grants(
         self,
