@@ -32,6 +32,7 @@ class DocumentStoreTest(unittest.TestCase):
 
             self.assertEqual(2, report.files)
             self.assertEqual(2, report.new_files)
+            self.assertEqual(0, report.updated_files)
             self.assertEqual(1, report.duplicates)
             self.assertTrue((root / POLICY_FILE).exists())
             self.assertTrue((root / CONTROL_DIR / "events.ndjson").exists())
@@ -49,6 +50,37 @@ class DocumentStoreTest(unittest.TestCase):
 
             self.assertEqual(1, report.files)
             self.assertEqual(0, report.new_files)
+            self.assertEqual(0, report.updated_files)
+
+    def test_changed_existing_file_is_counted_as_updated_not_new(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "existing.txt"
+            source.write_text("first", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+
+            source.write_text("changed content", encoding="utf-8")
+            report = store.scan()
+
+            self.assertEqual(1, report.files)
+            self.assertEqual(0, report.new_files)
+            self.assertEqual(1, report.updated_files)
+
+    def test_rebuilt_metadata_is_counted_as_updated_not_new(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "repair.bin"
+            source.write_bytes(b"recoverable")
+            store = DocumentStore(root)
+            store.scan()
+            original = store.get_document(source)
+            (root / CONTROL_DIR / "documents" / f"{original['document_id']}.json").unlink()
+
+            report = store.scan()
+
+            self.assertEqual(0, report.new_files)
+            self.assertEqual(1, report.updated_files)
 
     def test_missing_metadata_is_rebuilt_from_cached_identity(self):
         with tempfile.TemporaryDirectory() as temp:

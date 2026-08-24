@@ -34,7 +34,7 @@ def import_file(file: Path, version_of: str | None, actor: str) -> None:
     target = store.import_file(file, actor)
     report = store.scan()
     click.echo(
-        f"imported={target} files={report.files} duplicates={report.duplicates} "
+        f"imported={target} files={report.files} new={report.new_files} updated={report.updated_files} duplicates={report.duplicates} "
         f"symlinks={report.symlinks} boundaries={report.skipped_boundaries}"
     )
 

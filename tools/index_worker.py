@@ -58,6 +58,7 @@ def run_index(root: str | Path) -> int:
             "state": "starting",
             "files": 0,
             "new_files": 0,
+            "updated_files": 0,
             "duplicates": 0,
             "errors": 0,
             "process_id": os.getpid(),
@@ -80,6 +81,7 @@ def run_index(root: str | Path) -> int:
                 "state": "running",
                 "files": current_files,
                 "new_files": int(getattr(current, "new_files")),
+                "updated_files": int(getattr(current, "updated_files")),
                 "duplicates": int(getattr(current, "duplicates")),
                 "errors": int(getattr(current, "errors")),
                 "process_id": os.getpid(),
@@ -88,7 +90,7 @@ def run_index(root: str | Path) -> int:
             store.set_scan_status(status)
             print(
                 "Index: "
-                f"files={status['files']} new={status['new_files']} "
+                f"files={status['files']} new={status['new_files']} updated={status['updated_files']} "
                 f"duplicates={status['duplicates']} errors={status['errors']}",
                 flush=True,
             )
@@ -109,7 +111,7 @@ def run_index(root: str | Path) -> int:
             store.set_preview_metadata(metadata["document_id"], previews.generate(path, metadata))
 
         store.set_scan_status({
-            "state": "running", "files": 0, "new_files": 0,
+            "state": "running", "files": 0, "new_files": 0, "updated_files": 0,
             "duplicates": 0, "errors": 0, "process_id": os.getpid(), "preview_tools": tools["commands"],
         })
         try:
@@ -117,12 +119,12 @@ def run_index(root: str | Path) -> int:
             elapsed = round(time.monotonic() - started, 3)
             store.set_scan_status({
                 "state": "completed", "files": report.files,
-                "new_files": report.new_files, "duplicates": report.duplicates,
+                "new_files": report.new_files, "updated_files": report.updated_files, "duplicates": report.duplicates,
                 "errors": report.errors, "duration_seconds": elapsed,
                 "preview_tools": tools["commands"],
             })
             print(
-                f"Index abgeschlossen: files={report.files} new={report.new_files} "
+                f"Index abgeschlossen: files={report.files} new={report.new_files} updated={report.updated_files} "
                 f"duplicates={report.duplicates} errors={report.errors} duration={elapsed}s",
                 flush=True,
             )

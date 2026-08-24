@@ -47,6 +47,12 @@ frühere vollständige Schleife über alle JSON-Dateien entfällt.
 6. Fortschritt und Fehler werden atomar in
    `.simpleoffice-meta/scan-status.json` geschrieben und im Dashboard gezeigt.
 
+Der Fortschritt trennt `new` und `updated`: `new` bezeichnet eine zuvor nicht
+bekannte Datei. `updated` zählt bekannte Dokumente, deren Inhalt, Zeitstempel,
+Pfad, erkannte Dateinamen-Tags oder reparierbare Metadaten beim Scan neu in den
+Index übernommen wurden. Unveränderte Dateien erhöhen nur `files`; ein reiner
+erneuter Sichtkontakt wird nicht als Aktualisierung gezählt.
+
 Ein Absturz des Indexdienstes beendet den Webserver nicht. Beim nächsten Start
 wird der reparierbare Index fortgesetzt beziehungsweise erneut abgeglichen.
 

@@ -40,6 +40,16 @@ class McpTest(unittest.TestCase):
         marker=next(tool for tool in listed if tool["name"]=="mark_document_deletion_candidate")
         self.assertFalse(marker["annotations"]["destructiveHint"])
 
+    def test_get_endpoint_is_controlled_and_points_to_settings(self):
+        response = self.client.get("/mcp")
+
+        self.assertEqual(405, response.status_code)
+        self.assertEqual("POST", response.headers["Allow"])
+        self.assertEqual("/settings/mcp", response.json["settings"])
+
+    def test_unknown_legacy_template_path_is_a_404_not_an_application_error(self):
+        self.assertEqual(404, self.client.get("/definitely-missing-template").status_code)
+
     def test_missing_revoked_and_disabled_credentials_are_denied(self):
         self.assertEqual(401,self.rpc("invalid","tools/list").status_code)
         with app.app_context():
