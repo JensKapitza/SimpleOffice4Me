@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from typing import Any
 
+from .document_store import atomic_json_write, utc_now
 from .mail_client import MAX_SCRIPT_BYTES, MailStore, ManageSieveClient
 
 _SCRIPT_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
@@ -64,6 +66,29 @@ class ManageSieveSyncClient(ManageSieveClient):
         self._command(f"SETACTIVE {self._quote(name)}")
 
 
+def _state_path(store: MailStore):
+    return store.control / "sieve-server-state.json"
+
+
+def server_state(store: MailStore, actor: str, account_id: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(_state_path(store).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"scripts": [], "active": "", "updated_at": ""}
+    return payload.get("accounts", {}).get(f"{actor}:{account_id}", {"scripts": [], "active": "", "updated_at": ""})
+
+
+def _save_state(store: MailStore, actor: str, account_id: str, state: dict[str, Any]) -> None:
+    path = _state_path(store)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {"version": 1, "accounts": {}}
+    payload.setdefault("accounts", {})[f"{actor}:{account_id}"] = state
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_json_write(path, payload)
+
+
 def sync_from_server(store: MailStore, actor: str, account: dict[str, Any]) -> dict[str, Any]:
     """Download every server script before editing without silently losing local data."""
     client = ManageSieveSyncClient(account["sieve_host"], account["sieve_port"])
@@ -87,10 +112,32 @@ def sync_from_server(store: MailStore, actor: str, account: dict[str, Any]) -> d
             downloaded.append({"name": name, "active": row["active"], "sha512": digest, "changed": changed})
             if row["active"]:
                 active = name
+        state = {"scripts": downloaded, "active": active, "updated_at": utc_now()}
+        _save_state(store, actor, account["id"], state)
         store.history.record(
             "sieve_server_inventory_downloaded", actor, "sieve", account["id"],
             {"account_id": account["id"], "scripts": len(downloaded), "active": active},
         )
-        return {"scripts": downloaded, "active": active}
+        return state
     finally:
         client.close()
+
+
+def activate_server_script(store: MailStore, actor: str, account: dict[str, Any], name: str) -> dict[str, Any]:
+    """Back up the full server inventory, then activate an existing server script."""
+    state = sync_from_server(store, actor, account)
+    if name not in {row["name"] for row in state["scripts"]}:
+        raise ValueError("Sieve-Skript existiert auf dem Server nicht")
+    client = ManageSieveSyncClient(account["sieve_host"], account["sieve_port"])
+    try:
+        client.connect(account["username"], account["plain_password"])
+        client.set_active(name)
+    finally:
+        client.close()
+    for row in state["scripts"]:
+        row["active"] = row["name"] == name
+    state["active"] = name
+    state["updated_at"] = utc_now()
+    _save_state(store, actor, account["id"], state)
+    store.history.record("sieve_script_activated", actor, "sieve", account["id"], {"account_id": account["id"], "name": name})
+    return state
