@@ -24,7 +24,7 @@ Optionen:
   --help                      Diese Hilfe anzeigen
 
 Beispiel:
-  ./start.sh --google-json /etc/simpleoffice/google-oauth.json \\
+  ./start.sh --google-json /etc/simpleoffice/google-oauth.json \
     --public-url https://office.example.de --trusted-proxy-hops 1
 EOF
 }
@@ -94,6 +94,9 @@ if [ ! -x "$VENV/bin/python" ]; then
   "$PYTHON" -m venv "$VENV"
 fi
 
-"$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT"
+# Keep the project-owned venv complete on every start. This also upgrades an
+# existing base-only installation by installing the optional SFTP dependencies
+# (Paramiko) into exactly the interpreter used to launch SimpleOffice.
+"$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
 cd "$ROOT"
 exec "$VENV/bin/python" -m tools.launcher start "$@"

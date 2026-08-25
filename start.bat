@@ -19,7 +19,9 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 call ".venv\Scripts\activate.bat"
-python -m pip install --disable-pip-version-check --editable "%ROOT%"
+rem Keep the project-owned venv complete on every start. This upgrades an
+rem existing base-only installation and installs Paramiko for SFTP support.
+python -m pip install --disable-pip-version-check --editable "%ROOT%[sftp]"
 if errorlevel 1 goto :install_error
 python -m tools.launcher start
 exit /b %errorlevel%
@@ -145,5 +147,5 @@ echo Python 3.10 oder neuer wurde nicht gefunden oder konnte keine virtuelle Umg
 exit /b 1
 
 :install_error
-echo Die Python-Abhaengigkeiten konnten nicht installiert werden.
+echo Die Python-Abhaengigkeiten inklusive SFTP konnten nicht installiert werden.
 exit /b 1
