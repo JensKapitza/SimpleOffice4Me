@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from markupsafe import Markup, escape
 
 from .auth import login_required
+from .mail_archive_preview import load_local_eml
 from .mail_client import MailStore
 from .mail_reader import MailReader
 
@@ -48,6 +50,11 @@ def index():
     if selected:
         if mode == "archive":
             archive_rows = reader.local_archive(_actor(), selected["id"], query=query, limit=200)
+            for row in archive_rows:
+                href = url_for("mail_reader.archive_preview", account=selected["id"], path=row["path"], q=query)
+                row["subject"] = Markup('<a href="{}" class="text-decoration-none">{}</a>').format(
+                    escape(href), escape(row["subject"])
+                )
         else:
             try:
                 account = store.account(_actor(), selected["id"])
@@ -68,6 +75,34 @@ def index():
         accounts=accounts, selected=selected, mode=mode, query=query, folder=folder,
         folders=folders, messages=messages, preview=preview, archive_rows=archive_rows,
         connection_error=connection_error,
+    )
+
+
+@bp.get("/archive/view")
+@login_required
+def archive_preview():
+    store = _store()
+    account_id = request.args.get("account", "").strip()
+    path = request.args.get("path", "").strip()
+    query = request.args.get("q", "").strip()
+    try:
+        preview = load_local_eml(store, _actor(), account_id, path)
+        store.history.record(
+            "mail_archive_message_viewed",
+            _actor(),
+            "mail-archive",
+            preview["sha512"],
+            {"account_id": account_id, "sha512": preview["sha512"], "size": preview["size"]},
+        )
+    except (ValueError, PermissionError, FileNotFoundError, KeyError) as exc:
+        current_app.logger.warning("Local EML preview denied for %s: %s", _actor(), type(exc).__name__)
+        flash("Archivierte Nachricht konnte nicht geöffnet werden.")
+        return redirect(url_for("mail_reader.index", account=account_id, mode="archive", q=query))
+    return render_template(
+        "documents/mail_archive_preview.html",
+        preview=preview,
+        account_id=account_id,
+        query=query,
     )
 
 
