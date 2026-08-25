@@ -10,6 +10,7 @@ from .auth import login_required
 from .contact_management import ContactManagement
 from .contact_store import ContactStore
 from .contact_tools import ContactTools
+from .db import get_db
 
 
 bp = Blueprint("contact_audit", __name__)
@@ -120,6 +121,25 @@ def update_metadata(contact_id: str):
     try:
         manager.update_metadata(contact_id, _actor(), request.form.get("tags", "").split(","), request.form.get("groups", "").split(","))
         flash("Tags und Gruppen gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contact_detail", contact_id=contact_id))
+
+
+@bp.post("/documents/contacts/<contact_id>/access")
+@login_required
+def update_sharing(contact_id: str):
+    """Store independent read and manage grants for one contact."""
+    actor = _actor()
+    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
+    managers = request.form.getlist("managers")
+    readers = request.form.getlist("readers")
+    unknown = sorted((set(managers) | set(readers)) - valid_users)
+    try:
+        if unknown:
+            raise ValueError(f"unknown users: {', '.join(unknown)}")
+        ContactStore(current_app.config["DOCUMENT_ROOT"]).share(contact_id, managers, actor, readers)
+        flash("Kontaktfreigaben gespeichert. Lesen und Bearbeiten sind getrennt.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.contact_detail", contact_id=contact_id))
