@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
 from .contact_management import ContactManagement
 from .contact_store import ContactStore
 from .contact_tools import ContactTools
+from .db import get_db
 
 
 bp = Blueprint("contact_audit", __name__)
@@ -21,7 +22,11 @@ LABELS = {
 
 
 def change_history(store: ContactStore, actor: str, query: str = "", editor: str = "", field: str = "", offset: int = 0, limit: int = PAGE_SIZE) -> dict[str, Any]:
-    """Return a bounded, newest-first audit view of contacts visible to actor."""
+    """Return audit history only for contacts the actor may edit.
+
+    Read-only sharing exposes the current contact, not historical field values
+    that may contain data removed before the share was granted.
+    """
     if not actor.strip():
         raise ValueError("a named user is required for contact history")
     needle = query.strip().casefold()
@@ -32,6 +37,8 @@ def change_history(store: ContactStore, actor: str, query: str = "", editor: str
     fields: set[str] = set()
     for contact in store.contacts(actor):
         contact_id = str(contact.get("contact_id", ""))
+        if not store.can_manage(contact_id, actor):
+            continue
         display_name = str(contact.get("fields", {}).get("display_name", ""))
         for change in contact.get("changes", []):
             if not isinstance(change, dict):
@@ -125,6 +132,25 @@ def update_metadata(contact_id: str):
     return redirect(url_for("documents.contact_detail", contact_id=contact_id))
 
 
+@bp.post("/documents/contacts/<contact_id>/access")
+@login_required
+def update_sharing(contact_id: str):
+    """Store independent read and manage grants for one contact."""
+    actor = _actor()
+    valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
+    managers = request.form.getlist("managers")
+    readers = request.form.getlist("readers")
+    unknown = sorted((set(managers) | set(readers)) - valid_users)
+    try:
+        if unknown:
+            raise ValueError(f"unknown users: {', '.join(unknown)}")
+        ContactStore(current_app.config["DOCUMENT_ROOT"]).share(contact_id, managers, actor, readers)
+        flash("Kontaktfreigaben gespeichert. Lesen und Bearbeiten sind getrennt.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contact_detail", contact_id=contact_id))
+
+
 @bp.post("/documents/contacts/bulk-metadata")
 @login_required
 def bulk_metadata():
@@ -167,6 +193,8 @@ def merge_contacts():
 @login_required
 def snapshots(contact_id: str):
     manager = _management()
+    if not manager.store.can_manage(contact_id, _actor()):
+        abort(403)
     contact = manager.store.get(contact_id, _actor())
     return render_template("documents/contact_snapshots.html", contact=contact, snapshots=manager.snapshots(contact_id, _actor()))
 
@@ -174,6 +202,9 @@ def snapshots(contact_id: str):
 @bp.get("/documents/contacts/<contact_id>/snapshots/<snapshot_id>/compare")
 @login_required
 def compare_snapshot(contact_id: str, snapshot_id: str):
+    manager = _management()
+    if not manager.store.can_manage(contact_id, _actor()):
+        abort(403)
     try:
         comparison = _tools().compare_snapshot(contact_id, snapshot_id, _actor())
         return render_template("documents/contact_snapshot_compare.html", comparison=comparison)

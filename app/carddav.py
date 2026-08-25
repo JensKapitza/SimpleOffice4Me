@@ -41,10 +41,7 @@ def _etag(contact: dict) -> str:
 
 def _etag_matches(header_value: str, current_etag: str) -> bool:
     """Apply HTTP entity-tag list matching for CardDAV write preconditions."""
-    return any(
-        candidate.strip() == "*" or candidate.strip() == current_etag
-        for candidate in header_value.split(",")
-    )
+    return any(candidate.strip() == "*" or candidate.strip() == current_etag for candidate in header_value.split(","))
 
 
 def _precondition_failed(current_etag: str = "") -> Response:
@@ -52,13 +49,20 @@ def _precondition_failed(current_etag: str = "") -> Response:
     return Response("CardDAV precondition failed", 412, headers)
 
 
-def _write_privileges() -> str:
-    """Advertise writable DAV permissions so clients do not mark the book read-only."""
-    return "<d:current-user-privilege-set><d:privilege><d:read/></d:privilege><d:privilege><d:write/></d:privilege><d:privilege><d:write-content/></d:privilege><d:privilege><d:bind/></d:privilege><d:privilege><d:unbind/></d:privilege></d:current-user-privilege-set>"
+def _privileges(writable: bool = True) -> str:
+    values = ["<d:privilege><d:read/></d:privilege>"]
+    if writable:
+        values.extend([
+            "<d:privilege><d:write/></d:privilege>",
+            "<d:privilege><d:write-content/></d:privilege>",
+            "<d:privilege><d:bind/></d:privilege>",
+            "<d:privilege><d:unbind/></d:privilege>",
+        ])
+    return "<d:current-user-privilege-set>" + "".join(values) + "</d:current-user-privilege-set>"
 
 
 def _addressbook_properties() -> str:
-    return f'<d:resourcetype><d:collection/><card:addressbook/></d:resourcetype><d:displayname>SimpleOffice Kontakte</d:displayname><card:supported-address-data><card:address-data-type content-type="text/vcard" version="4.0"/></card:supported-address-data>{_write_privileges()}'
+    return f'<d:resourcetype><d:collection/><card:addressbook/></d:resourcetype><d:displayname>SimpleOffice Kontakte</d:displayname><card:supported-address-data><card:address-data-type content-type="text/vcard" version="4.0"/></card:supported-address-data>{_privileges(True)}'
 
 
 @bp.route("/.well-known/carddav", methods=["OPTIONS", "PROPFIND", "GET"])
@@ -73,6 +77,7 @@ def endpoint(path: str):
     username = _auth()
     if username is None:
         return _unauthorized()
+    store = _store()
     base = f"/carddav/addressbooks/{username}/default/"
     if request.method == "OPTIONS":
         return Response("", 204, {"DAV": "1, addressbook", "Allow": "OPTIONS, PROPFIND, REPORT, GET, PUT, DELETE"})
@@ -84,9 +89,10 @@ def endpoint(path: str):
     if request.method == "PROPFIND":
         if normalized.endswith(".vcf"):
             contact_id = normalized.rsplit("/", 1)[-1][:-4]
-            try: contact = _store().get(contact_id, username)
+            try: contact = store.get(contact_id, username)
             except ValueError: return Response("not found", 404)
-            return _xml([(request.path, f"<d:getetag>{_etag(contact)}</d:getetag><d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>{_write_privileges()}")])
+            writable = store.can_manage(contact_id, username)
+            return _xml([(request.path, f"<d:getetag>{_etag(contact)}</d:getetag><d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>{_privileges(writable)}")])
         principal = url_for("carddav.endpoint", path=f"principals/{username}/", _external=True)
         home = url_for("carddav.endpoint", path=f"addressbooks/{username}/", _external=True)
         addressbook = url_for("carddav.endpoint", path=f"addressbooks/{username}/default/", _external=True)
@@ -105,29 +111,31 @@ def endpoint(path: str):
         return Response("not found", 404)
     if request.method == "REPORT":
         items = []
-        for contact in _store().contacts(username):
+        for contact in store.contacts(username):
             href = base + contact["contact_id"] + ".vcf"
-            card = escape(_store().vcard(contact["contact_id"], username))
+            card = escape(store.vcard(contact["contact_id"], username))
             items.append((href, f"<d:getetag>{_etag(contact)}</d:getetag><card:address-data content-type=\"text/vcard\" version=\"4.0\">{card}</card:address-data>"))
         return _xml(items)
     if normalized.endswith(".vcf"):
         contact_id = normalized.rsplit("/", 1)[-1][:-4]
         if request.method == "GET":
-            try: card = _store().vcard(contact_id, username); contact = _store().get(contact_id, username)
+            try: card = store.vcard(contact_id, username); contact = store.get(contact_id, username)
             except ValueError: return Response("not found", 404)
             return Response(card, 200, {"Content-Type": "text/vcard; charset=utf-8", "ETag": _etag(contact)})
         if request.method == "PUT":
             try:
-                existing = _store().get(contact_id, username)
+                existing = store.get(contact_id, username)
                 created = False
             except ValueError:
                 try:
-                    _store().get(contact_id)
+                    store.get(contact_id)
                 except ValueError:
                     existing = None
                     created = True
                 else:
                     return Response("forbidden", 403)
+            if existing is not None and not store.can_manage(contact_id, username):
+                return Response("forbidden", 403)
             expected_updated_at = None
             create_only = request.headers.get("If-None-Match") == "*"
             if existing is not None:
@@ -141,7 +149,7 @@ def endpoint(path: str):
             elif request.headers.get("If-Match"):
                 return _precondition_failed()
             try:
-                contact = _store().conditional_upsert_vcard(
+                contact = store.conditional_upsert_vcard(
                     request.get_data(as_text=True),
                     f"carddav:{username}",
                     contact_id,
@@ -155,14 +163,16 @@ def endpoint(path: str):
             return Response("", 201 if created else 204, {"ETag": _etag(contact), "Location": base + contact["contact_id"] + ".vcf"})
         if request.method == "DELETE":
             try:
-                existing = _store().get(contact_id, username)
+                existing = store.get(contact_id, username)
             except ValueError:
                 return Response("not found", 404)
+            if not store.can_manage(contact_id, username):
+                return Response("forbidden", 403)
             current_etag = _etag(existing)
             if request.headers.get("If-Match") and not _etag_matches(request.headers["If-Match"], current_etag):
                 return _precondition_failed(current_etag)
             expected_updated_at = existing.get("updated_at", "") if request.headers.get("If-Match") else None
-            try: _store().delete(contact_id, f"carddav:{username}", expected_updated_at)
+            try: store.delete(contact_id, f"carddav:{username}", expected_updated_at)
             except ContactConflict as exc:
                 return _precondition_failed(_etag(exc.contact) if exc.contact else "")
             except ValueError: return Response("not found", 404)

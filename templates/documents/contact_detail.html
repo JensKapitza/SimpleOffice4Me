@@ -2,21 +2,25 @@
 {% block script %}<script defer src="{{ url_for('static', filename='js/contact-history.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
+{% set username = g.user['username'] %}
+{% set can_manage = is_owner or username in contact.managers|default([]) %}
 <main class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
     <div>
       <a href="{{ url_for('documents.contacts') }}" class="text-decoration-none">&larr; Kontakte</a>
       <h1 class="h2 mt-2 mb-1">{{ contact.fields.display_name }}</h1>
       <p class="text-secondary mb-0">Eigentümer: {{ contact.owner|default('bisher nicht zugeordnet', true) }} · zuletzt geändert von {{ contact.updated_by }}</p>
+      {% if can_manage %}<span class="badge text-bg-primary mt-2">Lesen und Bearbeiten</span>{% else %}<span class="badge text-bg-secondary mt-2">Nur Lesen</span>{% endif %}
     </div>
-    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
+    <div class="btn-group">{% if can_manage %}<a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a>{% endif %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
   <div class="row g-4">
     <section class="col-lg-7">
       <div class="card">
-        <div class="card-header">Kontaktdaten bearbeiten</div>
+        <div class="card-header">Kontaktdaten{% if can_manage %} bearbeiten{% endif %}</div>
         <div class="card-body">
+          {% if can_manage %}
           <form method="post" action="{{ url_for('documents.save_contact') }}" class="row g-3">
             <input type="hidden" name="contact_id" value="{{ contact.contact_id }}">
             <div class="col-md-6"><label class="form-label">Vorname</label><input class="form-control" name="first_name" value="{{ contact.fields.first_name|default('') }}"></div>
@@ -31,39 +35,57 @@
             {% endfor %}
             <div class="col-12"><button class="btn btn-primary">Änderungen speichern</button></div>
           </form>
+          {% else %}
+          <dl class="row mb-0">
+            <dt class="col-sm-4">Vorname</dt><dd class="col-sm-8">{{ contact.fields.first_name|default('—', true) }}</dd>
+            <dt class="col-sm-4">Nachname</dt><dd class="col-sm-8">{{ contact.fields.last_name|default('—', true) }}</dd>
+            <dt class="col-sm-4">E-Mail</dt><dd class="col-sm-8">{{ contact.fields.email|default('—', true) }}</dd>
+            <dt class="col-sm-4">Telefon</dt><dd class="col-sm-8">{{ contact.fields.phone|default('—', true) }}</dd>
+            <dt class="col-sm-4">Geburtstag</dt><dd class="col-sm-8">{{ contact.fields.birthday|default('—', true) }}</dd>
+            <dt class="col-sm-4">Firma</dt><dd class="col-sm-8">{{ contact.fields.company|default('—', true) }}</dd>
+            {% for key, value in contact.fields.items() if key not in ['first_name','last_name','display_name','email','phone','birthday','company'] %}<dt class="col-sm-4">{{ key }}</dt><dd class="col-sm-8">{{ value }}</dd>{% endfor %}
+          </dl>
+          {% endif %}
         </div>
       </div>
       <div class="card mt-4">
         <div class="card-header">Adressen</div>
         <div class="card-body">
           {% for address in contact.addresses|default([]) %}<div class="border rounded p-2 mb-2"><strong>{{ address.label }}</strong><br>{{ address.value }}<div class="small text-secondary">von {{ address.created_by }}</div></div>{% else %}<p class="text-secondary">Keine Adresse hinterlegt.</p>{% endfor %}
-          <form method="post" action="{{ url_for('documents.add_contact_address', contact_id=contact.contact_id) }}" class="row g-2 mt-2">
+          {% if can_manage %}<form method="post" action="{{ url_for('documents.add_contact_address', contact_id=contact.contact_id) }}" class="row g-2 mt-2">
             <div class="col-md-3"><input class="form-control" name="label" placeholder="Typ, z. B. Privat"></div>
             <div class="col-md-7"><input required class="form-control" name="address" placeholder="Vollständige Anschrift"></div>
             <div class="col-md-2"><button class="btn btn-outline-primary w-100">Hinzufügen</button></div>
-          </form>
+          </form>{% endif %}
         </div>
       </div>
     </section>
     <aside class="col-lg-5">
-      <div class="card mb-4"><div class="card-header">Organisation</div><div class="card-body"><form method="post" action="{{ url_for('contact_audit.update_metadata', contact_id=contact.contact_id) }}"><label class="form-label">Tags</label><input class="form-control mb-3" name="tags" value="{{ contact.tags|default([])|join(', ') }}" placeholder="Kunde, Lieferant, Privat"><label class="form-label">Gruppen</label><input class="form-control mb-3" name="groups" value="{{ contact.groups|default([])|join(', ') }}" placeholder="Projekt A, Familie, Verein"><button class="btn btn-outline-primary">Tags und Gruppen speichern</button></form><p class="small text-secondary mt-2 mb-0">Vor Änderungen wird eine vollständige Kontaktversion gesichert.</p></div></div>
+      <div class="card mb-4"><div class="card-header">Organisation</div><div class="card-body">
+        {% if can_manage %}<form method="post" action="{{ url_for('contact_audit.update_metadata', contact_id=contact.contact_id) }}"><label class="form-label">Tags</label><input class="form-control mb-3" name="tags" value="{{ contact.tags|default([])|join(', ') }}" placeholder="Kunde, Lieferant, Privat"><label class="form-label">Gruppen</label><input class="form-control mb-3" name="groups" value="{{ contact.groups|default([])|join(', ') }}" placeholder="Projekt A, Familie, Verein"><button class="btn btn-outline-primary">Tags und Gruppen speichern</button></form><p class="small text-secondary mt-2 mb-0">Vor Änderungen wird eine vollständige Kontaktversion gesichert.</p>
+        {% else %}<p><strong>Tags:</strong> {{ contact.tags|default([])|join(', ') or '—' }}</p><p class="mb-0"><strong>Gruppen:</strong> {{ contact.groups|default([])|join(', ') or '—' }}</p>{% endif %}
+      </div></div>
       <div class="card">
-        <div class="card-header">Gemeinsame Verwaltung</div>
+        <div class="card-header">Freigaben</div>
         <div class="card-body">
           {% if is_owner %}
-          <p class="small text-secondary">Ausgewählte Benutzer können diesen Kontakt sehen und über Weboberfläche oder CardDAV bearbeiten.</p>
-          <form method="post" action="{{ url_for('documents.share_contact', contact_id=contact.contact_id) }}">
-            {% for username in users if username != contact.owner %}
-            <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="managers" value="{{ username }}" id="manager-{{ loop.index }}" {% if username in contact.managers|default([]) %}checked{% endif %}><label class="form-check-label" for="manager-{{ loop.index }}">{{ username }}</label></div>
-            {% else %}<p class="text-secondary">Noch keine weiteren Benutzer registriert.</p>{% endfor %}
+          <p class="small text-secondary">Leser dürfen den Kontakt in Web und CardDAV sehen. Bearbeiter dürfen ihn zusätzlich ändern oder löschen.</p>
+          <form method="post" action="{{ url_for('contact_audit.update_sharing', contact_id=contact.contact_id) }}">
+            <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Benutzer</th><th>Lesen</th><th>Bearbeiten</th></tr></thead><tbody>
+            {% for other in users if other != contact.owner %}
+            <tr><td>{{ other }}</td><td><input class="form-check-input" type="checkbox" name="readers" value="{{ other }}" aria-label="{{ other }} darf lesen" {% if other in contact.readers|default([]) or other in contact.managers|default([]) %}checked{% endif %}></td><td><input class="form-check-input" type="checkbox" name="managers" value="{{ other }}" aria-label="{{ other }} darf bearbeiten" {% if other in contact.managers|default([]) %}checked{% endif %}></td></tr>
+            {% else %}<tr><td colspan="3" class="text-secondary">Noch keine weiteren Benutzer registriert.</td></tr>{% endfor %}
+            </tbody></table></div>
             <button class="btn btn-outline-primary mt-2">Freigaben speichern</button>
           </form>
+          {% elif can_manage %}
+          <p class="mb-0">Du darfst diesen Kontakt lesen und bearbeiten. Freigaben kann nur {{ contact.owner }} ändern.</p>
           {% else %}
-          <p class="mb-0">Du verwaltest diesen Kontakt gemeinsam. Freigaben kann nur {{ contact.owner }} ändern.</p>
+          <p class="mb-0">Du hast Leserechte. Änderungen und Löschungen sind nicht erlaubt. Freigaben kann nur {{ contact.owner }} ändern.</p>
           {% endif %}
         </div>
       </div>
-      <div class="card mt-4" data-contact-history>
+      {% if can_manage %}<div class="card mt-4" data-contact-history>
         <div class="card-header">Änderungsverlauf</div>
         {% set history_actors = contact.changes|default([])|map(attribute='actor')|unique|sort|list %}
         {% set history_fields = contact.changes|default([])|map(attribute='field')|unique|sort|list %}
@@ -74,7 +96,7 @@
           </div><div class="small text-secondary mt-2" aria-live="polite" data-contact-history-count></div>
         </div>
         <div class="list-group list-group-flush">{% for change in contact.changes|default([])|reverse %}<div class="list-group-item border-start border-4" data-contact-history-entry data-contact-history-actor="{{ change.actor }}" data-contact-history-field="{{ change.field }}"><div class="d-flex justify-content-between gap-2"><strong>{{ change.field }}</strong><span class="badge" data-contact-history-actor-badge>{{ change.actor }}</span></div><div class="small mt-1"><span class="text-danger">{{ change.old|default('—', true) }}</span> &rarr; <span class="text-success">{{ change.new|default('—', true) }}</span></div><div class="small text-secondary">{{ change.at }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Feldänderungen gespeichert.</div>{% endfor %}<div class="list-group-item text-secondary" hidden data-contact-history-empty>Keine Änderungen entsprechen dem Filter.</div></div>
-      </div>
+      </div>{% endif %}
     </aside>
   </div>
 </main>
