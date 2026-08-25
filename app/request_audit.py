@@ -7,6 +7,7 @@ from typing import Any
 from flask import g, request
 
 from .access_control import audit
+from .system_identity import system_info
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 STATE_CHANGING_GET_ENDPOINTS = {"auth.logout"}
@@ -114,6 +115,7 @@ def audit_mutation_response(response):
         form_fields = []
         file_fields = []
     route_values = _safe_route_values(request.view_args)
+    identity = system_info(include_request=True)
     detail = {
         "method": method,
         "endpoint": endpoint,
@@ -124,6 +126,10 @@ def audit_mutation_response(response):
         "form_fields": form_fields,
         "file_fields": file_fields,
         "content_type": str(request.mimetype or "")[:120],
+        "application_id": identity["application_id"],
+        "server_name": identity["server_name"],
+        "client_ip": identity.get("client_ip", ""),
+        "user_agent": identity.get("user_agent", ""),
     }
     action = _semantic_action(endpoint, method)
     target_type, target_id = _target(endpoint, route_values, actor)
