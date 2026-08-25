@@ -5,13 +5,39 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .attachment_security import AttachmentSecurity
+from .attachment_security import AttachmentSecurity, ClamAV
 from .document_store import CONTROL_DIR, utc_now
+
+
+class _FixedExecutableClamAV(ClamAV):
+    """Use one already resolved scanner path without changing process environment."""
+
+    def __init__(self, executable: str, timeout: int):
+        super().__init__(timeout=timeout)
+        self._executable = executable
+
+    def executable(self) -> str:
+        return self._executable
+
+
+def _scan_with_safe_fallback(security: AttachmentSecurity, path: Path):
+    """Use clamscan if an auto-selected clamdscan binary cannot reach clamd."""
+    try:
+        return security.scanner.scan(path)
+    except RuntimeError:
+        if os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip():
+            raise
+        selected = Path(security.scanner.executable()).name.casefold()
+        fallback = shutil.which("clamscan")
+        if selected not in {"clamdscan", "clamdscan.exe"} or not fallback:
+            raise
+        return _FixedExecutableClamAV(fallback, security.scanner.timeout).scan(path)
 
 
 def latest_scan_for_sha256(root: str | Path, digest: str) -> dict[str, Any] | None:
@@ -41,12 +67,7 @@ def scan_attachment_for_download(
     filename: str,
     payload: bytes,
 ) -> dict[str, Any]:
-    """Scan an archived-mail attachment immediately before download.
-
-    Clean payloads are removed from the private scan staging directory after the
-    verdict has been recorded. Infected/error payloads remain isolated and are
-    never returned to the browser.
-    """
+    """Scan an archived-mail attachment immediately before download."""
     security = AttachmentSecurity(root)
     staging = security.control / "mail-download-quarantine"
     staging.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -76,7 +97,7 @@ def scan_attachment_for_download(
         "sha256": hashlib.sha256(payload).hexdigest(),
     }
     try:
-        verdict = security.scanner.scan(pending)
+        verdict = _scan_with_safe_fallback(security, pending)
         record = {**base, **asdict(verdict)}
         if verdict.verdict == "infected":
             retained = staging / f"{scan_id}.infected"
@@ -94,11 +115,15 @@ def scan_attachment_for_download(
         error_path = staging / f"{scan_id}.error"
         if pending.exists():
             pending.replace(error_path)
+        safe_code = security.safe_error_code(exc)
+        message = str(exc).casefold()
+        if safe_code == "scanner_error" and any(token in message for token in ("connection refused", "socket", "clamd", "cannot connect", "can't connect")):
+            safe_code = "scanner_unavailable"
         record = {
             **base,
             "verdict": "error",
             "engine": "",
-            "detail": security.safe_error_code(exc),
+            "detail": safe_code,
             "action": "scan_failed_quarantined",
             "quarantine_id": error_path.name if error_path.exists() else "",
         }
