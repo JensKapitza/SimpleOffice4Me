@@ -56,6 +56,24 @@ class CardDavTest(unittest.TestCase):
         self.assertIn("amy.vcf", report.get_data(as_text=True))
         self.assertIn("Amy Beispiel", report.get_data(as_text=True))
 
+    def test_report_matches_web_contact_visibility(self):
+        self.store.upsert({"display_name": "Eigener Kontakt"}, "admin", "own")
+        self.store.upsert({"display_name": "Freigegebener Kontakt"}, "other", "shared")
+        self.store.share("shared", [], "other", readers=["admin"])
+        self.store.upsert({"display_name": "Versteckter Kontakt"}, "other", "hidden")
+
+        web_visible = {item["contact_id"] for item in self.store.search("", "admin")}
+        report = self.client.open("/carddav/addressbooks/admin/default/", method="REPORT", headers=self.auth)
+        body = report.get_data(as_text=True)
+        carddav_visible = {
+            contact_id for contact_id in ("own", "shared", "hidden")
+            if f"/{contact_id}.vcf" in body
+        }
+
+        self.assertEqual(207, report.status_code)
+        self.assertEqual(web_visible, carddav_visible)
+        self.assertEqual({"own", "shared"}, carddav_visible)
+
     def test_diagnostics_distinguishes_visible_and_hidden_contacts(self):
         self.store.upsert({"display_name": "Admin Kontakt"}, "admin", "admin-contact")
         self.store.upsert({"display_name": "Anderer Kontakt"}, "other", "other-contact")
