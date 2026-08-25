@@ -381,6 +381,7 @@ class AttachmentSecurity:
                 "actor": actor,
                 "source_type": "managed-document",
                 "document_id": document.get("document_id", ""),
+                "target_path": document.get("last_path", ""),
                 "filename": path.name,
                 "size": path.stat().st_size,
             }
@@ -398,7 +399,7 @@ class AttachmentSecurity:
                 self._record_scan({
                     **base,
                     "verdict": "error", "engine": "", "action": "scan_failed",
-                    "detail": self.safe_error_code(exc),
+                    "detail": str(exc)[:1000],
                 })
         self.record_event(
             "server_scan", actor, "completed", detail="Bestandsprüfung abgeschlossen",
@@ -407,10 +408,17 @@ class AttachmentSecurity:
         DocumentStore(self.root).history.record("managed_documents_malware_scanned", actor, "security", "clamav", result)
         return result
 
+    def _all_recent_records(self) -> list[dict[str, Any]]:
+        try:
+            rows = json.loads(self.registry.read_text(encoding="utf-8")).get("scans", [])
+            return list(reversed(rows))[:100]
+        except (OSError, json.JSONDecodeError):
+            return []
+
     def recent_scans(self) -> list[dict[str, Any]]:
-        try: return list(reversed(json.loads(self.registry.read_text(encoding="utf-8")).get("scans", [])))[:100]
-        except (OSError, json.JSONDecodeError): return []
+        """Return only file-scan records; every returned row has a verdict."""
+        return [row for row in self._all_recent_records() if row.get("event_type") != "server_action" and "verdict" in row]
 
     def recent_events(self) -> list[dict[str, Any]]:
         """Return file verdicts and server actions as one useful timeline."""
-        return self.recent_scans()
+        return self._all_recent_records()
