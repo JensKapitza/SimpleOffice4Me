@@ -39,8 +39,6 @@ def has_feature(user, feature: str) -> bool:
         "SELECT enabled FROM user_permission WHERE user_id = ? AND feature = ?",
         (user["id"], feature),
     ).fetchone()
-    # Backwards compatible: an absent rule preserves the account's previous
-    # access; administrators can create an explicit denial.
     return row is None or bool(row["enabled"])
 
 
@@ -52,10 +50,21 @@ def permissions_for(user_id: int) -> dict[str, bool]:
     return {feature: explicit.get(feature, True) for feature in FEATURES}
 
 
+def safe_delta(before: dict, after: dict, *, allowed: set[str] | None = None) -> dict:
+    """Return bounded before/after values for explicitly non-secret state."""
+    keys = sorted(set(before) | set(after))
+    if allowed is not None:
+        keys = [key for key in keys if key in allowed]
+    changes = {}
+    for key in keys:
+        old, new = before.get(key), after.get(key)
+        if old != new:
+            changes[str(key)[:80]] = {"before": old, "after": new}
+    return changes
+
+
 def audit(action: str, target_type: str, target_id: str = "", outcome: str = "success", detail: dict | None = None, actor=None) -> None:
     actor = actor if actor is not None else getattr(g, "user", None)
-    # Detail is deliberately constrained by callers to identifiers and state;
-    # credentials and request bodies never enter this table.
     get_db().execute(
         """INSERT INTO security_event(
                occurred_at, actor_id, actor_name, action, target_type, target_id, outcome, detail
@@ -65,6 +74,16 @@ def audit(action: str, target_type: str, target_id: str = "", outcome: str = "su
          json.dumps(detail or {}, ensure_ascii=False, sort_keys=True)),
     )
     get_db().commit()
+
+
+def activity_for(target_type: str, target_id: str, *, limit: int = 200):
+    """Return recent security events for one exact object target."""
+    return get_db().execute(
+        """SELECT * FROM security_event
+           WHERE target_type = ? AND target_id = ?
+           ORDER BY occurred_at DESC LIMIT ?""",
+        (target_type, str(target_id), min(500, max(1, int(limit)))),
+    ).fetchall()
 
 
 def error_fingerprint(exception_type: str, endpoint: str, method: str, path: str) -> str:
