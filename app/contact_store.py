@@ -16,6 +16,15 @@ from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
 
 
+VCARD_EXPORT_CONFIG_KEY = "__vcard_export_fields__"
+VCARD_EXPORT_FIELDS = (
+    "display_name", "name", "nickname", "email", "phone", "birthday", "company",
+    "department", "title", "role", "website", "note", "addresses", "categories",
+    "groups", "relationships", "contact_type", "status", "customer_number",
+    "supplier_number", "discount", "payment_terms", "payment_days", "currency",
+    "vat_id", "tax_number", "bank_iban", "bank_bic", "unknown_properties",
+)
+
 DEFAULT_SCHEMA = {
     "required": ["display_name"],
     "aliases": {
@@ -63,19 +72,50 @@ class ContactStore:
             if not self.carddav_path.exists():
                 atomic_json_write(self.carddav_path, {"enabled": False, "accounts": []})
 
+    @staticmethod
+    def _vcard_export_fields_from_aliases(aliases: dict[str, Any]) -> list[str]:
+        configured = aliases.get(VCARD_EXPORT_CONFIG_KEY)
+        if not isinstance(configured, list):
+            return list(VCARD_EXPORT_FIELDS)
+        selected = {str(value).strip() for value in configured}
+        return [field for field in VCARD_EXPORT_FIELDS if field in selected]
+
     def schema(self) -> dict[str, Any]:
         self.initialize()
         stored = self._read(self.schema_path, DEFAULT_SCHEMA)
         aliases = dict(DEFAULT_SCHEMA["aliases"])
         aliases.update(stored.get("aliases", {}))
-        return {"required": stored.get("required", DEFAULT_SCHEMA["required"]), "aliases": aliases}
+        return {
+            "required": stored.get("required", DEFAULT_SCHEMA["required"]),
+            "aliases": aliases,
+            "vcard_export_fields": self._vcard_export_fields_from_aliases(aliases),
+        }
+
+    def vcard_export_fields(self) -> set[str]:
+        return set(self.schema().get("vcard_export_fields", VCARD_EXPORT_FIELDS))
 
     def save_schema(self, required: list[str], aliases: dict[str, list[str]], actor: str) -> dict[str, Any]:
         self._require_actor(actor)
-        schema = {"required": sorted(set(item.strip() for item in required if item.strip())), "aliases": {key.strip(): [str(value).strip() for value in values if str(value).strip()] for key, values in aliases.items() if key.strip()}}
+        cleaned_aliases: dict[str, list[str]] = {}
+        for key, values in aliases.items():
+            key = key.strip()
+            if not key or not isinstance(values, list):
+                continue
+            if key == VCARD_EXPORT_CONFIG_KEY:
+                selected = {str(value).strip() for value in values}
+                cleaned_aliases[key] = [field for field in VCARD_EXPORT_FIELDS if field in selected]
+            else:
+                cleaned_aliases[key] = [str(value).strip() for value in values if str(value).strip()]
+        schema = {
+            "required": sorted(set(item.strip() for item in required if item.strip())),
+            "aliases": cleaned_aliases,
+        }
         atomic_json_write(self.schema_path, schema)
-        self.history.record("contact_schema_updated", actor, "contacts", "schema", schema)
-        return schema
+        self.history.record(
+            "contact_schema_updated", actor, "contacts", "schema",
+            {**schema, "vcard_export_fields": self._vcard_export_fields_from_aliases(cleaned_aliases)},
+        )
+        return self.schema()
 
     def contacts(self, actor: str = "") -> list[dict[str, Any]]:
         self.initialize()
@@ -246,13 +286,21 @@ class ContactStore:
             return ""
         return line[:4000]
 
+    @staticmethod
+    def _vcard_property_name(line: str) -> str:
+        return line.partition(":")[0].split(";", 1)[0].rsplit(".", 1)[-1].upper()
+
     def vcard(self, contact_id: str, actor: str = "") -> str:
         contact = self.get(contact_id, actor)
         fields = contact["fields"]
+        released = self.vcard_export_fields()
+
         def value(key: str) -> str:
             return str(fields.get(key, "")).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-        def text(value: str) -> str:
-            return str(value).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+        def text(raw_value: str) -> str:
+            return str(raw_value).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
         categories = ",".join(text(item) for item in contact.get("tags", []))
         groups = ",".join(text(item) for item in contact.get("groups", []))
         extras = []
@@ -264,7 +312,8 @@ class ContactStore:
         org = value("company")
         if fields.get("department"):
             org += ";" + value("department")
-        return "\r\n".join([
+
+        raw_lines = [
             "BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}",
             f"N:{value('last_name')};{value('first_name')};;;",
             *([f"NICKNAME:{value('nickname')}"] if fields.get("nickname") else []),
@@ -279,8 +328,61 @@ class ContactStore:
             *([f"CATEGORIES:{categories}"] if categories else []),
             *([f"X-SIMPLEOFFICE-GROUP:{groups}"] if groups else []),
             *extras,
-            "END:VCARD", "",
-        ])
+        ]
+
+        property_to_field = {
+            "FN": "display_name", "N": "name", "NICKNAME": "nickname", "EMAIL": "email",
+            "TEL": "phone", "BDAY": "birthday", "ORG": "company", "TITLE": "title",
+            "ROLE": "role", "URL": "website", "NOTE": "note", "CATEGORIES": "categories",
+            "X-SIMPLEOFFICE-GROUP": "groups",
+        }
+        lines = ["BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}"]
+        for line in raw_lines[3:]:
+            name = self._vcard_property_name(line)
+            field = property_to_field.get(name)
+            if name == "FN" and "display_name" not in released:
+                lines.append("FN:")
+            elif field is not None:
+                if field in released:
+                    lines.append(line)
+            elif "unknown_properties" in released:
+                lines.append(line)
+
+        if "department" not in released and "company" in released:
+            for index, line in enumerate(lines):
+                if self._vcard_property_name(line) == "ORG":
+                    lines[index] = f"ORG:{value('company')}"
+
+        if "addresses" in released:
+            for address in contact.get("addresses", []):
+                address_value = text(address.get("value", ""))
+                if not address_value:
+                    continue
+                label = str(address.get("label", "")).strip().casefold()
+                address_type = "work" if label in {"firma", "arbeit", "work", "office"} else "home" if label in {"privat", "home"} else "other"
+                lines.append(f"ADR;TYPE={address_type}:;;{address_value};;;;")
+
+        extension_map = {
+            "relationships": "X-SIMPLEOFFICE-RELATIONSHIPS",
+            "contact_type": "X-SIMPLEOFFICE-CONTACT-TYPE",
+            "status": "X-SIMPLEOFFICE-STATUS",
+            "customer_number": "X-SIMPLEOFFICE-CUSTOMER-NUMBER",
+            "supplier_number": "X-SIMPLEOFFICE-SUPPLIER-NUMBER",
+            "discount": "X-SIMPLEOFFICE-DISCOUNT",
+            "payment_terms": "X-SIMPLEOFFICE-PAYMENT-TERMS",
+            "payment_days": "X-SIMPLEOFFICE-PAYMENT-DAYS",
+            "currency": "X-SIMPLEOFFICE-CURRENCY",
+            "vat_id": "X-SIMPLEOFFICE-VAT-ID",
+            "tax_number": "X-SIMPLEOFFICE-TAX-NUMBER",
+            "bank_iban": "X-SIMPLEOFFICE-BANK-IBAN",
+            "bank_bic": "X-SIMPLEOFFICE-BANK-BIC",
+        }
+        for field, property_name in extension_map.items():
+            if field in released and fields.get(field):
+                lines.append(f"{property_name}:{value(field)}")
+
+        lines.extend(["END:VCARD", ""])
+        return "\r\n".join(lines)
 
     def export_vcards(self, actor: str = "") -> str:
         """Export all contacts as one portable vCard 4.0 file."""
@@ -483,6 +585,8 @@ class ContactStore:
     def _normalize(values: dict[str, str], schema: dict[str, Any]) -> dict[str, str]:
         result: dict[str, str] = {}
         for canonical, aliases in schema.get("aliases", {}).items():
+            if canonical.startswith("__"):
+                continue
             for key in [canonical, *aliases]:
                 if str(values.get(key, "")).strip():
                     result[canonical] = str(values[key]).strip()
