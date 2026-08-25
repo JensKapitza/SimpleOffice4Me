@@ -34,6 +34,29 @@ def _account_with_effective_password(store: MailStore, account_id: str) -> dict:
     return store.account(_actor(), account_id, password)
 
 
+def _smtp_account_with_effective_password(store: MailStore, account_id: str) -> dict:
+    """Resolve SMTP credentials without letting browser autofill replace a saved secret.
+
+    Saved SMTP credentials, configured SMTP password environments, and the
+    intentionally reused saved IMAP credential all take precedence. A manual
+    SMTP password is only used when no configured secret source exists, unless
+    the caller explicitly requests an override.
+    """
+    safe = next((row for row in store.accounts(_actor()) if row["id"] == account_id), None)
+    if safe is None:
+        raise KeyError("mail account does not exist")
+    manual = request.form.get("smtp_password", "")
+    use_override = request.form.get("use_smtp_password_override") == "1"
+    has_configured_secret = bool(
+        safe.get("smtp_password_saved")
+        or safe.get("smtp_password_env")
+        or safe.get("password_saved")
+        or safe.get("password_env")
+    )
+    password = manual if (use_override or not has_configured_secret) else ""
+    return store.smtp_account(_actor(), account_id, password)
+
+
 def _smtp_authentication_message(exc: smtplib.SMTPAuthenticationError) -> str:
     """Return an actionable SMTP authentication error without echoing server text."""
     code = int(getattr(exc, "smtp_code", 0) or 0)
@@ -122,7 +145,7 @@ def archive(account_id: str):
 def test_smtp(account_id: str):
     try:
         store = _store()
-        account = store.smtp_account(_actor(), account_id, request.form.get("smtp_password", ""))
+        account = _smtp_account_with_effective_password(store, account_id)
         result = SmtpSubmission(store).test(account)
         store.history.record("smtp_account_tested", _actor(), "mail-accounts", account_id, {"host": account["smtp_host"], "port": account["smtp_port"], "security": account["smtp_security"], "features": result["features"]})
         flash(f"SMTP-Anmeldung erfolgreich: {len(result['features'])} Server-Fähigkeiten.")
@@ -140,7 +163,7 @@ def test_smtp(account_id: str):
 def send(account_id: str):
     try:
         store = _store()
-        account = store.smtp_account(_actor(), account_id, request.form.get("smtp_password", ""))
+        account = _smtp_account_with_effective_password(store, account_id)
         result = SmtpSubmission(store).send(
             _actor(), account, request.form.get("recipients", ""), request.form.get("subject", ""),
             request.form.get("body", ""), request.form.get("calendar_data", ""),
