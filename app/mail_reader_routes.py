@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
-from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, g, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
-from .mail_archive_preview import load_local_eml, load_local_eml_by_id
+from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id
+from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
 from .mail_client import MailStore
 from .mail_reader import MailReader
 
@@ -42,6 +44,12 @@ def _audit_archive_view(store: MailStore, account_id: str, preview: dict) -> Non
     )
 
 
+def _add_attachment_scan_state(preview: dict) -> None:
+    root = current_app.config["DOCUMENT_ROOT"]
+    for attachment in preview.get("attachments", []):
+        attachment["malware_scan"] = latest_scan_for_sha256(root, attachment.get("sha256", ""))
+
+
 @bp.get("")
 @login_required
 def index():
@@ -68,6 +76,7 @@ def index():
             if archive_id:
                 try:
                     archive_preview = load_local_eml_by_id(store, _actor(), selected["id"], archive_id)
+                    _add_attachment_scan_state(archive_preview)
                     _audit_archive_view(store, selected["id"], archive_preview)
                 except (ValueError, PermissionError, FileNotFoundError, KeyError) as exc:
                     current_app.logger.warning("Local EML preview denied for %s: %s", _actor(), type(exc).__name__)
@@ -111,6 +120,42 @@ def archive_preview():
         flash("Archivierte Nachricht konnte nicht geöffnet werden.")
         return redirect(url_for("mail_reader.index", account=account_id, mode="archive", q=query))
     return redirect(url_for("mail_reader.index", account=account_id, mode="archive", q=query, mail=preview["sha512"]))
+
+
+@bp.get("/archive/attachment/<archive_id>/<int:part_index>")
+@login_required
+def archive_attachment(archive_id: str, part_index: int):
+    """Download one archived attachment only after a fresh successful ClamAV scan."""
+    store = _store()
+    account_id = request.args.get("account", "").strip()
+    query = request.args.get("q", "").strip()
+    try:
+        attachment = load_local_attachment_by_id(store, _actor(), account_id, archive_id, part_index)
+        record = scan_attachment_for_download(
+            current_app.config["DOCUMENT_ROOT"], _actor(), account_id, archive_id,
+            attachment["name"], attachment["payload"],
+        )
+        if record.get("verdict") != "clean":
+            if record.get("verdict") == "infected":
+                flash("Anhang wurde von ClamAV blockiert und isoliert. Download nicht freigegeben.")
+            else:
+                flash("ClamAV-Prüfung fehlgeschlagen. Der Anhang wird aus Sicherheitsgründen nicht heruntergeladen.")
+            return redirect(url_for("mail_reader.index", account=account_id, mode="archive", q=query, mail=archive_id))
+        store.history.record(
+            "mail_archive_attachment_downloaded", _actor(), "mail-archive", archive_id,
+            {"account_id": account_id, "part": part_index, "filename": attachment["name"], "sha256": attachment["sha256"], "scan_id": record["scan_id"], "scanned_at": record["scanned_at"]},
+        )
+        return send_file(
+            io.BytesIO(attachment["payload"]),
+            mimetype=attachment["type"] or "application/octet-stream",
+            as_attachment=True,
+            download_name=attachment["name"],
+            max_age=0,
+        )
+    except (ValueError, PermissionError, FileNotFoundError, KeyError) as exc:
+        current_app.logger.warning("Archived attachment download denied for %s: %s", _actor(), type(exc).__name__)
+        flash("Anhang konnte nicht geöffnet werden.")
+        return redirect(url_for("mail_reader.index", account=account_id, mode="archive", q=query, mail=archive_id))
 
 
 @bp.post("/archive")
