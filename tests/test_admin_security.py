@@ -1,7 +1,9 @@
 import logging
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
@@ -64,17 +66,33 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(403, self.worker.get("/admin/users").status_code)
         self.assertEqual(403, self.worker.get("/admin/logs").status_code)
 
-    def test_application_admin_can_use_clamav_server_actions_without_env_allowlist(self):
-        page = self.admin.get("/documents/security")
-        body = page.get_data(as_text=True)
-        self.assertEqual(200, page.status_code)
-        self.assertIn("Verwaltete Dateien jetzt scannen", body)
-        self.assertNotIn("ausschließlich für Administratoren", body)
+    def test_clamav_server_actions_require_explicit_security_admin_allowlist(self):
+        # Application administrator alone is deliberately insufficient. Server
+        # actions are a separate privilege configured through the security-admin
+        # allowlist and enforced both in the UI and on POST endpoints.
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": ""}, clear=False):
+            page = self.admin.get("/documents/security")
+            body = page.get_data(as_text=True)
+            self.assertEqual(200, page.status_code)
+            self.assertNotIn("Verwaltete Dateien jetzt scannen", body)
+            self.assertIn("ausschließlich für konfigurierte Sicherheitsadministratoren", body)
+            self.assertEqual(403, self.admin.post("/documents/security/scan-now").status_code)
 
-        worker_page = self.worker.get("/documents/security")
-        self.assertEqual(200, worker_page.status_code)
-        self.assertIn("ausschließlich für Administratoren", worker_page.get_data(as_text=True))
-        self.assertEqual(403, self.worker.post("/documents/security/scan-now").status_code)
+            worker_page = self.worker.get("/documents/security")
+            self.assertEqual(200, worker_page.status_code)
+            self.assertNotIn("Verwaltete Dateien jetzt scannen", worker_page.get_data(as_text=True))
+            self.assertEqual(403, self.worker.post("/documents/security/scan-now").status_code)
+
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": "owner"}, clear=False), \
+             patch("app.documents.AttachmentSecurity.scan_documents", return_value={
+                 "clean": 0, "infected": 0, "errors": 0, "skipped": 0,
+             }):
+            page = self.admin.get("/documents/security")
+            body = page.get_data(as_text=True)
+            self.assertEqual(200, page.status_code)
+            self.assertIn("Verwaltete Dateien jetzt scannen", body)
+            self.assertNotIn("ausschließlich für konfigurierte Sicherheitsadministratoren", body)
+            self.assertEqual(302, self.admin.post("/documents/security/scan-now").status_code)
 
     def test_multiple_administrators_are_supported(self):
         self.update_worker(is_admin="1")
