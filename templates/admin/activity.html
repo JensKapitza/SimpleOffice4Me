@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h3 mb-1">Aktivität</h1><p class="text-secondary mb-0"><code>{{ target_type }}</code> · <code>{{ target_id }}</code></p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Gesamtprotokoll</a>
+  </div>
+  <div class="card"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Zeit</th><th>Benutzer</th><th>Aktion</th><th>Ergebnis</th><th>Details</th></tr></thead>
+    <tbody>{% for event in events %}<tr><td class="text-nowrap">{{ event.occurred_at }}</td><td>{{ event.actor_name or 'System' }}</td><td><code>{{ event.action }}</code></td><td>{{ event.outcome }}</td><td>{% if event.detail and event.detail != '{}' %}<details><summary class="small">anzeigen</summary><code class="small text-break">{{ event.detail }}</code></details>{% else %}–{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Keine Ereignisse für dieses Ziel.</td></tr>{% endfor %}</tbody>
+  </table></div></div>
+</main>
+{% endblock %}

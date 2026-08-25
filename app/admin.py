@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 
-from .access_control import FEATURES, audit, is_admin, permissions_for, utc_now
+from .access_control import FEATURES, activity_for, audit, is_admin, permissions_for, safe_delta, utc_now
 from .auth import login_required
 from .db import get_db
+from .request_audit import audit_mutation_response
 
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+bp.after_app_request(audit_mutation_response)
 
 
 def admin_required(view):
@@ -25,9 +27,7 @@ def admin_required(view):
 @bp.get("/users")
 @admin_required
 def users():
-    rows = get_db().execute(
-        "SELECT * FROM user ORDER BY is_admin DESC, username COLLATE NOCASE"
-    ).fetchall()
+    rows = get_db().execute("SELECT * FROM user ORDER BY is_admin DESC, username COLLATE NOCASE").fetchall()
     return render_template(
         "admin/users.html", users=rows, features=FEATURES,
         permissions={row["id"]: permissions_for(row["id"]) for row in rows},
@@ -48,21 +48,24 @@ def update_user(user_id: int):
         return redirect(url_for("admin.users"))
     if target["is_admin"] and (disabled or not administrator):
         remaining = db.execute(
-            "SELECT COUNT(*) FROM user WHERE is_admin = 1 AND is_disabled = 0 AND id <> ?",
-            (user_id,),
+            "SELECT COUNT(*) FROM user WHERE is_admin = 1 AND is_disabled = 0 AND id <> ?", (user_id,)
         ).fetchone()[0]
         if remaining == 0:
             flash("Mindestens ein aktiver Administrator muss erhalten bleiben.")
             return redirect(url_for("admin.users"))
 
-    before = {"admin": bool(target["is_admin"]), "disabled": bool(target["is_disabled"])}
+    before = {
+        "admin": bool(target["is_admin"]),
+        "disabled": bool(target["is_disabled"]),
+        **{f"feature:{key}": value for key, value in permissions_for(user_id).items()},
+    }
+    requested_features = {feature: request.form.get(f"feature_{feature}") == "1" for feature in FEATURES}
     db.execute(
         """UPDATE user SET is_admin = ?, is_disabled = ?, auth_version = auth_version + 1,
                updated_at = ? WHERE id = ?""",
         (int(administrator), int(disabled), utc_now(), user_id),
     )
-    for feature in FEATURES:
-        enabled = request.form.get(f"feature_{feature}") == "1"
+    for feature, enabled in requested_features.items():
         db.execute(
             """INSERT INTO user_permission(user_id, feature, enabled, updated_at, updated_by)
                VALUES (?, ?, ?, ?, ?)
@@ -71,13 +74,28 @@ def update_user(user_id: int):
             (user_id, feature, int(enabled), utc_now(), g.user["id"]),
         )
     db.commit()
+    after = {
+        "admin": administrator,
+        "disabled": disabled,
+        **{f"feature:{key}": value for key, value in requested_features.items()},
+    }
     audit(
         "user_access_updated", "user", str(user_id),
-        detail={"before": before, "admin": administrator, "disabled": disabled,
-                "features": {feature: request.form.get(f"feature_{feature}") == "1" for feature in FEATURES}},
+        detail={"username": target["username"], "changes": safe_delta(before, after)},
     )
     flash(f"Rechte für {target['username']} gespeichert; vorhandene Sitzungen wurden beendet.")
     return redirect(url_for("admin.users"))
+
+
+@bp.get("/activity")
+@admin_required
+def activity():
+    target_type = request.args.get("target_type", "").strip()[:120]
+    target_id = request.args.get("target_id", "").strip()[:300]
+    if not target_type or not target_id:
+        abort(400, description="target_type und target_id sind erforderlich")
+    events = activity_for(target_type, target_id)
+    return render_template("admin/activity.html", events=events, target_type=target_type, target_id=target_id)
 
 
 @bp.get("/logs")
@@ -85,19 +103,37 @@ def update_user(user_id: int):
 def logs():
     try:
         page = max(1, int(request.args.get("page", "1")))
+        event_page = max(1, int(request.args.get("event_page", "1")))
     except ValueError:
-        page = 1
-    limit, offset = 50, (page - 1) * 50
+        page = event_page = 1
+    limit = 50
+    offset = (page - 1) * limit
+    event_offset = (event_page - 1) * limit
     errors = get_db().execute(
-        "SELECT * FROM application_error ORDER BY occurred_at DESC LIMIT ? OFFSET ?",
-        (limit + 1, offset),
+        "SELECT * FROM application_error ORDER BY occurred_at DESC LIMIT ? OFFSET ?", (limit + 1, offset)
     ).fetchall()
+    event_filters = {key: request.args.get(key, "").strip() for key in ("actor", "action", "outcome", "from_at", "to_at")}
+    where: list[str] = []
+    parameters: list[object] = []
+    if event_filters["actor"]:
+        where.append("actor_name LIKE ?"); parameters.append(f"%{event_filters['actor']}%")
+    if event_filters["action"]:
+        where.append("action LIKE ?"); parameters.append(f"%{event_filters['action']}%")
+    if event_filters["outcome"]:
+        where.append("outcome = ?"); parameters.append(event_filters["outcome"])
+    if event_filters["from_at"]:
+        where.append("occurred_at >= ?"); parameters.append(event_filters["from_at"])
+    if event_filters["to_at"]:
+        where.append("occurred_at < datetime(?, '+1 day')"); parameters.append(event_filters["to_at"])
+    predicate = f" WHERE {' AND '.join(where)}" if where else ""
     events = get_db().execute(
-        "SELECT * FROM security_event ORDER BY occurred_at DESC LIMIT 50"
+        f"SELECT * FROM security_event{predicate} ORDER BY occurred_at DESC LIMIT ? OFFSET ?",
+        (*parameters, limit + 1, event_offset),
     ).fetchall()
     return render_template(
-        "admin/logs.html", errors=errors[:limit], events=events,
-        page=page, has_next=len(errors) > limit,
+        "admin/logs.html", errors=errors[:limit], events=events[:limit], page=page,
+        has_next=len(errors) > limit, event_page=event_page, event_has_next=len(events) > limit,
+        event_filters=event_filters,
     )
 
 
