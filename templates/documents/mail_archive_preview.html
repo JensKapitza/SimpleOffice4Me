@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}Archivierte E-Mail{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div><h1 class="h3 mb-1"><i class="far fa-envelope-open me-2"></i>Archivierte E-Mail</h1><p class="text-secondary mb-0">Lokale EML-Vorschau. Aktive HTML-Inhalte werden nicht ausgeführt.</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mail_reader.index', account=account_id, mode='archive', q=query) }}"><i class="fas fa-arrow-left me-1"></i>Zurück zum Archiv</a>
+  </div>
+  <section class="card">
+    <div class="card-header d-flex justify-content-between gap-3"><strong>{{ preview.subject }}</strong><span class="text-secondary text-nowrap">{{ (preview.size / 1024)|round(1) }} KiB</span></div>
+    <div class="card-body">
+      <dl class="row small mb-3">
+        <dt class="col-sm-2">Von</dt><dd class="col-sm-10">{{ preview.from }}</dd>
+        <dt class="col-sm-2">An</dt><dd class="col-sm-10">{{ preview.to }}</dd>
+        {% if preview.cc %}<dt class="col-sm-2">CC</dt><dd class="col-sm-10">{{ preview.cc }}</dd>{% endif %}
+        <dt class="col-sm-2">Datum</dt><dd class="col-sm-10">{{ preview.date }}</dd>
+        {% if preview.message_id %}<dt class="col-sm-2">Message-ID</dt><dd class="col-sm-10"><code>{{ preview.message_id }}</code></dd>{% endif %}
+        <dt class="col-sm-2">Archiv</dt><dd class="col-sm-10"><code>{{ preview.path }}</code></dd>
+      </dl>
+      <hr>
+      <pre class="font-monospace text-wrap bg-body-tertiary border rounded p-3" style="white-space:pre-wrap;max-height:55vh;overflow:auto">{{ preview.text }}</pre>
+      {% if preview.attachments %}
+      <h2 class="h6 mt-4">Anhänge</h2>
+      <div class="list-group">{% for attachment in preview.attachments %}<div class="list-group-item d-flex justify-content-between gap-3"><span><i class="fas fa-paperclip me-2"></i>{{ attachment.name }} <small class="text-secondary">{{ attachment.type }}</small></span><span class="text-nowrap">{{ (attachment.size / 1024)|round(1) }} KiB</span></div>{% endfor %}</div>
+      <p class="form-text">Anhänge werden hier nur aufgelistet und nicht ausgeführt.</p>
+      {% endif %}
+    </div>
+  </section>
+</main>
+{% endblock %}
