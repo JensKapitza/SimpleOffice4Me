@@ -21,6 +21,33 @@ def _owned_archive_base(store: MailStore, actor: str, account_id: str) -> Path:
     return (store.root / "email" / _owner_key(actor) / account_id).resolve()
 
 
+def _target_by_id(store: MailStore, actor: str, account_id: str, archive_id: str) -> Path:
+    archive_id = archive_id.strip().casefold()
+    if not _ARCHIVE_ID.fullmatch(archive_id):
+        raise ValueError("invalid archive message id")
+    base = _owned_archive_base(store, actor, account_id)
+    if not base.is_dir():
+        raise FileNotFoundError("mail archive does not exist")
+
+    matches: list[Path] = []
+    for target in base.glob(f"*/{archive_id}.eml"):
+        if target.is_file() and not target.is_symlink():
+            matches.append(target.resolve())
+            if len(matches) > 1:
+                break
+    if not matches:
+        direct = base / f"{archive_id}.eml"
+        if direct.is_file() and not direct.is_symlink():
+            matches.append(direct.resolve())
+    if len(matches) != 1:
+        raise FileNotFoundError("archive message does not exist or is ambiguous")
+    try:
+        matches[0].relative_to(base)
+    except ValueError:
+        raise PermissionError("archive message escaped owned archive") from None
+    return matches[0]
+
+
 def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
     if not target.is_file() or target.is_symlink():
         raise FileNotFoundError("archive message does not exist")
@@ -30,14 +57,16 @@ def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
         raise ValueError("message exceeds 100 MiB preview limit")
     message = BytesParser(policy=policy.default).parsebytes(raw)
     attachments: list[dict[str, Any]] = []
-    for part in message.walk():
+    for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename():
             continue
         payload = part.get_payload(decode=True) or b""
         attachments.append({
-            "name": _header(part.get_filename()) or "Anhang",
+            "part": index,
+            "name": _header(part.get_filename()) or f"Anhang-{index}",
             "type": part.get_content_type()[:120],
             "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
         })
     return {
         "path": str(target.relative_to(store.root)),
@@ -70,34 +99,37 @@ def load_local_eml(store: MailStore, actor: str, account_id: str, relative_path:
 
 
 def load_local_eml_by_id(store: MailStore, actor: str, account_id: str, archive_id: str) -> dict[str, Any]:
-    """Load an archived message by its SHA-512 filename instead of a client supplied path.
+    """Load an archived message by its SHA-512 filename instead of a client supplied path."""
+    return _preview_from_target(store, _target_by_id(store, actor, account_id, archive_id))
 
-    MailReader archives use the message SHA-512 as filename. Looking up this bounded
-    identifier keeps archive links independent from path separators and nested year
-    folders and avoids exposing a filesystem path in normal UI links.
-    """
-    archive_id = archive_id.strip().casefold()
-    if not _ARCHIVE_ID.fullmatch(archive_id):
-        raise ValueError("invalid archive message id")
-    base = _owned_archive_base(store, actor, account_id)
-    if not base.is_dir():
-        raise FileNotFoundError("mail archive does not exist")
 
-    matches = []
-    for target in base.glob(f"*/{archive_id}.eml"):
-        if target.is_file() and not target.is_symlink():
-            matches.append(target.resolve())
-            if len(matches) > 1:
-                break
-    if not matches:
-        # Backwards compatibility for archives that may not use a year folder.
-        direct = base / f"{archive_id}.eml"
-        if direct.is_file() and not direct.is_symlink():
-            matches.append(direct.resolve())
-    if len(matches) != 1:
-        raise FileNotFoundError("archive message does not exist or is ambiguous")
-    try:
-        matches[0].relative_to(base)
-    except ValueError:
-        raise PermissionError("archive message escaped owned archive") from None
-    return _preview_from_target(store, matches[0])
+def load_local_attachment_by_id(
+    store: MailStore,
+    actor: str,
+    account_id: str,
+    archive_id: str,
+    part_index: int,
+) -> dict[str, Any]:
+    """Return one attachment payload from an owned archived EML by stable identifiers."""
+    if part_index < 0 or part_index > 10000:
+        raise ValueError("invalid attachment part")
+    target = _target_by_id(store, actor, account_id, archive_id)
+    raw = target.read_bytes()
+    if len(raw) > MAX_MESSAGE_BYTES:
+        raise ValueError("message exceeds 100 MiB preview limit")
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    parts = list(message.walk())
+    if part_index >= len(parts):
+        raise FileNotFoundError("attachment does not exist")
+    part = parts[part_index]
+    if part.get_content_disposition() != "attachment" and not part.get_filename():
+        raise FileNotFoundError("MIME part is not an attachment")
+    payload = part.get_payload(decode=True) or b""
+    return {
+        "part": part_index,
+        "name": _header(part.get_filename()) or f"Anhang-{part_index}",
+        "type": part.get_content_type()[:120] or "application/octet-stream",
+        "size": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "payload": payload,
+    }
