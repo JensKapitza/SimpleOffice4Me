@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from xml.sax.saxutils import escape
 
 from flask import Blueprint, Response, current_app, request, url_for
@@ -65,6 +66,57 @@ def _addressbook_properties() -> str:
     return f'<d:resourcetype><d:collection/><card:addressbook/></d:resourcetype><d:displayname>SimpleOffice Kontakte</d:displayname><card:supported-address-data><card:address-data-type content-type="text/vcard" version="4.0"/></card:supported-address-data>{_privileges(True)}'
 
 
+def _canonicalize_collection(path: str, username: str) -> str:
+    """Accept the historical /contacts/ collection name but use /default/ internally."""
+    normalized = path.strip("/")
+    legacy = f"addressbooks/{username}/contacts"
+    canonical = f"addressbooks/{username}/default"
+    if normalized == legacy:
+        return canonical
+    if normalized.startswith(legacy + "/"):
+        return canonical + normalized[len(legacy):]
+    return normalized
+
+
+def _diagnostics(store: ContactStore, username: str) -> dict:
+    all_contacts = store.contacts()
+    visible = store.contacts(username)
+    ownerless = 0
+    inaccessible = 0
+    foreign_owners: set[str] = set()
+    for contact in all_contacts:
+        owner = str(contact.get("owner", "")).strip() or store._principal(str(contact.get("created_by", "")))
+        if not owner:
+            ownerless += 1
+        elif owner != username:
+            foreign_owners.add(owner)
+        if contact not in visible:
+            inaccessible += 1
+
+    issues: list[dict[str, str]] = []
+    if not all_contacts:
+        issues.append({"code": "no_contacts", "detail": "Im Kontaktbestand sind keine Kontakte gespeichert."})
+    elif not visible:
+        issues.append({"code": "no_visible_contacts", "detail": "Kontakte sind vorhanden, aber fuer diesen CardDAV-Benutzer nicht freigegeben."})
+    elif inaccessible:
+        issues.append({"code": "partially_visible", "detail": f"{inaccessible} Kontakt(e) sind fuer diesen CardDAV-Benutzer nicht sichtbar."})
+    if ownerless:
+        issues.append({"code": "owner_missing", "detail": f"{ownerless} Kontakt(e) haben keine auswertbare Eigentuemerk Zuordnung."})
+
+    return {
+        "status": "ok" if not issues else "warning",
+        "authenticated_user": username,
+        "canonical_collection": f"/carddav/addressbooks/{username}/default/",
+        "legacy_collection": f"/carddav/addressbooks/{username}/contacts/",
+        "contacts_total": len(all_contacts),
+        "contacts_visible": len(visible),
+        "contacts_inaccessible": inaccessible,
+        "contacts_ownerless": ownerless,
+        "foreign_owner_count": len(foreign_owners),
+        "issues": issues,
+    }
+
+
 @bp.route("/.well-known/carddav", methods=["OPTIONS", "PROPFIND", "GET"])
 def well_known():
     """Redirect CardDAV auto-discovery to the authenticated DAV context."""
@@ -81,7 +133,9 @@ def endpoint(path: str):
     base = f"/carddav/addressbooks/{username}/default/"
     if request.method == "OPTIONS":
         return Response("", 204, {"DAV": "1, addressbook", "Allow": "OPTIONS, PROPFIND, REPORT, GET, PUT, DELETE"})
-    normalized = path.strip("/")
+    normalized = _canonicalize_collection(path, username)
+    if normalized == "diagnostics" and request.method == "GET":
+        return Response(json.dumps(_diagnostics(store, username), ensure_ascii=False, indent=2), 200, mimetype="application/json")
     if normalized.startswith("addressbooks/") and normalized != f"addressbooks/{username}" and not normalized.startswith(f"addressbooks/{username}/"):
         return Response("not found", 404)
     if normalized.startswith("principals/") and normalized != f"principals/{username}":
@@ -92,7 +146,7 @@ def endpoint(path: str):
             try: contact = store.get(contact_id, username)
             except ValueError: return Response("not found", 404)
             writable = store.can_manage(contact_id, username)
-            return _xml([(request.path, f"<d:getetag>{_etag(contact)}</d:getetag><d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>{_privileges(writable)}")])
+            return _xml([(base + contact_id + ".vcf", f"<d:getetag>{_etag(contact)}</d:getetag><d:getcontenttype>text/vcard; charset=utf-8</d:getcontenttype>{_privileges(writable)}")])
         principal = url_for("carddav.endpoint", path=f"principals/{username}/", _external=True)
         home = url_for("carddav.endpoint", path=f"addressbooks/{username}/", _external=True)
         addressbook = url_for("carddav.endpoint", path=f"addressbooks/{username}/default/", _external=True)
@@ -102,7 +156,7 @@ def endpoint(path: str):
             properties = f"<d:resourcetype><d:principal/></d:resourcetype><d:displayname>{escape(username)}</d:displayname><d:principal-URL><d:href>{escape(principal)}</d:href></d:principal-URL><card:addressbook-home-set><d:href>{escape(home)}</d:href></card:addressbook-home-set>"
             return _xml([(principal, properties)])
         if normalized == f"addressbooks/{username}":
-            items = [(home, "<d:resourcetype><d:collection/></d:resourcetype><d:displayname>SimpleOffice Adressbücher</d:displayname>")]
+            items = [(home, "<d:resourcetype><d:collection/></d:resourcetype><d:displayname>SimpleOffice Adressbuecher</d:displayname>")]
             if request.headers.get("Depth", "0") != "0":
                 items.append((addressbook, _addressbook_properties()))
             return _xml(items)
@@ -110,6 +164,8 @@ def endpoint(path: str):
             return _xml([(addressbook, _addressbook_properties())])
         return Response("not found", 404)
     if request.method == "REPORT":
+        if normalized != f"addressbooks/{username}/default":
+            return Response("not found", 404)
         items = []
         for contact in store.contacts(username):
             href = base + contact["contact_id"] + ".vcf"
