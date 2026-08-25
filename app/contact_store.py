@@ -76,7 +76,7 @@ class ContactStore:
         return sorted(items, key=lambda item: item.get("fields", {}).get("display_name", "").casefold())
 
     def search(self, query: str, actor: str = "") -> list[dict[str, Any]]:
-        """Find visible contacts across standard, custom and address fields."""
+        """Find visible contacts across standard, custom, metadata and address fields."""
         needle = query.strip().casefold()
         if not needle:
             return self.contacts(actor)
@@ -85,6 +85,8 @@ class ContactStore:
             if needle in " ".join([
                 contact.get("contact_id", ""),
                 *[str(value) for value in contact.get("fields", {}).values()],
+                *[str(value) for value in contact.get("tags", [])],
+                *[str(value) for value in contact.get("groups", [])],
                 *[str(address.get("label", "")) + " " + str(address.get("value", "")) for address in contact.get("addresses", [])],
             ]).casefold()
         ]
@@ -113,7 +115,7 @@ class ContactStore:
             raise ValueError(f"required contact fields missing: {', '.join(missing)}")
         return fields
 
-    def _upsert_locked(self, fields: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _upsert_locked(self, fields: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None, payload: dict[str, Any] | None = None, metadata: dict[str, list[str]] | None = None) -> dict[str, Any]:
         payload = payload or self._read(self.contacts_path, {"contacts": []})
         existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
         if existing is None and source and source.get("source_id"):
@@ -129,12 +131,22 @@ class ContactStore:
         for field in sorted(set(old_fields) | set(fields)):
             if old_fields.get(field, "") != fields.get(field, ""):
                 changes.append({"field": field, "old": old_fields.get(field, ""), "new": fields.get(field, ""), "at": changed_at, "actor": actor})
+        tags = list(existing.get("tags", [])) if existing else []
+        groups = list(existing.get("groups", [])) if existing else []
+        if metadata is not None:
+            if "tags" in metadata:
+                tags = self._clean_metadata_values(metadata.get("tags", []))
+            if "groups" in metadata:
+                groups = self._clean_metadata_values(metadata.get("groups", []))
         contact = {
             "contact_id": contact_id or str(uuid.uuid4()),
             "fields": fields,
             "addresses": existing.get("addresses", []) if existing else [],
             "owner": existing.get("owner") or principal if existing else principal,
             "managers": existing.get("managers", []) if existing else [],
+            "tags": tags,
+            "groups": groups,
+            "merged_from": existing.get("merged_from", []) if existing else [],
             "changes": changes[-200:],
             "created_at": existing.get("created_at", changed_at) if existing else changed_at,
             "created_by": existing.get("created_by", actor) if existing else actor,
@@ -146,6 +158,10 @@ class ContactStore:
         atomic_json_write(self.contacts_path, payload)
         self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
         return contact
+
+    @staticmethod
+    def _clean_metadata_values(values: list[str]) -> list[str]:
+        return sorted({" ".join(str(value).strip().split()) for value in values if str(value).strip()}, key=str.casefold)[:100]
 
     def add_address(self, contact_id: str, label: str, address: str, actor: str) -> dict[str, Any]:
         self._require_actor(actor)
@@ -197,7 +213,21 @@ class ContactStore:
         fields = contact["fields"]
         def value(key: str) -> str:
             return str(fields.get(key, "")).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
-        return "\r\n".join(["BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}", f"N:{value('last_name')};{value('first_name')};;;", *([f"EMAIL:{value('email')}"] if fields.get("email") else []), *([f"TEL:{value('phone')}"] if fields.get("phone") else []), *([f"BDAY:{value('birthday')}"] if fields.get("birthday") else []), *([f"ORG:{value('company')}"] if fields.get("company") else []), "END:VCARD", ""])
+        def text(value: str) -> str:
+            return str(value).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+        categories = ",".join(text(item) for item in contact.get("tags", []))
+        groups = ",".join(text(item) for item in contact.get("groups", []))
+        return "\r\n".join([
+            "BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}",
+            f"N:{value('last_name')};{value('first_name')};;;",
+            *([f"EMAIL:{value('email')}"] if fields.get("email") else []),
+            *([f"TEL:{value('phone')}"] if fields.get("phone") else []),
+            *([f"BDAY:{value('birthday')}"] if fields.get("birthday") else []),
+            *([f"ORG:{value('company')}"] if fields.get("company") else []),
+            *([f"CATEGORIES:{categories}"] if categories else []),
+            *([f"X-SIMPLEOFFICE-GROUP:{groups}"] if groups else []),
+            "END:VCARD", "",
+        ])
 
     def export_vcards(self, actor: str = "") -> str:
         """Export all contacts as one portable vCard 4.0 file."""
@@ -251,13 +281,15 @@ class ContactStore:
         return hmac.compare_digest(actual, bytes.fromhex(account["password_hash"]))
 
     def upsert_vcard(self, card: str, actor: str, contact_id: str = "") -> dict[str, Any]:
-        values, contact_id = self._vcard_values(card, contact_id)
-        return self.upsert(values, actor, contact_id)
+        values, contact_id, metadata = self._vcard_values(card, contact_id)
+        fields = self._validated_fields(values)
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            return self._upsert_locked(fields, actor, contact_id, metadata=metadata)
 
     def conditional_upsert_vcard(self, card: str, actor: str, contact_id: str, expected_updated_at: str | None = None, create_only: bool = False) -> dict[str, Any]:
         """Apply a DAV precondition and write atomically under the same lock."""
         self._require_actor(actor)
-        values, contact_id = self._vcard_values(card, contact_id)
+        values, contact_id, metadata = self._vcard_values(card, contact_id)
         fields = self._validated_fields(values)
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
             payload = self._read(self.contacts_path, {"contacts": []})
@@ -268,11 +300,12 @@ class ContactStore:
                 raise ContactConflict(existing)
             if expected_updated_at is not None and (existing is None or existing.get("updated_at", "") != expected_updated_at):
                 raise ContactConflict(existing)
-            return self._upsert_locked(fields, actor, contact_id, payload=payload)
+            return self._upsert_locked(fields, actor, contact_id, payload=payload, metadata=metadata)
 
     @staticmethod
-    def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str]:
+    def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str, dict[str, list[str]]]:
         values: dict[str, str] = {}
+        metadata: dict[str, list[str]] = {}
         lines: list[str] = []
         for physical_line in card.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             if physical_line.startswith((" ", "\t")) and lines:
@@ -293,8 +326,31 @@ class ContactStore:
             elif name == "TEL": values["phone"] = ContactStore._unescape_vcard_text(value)
             elif name == "BDAY": values["birthday"] = ContactStore._unescape_vcard_text(value)
             elif name == "ORG": values["company"] = ContactStore._unescape_vcard_text(value)
+            elif name == "CATEGORIES": metadata["tags"] = ContactStore._split_vcard_list(value)
+            elif name == "X-SIMPLEOFFICE-GROUP": metadata["groups"] = ContactStore._split_vcard_list(value)
             elif name == "UID" and not contact_id: contact_id = ContactStore._unescape_vcard_text(value)
-        return values, contact_id
+        return values, contact_id, metadata
+
+    @staticmethod
+    def _split_vcard_list(value: str) -> list[str]:
+        items: list[str] = []
+        current: list[str] = []
+        escaped = False
+        for character in value:
+            if escaped:
+                current.extend(("\\", character)); escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == ",":
+                item = ContactStore._unescape_vcard_text("".join(current)).strip()
+                if item: items.append(item)
+                current = []
+            else:
+                current.append(character)
+        if escaped: current.append("\\")
+        item = ContactStore._unescape_vcard_text("".join(current)).strip()
+        if item: items.append(item)
+        return ContactStore._clean_metadata_values(items)
 
     @staticmethod
     def _split_vcard_components(value: str) -> list[str]:
