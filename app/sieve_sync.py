@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from .document_store import atomic_json_write, utc_now
+from .file_lock import exclusive_file_lock
 from .mail_client import MAX_SCRIPT_BYTES, MailStore, ManageSieveClient
 
 _SCRIPT_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
@@ -80,13 +81,36 @@ def server_state(store: MailStore, actor: str, account_id: str) -> dict[str, Any
 
 def _save_state(store: MailStore, actor: str, account_id: str, state: dict[str, Any]) -> None:
     path = _state_path(store)
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        payload = {"version": 1, "accounts": {}}
-    payload.setdefault("accounts", {})[f"{actor}:{account_id}"] = state
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_json_write(path, payload)
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {"version": 1, "accounts": {}}
+        payload.setdefault("accounts", {})[f"{actor}:{account_id}"] = state
+        atomic_json_write(path, payload)
+
+
+def _preserve_local_revision(store: MailStore, actor: str, account_id: str, name: str, content: str) -> str:
+    """Persist the exact local script body in the Git-backed audit trail before replacement."""
+    encoded = content.encode("utf-8")
+    digest = hashlib.sha512(encoded).hexdigest()
+    key = hashlib.sha256(f"{actor}:{account_id}:{name}:local:{digest}".encode("utf-8")).hexdigest()
+    return store.history.record(
+        "sieve_script_local_preserved",
+        actor,
+        "sieve-revisions",
+        key,
+        {
+            "account_id": account_id,
+            "name": name,
+            "sha512": digest,
+            "size": len(encoded),
+            "content": content,
+            "source": "local",
+            "preserved_at": utc_now(),
+        },
+    )
 
 
 def sync_from_server(store: MailStore, actor: str, account: dict[str, Any]) -> dict[str, Any]:
@@ -102,8 +126,12 @@ def sync_from_server(store: MailStore, actor: str, account: dict[str, Any]) -> d
             name = row["name"]
             content = client.get_script(name)
             digest = hashlib.sha512(content.encode("utf-8")).hexdigest()
-            changed = local.get(name, {}).get("sha512") != digest
+            local_row = local.get(name)
+            changed = local_row is None or local_row.get("sha512") != digest
             if changed:
+                if local_row is not None:
+                    local_content = store.script(actor, account["id"], name)
+                    _preserve_local_revision(store, actor, account["id"], name, local_content)
                 saved = store.save_script(actor, account["id"], name, content)
                 store.history.record(
                     "sieve_script_downloaded", actor, "sieve", saved["sha512"],
