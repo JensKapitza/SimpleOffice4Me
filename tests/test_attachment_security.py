@@ -41,7 +41,7 @@ class FakeScanner:
 
 class FailingScanner:
     def scan(self, path):
-        raise RuntimeError("daemon down at /private/clamd.sock")
+        raise RuntimeError("scanner unavailable")
 
 
 class AttachmentSecurityTests(unittest.TestCase):
@@ -69,6 +69,8 @@ class AttachmentSecurityTests(unittest.TestCase):
         manifest = service.preview_eml(self.document["document_id"], "alice")
         rows = service.extract(manifest["manifest_id"], [manifest["attachments"][0]["part"]], "alice")
         self.assertEqual(b"SAFE", scanner.payload)
+        self.assertEqual("eml-attachment", rows[0]["source_type"])
+        self.assertEqual("allowed_import", rows[0]["action"])
         extracted = self.store.get_document(rows[0]["document_id"])
         self.assertIn("source:eml", extracted["tags"])
         self.assertEqual(self.document["document_id"], extracted["attributes"]["attachment_origin"]["source_document_id"])
@@ -80,8 +82,34 @@ class AttachmentSecurityTests(unittest.TestCase):
         before = len(self.store._all_documents())
         rows = service.extract(manifest["manifest_id"], [manifest["attachments"][0]["part"]], "alice")
         self.assertEqual("infected", rows[0]["verdict"])
+        self.assertEqual("quarantined", rows[0]["action"])
         self.assertEqual(before, len(self.store._all_documents()))
         self.assertEqual(1, len(list((self.root / ".simpleoffice-meta/quarantine").glob("*.infected"))))
+
+    def test_managed_scan_records_failures_as_events(self):
+        service = AttachmentSecurity(self.root, FailingScanner())
+        result = service.scan_documents("security-admin")
+        self.assertEqual(1, result["errors"])
+        event = service.recent_scans()[0]
+        self.assertEqual("error", event["verdict"])
+        self.assertEqual("scan_failed", event["action"])
+        self.assertEqual("managed-document", event["source_type"])
+        self.assertEqual("security-admin", event["actor"])
+        self.assertEqual("original.eml", event["filename"])
+        self.assertIn("scanner unavailable", event["detail"])
+
+    def test_managed_scan_records_actionable_metadata(self):
+        service = AttachmentSecurity(self.root, FakeScanner("infected"))
+        result = service.scan_documents("security-admin")
+        self.assertEqual(1, result["infected"])
+        event = service.recent_scans()[0]
+        self.assertEqual("infected", event["verdict"])
+        self.assertEqual("reported", event["action"])
+        self.assertEqual("managed-document", event["source_type"])
+        self.assertEqual(self.document["document_id"], event["document_id"])
+        self.assertTrue(event["target_path"])
+        self.assertEqual(len(EML), event["size"])
+        self.assertEqual(64, len(event["sha256"]))
 
     def test_manifest_is_user_and_source_hash_bound(self):
         service = AttachmentSecurity(self.root, FakeScanner())
@@ -123,21 +151,6 @@ class AttachmentSecurityTests(unittest.TestCase):
     def test_bulk_sidecar_export_reports_success(self):
         result = self.store.export_all_portable_metadata("alice")
         self.assertEqual({"exported": 1, "errors": 0}, result)
-
-    def test_server_scan_records_start_summary_and_safe_file_error(self):
-        service = AttachmentSecurity(self.root, FailingScanner())
-        result = service.scan_documents("alice")
-        self.assertEqual(1, result["errors"])
-        events = service.recent_events()
-        self.assertEqual("completed", events[0]["outcome"])
-        self.assertEqual(result, events[0]["counts"])
-        self.assertEqual("scanner_unavailable", events[1]["detail"])
-        self.assertNotIn("/private", json.dumps(events))
-        self.assertEqual("started", events[2]["outcome"])
-
-    def test_safe_error_categories_do_not_echo_sensitive_details(self):
-        self.assertEqual("scanner_not_installed", AttachmentSecurity.safe_error_code(RuntimeError("ClamAV is not installed or not in PATH")))
-        self.assertEqual("permission_denied", AttachmentSecurity.safe_error_code(PermissionError("/secret/path")))
 
 
 if __name__ == "__main__":

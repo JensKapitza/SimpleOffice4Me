@@ -8,37 +8,30 @@
     <p>Status: <span class="badge {% if status.state == 'available' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ status.state }}</span></p>
     <p class="text-break">{{ status.engine }} {{ status.version }}</p>
     {% if is_admin %}
-      <div class="d-flex flex-wrap gap-2">
-        <form method="post" action="{{ url_for('documents.security_scan_now') }}"><button class="btn btn-danger">Verwaltete Dateien jetzt scannen</button></form>
-        <form method="post" action="{{ url_for('documents.security_update') }}"><button class="btn btn-outline-primary">Signaturen jetzt aktualisieren</button></form>
-      </div>
-      <p class="small text-secondary mt-2 mb-0">Anwendungsadministratoren und optional konfigurierte Sicherheitsadministratoren dürfen diese Aktionen ausführen.</p>
-    {% else %}
-      <p class="text-secondary mb-0">Serveraktionen und das Sicherheitsjournal sind ausschließlich für Administratoren oder konfigurierte Sicherheitsadministratoren verfügbar.</p>
-    {% endif %}
+    <div class="d-flex gap-2">
+      <form method="post" action="{{ url_for('documents.security_scan_now') }}"><button class="btn btn-danger">Verwaltete Dateien jetzt scannen</button></form>
+      <form method="post" action="{{ url_for('documents.security_update') }}"><button class="btn btn-outline-primary">Signaturen jetzt aktualisieren</button></form>
+    </div>
+    {% else %}<p class="text-secondary">Serveraktionen sind ausschließlich für konfigurierte Sicherheitsadministratoren sichtbar.</p>{% endif %}
   </div></div>
 
-  {% if is_admin %}
-    <h2 class="h4">ClamAV-Ereignisse</h2>
-    <div class="table-responsive"><table class="table align-middle">
-      <thead><tr><th>Zeit</th><th>Quelle</th><th>Ergebnis</th><th>Aktion</th><th>Details</th><th>Ausgelöst durch</th></tr></thead>
-      <tbody>
-      {% for row in events %}
-        {% set result = row.outcome|default(row.verdict, true) %}
-        <tr>
-          <td>{{ row.occurred_at|default(row.scanned_at, true) }}</td>
-          <td>{% if row.event_type == 'server_action' %}{{ {'server_scan': 'Bestandsprüfung', 'signature_update': 'Signatur-Update'}.get(row.action, row.action) }}{% else %}{{ row.filename|default(row.source_type|default('Dateiprüfung', true), true) }}{% endif %}</td>
-          <td><span class="badge {% if result in ['clean', 'success', 'completed'] %}text-bg-success{% elif result == 'started' %}text-bg-info{% else %}text-bg-danger{% endif %}">{{ result }}</span></td>
-          <td>{{ row.action|default('–', true) }}</td>
-          <td>{% if row.counts %}{{ row.counts.clean }} sauber, {{ row.counts.infected }} Funde, {{ row.counts.errors }} Fehler, {{ row.counts.skipped }} übersprungen{% else %}{{ row.detail|default(row.engine, true) }}{% endif %}{% if row.duration_ms is defined %} ({{ row.duration_ms }} ms){% endif %}</td>
-          <td>{{ row.actor|default('–', true) }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="6">Noch keine ClamAV-Ereignisse. Starten Sie eine Bestandsprüfung oder ein Signatur-Update.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
-    <p class="small text-secondary">Das Journal speichert Ergebnis, tatsächlich ausgeführte Aktion, Zähler und sichere Fehlerkategorien, aber keine Zugangsdaten, Kommandoausgaben oder vollständigen internen Pfade.</p>
-  {% endif %}
+  <h2 class="h4">ClamAV-Ereignisse</h2>
+  <div class="table-responsive"><table class="table table-sm align-middle">
+    <thead><tr><th>Zeit</th><th>Quelle</th><th>Datei</th><th>Ergebnis</th><th>Aktion</th><th>Benutzer</th><th>Engine</th><th>Details</th></tr></thead>
+    <tbody>
+    {% for row in scans %}
+      <tr>
+        <td class="text-nowrap">{{ row.scanned_at }}</td>
+        <td>{{ row.source_type or 'legacy' }}</td>
+        <td class="text-break">{{ row.target_path or row.filename }}</td>
+        <td><span class="badge {% if row.verdict == 'clean' %}text-bg-success{% elif row.verdict == 'infected' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ row.verdict }}</span></td>
+        <td>{{ row.action or '-' }}</td>
+        <td>{{ row.actor or '-' }}</td>
+        <td>{{ row.engine or '-' }}</td>
+        <td class="text-break"><small>{{ row.detail or '-' }}</small>{% if row.quarantine_id %}<br><small>Quarantäne: {{ row.quarantine_id }}</small>{% endif %}</td>
+      </tr>
+    {% else %}<tr><td colspan="8">Noch keine ClamAV-Ereignisse.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
 </main>
 {% endblock %}
