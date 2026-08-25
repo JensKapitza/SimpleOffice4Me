@@ -129,6 +129,10 @@ def send(account_id: str):
     except smtplib.SMTPAuthenticationError as exc:
         current_app.logger.warning("SMTP submission authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
         flash(_smtp_authentication_message(exc))
+    except ValueError as exc:
+        # These messages originate exclusively from our local compose/input
+        # validation and are safe and necessary for correcting the request.
+        flash(f"Versand nicht gestartet: {exc}")
     except Exception as exc:
         current_app.logger.warning("SMTP submission failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Versand fehlgeschlagen ({type(exc).__name__}). Ein bereits erzeugter Versandversuch bleibt im Archiv nachvollziehbar.")

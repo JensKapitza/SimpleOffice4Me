@@ -202,9 +202,34 @@ class MailClientTests(unittest.TestCase):
         self.assertEqual(1, len(sent))
         document = DocumentStore(self.root).get_document(sent[0])
         self.assertEqual("failed", document["attributes"]["email_origin"]["state"])
+        self.assertEqual("transport_failed", document["attributes"]["email_origin"]["error_code"])
+        self.assertNotIn("error", document["attributes"]["email_origin"])
         actions = [json.loads(path.read_text())["action"] for path in (self.root / ".simpleoffice-history" / "events").glob("*.json")]
         self.assertIn("smtp_message_pending", actions)
         self.assertIn("smtp_message_failed", actions)
+
+    def test_smtp_authentication_response_is_not_persisted_in_archive_or_history(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        marker = "remote-secret-marker"
+        error = __import__("smtplib").SMTPAuthenticationError(
+            535, f"5.7.8 rejected {marker}".encode(),
+        )
+        with patch.object(SmtpSubmission, "_connect", side_effect=error):
+            with self.assertRaises(__import__("smtplib").SMTPAuthenticationError):
+                SmtpSubmission(self.store).send(
+                    "alice", account, "bob@example.test", "Fehler", "Inhalt"
+                )
+        sent = next((self.root / "email").rglob("*.eml"))
+        document = DocumentStore(self.root).get_document(sent)
+        origin = document["attributes"]["email_origin"]
+        self.assertEqual("authentication_failed", origin["error_code"])
+        self.assertEqual(535, origin["smtp_code"])
+        self.assertNotIn(marker, json.dumps(origin))
+        history = "".join(
+            path.read_text(encoding="utf-8")
+            for path in (self.root / ".simpleoffice-history" / "events").glob("*.json")
+        )
+        self.assertNotIn(marker, history)
 
     def test_smtp_rejects_header_injection_and_duplicate_recipients(self):
         account = self.store.smtp_account("alice", self.account["id"])

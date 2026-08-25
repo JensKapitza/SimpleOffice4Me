@@ -322,6 +322,30 @@ class SmtpSubmission:
         self.store, self.timeout = store, timeout
 
     @staticmethod
+    def _safe_transport_error(exc: BaseException) -> dict[str, Any]:
+        """Describe a transport failure without persisting remote response text."""
+        detail: dict[str, Any] = {"error_type": type(exc).__name__}
+        if isinstance(exc, smtplib.SMTPAuthenticationError):
+            detail["error_code"] = "authentication_failed"
+        elif isinstance(exc, smtplib.SMTPRecipientsRefused):
+            detail["error_code"] = "recipients_refused"
+        elif isinstance(exc, smtplib.SMTPSenderRefused):
+            detail["error_code"] = "sender_refused"
+        elif isinstance(exc, smtplib.SMTPDataError):
+            detail["error_code"] = "message_rejected"
+        elif isinstance(exc, (TimeoutError, socket.timeout)):
+            detail["error_code"] = "timeout"
+        elif isinstance(exc, (ConnectionError, OSError)):
+            detail["error_code"] = "connection_failed"
+        else:
+            detail["error_code"] = "transport_failed"
+        if isinstance(exc, smtplib.SMTPResponseException):
+            # The numeric status is useful and non-secret. smtp_error is an
+            # untrusted remote string and must never enter metadata/history.
+            detail["smtp_code"] = int(getattr(exc, "smtp_code", 0) or 0)
+        return detail
+
+    @staticmethod
     def compose(account: dict[str, Any], recipients: str, subject: str, body: str, calendar_data: str = "") -> tuple[bytes, list[str], str]:
         targets = _mailboxes(recipients)
         sender = _mailboxes(str(account.get("smtp_from", account.get("username", ""))))
@@ -393,7 +417,10 @@ class SmtpSubmission:
                 try: client.quit()
                 except Exception: client.close()
         except Exception as exc:
-            self.store.archive_outbound(actor, account, raw, "failed", {**detail, "error": str(exc)[:500]})
+            self.store.archive_outbound(
+                actor, account, raw, "failed",
+                {**detail, **self._safe_transport_error(exc)},
+            )
             raise
         self.store.archive_outbound(actor, account, raw, "sent", detail)
         return {**archived, "message_id": message_id, "recipients": len(targets)}

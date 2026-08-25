@@ -3,7 +3,12 @@ import smtplib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from werkzeug.security import generate_password_hash
+
+from app import app
+from app import db as database
 from app.mail_client import MailStore
 from app.mail_routes import _smtp_authentication_message
 
@@ -47,6 +52,36 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
         self.assertIn("App-Passwort", message)
         self.assertNotIn("UGFzc3dvcmQ6", message)
         self.assertNotIn("secret-marker", message)
+
+    def test_send_route_preserves_actionable_local_validation_message(self):
+        previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
+        try:
+            app.config.update(
+                TESTING=True,
+                DATABASE=str(Path(self.temp.name) / "users.sqlite"),
+                DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
+            )
+            with app.app_context():
+                database.ensure_auth_database()
+                db = database.get_db()
+                db.execute(
+                    "INSERT INTO user(username,password,is_admin) VALUES (?,?,1)",
+                    ("alice", generate_password_hash("password-123")),
+                )
+                db.commit()
+            client = app.test_client()
+            client.post("/auth/login", data={"username": "alice", "password": "password-123"})
+            with patch("app.mail_routes._store", return_value=self.store):
+                response = client.post(
+                    f"/documents/mail/accounts/{self.account['id']}/send",
+                    data={"recipients": "", "subject": "Test", "body": "Body"},
+                    follow_redirects=True,
+                )
+            body = response.get_data(as_text=True)
+            self.assertIn("Versand nicht gestartet", body)
+            self.assertIn("one to 100 recipients are required", body)
+        finally:
+            app.config.update(previous)
 
 
 if __name__ == "__main__":
