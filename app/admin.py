@@ -7,10 +7,11 @@ import io
 import json
 from datetime import datetime, timezone
 
-from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .access_control import FEATURES, activity_for, audit, is_admin, permissions_for, safe_delta, utc_now
 from .auth import login_required
+from .contact_owner_admin import assign_ownerless_contacts, ownerless_contacts
 from .db import get_db
 from .request_audit import audit_mutation_response
 from .system_identity import system_info
@@ -82,10 +83,46 @@ def _export_filename(extension: str) -> str:
 @admin_required
 def users():
     rows = get_db().execute("SELECT * FROM user ORDER BY is_admin DESC, username COLLATE NOCASE").fetchall()
+    orphaned = ownerless_contacts(current_app.config["DOCUMENT_ROOT"])
     return render_template(
         "admin/users.html", users=rows, features=FEATURES,
         permissions={row["id"]: permissions_for(row["id"]) for row in rows},
+        ownerless_contacts=orphaned[:100], ownerless_count=len(orphaned),
     )
+
+
+@bp.post("/contacts/assign-owner")
+@admin_required
+def assign_contact_owner():
+    username = request.form.get("owner", "").strip()
+    target = get_db().execute(
+        "SELECT id, username, is_disabled FROM user WHERE username = ?", (username,)
+    ).fetchone()
+    if target is None or target["is_disabled"]:
+        flash("Der gewählte interne Benutzer ist nicht aktiv oder existiert nicht.")
+        return redirect(url_for("admin.users"))
+
+    if request.form.get("all_ownerless") == "1":
+        contact_ids = [
+            contact.get("contact_id", "")
+            for contact in ownerless_contacts(current_app.config["DOCUMENT_ROOT"])
+        ]
+    else:
+        contact_ids = request.form.getlist("contact_id")
+    try:
+        changed = assign_ownerless_contacts(
+            current_app.config["DOCUMENT_ROOT"], contact_ids, username, g.user["username"]
+        )
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("admin.users"))
+
+    audit(
+        "contact_owner_bulk_assigned", "contacts", username,
+        detail={"assigned": changed, "owner": username},
+    )
+    flash(f"{changed} verwaiste Kontakt(e) wurden {username} zugeordnet.")
+    return redirect(url_for("admin.users"))
 
 
 @bp.post("/users/<int:user_id>")
