@@ -6,8 +6,9 @@ from pathlib import Path
 from flask import Response, g
 
 from app import app
+from app.access_control import safe_delta
 from app.db import ensure_auth_database, get_db
-from app.request_audit import audit_mutation_response
+from app.request_audit import _semantic_action, _target, audit_mutation_response
 
 
 class RequestAuditTest(unittest.TestCase):
@@ -57,16 +58,40 @@ class RequestAuditTest(unittest.TestCase):
             ).fetchone()[0]
             self.assertEqual(0, count)
 
-    def test_denied_authenticated_mutation_is_visible(self):
+    def test_denied_authenticated_delete_is_visible(self):
         with app.test_request_context("/admin/restricted", method="DELETE"):
             g.user = {"id": None, "username": "alice"}
             g.request_id = "denied-1"
             audit_mutation_response(Response(status=403))
             row = get_db().execute(
-                "SELECT outcome, detail FROM security_event WHERE action = 'http_mutation' ORDER BY id DESC LIMIT 1"
+                "SELECT outcome, detail FROM security_event WHERE action = 'object_deleted' ORDER BY id DESC LIMIT 1"
             ).fetchone()
             self.assertEqual("denied", row["outcome"])
             self.assertEqual(403, json.loads(row["detail"])["status"])
+
+    def test_business_actions_are_classified_for_searchable_audit(self):
+        self.assertEqual("object_restored", _semantic_action("documents.restore_document", "POST"))
+        self.assertEqual("sharing_or_access_changed", _semantic_action("documents.create_share", "POST"))
+        self.assertEqual("external_sync_requested", _semantic_action("documents.google_calendar_sync", "POST"))
+        self.assertEqual("object_deleted", _semantic_action("webdav.delete", "DELETE"))
+        self.assertEqual("import_requested", _semantic_action("documents.import_upload", "POST"))
+
+    def test_target_prefers_real_object_identifier(self):
+        kind, identifier = _target(
+            "documents.update_project", {"project_id": "p-123", "other": "x"},
+            {"id": 1, "username": "alice"},
+        )
+        self.assertEqual("project", kind)
+        self.assertEqual("p-123", identifier)
+
+    def test_safe_delta_records_only_changed_allowed_state(self):
+        delta = safe_delta(
+            {"admin": False, "disabled": False, "secret": "old"},
+            {"admin": True, "disabled": False, "secret": "new"},
+            allowed={"admin", "disabled"},
+        )
+        self.assertEqual({"admin": {"before": False, "after": True}}, delta)
+        self.assertNotIn("secret", json.dumps(delta))
 
 
 if __name__ == "__main__":
