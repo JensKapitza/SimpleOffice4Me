@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
@@ -13,6 +14,12 @@ from .datalogger_store import DataLoggerStore
 from .db import get_db
 
 bp = Blueprint("datalogger", __name__, url_prefix="/datalogger")
+
+LINUX_METRICS = {
+    "load1", "load5", "load15", "memory_used_percent", "disk_used_percent", "temperature_c"
+}
+FILE_METRICS = {"count", "total_bytes", "mtime"}
+PAGE_SIZES = {50, 100, 250}
 
 
 def _store(): return DataLoggerStore(current_app.config["DOCUMENT_ROOT"])
@@ -33,10 +40,18 @@ def _read_channel(channel_id):
 
 
 def _source_config(kind, form):
-    if kind == "linux": return {"metric": form.get("metric", "load1"), "path": form.get("path", "/")[:500]}
-    if kind == "file": return {"metric": form.get("metric", "count"), "path": form.get("path", ".")[:500], "recursive": form.get("recursive") == "1", "max_entries": 100000}
+    if kind == "linux":
+        metric = str(form.get("metric", "")).strip() or "load1"
+        if metric not in LINUX_METRICS:
+            raise ValueError(f"Unbekannte Linux-Messgröße: {metric}. Erlaubt: {', '.join(sorted(LINUX_METRICS))}.")
+        return {"metric": metric, "path": (str(form.get("path", "")).strip() or "/")[:500]}
+    if kind == "file":
+        metric = str(form.get("metric", "")).strip() or "count"
+        if metric not in FILE_METRICS:
+            raise ValueError(f"Unbekannte Datei-Messgröße: {metric}. Erlaubt: {', '.join(sorted(FILE_METRICS))}.")
+        return {"metric": metric, "path": (str(form.get("path", "")).strip() or ".")[:500], "recursive": form.get("recursive") == "1", "max_entries": 100000}
     if kind == "http_json":
-        return {"url": form.get("url", "")[:1000], "json_path": form.get("json_path", "value")[:300], "timeout": 5,
+        return {"url": form.get("url", "")[:1000], "json_path": (form.get("json_path", "") or "value")[:300], "timeout": 5,
                 "header_name": form.get("header_name", "Authorization")[:80], "header_env": form.get("header_env", "")[:120]}
     if kind == "lm_sensors": return {"json_path": form.get("json_path", "")[:300]}
     raise ValueError("Unbekannter Quellentyp.")
@@ -65,9 +80,27 @@ def create_channel():
 @login_required
 def channel(channel_id):
     channel = _read_channel(channel_id); store = _store()
-    samples = [dict(row) for row in store.samples(channel_id, request.args.get("limit", 1000))]
-    return render_template("datalogger/channel.html", channel=channel, samples=samples, sources=store.sources(channel_id),
-                           can_edit=store.can_edit(channel, g.user["username"], is_admin()), users=_users())
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", 100))
+    except (TypeError, ValueError):
+        per_page = 100
+    if per_page not in PAGE_SIZES:
+        per_page = 100
+    total = store.sample_count(channel_id)
+    pages = max(1, math.ceil(total / per_page))
+    page = min(page, pages)
+    samples = [dict(row) for row in store.samples(channel_id, per_page, offset=(page - 1) * per_page)]
+    chart_samples = [dict(row) for row in store.samples(channel_id, 200)]
+    return render_template(
+        "datalogger/channel.html", channel=channel, samples=samples, chart_samples=chart_samples,
+        sources=store.sources(channel_id), can_edit=store.can_edit(channel, g.user["username"], is_admin()), users=_users(),
+        page=page, pages=pages, per_page=per_page, total_samples=total,
+        linux_metrics=sorted(LINUX_METRICS), file_metrics=sorted(FILE_METRICS),
+    )
 
 
 @bp.post("/channels/<channel_id>")

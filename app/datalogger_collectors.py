@@ -41,7 +41,7 @@ def _number(value):
 
 
 def collect_linux(config):
-    metric = config.get("metric", "load1")
+    metric = str(config.get("metric", "")).strip() or "load1"
     if metric in {"load1", "load5", "load15"}:
         return os.getloadavg()[{"load1": 0, "load5": 1, "load15": 2}[metric]]
     if metric == "memory_used_percent":
@@ -50,7 +50,7 @@ def collect_linux(config):
             key, value = line.split(":", 1); values[key] = int(value.split()[0])
         return 100 * (1 - values["MemAvailable"] / values["MemTotal"])
     if metric == "disk_used_percent":
-        usage = shutil.disk_usage(config.get("path", "/")); return 100 * usage.used / usage.total
+        usage = shutil.disk_usage(str(config.get("path", "")).strip() or "/"); return 100 * usage.used / usage.total
     if metric == "temperature_c":
         paths = sorted(Path("/sys/class/thermal").glob("thermal_zone*/temp"))
         if not paths: raise CollectionError("temperature_unavailable")
@@ -68,7 +68,7 @@ def _safe_file_path(root, configured):
 def collect_file(root, config):
     path = _safe_file_path(root, config.get("path", "."))
     if not path.exists(): raise CollectionError("path_missing")
-    metric, recursive = config.get("metric", "count"), bool(config.get("recursive", True))
+    metric, recursive = str(config.get("metric", "")).strip() or "count", bool(config.get("recursive", True))
     maximum, count, size = max(1, min(int(config.get("max_entries", 100000)), 1000000)), 0, 0
     iterator = path.rglob("*") if recursive and path.is_dir() else (path.iterdir() if path.is_dir() else [path])
     for item in iterator:
