@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.mail_archive_preview import load_local_eml_by_id
 from app.mail_client import ImapArchive, MailStore
 from app.mail_reader import MailReader, _html_to_text
 
@@ -106,6 +107,22 @@ class MailReaderTests(unittest.TestCase):
         rows = reader.local_archive("alice", self.saved["id"], query="Reader Test")
         self.assertEqual(1, len(rows))
         self.assertEqual("Reader Test", rows[0]["subject"])
+
+    def test_archived_mail_opens_by_stable_sha512_id(self):
+        reader = MailReader(self.store)
+        with patch.object(ImapArchive, "_connect", return_value=FakeReaderImap()):
+            archived = reader.archive_uid("alice", self.account, "INBOX", "8")
+
+        archive_id = Path(archived["path"]).stem
+        preview = load_local_eml_by_id(self.store, "alice", self.saved["id"], archive_id)
+        self.assertEqual("Reader Test", preview["subject"])
+        self.assertIn("Hallo aus dem Postfach", preview["text"])
+        self.assertEqual(archive_id, preview["sha512"])
+
+        with self.assertRaises(ValueError):
+            load_local_eml_by_id(self.store, "alice", self.saved["id"], "../../secret")
+        with self.assertRaises(ValueError):
+            load_local_eml_by_id(self.store, "alice", self.saved["id"], "not-a-message-id")
 
     def test_html_fallback_removes_markup_and_script_content(self):
         text = _html_to_text("<p>Hallo <b>Welt</b></p><script>alert('x')</script><br>Ende")
