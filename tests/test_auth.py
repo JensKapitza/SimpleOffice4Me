@@ -47,12 +47,30 @@ class AuthTest(unittest.TestCase):
             if os.name == "posix":
                 self.assertEqual(0, stat.S_IMODE(key_file.stat().st_mode) & 0o077)
 
-    def test_explicit_session_key_remains_authoritative(self):
+    def test_environment_key_is_migrated_once_into_mandatory_file(self):
+        legacy_key = "managed-key-that-is-long-enough-for-migration"
         with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ, {"SIMPLEOFFICE_SECRET_KEY": "managed-key"}, clear=True
+            os.environ, {"SIMPLEOFFICE_SECRET_KEY": legacy_key}, clear=True
         ):
             key_file = Path(temp) / "session-secret"
-            self.assertEqual("managed-key", load_or_create_secret_key(key_file))
+            self.assertEqual(legacy_key, load_or_create_secret_key(key_file))
+            self.assertTrue(key_file.is_file())
+            self.assertEqual(legacy_key, key_file.read_text(encoding="utf-8").strip())
+            if os.name == "posix":
+                self.assertEqual(0, stat.S_IMODE(key_file.stat().st_mode) & 0o077)
+
+            # The persisted file becomes authoritative. A later environment
+            # change must never silently invalidate sessions or encrypted data.
+            os.environ["SIMPLEOFFICE_SECRET_KEY"] = "different-key-that-must-never-win-over-the-file"
+            self.assertEqual(legacy_key, load_or_create_secret_key(key_file))
+
+    def test_invalid_environment_key_is_not_persisted(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ, {"SIMPLEOFFICE_SECRET_KEY": "too-short"}, clear=True
+        ):
+            key_file = Path(temp) / "session-secret"
+            with self.assertRaisesRegex(RuntimeError, "shorter"):
+                load_or_create_secret_key(key_file)
             self.assertFalse(key_file.exists())
 
     def test_invalid_persisted_session_key_is_not_replaced(self):

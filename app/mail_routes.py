@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import smtplib
+
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
@@ -18,6 +20,17 @@ def _store() -> MailStore:
     secret = current_app.config["SECRET_KEY"]
     raw = secret.encode("utf-8") if isinstance(secret, str) else bytes(secret)
     return MailStore(current_app.config["DOCUMENT_ROOT"], raw)
+
+
+def _smtp_authentication_message(exc: smtplib.SMTPAuthenticationError) -> str:
+    """Return an actionable SMTP authentication error without echoing server text."""
+    code = int(getattr(exc, "smtp_code", 0) or 0)
+    status = f" ({code})" if code else ""
+    return (
+        f"SMTP-Anmeldung abgewiesen{status}. Prüfen Sie den vollständigen Benutzernamen und das Passwort. "
+        "Bei aktivierter Zwei-Faktor-Anmeldung ist häufig ein App-Passwort erforderlich; "
+        "einige Anbieter verlangen stattdessen OAuth."
+    )
 
 
 @bp.get("")
@@ -93,9 +106,12 @@ def test_smtp(account_id: str):
         result = SmtpSubmission(store).test(account)
         store.history.record("smtp_account_tested", _actor(), "mail-accounts", account_id, {"host": account["smtp_host"], "port": account["smtp_port"], "security": account["smtp_security"], "features": result["features"]})
         flash(f"SMTP-Anmeldung erfolgreich: {len(result['features'])} Server-Fähigkeiten.")
+    except smtplib.SMTPAuthenticationError as exc:
+        current_app.logger.warning("SMTP authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
+        flash(_smtp_authentication_message(exc))
     except Exception as exc:
         current_app.logger.warning("SMTP connection test failed for %s: %s", _actor(), type(exc).__name__)
-        flash(f"SMTP-Anmeldung fehlgeschlagen: {exc}")
+        flash(f"SMTP-Verbindung fehlgeschlagen ({type(exc).__name__}). Prüfen Sie Server, Port, TLS-Modus und das Administrator-Fehlerprotokoll.")
     return redirect(url_for("mail_client.index", account=account_id))
 
 
@@ -110,9 +126,16 @@ def send(account_id: str):
             request.form.get("body", ""), request.form.get("calendar_data", ""),
         )
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als unveränderte EML archiviert.")
+    except smtplib.SMTPAuthenticationError as exc:
+        current_app.logger.warning("SMTP submission authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
+        flash(_smtp_authentication_message(exc))
+    except ValueError as exc:
+        # These messages originate exclusively from our local compose/input
+        # validation and are safe and necessary for correcting the request.
+        flash(f"Versand nicht gestartet: {exc}")
     except Exception as exc:
         current_app.logger.warning("SMTP submission failed for %s: %s", _actor(), type(exc).__name__)
-        flash(f"Versand fehlgeschlagen: {exc}. Ein bereits erzeugter Versandversuch bleibt im Archiv nachvollziehbar.")
+        flash(f"Versand fehlgeschlagen ({type(exc).__name__}). Ein bereits erzeugter Versandversuch bleibt im Archiv nachvollziehbar.")
     return redirect(url_for("mail_client.index", account=account_id))
 
 
