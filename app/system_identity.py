@@ -10,7 +10,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from flask import current_app, request
+from flask import current_app, g, request
 
 from .file_lock import exclusive_file_lock
 
@@ -75,6 +75,6 @@ def system_info(*, include_request: bool = True) -> dict[str, object]:
         info.update({
             "client_ip": str(request.remote_addr or "")[:120],
             "user_agent": str(request.user_agent.string or "")[:500],
-            "request_id": str(getattr(__import__("flask").g, "request_id", ""))[:80],
+            "request_id": str(getattr(g, "request_id", ""))[:80],
         })
     return info
