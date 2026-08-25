@@ -12,7 +12,7 @@
       <p class="text-secondary mb-0">Eigentümer: {{ contact.owner|default('bisher nicht zugeordnet', true) }} · zuletzt geändert von {{ contact.updated_by }}</p>
       {% if can_manage %}<span class="badge text-bg-primary mt-2">Lesen und Bearbeiten</span>{% else %}<span class="badge text-bg-secondary mt-2">Nur Lesen</span>{% endif %}
     </div>
-    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
+    <div class="btn-group">{% if can_manage %}<a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a>{% endif %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
   <div class="row g-4">
@@ -85,7 +85,7 @@
           {% endif %}
         </div>
       </div>
-      <div class="card mt-4" data-contact-history>
+      {% if can_manage %}<div class="card mt-4" data-contact-history>
         <div class="card-header">Änderungsverlauf</div>
         {% set history_actors = contact.changes|default([])|map(attribute='actor')|unique|sort|list %}
         {% set history_fields = contact.changes|default([])|map(attribute='field')|unique|sort|list %}
@@ -96,7 +96,7 @@
           </div><div class="small text-secondary mt-2" aria-live="polite" data-contact-history-count></div>
         </div>
         <div class="list-group list-group-flush">{% for change in contact.changes|default([])|reverse %}<div class="list-group-item border-start border-4" data-contact-history-entry data-contact-history-actor="{{ change.actor }}" data-contact-history-field="{{ change.field }}"><div class="d-flex justify-content-between gap-2"><strong>{{ change.field }}</strong><span class="badge" data-contact-history-actor-badge>{{ change.actor }}</span></div><div class="small mt-1"><span class="text-danger">{{ change.old|default('—', true) }}</span> &rarr; <span class="text-success">{{ change.new|default('—', true) }}</span></div><div class="small text-secondary">{{ change.at }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Feldänderungen gespeichert.</div>{% endfor %}<div class="list-group-item text-secondary" hidden data-contact-history-empty>Keine Änderungen entsprechen dem Filter.</div></div>
-      </div>
+      </div>{% endif %}
     </aside>
   </div>
 </main>
