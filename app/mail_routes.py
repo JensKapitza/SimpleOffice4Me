@@ -56,7 +56,8 @@ def index():
 def save_account():
     try:
         row = _store().save_account(_actor(), request.form.to_dict(), request.form.get("password", ""), request.form.get("remember_password") == "1")
-        flash("IMAP-Konfiguration gespeichert. Das Passwort wurde nur bei aktivierter Speicherung verschlüsselt abgelegt.")
+        state = "gespeichert und für diese Installation entsperrbar" if row["password_saved"] else "nicht gespeichert"
+        flash(f"IMAP-Konfiguration gespeichert. Das IMAP-Passwort ist {state}.")
         return redirect(url_for("mail_client.index", account=row["id"]))
     except (ValueError, RuntimeError) as exc:
         flash(str(exc))
@@ -106,10 +107,6 @@ def test_smtp(account_id: str):
         store.history.record("smtp_account_tested", _actor(), "mail-accounts", account_id, {"host": account["smtp_host"], "port": account["smtp_port"], "security": account["smtp_security"], "features": result["features"]})
         flash(f"SMTP-Anmeldung erfolgreich: {len(result['features'])} Server-Fähigkeiten.")
     except smtplib.SMTPAuthenticationError as exc:
-        # SMTP replies are controlled by the remote server. Do not expose or log
-        # the response body because it may contain authentication challenges,
-        # identifiers or provider-specific details. The numeric SMTP status is
-        # sufficient for the user-facing diagnosis.
         current_app.logger.warning("SMTP authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
         flash(_smtp_authentication_message(exc))
     except Exception as exc:
