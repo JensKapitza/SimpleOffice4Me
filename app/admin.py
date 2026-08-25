@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
+import csv
+import io
+import json
+from datetime import datetime, timezone
+
+from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
 
 from .access_control import FEATURES, activity_for, audit, is_admin, permissions_for, safe_delta, utc_now
 from .auth import login_required
 from .db import get_db
 from .request_audit import audit_mutation_response
-
+from .system_identity import system_info
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 bp.after_app_request(audit_mutation_response)
+
+AUDIT_FILTER_KEYS = (
+    "q", "actor", "action", "target_type", "target_id", "outcome",
+    "request_id", "client_ip", "from_at", "to_at",
+)
 
 
 def admin_required(view):
@@ -22,6 +32,50 @@ def admin_required(view):
         return view(**kwargs)
     wrapped_view.__name__ = view.__name__
     return wrapped_view
+
+
+def _audit_filters() -> dict[str, str]:
+    return {key: request.args.get(key, "").strip()[:300] for key in AUDIT_FILTER_KEYS}
+
+
+def _audit_query(filters: dict[str, str]) -> tuple[str, list[object]]:
+    where: list[str] = []
+    parameters: list[object] = []
+    if filters["q"]:
+        where.append("(actor_name LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR detail LIKE ?)")
+        needle = f"%{filters['q']}%"
+        parameters.extend([needle] * 5)
+    if filters["actor"]:
+        where.append("actor_name LIKE ?"); parameters.append(f"%{filters['actor']}%")
+    if filters["action"]:
+        where.append("action LIKE ?"); parameters.append(f"%{filters['action']}%")
+    if filters["target_type"]:
+        where.append("target_type = ?"); parameters.append(filters["target_type"])
+    if filters["target_id"]:
+        where.append("target_id LIKE ?"); parameters.append(f"%{filters['target_id']}%")
+    if filters["outcome"]:
+        where.append("outcome = ?"); parameters.append(filters["outcome"])
+    if filters["request_id"]:
+        where.append("detail LIKE ?"); parameters.append(f'%"request_id": "%{filters["request_id"]}%"%')
+    if filters["client_ip"]:
+        where.append("detail LIKE ?"); parameters.append(f'%"client_ip": "%{filters["client_ip"]}%"%')
+    if filters["from_at"]:
+        where.append("occurred_at >= ?"); parameters.append(filters["from_at"])
+    if filters["to_at"]:
+        where.append("occurred_at < datetime(?, '+1 day')"); parameters.append(filters["to_at"])
+    return (f" WHERE {' AND '.join(where)}" if where else ""), parameters
+
+
+def _event_detail(row) -> dict:
+    try:
+        value = json.loads(row["detail"] or "{}")
+        return value if isinstance(value, dict) else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _export_filename(extension: str) -> str:
+    return f"simpleoffice-audit-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%SZ')}.{extension}"
 
 
 @bp.get("/users")
@@ -112,20 +166,8 @@ def logs():
     errors = get_db().execute(
         "SELECT * FROM application_error ORDER BY occurred_at DESC LIMIT ? OFFSET ?", (limit + 1, offset)
     ).fetchall()
-    event_filters = {key: request.args.get(key, "").strip() for key in ("actor", "action", "outcome", "from_at", "to_at")}
-    where: list[str] = []
-    parameters: list[object] = []
-    if event_filters["actor"]:
-        where.append("actor_name LIKE ?"); parameters.append(f"%{event_filters['actor']}%")
-    if event_filters["action"]:
-        where.append("action LIKE ?"); parameters.append(f"%{event_filters['action']}%")
-    if event_filters["outcome"]:
-        where.append("outcome = ?"); parameters.append(event_filters["outcome"])
-    if event_filters["from_at"]:
-        where.append("occurred_at >= ?"); parameters.append(event_filters["from_at"])
-    if event_filters["to_at"]:
-        where.append("occurred_at < datetime(?, '+1 day')"); parameters.append(event_filters["to_at"])
-    predicate = f" WHERE {' AND '.join(where)}" if where else ""
+    event_filters = _audit_filters()
+    predicate, parameters = _audit_query(event_filters)
     events = get_db().execute(
         f"SELECT * FROM security_event{predicate} ORDER BY occurred_at DESC LIMIT ? OFFSET ?",
         (*parameters, limit + 1, event_offset),
@@ -133,8 +175,78 @@ def logs():
     return render_template(
         "admin/logs.html", errors=errors[:limit], events=events[:limit], page=page,
         has_next=len(errors) > limit, event_page=event_page, event_has_next=len(events) > limit,
-        event_filters=event_filters,
+        event_filters=event_filters, system=system_info(include_request=True),
     )
+
+
+@bp.get("/logs/export")
+@admin_required
+def export_logs():
+    export_format = request.args.get("format", "txt").strip().casefold()
+    if export_format not in {"txt", "csv"}:
+        abort(400, description="format muss txt oder csv sein")
+    filters = _audit_filters()
+    predicate, parameters = _audit_query(filters)
+    rows = get_db().execute(
+        f"SELECT * FROM security_event{predicate} ORDER BY occurred_at DESC LIMIT 20000", parameters
+    ).fetchall()
+    info = system_info(include_request=True)
+    exported_at = utc_now()
+    active_filters = {key: value for key, value in filters.items() if value}
+    audit(
+        "audit_exported", "audit", export_format,
+        detail={"format": export_format, "rows": len(rows), "filters": active_filters,
+                "application_id": info["application_id"], "request_id": info.get("request_id", "")},
+    )
+
+    if export_format == "csv":
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow([
+            "record_type", "occurred_at", "actor", "action", "target_type", "target_id", "outcome",
+            "request_id", "application_id", "server_name", "client_ip", "user_agent", "method", "endpoint",
+            "status", "detail_json",
+        ])
+        writer.writerow([
+            "system", exported_at, g.user["username"], "audit_export", "system", info["application_id"], "success",
+            info.get("request_id", ""), info["application_id"], info["server_name"], info.get("client_ip", ""),
+            info.get("user_agent", ""), "GET", "admin.export_logs", "200",
+            json.dumps({"system": info, "filters": active_filters}, ensure_ascii=False, sort_keys=True),
+        ])
+        for row in rows:
+            detail = _event_detail(row)
+            writer.writerow([
+                "event", row["occurred_at"], row["actor_name"] or "System", row["action"], row["target_type"],
+                row["target_id"], row["outcome"], detail.get("request_id", ""), detail.get("application_id", ""),
+                detail.get("server_name", ""), detail.get("client_ip", ""), detail.get("user_agent", ""),
+                detail.get("method", ""), detail.get("endpoint", ""), detail.get("status", ""), row["detail"] or "{}",
+            ])
+        response = Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8")
+        response.headers["Content-Disposition"] = f'attachment; filename="{_export_filename("csv")}"'
+        return response
+
+    lines = [
+        "SimpleOffice4Me Audit-Export", "=" * 72,
+        f"Exportiert: {exported_at}", f"Exportiert von: {g.user['username']}", "",
+        "SYSTEMINFORMATION", "-" * 72,
+    ]
+    for key, value in info.items():
+        lines.append(f"{key}: {', '.join(value) if isinstance(value, list) else value}")
+    lines.extend(["", "FILTER", "-" * 72])
+    lines.extend((f"{key}: {value}" for key, value in active_filters.items()) if active_filters else ["keine"])
+    lines.extend(["", f"EREIGNISSE ({len(rows)})", "=" * 72])
+    for row in rows:
+        detail = _event_detail(row)
+        lines.extend([
+            f"[{row['occurred_at']}] {row['outcome']} | {row['actor_name'] or 'System'} | {row['action']}",
+            f"Ziel: {row['target_type']} / {row['target_id']}",
+            f"Request-ID: {detail.get('request_id', '-')}; App-ID: {detail.get('application_id', '-')}; Client-IP: {detail.get('client_ip', '-')}",
+            f"Server: {detail.get('server_name', '-')}; HTTP: {detail.get('method', '-')} {detail.get('endpoint', '-')} -> {detail.get('status', '-')}",
+            f"Details: {row['detail'] or '{}'}", "-" * 72,
+        ])
+    response = Response("\n".join(lines) + "\n", content_type="text/plain; charset=utf-8")
+    response.headers["Content-Disposition"] = f'attachment; filename="{_export_filename("txt")}"'
+    return response
 
 
 @bp.post("/errors/<int:error_id>/resolve")
