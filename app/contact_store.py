@@ -6,6 +6,7 @@ import json
 import hashlib
 import hmac
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,10 +22,16 @@ DEFAULT_SCHEMA = {
         "first_name": ["first_name", "Vorname", "givenName"],
         "last_name": ["last_name", "Nachname", "familyName"],
         "display_name": ["display_name", "Name", "fn", "formattedName"],
+        "nickname": ["nickname", "Spitzname"],
         "email": ["email", "E-Mail", "mail"],
         "phone": ["phone", "Telefon", "mobile"],
         "birthday": ["birthday", "Geburtstag", "birthDate"],
         "company": ["company", "Firma", "organization"],
+        "department": ["department", "Abteilung", "organizationalUnit"],
+        "title": ["title", "Position", "jobTitle"],
+        "role": ["role", "Rolle"],
+        "website": ["website", "Webseite", "url"],
+        "note": ["note", "Notiz", "notes"],
     },
 }
 
@@ -58,7 +65,10 @@ class ContactStore:
 
     def schema(self) -> dict[str, Any]:
         self.initialize()
-        return self._read(self.schema_path, DEFAULT_SCHEMA)
+        stored = self._read(self.schema_path, DEFAULT_SCHEMA)
+        aliases = dict(DEFAULT_SCHEMA["aliases"])
+        aliases.update(stored.get("aliases", {}))
+        return {"required": stored.get("required", DEFAULT_SCHEMA["required"]), "aliases": aliases}
 
     def save_schema(self, required: list[str], aliases: dict[str, list[str]], actor: str) -> dict[str, Any]:
         self._require_actor(actor)
@@ -210,10 +220,7 @@ class ContactStore:
             contact["updated_at"] = utc_now()
             contact["updated_by"] = actor
             atomic_json_write(self.contacts_path, payload)
-            self.history.record(
-                "contact_sharing_updated", actor, "contacts", contact_id,
-                {"owner": owner, "managers": contact["managers"], "readers": contact["readers"], "updated_at": contact["updated_at"]},
-            )
+            self.history.record("contact_sharing_updated", actor, "contacts", contact_id, {"owner": owner, "managers": contact["managers"], "readers": contact["readers"], "updated_at": contact["updated_at"]})
         return contact
 
     def address_matches(self) -> dict[str, list[str]]:
@@ -222,6 +229,22 @@ class ContactStore:
             for address in contact.get("addresses", []):
                 matches.setdefault(address.get("normalized", ""), []).append(contact["contact_id"])
         return {key: value for key, value in matches.items() if key and len(value) > 1}
+
+    @staticmethod
+    def _safe_raw_vcard_line(line: str) -> str:
+        raw = str(line)
+        if "\r" in raw or "\n" in raw:
+            return ""
+        line = raw.strip()
+        if "BEGIN:VCARD" in line.upper() or "END:VCARD" in line.upper():
+            return ""
+        key, sep, _ = line.partition(":")
+        name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
+        if not sep or not re.fullmatch(r"[A-Z0-9-]{1,80}", name):
+            return ""
+        if name in {"BEGIN", "END", "VERSION", "UID", "FN", "N", "BDAY", "ORG", "NICKNAME", "TITLE", "ROLE", "URL", "NOTE", "CATEGORIES", "X-SIMPLEOFFICE-GROUP"}:
+            return ""
+        return line[:4000]
 
     def vcard(self, contact_id: str, actor: str = "") -> str:
         contact = self.get(contact_id, actor)
@@ -232,15 +255,30 @@ class ContactStore:
             return str(value).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
         categories = ",".join(text(item) for item in contact.get("tags", []))
         groups = ",".join(text(item) for item in contact.get("groups", []))
+        extras = []
+        for key in sorted(fields):
+            if key.startswith("vcard_"):
+                raw = self._safe_raw_vcard_line(fields[key])
+                if raw:
+                    extras.append(raw)
+        org = value("company")
+        if fields.get("department"):
+            org += ";" + value("department")
         return "\r\n".join([
             "BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}",
             f"N:{value('last_name')};{value('first_name')};;;",
+            *([f"NICKNAME:{value('nickname')}"] if fields.get("nickname") else []),
             *([f"EMAIL:{value('email')}"] if fields.get("email") else []),
             *([f"TEL:{value('phone')}"] if fields.get("phone") else []),
             *([f"BDAY:{value('birthday')}"] if fields.get("birthday") else []),
-            *([f"ORG:{value('company')}"] if fields.get("company") else []),
+            *([f"ORG:{org}"] if org else []),
+            *([f"TITLE:{value('title')}"] if fields.get("title") else []),
+            *([f"ROLE:{value('role')}"] if fields.get("role") else []),
+            *([f"URL:{value('website')}"] if fields.get("website") else []),
+            *([f"NOTE:{value('note')}"] if fields.get("note") else []),
             *([f"CATEGORIES:{categories}"] if categories else []),
             *([f"X-SIMPLEOFFICE-GROUP:{groups}"] if groups else []),
+            *extras,
             "END:VCARD", "",
         ])
 
@@ -327,23 +365,42 @@ class ContactStore:
                 lines[-1] += physical_line[1:]
             else:
                 lines.append(physical_line)
+        seen_email = False
+        seen_phone = False
+        extra_index = 0
         for raw in lines:
-            key, separator, value = raw.partition(":")
+            key, separator, raw_value = raw.partition(":")
             if not separator:
                 continue
             name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
-            if name == "FN": values["display_name"] = ContactStore._unescape_vcard_text(value)
+            value = ContactStore._unescape_vcard_text(raw_value)
+            if name == "FN": values["display_name"] = value
             elif name == "N":
-                parts = ContactStore._split_vcard_components(value)
+                parts = ContactStore._split_vcard_components(raw_value)
                 values["last_name"] = parts[0] if parts else ""
                 values["first_name"] = parts[1] if len(parts) > 1 else ""
-            elif name == "EMAIL": values["email"] = ContactStore._unescape_vcard_text(value)
-            elif name == "TEL": values["phone"] = ContactStore._unescape_vcard_text(value)
-            elif name == "BDAY": values["birthday"] = ContactStore._unescape_vcard_text(value)
-            elif name == "ORG": values["company"] = ContactStore._unescape_vcard_text(value)
-            elif name == "CATEGORIES": metadata["tags"] = ContactStore._split_vcard_list(value)
-            elif name == "X-SIMPLEOFFICE-GROUP": metadata["groups"] = ContactStore._split_vcard_list(value)
-            elif name == "UID" and not contact_id: contact_id = ContactStore._unescape_vcard_text(value)
+            elif name == "NICKNAME": values["nickname"] = value
+            elif name == "EMAIL" and not seen_email:
+                values["email"] = value; seen_email = True
+            elif name == "TEL" and not seen_phone:
+                values["phone"] = value; seen_phone = True
+            elif name == "BDAY": values["birthday"] = value
+            elif name == "ORG":
+                parts = ContactStore._split_vcard_components(raw_value)
+                values["company"] = parts[0] if parts else ""
+                values["department"] = parts[1] if len(parts) > 1 else ""
+            elif name == "TITLE": values["title"] = value
+            elif name == "ROLE": values["role"] = value
+            elif name == "URL": values["website"] = value
+            elif name == "NOTE": values["note"] = value
+            elif name == "CATEGORIES": metadata["tags"] = ContactStore._split_vcard_list(raw_value)
+            elif name == "X-SIMPLEOFFICE-GROUP": metadata["groups"] = ContactStore._split_vcard_list(raw_value)
+            elif name == "UID" and not contact_id: contact_id = value
+            elif name not in {"BEGIN", "END", "VERSION"}:
+                safe = ContactStore._safe_raw_vcard_line(raw)
+                if safe:
+                    values[f"custom_vcard_{extra_index:03d}_{name.casefold()}"] = safe
+                    extra_index += 1
         return values, contact_id, metadata
 
     @staticmethod
@@ -452,8 +509,6 @@ class ContactStore:
 
     @staticmethod
     def _can_manage(contact: dict[str, Any], principal: str) -> bool:
-        # Older contact files had no ``owner`` field. They must not become
-        # world-readable merely because the ownership metadata is incomplete.
         owner = str(contact.get("owner", "")).strip() or ContactStore._principal(str(contact.get("created_by", "")))
         return bool(owner) and (principal == owner or principal in contact.get("managers", []))
 
