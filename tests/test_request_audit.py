@@ -14,8 +14,12 @@ from app.request_audit import _semantic_action, _target, audit_mutation_response
 class RequestAuditTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.previous = {key: app.config.get(key) for key in ("DATABASE", "TESTING")}
-        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "audit.sqlite"))
+        self.previous = {key: app.config.get(key) for key in ("DATABASE", "TESTING", "SIMPLEOFFICE_INSTALLATION_ID")}
+        app.config.update(
+            TESTING=True,
+            DATABASE=str(Path(self.temp.name) / "audit.sqlite"),
+            SIMPLEOFFICE_INSTALLATION_ID="11111111-2222-3333-4444-555555555555",
+        )
         with app.app_context():
             ensure_auth_database()
 
@@ -27,6 +31,8 @@ class RequestAuditTest(unittest.TestCase):
         with app.test_request_context(
             "/documents/example/abc", method="POST",
             data={"title": "visible field", "password": "must-not-be-logged", "api_token": "also-secret"},
+            environ_base={"REMOTE_ADDR": "192.0.2.44"},
+            headers={"User-Agent": "Audit-Test/1.0"},
         ):
             g.user = {"id": None, "username": "alice"}
             g.request_id = "request-123"
@@ -42,6 +48,10 @@ class RequestAuditTest(unittest.TestCase):
             detail = json.loads(row["detail"])
             self.assertEqual("POST", detail["method"])
             self.assertEqual("request-123", detail["request_id"])
+            self.assertEqual("11111111-2222-3333-4444-555555555555", detail["application_id"])
+            self.assertEqual("192.0.2.44", detail["client_ip"])
+            self.assertEqual("Audit-Test/1.0", detail["user_agent"])
+            self.assertTrue(detail["server_name"])
             self.assertIn("title", detail["form_fields"])
             self.assertNotIn("password", detail["form_fields"])
             self.assertNotIn("api_token", detail["form_fields"])

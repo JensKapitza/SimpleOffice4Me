@@ -6,10 +6,9 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from flask import g
+from flask import g, has_request_context
 
 from .db import get_db
-
 
 FEATURES = {
     "documents": "Dokumente und Suche",
@@ -51,7 +50,6 @@ def permissions_for(user_id: int) -> dict[str, bool]:
 
 
 def safe_delta(before: dict, after: dict, *, allowed: set[str] | None = None) -> dict:
-    """Return bounded before/after values for explicitly non-secret state."""
     keys = sorted(set(before) | set(after))
     if allowed is not None:
         keys = [key for key in keys if key in allowed]
@@ -64,20 +62,25 @@ def safe_delta(before: dict, after: dict, *, allowed: set[str] | None = None) ->
 
 
 def audit(action: str, target_type: str, target_id: str = "", outcome: str = "success", detail: dict | None = None, actor=None) -> None:
-    actor = actor if actor is not None else getattr(g, "user", None)
+    actor = actor if actor is not None else (getattr(g, "user", None) if has_request_context() else None)
+    safe_detail = dict(detail or {})
+    if has_request_context():
+        from .system_identity import system_info
+        identity = system_info(include_request=True)
+        for key in ("application_id", "server_name", "client_ip", "user_agent", "request_id"):
+            safe_detail.setdefault(key, identity.get(key, ""))
     get_db().execute(
         """INSERT INTO security_event(
                occurred_at, actor_id, actor_name, action, target_type, target_id, outcome, detail
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (utc_now(), actor["id"] if actor else None, actor["username"] if actor else None,
          action, target_type, str(target_id), outcome,
-         json.dumps(detail or {}, ensure_ascii=False, sort_keys=True)),
+         json.dumps(safe_detail, ensure_ascii=False, sort_keys=True)),
     )
     get_db().commit()
 
 
 def activity_for(target_type: str, target_id: str, *, limit: int = 200):
-    """Return recent security events for one exact object target."""
     return get_db().execute(
         """SELECT * FROM security_event
            WHERE target_type = ? AND target_id = ?
