@@ -78,7 +78,12 @@ def save_account():
 def test_account(account_id: str):
     store = _store()
     try:
-        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        # The normal reader uses the saved/encrypted credential. Keep the test on
+        # exactly the same path unless the user explicitly opts into a one-off
+        # credential override. This avoids browser/password-manager autofill from
+        # silently replacing a working saved password during a test.
+        override = request.form.get("password", "") if request.form.get("use_password_override") == "1" else ""
+        account = store.account(_actor(), account_id, override)
         result = ImapArchive(store).test(account)
         store.history.record("imap_account_tested", _actor(), "mail-accounts", account_id, {"result": "success", "folders": result["folders"], "capabilities": result["capabilities"]})
         flash(f"IMAP-Anmeldung erfolgreich: {result['folders']} Ordner, {len(result['capabilities'])} Fähigkeiten.")
@@ -187,8 +192,6 @@ def save_sieve(account_id: str):
         account = None
         if request.form.get("upload") == "1":
             account = store.account(_actor(), account_id, request.form.get("password", ""))
-            # Loss prevention: inventory and download every current server script before
-            # replacing or activating anything on the server.
             sync_from_server(store, _actor(), account)
         saved = store.save_script(_actor(), account_id, name, content)
         if account is not None:
@@ -199,7 +202,6 @@ def save_sieve(account_id: str):
             finally:
                 client.close()
             store.history.record("sieve_script_uploaded", _actor(), "sieve", saved["sha512"], {**saved, "active": request.form.get("activate") == "1"})
-            # Refresh the inventory after upload so selection/active state reflects the server.
             sync_from_server(store, _actor(), account)
             flash("Sieve-Serverbestand gesichert; Skript versioniert und anschließend hochgeladen.")
         else:
