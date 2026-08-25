@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
 from .contact_management import ContactManagement
 from .contact_store import ContactStore
+from .contact_tools import ContactTools
 
 
 bp = Blueprint("contact_audit", __name__)
@@ -81,6 +82,10 @@ def _management() -> ContactManagement:
     return ContactManagement(current_app.config["DOCUMENT_ROOT"])
 
 
+def _tools() -> ContactTools:
+    return ContactTools(current_app.config["DOCUMENT_ROOT"])
+
+
 def _actor() -> str:
     return str(g.user["username"])
 
@@ -113,12 +118,7 @@ def manage():
 def update_metadata(contact_id: str):
     manager = _management()
     try:
-        manager.update_metadata(
-            contact_id,
-            _actor(),
-            request.form.get("tags", "").split(","),
-            request.form.get("groups", "").split(","),
-        )
+        manager.update_metadata(contact_id, _actor(), request.form.get("tags", "").split(","), request.form.get("groups", "").split(","))
         flash("Tags und Gruppen gespeichert.")
     except ValueError as exc:
         flash(str(exc))
@@ -128,28 +128,34 @@ def update_metadata(contact_id: str):
 @bp.post("/documents/contacts/bulk-metadata")
 @login_required
 def bulk_metadata():
-    manager = _management()
     try:
-        changed = manager.bulk_metadata(
-            request.form.getlist("contact_ids"),
-            _actor(),
-            request.form.get("add_tags", "").split(","),
-            request.form.get("add_groups", "").split(","),
-        )
+        changed = _management().bulk_metadata(request.form.getlist("contact_ids"), _actor(), request.form.get("add_tags", "").split(","), request.form.get("add_groups", "").split(","))
         flash(f"{changed} Kontakt(e) aktualisiert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("contact_audit.manage"))
 
 
+@bp.post("/documents/contacts/bulk-export")
+@login_required
+def bulk_export():
+    try:
+        payload = _tools().export_selected(request.form.getlist("contact_ids"), _actor())
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("contact_audit.manage"))
+    response = Response(payload, content_type="text/vcard; charset=utf-8")
+    response.headers["Content-Disposition"] = 'attachment; filename="simpleoffice-contacts.vcf"'
+    return response
+
+
 @bp.post("/documents/contacts/merge")
 @login_required
 def merge_contacts():
-    manager = _management()
     target_id = request.form.get("target_id", "").strip()
     source_id = request.form.get("source_id", "").strip()
     try:
-        merged = manager.merge(target_id, source_id, _actor())
+        merged = _management().merge(target_id, source_id, _actor())
         flash("Kontakte revisionssicher zusammengeführt. Beide vorherigen Fassungen wurden gesichert.")
         return redirect(url_for("documents.contact_detail", contact_id=merged["contact_id"]))
     except ValueError as exc:
@@ -165,12 +171,22 @@ def snapshots(contact_id: str):
     return render_template("documents/contact_snapshots.html", contact=contact, snapshots=manager.snapshots(contact_id, _actor()))
 
 
+@bp.get("/documents/contacts/<contact_id>/snapshots/<snapshot_id>/compare")
+@login_required
+def compare_snapshot(contact_id: str, snapshot_id: str):
+    try:
+        comparison = _tools().compare_snapshot(contact_id, snapshot_id, _actor())
+        return render_template("documents/contact_snapshot_compare.html", comparison=comparison)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("contact_audit.snapshots", contact_id=contact_id))
+
+
 @bp.post("/documents/contacts/restore/<snapshot_id>")
 @login_required
 def restore_snapshot(snapshot_id: str):
-    manager = _management()
     try:
-        contact = manager.restore(snapshot_id, _actor())
+        contact = _management().restore(snapshot_id, _actor())
         flash("Kontaktversion wiederhergestellt. Die vorherige aktuelle Version wurde ebenfalls gesichert.")
         return redirect(url_for("documents.contact_detail", contact_id=contact["contact_id"]))
     except ValueError as exc:
@@ -178,17 +194,36 @@ def restore_snapshot(snapshot_id: str):
         return redirect(url_for("contact_audit.manage"))
 
 
+def _uploaded_csv() -> str:
+    upload = request.files.get("contacts_file")
+    if upload is None:
+        raise ValueError("Keine Importdatei ausgewählt.")
+    raw = upload.read(2 * 1024 * 1024 + 1)
+    if len(raw) > 2 * 1024 * 1024:
+        raise ValueError("CSV import is limited to 2 MiB")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("CSV muss UTF-8 kodiert sein") from exc
+
+
 @bp.post("/documents/contacts/import-preview")
 @login_required
 def import_preview():
-    upload = request.files.get("contacts_file")
-    if upload is None:
-        flash("Keine Importdatei ausgewählt.")
-        return redirect(url_for("contact_audit.manage"))
     try:
-        text = upload.read(2 * 1024 * 1024 + 1).decode("utf-8-sig")
-        preview = _management().import_preview(text, _actor())
-        return render_template("documents/contact_import_preview.html", preview=preview, filename=upload.filename or "Import")
-    except (UnicodeDecodeError, ValueError) as exc:
+        preview = _tools().preview_csv(_uploaded_csv(), _actor())
+        return render_template("documents/contact_import_preview.html", preview=preview, filename=request.files["contacts_file"].filename or "Import")
+    except ValueError as exc:
         flash(f"Importvorschau fehlgeschlagen: {exc}")
         return redirect(url_for("contact_audit.manage"))
+
+
+@bp.post("/documents/contacts/import-csv")
+@login_required
+def import_csv():
+    try:
+        result = _tools().import_csv(_uploaded_csv(), _actor())
+        flash(f"CSV-Import abgeschlossen: {result['created']} neu, {result['skipped_duplicates']} vorhandene E-Mail-Dublette(n) übersprungen.")
+    except ValueError as exc:
+        flash(f"CSV-Import abgebrochen: {exc}")
+    return redirect(url_for("contact_audit.manage"))
