@@ -7,9 +7,14 @@ from flask import Blueprint, abort, flash, g, redirect, render_template, request
 from .access_control import FEATURES, audit, is_admin, permissions_for, utc_now
 from .auth import login_required
 from .db import get_db
+from .request_audit import audit_mutation_response
 
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
+# Blueprint.after_app_request applies to the whole Flask application.  Keeping
+# the hook registration here avoids per-route audit boilerplate while the audit
+# implementation itself remains in the dedicated request_audit module.
+bp.after_app_request(audit_mutation_response)
 
 
 def admin_required(view):
@@ -85,19 +90,48 @@ def update_user(user_id: int):
 def logs():
     try:
         page = max(1, int(request.args.get("page", "1")))
+        event_page = max(1, int(request.args.get("event_page", "1")))
     except ValueError:
-        page = 1
-    limit, offset = 50, (page - 1) * 50
+        page = event_page = 1
+    limit = 50
+    offset = (page - 1) * limit
+    event_offset = (event_page - 1) * limit
     errors = get_db().execute(
         "SELECT * FROM application_error ORDER BY occurred_at DESC LIMIT ? OFFSET ?",
         (limit + 1, offset),
     ).fetchall()
+
+    event_filters = {
+        key: request.args.get(key, "").strip()
+        for key in ("actor", "action", "outcome", "from_at", "to_at")
+    }
+    where: list[str] = []
+    parameters: list[object] = []
+    if event_filters["actor"]:
+        where.append("actor_name LIKE ?")
+        parameters.append(f"%{event_filters['actor']}%")
+    if event_filters["action"]:
+        where.append("action LIKE ?")
+        parameters.append(f"%{event_filters['action']}%")
+    if event_filters["outcome"]:
+        where.append("outcome = ?")
+        parameters.append(event_filters["outcome"])
+    if event_filters["from_at"]:
+        where.append("occurred_at >= ?")
+        parameters.append(event_filters["from_at"])
+    if event_filters["to_at"]:
+        where.append("occurred_at < datetime(?, '+1 day')")
+        parameters.append(event_filters["to_at"])
+    predicate = f" WHERE {' AND '.join(where)}" if where else ""
     events = get_db().execute(
-        "SELECT * FROM security_event ORDER BY occurred_at DESC LIMIT 50"
+        f"SELECT * FROM security_event{predicate} ORDER BY occurred_at DESC LIMIT ? OFFSET ?",
+        (*parameters, limit + 1, event_offset),
     ).fetchall()
     return render_template(
-        "admin/logs.html", errors=errors[:limit], events=events,
+        "admin/logs.html", errors=errors[:limit], events=events[:limit],
         page=page, has_next=len(errors) > limit,
+        event_page=event_page, event_has_next=len(events) > limit,
+        event_filters=event_filters,
     )
 
 
