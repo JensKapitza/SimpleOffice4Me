@@ -12,6 +12,21 @@ class SearchQueryTest(unittest.TestCase):
         self.assertIn(" AND ", query.fts)
         self.assertIn(" OR ", query.fts)
 
+    def test_english_boolean_operators_are_supported(self):
+        query = compile_query("tag:rechnung AND (name:angebot OR NOT text:liefertermin)")
+        self.assertIn(" AND ", query.fts)
+        self.assertIn(" OR ", query.fts)
+        self.assertIn("NOT", query.where)
+        self.assertTrue(query.requires_sql)
+
+    def test_bang_is_alias_for_not(self):
+        direct = compile_query("tag:rechnung AND !text:entwurf")
+        grouped = compile_query("!(tag:privat OR status:gelöscht)")
+        self.assertTrue(direct.requires_sql)
+        self.assertIn("NOT", direct.where)
+        self.assertTrue(grouped.requires_sql)
+        self.assertIn("NOT", grouped.where)
+
     def test_adjacent_terms_mean_and_and_prefix_is_supported(self):
         query = compile_query("name:ange* tag:rech*")
         self.assertIn("AND", query.fts)
