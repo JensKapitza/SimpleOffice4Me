@@ -16,6 +16,7 @@ from .access_control import audit
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 STATE_CHANGING_GET_ENDPOINTS = {"auth.logout"}
+FORM_MIMETYPES = {"application/x-www-form-urlencoded", "multipart/form-data"}
 SENSITIVE_NAMES = {
     "password", "passwd", "secret", "token", "authorization", "cookie",
     "api_key", "apikey", "private_key", "access_token", "refresh_token",
@@ -45,7 +46,7 @@ def _actor_for_response(status_code: int, endpoint: str):
     if status_code < 400 and authorization and authorization.username:
         return {"id": None, "username": authorization.username[:160]}
     # Successful local self-registration is the one mutation where the actor
-    # does not have a session yet.  Only trust the submitted name after the
+    # does not have a session yet. Only trust the submitted name after the
     # endpoint accepted it and redirected to login.
     if endpoint == "auth.register" and 300 <= status_code < 400:
         username = request.form.get("username", "").strip()
@@ -72,8 +73,14 @@ def audit_mutation_response(response):
     else:
         outcome = "failed"
 
-    form_fields = sorted({str(key)[:80] for key in request.form.keys() if _safe_name(key)})[:100]
-    file_fields = sorted({str(key)[:80] for key in request.files.keys() if _safe_name(key)})[:50]
+    # Do not trigger form parsing for raw WebDAV/SFTP-style uploads after the
+    # business handler has already consumed a potentially large request body.
+    if request.mimetype in FORM_MIMETYPES:
+        form_fields = sorted({str(key)[:80] for key in request.form.keys() if _safe_name(key)})[:100]
+        file_fields = sorted({str(key)[:80] for key in request.files.keys() if _safe_name(key)})[:50]
+    else:
+        form_fields = []
+        file_fields = []
     route_rule = str(request.url_rule.rule)[:300] if request.url_rule is not None else ""
     detail = {
         "method": method,
