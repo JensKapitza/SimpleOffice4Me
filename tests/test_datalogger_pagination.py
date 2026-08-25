@@ -48,8 +48,13 @@ class DataLoggerPaginationTests(unittest.TestCase):
         self.assertEqual(50, len(first))
         self.assertEqual(50, len(second))
         self.assertEqual(25, len(third))
+        # The query pages newest samples first, but reverses each page for
+        # chronological display. Page boundaries therefore descend by age.
+        self.assertEqual(75.0, first[0]["value"])
         self.assertEqual(124.0, first[-1]["value"])
-        self.assertEqual(75.0, second[0]["value"])
+        self.assertEqual(25.0, second[0]["value"])
+        self.assertEqual(74.0, second[-1]["value"])
+        self.assertEqual(0.0, third[0]["value"])
         self.assertEqual(24.0, third[-1]["value"])
 
 
