@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from app.attachment_security import ClamAV, ScanResult
 from app.mail_archive_preview import load_local_attachment_by_id, load_local_eml_by_id
-from app.mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
+from app.mail_attachment_download import _FixedExecutableClamAV, latest_scan_for_sha256, scan_attachment_for_download
 from app.mail_client import MailStore, _owner_key
 
 
@@ -74,6 +74,17 @@ class MailAttachmentDownloadTests(unittest.TestCase):
         self.assertEqual("blocked_quarantined", record["action"])
         retained = self.root / ".simpleoffice-meta" / "mail-download-quarantine" / record["quarantine_id"]
         self.assertTrue(retained.is_file())
+
+    def test_broken_auto_selected_clamdscan_falls_back_to_clamscan(self):
+        with patch.object(ClamAV, "scan", side_effect=RuntimeError("clamd socket unavailable")), \
+             patch.object(ClamAV, "executable", return_value="/usr/bin/clamdscan"), \
+             patch("app.mail_attachment_download.shutil.which", return_value="/usr/bin/clamscan"), \
+             patch.object(_FixedExecutableClamAV, "scan", return_value=ScanResult("clean", "OK", "clamscan")):
+            record = scan_attachment_for_download(
+                self.root, "alice", self.saved["id"], self.archive_id, "note.txt", b"fallback"
+            )
+        self.assertEqual("clean", record["verdict"])
+        self.assertEqual("clamscan", record["engine"])
 
 
 if __name__ == "__main__":
