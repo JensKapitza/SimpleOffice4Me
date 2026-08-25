@@ -8,6 +8,7 @@ import platform
 import socket
 import sys
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 from flask import current_app, g, request
@@ -17,13 +18,15 @@ from .file_lock import exclusive_file_lock
 
 def installation_id() -> str:
     """Return one persistent UUID for this SimpleOffice installation."""
+    cached = str(current_app.config.get("SIMPLEOFFICE_INSTALLATION_ID", "")).strip()
+    if cached:
+        return cached
     path = Path(current_app.instance_path) / "installation-id"
     lock = path.with_suffix(".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     with exclusive_file_lock(lock):
         try:
-            value = path.read_text(encoding="ascii").strip()
-            return str(uuid.UUID(value))
+            value = str(uuid.UUID(path.read_text(encoding="ascii").strip()))
         except (OSError, ValueError):
             value = str(uuid.uuid4())
             temporary = path.with_suffix(".tmp")
@@ -33,9 +36,11 @@ def installation_id() -> str:
             except OSError:
                 pass
             temporary.replace(path)
-            return value
+    current_app.config["SIMPLEOFFICE_INSTALLATION_ID"] = value
+    return value
 
 
+@lru_cache(maxsize=1)
 def application_version() -> str:
     try:
         return importlib.metadata.version("simpleoffice4me")
@@ -43,7 +48,8 @@ def application_version() -> str:
         return "unknown"
 
 
-def _server_addresses(hostname: str) -> list[str]:
+@lru_cache(maxsize=8)
+def _server_addresses(hostname: str) -> tuple[str, ...]:
     addresses: set[str] = set()
     try:
         for info in socket.getaddrinfo(hostname, None):
@@ -52,7 +58,7 @@ def _server_addresses(hostname: str) -> list[str]:
                 addresses.add(value)
     except OSError:
         pass
-    return sorted(addresses)
+    return tuple(sorted(addresses))
 
 
 def system_info(*, include_request: bool = True) -> dict[str, object]:
@@ -63,7 +69,7 @@ def system_info(*, include_request: bool = True) -> dict[str, object]:
         "application_version": application_version(),
         "application_id": installation_id(),
         "server_name": hostname,
-        "server_ips": _server_addresses(hostname),
+        "server_ips": list(_server_addresses(hostname)),
         "os": platform.platform(aliased=True, terse=False),
         "machine": platform.machine(),
         "python": platform.python_version(),
