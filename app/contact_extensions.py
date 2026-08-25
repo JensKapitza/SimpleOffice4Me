@@ -17,6 +17,7 @@ from .auth import login_required
 from .contact_store import ContactStore
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .mail_reader import _header, _message_text
+from .osm_address import search_address, unique_candidate
 
 
 CRM_FILE = "contact-crm.json"
@@ -176,6 +177,24 @@ def _eml_preview(root: Path, document_id: str) -> dict[str, Any]:
 
 
 def register(bp) -> None:
+    @bp.get("/documents/contacts/address-search.json", endpoint="crm_address_search")
+    @login_required
+    def crm_address_search():
+        query = request.args.get("q", "").strip()
+        country = request.args.get("country", "de").strip() or "de"
+        if len(query) < 3:
+            return jsonify({"candidates": [], "unique": None, "attribution": "© OpenStreetMap contributors"})
+        try:
+            candidates = search_address(query, country_code=country, limit=5)
+        except (OSError, RuntimeError, ValueError, TimeoutError, json.JSONDecodeError) as exc:
+            current_app.logger.warning("OSM address lookup failed: %s", exc)
+            return jsonify({"error": "address_lookup_unavailable", "candidates": [], "unique": None, "attribution": "© OpenStreetMap contributors"}), 503
+        return jsonify({
+            "candidates": candidates,
+            "unique": unique_candidate(candidates),
+            "attribution": "© OpenStreetMap contributors",
+        })
+
     @bp.route("/documents/contacts/<contact_id>/crm", methods=("GET", "POST"), endpoint="crm_contact")
     @login_required
     def crm_contact(contact_id: str):
