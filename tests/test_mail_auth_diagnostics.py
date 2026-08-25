@@ -53,24 +53,83 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("UGFzc3dvcmQ6", message)
         self.assertNotIn("secret-marker", message)
 
-    def test_send_route_preserves_actionable_local_validation_message(self):
+    def _login_client(self):
         previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
-        try:
-            app.config.update(
-                TESTING=True,
-                DATABASE=str(Path(self.temp.name) / "users.sqlite"),
-                DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
+        app.config.update(
+            TESTING=True,
+            DATABASE=str(Path(self.temp.name) / "users.sqlite"),
+            DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
+        )
+        with app.app_context():
+            database.ensure_auth_database()
+            db = database.get_db()
+            db.execute(
+                "INSERT OR IGNORE INTO user(username,password,is_admin) VALUES (?,?,1)",
+                ("alice", generate_password_hash("password-123")),
             )
-            with app.app_context():
-                database.ensure_auth_database()
-                db = database.get_db()
-                db.execute(
-                    "INSERT INTO user(username,password,is_admin) VALUES (?,?,1)",
-                    ("alice", generate_password_hash("password-123")),
+            db.commit()
+        client = app.test_client()
+        client.post("/auth/login", data={"username": "alice", "password": "password-123"})
+        return client, previous
+
+    def test_smtp_test_ignores_browser_autofill_when_saved_secret_exists(self):
+        client, previous = self._login_client()
+        try:
+            captured = {}
+
+            class FakeSubmission:
+                def __init__(self, store):
+                    pass
+
+                def test(self, account):
+                    captured["password"] = account["smtp_plain_password"]
+                    return {"features": []}
+
+            with patch("app.mail_routes._store", return_value=self.store), patch("app.mail_routes.SmtpSubmission", FakeSubmission):
+                response = client.post(
+                    f"/documents/mail/accounts/{self.account['id']}/smtp/test",
+                    data={"smtp_password": "stale-browser-autofill"},
+                    follow_redirects=True,
                 )
-                db.commit()
-            client = app.test_client()
-            client.post("/auth/login", data={"username": "alice", "password": "password-123"})
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("secret-password", captured["password"])
+            self.assertIn("SMTP-Anmeldung erfolgreich", response.get_data(as_text=True))
+        finally:
+            app.config.update(previous)
+
+    def test_smtp_test_uses_manual_password_when_no_secret_is_configured(self):
+        saved = self.store.save_account(
+            "alice",
+            {"id": self.account["id"], "host": "imap.example.test", "port": 993, "security": "tls", "username": "alice@example.test", "folder": "INBOX", "sieve_port": 4190},
+            "remove-secret",
+            False,
+        )
+        client, previous = self._login_client()
+        try:
+            captured = {}
+
+            class FakeSubmission:
+                def __init__(self, store):
+                    pass
+
+                def test(self, account):
+                    captured["password"] = account["smtp_plain_password"]
+                    return {"features": []}
+
+            with patch("app.mail_routes._store", return_value=self.store), patch("app.mail_routes.SmtpSubmission", FakeSubmission):
+                response = client.post(
+                    f"/documents/mail/accounts/{saved['id']}/smtp/test",
+                    data={"smtp_password": "manual-smtp-password"},
+                    follow_redirects=True,
+                )
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("manual-smtp-password", captured["password"])
+        finally:
+            app.config.update(previous)
+
+    def test_send_route_preserves_actionable_local_validation_message(self):
+        client, previous = self._login_client()
+        try:
             with patch("app.mail_routes._store", return_value=self.store):
                 response = client.post(
                     f"/documents/mail/accounts/{self.account['id']}/send",
