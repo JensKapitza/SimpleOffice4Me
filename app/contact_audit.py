@@ -135,7 +135,6 @@ def update_metadata(contact_id: str):
 @bp.post("/documents/contacts/<contact_id>/access")
 @login_required
 def update_sharing(contact_id: str):
-    """Store independent read and manage grants for one contact."""
     actor = _actor()
     valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
     managers = request.form.getlist("managers")
@@ -258,3 +257,7 @@ def import_csv():
     except ValueError as exc:
         flash(f"CSV-Import abgebrochen: {exc}")
     return redirect(url_for("contact_audit.manage"))
+
+
+from .contact_extensions import register as _register_contact_extensions
+_register_contact_extensions(bp)

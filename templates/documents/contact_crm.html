@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">← Kontakt</a><h1 class="h3 mt-2">CRM: {{ contact.fields.display_name }}</h1><p class="text-secondary">Kaufmännische Daten bleiben serverseitig und werden durch CardDAV-/Thunderbird-Änderungen nicht gelöscht.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.crm_proposals') }}">Externe Änderungsvorschläge</a></div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <form method="post" class="row g-4">
+    <section class="col-lg-7"><div class="card"><div class="card-header">Stammdaten und Konditionen</div><div class="card-body row g-3">
+      <div class="col-12"><label class="form-label">Rollen</label><div>{% for value,label in [('customer','Kunde'),('supplier','Lieferant'),('contact_person','Ansprechpartner'),('private','Privat'),('other','Sonstige')] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="roles" value="{{ value }}" {% if value in crm.roles|default([]) %}checked{% endif %}>{{ label }}</label>{% endfor %}</div></div>
+      <div class="col-md-4"><label class="form-label">Status</label><select class="form-select" name="status">{% for value,label in [('active','Aktiv'),('inactive','Inaktiv'),('prospect','Interessent'),('blocked','Gesperrt'),('former','Ehemalig')] %}<option value="{{ value }}" {% if crm.status|default('active') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="form-label">Kundennummer</label><input class="form-control" name="customer_number" value="{{ crm.customer_number|default('') }}"></div><div class="col-md-4"><label class="form-label">Lieferantennummer</label><input class="form-control" name="supplier_number" value="{{ crm.supplier_number|default('') }}"></div>
+      <div class="col-md-3"><label class="form-label">Rabatt</label><input class="form-control" name="discount" value="{{ crm.discount|default('') }}" placeholder="z. B. 5 %"></div><div class="col-md-5"><label class="form-label">Zahlungsbedingungen</label><input class="form-control" name="payment_terms" value="{{ crm.payment_terms|default('') }}" placeholder="z. B. 2% 10 Tage, netto 30"></div><div class="col-md-2"><label class="form-label">Tage</label><input class="form-control" name="payment_days" value="{{ crm.payment_days|default('') }}"></div><div class="col-md-2"><label class="form-label">Währung</label><input class="form-control" name="currency" value="{{ crm.currency|default('EUR') }}"></div>
+      <div class="col-md-6"><label class="form-label">Steuernummer</label><input class="form-control" name="tax_number" value="{{ crm.tax_number|default('') }}"></div><div class="col-md-6"><label class="form-label">USt-IdNr.</label><input class="form-control" name="vat_id" value="{{ crm.vat_id|default('') }}"></div>
+      <div class="col-12"><label class="form-label">CRM-Notizen</label><textarea class="form-control" name="notes" rows="4">{{ crm.notes|default('') }}</textarea></div>
+    </div></div></section>
+    <aside class="col-lg-5"><div class="card mb-4"><div class="card-header">Mehrfachdaten</div><div class="card-body">
+      <label class="form-label">Adressen</label><textarea class="form-control font-monospace mb-3" name="addresses" rows="5" placeholder="billing|Straße 1|12345|Ort|DE">{% for row in crm.addresses|default([]) %}{{ row.type }}|{{ row.street }}|{{ row.postal }}|{{ row.city }}|{{ row.country }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+      <label class="form-label">Kommunikation</label><textarea class="form-control font-monospace mb-3" name="communications" rows="4" placeholder="email|kunde@example.de|yes">{% for row in crm.communications|default([]) %}{{ row.type }}|{{ row.value }}|{{ row.preferred }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+      <label class="form-label">Bankkonten</label><textarea class="form-control font-monospace mb-3" name="bank_accounts" rows="4" placeholder="Kontoinhaber|IBAN|BIC|Bank">{% for row in crm.bank_accounts|default([]) %}{{ row.holder }}|{{ row.iban }}|{{ row.bic }}|{{ row.bank }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea><div class="form-text mb-3">Bankdaten bleiben ausschließlich im CRM, solange keine separate vCard-Freigabe sie ausdrücklich exportiert.</div>
+      <label class="form-label">Beziehungen</label><textarea class="form-control font-monospace" name="relations" rows="4" placeholder="contact_person_of|Kontakt-ID">{% for row in crm.relations|default([]) %}{{ row.type }}|{{ row.contact_id }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+    </div></div><button class="btn btn-primary w-100 mb-3">CRM-Daten speichern</button></form>
+    <form method="post" action="{{ url_for('contact_audit.crm_update_link', contact_id=contact.contact_id) }}"><button class="btn btn-outline-primary w-100">Externen Aktualisierungslink erzeugen</button></form></aside>
+  </form>
+</main>
+{% endblock %}
