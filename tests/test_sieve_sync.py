@@ -1,4 +1,5 @@
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -84,6 +85,24 @@ class SieveSyncTests(unittest.TestCase):
         persisted = server_state(self.store, "alice", self.account["id"])
         self.assertEqual("main", persisted["active"])
         self.assertEqual({"main", "vacation"}, {row["name"] for row in persisted["scripts"]})
+
+    def test_sync_preserves_changed_local_body_before_server_replacement(self):
+        local_content = 'if header :contains "subject" "local" { keep; }\n'
+        remote_content = 'if header :contains "subject" "server" { discard; }\n'
+        self.store.save_script("alice", self.account["id"], "main", local_content)
+
+        with patch.object(ManageSieveSyncClient, "connect"), \
+             patch.object(ManageSieveSyncClient, "close"), \
+             patch.object(ManageSieveSyncClient, "list_scripts", return_value=[{"name": "main", "active": True}]), \
+             patch.object(ManageSieveSyncClient, "get_script", return_value=remote_content):
+            sync_from_server(self.store, "alice", self.resolved)
+
+        self.assertEqual(remote_content, self.store.script("alice", self.account["id"], "main"))
+        snapshots = self.root / ".simpleoffice-history" / "snapshots" / "sieve-revisions"
+        revisions = [json.loads(path.read_text(encoding="utf-8")) for path in snapshots.glob("*.json")]
+        self.assertEqual(1, len(revisions))
+        self.assertEqual(local_content, revisions[0]["content"])
+        self.assertEqual("local", revisions[0]["source"])
 
     def test_activation_backs_up_server_before_setactive(self):
         with patch("app.sieve_sync.sync_from_server", return_value={
