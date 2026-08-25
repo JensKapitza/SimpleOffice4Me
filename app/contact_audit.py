@@ -1,12 +1,13 @@
-"""Read-only, permission-scoped contact change history."""
+"""Permission-scoped contact audit and management views."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, current_app, g, render_template, request
+from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .contact_management import ContactManagement
 from .contact_store import ContactStore
 
 
@@ -74,3 +75,120 @@ def history():
         result = change_history(store, actor, query, editor, field, (page - 1) * PAGE_SIZE, PAGE_SIZE)
     language = g.language if g.language in LABELS else "de"
     return render_template("documents/contact_history.html", history=result, query=query, editor=editor, field=field, page=page, pages=pages, labels=LABELS[language])
+
+
+def _management() -> ContactManagement:
+    return ContactManagement(current_app.config["DOCUMENT_ROOT"])
+
+
+def _actor() -> str:
+    return str(g.user["username"])
+
+
+@bp.get("/documents/contacts/manage")
+@login_required
+def manage():
+    manager = _management()
+    query = request.args.get("q", "").strip()
+    tag = request.args.get("tag", "").strip()
+    group = request.args.get("group", "").strip()
+    company = request.args.get("company", "").strip()
+    incomplete = request.args.get("incomplete", "").strip()
+    contacts = manager.advanced_search(_actor(), query, tag, group, company, incomplete)
+    return render_template(
+        "documents/contact_management.html",
+        dashboard=manager.dashboard(_actor()),
+        contacts=contacts,
+        duplicates=manager.duplicate_candidates(_actor()),
+        query=query,
+        selected_tag=tag,
+        selected_group=group,
+        company=company,
+        incomplete=incomplete,
+    )
+
+
+@bp.post("/documents/contacts/<contact_id>/metadata")
+@login_required
+def update_metadata(contact_id: str):
+    manager = _management()
+    try:
+        manager.update_metadata(
+            contact_id,
+            _actor(),
+            request.form.get("tags", "").split(","),
+            request.form.get("groups", "").split(","),
+        )
+        flash("Tags und Gruppen gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.contact_detail", contact_id=contact_id))
+
+
+@bp.post("/documents/contacts/bulk-metadata")
+@login_required
+def bulk_metadata():
+    manager = _management()
+    try:
+        changed = manager.bulk_metadata(
+            request.form.getlist("contact_ids"),
+            _actor(),
+            request.form.get("add_tags", "").split(","),
+            request.form.get("add_groups", "").split(","),
+        )
+        flash(f"{changed} Kontakt(e) aktualisiert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("contact_audit.manage"))
+
+
+@bp.post("/documents/contacts/merge")
+@login_required
+def merge_contacts():
+    manager = _management()
+    target_id = request.form.get("target_id", "").strip()
+    source_id = request.form.get("source_id", "").strip()
+    try:
+        merged = manager.merge(target_id, source_id, _actor())
+        flash("Kontakte revisionssicher zusammengeführt. Beide vorherigen Fassungen wurden gesichert.")
+        return redirect(url_for("documents.contact_detail", contact_id=merged["contact_id"]))
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("contact_audit.manage"))
+
+
+@bp.get("/documents/contacts/<contact_id>/snapshots")
+@login_required
+def snapshots(contact_id: str):
+    manager = _management()
+    contact = manager.store.get(contact_id, _actor())
+    return render_template("documents/contact_snapshots.html", contact=contact, snapshots=manager.snapshots(contact_id, _actor()))
+
+
+@bp.post("/documents/contacts/restore/<snapshot_id>")
+@login_required
+def restore_snapshot(snapshot_id: str):
+    manager = _management()
+    try:
+        contact = manager.restore(snapshot_id, _actor())
+        flash("Kontaktversion wiederhergestellt. Die vorherige aktuelle Version wurde ebenfalls gesichert.")
+        return redirect(url_for("documents.contact_detail", contact_id=contact["contact_id"]))
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("contact_audit.manage"))
+
+
+@bp.post("/documents/contacts/import-preview")
+@login_required
+def import_preview():
+    upload = request.files.get("contacts_file")
+    if upload is None:
+        flash("Keine Importdatei ausgewählt.")
+        return redirect(url_for("contact_audit.manage"))
+    try:
+        text = upload.read(2 * 1024 * 1024 + 1).decode("utf-8-sig")
+        preview = _management().import_preview(text, _actor())
+        return render_template("documents/contact_import_preview.html", preview=preview, filename=upload.filename or "Import")
+    except (UnicodeDecodeError, ValueError) as exc:
+        flash(f"Importvorschau fehlgeschlagen: {exc}")
+        return redirect(url_for("contact_audit.manage"))
