@@ -242,6 +242,9 @@ app.register_blueprint(contact_audit.bp)
 from . import mail_routes
 app.register_blueprint(mail_routes.bp)
 
+from . import mail_reader_routes
+app.register_blueprint(mail_reader_routes.bp)
+
 from . import admin
 app.register_blueprint(admin.bp)
 
