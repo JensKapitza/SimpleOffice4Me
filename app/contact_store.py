@@ -72,7 +72,7 @@ class ContactStore:
         items = self._read(self.contacts_path, {"contacts": []}).get("contacts", [])
         if actor:
             principal = self._principal(actor)
-            items = [item for item in items if self._can_manage(item, principal)]
+            items = [item for item in items if self._can_read(item, principal)]
         return sorted(items, key=lambda item: item.get("fields", {}).get("display_name", "").casefold())
 
     def search(self, query: str, actor: str = "") -> list[dict[str, Any]]:
@@ -95,9 +95,13 @@ class ContactStore:
         contact = next((item for item in self.contacts() if item.get("contact_id") == contact_id), None)
         if contact is None:
             raise ValueError("unknown contact")
-        if actor and not self._can_manage(contact, self._principal(actor)):
+        if actor and not self._can_read(contact, self._principal(actor)):
             raise ValueError("contact is not shared with this user")
         return contact
+
+    def can_manage(self, contact_id: str, actor: str) -> bool:
+        contact = next((item for item in self.contacts() if item.get("contact_id") == contact_id), None)
+        return bool(contact and self._can_manage(contact, self._principal(actor)))
 
     def upsert(self, values: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None) -> dict[str, Any]:
         self._require_actor(actor)
@@ -144,6 +148,7 @@ class ContactStore:
             "addresses": existing.get("addresses", []) if existing else [],
             "owner": existing.get("owner") or principal if existing else principal,
             "managers": existing.get("managers", []) if existing else [],
+            "readers": existing.get("readers", []) if existing else [],
             "tags": tags,
             "groups": groups,
             "merged_from": existing.get("merged_from", []) if existing else [],
@@ -182,7 +187,7 @@ class ContactStore:
             self.history.record("contact_address_added", actor, "contacts", contact_id, contact)
         return item
 
-    def share(self, contact_id: str, managers: list[str], actor: str) -> dict[str, Any]:
+    def share(self, contact_id: str, managers: list[str], actor: str, readers: list[str] | None = None) -> dict[str, Any]:
         self._require_actor(actor)
         principal = self._principal(actor)
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
@@ -193,12 +198,22 @@ class ContactStore:
             owner = contact.get("owner") or self._principal(str(contact.get("created_by", ""))) or principal
             if owner != principal:
                 raise ValueError("only the contact owner may change sharing")
+            manager_set = {item.strip() for item in managers if item.strip() and item.strip() != owner}
+            if readers is None:
+                reader_set = set(contact.get("readers", []))
+            else:
+                reader_set = {item.strip() for item in readers if item.strip() and item.strip() != owner}
+            reader_set -= manager_set
             contact["owner"] = owner
-            contact["managers"] = sorted({item.strip() for item in managers if item.strip() and item.strip() != owner}, key=str.casefold)
+            contact["managers"] = sorted(manager_set, key=str.casefold)
+            contact["readers"] = sorted(reader_set, key=str.casefold)
             contact["updated_at"] = utc_now()
             contact["updated_by"] = actor
             atomic_json_write(self.contacts_path, payload)
-            self.history.record("contact_sharing_updated", actor, "contacts", contact_id, contact)
+            self.history.record(
+                "contact_sharing_updated", actor, "contacts", contact_id,
+                {"owner": owner, "managers": contact["managers"], "readers": contact["readers"], "updated_at": contact["updated_at"]},
+            )
         return contact
 
     def address_matches(self) -> dict[str, list[str]]:
@@ -437,7 +452,11 @@ class ContactStore:
 
     @staticmethod
     def _can_manage(contact: dict[str, Any], principal: str) -> bool:
-        # Older contact files had no ``owner`` field.  They must not become
+        # Older contact files had no ``owner`` field. They must not become
         # world-readable merely because the ownership metadata is incomplete.
         owner = str(contact.get("owner", "")).strip() or ContactStore._principal(str(contact.get("created_by", "")))
         return bool(owner) and (principal == owner or principal in contact.get("managers", []))
+
+    @staticmethod
+    def _can_read(contact: dict[str, Any], principal: str) -> bool:
+        return ContactStore._can_manage(contact, principal) or principal in contact.get("readers", [])
