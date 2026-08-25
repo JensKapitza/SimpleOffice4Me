@@ -1,10 +1,4 @@
-"""Application-wide audit coverage for state-changing HTTP requests.
-
-Domain stores keep their detailed RevisionHistory entries. This module adds a
-privacy-preserving request layer so state changes have a common
-"who / what / when / outcome" record even when a route forgot a specialized
-audit event.
-"""
+"""Application-wide audit coverage for state-changing HTTP requests."""
 
 from __future__ import annotations
 
@@ -21,6 +15,11 @@ SENSITIVE_NAMES = {
     "password", "passwd", "secret", "token", "authorization", "cookie",
     "api_key", "apikey", "private_key", "access_token", "refresh_token",
 }
+TARGET_KEYS = (
+    "document_id", "project_id", "contact_id", "event_id", "calendar_id",
+    "share_id", "user_id", "account_id", "task_id", "object_id", "record_id",
+    "error_id", "target_id", "id",
+)
 
 
 def _safe_name(name: str) -> bool:
@@ -31,28 +30,64 @@ def _safe_name(name: str) -> bool:
 def _safe_route_values(values: dict[str, Any] | None) -> dict[str, str]:
     result: dict[str, str] = {}
     for key, value in (values or {}).items():
-        if not _safe_name(key):
-            continue
-        result[str(key)[:80]] = str(value)[:200]
+        if _safe_name(key):
+            result[str(key)[:80]] = str(value)[:200]
     return result
 
 
 def _actor_for_response(status_code: int, endpoint: str):
-    """Return only an authenticated or successfully established identity."""
     user = getattr(g, "user", None)
     if user is not None:
         return user
     authorization = request.authorization
     if status_code < 400 and authorization and authorization.username:
         return {"id": None, "username": authorization.username[:160]}
-    # Successful local self-registration is the one mutation where the actor
-    # does not have a session yet. Only trust the submitted name after the
-    # endpoint accepted it and redirected to login.
     if endpoint == "auth.register" and 300 <= status_code < 400:
         username = request.form.get("username", "").strip()
         if username:
             return {"id": None, "username": username[:160]}
     return None
+
+
+def _semantic_action(endpoint: str, method: str) -> str:
+    """Map technical endpoints to stable, human-searchable audit actions."""
+    leaf = endpoint.split(".", 1)[-1].casefold()
+    if endpoint == "auth.logout":
+        return "logout"
+    if endpoint == "auth.register":
+        return "account_registered"
+    if "restore" in leaf or "recover" in leaf:
+        return "object_restored"
+    if "share" in leaf or "grant" in leaf or "permission" in leaf or "access" in leaf:
+        return "sharing_or_access_changed"
+    if "sync" in leaf or "replication" in leaf or "google" in leaf:
+        return "external_sync_requested"
+    if "import" in leaf:
+        return "import_requested"
+    if "export" in leaf:
+        return "export_requested"
+    if "delete" in leaf or "remove" in leaf or method == "DELETE":
+        return "object_deleted"
+    if "archive" in leaf:
+        return "archive_changed"
+    if "create" in leaf or "new" in leaf:
+        return "object_created"
+    if "update" in leaf or "edit" in leaf or "save" in leaf or method in {"PUT", "PATCH"}:
+        return "object_updated"
+    return "http_mutation"
+
+
+def _target(endpoint: str, route_values: dict[str, str], actor: dict[str, Any]) -> tuple[str, str]:
+    if endpoint == "auth.logout":
+        return "session", endpoint
+    if endpoint == "auth.register":
+        return "user", str(actor["username"])
+    for key in TARGET_KEYS:
+        value = route_values.get(key)
+        if value:
+            return key.removesuffix("_id"), value
+    blueprint = endpoint.split(".", 1)[0] if "." in endpoint else endpoint
+    return f"endpoint:{blueprint}", endpoint
 
 
 def audit_mutation_response(response):
@@ -65,7 +100,6 @@ def audit_mutation_response(response):
     if actor is None:
         return response
 
-    blueprint = endpoint.split(".", 1)[0] if "." in endpoint else endpoint
     if response.status_code < 400:
         outcome = "success"
     elif response.status_code in {401, 403}:
@@ -73,37 +107,29 @@ def audit_mutation_response(response):
     else:
         outcome = "failed"
 
-    # Do not trigger form parsing for raw WebDAV/SFTP-style uploads after the
-    # business handler has already consumed a potentially large request body.
     if request.mimetype in FORM_MIMETYPES:
         form_fields = sorted({str(key)[:80] for key in request.form.keys() if _safe_name(key)})[:100]
         file_fields = sorted({str(key)[:80] for key in request.files.keys() if _safe_name(key)})[:50]
     else:
         form_fields = []
         file_fields = []
-    route_rule = str(request.url_rule.rule)[:300] if request.url_rule is not None else ""
+    route_values = _safe_route_values(request.view_args)
     detail = {
         "method": method,
         "endpoint": endpoint,
-        "route": route_rule,
+        "route": str(request.url_rule.rule)[:300] if request.url_rule is not None else "",
         "status": int(response.status_code),
         "request_id": str(getattr(g, "request_id", ""))[:80],
-        "route_values": _safe_route_values(request.view_args),
+        "route_values": route_values,
         "form_fields": form_fields,
         "file_fields": file_fields,
         "content_type": str(request.mimetype or "")[:120],
     }
-    action = {
-        "auth.logout": "logout",
-        "auth.register": "account_registered",
-    }.get(endpoint, "http_mutation")
-    target_type = "session" if endpoint == "auth.logout" else ("user" if endpoint == "auth.register" else f"endpoint:{blueprint}")
-    target_id = actor["username"] if endpoint == "auth.register" else endpoint
+    action = _semantic_action(endpoint, method)
+    target_type, target_id = _target(endpoint, route_values, actor)
     try:
         audit(action, target_type, target_id, outcome=outcome, detail=detail, actor=actor)
     except Exception:
-        # Audit persistence must never convert an already committed business
-        # transaction into a 500. The failure itself still goes to app logs.
         try:
             from flask import current_app
             current_app.logger.exception("Failed to persist mutation audit event")
