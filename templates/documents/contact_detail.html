@@ -9,7 +9,7 @@
       <h1 class="h2 mt-2 mb-1">{{ contact.fields.display_name }}</h1>
       <p class="text-secondary mb-0">Eigentümer: {{ contact.owner|default('bisher nicht zugeordnet', true) }} · zuletzt geändert von {{ contact.updated_by }}</p>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a>
+    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
   <div class="row g-4">
@@ -46,6 +46,7 @@
       </div>
     </section>
     <aside class="col-lg-5">
+      <div class="card mb-4"><div class="card-header">Organisation</div><div class="card-body"><form method="post" action="{{ url_for('contact_audit.update_metadata', contact_id=contact.contact_id) }}"><label class="form-label">Tags</label><input class="form-control mb-3" name="tags" value="{{ contact.tags|default([])|join(', ') }}" placeholder="Kunde, Lieferant, Privat"><label class="form-label">Gruppen</label><input class="form-control mb-3" name="groups" value="{{ contact.groups|default([])|join(', ') }}" placeholder="Projekt A, Familie, Verein"><button class="btn btn-outline-primary">Tags und Gruppen speichern</button></form><p class="small text-secondary mt-2 mb-0">Vor Änderungen wird eine vollständige Kontaktversion gesichert.</p></div></div>
       <div class="card">
         <div class="card-header">Gemeinsame Verwaltung</div>
         <div class="card-body">
@@ -68,29 +69,11 @@
         {% set history_fields = contact.changes|default([])|map(attribute='field')|unique|sort|list %}
         <div class="card-body border-bottom">
           <div class="row g-2">
-            <div class="col-sm-6">
-              <label class="form-label small" for="contact-history-actor">Bearbeitet von</label>
-              <select class="form-select form-select-sm" id="contact-history-actor" data-contact-history-actor-filter>
-                <option value="">Alle Bearbeiter</option>
-                {% for actor in history_actors %}<option value="{{ actor }}">{{ actor }}</option>{% endfor %}
-              </select>
-            </div>
-            <div class="col-sm-6">
-              <label class="form-label small" for="contact-history-field">Geändertes Feld</label>
-              <select class="form-select form-select-sm" id="contact-history-field" data-contact-history-field-filter>
-                <option value="">Alle geänderten Felder</option>
-                {% for field in history_fields %}<option value="{{ field }}">{{ field }}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
-          <div class="small text-secondary mt-2" aria-live="polite" data-contact-history-count></div>
+            <div class="col-sm-6"><label class="form-label small" for="contact-history-actor">Bearbeitet von</label><select class="form-select form-select-sm" id="contact-history-actor" data-contact-history-actor-filter><option value="">Alle Bearbeiter</option>{% for actor in history_actors %}<option value="{{ actor }}">{{ actor }}</option>{% endfor %}</select></div>
+            <div class="col-sm-6"><label class="form-label small" for="contact-history-field">Geändertes Feld</label><select class="form-select form-select-sm" id="contact-history-field" data-contact-history-field-filter><option value="">Alle geänderten Felder</option>{% for field in history_fields %}<option value="{{ field }}">{{ field }}</option>{% endfor %}</select></div>
+          </div><div class="small text-secondary mt-2" aria-live="polite" data-contact-history-count></div>
         </div>
-        <div class="list-group list-group-flush">
-          {% for change in contact.changes|default([])|reverse %}
-          <div class="list-group-item border-start border-4" data-contact-history-entry data-contact-history-actor="{{ change.actor }}" data-contact-history-field="{{ change.field }}"><div class="d-flex justify-content-between gap-2"><strong>{{ change.field }}</strong><span class="badge" data-contact-history-actor-badge>{{ change.actor }}</span></div><div class="small mt-1"><span class="text-danger">{{ change.old|default('—', true) }}</span> &rarr; <span class="text-success">{{ change.new|default('—', true) }}</span></div><div class="small text-secondary">{{ change.at }}</div></div>
-          {% else %}<div class="list-group-item text-secondary">Noch keine Feldänderungen gespeichert.</div>{% endfor %}
-          <div class="list-group-item text-secondary" hidden data-contact-history-empty>Keine Änderungen entsprechen dem Filter.</div>
-        </div>
+        <div class="list-group list-group-flush">{% for change in contact.changes|default([])|reverse %}<div class="list-group-item border-start border-4" data-contact-history-entry data-contact-history-actor="{{ change.actor }}" data-contact-history-field="{{ change.field }}"><div class="d-flex justify-content-between gap-2"><strong>{{ change.field }}</strong><span class="badge" data-contact-history-actor-badge>{{ change.actor }}</span></div><div class="small mt-1"><span class="text-danger">{{ change.old|default('—', true) }}</span> &rarr; <span class="text-success">{{ change.new|default('—', true) }}</span></div><div class="small text-secondary">{{ change.at }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Feldänderungen gespeichert.</div>{% endfor %}<div class="list-group-item text-secondary" hidden data-contact-history-empty>Keine Änderungen entsprechen dem Filter.</div></div>
       </div>
     </aside>
   </div>
