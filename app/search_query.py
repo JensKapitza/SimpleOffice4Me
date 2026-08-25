@@ -15,7 +15,7 @@ FIELDS = {
     "state": "state", "status": "state",
     "attr": "attributes", "attribut": "attributes", "attributes": "attributes",
 }
-TOKEN = re.compile(r'''\s*(?:(?P<lpar>\()|(?P<rpar>\))|(?P<tilde>~)|(?P<quoted>"(?:[^"\\]|\\.)*")|(?P<word>[^\s()~]+))''')
+TOKEN = re.compile(r'''\s*(?:(?P<lpar>\()|(?P<rpar>\))|(?P<tilde>~)|(?P<bang>!)|(?P<quoted>"(?:[^"\\]|\\.)*")|(?P<word>[^\s()~]+))''')
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,7 @@ class SearchQuery:
             if kind == "word" and upper in {"AND", "UND"}: kind, value = "and", "AND"
             elif kind == "word" and upper in {"OR", "ODER"}: kind, value = "or", "OR"
             elif kind == "word" and upper in {"NOT", "NICHT"}: kind, value = "not", "NOT"
+            elif kind == "bang": kind, value = "not", "NOT"
             elif kind == "word" and upper == "XOR": kind, value = "xor", "XOR"
             elif kind == "word" and upper == "NOR": kind, value = "nor", "NOR"
             elif kind == "word" and upper == "CONTAINS": kind, value = "tilde", "~"
