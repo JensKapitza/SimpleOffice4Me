@@ -162,9 +162,11 @@ class AttachmentSecurity:
                 retained = self.webdav_quarantine / f"{scan_id}.infected"
                 pending.replace(retained)
                 record["quarantine_id"] = retained.name
+                record["action"] = "blocked_quarantined"
                 self._record_scan(record)
                 self._record_webdav_scan_audit("webdav_upload_malware_blocked", record)
                 return record
+            record["action"] = "allowed"
             self._record_scan(record)
             self._record_webdav_scan_audit("webdav_upload_malware_scanned", record)
             pending.unlink()
@@ -176,8 +178,9 @@ class AttachmentSecurity:
             record = {
                 **base,
                 "verdict": "error",
-                "detail": str(exc)[:1000],
+                "detail": self.safe_error_code(exc),
                 "engine": "",
+                "action": "scan_failed_quarantined",
                 "quarantine_id": error_path.name if error_path.exists() else "",
             }
             try:
@@ -192,7 +195,8 @@ class AttachmentSecurity:
             key: record.get(key)
             for key in (
                 "scan_id", "scanned_at", "actor", "source_type", "target_path",
-                "filename", "size", "sha256", "verdict", "engine", "quarantine_id",
+                "filename", "size", "sha256", "verdict", "engine", "action",
+                "quarantine_id",
             )
             if record.get(key) not in {None, ""}
         }
@@ -276,14 +280,26 @@ class AttachmentSecurity:
                     handle.write(payload)
                 try:
                     verdict = self.scanner.scan(quarantine_path)
-                    record = {"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "source_document_id": manifest["document_id"], "filename": row["filename"], "sha256": row["sha256"], **asdict(verdict)}
+                    record = {
+                        "scan_id": uuid.uuid4().hex,
+                        "scanned_at": utc_now(),
+                        "actor": actor,
+                        "source_type": "eml-attachment",
+                        "source_document_id": manifest["document_id"],
+                        "filename": row["filename"],
+                        "size": len(payload),
+                        "sha256": row["sha256"],
+                        **asdict(verdict),
+                    }
                     if verdict.verdict != "clean":
                         destination = self.quarantine / f"{record['scan_id']}.infected"
                         quarantine_path.replace(destination)
                         record["quarantine_id"] = destination.name
+                        record["action"] = "quarantined"
                         self._record_scan(record)
                         results.append(record)
                         continue
+                    record["action"] = "allowed_import"
                     self._record_scan(record)
                     with quarantine_path.open("rb") as handle:
                         imported = DocumentStore(self.root).import_upload(handle, row["filename"], actor, max_bytes=MAX_ATTACHMENT_BYTES)
@@ -358,17 +374,30 @@ class AttachmentSecurity:
             if count >= max_files: result["skipped"] += 1; continue
             path = self.root / document.get("last_path", "")
             if not path.is_file() or path.is_symlink(): result["skipped"] += 1; continue
+            base = {
+                "scan_id": uuid.uuid4().hex,
+                "event_type": "file_scan",
+                "scanned_at": utc_now(),
+                "actor": actor,
+                "source_type": "managed-document",
+                "document_id": document.get("document_id", ""),
+                "filename": path.name,
+                "size": path.stat().st_size,
+            }
             try:
                 verdict = self.scanner.scan(path)
                 result[verdict.verdict] += 1
-                self._record_scan({"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "document_id": document["document_id"], "filename": path.name, "sha256": sha256_file(path), **asdict(verdict)})
+                self._record_scan({
+                    **base,
+                    "sha256": sha256_file(path),
+                    "action": "reported" if verdict.verdict == "infected" else "none",
+                    **asdict(verdict),
+                })
             except (OSError, RuntimeError) as exc:
                 result["errors"] += 1
                 self._record_scan({
-                    "scan_id": uuid.uuid4().hex, "event_type": "file_scan",
-                    "scanned_at": utc_now(), "actor": actor,
-                    "document_id": document.get("document_id", ""),
-                    "filename": path.name, "verdict": "error", "engine": "",
+                    **base,
+                    "verdict": "error", "engine": "", "action": "scan_failed",
                     "detail": self.safe_error_code(exc),
                 })
         self.record_event(

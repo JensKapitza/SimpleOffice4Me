@@ -161,11 +161,7 @@ def _attachment_security() -> AttachmentSecurity:
 
 def _security_admin(actor: str) -> bool:
     configured = {item.strip() for item in os.environ.get("SIMPLEOFFICE_SECURITY_ADMINS", "").split(",") if item.strip()}
-    # Application administrators (including the automatically promoted first
-    # account) must not be locked out when the optional environment allow-list
-    # is empty.  The allow-list remains useful for delegating only these server
-    # actions to a non-administrator.
-    return bool(g.user and g.user["is_admin"]) or actor in configured
+    return actor in configured
 
 
 def _form_relation_choices(form: dict, actor: str) -> dict[str, list[tuple[str, str]]]:
@@ -1040,7 +1036,7 @@ def document_attachments(document_id: str):
 def security_center():
     actor = str(g.user["username"])
     security = _attachment_security()
-    return render_template("documents/security.html", status=security.scanner.status(), events=security.recent_events(), is_admin=_security_admin(actor))
+    return render_template("documents/security.html", status=security.scanner.status(), scans=security.recent_scans(), is_admin=_security_admin(actor))
 
 
 @bp.post("/security/scan-now")
@@ -1048,13 +1044,8 @@ def security_center():
 def security_scan_now():
     actor = str(g.user["username"])
     if not _security_admin(actor): abort(403)
-    security = _attachment_security()
-    try:
-        result = security.scan_documents(actor)
-        flash(f"Serverprüfung abgeschlossen: {result['clean']} sauber, {result['infected']} Fund/Funde, {result['errors']} Fehler, {result['skipped']} übersprungen.")
-    except (OSError, RuntimeError, ValueError) as exc:
-        security.record_event("server_scan", actor, "error", detail=security.safe_error_code(exc))
-        flash(f"Serverprüfung fehlgeschlagen ({security.safe_error_code(exc)}). Details stehen im Ereignisjournal.")
+    try: flash(f"Serverprüfung abgeschlossen: {_attachment_security().scan_documents(actor)}")
+    except (OSError, RuntimeError, ValueError) as exc: flash(f"Serverprüfung fehlgeschlagen: {exc}")
     return redirect(url_for("documents.security_center"))
 
 
@@ -1063,16 +1054,11 @@ def security_scan_now():
 def security_update():
     actor = str(g.user["username"])
     if not _security_admin(actor): abort(403)
-    security = _attachment_security()
     try:
         output = ClamAV().update()
-        security.record_event("signature_update", actor, "success", detail="Signaturdatenbank aktualisiert")
-        _store().history.record("clamav_signatures_updated", actor, "security", "clamav", {"result": "success", "output_bytes": len(output.encode("utf-8", "replace"))})
+        _store().history.record("clamav_signatures_updated", actor, "security", "clamav", {"output": output[-1000:]})
         flash("ClamAV-Signaturen wurden aktualisiert.")
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        code = security.safe_error_code(exc)
-        security.record_event("signature_update", actor, "error", detail=code)
-        flash(f"Signatur-Update fehlgeschlagen ({code}). Details stehen im Ereignisjournal.")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc: flash(f"Signatur-Update fehlgeschlagen: {exc}")
     return redirect(url_for("documents.security_center"))
 
 
