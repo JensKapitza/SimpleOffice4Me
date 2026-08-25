@@ -163,8 +163,29 @@ class DataLoggerStore:
         if end: clauses.append("measured_at<=?"); args.append(end)
         args.append(limit)
         with self.connect() as db:
-            rows = db.execute(f"SELECT measured_at,value,quality,source_id FROM metric_sample WHERE {' AND '.join(clauses)} ORDER BY measured_at DESC LIMIT ?", args).fetchall()
-        return list(reversed(rows))
+            rows = db.execute(f"""SELECT sample.measured_at,sample.value,sample.quality,sample.source_id,
+                       sample.metadata,source.name AS source_name,source.kind AS source_kind,
+                       source.config AS source_config
+                  FROM metric_sample AS sample
+                  LEFT JOIN metric_source AS source ON source.source_id=sample.source_id
+                 WHERE {' AND '.join('sample.' + clause for clause in clauses)}
+                 ORDER BY sample.measured_at DESC LIMIT ?""", args).fetchall()
+        result = []
+        for row in reversed(rows):
+            item = dict(row)
+            try:
+                config = json.loads(item.pop("source_config") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                config = {}
+            try:
+                item["metadata"] = json.loads(item.get("metadata") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                item["metadata"] = {}
+            item["source_name"] = item.get("source_name") or "Manuelle Eingabe"
+            item["source_kind"] = item.get("source_kind") or "manual"
+            item["source_metric"] = str(config.get("json_path") or config.get("metric") or config.get("path") or "").strip()
+            result.append(item)
+        return result
 
     def due_sources(self, limit=100):
         with self.connect() as db:

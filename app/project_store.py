@@ -109,6 +109,8 @@ class ProjectStore:
         }
         if not entry_ids or not set(entry_ids) <= set(entries):
             raise ValueError("choose at least one valid time entry")
+        if any(entries[entry_id][0].get("status") != "completed" for entry_id in entry_ids):
+            raise ValueError("time entries can only be grouped after their task is completed")
         already_grouped = {
             entry_id
             for group in project.get("time_groups", [])
@@ -137,6 +139,23 @@ class ProjectStore:
         self._touch(project, actor)
         self._write_change(project, actor, "project_time_group_created")
         return group
+
+    def available_time_group_entries(self, project_id: str) -> list[dict[str, Any]]:
+        """Return completed, not-yet-grouped entries for the group form."""
+        project = self.project(project_id)
+        grouped = {
+            entry_id
+            for group in project.get("time_groups", [])
+            if group.get("status", "open") != "cancelled"
+            for entry_id in group.get("entry_ids", [])
+        }
+        return [
+            {**entry, "task_id": task["task_id"], "task_title": task["title"]}
+            for task in project.get("tasks", [])
+            if task.get("status") == "completed"
+            for entry in task.get("time_entries", [])
+            if entry.get("entry_id") not in grouped
+        ]
 
     def billing_projection(self, project_id: str, actor: str) -> dict[str, Any]:
         """Return invoice-safe lines and creator-only group evidence separately."""

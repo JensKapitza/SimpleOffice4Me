@@ -96,7 +96,15 @@ class MailStore:
 
     def accounts(self, actor: str) -> list[dict[str, Any]]:
         rows = self._read(self.accounts_path, {"accounts": []}).get("accounts", [])
-        return [{k: v for k, v in row.items() if k not in {"password", "smtp_password"}} for row in rows if row.get("owner") == actor]
+        result = []
+        for row in rows:
+            if row.get("owner") != actor:
+                continue
+            safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
+            safe["password_saved"] = bool(row.get("password"))
+            safe["smtp_password_saved"] = bool(row.get("smtp_password"))
+            result.append(safe)
+        return result
 
     def _owned_row(self, actor: str, account_id: str) -> dict[str, Any]:
         account_id = _safe_id(account_id)
@@ -177,6 +185,12 @@ class MailStore:
         smtp_from = str(data.get("smtp_from", username)).strip()[:320] or username
         if len(_mailboxes(smtp_from)) != 1:
             raise ValueError("exactly one SMTP sender address is required")
+        stored_password = (previous or {}).get("password", "")
+        if password:
+            stored_password = self.secrets.encrypt(password) if remember else ""
+        stored_smtp_password = (previous or {}).get("smtp_password", "")
+        if data.get("smtp_password"):
+            stored_smtp_password = self.secrets.encrypt(str(data["smtp_password"])) if remember else ""
         row = {
             "id": account_id, "owner": actor, "label": str(data.get("label", host)).strip()[:120] or host,
             "host": host, "port": port, "security": mode, "username": username,
@@ -185,13 +199,13 @@ class MailStore:
             "sieve_host": str(data.get("sieve_host", host)).strip()[:253] or host,
             "sieve_port": sieve_port, "sieve_security": "starttls",
             "password_env": str(data.get("password_env", "")).strip()[:120],
-            "password": self.secrets.encrypt(password) if remember and password else (previous or {}).get("password", ""),
+            "password": stored_password,
             "smtp_host": smtp_host,
             "smtp_port": smtp_port, "smtp_security": smtp_mode,
             "smtp_username": str(data.get("smtp_username", username)).strip()[:320] or username,
             "smtp_from": smtp_from,
             "smtp_password_env": str(data.get("smtp_password_env", "")).strip()[:120],
-            "smtp_password": self.secrets.encrypt(str(data.get("smtp_password", ""))) if remember and data.get("smtp_password") else (previous or {}).get("smtp_password", ""),
+            "smtp_password": stored_smtp_password,
             "updated_at": utc_now(),
         }
         payload["accounts"] = [x for x in payload["accounts"] if not (x.get("id") == account_id and x.get("owner") == actor)] + [row]

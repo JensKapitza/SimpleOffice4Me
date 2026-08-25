@@ -98,6 +98,10 @@ zulässig und können in der Kontoeinstellung ausdrücklich festgelegt werden.
 2. Das Passwort kann pro Aktion eingegeben werden. Optional kann es
    installationsgebunden AES-256-GCM-verschlüsselt gespeichert werden. Alternativ
    verweist `Passwort-Env` auf eine geschützte Umgebungsvariable.
+   Die Kontenübersicht zeigt ausdrücklich **Passwort gespeichert** oder
+   **Passwort erforderlich**. Beim Bearbeiten bleibt die Speicheroption für ein
+   vorhandenes Secret markiert. Ein neues Passwort bei deaktivierter Option
+   entfernt ein veraltetes gespeichertes Secret.
 3. **Login testen** liest Fähigkeiten und Ordneranzahl, verändert aber keine Mail.
 4. **Jetzt kopieren** startet einen begrenzten, inkrementellen Archivlauf.
 5. Anhänge werden nur bei gesetzter Bestätigung extrahiert. Dann gelten die

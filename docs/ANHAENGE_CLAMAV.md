@@ -72,7 +72,8 @@ Administratorrechte.
 - Quarantänedateien werden zufällig benannt, exklusiv mit `0600` angelegt und nicht über Download, Freigaben oder WebDAV angeboten.
 - Bei fehlendem Scanner, Timeout oder Fehler gilt **fail closed**: keine Freigabe.
 - Die Serverprüfung umfasst nur reguläre Dateien im verwalteten Bestand; Symlinks und Systempfade werden übersprungen.
-- Nur konfigurierte Sicherheitsadministratoren dürfen Update und Bestandsscan auslösen. Dokumentrechte werden nicht gelockert.
+- Anwendungsadministratoren (einschließlich des bei der Ersteinrichtung angelegten ersten Administrators) sowie optional über `SIMPLEOFFICE_SECURITY_ADMINS` delegierte Sicherheitsadministratoren dürfen Update und Bestandsscan auslösen. Dokumentrechte werden nicht gelockert.
+- Das ClamAV-Ereignisjournal zeigt Start und Abschluss einer Bestandsprüfung, Ergebniszähler, Laufzeit, Signatur-Updates sowie einzelne Datei-Funde und -Fehler. Fehler werden als sichere Kategorien protokolliert; Zugangsdaten, Kommandoausgaben und vollständige interne Pfade werden nicht in die Oberfläche übernommen.
 - Mail-Absender und Betreff sind unbestätigte Fremdangaben, kein Identitätsnachweis. Daten werden nicht extern übertragen.
 
 ## Fehler, Grenzen und Rückkehr

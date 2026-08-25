@@ -10,6 +10,11 @@ Verläufe, normalisiert mehrere unterschiedlich skalierte Reihen zum Vergleich
 und bietet einen authentifizierten JSON-Export. Die Messdaten bleiben in
 `<Dokumentwurzel>/.simpleoffice-meta/datalogger.sqlite3` persistent.
 
+Jeder angezeigte und exportierte Messwert nennt seine Quelle, den Quellentyp und
+die konfigurierte Messgröße beziehungsweise den JSON-Pfad. Manuelle Eingaben
+werden ausdrücklich als solche gekennzeichnet; dadurch bleiben gleichartige
+Werte aus mehreren Sensoren unterscheidbar.
+
 ## Standards und daraus abgeleitete Entscheidungen
 
 - [RFC 8259 Abschnitt 9](https://www.rfc-editor.org/rfc/rfc8259.html#section-9)

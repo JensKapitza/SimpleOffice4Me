@@ -39,6 +39,11 @@ class FakeScanner:
         return ScanResult(self.verdict, "test result", "fake")
 
 
+class FailingScanner:
+    def scan(self, path):
+        raise RuntimeError("daemon down at /private/clamd.sock")
+
+
 class AttachmentSecurityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -118,6 +123,21 @@ class AttachmentSecurityTests(unittest.TestCase):
     def test_bulk_sidecar_export_reports_success(self):
         result = self.store.export_all_portable_metadata("alice")
         self.assertEqual({"exported": 1, "errors": 0}, result)
+
+    def test_server_scan_records_start_summary_and_safe_file_error(self):
+        service = AttachmentSecurity(self.root, FailingScanner())
+        result = service.scan_documents("alice")
+        self.assertEqual(1, result["errors"])
+        events = service.recent_events()
+        self.assertEqual("completed", events[0]["outcome"])
+        self.assertEqual(result, events[0]["counts"])
+        self.assertEqual("scanner_unavailable", events[1]["detail"])
+        self.assertNotIn("/private", json.dumps(events))
+        self.assertEqual("started", events[2]["outcome"])
+
+    def test_safe_error_categories_do_not_echo_sensitive_details(self):
+        self.assertEqual("scanner_not_installed", AttachmentSecurity.safe_error_code(RuntimeError("ClamAV is not installed or not in PATH")))
+        self.assertEqual("permission_denied", AttachmentSecurity.safe_error_code(PermissionError("/secret/path")))
 
 
 if __name__ == "__main__":
