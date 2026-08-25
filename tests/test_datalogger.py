@@ -31,6 +31,21 @@ class DataLoggerStoreTest(unittest.TestCase):
         with reopened.connect() as db:
             self.assertEqual(2, db.execute("SELECT COUNT(*) FROM metric_event").fetchone()[0])
 
+    def test_samples_identify_manual_and_automatic_sources(self):
+        channel = self.store.create_channel("Temperatur", "alice", unit="°C")
+        self.store.add_sample(channel, 20.0, "alice")
+        source = self.store.add_source(channel, "alice", "http_json", "Kellerfühler", {
+            "url": "http://sensor.invalid/status", "json_path": "temperature.value",
+        })
+        self.store.add_sample(channel, 21.5, "worker", source_id=source)
+        samples = self.store.samples(channel)
+        manual = next(item for item in samples if item["source_kind"] == "manual")
+        automatic = next(item for item in samples if item["source_kind"] == "http_json")
+        self.assertEqual(("Manuelle Eingabe", "manual"), (manual["source_name"], manual["source_kind"]))
+        self.assertEqual(("Kellerfühler", "http_json", "temperature.value"), (
+            automatic["source_name"], automatic["source_kind"], automatic["source_metric"],
+        ))
+
     def test_reader_cannot_write_but_editor_can(self):
         channel = self.store.create_channel("X", "alice", readers=["reader"], editors=["editor"])
         with self.assertRaises(PermissionError): self.store.add_sample(channel, 1, "reader")

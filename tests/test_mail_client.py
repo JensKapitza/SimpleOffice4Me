@@ -85,6 +85,22 @@ class MailClientTests(unittest.TestCase):
         damaged = token[:-2] + ("AA" if token[-2:] != "AA" else "BB")
         with self.assertRaises(Exception): box.decrypt(damaged)
 
+    def test_saved_password_state_is_visible_without_exposing_secret(self):
+        listed = self.store.accounts("alice")[0]
+        self.assertTrue(listed["password_saved"])
+        self.assertNotIn("password", listed)
+
+    def test_new_password_without_storage_clears_stale_saved_password(self):
+        updated = self.store.save_account("alice", {
+            **self.account, "auth_method": "auto", "smtp_from": "alice@example.test",
+        }, "temporary-password", False)
+        self.assertFalse(updated["password_saved"])
+        with self.assertRaisesRegex(ValueError, "password is required"):
+            self.store.account("alice", self.account["id"])
+        self.assertEqual("temporary-password", self.store.account(
+            "alice", self.account["id"], "temporary-password"
+        )["plain_password"])
+
     def test_managesieve_uses_synchronizing_literal_and_explicit_activation(self):
         client = ManageSieveClient("sieve.example.test")
         stream = DuplexBuffer(b"+ send literal\r\nOK stored\r\nOK active\r\n")
@@ -158,6 +174,8 @@ class MailClientTests(unittest.TestCase):
             client.post("/auth/login", data={"username": "alice", "password": "password-123"})
             body = client.get("/documents/mail").get_data(as_text=True)
             self.assertIn("IMAP-Client", body)
+            self.assertIn("Passwort gespeichert", body)
+            self.assertIn("checked", body)
             self.assertNotIn("secret-password", body)
         finally:
             app.config.update(previous)
