@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, flash, g, redirect, render_template, r
 
 from .auth import login_required
 from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpSubmission
+from .sieve_sync import ManageSieveSyncClient, activate_server_script, server_state, sync_from_server
 
 bp = Blueprint("mail_client", __name__, url_prefix="/documents/mail")
 
@@ -41,6 +42,11 @@ def index():
     selected_id = request.args.get("account", "")
     selected = next((row for row in accounts if row["id"] == selected_id), accounts[0] if accounts else None)
     scripts = store.scripts_for(_actor(), selected["id"]) if selected else []
+    sieve_state = server_state(store, _actor(), selected["id"]) if selected else {"scripts": [], "active": "", "updated_at": ""}
+    remote_names = {row["name"] for row in sieve_state.get("scripts", [])}
+    for row in scripts:
+        row["on_server"] = row["name"] in remote_names
+        row["active"] = row["name"] == sieve_state.get("active", "")
     script_name = request.args.get("script", "")
     script_content = ""
     if selected and script_name:
@@ -48,7 +54,10 @@ def index():
             script_content = store.script(_actor(), selected["id"], script_name)
         except (OSError, ValueError):
             flash("Sieve-Skript wurde nicht gefunden.")
-    return render_template("documents/mail_client.html", accounts=accounts, selected=selected, scripts=scripts, script_name=script_name, script_content=script_content)
+    return render_template(
+        "documents/mail_client.html", accounts=accounts, selected=selected, scripts=scripts,
+        script_name=script_name, script_content=script_content, sieve_state=sieve_state,
+    )
 
 
 @bp.post("/accounts")
@@ -130,13 +139,42 @@ def send(account_id: str):
         current_app.logger.warning("SMTP submission authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
         flash(_smtp_authentication_message(exc))
     except ValueError as exc:
-        # These messages originate exclusively from our local compose/input
-        # validation and are safe and necessary for correcting the request.
         flash(f"Versand nicht gestartet: {exc}")
     except Exception as exc:
         current_app.logger.warning("SMTP submission failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Versand fehlgeschlagen ({type(exc).__name__}). Ein bereits erzeugter Versandversuch bleibt im Archiv nachvollziehbar.")
     return redirect(url_for("mail_client.index", account=account_id))
+
+
+@bp.post("/accounts/<account_id>/sieve/sync")
+@login_required
+def sync_sieve(account_id: str):
+    try:
+        store = _store()
+        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        result = sync_from_server(store, _actor(), account)
+        changed = sum(1 for row in result["scripts"] if row.get("changed"))
+        active = result.get("active") or "kein aktives Skript"
+        flash(f"Sieve-Serverbestand gesichert: {len(result['scripts'])} Skript(e), {changed} lokal aktualisiert; aktiv: {active}.")
+    except Exception as exc:
+        current_app.logger.warning("Sieve sync failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Sieve-Download fehlgeschlagen: {exc}")
+    return redirect(url_for("mail_client.index", account=account_id))
+
+
+@bp.post("/accounts/<account_id>/sieve/activate")
+@login_required
+def activate_sieve(account_id: str):
+    name = request.form.get("server_script", "")
+    try:
+        store = _store()
+        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        activate_server_script(store, _actor(), account, name)
+        flash(f"Sieve-Skript {name} wurde nach vollständiger Sicherung des Serverbestands aktiviert.")
+    except Exception as exc:
+        current_app.logger.warning("Sieve activation failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Sieve-Aktivierung fehlgeschlagen: {exc}")
+    return redirect(url_for("mail_client.index", account=account_id, script=name))
 
 
 @bp.post("/accounts/<account_id>/sieve")
@@ -146,17 +184,24 @@ def save_sieve(account_id: str):
     content = request.form.get("content", "")
     try:
         store = _store()
-        saved = store.save_script(_actor(), account_id, name, content)
+        account = None
         if request.form.get("upload") == "1":
             account = store.account(_actor(), account_id, request.form.get("password", ""))
-            client = ManageSieveClient(account["sieve_host"], account["sieve_port"])
+            # Loss prevention: inventory and download every current server script before
+            # replacing or activating anything on the server.
+            sync_from_server(store, _actor(), account)
+        saved = store.save_script(_actor(), account_id, name, content)
+        if account is not None:
+            client = ManageSieveSyncClient(account["sieve_host"], account["sieve_port"])
             try:
                 client.connect(account["username"], account["plain_password"])
                 client.put_script(name, content, activate=request.form.get("activate") == "1")
             finally:
                 client.close()
             store.history.record("sieve_script_uploaded", _actor(), "sieve", saved["sha512"], {**saved, "active": request.form.get("activate") == "1"})
-            flash("Sieve-Skript versioniert, hochgeladen und vom Server angenommen.")
+            # Refresh the inventory after upload so selection/active state reflects the server.
+            sync_from_server(store, _actor(), account)
+            flash("Sieve-Serverbestand gesichert; Skript versioniert und anschließend hochgeladen.")
         else:
             flash("Sieve-Skript lokal versioniert gespeichert. Es wurde nicht zum Server übertragen.")
     except Exception as exc:
