@@ -220,10 +220,7 @@ class ContactStore:
             contact["updated_at"] = utc_now()
             contact["updated_by"] = actor
             atomic_json_write(self.contacts_path, payload)
-            self.history.record(
-                "contact_sharing_updated", actor, "contacts", contact_id,
-                {"owner": owner, "managers": contact["managers"], "readers": contact["readers"], "updated_at": contact["updated_at"]},
-            )
+            self.history.record("contact_sharing_updated", actor, "contacts", contact_id, {"owner": owner, "managers": contact["managers"], "readers": contact["readers"], "updated_at": contact["updated_at"]})
         return contact
 
     def address_matches(self) -> dict[str, list[str]]:
@@ -235,7 +232,12 @@ class ContactStore:
 
     @staticmethod
     def _safe_raw_vcard_line(line: str) -> str:
-        line = str(line).replace("\r", "").replace("\n", "").strip()
+        raw = str(line)
+        if "\r" in raw or "\n" in raw:
+            return ""
+        line = raw.strip()
+        if "BEGIN:VCARD" in line.upper() or "END:VCARD" in line.upper():
+            return ""
         key, sep, _ = line.partition(":")
         name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
         if not sep or not re.fullmatch(r"[A-Z0-9-]{1,80}", name):
