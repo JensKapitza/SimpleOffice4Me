@@ -23,6 +23,17 @@ def _store() -> MailStore:
     return MailStore(current_app.config["DOCUMENT_ROOT"], raw)
 
 
+def _account_with_effective_password(store: MailStore, account_id: str) -> dict:
+    """Use the saved secret just like the mail reader; fall back to manual input only when needed."""
+    safe = next((row for row in store.accounts(_actor()) if row["id"] == account_id), None)
+    if safe is None:
+        raise KeyError("mail account does not exist")
+    manual = request.form.get("password", "")
+    use_override = request.form.get("use_password_override") == "1"
+    password = manual if (use_override or not safe.get("password_saved")) else ""
+    return store.account(_actor(), account_id, password)
+
+
 def _smtp_authentication_message(exc: smtplib.SMTPAuthenticationError) -> str:
     """Return an actionable SMTP authentication error without echoing server text."""
     code = int(getattr(exc, "smtp_code", 0) or 0)
@@ -78,7 +89,7 @@ def save_account():
 def test_account(account_id: str):
     store = _store()
     try:
-        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        account = _account_with_effective_password(store, account_id)
         result = ImapArchive(store).test(account)
         store.history.record("imap_account_tested", _actor(), "mail-accounts", account_id, {"result": "success", "folders": result["folders"], "capabilities": result["capabilities"]})
         flash(f"IMAP-Anmeldung erfolgreich: {result['folders']} Ordner, {len(result['capabilities'])} Fähigkeiten.")
@@ -97,7 +108,7 @@ def test_account(account_id: str):
 def archive(account_id: str):
     try:
         store = _store()
-        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        account = _account_with_effective_password(store, account_id)
         result = ImapArchive(store).archive(_actor(), account, limit=int(request.form.get("limit", "250")), extract_attachments=request.form.get("extract_attachments") == "1")
         flash(f"Archivlauf: {result['archived']} neue EML, {result['duplicates']} Duplikate, {result['attachments']} geprüfte Anhänge, {len(result['errors'])} Fehler.")
     except Exception as exc:
@@ -151,14 +162,14 @@ def send(account_id: str):
 def sync_sieve(account_id: str):
     try:
         store = _store()
-        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        account = _account_with_effective_password(store, account_id)
         result = sync_from_server(store, _actor(), account)
         changed = sum(1 for row in result["scripts"] if row.get("changed"))
         active = result.get("active") or "kein aktives Skript"
         flash(f"Sieve-Serverbestand gesichert: {len(result['scripts'])} Skript(e), {changed} lokal aktualisiert; aktiv: {active}.")
     except Exception as exc:
         current_app.logger.warning("Sieve sync failed for %s: %s", _actor(), type(exc).__name__)
-        flash(f"Sieve-Download fehlgeschlagen: {exc}")
+        flash(f"Sieve-Download fehlgeschlagen ({type(exc).__name__}) auf dem konfigurierten ManageSieve-Server. Prüfe Host/Port 4190, STARTTLS und ob der Mailanbieter ManageSieve freigibt.")
     return redirect(url_for("mail_client.index", account=account_id))
 
 
@@ -168,12 +179,12 @@ def activate_sieve(account_id: str):
     name = request.form.get("server_script", "")
     try:
         store = _store()
-        account = store.account(_actor(), account_id, request.form.get("password", ""))
+        account = _account_with_effective_password(store, account_id)
         activate_server_script(store, _actor(), account, name)
         flash(f"Sieve-Skript {name} wurde nach vollständiger Sicherung des Serverbestands aktiviert.")
     except Exception as exc:
         current_app.logger.warning("Sieve activation failed for %s: %s", _actor(), type(exc).__name__)
-        flash(f"Sieve-Aktivierung fehlgeschlagen: {exc}")
+        flash(f"Sieve-Aktivierung fehlgeschlagen ({type(exc).__name__}).")
     return redirect(url_for("mail_client.index", account=account_id, script=name))
 
 
@@ -186,9 +197,7 @@ def save_sieve(account_id: str):
         store = _store()
         account = None
         if request.form.get("upload") == "1":
-            account = store.account(_actor(), account_id, request.form.get("password", ""))
-            # Loss prevention: inventory and download every current server script before
-            # replacing or activating anything on the server.
+            account = _account_with_effective_password(store, account_id)
             sync_from_server(store, _actor(), account)
         saved = store.save_script(_actor(), account_id, name, content)
         if account is not None:
@@ -199,12 +208,11 @@ def save_sieve(account_id: str):
             finally:
                 client.close()
             store.history.record("sieve_script_uploaded", _actor(), "sieve", saved["sha512"], {**saved, "active": request.form.get("activate") == "1"})
-            # Refresh the inventory after upload so selection/active state reflects the server.
             sync_from_server(store, _actor(), account)
             flash("Sieve-Serverbestand gesichert; Skript versioniert und anschließend hochgeladen.")
         else:
             flash("Sieve-Skript lokal versioniert gespeichert. Es wurde nicht zum Server übertragen.")
     except Exception as exc:
         current_app.logger.warning("Sieve update failed for %s: %s", _actor(), type(exc).__name__)
-        flash(f"Sieve-Aktion fehlgeschlagen: {exc}")
+        flash(f"Sieve-Aktion fehlgeschlagen ({type(exc).__name__}).")
     return redirect(url_for("mail_client.index", account=account_id, script=name))
