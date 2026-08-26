@@ -29,6 +29,22 @@ class InvoiceCatalogTest(unittest.TestCase):
             self.assertEqual("002", ObjectStore.format_sequence(2, 3))
             self.assertEqual("111", ObjectStore.format_sequence(111, 3))
 
+    def test_old_and_zero_padded_sequence_references_resolve_same_object(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ObjectStore(temp)
+            first = store.create(self._values("Eins", use_in_invoice="1", invoice_description="Eins", net_price="1", vat_rate="19"), "tester")
+            for number in range(2, 111):
+                store.create(self._values(f"Objekt {number}"), "tester")
+            self.assertEqual("001", store.object(first["object_id"])["display_id"])
+            for reference in ("1", "01", "001", "0001", "#001"):
+                resolved = store.object(reference)
+                self.assertEqual(first["object_id"], resolved["object_id"])
+                self.assertEqual(1, resolved["sequence_id"])
+            candidates = store.invoice_candidates("0001")
+            self.assertEqual(first["object_id"], candidates[0]["object_id"])
+            self.assertEqual("1", candidates[0]["original_id"])
+            self.assertEqual("001", candidates[0]["id"])
+
     def test_sequence_is_not_reused_after_object_file_disappears(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
