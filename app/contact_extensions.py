@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import secrets
 import sqlite3
 import subprocess
@@ -15,6 +14,7 @@ from typing import Any
 
 from flask import abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
+from .access_control import is_admin
 from .auth import login_required
 from .contact_store import ContactStore
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
@@ -127,11 +127,6 @@ def _eml_preview(root: Path, document_id: str) -> dict[str, Any]:
     return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message), "attachments": attachments}
 
 
-def _osm_admin(actor: str) -> bool:
-    configured = os.environ.get("SIMPLEOFFICE_OSM_ADMINS", os.environ.get("SIMPLEOFFICE_SECURITY_ADMINS", ""))
-    return actor in {item.strip() for item in configured.split(",") if item.strip()}
-
-
 def register(bp) -> None:
     @bp.get("/documents/contacts/address-search.json", endpoint="crm_address_search")
     @login_required
@@ -150,7 +145,7 @@ def register(bp) -> None:
     @login_required
     def crm_osm_build():
         actor = str(g.user["username"])
-        if not _osm_admin(actor): abort(403)
+        if not is_admin(g.user): abort(403)
         region = request.form.get("region", "").strip(); index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
         try:
             source = index.download_region(region); count = index.build(source)
@@ -170,7 +165,7 @@ def register(bp) -> None:
             values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": [dict(zip(("type", "street", "postal", "city", "country"), row)) for row in _parse_rows(request.form.get("addresses", ""), 5)], "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)]}
             store.save(contact_id, values, actor); flash("CRM-Daten gespeichert. CardDAV-Änderungen können diese Daten nicht löschen."); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
-        return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), all_contacts=contacts.contacts(actor), osm_status=index.status(), osm_regions=GEOFABRIK_REGIONS, osm_admin=_osm_admin(actor))
+        return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), all_contacts=contacts.contacts(actor), osm_status=index.status(), osm_regions=GEOFABRIK_REGIONS, osm_admin=is_admin(g.user))
 
     @bp.post("/documents/contacts/<contact_id>/crm/update-link", endpoint="crm_update_link")
     @login_required
