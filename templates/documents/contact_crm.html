@@ -6,8 +6,8 @@
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
 
   <section class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><span>Lokaler OpenStreetMap-Adressindex</span><span class="badge {% if osm_status.ready %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ 'bereit' if osm_status.ready else 'nicht bereit' }}</span></div><div class="card-body">
-    <div class="row g-3 align-items-end"><div class="col-md-5"><dl class="row small mb-0"><dt class="col-5">Adressen</dt><dd class="col-7">{{ osm_status.count|default(0) }}</dd><dt class="col-5">Region</dt><dd class="col-7">{{ osm_status.region_label|default('—') }}</dd><dt class="col-5">Stand</dt><dd class="col-7">{{ osm_status.indexed_at|default(osm_status.downloaded_at|default('—')) }}</dd><dt class="col-5">osmium</dt><dd class="col-7">{{ 'installiert' if osm_status.osmium else 'fehlt' }}</dd></dl></div>
-    <div class="col-md-7">{% if osm_admin %}<form method="post" action="{{ url_for('contact_audit.crm_osm_build') }}" class="row g-2"><div class="col-md-8"><label class="form-label">Geofabrik-Region herunterladen und indexieren</label><select class="form-select" name="region" required>{% for key, config in osm_regions.items() %}<option value="{{ key }}" {% if osm_status.region == key %}selected{% endif %}>{{ config[0] }}</option>{% endfor %}</select></div><div class="col-md-4 d-flex align-items-end"><button class="btn btn-outline-primary w-100" {% if not osm_status.osmium %}disabled{% endif %}>Download + Index</button></div></form>{% if not osm_status.osmium %}<div class="form-text text-danger">Für den PBF-Import fehlt das Kommando <code>osmium</code> (Paket <code>osmium-tool</code>).</div>{% endif %}{% else %}<p class="small text-secondary mb-0">Download und Neuaufbau können nur konfigurierte OSM-/Sicherheitsadministratoren starten.</p>{% endif %}</div></div>
+    <div class="row g-3 align-items-end"><div class="col-md-5"><dl class="row small mb-0"><dt class="col-5">Adressen</dt><dd class="col-7">{{ osm_status.count|default(0) }}</dd><dt class="col-5">Region</dt><dd class="col-7">{{ osm_status.region_label|default('—') }}</dd><dt class="col-5">Stand</dt><dd class="col-7">{{ osm_status.indexed_at|default(osm_status.downloaded_at|default('—')) }}</dd><dt class="col-5">Download</dt><dd class="col-7">{% if osm_status.downloaded_bytes %}{{ osm_status.downloaded_size|default('—') }}{% if osm_status.expected_bytes %} / {{ osm_status.expected_size|default('—') }}{% endif %}{% else %}—{% endif %}</dd><dt class="col-5">osmium</dt><dd class="col-7">{{ 'installiert' if osm_status.osmium else 'fehlt' }}</dd></dl>{% if osm_status.state == 'downloading' and osm_status.expected_bytes %}<div class="progress mt-2" role="progressbar" aria-label="OSM Download" aria-valuenow="{{ osm_status.progress_percent|default(0) }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: {{ osm_status.progress_percent|default(0) }}%">{{ osm_status.progress_percent|default(0) }}%</div></div>{% endif %}</div>
+    <div class="col-md-7">{% if osm_admin %}<form method="post" action="{{ url_for('contact_audit.crm_osm_build') }}" class="row g-2" id="osm-download-form"><div class="col-md-8"><label class="form-label">Geofabrik-Region herunterladen und indexieren</label><select class="form-select" name="region" id="osm-region" required>{% for key, config in osm_regions.items() %}<option value="{{ key }}" {% if osm_status.region == key %}selected{% endif %}>{{ config[0] }}</option>{% endfor %}</select><div class="form-text" id="osm-region-size">Downloadgröße wird ermittelt …</div></div><div class="col-md-4 d-flex align-items-end"><button class="btn btn-outline-primary w-100" id="osm-download-button" {% if not osm_status.osmium %}disabled{% endif %}>Download + Index</button></div></form>{% if not osm_status.osmium %}<div class="form-text text-danger">Für den PBF-Import fehlt das Kommando <code>osmium</code> (Paket <code>osmium-tool</code>).</div>{% endif %}{% else %}<p class="small text-secondary mb-0">Download und Neuaufbau können nur Administratoren starten.</p>{% endif %}</div></div>
     <p class="small text-secondary mt-3 mb-0">Die heruntergeladenen Geofabrik-Daten und der SQLite-Adressindex liegen lokal im SimpleOffice-Dokumentenspeicher. CRM-Suchbegriffe werden nicht an einen Geocoder übertragen. Datenquelle: © OpenStreetMap contributors.</p>
   </div></section>
 
@@ -68,6 +68,25 @@
     } catch (error) { status.textContent = 'Lokale Adresssuche ist nicht verfügbar.'; } finally { searchButton.disabled = false; }
   });
   applyButton?.addEventListener('click', () => { const values = [type.value, street.value.trim(), postal.value.trim(), city.value.trim(), (country.value || 'DE').trim().toUpperCase()]; if (!values[1] && !values[3]) { status.textContent = 'Straße oder Ort fehlt.'; return; } const line = values.map(value => value.replaceAll('|', ' ')).join('|'); const existing = addresses.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean); if (!existing.includes(line)) existing.push(line); addresses.value = existing.join('\n'); status.textContent = 'Adresse zur CRM-Liste hinzugefügt. Dauerhaft gespeichert wird sie mit „CRM-Daten speichern“.'; });
+
+  const regionSelect = document.getElementById('osm-region'), regionSize = document.getElementById('osm-region-size'), downloadButton = document.getElementById('osm-download-button');
+  const regionInfoEndpoint = {{ url_for('contact_audit.crm_osm_region_info')|tojson }};
+  let regionRequest = 0;
+  async function updateRegionSize() {
+    if (!regionSelect || !regionSize) return;
+    const requestId = ++regionRequest; const region = regionSelect.value;
+    regionSize.textContent = 'Downloadgröße wird ermittelt …';
+    try {
+      const response = await fetch(`${regionInfoEndpoint}?region=${encodeURIComponent(region)}`, {headers: {'Accept': 'application/json'}}); const payload = await response.json();
+      if (requestId !== regionRequest) return;
+      if (!response.ok) throw new Error(payload.error || 'size_lookup_failed');
+      const info = payload.region || {}; regionSize.textContent = info.bytes ? `Erwartete Downloadgröße: ${info.size}${info.last_modified ? ` · Serverstand: ${info.last_modified}` : ''}` : 'Downloadgröße konnte vorab nicht bestimmt werden.';
+      if (downloadButton && info.bytes) downloadButton.textContent = `Download ${info.size} + Index`;
+    } catch (error) {
+      if (requestId === regionRequest) regionSize.textContent = 'Downloadgröße konnte vorab nicht bestimmt werden.';
+    }
+  }
+  regionSelect?.addEventListener('change', updateRegionSize); updateRegionSize();
 })();
 </script>
 {% endblock %}
