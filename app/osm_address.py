@@ -60,6 +60,21 @@ def _city(properties: dict[str, Any]) -> str:
     )
 
 
+def human_bytes(value: Any) -> str:
+    try:
+        size = max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return "unbekannt"
+    if not size:
+        return "unbekannt"
+    amount = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024 or unit == "TiB":
+            return f"{amount:.0f} {unit}" if unit in {"B", "KiB"} else f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{size} B"
+
+
 class LocalAddressIndex:
     def __init__(self, root: str | Path):
         self.root = Path(root).resolve()
@@ -114,6 +129,12 @@ class LocalAddressIndex:
                 status["ready"] = status["count"] > 0
             except sqlite3.Error:
                 status["ready"] = False
+        expected = int(status.get("expected_bytes", 0) or 0)
+        downloaded = int(status.get("downloaded_bytes", 0) or 0)
+        status["expected_size"] = human_bytes(expected)
+        status["downloaded_size"] = human_bytes(downloaded)
+        if expected > 0:
+            status["progress_percent"] = min(100, round(downloaded * 100 / expected, 1))
         return status
 
     def _write_status(self, **values: Any) -> None:
@@ -124,22 +145,60 @@ class LocalAddressIndex:
         temporary.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         temporary.replace(self.status_path)
 
-    def download_region(self, region: str) -> Path:
+    @staticmethod
+    def _source(region: str) -> tuple[str, str]:
         if region not in GEOFABRIK_REGIONS:
             raise ValueError("unknown OSM region")
         label, url = GEOFABRIK_REGIONS[region]
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.hostname != "download.geofabrik.de":
             raise ValueError("OSM source must be an approved Geofabrik HTTPS URL")
+        return label, url
+
+    def region_info(self, region: str) -> dict[str, Any]:
+        label, url = self._source(region)
+        headers = {"User-Agent": "SimpleOffice4Me/1.0 local-address-index"}
+        size = 0
+        modified = ""
+        try:
+            request = Request(url, headers=headers, method="HEAD")
+            with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed allow-listed host
+                size = int(response.headers.get("Content-Length") or 0)
+                modified = str(response.headers.get("Last-Modified") or "")
+        except (OSError, ValueError):
+            # Some mirrors/proxies do not expose Content-Length on HEAD. A one-byte
+            # range request can still reveal the total through Content-Range.
+            try:
+                request = Request(url, headers={**headers, "Range": "bytes=0-0"})
+                with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed allow-listed host
+                    content_range = str(response.headers.get("Content-Range") or "")
+                    match = re.search(r"/(\d+)$", content_range)
+                    if match:
+                        size = int(match.group(1))
+                    elif response.headers.get("Content-Length"):
+                        size = int(response.headers["Content-Length"])
+                    modified = str(response.headers.get("Last-Modified") or "")
+            except (OSError, ValueError):
+                size = 0
+        return {"region": region, "label": label, "url": url, "bytes": size, "size": human_bytes(size), "last_modified": modified}
+
+    def download_region(self, region: str) -> Path:
+        label, url = self._source(region)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         target = self.data_dir / f"{region}-latest.osm.pbf"
         temporary = target.with_suffix(".download")
         request = Request(url, headers={"User-Agent": "SimpleOffice4Me/1.0 local-address-index"})
         max_bytes = int(os.environ.get("SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB", "8")) * 1024**3
         total = 0
-        self._write_status(state="downloading", region=region, region_label=label, source=url, started_at=utc_now(), error="")
+        expected = 0
+        self._write_status(state="downloading", region=region, region_label=label, source=url, started_at=utc_now(), error="", downloaded_bytes=0, progress_percent=0)
         try:
             with urlopen(request, timeout=60) as response, temporary.open("wb") as output:  # noqa: S310 - fixed allow-listed host
+                expected = int(response.headers.get("Content-Length") or 0)
+                if expected > max_bytes:
+                    raise ValueError("OSM download exceeds configured size limit")
+                self._write_status(expected_bytes=expected, expected_size=human_bytes(expected))
+                next_status = 8 * 1024 * 1024
                 while True:
                     block = response.read(1024 * 1024)
                     if not block:
@@ -148,14 +207,18 @@ class LocalAddressIndex:
                     if total > max_bytes:
                         raise ValueError("OSM download exceeds configured size limit")
                     output.write(block)
+                    if total >= next_status:
+                        progress = min(100, round(total * 100 / expected, 1)) if expected else None
+                        self._write_status(downloaded_bytes=total, downloaded_size=human_bytes(total), expected_bytes=expected, expected_size=human_bytes(expected), progress_percent=progress)
+                        next_status = total + 8 * 1024 * 1024
             if total < 1024:
                 raise RuntimeError("downloaded OSM extract is unexpectedly small")
             temporary.replace(target)
-            self._write_status(state="downloaded", downloaded_at=utc_now(), downloaded_bytes=total, source_file=str(target))
+            self._write_status(state="downloaded", downloaded_at=utc_now(), downloaded_bytes=total, downloaded_size=human_bytes(total), expected_bytes=expected or total, expected_size=human_bytes(expected or total), progress_percent=100, source_file=str(target))
             return target
         except Exception as exc:
             temporary.unlink(missing_ok=True)
-            self._write_status(state="error", error=str(exc)[:500])
+            self._write_status(state="error", downloaded_bytes=total, downloaded_size=human_bytes(total), expected_bytes=expected, expected_size=human_bytes(expected), error=str(exc)[:500])
             raise
 
     @staticmethod
