@@ -141,6 +141,17 @@ def register(bp) -> None:
         index_status = LocalAddressIndex(root).status()
         return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
 
+    @bp.get("/documents/contacts/osm-index/region-info.json", endpoint="crm_osm_region_info")
+    @login_required
+    def crm_osm_region_info():
+        if not is_admin(g.user): abort(403)
+        region = request.args.get("region", "").strip()
+        index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+        try:
+            return jsonify({"region": index.region_info(region), "status": index.status()})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     @bp.post("/documents/contacts/osm-index/build", endpoint="crm_osm_build")
     @login_required
     def crm_osm_build():
