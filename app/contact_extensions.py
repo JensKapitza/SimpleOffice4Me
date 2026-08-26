@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import sqlite3
+import subprocess
 import uuid
 from email import policy
 from email.parser import BytesParser
@@ -138,22 +140,22 @@ def register(bp) -> None:
         root = current_app.config["DOCUMENT_ROOT"]
         if len(query) < 3: return jsonify({"candidates": [], "unique": None, "source": "local_osm", "ready": LocalAddressIndex(root).status()["ready"], "attribution": "© OpenStreetMap contributors"})
         try: candidates = search_address(query, root=root, country_code=country, limit=8)
-        except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:  # type: ignore[name-defined]
+        except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             current_app.logger.warning("Local OSM address lookup failed: %s", exc)
             return jsonify({"error": "local_address_index_unavailable", "candidates": [], "unique": None, "source": "local_osm", "attribution": "© OpenStreetMap contributors"}), 503
-        return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "source": "local_osm", "ready": True, "attribution": "© OpenStreetMap contributors"})
+        index_status = LocalAddressIndex(root).status()
+        return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
 
     @bp.post("/documents/contacts/osm-index/build", endpoint="crm_osm_build")
     @login_required
     def crm_osm_build():
         actor = str(g.user["username"])
         if not _osm_admin(actor): abort(403)
-        region = request.form.get("region", "").strip()
-        index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+        region = request.form.get("region", "").strip(); index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
         try:
             source = index.download_region(region); count = index.build(source)
             flash(f"Lokaler OSM-Adressindex aufgebaut: {count} Adresseinträge.")
-        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:  # type: ignore[name-defined]
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
             current_app.logger.exception("OSM address index build failed")
             flash(f"OSM-Adressindex konnte nicht aufgebaut werden: {exc}")
         return redirect(request.referrer or url_for("documents.contacts"))
