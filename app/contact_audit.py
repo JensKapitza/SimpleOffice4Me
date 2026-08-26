@@ -261,3 +261,8 @@ def import_csv():
 
 from .contact_extensions import register as _register_contact_extensions
 _register_contact_extensions(bp)
+
+# Business-document routes are nested into this already registered blueprint so
+# the application keeps one contact-related registration point.
+from .business_documents import bp as _business_documents_bp
+bp.register_blueprint(_business_documents_bp)

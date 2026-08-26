@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <a href="{{ url_for('documents.detail', document_id=document.document_id) }}">← Dokument</a>
+  <h1 class="h3 mt-2">ZUGFeRD / Factur-X</h1>
+  {% if details.detected %}
+  <div class="alert alert-success">Eingebettete Rechnungsdaten erkannt. Die Anzeige liest die XML intern aus; <strong>dies ist noch keine Schema-/PDF-A-Validierung.</strong></div>
+  <dl class="row"><dt class="col-sm-3">XML-Datei</dt><dd class="col-sm-9">{{ details.xml_filename }}</dd><dt class="col-sm-3">Rechnungs-ID</dt><dd class="col-sm-9">{{ details.invoice_id or '—' }}</dd><dt class="col-sm-3">Datum</dt><dd class="col-sm-9">{{ details.issue_date or '—' }}</dd><dt class="col-sm-3">Profil</dt><dd class="col-sm-9 text-break">{{ details.profile or 'nicht eindeutig erkannt' }}</dd><dt class="col-sm-3">Validierung</dt><dd class="col-sm-9"><span class="badge text-bg-warning">{{ details.validation }}</span></dd></dl>
+  <details><summary>XML anzeigen</summary><pre class="border rounded p-3 mt-2 overflow-auto" style="max-height:60vh">{{ details.raw_xml }}</pre></details>
+  {% else %}<div class="alert alert-secondary">Keine eingebettete ZUGFeRD-/Factur-X-XML mit bekanntem Dateinamen gefunden.</div>{% endif %}
+</main>
+{% endblock %}
