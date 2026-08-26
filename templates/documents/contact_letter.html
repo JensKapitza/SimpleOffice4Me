@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">← Kontakt</a><h1 class="h3 mt-2">Brief / Dokument: {{ contact.fields.display_name }}</h1><p class="text-secondary mb-0">Adresse wählen, Text eingeben und mit Corporate-Design-Vorlage als PDF erzeugen.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('business_documents.template_manager') }}">Vorlagen</a></div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-8"><div class="card"><div class="card-header">Brief erstellen</div><div class="card-body">
+      <form method="post" class="row g-3">
+        <div class="col-md-7"><label class="form-label">Empfängeradresse</label><select class="form-select" name="address" onchange="this.form.submit()">{% for item in addresses %}<option value="{{ item.id }}" {% if item.label == address %}selected{% endif %}>{{ item.type }} — {{ item.label|replace('\n', ', ') }}</option>{% endfor %}</select>{% if not addresses %}<div class="alert alert-warning mt-2 mb-0">Keine Adresse vorhanden. Hinterlege am Kontakt bzw. im CRM mindestens eine Adresse.</div>{% endif %}</div>
+        <div class="col-md-5"><label class="form-label">Vorlage</label><select class="form-select" name="template_id">{% for row in templates %}<option value="{{ row.template_id }}" {% if row.active %}selected{% endif %}>{{ row.name }}{% if row.active %} (aktiv){% endif %}</option>{% endfor %}</select></div>
+        <div class="col-12"><label class="form-label">Adresslabel / Druckansicht</label><textarea readonly class="form-control font-monospace" rows="5">{{ address }}</textarea></div>
+        <div class="col-md-9"><label class="form-label">Betreff</label><input class="form-control" name="subject" placeholder="Betreff"></div><div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" value="1" name="cover" id="letter-cover"><label class="form-check-label" for="letter-cover">Titelseite verwenden</label></div></div>
+        <div class="col-12"><label class="form-label">Text / Markdown</label><textarea required class="form-control font-monospace" name="body" rows="18" placeholder="# Überschrift\n\nSehr geehrte ...\n\n- Punkt 1\n- Punkt 2\n\n**Fett** und *kursiv* werden unterstützt."></textarea><div class="form-text">Unterstützt: Überschriften mit #, Aufzählungen mit - oder *, **fett**, *kursiv* und normale Absätze.</div></div>
+        <div class="col-12"><button class="btn btn-primary" {% if not addresses or not templates %}disabled{% endif %}>PDF erzeugen und mit Kontakt verknüpfen</button></div>
+      </form>
+    </div></div></section>
+    <aside class="col-lg-4">
+      <div class="card mb-4"><div class="card-header">Vorhandenes Dokument verknüpfen</div><div class="card-body"><form method="post" action="{{ url_for('business_documents.attach_existing', contact_id=contact.contact_id) }}"><label class="form-label">Dokument-ID</label><input required class="form-control mb-2 font-monospace" name="document_id"><label class="form-label">Beziehung</label><select class="form-select mb-3" name="relation"><option value="correspondence">Korrespondenz</option><option value="letter">Brief</option><option value="invoice">Rechnung</option><option value="delivery_note">Lieferschein</option><option value="other">Sonstiges</option></select><button class="btn btn-outline-primary w-100">Verknüpfen</button></form><div class="form-text mt-2">Bei PDF-Dateien wird automatisch nach eingebetteten ZUGFeRD-/Factur-X-Daten gesucht.</div></div></div>
+      <div class="card"><div class="card-header">Verknüpfte Dokumente</div><div class="list-group list-group-flush">{% for link in links %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=link.document_id) }}"><strong>{{ link.relation }}</strong><br><code>{{ link.document_id }}</code><br><small class="text-secondary">{{ link.created_at }} · {{ link.created_by }}</small>{% if link.metadata.zugferd %}<span class="badge text-bg-success ms-1">ZUGFeRD erkannt</span>{% endif %}</a>{% else %}<div class="list-group-item text-secondary">Noch keine Dokumente verknüpft.</div>{% endfor %}</div></div>
+    </aside>
+  </div>
+</main>
+{% endblock %}
