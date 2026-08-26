@@ -4,6 +4,13 @@
 <main class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">← Kontakt</a><h1 class="h3 mt-2">CRM: {{ contact.fields.display_name }}</h1><p class="text-secondary">Kaufmännische Daten bleiben serverseitig und werden durch CardDAV-/Thunderbird-Änderungen nicht gelöscht.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.crm_proposals') }}">Externe Änderungsvorschläge</a></div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+
+  <section class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><span>Lokaler OpenStreetMap-Adressindex</span><span class="badge {% if osm_status.ready %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ 'bereit' if osm_status.ready else 'nicht bereit' }}</span></div><div class="card-body">
+    <div class="row g-3 align-items-end"><div class="col-md-5"><dl class="row small mb-0"><dt class="col-5">Adressen</dt><dd class="col-7">{{ osm_status.count|default(0) }}</dd><dt class="col-5">Region</dt><dd class="col-7">{{ osm_status.region_label|default('—') }}</dd><dt class="col-5">Stand</dt><dd class="col-7">{{ osm_status.indexed_at|default(osm_status.downloaded_at|default('—')) }}</dd><dt class="col-5">osmium</dt><dd class="col-7">{{ 'installiert' if osm_status.osmium else 'fehlt' }}</dd></dl></div>
+    <div class="col-md-7">{% if osm_admin %}<form method="post" action="{{ url_for('contact_audit.crm_osm_build') }}" class="row g-2"><div class="col-md-8"><label class="form-label">Geofabrik-Region herunterladen und indexieren</label><select class="form-select" name="region" required>{% for key, config in osm_regions.items() %}<option value="{{ key }}" {% if osm_status.region == key %}selected{% endif %}>{{ config[0] }}</option>{% endfor %}</select></div><div class="col-md-4 d-flex align-items-end"><button class="btn btn-outline-primary w-100" {% if not osm_status.osmium %}disabled{% endif %}>Download + Index</button></div></form>{% if not osm_status.osmium %}<div class="form-text text-danger">Für den PBF-Import fehlt das Kommando <code>osmium</code> (Paket <code>osmium-tool</code>).</div>{% endif %}{% else %}<p class="small text-secondary mb-0">Download und Neuaufbau können nur konfigurierte OSM-/Sicherheitsadministratoren starten.</p>{% endif %}</div></div>
+    <p class="small text-secondary mt-3 mb-0">Die heruntergeladenen Geofabrik-Daten und der SQLite-Adressindex liegen lokal im SimpleOffice-Dokumentenspeicher. CRM-Suchbegriffe werden nicht an einen Geocoder übertragen. Datenquelle: © OpenStreetMap contributors.</p>
+  </div></section>
+
   <form method="post" class="row g-4">
     <section class="col-lg-7"><div class="card"><div class="card-header">Stammdaten und Konditionen</div><div class="card-body row g-3">
       <div class="col-12"><label class="form-label">Rollen</label><div>{% for value,label in [('customer','Kunde'),('supplier','Lieferant'),('contact_person','Ansprechpartner'),('private','Privat'),('other','Sonstige')] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="roles" value="{{ value }}" {% if value in crm.roles|default([]) %}checked{% endif %}>{{ label }}</label>{% endfor %}</div></div>
@@ -15,21 +22,21 @@
     </div></div></section>
     <aside class="col-lg-5"><div class="card mb-4"><div class="card-header">Mehrfachdaten</div><div class="card-body">
       <div class="border rounded p-3 mb-3 bg-light-subtle" id="osm-address-helper">
-        <div class="d-flex justify-content-between align-items-center gap-2 mb-2"><strong>Adresse mit OpenStreetMap prüfen</strong><span class="small text-secondary">© OpenStreetMap contributors</span></div>
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-2"><strong>Adresse lokal prüfen</strong><span class="small text-secondary">OSM SQLite</span></div>
+        {% if not osm_status.ready %}<div class="alert alert-warning py-2 small">Noch kein lokaler OSM-Adressindex vorhanden. Ein Administrator muss oben zunächst eine Region herunterladen und indexieren.</div>{% endif %}
         <div class="row g-2">
           <div class="col-4"><label class="form-label small">Typ</label><select id="osm-address-type" class="form-select form-select-sm"><option value="billing">Rechnung</option><option value="shipping">Lieferung</option><option value="work">Arbeit</option><option value="home">Privat</option><option value="other">Sonstige</option></select></div>
           <div class="col-8"><label class="form-label small">Straße + Hausnummer</label><input id="osm-street" class="form-control form-control-sm" placeholder="Musterstraße 12"></div>
           <div class="col-4"><label class="form-label small">PLZ</label><input id="osm-postal" class="form-control form-control-sm" placeholder="12345"></div>
           <div class="col-5"><label class="form-label small">Ort</label><input id="osm-city" class="form-control form-control-sm" placeholder="Ort"></div>
           <div class="col-3"><label class="form-label small">Land</label><input id="osm-country" class="form-control form-control-sm text-uppercase" value="DE" maxlength="2"></div>
-          <div class="col-12 d-flex gap-2"><button id="osm-search" type="button" class="btn btn-sm btn-outline-primary">Adresse suchen</button><button id="osm-apply" type="button" class="btn btn-sm btn-outline-success">Adresse übernehmen</button></div>
+          <div class="col-12 d-flex gap-2"><button id="osm-search" type="button" class="btn btn-sm btn-outline-primary" {% if not osm_status.ready %}disabled{% endif %}>Lokal suchen</button><button id="osm-apply" type="button" class="btn btn-sm btn-outline-success">Adresse übernehmen</button></div>
         </div>
-        <div id="osm-status" class="small text-secondary mt-2" aria-live="polite"></div>
-        <div id="osm-results" class="list-group list-group-flush mt-2"></div>
+        <div id="osm-status" class="small text-secondary mt-2" aria-live="polite"></div><div id="osm-results" class="list-group list-group-flush mt-2"></div>
       </div>
       <label class="form-label">Adressen</label><textarea id="crm-addresses" class="form-control font-monospace mb-3" name="addresses" rows="5" placeholder="billing|Straße 1|12345|Ort|DE">{% for row in crm.addresses|default([]) %}{{ row.type }}|{{ row.street }}|{{ row.postal }}|{{ row.city }}|{{ row.country }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
-      <div class="form-text mb-3">OSM dient nur als Eingabehilfe. Die übernommene Adresse wird erst mit „CRM-Daten speichern“ dauerhaft gespeichert.</div>
+      <div class="form-text mb-3">Die lokale OSM-Suche dient nur als Eingabehilfe. Dauerhaft gespeichert wird erst mit „CRM-Daten speichern“.</div>
       <label class="form-label">Kommunikation</label><textarea class="form-control font-monospace mb-3" name="communications" rows="4" placeholder="email|kunde@example.de|yes">{% for row in crm.communications|default([]) %}{{ row.type }}|{{ row.value }}|{{ row.preferred }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
       <label class="form-label">Bankkonten</label><textarea class="form-control font-monospace mb-3" name="bank_accounts" rows="4" placeholder="Kontoinhaber|IBAN|BIC|Bank">{% for row in crm.bank_accounts|default([]) %}{{ row.holder }}|{{ row.iban }}|{{ row.bic }}|{{ row.bank }}{% if not loop.last %}
@@ -42,67 +49,25 @@
 </main>
 <script>
 (() => {
-  const searchButton = document.getElementById('osm-search');
-  const applyButton = document.getElementById('osm-apply');
-  const street = document.getElementById('osm-street');
-  const postal = document.getElementById('osm-postal');
-  const city = document.getElementById('osm-city');
-  const country = document.getElementById('osm-country');
-  const type = document.getElementById('osm-address-type');
-  const status = document.getElementById('osm-status');
-  const results = document.getElementById('osm-results');
-  const addresses = document.getElementById('crm-addresses');
+  const searchButton = document.getElementById('osm-search'), applyButton = document.getElementById('osm-apply');
+  const street = document.getElementById('osm-street'), postal = document.getElementById('osm-postal'), city = document.getElementById('osm-city'), country = document.getElementById('osm-country'), type = document.getElementById('osm-address-type');
+  const status = document.getElementById('osm-status'), results = document.getElementById('osm-results'), addresses = document.getElementById('crm-addresses');
   const endpoint = {{ url_for('contact_audit.crm_address_search')|tojson }};
-
-  const fill = item => {
-    street.value = item.street || street.value;
-    postal.value = item.postal || postal.value;
-    city.value = item.city || city.value;
-    country.value = (item.country || country.value || 'DE').toUpperCase();
-  };
-  const query = () => [street.value, postal.value, city.value].map(value => value.trim()).filter(Boolean).join(', ');
-
+  const fill = item => { street.value = item.street || street.value; postal.value = item.postal || postal.value; city.value = item.city || city.value; country.value = (item.country || country.value || 'DE').toUpperCase(); };
+  const query = () => [street.value, postal.value, city.value].map(value => value.trim()).filter(Boolean).join(' ');
   searchButton?.addEventListener('click', async () => {
-    const q = query();
-    results.replaceChildren();
-    if (q.length < 3) { status.textContent = 'Bitte mindestens Straße, PLZ oder Ort eingeben.'; return; }
-    searchButton.disabled = true;
-    status.textContent = 'Adresse wird geprüft …';
+    const q = query(); results.replaceChildren(); if (q.length < 3) { status.textContent = 'Bitte mindestens Straße, PLZ oder Ort eingeben.'; return; }
+    searchButton.disabled = true; status.textContent = 'Lokaler Adressindex wird durchsucht …';
     try {
-      const response = await fetch(`${endpoint}?q=${encodeURIComponent(q)}&country=${encodeURIComponent((country.value || 'DE').toLowerCase())}`, {headers: {'Accept': 'application/json'}});
-      const payload = await response.json();
+      const response = await fetch(`${endpoint}?q=${encodeURIComponent(q)}&country=${encodeURIComponent((country.value || 'DE').toLowerCase())}`, {headers: {'Accept': 'application/json'}}); const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'lookup_failed');
-      if (payload.unique) {
-        fill(payload.unique);
-        status.textContent = 'Eindeutiger OSM-Treffer – Felder wurden vorausgefüllt.';
-        return;
-      }
-      const candidates = payload.candidates || [];
-      status.textContent = candidates.length ? `${candidates.length} mögliche Treffer – bitte auswählen.` : 'Keine passende OSM-Adresse gefunden.';
-      candidates.forEach(item => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'list-group-item list-group-item-action small';
-        button.textContent = item.display_name || [item.street, item.postal, item.city].filter(Boolean).join(', ');
-        button.addEventListener('click', () => { fill(item); results.replaceChildren(); status.textContent = 'Treffer übernommen. Bitte prüfen und anschließend zur Adressliste hinzufügen.'; });
-        results.append(button);
-      });
-    } catch (error) {
-      status.textContent = 'OSM-Adresssuche ist momentan nicht verfügbar.';
-    } finally {
-      searchButton.disabled = false;
-    }
+      if (!payload.ready) { status.textContent = 'Lokaler OSM-Adressindex ist noch nicht aufgebaut.'; return; }
+      if (payload.unique) { fill(payload.unique); status.textContent = 'Eindeutiger lokaler Treffer – Felder wurden vorausgefüllt.'; return; }
+      const candidates = payload.candidates || []; status.textContent = candidates.length ? `${candidates.length} mögliche lokale Treffer – bitte auswählen.` : 'Keine passende Adresse im lokalen OSM-Index gefunden.';
+      candidates.forEach(item => { const button = document.createElement('button'); button.type = 'button'; button.className = 'list-group-item list-group-item-action small'; button.textContent = item.display_name || [item.street, item.postal, item.city].filter(Boolean).join(', '); button.addEventListener('click', () => { fill(item); results.replaceChildren(); status.textContent = 'Treffer übernommen. Bitte prüfen und zur CRM-Adressliste hinzufügen.'; }); results.append(button); });
+    } catch (error) { status.textContent = 'Lokale Adresssuche ist nicht verfügbar.'; } finally { searchButton.disabled = false; }
   });
-
-  applyButton?.addEventListener('click', () => {
-    const values = [type.value, street.value.trim(), postal.value.trim(), city.value.trim(), (country.value || 'DE').trim().toUpperCase()];
-    if (!values[1] && !values[3]) { status.textContent = 'Straße oder Ort fehlt.'; return; }
-    const line = values.map(value => value.replaceAll('|', ' ')).join('|');
-    const existing = addresses.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-    if (!existing.includes(line)) existing.push(line);
-    addresses.value = existing.join('\n');
-    status.textContent = 'Adresse zur CRM-Liste hinzugefügt. Dauerhaft gespeichert wird sie mit „CRM-Daten speichern“.';
-  });
+  applyButton?.addEventListener('click', () => { const values = [type.value, street.value.trim(), postal.value.trim(), city.value.trim(), (country.value || 'DE').trim().toUpperCase()]; if (!values[1] && !values[3]) { status.textContent = 'Straße oder Ort fehlt.'; return; } const line = values.map(value => value.replaceAll('|', ' ')).join('|'); const existing = addresses.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean); if (!existing.includes(line)) existing.push(line); addresses.value = existing.join('\n'); status.textContent = 'Adresse zur CRM-Liste hinzugefügt. Dauerhaft gespeichert wird sie mit „CRM-Daten speichern“.'; });
 })();
 </script>
 {% endblock %}
