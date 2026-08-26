@@ -13,7 +13,6 @@ from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
 
-
 OBJECT_STATES = {"active", "inactive", "lost", "retired"}
 MONEY = Decimal("0.01")
 
@@ -30,23 +29,35 @@ class ObjectStore:
         self._ensure_sequences()
         self.directory.mkdir(parents=True, exist_ok=True)
         needle = query.strip().casefold()
+        numeric_needle = self._sequence_reference(query)
         objects = [item for path in self.directory.glob("*.json") if path.name != "sequence.json" and (item := self._read(path))]
         width = self.sequence_width(objects)
         for item in objects:
             item["display_id"] = self.format_sequence(item.get("sequence_id", 0), width)
+            item["original_display_id"] = str(int(item.get("sequence_id", 0) or 0))
             item["invoice_effective"] = self.invoice_effective(item)
         if needle:
-            objects = [item for item in objects if needle in json.dumps(item, ensure_ascii=False).casefold()]
+            objects = [
+                item for item in objects
+                if (numeric_needle is not None and int(item.get("sequence_id", 0) or 0) == numeric_needle)
+                or needle in json.dumps(item, ensure_ascii=False).casefold()
+            ]
         return sorted(objects, key=lambda item: (int(item.get("sequence_id", 0)), item.get("name", "").casefold()))
 
     def object(self, object_id: str) -> dict[str, Any]:
+        """Resolve a UUID or any zero-padded representation of the permanent sequence ID."""
         self._ensure_sequences()
-        if not re.fullmatch(r"[0-9a-f-]{36}", object_id):
-            raise ValueError("unknown object")
-        item = self._read(self.directory / f"{object_id}.json")
+        reference = str(object_id or "").strip()
+        if re.fullmatch(r"[0-9a-f-]{36}", reference):
+            item = self._read(self.directory / f"{reference}.json")
+        else:
+            sequence = self._sequence_reference(reference)
+            item = self._find_by_sequence(sequence) if sequence is not None else None
         if not item:
             raise ValueError("unknown object")
-        item["display_id"] = self.format_sequence(item.get("sequence_id", 0), self.sequence_width())
+        sequence_id = int(item.get("sequence_id", 0) or 0)
+        item["display_id"] = self.format_sequence(sequence_id, self.sequence_width())
+        item["original_display_id"] = str(sequence_id)
         item["invoice_effective"] = self.invoice_effective(item)
         return item
 
@@ -55,24 +66,15 @@ class ObjectStore:
         expires_at = self._date(values.get("expires_at", ""))
         now = utc_now()
         item = {
-            "object_id": str(uuid.uuid4()),
-            "sequence_id": self._next_sequence(),
-            "name": str(values["name"]).strip(),
-            "type": str(values["type"]).strip(),
+            "object_id": str(uuid.uuid4()), "sequence_id": self._next_sequence(),
+            "name": str(values["name"]).strip(), "type": str(values["type"]).strip(),
             "status": self._status(values.get("status", "active")),
             "description": str(values.get("description", "")).strip(),
             "identifier": str(values.get("identifier", "")).strip(),
-            "location": str(values.get("location", "")).strip(),
-            "expires_at": expires_at,
-            "tags": self._list(values.get("tags", "")),
-            "fields": self._fields(values.get("fields", "")),
-            "invoice": self._invoice_values(values),
-            "document_ids": [],
-            "notes": [],
-            "created_at": now,
-            "created_by": actor,
-            "updated_at": now,
-            "updated_by": actor,
+            "location": str(values.get("location", "")).strip(), "expires_at": expires_at,
+            "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
+            "invoice": self._invoice_values(values), "document_ids": [], "notes": [],
+            "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
         }
         self._write(item, actor, "object_created")
         return self.object(item["object_id"])
@@ -80,38 +82,36 @@ class ObjectStore:
     def update(self, object_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
         item = self.object(object_id)
         self._require(actor, values.get("name", ""), values.get("type", ""))
-        expires_at = self._date(values.get("expires_at", ""))
         item.update({
-            "name": str(values["name"]).strip(),
-            "type": str(values["type"]).strip(),
+            "name": str(values["name"]).strip(), "type": str(values["type"]).strip(),
             "status": self._status(values.get("status", "active")),
             "description": str(values.get("description", "")).strip(),
             "identifier": str(values.get("identifier", "")).strip(),
             "location": str(values.get("location", "")).strip(),
-            "expires_at": expires_at,
-            "tags": self._list(values.get("tags", "")),
-            "fields": self._fields(values.get("fields", "")),
+            "expires_at": self._date(values.get("expires_at", "")),
+            "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values, existing=item.get("invoice", {})),
-            "updated_at": utc_now(),
-            "updated_by": actor,
+            "updated_at": utc_now(), "updated_by": actor,
         })
-        item.pop("display_id", None)
-        item.pop("invoice_effective", None)
+        for transient in ("display_id", "original_display_id", "invoice_effective"):
+            item.pop(transient, None)
         self._write(item, actor, "object_updated")
-        return self.object(object_id)
+        return self.object(item["object_id"])
 
     def invoice_candidates(self, query: str = "", limit: int = 20) -> list[dict[str, Any]]:
         needle = query.strip().casefold()
+        numeric_needle = self._sequence_reference(query)
         rows: list[dict[str, Any]] = []
         for item in self.objects():
             invoice = self.invoice_effective(item)
             if not invoice.get("use_in_invoice") or item.get("status") != "active":
                 continue
-            haystack = " ".join((item.get("display_id", ""), item.get("name", ""), item.get("identifier", ""), invoice.get("description", ""), invoice.get("category", ""))).casefold()
-            if needle and needle not in haystack:
+            haystack = " ".join((item.get("display_id", ""), item.get("original_display_id", ""), item.get("name", ""), item.get("identifier", ""), invoice.get("description", ""), invoice.get("category", ""))).casefold()
+            if needle and not ((numeric_needle is not None and int(item.get("sequence_id", 0) or 0) == numeric_needle) or needle in haystack):
                 continue
             rows.append({
-                "object_id": item["object_id"], "id": item["display_id"], "name": item["name"],
+                "object_id": item["object_id"], "sequence_id": item["sequence_id"],
+                "id": item["display_id"], "original_id": item["original_display_id"], "name": item["name"],
                 "description": invoice.get("description") or item.get("description") or item["name"],
                 "category": invoice.get("category", ""), "category_object_id": invoice.get("category_object_id", ""),
                 "net_price": invoice.get("net_price", "0.00"), "gross_price": invoice.get("gross_price", "0.00"),
@@ -128,48 +128,45 @@ class ObjectStore:
         current = dict(item.get("invoice", {})) if isinstance(item.get("invoice"), dict) else {}
         category_id = str(current.get("category_object_id", "")).strip()
         if category_id and category_id != item.get("object_id"):
-            try:
-                category = self._read(self.directory / f"{category_id}.json")
-            except Exception:
-                category = None
+            category = self._read(self.directory / f"{category_id}.json")
             defaults = dict(category.get("invoice", {})) if category and isinstance(category.get("invoice"), dict) else {}
             for key in ("vat_rate", "net_price", "gross_price", "price_group", "category"):
-                if not str(current.get(key, "")).strip() and str(defaults.get(f"default_{key}", defaults.get(key, ""))).strip():
-                    current[key] = defaults.get(f"default_{key}", defaults.get(key, ""))
+                fallback = defaults.get(f"default_{key}", defaults.get(key, ""))
+                if not str(current.get(key, "")).strip() and str(fallback).strip():
+                    current[key] = fallback
         return self._reconcile_prices(current)
 
     def attach_document(self, object_id: str, document_id: str, actor: str) -> None:
         item = self.object(object_id)
-        if not actor.strip() or not document_id.strip():
-            raise ValueError("user and document are required")
+        if not actor.strip() or not document_id.strip(): raise ValueError("user and document are required")
         if document_id not in item["document_ids"]:
-            item["document_ids"].append(document_id)
-            item["updated_at"] = utc_now(); item["updated_by"] = actor
-            item.pop("display_id", None); item.pop("invoice_effective", None)
-            self._write(item, actor, "object_document_attached")
+            item["document_ids"].append(document_id); item["updated_at"] = utc_now(); item["updated_by"] = actor
+            self._drop_transient(item); self._write(item, actor, "object_document_attached")
 
     def detach_document(self, object_id: str, document_id: str, actor: str) -> None:
         item = self.object(object_id)
         if not actor.strip(): raise ValueError("user is required")
         if document_id not in item["document_ids"]: raise ValueError("document is not attached")
         item["document_ids"].remove(document_id); item["updated_at"] = utc_now(); item["updated_by"] = actor
-        item.pop("display_id", None); item.pop("invoice_effective", None)
-        self._write(item, actor, "object_document_detached")
+        self._drop_transient(item); self._write(item, actor, "object_document_detached")
 
     def add_note(self, object_id: str, text: str, actor: str) -> None:
         item = self.object(object_id)
         if not actor.strip() or not text.strip(): raise ValueError("user and note are required")
         item["notes"].append({"note_id": str(uuid.uuid4()), "text": text.strip(), "created_at": utc_now(), "created_by": actor})
         item["updated_at"] = utc_now(); item["updated_by"] = actor
-        item.pop("display_id", None); item.pop("invoice_effective", None)
-        self._write(item, actor, "object_note_added")
+        self._drop_transient(item); self._write(item, actor, "object_note_added")
+
+    @staticmethod
+    def _drop_transient(item: dict[str, Any]) -> None:
+        for key in ("display_id", "original_display_id", "invoice_effective"):
+            item.pop(key, None)
 
     def sequence_width(self, items: list[dict[str, Any]] | None = None) -> int:
         if items is None:
             items = [item for path in self.directory.glob("*.json") if path.name != "sequence.json" and (item := self._read(path))]
         highest = max((int(item.get("sequence_id", 0) or 0) for item in items), default=0)
-        state = self._read_sequence_state()
-        highest = max(highest, int(state.get("last", 0) or 0))
+        highest = max(highest, int(self._read_sequence_state().get("last", 0) or 0))
         return max(1, len(str(highest or 1)))
 
     @staticmethod
@@ -177,6 +174,23 @@ class ObjectStore:
         try: number = int(value)
         except (TypeError, ValueError): number = 0
         return str(max(0, number)).zfill(max(1, int(width)))
+
+    @staticmethod
+    def _sequence_reference(value: Any) -> int | None:
+        """Return the numeric sequence represented by 8, 08, 008, #008, etc."""
+        text = str(value or "").strip()
+        if text.startswith("#"): text = text[1:].strip()
+        if not text or not text.isdigit(): return None
+        number = int(text, 10)
+        return number if number > 0 else None
+
+    def _find_by_sequence(self, sequence_id: int) -> dict[str, Any] | None:
+        for path in self.directory.glob("*.json"):
+            if path.name == "sequence.json": continue
+            item = self._read(path)
+            if item and int(item.get("sequence_id", 0) or 0) == sequence_id:
+                return item
+        return None
 
     def _next_sequence(self) -> int:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -219,8 +233,7 @@ class ObjectStore:
         try:
             data = json.loads(self.sequence_path.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {"last": 0}
-        except (OSError, json.JSONDecodeError):
-            return {"last": 0}
+        except (OSError, json.JSONDecodeError): return {"last": 0}
 
     def _invoice_values(self, values: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
         previous = dict(existing or {})
@@ -277,8 +290,7 @@ class ObjectStore:
         try: number = Decimal(text or "0")
         except InvalidOperation as exc: raise ValueError(f"invalid decimal value: {value}") from exc
         if number < 0: raise ValueError("prices and tax rates must not be negative")
-        quantized = number.quantize(Decimal(places), rounding=ROUND_HALF_UP)
-        return format(quantized, "f")
+        return format(number.quantize(Decimal(places), rounding=ROUND_HALF_UP), "f")
 
     @staticmethod
     def _require(actor: str, name: Any, object_type: Any) -> None:
@@ -316,9 +328,8 @@ class ObjectStore:
 
     def _write(self, item: dict[str, Any], actor: str, action: str) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
-        path = self.directory / f"{item['object_id']}.json"
         with exclusive_file_lock(self.directory / ".objects-write.lock"):
-            atomic_json_write(path, item)
+            atomic_json_write(self.directory / f"{item['object_id']}.json", item)
             self.history.record(action, actor, "objects", item["object_id"], item)
 
     @staticmethod
