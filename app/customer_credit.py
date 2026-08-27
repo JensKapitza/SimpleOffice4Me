@@ -92,6 +92,23 @@ class CustomerCreditLedger:
         self.history.record("customer_credit_applied", actor, "contacts", contact_id, entry)
         return entry
 
+    def refund(self, contact_id: str, amount: Any, *, actor: str, reference: str = "",
+               note: str = "", currency: str = "EUR") -> dict[str, Any]:
+        """Record a payout without allowing the customer account to become negative."""
+        value = _money(amount)
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            available = sum((Decimal(str(item.get("signed_amount", "0"))) for item in data["entries"]
+                             if item.get("contact_id") == contact_id and item.get("currency") == currency.upper()), Decimal("0"))
+            if value > available:
+                raise ValueError("refund amount exceeds customer balance")
+            entry = self._entry(contact_id, -value, "refund", "outside_scope", actor,
+                                note, reference, currency, "", "")
+            data["entries"].append(entry)
+            atomic_json_write(self.path, data)
+        self.history.record("customer_credit_refunded", actor, "contacts", contact_id, entry)
+        return entry
+
     def add_referral(self, referrer_id: str, referred_id: str, actor: str, note: str = "") -> dict[str, Any]:
         if not referrer_id or not referred_id or referrer_id == referred_id:
             raise ValueError("referrer and referred customer must be different")
