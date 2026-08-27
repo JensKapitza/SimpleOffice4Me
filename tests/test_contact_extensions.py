@@ -5,6 +5,7 @@ from pathlib import Path
 from app.contact_extensions import ContactCRMStore, _eml_preview
 from app.contact_store import ContactStore
 from app.document_store import DocumentStore
+from app.settings_store import TRANSLATIONS, translate, ui_literal_translations
 
 
 class ContactExtensionsTest(unittest.TestCase):
@@ -56,11 +57,13 @@ class ContactExtensionsTest(unittest.TestCase):
         by_activity = crm.overview(contacts.contacts("admin"), query="Sonderbestellung")
         customers = crm.overview(contacts.contacts("admin"), status="active", role="customer")
         recent = crm.overview(contacts.contacts("admin"), sort="recent")
+        without_activity = crm.overview(contacts.contacts("admin"), without_activity=True)
 
         self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in by_query])
         self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in by_activity])
         self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in customers])
         self.assertEqual(customer["contact_id"], recent[0]["contact"]["contact_id"])
+        self.assertEqual([supplier["contact_id"]], [row["contact"]["contact_id"] for row in without_activity])
 
     def test_communication_and_changes_share_one_timeline(self):
         contacts = ContactStore(self.root)
@@ -81,6 +84,16 @@ class ContactExtensionsTest(unittest.TestCase):
         crm.add_activity("contact-1", {"kind": "email", "direction": "outgoing", "subject": "Angebot"}, "admin")
         saved = crm.save("contact-1", {"roles": ["customer"], "status": "prospect", "notes": "Offen"}, "admin")
         self.assertEqual("Angebot", saved["activities"][0]["subject"])
+
+    def test_new_crm_labels_have_english_translations(self):
+        translations = ui_literal_translations("en")
+        self.assertEqual("CRM contact overview", translations["CRM-Kontaktübersicht"])
+        self.assertEqual("Communication and change history", translations["Kommunikations- und Änderungshistorie"])
+        self.assertEqual("Only contacts without activity", translations["Nur Kontakte ohne Aktivität"])
+        self.assertEqual("Company", translate("en", "crm.csv.company"))
+        self.assertEqual("Firma", translate("de", "crm.csv.company"))
+        self.assertEqual("Incoming", translate("en", "crm.direction.incoming"))
+        self.assertEqual(set(TRANSLATIONS["de"]), set(TRANSLATIONS["en"]))
 
     def test_eml_preview_parses_headers_body_and_attachments(self):
         store = DocumentStore(self.root)

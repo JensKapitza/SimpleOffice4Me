@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import secrets
 import sqlite3
@@ -12,7 +14,7 @@ from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
 
-from flask import abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
@@ -21,6 +23,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex, search_address, unique_candidate
+from .settings_store import translate
 from tools.launcher import start_osm_index_worker
 
 
@@ -92,7 +95,7 @@ class ContactCRMStore:
         subject = " ".join(str(values.get("subject", "")).strip().split())[:300]
         note = str(values.get("note", "")).strip()[:8000]
         if not subject and not note: raise ValueError("subject or note is required")
-        activity = {"activity_id": uuid.uuid4().hex, "type": "communication", "kind": kind, "direction": direction, "subject": subject, "note": note, "at": str(values.get("at", "")).strip() or utc_now(), "actor": actor}
+        activity = {"activity_id": uuid.uuid4().hex, "type": "communication", "kind": kind, "direction": direction, "subject": subject, "note": note, "at": str(values.get("at", "")).strip()[:40] or utc_now(), "actor": actor}
         with exclusive_file_lock(self.lock_path):
             data = self._read(); record = dict(data["records"].get(contact_id, {})); activities = list(record.get("activities", [])); activities.append(activity)
             record["activities"] = activities[-500:]; record["updated_at"] = utc_now(); record["updated_by"] = actor
@@ -107,7 +110,7 @@ class ContactCRMStore:
         entries.extend({"type": "contact_change", **dict(item)} for item in contact.get("changes", []))
         return sorted(entries, key=lambda item: str(item.get("at", "")), reverse=True)
 
-    def overview(self, contacts: list[dict[str, Any]], query: str = "", status: str = "", role: str = "", sort: str = "name") -> list[dict[str, Any]]:
+    def overview(self, contacts: list[dict[str, Any]], query: str = "", status: str = "", role: str = "", sort: str = "name", without_activity: bool = False) -> list[dict[str, Any]]:
         needle = query.strip().casefold(); records = self._read()["records"]; rows: list[dict[str, Any]] = []
         for contact in contacts:
             crm = dict(records.get(contact.get("contact_id", ""), {}))
@@ -119,6 +122,7 @@ class ContactCRMStore:
             searchable.extend(value for item in crm.get("activities", []) for value in (item.get("subject", ""), item.get("note", "")))
             if needle and needle not in " ".join(str(value) for value in searchable).casefold(): continue
             activities = crm.get("activities", [])
+            if without_activity and activities: continue
             rows.append({"contact": contact, "crm": crm, "last_activity": max((str(item.get("at", "")) for item in activities), default=""), "activity_count": len(activities)})
         if sort == "recent":
             return sorted(rows, key=lambda row: (row["last_activity"], str(row["contact"].get("contact_id", ""))), reverse=True)
@@ -182,10 +186,23 @@ def register(bp) -> None:
     @login_required
     def crm_overview():
         actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage(contact["contact_id"], actor)]; store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"])
-        query = request.args.get("q", "").strip(); status = request.args.get("status", "").strip(); role = request.args.get("role", "").strip(); sort = request.args.get("sort", "name").strip()
-        rows = store.overview(contacts, query, status, role, sort)
+        query = request.args.get("q", "").strip(); status = request.args.get("status", "").strip(); role = request.args.get("role", "").strip(); sort = request.args.get("sort", "name").strip(); without_activity = request.args.get("without_activity") == "1"
+        rows = store.overview(contacts, query, status, role, sort, without_activity)
         stats = {"total": len(rows), "active": sum(row["crm"].get("status", "active") == "active" for row in rows), "prospect": sum(row["crm"].get("status") == "prospect" for row in rows), "without_activity": sum(not row["activity_count"] for row in rows)}
-        return render_template("documents/contact_crm_overview.html", rows=rows, stats=stats, query=query, selected_status=status, selected_role=role, selected_sort=sort)
+        return render_template("documents/contact_crm_overview.html", rows=rows, stats=stats, query=query, selected_status=status, selected_role=role, selected_sort=sort, without_activity=without_activity)
+
+    @bp.get("/documents/contacts/crm.csv", endpoint="crm_export")
+    @login_required
+    def crm_export():
+        actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage(contact["contact_id"], actor)]
+        store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]); rows = store.overview(contacts, request.args.get("q", ""), request.args.get("status", ""), request.args.get("role", ""), request.args.get("sort", "name"), request.args.get("without_activity") == "1")
+        header_keys = ("name", "company", "email", "phone", "status", "roles", "customer_number", "supplier_number", "latest_activity", "activities")
+        headers = tuple(translate(g.language, f"crm.csv.{key}") for key in header_keys)
+        output = io.StringIO(); writer = csv.writer(output, delimiter=";"); writer.writerow(headers)
+        for row in rows:
+            fields = row["contact"].get("fields", {}); crm = row["crm"]
+            writer.writerow((fields.get("display_name", ""), fields.get("company", ""), fields.get("email", ""), fields.get("phone", ""), crm.get("status", "active"), ", ".join(crm.get("roles", [])), crm.get("customer_number", ""), crm.get("supplier_number", ""), row["last_activity"], row["activity_count"]))
+        return Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=crm-kontakte.csv"})
 
     @bp.get("/documents/contacts/address-search.json", endpoint="crm_address_search")
     @login_required
@@ -248,8 +265,14 @@ def register(bp) -> None:
         actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"])
         if not contacts.can_manage(contact_id, actor): abort(403)
         try:
-            ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash("CRM-Aktivität gespeichert.")
-        except ValueError as exc: flash(str(exc))
+            ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash(translate(g.language, "crm.activity.saved"))
+        except ValueError as exc:
+            message_keys = {
+                "unknown CRM activity type": "crm.activity.error.type",
+                "unknown CRM activity direction": "crm.activity.error.direction",
+                "subject or note is required": "crm.activity.error.content_required",
+            }
+            flash(translate(g.language, message_keys.get(str(exc), "crm.activity.error.default")))
         return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id) + "#crm-timeline")
 
     @bp.post("/documents/contacts/<contact_id>/crm/update-link", endpoint="crm_update_link")
