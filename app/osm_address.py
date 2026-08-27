@@ -401,18 +401,37 @@ class LocalAddressIndex:
         tokens = [token for token in _normal(query).split() if len(token) >= 2][:8]
         if not tokens:
             return []
-        where = " AND ".join("normalized LIKE ?" for _ in tokens)
-        params: list[Any] = [f"%{token}%" for token in tokens]
         country = _clean(country_code, 8).upper()
-        if country:
-            where += " AND country = ?"
-            params.append(country)
-        params.append(max(1, min(int(limit), 20)))
-        with self._db() as db:
-            rows = db.execute(
+        maximum = max(1, min(int(limit), 20))
+
+        def select(db: sqlite3.Connection, selected: list[str]) -> list[sqlite3.Row]:
+            where = " AND ".join("normalized LIKE ?" for _ in selected)
+            params: list[Any] = [f"%{token}%" for token in selected]
+            if country:
+                where += " AND country = ?"
+                params.append(country)
+            params.append(maximum)
+            return db.execute(
                 f"SELECT * FROM address WHERE {where} ORDER BY CASE WHEN postal <> '' THEN 0 ELSE 1 END, city COLLATE NOCASE, street COLLATE NOCASE, house_number LIMIT ?",
                 params,
             ).fetchall()
+
+        fallback = False
+        with self._db() as db:
+            rows = select(db, tokens)
+            # OSM address nodes frequently omit addr:city although street,
+            # house number and postcode are present. Retry by omitting exactly
+            # one textual token, but only accept records whose city is missing.
+            if not rows and len(tokens) >= 3 and any(token.isdigit() for token in tokens):
+                for omitted in sorted((token for token in tokens if not token.isdigit()), key=len):
+                    reduced = list(tokens)
+                    reduced.remove(omitted)
+                    if not any(token.isdigit() for token in reduced) or not any(not token.isdigit() for token in reduced):
+                        continue
+                    rows = [row for row in select(db, reduced) if not row["city"]]
+                    if rows:
+                        fallback = True
+                        break
         return [
             {
                 "street": _clean(f"{row['street']} {row['house_number']}"),
@@ -426,6 +445,7 @@ class LocalAddressIndex:
                 "lon": row["lon"],
                 "osm_type": row["osm_type"],
                 "osm_id": row["osm_id"],
+                "match_quality": "fallback" if fallback else "exact",
             }
             for row in rows
         ]
@@ -439,6 +459,8 @@ def unique_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     if len(candidates) != 1:
         return None
     item = candidates[0]
+    if item.get("match_quality") == "fallback":
+        return None
     if item.get("street") and item.get("city") and (item.get("postal") or item.get("country")):
         return item
     return None

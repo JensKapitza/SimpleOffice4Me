@@ -31,6 +31,20 @@ class OsmAddressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual([], LocalAddressIndex(Path(root)).search("Musterstraße 12"))
 
+    def test_search_tolerates_missing_city_on_osm_address(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            with index._db() as db:
+                db.execute(
+                    "INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    ("Beispielstraße", "27", "12345", "", "DE", "NRW", "", "", "node", "27", "beispielstrasse 27 12345 de"),
+                )
+            result = index.search("Musterstadt 12345 Beispielstr. 27", country_code="de")
+            self.assertEqual(1, len(result))
+            self.assertEqual("Beispielstraße 27", result[0]["street"])
+            self.assertEqual("fallback", result[0]["match_quality"])
+            self.assertIsNone(unique_candidate(result))
+
     def test_unique_requires_one_complete_candidate(self):
         candidate = {"street": "A 1", "postal": "12345", "city": "Ort", "country": "DE"}
         self.assertEqual(candidate, unique_candidate([candidate]))
