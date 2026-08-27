@@ -18,8 +18,26 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 TRANSLATIONS = {
-    "de": {"overview": "Übersicht", "documents": "Dokumente", "inbox": "Inbox", "calendar": "Kalender", "contacts": "Kontakte", "images": "Bilder", "settings": "Einstellungen", "logout": "Abmelden", "archives": "Archive", "notes": "Notizen", "logbook": "Logbuch"},
-    "en": {"overview": "Overview", "documents": "Documents", "inbox": "Inbox", "calendar": "Calendar", "contacts": "Contacts", "images": "Images", "settings": "Settings", "logout": "Sign out", "archives": "Archives", "notes": "Notes", "logbook": "Activity log"},
+    "de": {
+        "overview": "Übersicht", "documents": "Dokumente", "inbox": "Inbox", "calendar": "Kalender", "contacts": "Kontakte", "images": "Bilder", "settings": "Einstellungen", "logout": "Abmelden", "archives": "Archive", "notes": "Notizen", "logbook": "Logbuch",
+        "crm.status.active": "Aktiv", "crm.status.inactive": "Inaktiv", "crm.status.prospect": "Interessent", "crm.status.blocked": "Gesperrt", "crm.status.former": "Ehemalig",
+        "crm.role.customer": "Kunde", "crm.role.supplier": "Lieferant", "crm.role.contact_person": "Ansprechpartner", "crm.role.private": "Privat", "crm.role.other": "Sonstige",
+        "crm.activity.email": "E-Mail", "crm.activity.phone": "Telefonat", "crm.activity.meeting": "Termin", "crm.activity.letter": "Brief", "crm.activity.note": "Notiz",
+        "crm.direction.outgoing": "Ausgehend", "crm.direction.incoming": "Eingehend", "crm.direction.internal": "Intern",
+        "crm.entries": "Einträge", "crm.last": "zuletzt", "crm.contact_field": "Kontaktfeld", "crm.changed": "geändert",
+        "crm.activity.saved": "CRM-Aktivität gespeichert.", "crm.activity.error.type": "Unbekannte CRM-Aktivitätsart.", "crm.activity.error.direction": "Unbekannte Richtung der CRM-Aktivität.", "crm.activity.error.content_required": "Betreff oder Notiz ist erforderlich.", "crm.activity.error.default": "CRM-Aktivität konnte nicht gespeichert werden.",
+        "crm.csv.name": "Name", "crm.csv.company": "Firma", "crm.csv.email": "E-Mail", "crm.csv.phone": "Telefon", "crm.csv.status": "Status", "crm.csv.roles": "Rollen", "crm.csv.customer_number": "Kundennummer", "crm.csv.supplier_number": "Lieferantennummer", "crm.csv.latest_activity": "Letzte Aktivität", "crm.csv.activities": "Aktivitäten",
+    },
+    "en": {
+        "overview": "Overview", "documents": "Documents", "inbox": "Inbox", "calendar": "Calendar", "contacts": "Contacts", "images": "Images", "settings": "Settings", "logout": "Sign out", "archives": "Archives", "notes": "Notes", "logbook": "Activity log",
+        "crm.status.active": "Active", "crm.status.inactive": "Inactive", "crm.status.prospect": "Prospect", "crm.status.blocked": "Blocked", "crm.status.former": "Former",
+        "crm.role.customer": "Customer", "crm.role.supplier": "Supplier", "crm.role.contact_person": "Contact person", "crm.role.private": "Private", "crm.role.other": "Other",
+        "crm.activity.email": "Email", "crm.activity.phone": "Phone call", "crm.activity.meeting": "Meeting", "crm.activity.letter": "Letter", "crm.activity.note": "Note",
+        "crm.direction.outgoing": "Outgoing", "crm.direction.incoming": "Incoming", "crm.direction.internal": "Internal",
+        "crm.entries": "entries", "crm.last": "last", "crm.contact_field": "Contact field", "crm.changed": "changed",
+        "crm.activity.saved": "CRM activity saved.", "crm.activity.error.type": "Unknown CRM activity type.", "crm.activity.error.direction": "Unknown CRM activity direction.", "crm.activity.error.content_required": "Subject or note is required.", "crm.activity.error.default": "CRM activity could not be saved.",
+        "crm.csv.name": "Name", "crm.csv.company": "Company", "crm.csv.email": "Email", "crm.csv.phone": "Phone", "crm.csv.status": "Status", "crm.csv.roles": "Roles", "crm.csv.customer_number": "Customer number", "crm.csv.supplier_number": "Supplier number", "crm.csv.latest_activity": "Latest activity", "crm.csv.activities": "Activities",
+    },
 }
 
 # Older templates contain literal UI text.  The client-side catalogue keeps
