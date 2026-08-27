@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$ROOT"
 PYTHON="$ROOT/.venv/bin/python"
 [ -x "$PYTHON" ] || PYTHON="${PYTHON_FALLBACK:-python3}"
 RUN_DIR="$ROOT/instance/run"
