@@ -14,14 +14,12 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .document_store import CONTROL_DIR, utc_now
-from .file_lock import exclusive_file_lock
 
 
 GEOFABRIK_REGIONS = {
@@ -77,18 +75,6 @@ def human_bytes(value: Any) -> str:
     return f"{size} B"
 
 
-def _remote_total(headers: Any, resume_from: int = 0) -> int:
-    content_range = str(headers.get("Content-Range") or "")
-    match = re.search(r"/(\d+)$", content_range)
-    if match:
-        return int(match.group(1))
-    try:
-        length = int(headers.get("Content-Length") or 0)
-    except (TypeError, ValueError):
-        return 0
-    return resume_from + length if resume_from else length
-
-
 class LocalAddressIndex:
     def __init__(self, root: str | Path):
         self.root = Path(root).resolve()
@@ -96,7 +82,6 @@ class LocalAddressIndex:
         self.data_dir = self.control / "osm-addresses"
         self.db_path = self.data_dir / "addresses.sqlite3"
         self.status_path = self.data_dir / "status.json"
-        self.download_lock = self.data_dir / ".download.lock"
 
     def _db(self) -> sqlite3.Connection:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -181,10 +166,17 @@ class LocalAddressIndex:
                 size = int(response.headers.get("Content-Length") or 0)
                 modified = str(response.headers.get("Last-Modified") or "")
         except (OSError, ValueError):
+            # Some mirrors/proxies do not expose Content-Length on HEAD. A one-byte
+            # range request can still reveal the total through Content-Range.
             try:
                 request = Request(url, headers={**headers, "Range": "bytes=0-0"})
                 with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed allow-listed host
-                    size = _remote_total(response.headers)
+                    content_range = str(response.headers.get("Content-Range") or "")
+                    match = re.search(r"/(\d+)$", content_range)
+                    if match:
+                        size = int(match.group(1))
+                    elif response.headers.get("Content-Length"):
+                        size = int(response.headers["Content-Length"])
                     modified = str(response.headers.get("Last-Modified") or "")
             except (OSError, ValueError):
                 size = 0
@@ -194,135 +186,40 @@ class LocalAddressIndex:
         label, url = self._source(region)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         target = self.data_dir / f"{region}-latest.osm.pbf"
-        partial = self.data_dir / f"{region}-latest.osm.pbf.part"
-        legacy_partial = target.with_suffix(".download")
+        temporary = target.with_suffix(".download")
+        request = Request(url, headers={"User-Agent": "SimpleOffice4Me/1.0 local-address-index"})
+        max_bytes = int(os.environ.get("SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB", "8")) * 1024**3
+        total = 0
+        expected = 0
+        self._write_status(state="downloading", region=region, region_label=label, source=url, started_at=utc_now(), error="", downloaded_bytes=0, progress_percent=0)
         try:
-            max_bytes = int(os.environ.get("SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB", "8")) * 1024**3
-            read_timeout = max(30, int(os.environ.get("SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS", "300")))
-            max_attempts = max(1, min(10, int(os.environ.get("SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES", "5"))))
-        except ValueError as exc:
-            raise ValueError("invalid OSM download configuration") from exc
-
-        with exclusive_file_lock(self.download_lock):
-            if legacy_partial.is_file() and not partial.exists():
-                legacy_partial.replace(partial)
-
-            info = self.region_info(region)
-            expected = int(info.get("bytes", 0) or 0)
-            if expected > max_bytes:
-                raise ValueError("OSM download exceeds configured size limit")
-            total = partial.stat().st_size if partial.is_file() else 0
-            if total > max_bytes:
-                partial.unlink(missing_ok=True)
-                total = 0
-
-            self._write_status(
-                state="downloading" if total == 0 else "resuming",
-                region=region,
-                region_label=label,
-                source=url,
-                started_at=utc_now(),
-                error="",
-                downloaded_bytes=total,
-                expected_bytes=expected,
-                progress_percent=min(100, round(total * 100 / expected, 1)) if expected else None,
-                download_attempt=0,
-                download_attempts=max_attempts,
-            )
-
-            last_error: Exception | None = None
-            for attempt in range(1, max_attempts + 1):
-                resume_from = partial.stat().st_size if partial.is_file() else 0
-                headers = {"User-Agent": "SimpleOffice4Me/1.0 local-address-index"}
-                if resume_from:
-                    headers["Range"] = f"bytes={resume_from}-"
-                    if info.get("last_modified"):
-                        headers["If-Range"] = str(info["last_modified"])
-                request = Request(url, headers=headers)
-                try:
-                    with urlopen(request, timeout=read_timeout) as response:  # noqa: S310 - fixed allow-listed host
-                        status_code = int(getattr(response, "status", response.getcode()) or 0)
-                        can_resume = bool(resume_from and status_code == 206)
-                        if resume_from and not can_resume:
-                            resume_from = 0
-                        total = resume_from
-                        response_total = _remote_total(response.headers, resume_from if can_resume else 0)
-                        if response_total:
-                            expected = response_total
-                        if expected > max_bytes:
-                            raise ValueError("OSM download exceeds configured size limit")
-                        mode = "ab" if can_resume else "wb"
-                        next_status = total + 8 * 1024 * 1024
-                        with partial.open(mode) as output:
-                            while True:
-                                block = response.read(1024 * 1024)
-                                if not block:
-                                    break
-                                total += len(block)
-                                if total > max_bytes:
-                                    raise ValueError("OSM download exceeds configured size limit")
-                                output.write(block)
-                                if total >= next_status:
-                                    self._write_status(
-                                        state="downloading",
-                                        downloaded_bytes=total,
-                                        expected_bytes=expected,
-                                        progress_percent=min(100, round(total * 100 / expected, 1)) if expected else None,
-                                        download_attempt=attempt,
-                                        download_attempts=max_attempts,
-                                    )
-                                    next_status = total + 8 * 1024 * 1024
-
-                    if expected and total < expected:
-                        raise TimeoutError(f"OSM download ended early at {total} of {expected} bytes")
-                    if total < 1024:
-                        raise RuntimeError("downloaded OSM extract is unexpectedly small")
-                    if not partial.is_file():
-                        raise RuntimeError("OSM partial download disappeared unexpectedly")
-                    partial.replace(target)
-                    self._write_status(
-                        state="downloaded",
-                        downloaded_at=utc_now(),
-                        downloaded_bytes=total,
-                        expected_bytes=expected or total,
-                        progress_percent=100,
-                        source_file=str(target),
-                        download_attempt=attempt,
-                        download_attempts=max_attempts,
-                        error="",
-                    )
-                    return target
-                except (TimeoutError, OSError) as exc:
-                    last_error = exc
-                    total = partial.stat().st_size if partial.is_file() else 0
-                    self._write_status(
-                        state="retrying" if attempt < max_attempts else "error",
-                        downloaded_bytes=total,
-                        expected_bytes=expected,
-                        progress_percent=min(100, round(total * 100 / expected, 1)) if expected else None,
-                        download_attempt=attempt,
-                        download_attempts=max_attempts,
-                        error=str(exc)[:500],
-                    )
-                    if attempt >= max_attempts:
+            with urlopen(request, timeout=60) as response, temporary.open("wb") as output:  # noqa: S310 - fixed allow-listed host
+                expected = int(response.headers.get("Content-Length") or 0)
+                if expected > max_bytes:
+                    raise ValueError("OSM download exceeds configured size limit")
+                self._write_status(expected_bytes=expected, expected_size=human_bytes(expected))
+                next_status = 8 * 1024 * 1024
+                while True:
+                    block = response.read(1024 * 1024)
+                    if not block:
                         break
-                    time.sleep(min(2 ** (attempt - 1), 10))
-                except Exception as exc:
-                    total = partial.stat().st_size if partial.is_file() else 0
-                    self._write_status(
-                        state="error",
-                        downloaded_bytes=total,
-                        expected_bytes=expected,
-                        progress_percent=min(100, round(total * 100 / expected, 1)) if expected else None,
-                        download_attempt=attempt,
-                        download_attempts=max_attempts,
-                        error=str(exc)[:500],
-                    )
-                    raise
-
-            if last_error is not None:
-                raise last_error
-            raise RuntimeError("OSM download failed")
+                    total += len(block)
+                    if total > max_bytes:
+                        raise ValueError("OSM download exceeds configured size limit")
+                    output.write(block)
+                    if total >= next_status:
+                        progress = min(100, round(total * 100 / expected, 1)) if expected else None
+                        self._write_status(downloaded_bytes=total, downloaded_size=human_bytes(total), expected_bytes=expected, expected_size=human_bytes(expected), progress_percent=progress)
+                        next_status = total + 8 * 1024 * 1024
+            if total < 1024:
+                raise RuntimeError("downloaded OSM extract is unexpectedly small")
+            temporary.replace(target)
+            self._write_status(state="downloaded", downloaded_at=utc_now(), downloaded_bytes=total, downloaded_size=human_bytes(total), expected_bytes=expected or total, expected_size=human_bytes(expected or total), progress_percent=100, source_file=str(target))
+            return target
+        except Exception as exc:
+            temporary.unlink(missing_ok=True)
+            self._write_status(state="error", downloaded_bytes=total, downloaded_size=human_bytes(total), expected_bytes=expected, expected_size=human_bytes(expected), error=str(exc)[:500])
+            raise
 
     @staticmethod
     def _geometry_center(feature: dict[str, Any]) -> tuple[str, str]:
@@ -382,8 +279,7 @@ class LocalAddressIndex:
                     rows.append((street, house, postal, city, country, state, lat, lon, osm_type, osm_id, normalized))
                     if len(rows) >= 2000:
                         db.executemany("INSERT OR REPLACE INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
-                        count += len(rows)
-                        rows.clear()
+                        count += len(rows); rows.clear()
                 if rows:
                     db.executemany("INSERT OR REPLACE INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
                     count += len(rows)
@@ -401,31 +297,46 @@ class LocalAddressIndex:
         tokens = [token for token in _normal(query).split() if len(token) >= 2][:8]
         if not tokens:
             return []
-        where = " AND ".join("normalized LIKE ?" for _ in tokens)
-        params: list[Any] = [f"%{token}%" for token in tokens]
         country = _clean(country_code, 8).upper()
-        if country:
-            where += " AND country = ?"
-            params.append(country)
-        params.append(max(1, min(int(limit), 20)))
-        with self._db() as db:
-            rows = db.execute(
+        maximum = max(1, min(int(limit), 20))
+
+        def select(db: sqlite3.Connection, selected: list[str]) -> list[sqlite3.Row]:
+            where = " AND ".join("normalized LIKE ?" for _ in selected)
+            params: list[Any] = [f"%{token}%" for token in selected]
+            if country:
+                where += " AND country = ?"
+                params.append(country)
+            params.append(maximum)
+            return db.execute(
                 f"SELECT * FROM address WHERE {where} ORDER BY CASE WHEN postal <> '' THEN 0 ELSE 1 END, city COLLATE NOCASE, street COLLATE NOCASE, house_number LIMIT ?",
                 params,
             ).fetchall()
+
+        fallback = False
+        with self._db() as db:
+            rows = select(db, tokens)
+            # OSM address nodes frequently omit addr:city although street,
+            # house number and postcode are present. Retry by omitting exactly
+            # one textual token, shortest first. Numeric address constraints
+            # remain mandatory to avoid broad house-number/postcode matches.
+            if not rows and len(tokens) >= 3 and any(token.isdigit() for token in tokens):
+                textual = sorted((token for token in tokens if not token.isdigit()), key=len)
+                for omitted in textual:
+                    reduced = list(tokens)
+                    reduced.remove(omitted)
+                    if not any(token.isdigit() for token in reduced) or not any(not token.isdigit() for token in reduced):
+                        continue
+                    rows = [row for row in select(db, reduced) if not row["city"]]
+                    if rows:
+                        fallback = True
+                        break
         return [
             {
-                "street": _clean(f"{row['street']} {row['house_number']}"),
-                "postal": row["postal"],
-                "city": row["city"],
-                "country": row["country"],
-                "country_name": "Deutschland" if row["country"] == "DE" else row["country"],
-                "state": row["state"],
-                "display_name": _clean(f"{row['street']} {row['house_number']}, {row['postal']} {row['city']}, {row['country']}"),
-                "lat": row["lat"],
-                "lon": row["lon"],
-                "osm_type": row["osm_type"],
-                "osm_id": row["osm_id"],
+                "street": _clean(f"{row['street']} {row['house_number']}"), "postal": row["postal"],
+                "city": row["city"], "country": row["country"], "country_name": "Deutschland" if row["country"] == "DE" else row["country"],
+                "state": row["state"], "display_name": _clean(f"{row['street']} {row['house_number']}, {row['postal']} {row['city']}, {row['country']}"),
+                "lat": row["lat"], "lon": row["lon"], "osm_type": row["osm_type"], "osm_id": row["osm_id"],
+                "match_quality": "fallback" if fallback else "exact",
             }
             for row in rows
         ]
@@ -439,6 +350,8 @@ def unique_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     if len(candidates) != 1:
         return None
     item = candidates[0]
+    if item.get("match_quality") == "fallback":
+        return None
     if item.get("street") and item.get("city") and (item.get("postal") or item.get("country")):
         return item
     return None
