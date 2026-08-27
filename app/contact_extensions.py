@@ -195,7 +195,8 @@ def register(bp) -> None:
     def crm_export():
         actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage(contact["contact_id"], actor)]
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]); rows = store.overview(contacts, request.args.get("q", ""), request.args.get("status", ""), request.args.get("role", ""), request.args.get("sort", "name"), request.args.get("without_activity") == "1")
-        output = io.StringIO(); writer = csv.writer(output, delimiter=";"); writer.writerow(("Name", "Firma", "E-Mail", "Telefon", "Status", "Rollen", "Kundennummer", "Lieferantennummer", "Letzte Aktivität", "Aktivitäten"))
+        headers = ("Name", "Company", "Email", "Phone", "Status", "Roles", "Customer number", "Supplier number", "Latest activity", "Activities") if g.language == "en" else ("Name", "Firma", "E-Mail", "Telefon", "Status", "Rollen", "Kundennummer", "Lieferantennummer", "Letzte Aktivität", "Aktivitäten")
+        output = io.StringIO(); writer = csv.writer(output, delimiter=";"); writer.writerow(headers)
         for row in rows:
             fields = row["contact"].get("fields", {}); crm = row["crm"]
             writer.writerow((fields.get("display_name", ""), fields.get("company", ""), fields.get("email", ""), fields.get("phone", ""), crm.get("status", "active"), ", ".join(crm.get("roles", [])), crm.get("customer_number", ""), crm.get("supplier_number", ""), row["last_activity"], row["activity_count"]))
@@ -262,8 +263,15 @@ def register(bp) -> None:
         actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"])
         if not contacts.can_manage(contact_id, actor): abort(403)
         try:
-            ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash("CRM-Aktivität gespeichert.")
-        except ValueError as exc: flash(str(exc))
+            ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash("CRM activity saved." if g.language == "en" else "CRM-Aktivität gespeichert.")
+        except ValueError as exc:
+            messages = {
+                "unknown CRM activity type": ("Unbekannte CRM-Aktivitätsart.", "Unknown CRM activity type."),
+                "unknown CRM activity direction": ("Unbekannte Richtung der CRM-Aktivität.", "Unknown CRM activity direction."),
+                "subject or note is required": ("Betreff oder Notiz ist erforderlich.", "Subject or note is required."),
+            }
+            german, english = messages.get(str(exc), ("CRM-Aktivität konnte nicht gespeichert werden.", "CRM activity could not be saved."))
+            flash(english if g.language == "en" else german)
         return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id) + "#crm-timeline")
 
     @bp.post("/documents/contacts/<contact_id>/crm/update-link", endpoint="crm_update_link")
