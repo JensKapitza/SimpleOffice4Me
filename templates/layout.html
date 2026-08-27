@@ -11,6 +11,7 @@
   {% block script %}{% endblock %}
 </head>
 <body>
+  <a class="skip-link" href="#main-content">{{ 'Skip to content' if g.language|default('de') == 'en' else 'Zum Inhalt springen' }}</a>
   {% block header %}{% endblock %}
   {% block body %}{% endblock %}
   {% block footer %}{% endblock %}
@@ -21,5 +22,6 @@
   <script src="{{ url_for('static', filename='js/address-autocomplete.js') }}"></script>
   <script>window.SimpleOfficeTranslations = {{ ui_literal_translations|tojson }};</script>
   <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/global_ui.js') }}"></script>
 </body>
 </html>
