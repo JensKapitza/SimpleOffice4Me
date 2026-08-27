@@ -3,7 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.osm_address import LocalAddressIndex, human_bytes, unique_candidate
+from app.osm_address import LocalAddressIndex, _remote_total, human_bytes, unique_candidate
+
+
+class _Headers(dict):
+    def get(self, key, default=None):
+        return super().get(key, default)
 
 
 class OsmAddressTests(unittest.TestCase):
@@ -60,6 +65,22 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual(25.0, status["progress_percent"])
             self.assertEqual(25, status["downloaded_bytes"])
             self.assertEqual(100, status["expected_bytes"])
+
+    def test_remote_total_prefers_content_range_for_resume(self):
+        self.assertEqual(1000, _remote_total(_Headers({"Content-Range": "bytes 250-499/1000", "Content-Length": "250"}), 250))
+        self.assertEqual(1000, _remote_total(_Headers({"Content-Length": "750"}), 250))
+        self.assertEqual(750, _remote_total(_Headers({"Content-Length": "750"}), 0))
+
+    def test_partial_download_state_is_visible_as_resume_progress(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True, exist_ok=True)
+            partial = index.data_dir / "germany-latest.osm.pbf.part"
+            partial.write_bytes(b"x" * 50)
+            index.status_path.write_text(json.dumps({"state": "retrying", "downloaded_bytes": partial.stat().st_size, "expected_bytes": 100}), encoding="utf-8")
+            status = index.status()
+            self.assertEqual("retrying", status["state"])
+            self.assertEqual(50.0, status["progress_percent"])
 
 
 if __name__ == "__main__":
