@@ -11,6 +11,9 @@ from reportlab.pdfgen import canvas
 from app.document_store import CONTROL_DIR
 
 from app.business_documents import (
+    _epc_qr_payload,
+    _credit_note_amounts,
+    _invoice_number,
     _template_directory,
     address_labels,
     attach_contact_document,
@@ -21,6 +24,7 @@ from app.business_documents import (
     record_invoice_payment,
     render_business_pdf,
 )
+from app.customer_credit import CustomerCreditLedger
 
 
 def _three_page_template(root: Path) -> dict:
@@ -35,6 +39,61 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_partial_credit_note_preserves_gross_and_vat_split(self):
+        row = {"totals": {"gross": "119.00", "vat_groups": {"19": {"basis": "100.00", "tax": "19.00"}}}}
+        amounts = _credit_note_amounts(row, __import__("decimal").Decimal("59.50"))
+        self.assertEqual("50.00", amounts["net"])
+        self.assertEqual("9.50", amounts["tax"])
+        self.assertEqual("59.50", amounts["gross"])
+
+    def test_invoice_numbers_are_year_scoped_and_atomically_sequential(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = _invoice_number(root)
+            second = _invoice_number(root)
+            self.assertRegex(first, r"^\d{4}-0001$")
+            self.assertEqual(first[:5] + "0002", second)
+
+    def test_epc_qr_contains_invoice_amount_iban_and_reference(self):
+        row = {"invoice_number": "2026-0042", "seller": {"name": "Beispiel GmbH", "iban": "DE89 3704 0044 0532 0130 00", "bic": "COBADEFFXXX"}}
+        payload = _epc_qr_payload(row, __import__("decimal").Decimal("119.00"))
+        self.assertTrue(payload.startswith("BCD\n002\n1\nSCT\n"))
+        self.assertIn("DE89370400440532013000", payload)
+        self.assertIn("EUR119.00", payload)
+        self.assertIn("Rechnung 2026-0042", payload)
+
+    def test_customer_credit_keeps_tax_classification_and_prevents_overdraw(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = CustomerCreditLedger(Path(temp))
+            ledger.add("customer-1", "100", kind="topup", tax_treatment="multipurpose_voucher", actor="tester", reference="Bank")
+            entry = ledger.apply("customer-1", "invoice-1", "40", actor="tester")
+            account = ledger.account("customer-1")
+            self.assertEqual("60.00", account["balance"])
+            self.assertEqual("invoice_application", entry["kind"])
+            self.assertEqual("multipurpose_voucher", account["entries"][-1]["tax_treatment"])
+            with self.assertRaisesRegex(ValueError, "exceeds"):
+                ledger.apply("customer-1", "invoice-2", "61", actor="tester")
+
+    def test_customer_credit_refund_cannot_overdraw_balance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = CustomerCreditLedger(Path(temp))
+            ledger.add("customer-1", "75", kind="topup", tax_treatment="manual_review", actor="tester")
+            refunded = ledger.refund("customer-1", "25", actor="tester", reference="Bank transfer")
+            self.assertEqual("-25.00", refunded["signed_amount"])
+            self.assertEqual("50.00", ledger.account("customer-1")["balance"])
+            with self.assertRaisesRegex(ValueError, "exceeds"):
+                ledger.refund("customer-1", "51", actor="tester")
+
+    def test_referral_is_unique_and_cannot_reference_same_customer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = CustomerCreditLedger(Path(temp))
+            ledger.add_referral("customer-1", "customer-2", "tester")
+            self.assertEqual(1, len(ledger.referrals("customer-1")["recruited"]))
+            with self.assertRaisesRegex(ValueError, "already"):
+                ledger.add_referral("customer-3", "customer-2", "tester")
+            with self.assertRaisesRegex(ValueError, "different"):
+                ledger.add_referral("customer-1", "customer-1", "tester")
+
     def test_invoice_state_tracks_open_partial_overdue_and_paid(self):
         row = {"due_date": "2026-08-20", "totals": {"gross": "119.00"}, "payments": []}
         self.assertEqual("open", invoice_state(row, date(2026, 8, 20))["status"])

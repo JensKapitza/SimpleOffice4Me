@@ -13,7 +13,7 @@
       <p class="text-secondary mb-0">Eigentümer: {{ contact.owner|default('bisher nicht zugeordnet', true) }} · zuletzt geändert von {{ contact.updated_by }}</p>
       {% if can_manage %}<span class="badge text-bg-primary mt-2">Lesen und Bearbeiten</span>{% else %}<span class="badge text-bg-secondary mt-2">Nur Lesen</span>{% endif %}
     </div>
-    <div class="btn-group">{% if can_manage %}<a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a>{% endif %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
+    <div class="btn-group">{% if can_manage %}<a class="btn btn-primary" href="{{ url_for('contact_audit.business_documents.customer_billing', contact_id=contact.contact_id) }}">{{ tr('billing.title') }}</a><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a>{% endif %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
   <div class="row g-4">
