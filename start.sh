@@ -20,6 +20,7 @@ Optionen:
   --port PORT                 HTTP-Port (Standard: aus Ersteinrichtung)
   --threads ANZAHL            Waitress-Worker-Threads (Standard: 4)
   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
+  --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
   --check-system              Systemwerkzeuge prüfen, ohne Serverstart
   --help                      Diese Hilfe anzeigen
 
@@ -74,6 +75,8 @@ while [ "$#" -gt 0 ]; do
       case "$2" in *[!0-9]*|'') echo "Timeout muss eine ganze Zahl sein." >&2; exit 2 ;; esac
       [ "$2" -ge 10 ] && [ "$2" -le 3600 ] || { echo "Timeout muss zwischen 10 und 3600 Sekunden liegen." >&2; exit 2; }
       export SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT="$2"; shift 2 ;;
+    --reindex-osm)
+      export SIMPLEOFFICE_OSM_REINDEX_ON_START=1; shift ;;
     --check-system)
       exec "$PYTHON" "$ROOT/tools/system_requirements.py" ;;
     --help|-h)

@@ -103,6 +103,19 @@ def start_index_worker(document_root: str) -> subprocess.Popen[bytes] | None:
     return subprocess.Popen(command, **options)
 
 
+def start_osm_index_worker(document_root: str, *, force: bool = False) -> subprocess.Popen[bytes]:
+    """Check the local address index on every start and rebuild it if needed."""
+    command = [sys.executable, "-m", "tools.osm_index_worker", "--root", document_root]
+    if force:
+        command.append("--force")
+    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        options["creationflags"] = 0x00004000
+    else:
+        options["start_new_session"] = True
+    return subprocess.Popen(command, **options)
+
+
 def datalogger_enabled() -> bool:
     return os.environ.get("SIMPLEOFFICE_DATALOGGER", "1").strip().casefold() not in {"0", "false", "no", "off"}
 
@@ -199,6 +212,14 @@ def start(configure_only: bool = False) -> None:
         DocumentStore(document_root).set_scan_status({"state": "failed", "error": f"Indexdienst konnte nicht gestartet werden: {exc}"})
         print(f"Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
     try:
+        osm_worker = start_osm_index_worker(
+            document_root,
+            force=os.environ.get("SIMPLEOFFICE_OSM_REINDEX_ON_START", "").strip().casefold() in {"1", "true", "yes", "on"},
+        )
+    except OSError as exc:
+        osm_worker = None
+        print(f"OSM-Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
+    try:
         datalogger_worker = start_datalogger_worker(document_root)
     except OSError as exc:
         datalogger_worker = None
@@ -226,6 +247,7 @@ def start(configure_only: bool = False) -> None:
         serve(app, **options)
     finally:
         stop_worker(worker)
+        stop_worker(osm_worker)
         stop_worker(datalogger_worker)
         if worker is not None and worker.poll() is not None:
             unregister("index", worker.pid)

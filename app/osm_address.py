@@ -97,6 +97,36 @@ class LocalAddressIndex:
         self.db_path = self.data_dir / "addresses.sqlite3"
         self.status_path = self.data_dir / "status.json"
         self.download_lock = self.data_dir / ".download.lock"
+        self.build_lock = self.data_dir / ".build.lock"
+
+    def downloaded_source(self) -> Path | None:
+        """Return a downloaded extract, never an arbitrary path from status.json."""
+        candidates: list[Path] = []
+        try:
+            loaded = json.loads(self.status_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and loaded.get("source_file"):
+                candidates.append(Path(str(loaded["source_file"])))
+        except (OSError, json.JSONDecodeError):
+            pass
+        if self.data_dir.is_dir():
+            candidates.extend(sorted(self.data_dir.glob("*-latest.osm.pbf"), key=lambda path: path.stat().st_mtime, reverse=True))
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+                resolved.relative_to(self.data_dir.resolve())
+            except (OSError, ValueError):
+                continue
+            if resolved.is_file() and resolved.name.endswith(".osm.pbf"):
+                return resolved
+        return None
+
+    def needs_reindex(self, source: str | Path | None = None) -> bool:
+        selected = Path(source).resolve() if source else self.downloaded_source()
+        if selected is None or not selected.is_file():
+            return False
+        if not self.db_path.is_file() or not self.status().get("ready"):
+            return True
+        return selected.stat().st_mtime_ns > self.db_path.stat().st_mtime_ns
 
     def _db(self) -> sqlite3.Connection:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -150,6 +180,9 @@ class LocalAddressIndex:
         status["downloaded_size"] = human_bytes(downloaded)
         if expected > 0:
             status["progress_percent"] = min(100, round(downloaded * 100 / expected, 1))
+        source = self.downloaded_source()
+        status["source_available"] = source is not None
+        status["source_file"] = str(source) if source else ""
         return status
 
     def _write_status(self, **values: Any) -> None:
