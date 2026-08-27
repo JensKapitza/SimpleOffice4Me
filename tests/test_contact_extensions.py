@@ -5,7 +5,7 @@ from pathlib import Path
 from app.contact_extensions import ContactCRMStore, _eml_preview
 from app.contact_store import ContactStore
 from app.document_store import DocumentStore
-from app.settings_store import ui_literal_translations
+from app.settings_store import TRANSLATIONS, translate, ui_literal_translations
 
 
 class ContactExtensionsTest(unittest.TestCase):
@@ -90,6 +90,10 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertEqual("CRM contact overview", translations["CRM-Kontaktübersicht"])
         self.assertEqual("Communication and change history", translations["Kommunikations- und Änderungshistorie"])
         self.assertEqual("Only contacts without activity", translations["Nur Kontakte ohne Aktivität"])
+        self.assertEqual("Company", translate("en", "crm.csv.company"))
+        self.assertEqual("Firma", translate("de", "crm.csv.company"))
+        self.assertEqual("Incoming", translate("en", "crm.direction.incoming"))
+        self.assertEqual(set(TRANSLATIONS["de"]), set(TRANSLATIONS["en"]))
 
     def test_eml_preview_parses_headers_body_and_attachments(self):
         store = DocumentStore(self.root)
