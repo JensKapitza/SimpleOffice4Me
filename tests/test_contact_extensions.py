@@ -43,6 +43,45 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertEqual("pending", proposal["status"])
         self.assertEqual("a@example.test", contacts.get(contact["contact_id"], "admin")["fields"]["email"])
 
+    def test_crm_overview_searches_and_filters_combined_contact_data(self):
+        contacts = ContactStore(self.root)
+        customer = contacts.upsert({"display_name": "Kunde Nord", "company": "Beispiel GmbH"}, "admin")
+        supplier = contacts.upsert({"display_name": "Lieferant Süd"}, "admin")
+        crm = ContactCRMStore(self.root)
+        crm.save(customer["contact_id"], {"roles": ["customer"], "status": "active", "customer_number": "K-100", "communications": [{"type": "email", "value": "einkauf@example.test"}]}, "admin")
+        crm.save(supplier["contact_id"], {"roles": ["supplier"], "status": "blocked", "supplier_number": "L-9"}, "admin")
+        crm.add_activity(customer["contact_id"], {"kind": "phone", "direction": "incoming", "subject": "Sonderbestellung"}, "admin")
+
+        by_query = crm.overview(contacts.contacts("admin"), query="einkauf@example.test")
+        by_activity = crm.overview(contacts.contacts("admin"), query="Sonderbestellung")
+        customers = crm.overview(contacts.contacts("admin"), status="active", role="customer")
+        recent = crm.overview(contacts.contacts("admin"), sort="recent")
+
+        self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in by_query])
+        self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in by_activity])
+        self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in customers])
+        self.assertEqual(customer["contact_id"], recent[0]["contact"]["contact_id"])
+
+    def test_communication_and_changes_share_one_timeline(self):
+        contacts = ContactStore(self.root)
+        contact = contacts.upsert({"display_name": "Person", "email": "alt@example.test"}, "admin")
+        crm = ContactCRMStore(self.root)
+        crm.save(contact["contact_id"], {"roles": ["customer"], "status": "active", "notes": "Start"}, "admin")
+        activity = crm.add_activity(contact["contact_id"], {"kind": "phone", "direction": "incoming", "subject": "Rückfrage", "note": "Rückruf vereinbart"}, "admin")
+        contacts.upsert({"display_name": "Person", "email": "neu@example.test"}, "admin", contact["contact_id"])
+
+        timeline = crm.timeline(contacts.get(contact["contact_id"], "admin"))
+
+        self.assertIn(activity["activity_id"], {entry.get("activity_id") for entry in timeline})
+        self.assertIn("crm_change", {entry.get("type") for entry in timeline})
+        self.assertIn("contact_change", {entry.get("type") for entry in timeline})
+
+    def test_crm_save_preserves_existing_activities(self):
+        crm = ContactCRMStore(self.root)
+        crm.add_activity("contact-1", {"kind": "email", "direction": "outgoing", "subject": "Angebot"}, "admin")
+        saved = crm.save("contact-1", {"roles": ["customer"], "status": "prospect", "notes": "Offen"}, "admin")
+        self.assertEqual("Angebot", saved["activities"][0]["subject"])
+
     def test_eml_preview_parses_headers_body_and_attachments(self):
         store = DocumentStore(self.root)
         self.root.mkdir(parents=True, exist_ok=True)
