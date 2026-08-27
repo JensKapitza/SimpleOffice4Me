@@ -95,12 +95,20 @@ class InvoiceCatalogTest(unittest.TestCase):
                 ("line_quantity", "2"),
                 ("line_net_price", "100"),
                 ("line_vat_rate", "19"),
+                ("line_category", "Support"),
+                ("line_project_id", "project-1"),
+                ("line_source_type", "time_entry"),
+                ("line_source_id", "entry-1"),
             ])
             lines = _build_invoice_lines(Path(temp), form)
             self.assertEqual("200.00", lines[0]["net_total"])
             self.assertEqual("38.00", lines[0]["tax_total"])
             self.assertEqual("238.00", lines[0]["gross_total"])
             self.assertEqual(item["object_id"], lines[0]["object_id"])
+            self.assertEqual("Support", lines[0]["category"])
+            self.assertEqual("project-1", lines[0]["project_id"])
+            self.assertEqual("time_entry", lines[0]["project_source_type"])
+            self.assertEqual("entry-1", lines[0]["project_source_id"])
             totals = _invoice_totals(lines)
             self.assertEqual("200.00", totals["net"])
             self.assertEqual("38.00", totals["tax"])

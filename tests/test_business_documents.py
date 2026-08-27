@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest import mock
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
@@ -13,18 +14,22 @@ from app.document_store import CONTROL_DIR
 from app.business_documents import (
     _epc_qr_payload,
     _credit_note_amounts,
+    _draft_invoice_number,
+    _draft_watermark,
     _invoice_number,
     _template_directory,
     address_labels,
     attach_contact_document,
     contact_links,
     embed_invoice_xml,
+    finalize_invoice,
     inspect_zugferd_pdf,
     invoice_state,
     record_invoice_payment,
     render_business_pdf,
 )
 from app.customer_credit import CustomerCreditLedger
+from app.file_lock import exclusive_file_lock
 
 
 def _three_page_template(root: Path) -> dict:
@@ -39,6 +44,22 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_draft_number_does_not_consume_invoice_sequence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual("DRAFT-2026-0001", _draft_invoice_number(root, date(2026, 8, 27)))
+            self.assertRegex(_invoice_number(root), r"^\d{4}-0001$")
+
+    def test_draft_pdf_is_watermarked_without_changing_page_count(self):
+        source = io.BytesIO()
+        pdf = canvas.Canvas(source, pagesize=A4)
+        pdf.drawString(20, 820, "Invoice preview")
+        pdf.showPage()
+        pdf.save()
+        result = _draft_watermark(source.getvalue())
+        self.assertEqual(1, len(PdfReader(io.BytesIO(result)).pages))
+        self.assertGreater(len(result), len(source.getvalue()))
+
     def test_partial_credit_note_preserves_gross_and_vat_split(self):
         row = {"totals": {"gross": "119.00", "vat_groups": {"19": {"basis": "100.00", "tax": "19.00"}}}}
         amounts = _credit_note_amounts(row, __import__("decimal").Decimal("59.50"))
@@ -105,6 +126,43 @@ class BusinessDocumentTests(unittest.TestCase):
         row["payments"].append({"amount": "100.00"})
         self.assertEqual("paid", invoice_state(row, date(2026, 8, 21))["status"])
 
+    def test_invoice_state_keeps_draft_out_of_receivables(self):
+        state = invoice_state({"status": "draft", "totals": {"gross": "119.00"}})
+        self.assertEqual("draft", state["status"])
+        self.assertEqual("0.00", state["paid"])
+
+    def test_payment_cannot_be_recorded_for_draft(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            (directory / "draft-1.json").write_text(json.dumps({"invoice_id": "draft-1", "status": "draft", "totals": {"gross": "119.00"}}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "draft"):
+                record_invoice_payment(root, "draft-1", {"amount": "119"}, "tester")
+
+    def test_parallel_finalization_is_rejected_before_consuming_a_number(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            path = directory / "draft-1.json"
+            path.write_text(json.dumps({"invoice_id": "draft-1", "status": "draft"}), encoding="utf-8")
+            with exclusive_file_lock(path.with_suffix(".lock")):
+                with mock.patch("app.business_documents._invoice_number") as sequence:
+                    with self.assertRaisesRegex(ValueError, "already in progress"):
+                        finalize_invoice(root, "draft-1", "tester")
+            sequence.assert_not_called()
+
+    def test_interrupted_finalization_leaves_persisted_invoice_as_editable_draft(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            path = directory / "draft-1.json"
+            original = {"invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001", "status": "draft", "template_id": "tpl", "history": []}
+            path.write_text(json.dumps(original), encoding="utf-8")
+            with mock.patch("app.business_documents.business_settings", return_value={}), \
+                 mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
+                 mock.patch("app.business_documents.active_template", return_value={"template_id": "tpl"}), \
+                 mock.patch("app.business_documents._invoice_content_pdf", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    finalize_invoice(root, "draft-1", "tester")
+            self.assertEqual(original, json.loads(path.read_text(encoding="utf-8")))
+
     def test_payment_is_persisted_and_audited_without_changing_invoice_lines(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
@@ -127,7 +185,42 @@ class BusinessDocumentTests(unittest.TestCase):
         ]}
         label, choices = address_labels(contact, crm)
         self.assertIn("Rechnung 2", label)
+        self.assertEqual(["Muster GmbH", "Max Muster"], label.splitlines()[:2])
         self.assertEqual(2, len(choices))
+
+    def test_legacy_address_includes_company_and_person_without_duplicates(self):
+        contact = {
+            "fields": {"display_name": "Max Muster", "company": "Muster GmbH"},
+            "addresses": [{"label": "billing", "value": "Muster GmbH\nAltstr. 1\n47137 Duisburg"}],
+        }
+
+        label, _choices = address_labels(contact, {})
+
+        self.assertEqual(["Muster GmbH", "Max Muster", "Altstr. 1", "47137 Duisburg"], label.splitlines())
+
+    def test_address_uses_first_and_last_name_when_display_name_is_missing(self):
+        contact = {"fields": {"first_name": "Max", "last_name": "Muster"}, "addresses": []}
+        crm = {"addresses": [{"type": "billing", "street": "Altstr. 1", "postal": "47137", "city": "Duisburg"}]}
+
+        label, _choices = address_labels(contact, crm)
+
+        self.assertEqual("Max Muster", label.splitlines()[0])
+
+    def test_carddav_company_display_name_does_not_hide_structured_person_name(self):
+        contact = {
+            "fields": {
+                "display_name": "Muster GmbH",
+                "company": "Muster GmbH",
+                "first_name": "Max",
+                "last_name": "Muster",
+            },
+            "addresses": [],
+        }
+        crm = {"addresses": [{"type": "billing", "street": "Altstr. 1", "postal": "47137", "city": "Duisburg"}]}
+
+        label, _choices = address_labels(contact, crm)
+
+        self.assertEqual(["Muster GmbH", "Max Muster", "Altstr. 1", "47137 Duisburg"], label.splitlines())
 
     def test_three_page_template_uses_first_and_follow_background_and_numbers_pages(self):
         with tempfile.TemporaryDirectory() as temp:
