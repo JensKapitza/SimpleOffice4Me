@@ -74,6 +74,16 @@ class BusinessDocumentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exceeds"):
                 ledger.apply("customer-1", "invoice-2", "61", actor="tester")
 
+    def test_customer_credit_refund_cannot_overdraw_balance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = CustomerCreditLedger(Path(temp))
+            ledger.add("customer-1", "75", kind="topup", tax_treatment="manual_review", actor="tester")
+            refunded = ledger.refund("customer-1", "25", actor="tester", reference="Bank transfer")
+            self.assertEqual("-25.00", refunded["signed_amount"])
+            self.assertEqual("50.00", ledger.account("customer-1")["balance"])
+            with self.assertRaisesRegex(ValueError, "exceeds"):
+                ledger.refund("customer-1", "51", actor="tester")
+
     def test_referral_is_unique_and_cannot_reference_same_customer(self):
         with tempfile.TemporaryDirectory() as temp:
             ledger = CustomerCreditLedger(Path(temp))
