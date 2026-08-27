@@ -37,11 +37,11 @@ class OsmAddressTests(unittest.TestCase):
             with index._db() as db:
                 db.execute(
                     "INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                    ("Weserstraße", "27", "47137", "", "DE", "NRW", "", "", "node", "27", "weserstrasse 27 47137 de"),
+                    ("Beispielstraße", "27", "12345", "", "DE", "NRW", "", "", "node", "27", "beispielstrasse 27 12345 de"),
                 )
-            result = index.search("Duisburg 47137 Weserstr. 27", country_code="de")
+            result = index.search("Musterstadt 12345 Beispielstr. 27", country_code="de")
             self.assertEqual(1, len(result))
-            self.assertEqual("Weserstraße 27", result[0]["street"])
+            self.assertEqual("Beispielstraße 27", result[0]["street"])
             self.assertEqual("fallback", result[0]["match_quality"])
             self.assertIsNone(unique_candidate(result))
 
