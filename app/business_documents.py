@@ -753,8 +753,24 @@ def add_customer_referral(contact_id: str):
     root, actor = _root(), _actor(); referred_id = request.form.get("referred_id", "").strip(); contacts = ContactStore(root)
     if not contacts.can_manage(contact_id, actor) or not contacts.can_manage(referred_id, actor): abort(403)
     try:
-        CustomerCreditLedger(root).add_referral(contact_id, referred_id, actor, request.form.get("note", ""))
+        ledger = CustomerCreditLedger(root); ledger.add_referral(contact_id, referred_id, actor, request.form.get("note", ""))
+        reward = request.form.get("reward_amount", "").strip()
+        if reward:
+            ledger.add(contact_id, reward, kind="referral", tax_treatment=request.form.get("tax_treatment", "manual_review"), actor=actor, note=f"Prämie für geworbenen Kunden {referred_id}", related_contact_id=referred_id)
         flash("Kundenwerbung wurde gespeichert.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for(".customer_billing", contact_id=contact_id))
+
+
+@bp.post("/contacts/<contact_id>/credits/refund")
+@login_required
+def refund_customer_credit(contact_id: str):
+    root, actor = _root(), _actor()
+    if not ContactStore(root).can_manage(contact_id, actor): abort(403)
+    try:
+        CustomerCreditLedger(root).refund(contact_id, request.form.get("amount", ""), actor=actor,
+            reference=request.form.get("reference", ""), note=request.form.get("note", ""), currency=request.form.get("currency", "EUR"))
+        flash("Guthabenauszahlung wurde protokolliert.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".customer_billing", contact_id=contact_id))
 
@@ -834,6 +850,21 @@ def invoice_payment(invoice_id:str):
         keys={"invoice is already paid":"invoice.payment.error.paid","payment amount must be positive and not exceed the outstanding amount":"invoice.payment.error.amount","payment date must be a valid ISO date":"invoice.payment.error.date"}
         flash(translate(g.language,keys.get(str(exc),"invoice.payment.error.default")))
     return redirect(url_for(".invoice_detail",invoice_id=invoice_id))
+
+
+@bp.post("/invoices/<invoice_id>/apply-credit")
+@login_required
+def invoice_apply_credit(invoice_id: str):
+    root, actor = _root(), _actor()
+    try: row = invoice(root, invoice_id)
+    except ValueError: abort(404)
+    if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
+    try:
+        updated = apply_available_customer_credit(root, invoice_id, actor)
+        amount = updated.get("credit_applied", "0.00")
+        flash("Kundenguthaben wurde auf die Rechnung angewendet." if amount != "0.00" else "Kein verrechenbares Kundenguthaben vorhanden.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 
 
 @bp.post("/invoices/<invoice_id>/credit-notes")
