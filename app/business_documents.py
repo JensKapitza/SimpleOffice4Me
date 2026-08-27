@@ -174,6 +174,26 @@ def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> di
     return settings
 
 
+def _recipient_names(contact: dict[str, Any]) -> list[str]:
+    fields = contact.get("fields", {})
+    company = str(fields.get("company", "")).strip()
+    person = str(fields.get("display_name", "")).strip()
+    if not person:
+        person = " ".join(filter(None, (str(fields.get("first_name", "")).strip(), str(fields.get("last_name", "")).strip())))
+    names: list[str] = []
+    for value in (company, person):
+        if value and value.casefold() not in {item.casefold() for item in names}:
+            names.append(value)
+    return names
+
+
+def _recipient_label(contact: dict[str, Any], *address_lines: str) -> str:
+    lines = [str(line).strip() for line in address_lines if str(line).strip()]
+    names = _recipient_names(contact)
+    name_keys = {name.casefold() for name in names}
+    return "\n".join(names + [line for line in lines if line.casefold() not in name_keys])
+
+
 def address_labels(contact: dict[str, Any], crm: dict[str, Any], selected: str = "") -> tuple[str, list[dict[str, str]]]:
     candidates: list[dict[str, str]] = []
     for index, item in enumerate(crm.get("addresses", [])):
@@ -181,11 +201,11 @@ def address_labels(contact: dict[str, Any], crm: dict[str, Any], selected: str =
         street, postal, city = (str(item.get(key, "")).strip() for key in ("street", "postal", "city")); country = str(item.get("country", "")).strip().upper()
         if not any((street, postal, city)): continue
         address_type = str(item.get("type", "other")).strip() or "other"
-        label = "\n".join(filter(None, [str(contact.get("fields", {}).get("company", "")).strip(), str(contact.get("fields", {}).get("display_name", "")).strip(), street, " ".join(filter(None, (postal, city))), country if country and country != "DE" else ""]))
+        label = _recipient_label(contact, street, " ".join(filter(None, (postal, city))), country if country and country != "DE" else "")
         candidates.append({"id": f"crm-{index}", "type": address_type, "label": label, "street": street, "postal": postal, "city": city, "country": country or "DE"})
     for index, item in enumerate(contact.get("addresses", [])):
         value = str(item.get("value", "")).strip()
-        if value: candidates.append({"id": f"contact-{index}", "type": str(item.get("label", "Adresse")), "label": value, "street": value, "postal": "", "city": "", "country": "DE"})
+        if value: candidates.append({"id": f"contact-{index}", "type": str(item.get("label", "Adresse")), "label": _recipient_label(contact, *value.splitlines()), "street": value, "postal": "", "city": "", "country": "DE"})
     choice = next((item for item in candidates if item["id"] == selected), None)
     choice = choice or next((item for item in candidates if item["type"].casefold() in {"billing", "rechnung", "rechnungsadresse"}), None)
     choice = choice or (candidates[0] if candidates else None)

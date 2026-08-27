@@ -157,7 +157,26 @@ class BusinessDocumentTests(unittest.TestCase):
         ]}
         label, choices = address_labels(contact, crm)
         self.assertIn("Rechnung 2", label)
+        self.assertEqual(["Muster GmbH", "Max Muster"], label.splitlines()[:2])
         self.assertEqual(2, len(choices))
+
+    def test_legacy_address_includes_company_and_person_without_duplicates(self):
+        contact = {
+            "fields": {"display_name": "Max Muster", "company": "Muster GmbH"},
+            "addresses": [{"label": "billing", "value": "Muster GmbH\nAltstr. 1\n47137 Duisburg"}],
+        }
+
+        label, _choices = address_labels(contact, {})
+
+        self.assertEqual(["Muster GmbH", "Max Muster", "Altstr. 1", "47137 Duisburg"], label.splitlines())
+
+    def test_address_uses_first_and_last_name_when_display_name_is_missing(self):
+        contact = {"fields": {"first_name": "Max", "last_name": "Muster"}, "addresses": []}
+        crm = {"addresses": [{"type": "billing", "street": "Altstr. 1", "postal": "47137", "city": "Duisburg"}]}
+
+        label, _choices = address_labels(contact, crm)
+
+        self.assertEqual("Max Muster", label.splitlines()[0])
 
     def test_three_page_template_uses_first_and_follow_background_and_numbers_pages(self):
         with tempfile.TemporaryDirectory() as temp:
