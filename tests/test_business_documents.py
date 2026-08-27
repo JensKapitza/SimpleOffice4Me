@@ -1,11 +1,14 @@
 import io
+import json
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from app.document_store import CONTROL_DIR
 
 from app.business_documents import (
     _template_directory,
@@ -14,6 +17,8 @@ from app.business_documents import (
     contact_links,
     embed_invoice_xml,
     inspect_zugferd_pdf,
+    invoice_state,
+    record_invoice_payment,
     render_business_pdf,
 )
 
@@ -30,6 +35,31 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_invoice_state_tracks_open_partial_overdue_and_paid(self):
+        row = {"due_date": "2026-08-20", "totals": {"gross": "119.00"}, "payments": []}
+        self.assertEqual("open", invoice_state(row, date(2026, 8, 20))["status"])
+        self.assertEqual("overdue", invoice_state(row, date(2026, 8, 21))["status"])
+        row["payments"] = [{"amount": "19.00"}]
+        state = invoice_state(row, date(2026, 8, 20))
+        self.assertEqual("partial", state["status"])
+        self.assertEqual("100.00", state["outstanding"])
+        row["payments"].append({"amount": "100.00"})
+        self.assertEqual("paid", invoice_state(row, date(2026, 8, 21))["status"])
+
+    def test_payment_is_persisted_and_audited_without_changing_invoice_lines(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            original_lines = [{"line_id": 1, "description": "Leistung", "net_total": "100.00"}]
+            (directory / "invoice-1.json").write_text(json.dumps({"invoice_id": "invoice-1", "due_date": "2026-08-31", "totals": {"gross": "119.00"}, "lines": original_lines}), encoding="utf-8")
+
+            updated = record_invoice_payment(root, "invoice-1", {"amount": "19", "paid_at": "2026-08-27", "reference": "Bank"}, "tester")
+
+            self.assertEqual("100.00", updated["payment_state"]["outstanding"])
+            self.assertEqual(original_lines, updated["lines"])
+            self.assertEqual("payment_recorded", updated["history"][-1]["type"])
+            with self.assertRaisesRegex(ValueError, "not exceed"):
+                record_invoice_payment(root, "invoice-1", {"amount": "101", "paid_at": "2026-08-27"}, "tester")
+
     def test_address_label_prefers_billing(self):
         contact = {"fields": {"display_name": "Max Muster", "company": "Muster GmbH"}, "addresses": []}
         crm = {"addresses": [
