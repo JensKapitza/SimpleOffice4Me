@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUN_DIR = ROOT / "instance" / "run"
-ROLES = ("index", "web")
+ROLES = ("index", "web", "sftp")
 
 
 def _linux_start_time(pid: int) -> str:

@@ -58,6 +58,18 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("service_control.py\" status", windows_update)
         self.assertIn("stop.bat", windows_update)
 
+    def test_restart_script_restarts_only_previously_active_services(self):
+        root = Path(__file__).resolve().parents[1]
+        script_path = root / "restart.sh"
+        script = script_path.read_text(encoding="utf-8")
+
+        self.assertTrue(script_path.stat().st_mode & 0o111)
+        self.assertIn("running_roles", script)
+        self.assertIn("service_control.py\" stop", script)
+        self.assertIn('if [ "$WEB_ACTIVE" -eq 1 ]', script)
+        self.assertIn('if [ "$SFTP_ACTIVE" -eq 1 ]', script)
+        self.assertIn("start-sftp.sh\" run", script)
+
     def test_system_check_has_platform_specific_native_tool_help(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "tools" / "system_requirements.py").read_text(encoding="utf-8")
