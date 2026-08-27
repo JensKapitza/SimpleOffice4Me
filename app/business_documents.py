@@ -15,11 +15,13 @@ from __future__ import annotations
 import html
 import io
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
@@ -62,6 +64,7 @@ ZUGFERD_FILENAMES = {"factur-x.xml", "zugferd-invoice.xml", "zugferd.xml"}
 MONEY = Decimal("0.01")
 QTY = Decimal("0.001")
 SUPPORTED_TEMPLATE_SUFFIXES = {".pdf", ".odt", ".ott", ".doc", ".docx", ".rtf", ".odp", ".ppt", ".pptx"}
+logger = logging.getLogger(__name__)
 
 
 def _root() -> Path:
@@ -577,21 +580,36 @@ def _cii_xml(row: dict[str, Any]) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def _pdfa3_convert(pdf: bytes) -> tuple[bytes, str]:
+def _pdfa3_convert_detailed(pdf: bytes) -> tuple[bytes, dict[str, Any]]:
     gs = shutil.which("gs")
-    if not gs: return pdf, "ghostscript_unavailable"
+    if not gs: return pdf, {"status": "ghostscript_unavailable", "exit_code": None, "stdout": "", "stderr": ""}
     profiles = [Path("/usr/share/color/icc/ghostscript/srgb.icc"), Path("/usr/share/ghostscript/iccprofiles/srgb.icc")]
     icc = next((path for path in profiles if path.is_file()), None)
     if icc is None:
         for base in Path("/usr/share/ghostscript").glob("*/iccprofiles/srgb.icc"):
             if base.is_file(): icc = base; break
-    if icc is None: return pdf, "icc_profile_unavailable"
+    if icc is None: return pdf, {"status": "icc_profile_unavailable", "exit_code": None, "stdout": "", "stderr": ""}
     with tempfile.TemporaryDirectory(prefix="simpleoffice-pdfa-") as temp:
         work=Path(temp); source=work/"input.pdf"; target=work/"output.pdf"; definition=work/"PDFA_def.ps"; source.write_bytes(pdf)
         definition.write_text(f"[/_objdef {{icc_PDFA}} /type /stream /OBJ pdfmark\n[{{icc_PDFA}} << /N 3 >> /PUT pdfmark\n[{{icc_PDFA}} ({str(icc)}) (r) file /PUT pdfmark\n[/_objdef {{OutputIntent_PDFA}} /type /dict /OBJ pdfmark\n[{{OutputIntent_PDFA}} << /Type /OutputIntent /S /GTS_PDFA1 /DestOutputProfile {{icc_PDFA}} /OutputConditionIdentifier (sRGB) >> /PUT pdfmark\n[{{Catalog}} << /OutputIntents [{{OutputIntent_PDFA}}] >> /PUT pdfmark\n", encoding="utf-8")
-        result=subprocess.run([gs,"-dPDFA=3","-dBATCH","-dNOPAUSE","-dNOOUTERSAVE","-sDEVICE=pdfwrite","-sColorConversionStrategy=RGB","-dPDFACompatibilityPolicy=1",f"-sOutputFile={target}",str(definition),str(source)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False)
-        if result.returncode != 0 or not target.is_file(): return pdf, "ghostscript_pdfa_failed"
-        return target.read_bytes(), "pdfa3_created"
+        command=[gs,"-dPDFA=3","-dBATCH","-dNOPAUSE","-dNOOUTERSAVE",f"--permit-file-read={icc}","-sDEVICE=pdfwrite","-sColorConversionStrategy=RGB","-dPDFACompatibilityPolicy=1",f"-sOutputFile={target}",str(definition),str(source)]
+        try:
+            result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
+        except subprocess.TimeoutExpired as exc:
+            stderr=str(exc.stderr or "")
+            logger.error("Ghostscript PDF/A conversion timed out: %s", stderr)
+            return pdf, {"status": "ghostscript_pdfa_timeout", "exit_code": None, "stdout": str(exc.stdout or ""), "stderr": stderr}
+        details={"status": "pdfa3_created", "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+        if result.returncode != 0 or not target.is_file():
+            details["status"]="ghostscript_pdfa_failed"
+            logger.error("Ghostscript PDF/A conversion failed exit_code=%s stdout=%s stderr=%s", result.returncode, result.stdout, result.stderr)
+            return pdf, details
+        return target.read_bytes(), details
+
+
+def _pdfa3_convert(pdf: bytes) -> tuple[bytes, str]:
+    converted, details = _pdfa3_convert_detailed(pdf)
+    return converted, str(details["status"])
 
 
 def embed_invoice_xml(pdf: bytes, xml: bytes, filename: str = "factur-x.xml") -> bytes:
@@ -608,24 +626,39 @@ def embed_invoice_xml(pdf: bytes, xml: bytes, filename: str = "factur-x.xml") ->
 
 
 def _validate_hybrid(pdf: bytes, xml: bytes) -> dict[str, Any]:
-    result={"pdfa":False,"xml":False,"validated":False,"details":[]}
+    result={"pdfa":False,"xml":False,"validated":False,"details":[],"pdfa_exit_code":None,"xml_exit_code":None,"pdfa_output":"","xml_output":""}
     try: ET.fromstring(xml); result["xml"]=True
     except ET.ParseError: result["details"].append("xml_not_well_formed")
     verapdf=shutil.which("verapdf")
     if verapdf:
         with tempfile.TemporaryDirectory(prefix="simpleoffice-verapdf-") as temp:
-            path=Path(temp)/"invoice.pdf"; path.write_bytes(pdf); check=subprocess.run([verapdf,"--format","text",str(path)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
-            text=(check.stdout+check.stderr).casefold(); result["pdfa"]=check.returncode==0 and ("compliant" in text or "passed" in text) and "not compliant" not in text
-            if not result["pdfa"]: result["details"].append("pdfa_validation_failed")
+            path=Path(temp)/"invoice.pdf"; path.write_bytes(pdf)
+            try: check=subprocess.run([verapdf,"--format","text",str(path)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
+            except subprocess.TimeoutExpired as exc:
+                result["details"].append("pdfa_validation_timeout"); result["pdfa_output"]=str(exc.stdout or "")+str(exc.stderr or ""); logger.error("veraPDF validation timed out: %s", result["pdfa_output"])
+            else:
+                output=check.stdout+check.stderr; text=output.casefold(); result["pdfa_exit_code"]=check.returncode; result["pdfa_output"]=output; result["pdfa"]=check.returncode==0 and ("compliant" in text or "passed" in text) and "not compliant" not in text
+                if not result["pdfa"]: result["details"].append("pdfa_validation_failed"); logger.error("veraPDF validation failed exit_code=%s output=%s", check.returncode, output)
     else: result["details"].append("verapdf_unavailable")
     validator=os.environ.get("SIMPLEOFFICE_ZUGFERD_VALIDATOR","").strip()
     if validator:
         with tempfile.TemporaryDirectory(prefix="simpleoffice-zugferd-") as temp:
-            xml_path=Path(temp)/"factur-x.xml"; xml_path.write_bytes(xml); cmd=[part.replace("{xml}",str(xml_path)) for part in validator.split()]; check=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False); result["xml"]=result["xml"] and check.returncode==0
-            if check.returncode!=0: result["details"].append("zugferd_schema_validation_failed")
+            xml_path=Path(temp)/"factur-x.xml"; xml_path.write_bytes(xml); cmd=[part.replace("{xml}",str(xml_path)) for part in validator.split()]
+            try: check=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
+            except subprocess.TimeoutExpired as exc:
+                result["xml"]=False; result["details"].append("zugferd_schema_validation_timeout"); result["xml_output"]=str(exc.stdout or "")+str(exc.stderr or ""); logger.error("ZUGFeRD validation timed out: %s", result["xml_output"])
+            else:
+                result["xml_exit_code"]=check.returncode; result["xml_output"]=check.stdout+check.stderr; result["xml"]=result["xml"] and check.returncode==0
+                if check.returncode!=0: result["details"].append("zugferd_schema_validation_failed"); logger.error("ZUGFeRD validation failed exit_code=%s output=%s", check.returncode, result["xml_output"])
     else: result["details"].append("zugferd_2_5_2_validator_unconfigured")
     result["validated"]=bool(result["pdfa"] and result["xml"] and validator)
     return result
+
+
+def _zugferd_status(pdfa_status: str, validation: dict[str, Any]) -> str:
+    if pdfa_status != "pdfa3_created":
+        return "pdfa_failed"
+    return "validated" if validation.get("validated") else "validation_failed"
 
 
 def _link_path(root: Path) -> Path:
@@ -737,24 +770,82 @@ def draft_invoice_pdf(root: Path, row: dict[str, Any]) -> bytes:
 
 
 def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
-    path=_invoice_store_path(root,invoice_id)
-    with exclusive_file_lock(path.with_suffix(".lock"),blocking=False) as acquired, exclusive_file_lock(root/CONTROL_DIR/".project-billing.lock"):
-        if not acquired: raise ValueError("invoice finalization is already in progress")
-        row=invoice(root,invoice_id)
-        if row.get("status") != "draft": raise ValueError("invoice is already finalized")
-        _validate_project_sources(root,row,actor)
-        settings=business_settings(root); number=row.get("invoice_number",""); number=_invoice_number(root) if not number or number.startswith("DRAFT-") else number; row["invoice_number"]=number; row["history"].append({"type":"number_assigned","at":utc_now(),"actor":actor,"invoice_number":number})
+    path = _invoice_store_path(root, invoice_id)
+    timings: dict[str, float] = {}
+    started_total = time.perf_counter()
+
+    def timed(step: str, operation):
+        started = time.perf_counter()
         try:
-            tpl=active_template(root,row["template_id"]); visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); pdfa,pdfa_status=_pdfa3_convert(visual); xml=_cii_xml(row); hybrid=embed_invoice_xml(pdfa,xml,"factur-x.xml"); validation=_validate_hybrid(hybrid,xml); row["zugferd"].update({"pdfa_pipeline":pdfa_status,"validation":validation,"status":"validated" if validation["validated"] else "embedded_unvalidated"})
-            if settings.get("require_zugferd_validation") and not validation["validated"]:
-                raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: "+", ".join(validation.get("details",[])))
-            document=_store_generated_pdf(root,row["contact_id"],f"Rechnung-{number}",hybrid,actor,"invoice",tpl["template_id"],metadata={"invoice_id":invoice_id,"invoice_number":number,"invoice_total":row["totals"]["gross"],"invoice_currency":row["currency"],"zugferd_status":row["zugferd"]["status"],"zugferd_version":"2.5.2"})
+            return operation()
+        finally:
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+            timings[step] = elapsed_ms
+            log = logger.warning if elapsed_ms > 500 else logger.debug
+            log("invoice_finalization invoice_id=%s step=%s duration_ms=%.1f", invoice_id, step, elapsed_ms)
+
+    with exclusive_file_lock(path.with_suffix(".lock"), blocking=False) as acquired, exclusive_file_lock(root / CONTROL_DIR / ".project-billing.lock"):
+        if not acquired:
+            raise ValueError("invoice finalization is already in progress")
+        row = timed("invoice_load", lambda: invoice(root, invoice_id))
+        if row.get("status") != "draft":
+            raise ValueError("invoice is already finalized")
+        timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
+        timed("project_positions_load", lambda: _validate_project_sources(root, row, actor))
+        settings = timed("business_settings_load", lambda: business_settings(root))
+        number = row.get("invoice_number", "")
+        number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
+        row["invoice_number"] = number
+        row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
+        try:
+            tpl = timed("template_load", lambda: active_template(root, row["template_id"]))
+            content_pdf = timed("content_pdf_render", lambda: _invoice_content_pdf(row))
+            visual = timed("template_pdf_render", lambda: _merge_content_with_template(root, tpl, content_pdf))
+            pdfa, pdfa_details = timed("ghostscript_pdfa_convert", lambda: _pdfa3_convert_detailed(visual))
+            row["zugferd"].update({"pdfa_pipeline": pdfa_details["status"], "pdfa_details": pdfa_details})
+            try:
+                xml = timed("zugferd_xml_generate", lambda: _cii_xml(row))
+            except Exception:
+                row["zugferd"]["status"] = "xml_generation_failed"
+                raise
+            try:
+                hybrid = timed("zugferd_xml_embed", lambda: embed_invoice_xml(pdfa, xml, "factur-x.xml"))
+            except Exception:
+                row["zugferd"]["status"] = "embedding_failed"
+                raise
+            validation = timed("zugferd_validate", lambda: _validate_hybrid(hybrid, xml))
+            technical_status = _zugferd_status(str(pdfa_details["status"]), validation)
+            row["zugferd"].update({"validation": validation, "status": technical_status})
+            if settings.get("require_zugferd_validation") and technical_status != "validated":
+                raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: " + ", ".join(validation.get("details", [])))
+            document = timed(
+                "final_file_save_and_contact_link",
+                lambda: _store_generated_pdf(
+                    root, row["contact_id"], f"Rechnung-{number}", hybrid, actor, "invoice", tpl["template_id"],
+                    metadata={"invoice_id": invoice_id, "invoice_number": number, "invoice_total": row["totals"]["gross"], "invoice_currency": row["currency"], "zugferd_status": technical_status, "zugferd_version": "2.5.2"},
+                ),
+            )
         except Exception as exc:
-            row["status"]="draft"; row["finalization_error"]=str(exc); row["history"].append({"type":"finalization_failed","at":utc_now(),"actor":actor,"error":str(exc)[:500]}); atomic_json_write(path,row)
+            row["status"] = "draft"
+            row["finalization_error"] = str(exc)
+            row["finalization_timings_ms"] = timings
+            row["history"].append({"type": "finalization_failed", "at": utc_now(), "actor": actor, "error": str(exc)[:500]})
+            atomic_json_write(path, row)
             raise
-        row.pop("finalization_error",None); row["document_id"]=document["document_id"]; row["status"]="open"; row["history"].append({"type":"issued","at":utc_now(),"actor":actor}); atomic_json_write(path,row); DocumentStore(root).history.record("invoice_created",actor,"invoice",invoice_id,{"invoice_number":number,"contact_id":row["contact_id"],"document_id":document["document_id"],"totals":row["totals"],"zugferd":row["zugferd"]})
-    if Decimal(row.get("settlement",{}).get("customer_credit","0")) > 0: row = apply_available_customer_credit(root, invoice_id, actor)
-    return row,document
+        row.pop("finalization_error", None)
+        row["document_id"] = document["document_id"]
+        row["status"] = "open"
+        row["history"].append({"type": "issued", "at": utc_now(), "actor": actor})
+        timed("invoice_and_project_links_save", lambda: atomic_json_write(path, row))
+        timed("audit_history_save", lambda: DocumentStore(root).history.record("invoice_created", actor, "invoice", invoice_id, {"invoice_number": number, "contact_id": row["contact_id"], "document_id": document["document_id"], "totals": row["totals"], "zugferd": row["zugferd"]}))
+        row["finalization_timings_ms"] = timings
+        atomic_json_write(path, row)
+    if Decimal(row.get("settlement", {}).get("customer_credit", "0")) > 0:
+        row = timed("customer_credit_apply", lambda: apply_available_customer_credit(root, invoice_id, actor))
+    total_ms = round((time.perf_counter() - started_total) * 1000, 1)
+    row["finalization_timings_ms"] = {**timings, "total": total_ms}
+    logger.info("invoice_finalization invoice_id=%s total_ms=%.1f status=%s timings=%s", invoice_id, total_ms, row["zugferd"]["status"], timings)
+    return row, document
 
 
 def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
@@ -850,7 +941,12 @@ def contact_invoice(contact_id:str):
         try:
             row=save_invoice_draft(root,contact_id,request.form,actor,draft_id)
             if request.form.get("action")=="finalize":
-                row,document=finalize_invoice(root,row["invoice_id"],actor);flash(f"Rechnung {row['invoice_number']} finalisiert und mit dem Kontakt verknüpft. ZUGFeRD: {row['zugferd']['status']}.");return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
+                row,document=finalize_invoice(root,row["invoice_id"],actor)
+                if row["zugferd"]["status"] == "validated":
+                    message = f"Invoice {row['invoice_number']} finalized, linked and technically validated." if g.language == "en" else f"Rechnung {row['invoice_number']} finalisiert, verknüpft und technisch validiert."
+                else:
+                    message = f"Invoice {row['invoice_number']} was created, but technical validation failed: {row['zugferd']['status']}." if g.language == "en" else f"Rechnung {row['invoice_number']} wurde erzeugt, aber die technische Validierung ist fehlgeschlagen: {row['zugferd']['status']}."
+                flash(message);return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
             flash("Rechnungsentwurf schnell gespeichert. Es wurde noch keine endgültige Rechnungsnummer vergeben.");return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
         except PermissionError:abort(403)
         except ValueError as exc:flash(str(exc))

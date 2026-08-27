@@ -12,6 +12,17 @@ class _Headers(dict):
 
 
 class OsmAddressTests(unittest.TestCase):
+    @staticmethod
+    def _feature(number: int, *, feature_id=None, street="Teststraße", lat=None, lon="6.7"):
+        feature = {
+            "type": "Feature",
+            "properties": {"addr:street": street, "addr:housenumber": str(number), "addr:postcode": "47137", "addr:city": "Duisburg"},
+            "geometry": {"type": "Point", "coordinates": [lon, lat if lat is not None else f"51.{number:04d}"]},
+        }
+        if feature_id is not None:
+            feature["id"] = feature_id
+        return json.dumps(feature)
+
     def test_local_sqlite_index_finds_normalized_address(self):
         with tempfile.TemporaryDirectory() as root:
             index = LocalAddressIndex(Path(root))
@@ -92,6 +103,81 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual(source.resolve(), index.downloaded_source())
             self.assertTrue(index.needs_reindex())
             self.assertTrue(index.status()["source_available"])
+
+    def test_import_over_batch_size_keeps_every_missing_osm_id(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            lines = [self._feature(number) for number in range(2005)]
+            with index._db() as db:
+                stats = index._import_geojson_lines(db, lines, batch_size=2000)
+                stored = db.execute("SELECT COUNT(*) FROM address").fetchone()[0]
+            self.assertEqual(2005, stats["processed"])
+            self.assertEqual(2005, stats["inserted"])
+            self.assertEqual(2005, stats["stored"])
+            self.assertEqual(2005, stored)
+
+    def test_missing_osm_id_is_stable_and_exact_duplicate_is_counted(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root)); line = self._feature(27)
+            with index._db() as db:
+                first = index._import_geojson_lines(db, [line])
+                stored_id = db.execute("SELECT osm_id FROM address").fetchone()[0]
+                second = index._import_geojson_lines(db, [line])
+            self.assertEqual(1, first["inserted"])
+            self.assertEqual(1, second["duplicates"])
+            self.assertEqual(1, second["stored"])
+            self.assertTrue(stored_id.startswith("sha256:"))
+
+    def test_same_address_with_distinct_osm_objects_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            lines = [self._feature(27, feature_id="node/1"), self._feature(27, feature_id="way/1")]
+            with index._db() as db:
+                stats = index._import_geojson_lines(db, lines)
+            self.assertEqual(2, stats["inserted"])
+            self.assertEqual(2, stats["stored"])
+            self.assertEqual(0, stats["duplicates"])
+
+    def test_synthetic_identity_uses_coordinates_to_avoid_collisions(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            lines = [self._feature(27, lat="51.10"), self._feature(27, lat="51.11")]
+            with index._db() as db:
+                stats = index._import_geojson_lines(db, lines)
+                ids = {row[0] for row in db.execute("SELECT osm_id FROM address")}
+            self.assertEqual(2, stats["stored"])
+            self.assertEqual(2, len(ids))
+
+    def test_existing_osm_object_is_updated_without_replace(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            with index._db() as db:
+                index._import_geojson_lines(db, [self._feature(27, feature_id="node/42", street="Altstraße")])
+                stats = index._import_geojson_lines(db, [self._feature(27, feature_id="node/42", street="Neustraße")])
+                street = db.execute("SELECT street FROM address WHERE osm_type='node' AND osm_id='42'").fetchone()[0]
+            self.assertEqual(1, stats["updated"])
+            self.assertEqual(1, stats["stored"])
+            self.assertEqual("Neustraße", street)
+
+    def test_synthetic_id_collision_is_rejected_instead_of_overwriting(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            first = index._feature_row(json.loads(self._feature(27, street="Erste Straße")))
+            second = index._feature_row(json.loads(self._feature(28, street="Zweite Straße")))
+            self.assertIsNotNone(first)
+            self.assertIsNotNone(second)
+            collision = (*second[:9], first[9], second[10])
+            stats = {
+                "processed": 2, "inserted": 0, "updated": 0,
+                "duplicates": 0, "id_collisions": 0, "rejected": 0, "stored": 0,
+            }
+            with index._db() as db:
+                index._store_batch(db, [first, collision], stats)
+                stored = db.execute("SELECT street FROM address").fetchall()
+            self.assertEqual(1, stats["inserted"])
+            self.assertEqual(1, stats["id_collisions"])
+            self.assertEqual(1, stats["rejected"])
+            self.assertEqual([("Erste Straße",)], [tuple(row) for row in stored])
 
 
 if __name__ == "__main__":

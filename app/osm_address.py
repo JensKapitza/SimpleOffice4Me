@@ -8,6 +8,7 @@ using the local ``osmium`` command line utility.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -365,7 +366,114 @@ class LocalAddressIndex:
             return _clean(coordinates[1], 40), _clean(coordinates[0], 40)
         return "", ""
 
-    def build(self, source: str | Path) -> int:
+    @staticmethod
+    def _feature_row(feature: dict[str, Any]) -> tuple[str, ...] | None:
+        properties = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
+        street = _clean(properties.get("addr:street") or properties.get("addr:place"))
+        house = _clean(properties.get("addr:housenumber"), 80)
+        postal = _clean(properties.get("addr:postcode"), 40)
+        city = _city(properties)
+        if not (street and (house or postal or city)):
+            return None
+        country = _clean(properties.get("addr:country"), 10).upper() or "DE"
+        state = _clean(properties.get("addr:state"))
+        lat, lon = LocalAddressIndex._geometry_center(feature)
+        feature_id = _clean(feature.get("id"), 120)
+        if feature_id:
+            if "/" in feature_id:
+                osm_type, osm_id = feature_id.split("/", 1)
+            else:
+                osm_type, osm_id = "osm", feature_id
+        else:
+            osm_type = _clean(properties.get("@type") or properties.get("osm_type") or "feature", 40).casefold() or "feature"
+            identity = "\x1f".join((street, house, postal, city, country, state, lat, lon, osm_type))
+            osm_id = "sha256:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        normalized = _normal(f"{street} {house} {postal} {city} {country}")
+        return street, house, postal, city, country, state, lat, lon, osm_type, osm_id, normalized
+
+    @staticmethod
+    def _store_batch(db: sqlite3.Connection, rows: list[tuple[str, ...]], stats: dict[str, int]) -> None:
+        if not rows:
+            return
+        keys = list(dict.fromkeys((row[8], row[9]) for row in rows))
+        existing: dict[tuple[str, str], tuple[str, ...]] = {}
+        for offset in range(0, len(keys), 300):
+            chunk = keys[offset:offset + 300]
+            placeholders = ",".join("(?,?)" for _ in chunk)
+            params = [value for key in chunk for value in key]
+            for current in db.execute(
+                f"SELECT street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized FROM address WHERE (osm_type,osm_id) IN ({placeholders})",
+                params,
+            ):
+                value = tuple(str(item) for item in current)
+                existing[(value[8], value[9])] = value
+        final: dict[tuple[str, str], tuple[str, ...]] = dict(existing)
+        for row in rows:
+            key = row[8], row[9]
+            previous = final.get(key)
+            if previous is None:
+                stats["inserted"] += 1
+            elif previous == row:
+                stats["duplicates"] += 1
+            elif row[9].startswith("sha256:"):
+                # A synthetic identity covers every stored source field. If the
+                # digest nevertheless points to different data, do not silently
+                # overwrite either record.
+                stats["id_collisions"] += 1
+                stats["rejected"] += 1
+                continue
+            else:
+                stats["updated"] += 1
+            final[key] = row
+        changed = [row for key, row in final.items() if existing.get(key) != row]
+        db.executemany(
+            """INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(osm_type,osm_id) DO UPDATE SET
+                 street=excluded.street, house_number=excluded.house_number,
+                 postal=excluded.postal, city=excluded.city, country=excluded.country,
+                 state=excluded.state, lat=excluded.lat, lon=excluded.lon,
+                 normalized=excluded.normalized""",
+            changed,
+        )
+
+    def _import_geojson_lines(self, db: sqlite3.Connection, lines: Any, *, batch_size: int = 2000) -> dict[str, int]:
+        stats = {
+            "processed": 0,
+            "inserted": 0,
+            "updated": 0,
+            "duplicates": 0,
+            "id_collisions": 0,
+            "rejected": 0,
+            "stored": 0,
+        }
+        rows: list[tuple[str, ...]] = []
+        for line in lines:
+            line = str(line).strip().lstrip("\x1e")
+            if not line:
+                continue
+            stats["processed"] += 1
+            try:
+                feature = json.loads(line)
+            except json.JSONDecodeError:
+                stats["rejected"] += 1
+                continue
+            if not isinstance(feature, dict):
+                stats["rejected"] += 1
+                continue
+            row = self._feature_row(feature)
+            if row is None:
+                stats["rejected"] += 1
+                continue
+            rows.append(row)
+            if len(rows) >= batch_size:
+                self._store_batch(db, rows, stats)
+                rows.clear()
+        self._store_batch(db, rows, stats)
+        stats["stored"] = int(db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+        return stats
+
+    def build(self, source: str | Path) -> dict[str, int]:
         source = Path(source).resolve()
         if not source.is_file() or source.suffix.casefold() != ".pbf":
             raise ValueError("a regular .osm.pbf extract is required")
@@ -373,7 +481,6 @@ class LocalAddressIndex:
         if not osmium:
             raise RuntimeError("osmium is required to build the local address index")
         self._write_status(state="indexing", source_file=str(source), indexed_at="", error="")
-        count = 0
         with tempfile.TemporaryDirectory(prefix="simpleoffice-osm-") as temporary_dir:
             filtered = Path(temporary_dir) / "addresses.osm.pbf"
             subprocess.run(
@@ -387,45 +494,16 @@ class LocalAddressIndex:
             assert process.stdout is not None
             with self._db() as db:
                 db.execute("DELETE FROM address")
-                rows: list[tuple[str, ...]] = []
-                for line in process.stdout:
-                    line = line.strip().lstrip("\x1e")
-                    if not line:
-                        continue
-                    try:
-                        feature = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    properties = feature.get("properties") if isinstance(feature.get("properties"), dict) else {}
-                    street = _clean(properties.get("addr:street") or properties.get("addr:place"))
-                    house = _clean(properties.get("addr:housenumber"), 80)
-                    postal = _clean(properties.get("addr:postcode"), 40)
-                    city = _city(properties)
-                    if not (street and (house or postal or city)):
-                        continue
-                    country = _clean(properties.get("addr:country"), 10).upper() or "DE"
-                    state = _clean(properties.get("addr:state"))
-                    lat, lon = self._geometry_center(feature)
-                    feature_id = _clean(feature.get("id"), 120)
-                    if "/" in feature_id:
-                        osm_type, osm_id = feature_id.split("/", 1)
-                    else:
-                        osm_type, osm_id = "osm", feature_id or str(count + 1)
-                    normalized = _normal(f"{street} {house} {postal} {city} {country}")
-                    rows.append((street, house, postal, city, country, state, lat, lon, osm_type, osm_id, normalized))
-                    if len(rows) >= 2000:
-                        db.executemany("INSERT OR REPLACE INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
-                        count += len(rows)
-                        rows.clear()
-                if rows:
-                    db.executemany("INSERT OR REPLACE INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
-                    count += len(rows)
-            stderr = process.stderr.read() if process.stderr else ""
-            rc = process.wait(timeout=60)
-            if rc:
-                raise RuntimeError(f"osmium export failed: {stderr[-500:]}")
-        self._write_status(state="ready", ready=True, count=count, indexed_at=utc_now(), error="")
-        return count
+                stats = self._import_geojson_lines(db, process.stdout)
+                stderr = process.stderr.read() if process.stderr else ""
+                rc = process.wait(timeout=60)
+                if rc:
+                    raise RuntimeError(f"osmium export failed: {stderr[-500:]}")
+                accepted = stats["inserted"] + stats["updated"] + stats["duplicates"]
+                if accepted >= 10_000 and stats["stored"] < accepted // 2:
+                    raise RuntimeError(f"OSM index plausibility check failed: processed={stats['processed']} accepted={accepted} stored={stats['stored']}")
+        self._write_status(state="ready", ready=True, count=stats["stored"], indexed_at=utc_now(), error="", **stats)
+        return stats
 
     def search(self, query: str, *, country_code: str = "de", limit: int = 5) -> list[dict[str, Any]]:
         query = _clean(query, 500)

@@ -27,12 +27,18 @@ def run_osm_index(root: str | Path, *, force: bool = False) -> int:
             return 0
         lower_process_priority()
         try:
-            count = index.build(source)
+            stats = index.build(source)
         except Exception as exc:
             index._write_status(state="error", ready=index.status().get("ready", False), error=str(exc)[:500])
             print(f"OSM-Indexierung fehlgeschlagen: {exc}", file=sys.stderr, flush=True)
             return 1
-        print(f"OSM-Indexierung abgeschlossen: {count} Adresseinträge.", flush=True)
+        print(
+            "OSM-Indexierung abgeschlossen: "
+            f"processed={stats['processed']} inserted={stats['inserted']} updated={stats['updated']} "
+            f"duplicates={stats['duplicates']} id_collisions={stats['id_collisions']} "
+            f"rejected={stats['rejected']} stored={stats['stored']}.",
+            flush=True,
+        )
         return 0
 
 
