@@ -1,6 +1,6 @@
 (() => {
   const DEBOUNCE_MS = 220;
-
+  const DEFAULT_ENDPOINT = '/documents/contacts/address-search.json';
   const value = el => el ? el.value.trim() : '';
   const setValue = (el, v) => { if (el && v) el.value = v; };
 
@@ -22,15 +22,61 @@
     });
   }
 
+  function markField(input, kind) {
+    if (!input) return;
+    input.setAttribute(`data-address-${kind}`, '');
+    input.dataset.addressField = kind;
+    input.setAttribute('autocomplete', 'off');
+  }
+
+  function prepareLegacyCrm() {
+    const helper = document.getElementById('osm-address-helper');
+    if (!helper) return;
+    helper.dataset.addressAutocomplete = '';
+    helper.dataset.addressEndpoint = DEFAULT_ENDPOINT;
+    const city = document.getElementById('osm-city');
+    const postal = document.getElementById('osm-postal');
+    const street = document.getElementById('osm-street');
+    const country = document.getElementById('osm-country');
+    const status = document.getElementById('osm-status');
+    markField(city, 'city'); markField(postal, 'postal'); markField(street, 'street'); markField(country, 'country');
+    if (status) status.setAttribute('data-address-status', '');
+
+    const row = city?.closest('.row');
+    if (row) {
+      const cityBox = city?.parentElement, postalBox = postal?.parentElement, countryBox = country?.parentElement, streetBox = street?.parentElement;
+      [cityBox, postalBox, countryBox, streetBox].filter(Boolean).forEach(box => row.append(box));
+    }
+    const oldSearch = document.getElementById('osm-search');
+    if (oldSearch) oldSearch.hidden = true;
+  }
+
+  function prepareGenericForms() {
+    document.querySelectorAll('form').forEach(form => {
+      if (form.closest('[data-address-autocomplete]')) return;
+      const city = form.querySelector('[name="city"], [name$="_city"], [name="ort"], [name$="_ort"]');
+      const postal = form.querySelector('[name="postal"], [name$="_postal"], [name="postal_code"], [name$="_postal_code"], [name="plz"], [name$="_plz"]');
+      const street = form.querySelector('[name="street"], [name$="_street"], [name="strasse"], [name$="_strasse"]');
+      if (!(city && postal && street)) return;
+      form.dataset.addressAutocomplete = '';
+      form.dataset.addressEndpoint = DEFAULT_ENDPOINT;
+      markField(city, 'city'); markField(postal, 'postal'); markField(street, 'street');
+      const country = form.querySelector('[name="country"], [name$="_country"], [name="land"], [name$="_land"]');
+      markField(country, 'country');
+    });
+  }
+
   function initGroup(group) {
-    const endpoint = group.dataset.addressEndpoint;
-    if (!endpoint) return;
+    if (group.dataset.addressAutocompleteReady === '1') return;
+    group.dataset.addressAutocompleteReady = '1';
+    const endpoint = group.dataset.addressEndpoint || DEFAULT_ENDPOINT;
     const city = group.querySelector('[data-address-city]');
     const postal = group.querySelector('[data-address-postal]');
     const street = group.querySelector('[data-address-street]');
     const country = group.querySelector('[data-address-country]');
     const status = group.querySelector('[data-address-status]');
     const inputs = [city, postal, street].filter(Boolean);
+    if (!inputs.length) return;
     let timer = null;
     let serial = 0;
 
@@ -49,13 +95,8 @@
       const requestId = ++serial;
       const menu = ensureMenu(active);
       menu.replaceChildren();
-      const params = new URLSearchParams({
-        field: active.dataset.addressField || '',
-        city: value(city),
-        postal: value(postal),
-        street: value(street),
-        country: (value(country) || 'DE').toLowerCase(),
-      });
+      const q = [value(city), value(postal), value(street)].filter(Boolean).join(' ');
+      const params = new URLSearchParams({q, country: (value(country) || 'DE').toLowerCase()});
       if (status) status.textContent = 'Lokale Adresssuche …';
       try {
         const response = await fetch(`${endpoint}?${params}`, {headers: {'Accept': 'application/json'}});
@@ -92,8 +133,6 @@
     };
 
     inputs.forEach(input => {
-      input.dataset.addressField = input.hasAttribute('data-address-city') ? 'city' : input.hasAttribute('data-address-postal') ? 'postal' : 'street';
-      input.setAttribute('autocomplete', 'off');
       input.addEventListener('input', () => {
         window.clearTimeout(timer);
         if (value(input).length < 3) { ensureMenu(input).replaceChildren(); return; }
@@ -103,8 +142,10 @@
     });
   }
 
+  prepareLegacyCrm();
+  prepareGenericForms();
+  document.querySelectorAll('[data-address-autocomplete]').forEach(initGroup);
   document.addEventListener('click', event => {
     if (!event.target.closest('[data-address-autocomplete]')) hideAll();
   });
-  document.querySelectorAll('[data-address-autocomplete]').forEach(initGroup);
 })();
