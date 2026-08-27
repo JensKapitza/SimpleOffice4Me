@@ -44,6 +44,7 @@ from .contact_store import ContactStore
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .object_store import ObjectStore
+from .settings_store import translate
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 TEMPLATE_DIR = "business-templates"
@@ -280,6 +281,47 @@ def invoice(root: Path, invoice_id: str) -> dict[str, Any]:
     return row
 
 
+def invoice_state(row: dict[str, Any], today: date | None = None) -> dict[str, Any]:
+    """Return payment state without changing the immutable invoice snapshot."""
+    gross = _money(row.get("totals", {}).get("gross", "0"))
+    paid = sum((_money(item.get("amount", "0")) for item in row.get("payments", []) if isinstance(item, dict)), Decimal("0"))
+    paid = min(paid, gross); outstanding = max(Decimal("0"), gross - paid)
+    status = "paid" if outstanding == 0 else "partial" if paid > 0 else "open"
+    try:
+        if outstanding > 0 and date.fromisoformat(str(row.get("due_date", ""))) < (today or date.today()): status = "overdue"
+    except ValueError:
+        pass
+    return {"status": status, "paid": f"{paid.quantize(MONEY):.2f}", "outstanding": f"{outstanding.quantize(MONEY):.2f}"}
+
+
+def invoices(root: Path) -> list[dict[str, Any]]:
+    directory = root / CONTROL_DIR / INVOICE_DIR
+    rows: list[dict[str, Any]] = []
+    for path in directory.glob("*.json") if directory.is_dir() else []:
+        row = _read_json(path, {})
+        if isinstance(row, dict) and row.get("invoice_id"):
+            rows.append({**row, "payment_state": invoice_state(row)})
+    return sorted(rows, key=lambda item: (str(item.get("issue_date", "")), str(item.get("invoice_number", ""))), reverse=True)
+
+
+def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
+    path = _invoice_store_path(root, invoice_id)
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        row = invoice(root, invoice_id); state = invoice_state(row); outstanding = _money(state["outstanding"])
+        if outstanding <= 0: raise ValueError("invoice is already paid")
+        amount = _money(values.get("amount", ""), "payment amount")
+        if amount <= 0 or amount > outstanding: raise ValueError("payment amount must be positive and not exceed the outstanding amount")
+        paid_at = str(values.get("paid_at", "")).strip() or date.today().isoformat()
+        try: date.fromisoformat(paid_at)
+        except ValueError as exc: raise ValueError("payment date must be a valid ISO date") from exc
+        payment = {"payment_id": uuid.uuid4().hex, "amount": f"{amount:.2f}", "paid_at": paid_at, "reference": str(values.get("reference", "")).strip()[:200], "recorded_at": utc_now(), "recorded_by": actor}
+        row.setdefault("payments", []).append(payment); new_state = invoice_state(row); row["status"] = new_state["status"]; row["updated_at"] = utc_now(); row["updated_by"] = actor
+        row.setdefault("history", []).append({"type": "payment_recorded", "at": row["updated_at"], "actor": actor, "payment_id": payment["payment_id"], "amount": payment["amount"], "status": new_state["status"]})
+        atomic_json_write(path, row)
+    DocumentStore(root).history.record("invoice_payment_recorded", actor, "invoice", invoice_id, {"payment_id": payment["payment_id"], "amount": payment["amount"], "paid_at": paid_at, "status": new_state["status"]})
+    return {**row, "payment_state": new_state}
+
+
 def _build_invoice_lines(root: Path, form) -> list[dict[str, Any]]:
     store = ObjectStore(root); object_ids = form.getlist("line_object_id"); descriptions = form.getlist("line_description"); quantities = form.getlist("line_quantity"); nets = form.getlist("line_net_price"); vats = form.getlist("line_vat_rate")
     count = max(len(object_ids), len(descriptions), len(quantities), len(nets), len(vats)); lines: list[dict[str, Any]] = []
@@ -473,7 +515,7 @@ def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict
     try:days=int(form.get("payment_days",crm.get("payment_days") or settings.get("default_payment_days","14")) or 0)
     except ValueError as exc:raise ValueError("payment days must be an integer") from exc
     due=issue+timedelta(days=max(0,days)); number=_invoice_number(root); invoice_id=str(uuid.uuid4()); fields=contact.get("fields",{}); buyer_name=str(fields.get("company") or fields.get("display_name") or "").strip()
-    row={"invoice_id":invoice_id,"invoice_number":number,"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":label,"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":"2.5.2","profile":"EN16931","status":"pending"},"created_at":utc_now(),"created_by":actor}
+    created_at=utc_now();row={"invoice_id":invoice_id,"invoice_number":number,"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":label,"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"open","payments":[],"history":[{"type":"issued","at":created_at,"actor":actor}],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":"2.5.2","profile":"EN16931","status":"pending"},"created_at":created_at,"created_by":actor}
     tpl=active_template(root,row["template_id"]); row["template_id"]=tpl["template_id"]; visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); pdfa,pdfa_status=_pdfa3_convert(visual); xml=_cii_xml(row); hybrid=embed_invoice_xml(pdfa,xml,"factur-x.xml"); validation=_validate_hybrid(hybrid,xml); row["zugferd"].update({"pdfa_pipeline":pdfa_status,"validation":validation,"status":"validated" if validation["validated"] else "embedded_unvalidated"})
     if settings.get("require_zugferd_validation") and not validation["validated"]:raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: "+", ".join(validation.get("details",[])))
     atomic_json_write(_invoice_store_path(root,invoice_id),row); document=_store_generated_pdf(root,contact_id,f"Rechnung-{number}",hybrid,actor,"invoice",tpl["template_id"],metadata={"invoice_id":invoice_id,"invoice_number":number,"invoice_total":totals["gross"],"invoice_currency":row["currency"],"zugferd_status":row["zugferd"]["status"],"zugferd_version":"2.5.2"}); row["document_id"]=document["document_id"]; atomic_json_write(_invoice_store_path(root,invoice_id),row); DocumentStore(root).history.record("invoice_created",actor,"invoice",invoice_id,{"invoice_number":number,"contact_id":contact_id,"document_id":document["document_id"],"totals":totals,"zugferd":row["zugferd"]}); return row,document
@@ -549,12 +591,44 @@ def contact_invoice(contact_id:str):
         except ValueError as exc:flash(str(exc))
     payment_days=str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=date.today().isoformat(),service_date=date.today().isoformat(),links=contact_links(root,contact_id))
 
+@bp.get("/invoices")
+@login_required
+def invoice_overview():
+    root,actor=_root(),_actor();contacts=ContactStore(root);query=request.args.get("q","").strip().casefold();selected_status=request.args.get("status","").strip()
+    rows=[]
+    for row in invoices(root):
+        try:contact=contacts.get(row["contact_id"],actor)
+        except ValueError:continue
+        if not contacts.can_manage(row["contact_id"],actor):continue
+        state=row["payment_state"]["status"]
+        if selected_status and state!=selected_status:continue
+        searchable=f"{row.get('invoice_number','')} {row.get('buyer',{}).get('name','')} {contact.get('fields',{}).get('display_name','')}"
+        if query and query not in searchable.casefold():continue
+        rows.append({**row,"contact":contact})
+    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"]=="paid" for row in rows)}
+    return render_template("documents/invoice_overview.html",rows=rows,stats=stats,query=request.args.get("q","").strip(),selected_status=selected_status)
+
 @bp.get("/invoices/<invoice_id>")
 @login_required
 def invoice_detail(invoice_id:str):
     try:row=invoice(_root(),invoice_id)
     except ValueError:abort(404)
-    contact=ContactStore(_root()).get(row["contact_id"],_actor());return render_template("documents/invoice_detail.html",invoice=row,contact=contact)
+    contacts=ContactStore(_root());contact=contacts.get(row["contact_id"],_actor())
+    if not contacts.can_manage(row["contact_id"],_actor()):abort(403)
+    return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,today=date.today().isoformat())
+
+@bp.post("/invoices/<invoice_id>/payments")
+@login_required
+def invoice_payment(invoice_id:str):
+    root,actor=_root(),_actor()
+    try:row=invoice(root,invoice_id)
+    except ValueError:abort(404)
+    if not ContactStore(root).can_manage(row["contact_id"],actor):abort(403)
+    try:record_invoice_payment(root,invoice_id,request.form,actor);flash(translate(g.language,"invoice.payment.saved"))
+    except ValueError as exc:
+        keys={"invoice is already paid":"invoice.payment.error.paid","payment amount must be positive and not exceed the outstanding amount":"invoice.payment.error.amount","payment date must be a valid ISO date":"invoice.payment.error.date"}
+        flash(translate(g.language,keys.get(str(exc),"invoice.payment.error.default")))
+    return redirect(url_for(".invoice_detail",invoice_id=invoice_id))
 
 @bp.post("/contacts/<contact_id>/attach")
 @login_required
