@@ -184,6 +184,10 @@ Vollbestandsläufe, Hashing und große Metadaten-Schreibvorgänge beim Öffnen e
 `restart.sh` startet die Anwendung neu und berücksichtigt aktive Indexer- und
 SSH/SFTP-Dienste. Ein erneuter Aufbau lokaler Indizes kann ohne erneuten
 Download der Quelldaten ausgelöst werden.
+Der sichere OSM-Neuaufbau, die Importzähler sowie Laufzeit- und Fehlerdiagnose
+für PDF/A/ZUGFeRD sind in
+[OSM-Index und Rechnungsfinalisierung](docs/OSM_INDEX_UND_RECHNUNGSFINALISIERUNG.md)
+dokumentiert.
 
 ## Voraussetzungen
 

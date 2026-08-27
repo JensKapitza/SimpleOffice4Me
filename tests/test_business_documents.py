@@ -16,6 +16,9 @@ from app.business_documents import (
     _credit_note_amounts,
     _draft_invoice_number,
     _draft_watermark,
+    _pdfa3_convert,
+    _validate_hybrid,
+    _zugferd_status,
     _invoice_number,
     _template_directory,
     address_labels,
@@ -137,6 +140,37 @@ class BusinessDocumentTests(unittest.TestCase):
             (directory / "draft-1.json").write_text(json.dumps({"invoice_id": "draft-1", "status": "draft", "totals": {"gross": "119.00"}}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "draft"):
                 record_invoice_payment(root, "draft-1", {"amount": "119"}, "tester")
+
+    def test_ghostscript_pdfa_conversion_can_read_system_icc_profile(self):
+        source = io.BytesIO()
+        pdf = canvas.Canvas(source, pagesize=A4)
+        pdf.drawString(40, 800, "PDF/A test")
+        pdf.save()
+
+        converted, status = _pdfa3_convert(source.getvalue())
+
+        if status in {"ghostscript_unavailable", "icc_profile_unavailable"}:
+            self.skipTest(status)
+        self.assertEqual("pdfa3_created", status)
+        self.assertGreater(len(converted), 0)
+        self.assertEqual(1, len(PdfReader(io.BytesIO(converted)).pages))
+
+    def test_missing_validators_is_an_explicit_validation_failure(self):
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        target = io.BytesIO()
+        writer.write(target)
+        with mock.patch("app.business_documents.shutil.which", return_value=None), \
+             mock.patch.dict("os.environ", {}, clear=True):
+            validation = _validate_hybrid(target.getvalue(), b"<invoice />")
+        self.assertFalse(validation["validated"])
+        self.assertIn("verapdf_unavailable", validation["details"])
+        self.assertIn("zugferd_2_5_2_validator_unconfigured", validation["details"])
+        self.assertEqual("validation_failed", _zugferd_status("pdfa3_created", validation))
+
+    def test_pdfa_failure_has_its_own_terminal_status(self):
+        self.assertEqual("pdfa_failed", _zugferd_status("ghostscript_pdfa_failed", {"validated": False}))
+        self.assertEqual("validated", _zugferd_status("pdfa3_created", {"validated": True}))
 
     def test_parallel_finalization_is_rejected_before_consuming_a_number(self):
         with tempfile.TemporaryDirectory() as temp:
