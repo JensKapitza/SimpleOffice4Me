@@ -18,6 +18,7 @@ from .access_control import is_admin
 from .auth import login_required
 from .contact_store import ContactStore
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
+from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex, search_address, unique_candidate
 from tools.launcher import start_osm_index_worker
@@ -30,6 +31,7 @@ class ContactCRMStore:
     def __init__(self, root: str | Path):
         self.root = Path(root).resolve()
         self.path = self.root / CONTROL_DIR / CRM_FILE
+        self.lock_path = self.root / CONTROL_DIR / ".contact-crm-write.lock"
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -50,30 +52,77 @@ class ContactCRMStore:
         return dict(self._read()["records"].get(contact_id, {}))
 
     def save(self, contact_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
-        data = self._read()
-        old = dict(data["records"].get(contact_id, {}))
-        record = {
-            "roles": sorted(set(values.get("roles", []))),
-            "status": str(values.get("status", "active")),
-            "customer_number": str(values.get("customer_number", "")).strip(),
-            "supplier_number": str(values.get("supplier_number", "")).strip(),
-            "discount": str(values.get("discount", "")).strip(),
-            "payment_terms": str(values.get("payment_terms", "")).strip(),
-            "payment_days": str(values.get("payment_days", "")).strip(),
-            "currency": str(values.get("currency", "EUR")).strip() or "EUR",
-            "tax_number": str(values.get("tax_number", "")).strip(),
-            "vat_id": str(values.get("vat_id", "")).strip(),
-            "bank_accounts": values.get("bank_accounts", []),
-            "addresses": values.get("addresses", []),
-            "communications": values.get("communications", []),
-            "relations": values.get("relations", []),
-            "notes": str(values.get("notes", "")).strip(),
-            "updated_at": utc_now(), "updated_by": actor,
-        }
-        data["records"][contact_id] = record
-        self._write(data)
+        with exclusive_file_lock(self.lock_path):
+            data = self._read()
+            old = dict(data["records"].get(contact_id, {}))
+            record = {
+                "roles": sorted(set(values.get("roles", []))),
+                "status": str(values.get("status", "active")),
+                "customer_number": str(values.get("customer_number", "")).strip(),
+                "supplier_number": str(values.get("supplier_number", "")).strip(),
+                "discount": str(values.get("discount", "")).strip(),
+                "payment_terms": str(values.get("payment_terms", "")).strip(),
+                "payment_days": str(values.get("payment_days", "")).strip(),
+                "currency": str(values.get("currency", "EUR")).strip() or "EUR",
+                "tax_number": str(values.get("tax_number", "")).strip(),
+                "vat_id": str(values.get("vat_id", "")).strip(),
+                "bank_accounts": values.get("bank_accounts", []),
+                "addresses": values.get("addresses", []),
+                "communications": values.get("communications", []),
+                "relations": values.get("relations", []),
+                "notes": str(values.get("notes", "")).strip(),
+                "activities": list(old.get("activities", []))[-500:],
+                "history": list(old.get("history", []))[-200:],
+                "updated_at": utc_now(), "updated_by": actor,
+            }
+            ignored = {"updated_at", "updated_by", "history", "activities", "bank_accounts"}
+            changed = [key for key in record if key not in ignored and old.get(key) != record.get(key)]
+            if changed:
+                record["history"].append({"type": "crm_change", "at": record["updated_at"], "actor": actor, "fields": changed})
+            data["records"][contact_id] = record
+            self._write(data)
         DocumentStore(self.root).history.record("contact_crm_updated", actor, "contact-crm", contact_id, {"before": old, "after": record})
         return record
+
+    def add_activity(self, contact_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
+        kind = str(values.get("kind", "note")).strip().casefold()
+        direction = str(values.get("direction", "internal")).strip().casefold()
+        if kind not in {"email", "phone", "meeting", "letter", "note"}: raise ValueError("unknown CRM activity type")
+        if direction not in {"incoming", "outgoing", "internal"}: raise ValueError("unknown CRM activity direction")
+        subject = " ".join(str(values.get("subject", "")).strip().split())[:300]
+        note = str(values.get("note", "")).strip()[:8000]
+        if not subject and not note: raise ValueError("subject or note is required")
+        activity = {"activity_id": uuid.uuid4().hex, "type": "communication", "kind": kind, "direction": direction, "subject": subject, "note": note, "at": str(values.get("at", "")).strip() or utc_now(), "actor": actor}
+        with exclusive_file_lock(self.lock_path):
+            data = self._read(); record = dict(data["records"].get(contact_id, {})); activities = list(record.get("activities", [])); activities.append(activity)
+            record["activities"] = activities[-500:]; record["updated_at"] = utc_now(); record["updated_by"] = actor
+            data["records"][contact_id] = record; self._write(data)
+        DocumentStore(self.root).history.record("contact_crm_activity_added", actor, "contact-crm", contact_id, activity)
+        return activity
+
+    def timeline(self, contact: dict[str, Any]) -> list[dict[str, Any]]:
+        crm = self.record(str(contact.get("contact_id", "")))
+        entries = [dict(item) for item in crm.get("activities", [])]
+        entries.extend(dict(item) for item in crm.get("history", []))
+        entries.extend({"type": "contact_change", **dict(item)} for item in contact.get("changes", []))
+        return sorted(entries, key=lambda item: str(item.get("at", "")), reverse=True)
+
+    def overview(self, contacts: list[dict[str, Any]], query: str = "", status: str = "", role: str = "", sort: str = "name") -> list[dict[str, Any]]:
+        needle = query.strip().casefold(); records = self._read()["records"]; rows: list[dict[str, Any]] = []
+        for contact in contacts:
+            crm = dict(records.get(contact.get("contact_id", ""), {}))
+            if status and crm.get("status", "active") != status: continue
+            if role and role not in crm.get("roles", []): continue
+            searchable = [*contact.get("fields", {}).values(), *contact.get("tags", []), *contact.get("groups", []), crm.get("customer_number", ""), crm.get("supplier_number", ""), crm.get("notes", "")]
+            searchable.extend(value for item in crm.get("communications", []) for value in item.values())
+            searchable.extend(value for item in crm.get("addresses", []) for value in item.values())
+            searchable.extend(value for item in crm.get("activities", []) for value in (item.get("subject", ""), item.get("note", "")))
+            if needle and needle not in " ".join(str(value) for value in searchable).casefold(): continue
+            activities = crm.get("activities", [])
+            rows.append({"contact": contact, "crm": crm, "last_activity": max((str(item.get("at", "")) for item in activities), default=""), "activity_count": len(activities)})
+        if sort == "recent":
+            return sorted(rows, key=lambda row: (row["last_activity"], str(row["contact"].get("contact_id", ""))), reverse=True)
+        return sorted(rows, key=lambda row: (str(row["contact"].get("fields", {}).get("display_name", "")).casefold(), str(row["contact"].get("contact_id", ""))))
 
     def create_update_token(self, contact_id: str, actor: str) -> str:
         data = self._read(); token = secrets.token_urlsafe(32)
@@ -129,6 +178,15 @@ def _eml_preview(root: Path, document_id: str) -> dict[str, Any]:
 
 
 def register(bp) -> None:
+    @bp.get("/documents/contacts/crm", endpoint="crm_overview")
+    @login_required
+    def crm_overview():
+        actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage(contact["contact_id"], actor)]; store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"])
+        query = request.args.get("q", "").strip(); status = request.args.get("status", "").strip(); role = request.args.get("role", "").strip(); sort = request.args.get("sort", "name").strip()
+        rows = store.overview(contacts, query, status, role, sort)
+        stats = {"total": len(rows), "active": sum(row["crm"].get("status", "active") == "active" for row in rows), "prospect": sum(row["crm"].get("status") == "prospect" for row in rows), "without_activity": sum(not row["activity_count"] for row in rows)}
+        return render_template("documents/contact_crm_overview.html", rows=rows, stats=stats, query=query, selected_status=status, selected_role=role, selected_sort=sort)
+
     @bp.get("/documents/contacts/address-search.json", endpoint="crm_address_search")
     @login_required
     def crm_address_search():
@@ -182,7 +240,17 @@ def register(bp) -> None:
             values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": [dict(zip(("type", "street", "postal", "city", "country"), row)) for row in _parse_rows(request.form.get("addresses", ""), 5)], "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)]}
             store.save(contact_id, values, actor); flash("CRM-Daten gespeichert. CardDAV-Änderungen können diese Daten nicht löschen."); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
-        return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), all_contacts=contacts.contacts(actor), osm_status=index.status(), osm_regions=GEOFABRIK_REGIONS, osm_admin=is_admin(g.user))
+        return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), timeline=store.timeline(contact), all_contacts=contacts.contacts(actor), osm_status=index.status(), osm_regions=GEOFABRIK_REGIONS, osm_admin=is_admin(g.user))
+
+    @bp.post("/documents/contacts/<contact_id>/crm/activity", endpoint="crm_add_activity")
+    @login_required
+    def crm_add_activity(contact_id: str):
+        actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"])
+        if not contacts.can_manage(contact_id, actor): abort(403)
+        try:
+            ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash("CRM-Aktivität gespeichert.")
+        except ValueError as exc: flash(str(exc))
+        return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id) + "#crm-timeline")
 
     @bp.post("/documents/contacts/<contact_id>/crm/update-link", endpoint="crm_update_link")
     @login_required
