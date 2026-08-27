@@ -23,6 +23,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex, search_address, unique_candidate
+from .settings_store import translate
 from tools.launcher import start_osm_index_worker
 
 
@@ -195,7 +196,8 @@ def register(bp) -> None:
     def crm_export():
         actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage(contact["contact_id"], actor)]
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]); rows = store.overview(contacts, request.args.get("q", ""), request.args.get("status", ""), request.args.get("role", ""), request.args.get("sort", "name"), request.args.get("without_activity") == "1")
-        headers = ("Name", "Company", "Email", "Phone", "Status", "Roles", "Customer number", "Supplier number", "Latest activity", "Activities") if g.language == "en" else ("Name", "Firma", "E-Mail", "Telefon", "Status", "Rollen", "Kundennummer", "Lieferantennummer", "Letzte Aktivität", "Aktivitäten")
+        header_keys = ("name", "company", "email", "phone", "status", "roles", "customer_number", "supplier_number", "latest_activity", "activities")
+        headers = tuple(translate(g.language, f"crm.csv.{key}") for key in header_keys)
         output = io.StringIO(); writer = csv.writer(output, delimiter=";"); writer.writerow(headers)
         for row in rows:
             fields = row["contact"].get("fields", {}); crm = row["crm"]
@@ -263,15 +265,14 @@ def register(bp) -> None:
         actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"])
         if not contacts.can_manage(contact_id, actor): abort(403)
         try:
-            ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash("CRM activity saved." if g.language == "en" else "CRM-Aktivität gespeichert.")
+            ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash(translate(g.language, "crm.activity.saved"))
         except ValueError as exc:
-            messages = {
-                "unknown CRM activity type": ("Unbekannte CRM-Aktivitätsart.", "Unknown CRM activity type."),
-                "unknown CRM activity direction": ("Unbekannte Richtung der CRM-Aktivität.", "Unknown CRM activity direction."),
-                "subject or note is required": ("Betreff oder Notiz ist erforderlich.", "Subject or note is required."),
+            message_keys = {
+                "unknown CRM activity type": "crm.activity.error.type",
+                "unknown CRM activity direction": "crm.activity.error.direction",
+                "subject or note is required": "crm.activity.error.content_required",
             }
-            german, english = messages.get(str(exc), ("CRM-Aktivität konnte nicht gespeichert werden.", "CRM activity could not be saved."))
-            flash(english if g.language == "en" else german)
+            flash(translate(g.language, message_keys.get(str(exc), "crm.activity.error.default")))
         return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id) + "#crm-timeline")
 
     @bp.post("/documents/contacts/<contact_id>/crm/update-link", endpoint="crm_update_link")
