@@ -79,6 +79,39 @@ class ThunderbirdContactFieldTests(unittest.TestCase):
         self.assertEqual(1, exported.count("BEGIN:VCARD"))
         self.assertEqual(1, exported.count("END:VCARD"))
 
+    def test_carddav_client_cannot_drop_unknown_server_properties(self):
+        contact = self.store.upsert_vcard(VCARD, "admin")
+        reduced = (
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:tb-contact\r\n"
+            "FN:Max Neu\r\nN:Neu;Max;;;\r\nEMAIL:max@example.test\r\nEND:VCARD\r\n"
+        )
+
+        updated = self.store.conditional_upsert_vcard(reduced, "carddav:admin", contact["contact_id"])
+        exported = self.store.vcard(updated["contact_id"], "admin")
+
+        self.assertIn("FN:Max Neu", exported)
+        self.assertIn("IMPP:xmpp:max@example.test", exported)
+        self.assertIn("X-MOZILLA-HTML:TRUE", exported)
+
+    def test_simpleoffice_extension_fields_survive_vcard_roundtrip(self):
+        contact = self.store.upsert(
+            {
+                "display_name": "Kunde", "custom_customer_number": "K-100",
+                "custom_payment_terms": "netto 30", "custom_vat_id": "DE123",
+            },
+            "admin",
+        )
+
+        updated = self.store.conditional_upsert_vcard(
+            self.store.vcard(contact["contact_id"], "admin"),
+            "carddav:admin",
+            contact["contact_id"],
+        )
+
+        self.assertEqual("K-100", updated["fields"]["customer_number"])
+        self.assertEqual("netto 30", updated["fields"]["payment_terms"])
+        self.assertEqual("DE123", updated["fields"]["vat_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

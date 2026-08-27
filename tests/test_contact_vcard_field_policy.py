@@ -63,6 +63,21 @@ class ContactVcardFieldPolicyTests(unittest.TestCase):
         self.assertNotIn("EMAIL:", exported)
         self.assertNotIn("ORG:", exported)
 
+    def test_carddav_put_preserves_fields_hidden_by_export_policy(self):
+        schema = self.store.schema()
+        aliases = dict(schema["aliases"])
+        aliases[VCARD_EXPORT_CONFIG_KEY] = [field for field in VCARD_EXPORT_FIELDS if field not in {"email", "phone", "bank_iban", "vat_id"}]
+        self.store.save_schema(schema["required"], aliases, "admin")
+
+        card = self.store.vcard(self.contact["contact_id"], "admin").replace("FN:Ada Example", "FN:Ada Updated")
+        updated = self.store.conditional_upsert_vcard(card, "carddav:admin", self.contact["contact_id"])
+
+        self.assertEqual("Ada Updated", updated["fields"]["display_name"])
+        self.assertEqual("ada@example.invalid", updated["fields"]["email"])
+        self.assertEqual("+49 123 456", updated["fields"]["phone"])
+        self.assertEqual("DE001234", updated["fields"]["bank_iban"])
+        self.assertEqual("DE999999999", updated["fields"]["vat_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

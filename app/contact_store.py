@@ -25,6 +25,22 @@ VCARD_EXPORT_FIELDS = (
     "vat_id", "tax_number", "bank_iban", "bank_bic", "unknown_properties",
 )
 
+VCARD_EXTENSION_FIELDS = {
+    "X-SIMPLEOFFICE-RELATIONSHIPS": "relationships",
+    "X-SIMPLEOFFICE-CONTACT-TYPE": "contact_type",
+    "X-SIMPLEOFFICE-STATUS": "status",
+    "X-SIMPLEOFFICE-CUSTOMER-NUMBER": "customer_number",
+    "X-SIMPLEOFFICE-SUPPLIER-NUMBER": "supplier_number",
+    "X-SIMPLEOFFICE-DISCOUNT": "discount",
+    "X-SIMPLEOFFICE-PAYMENT-TERMS": "payment_terms",
+    "X-SIMPLEOFFICE-PAYMENT-DAYS": "payment_days",
+    "X-SIMPLEOFFICE-CURRENCY": "currency",
+    "X-SIMPLEOFFICE-VAT-ID": "vat_id",
+    "X-SIMPLEOFFICE-TAX-NUMBER": "tax_number",
+    "X-SIMPLEOFFICE-BANK-IBAN": "bank_iban",
+    "X-SIMPLEOFFICE-BANK-BIC": "bank_bic",
+}
+
 DEFAULT_SCHEMA = {
     "required": ["display_name"],
     "aliases": {
@@ -362,22 +378,7 @@ class ContactStore:
                 address_type = "work" if label in {"firma", "arbeit", "work", "office"} else "home" if label in {"privat", "home"} else "other"
                 lines.append(f"ADR;TYPE={address_type}:;;{address_value};;;;")
 
-        extension_map = {
-            "relationships": "X-SIMPLEOFFICE-RELATIONSHIPS",
-            "contact_type": "X-SIMPLEOFFICE-CONTACT-TYPE",
-            "status": "X-SIMPLEOFFICE-STATUS",
-            "customer_number": "X-SIMPLEOFFICE-CUSTOMER-NUMBER",
-            "supplier_number": "X-SIMPLEOFFICE-SUPPLIER-NUMBER",
-            "discount": "X-SIMPLEOFFICE-DISCOUNT",
-            "payment_terms": "X-SIMPLEOFFICE-PAYMENT-TERMS",
-            "payment_days": "X-SIMPLEOFFICE-PAYMENT-DAYS",
-            "currency": "X-SIMPLEOFFICE-CURRENCY",
-            "vat_id": "X-SIMPLEOFFICE-VAT-ID",
-            "tax_number": "X-SIMPLEOFFICE-TAX-NUMBER",
-            "bank_iban": "X-SIMPLEOFFICE-BANK-IBAN",
-            "bank_bic": "X-SIMPLEOFFICE-BANK-BIC",
-        }
-        for field, property_name in extension_map.items():
+        for property_name, field in VCARD_EXTENSION_FIELDS.items():
             if field in released and fields.get(field):
                 lines.append(f"{property_name}:{value(field)}")
 
@@ -446,6 +447,7 @@ class ContactStore:
         self._require_actor(actor)
         values, contact_id, metadata = self._vcard_values(card, contact_id)
         fields = self._validated_fields(values)
+        released = self.vcard_export_fields()
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
             payload = self._read(self.contacts_path, {"contacts": []})
             existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
@@ -455,7 +457,33 @@ class ContactStore:
                 raise ContactConflict(existing)
             if expected_updated_at is not None and (existing is None or existing.get("updated_at", "") != expected_updated_at):
                 raise ContactConflict(existing)
+            if existing is not None:
+                fields = self._preserve_carddav_fields(fields, existing.get("fields", {}), released)
             return self._upsert_locked(fields, actor, contact_id, payload=payload, metadata=metadata)
+
+    def _preserve_carddav_fields(self, incoming: dict[str, str], existing: dict[str, str], released: set[str]) -> dict[str, str]:
+        """Keep fields a CardDAV client could not see or cannot represent."""
+        merged = dict(incoming)
+        field_policy = {
+            "first_name": "name", "last_name": "name", "department": "department",
+        }
+        incoming_raw_names = {
+            self._vcard_property_name(value)
+            for key, value in incoming.items()
+            if key.startswith("vcard_") and self._safe_raw_vcard_line(value)
+        }
+        for key, value in existing.items():
+            if key in merged:
+                continue
+            if key.startswith("vcard_"):
+                name = self._vcard_property_name(value)
+                if name not in incoming_raw_names:
+                    merged[key] = value
+                continue
+            policy_key = field_policy.get(key, key)
+            if policy_key not in released:
+                merged[key] = value
+        return merged
 
     @staticmethod
     def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str, dict[str, list[str]]]:
@@ -497,6 +525,7 @@ class ContactStore:
             elif name == "NOTE": values["note"] = value
             elif name == "CATEGORIES": metadata["tags"] = ContactStore._split_vcard_list(raw_value)
             elif name == "X-SIMPLEOFFICE-GROUP": metadata["groups"] = ContactStore._split_vcard_list(raw_value)
+            elif name in VCARD_EXTENSION_FIELDS: values[f"custom_{VCARD_EXTENSION_FIELDS[name]}"] = value
             elif name == "UID" and not contact_id: contact_id = value
             elif name not in {"BEGIN", "END", "VERSION"}:
                 safe = ContactStore._safe_raw_vcard_line(raw)
