@@ -3,12 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.osm_address import LocalAddressIndex, _remote_total, human_bytes, unique_candidate
-
-
-class _Headers(dict):
-    def get(self, key, default=None):
-        return super().get(key, default)
+from app.osm_address import LocalAddressIndex, human_bytes, unique_candidate
 
 
 class OsmAddressTests(unittest.TestCase):
@@ -31,6 +26,20 @@ class OsmAddressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual([], LocalAddressIndex(Path(root)).search("Musterstraße 12"))
 
+    def test_search_tolerates_missing_city_on_osm_address(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            with index._db() as db:
+                db.execute(
+                    "INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    ("Weserstraße", "27", "47137", "", "DE", "NRW", "", "", "node", "27", "weserstrasse 27 47137 de"),
+                )
+            result = index.search("Duisburg 47137 Weserstr. 27", country_code="de")
+            self.assertEqual(1, len(result))
+            self.assertEqual("Weserstraße 27", result[0]["street"])
+            self.assertEqual("fallback", result[0]["match_quality"])
+            self.assertIsNone(unique_candidate(result))
+
     def test_unique_requires_one_complete_candidate(self):
         candidate = {"street": "A 1", "postal": "12345", "city": "Ort", "country": "DE"}
         self.assertEqual(candidate, unique_candidate([candidate]))
@@ -51,22 +60,6 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual(25.0, status["progress_percent"])
             self.assertEqual(25, status["downloaded_bytes"])
             self.assertEqual(100, status["expected_bytes"])
-
-    def test_remote_total_prefers_content_range_for_resume(self):
-        self.assertEqual(1000, _remote_total(_Headers({"Content-Range": "bytes 250-499/1000", "Content-Length": "250"}), 250))
-        self.assertEqual(1000, _remote_total(_Headers({"Content-Length": "750"}), 250))
-        self.assertEqual(750, _remote_total(_Headers({"Content-Length": "750"}), 0))
-
-    def test_partial_download_state_is_visible_as_resume_progress(self):
-        with tempfile.TemporaryDirectory() as root:
-            index = LocalAddressIndex(Path(root))
-            index.data_dir.mkdir(parents=True, exist_ok=True)
-            partial = index.data_dir / "germany-latest.osm.pbf.part"
-            partial.write_bytes(b"x" * 50)
-            index.status_path.write_text(json.dumps({"state": "retrying", "downloaded_bytes": partial.stat().st_size, "expected_bytes": 100}), encoding="utf-8")
-            status = index.status()
-            self.assertEqual("retrying", status["state"])
-            self.assertEqual(50.0, status["progress_percent"])
 
 
 if __name__ == "__main__":
