@@ -64,6 +64,9 @@ UI_LITERAL_TRANSLATIONS = {
     },
 }
 
+TRANSLATIONS["de"].update({"invoice.status.draft": "Entwurf"})
+TRANSLATIONS["en"].update({"invoice.status.draft": "Draft"})
+
 
 def translate(language: str, key: str) -> str:
     return TRANSLATIONS.get(language, TRANSLATIONS["de"]).get(key, key)

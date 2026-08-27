@@ -276,6 +276,14 @@ def _invoice_number(root: Path) -> str:
     return f"{year}-{number:04d}"
 
 
+def _draft_invoice_number(root: Path, issue_date: date) -> str:
+    """Return a non-binding preview of the next annual number without consuming it."""
+    path = root / CONTROL_DIR / INVOICE_SEQUENCE
+    state = _read_json(path, {"years": {}})
+    next_number = int(state.get("years", {}).get(str(issue_date.year), 0)) + 1
+    return f"DRAFT-{issue_date.year}-{next_number:04d}"
+
+
 def _credit_note_number(root: Path) -> str:
     now = datetime.now(timezone.utc); path = root / CONTROL_DIR / CREDIT_NOTE_SEQUENCE; lock = path.with_suffix(".lock"); path.parent.mkdir(parents=True, exist_ok=True)
     with exclusive_file_lock(lock):
@@ -317,6 +325,9 @@ def invoice(root: Path, invoice_id: str) -> dict[str, Any]:
 
 def invoice_state(row: dict[str, Any], today: date | None = None) -> dict[str, Any]:
     """Return payment state without changing the immutable invoice snapshot."""
+    if row.get("status") == "draft":
+        gross = _money(row.get("totals", {}).get("gross", "0"))
+        return {"status": "draft", "paid": "0.00", "credited": "0.00", "effective_total": f"{gross:.2f}", "outstanding": f"{gross:.2f}"}
     original_gross = _money(row.get("totals", {}).get("gross", "0"))
     credited = sum((_money(item.get("gross", "0")) for item in row.get("credit_notes", []) if isinstance(item, dict)), Decimal("0"))
     gross = max(Decimal("0"), original_gross - credited)
@@ -344,6 +355,7 @@ def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], 
     path = _invoice_store_path(root, invoice_id)
     with exclusive_file_lock(path.with_suffix(".lock")):
         row = invoice(root, invoice_id); state = invoice_state(row); outstanding = _money(state["outstanding"])
+        if row.get("status") == "draft": raise ValueError("payments cannot be recorded for an invoice draft")
         if outstanding <= 0: raise ValueError("invoice is already paid")
         amount = _money(values.get("amount", ""), "payment amount")
         if amount <= 0 or amount > outstanding: raise ValueError("payment amount must be positive and not exceed the outstanding amount")
@@ -361,6 +373,7 @@ def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], 
 def apply_available_customer_credit(root: Path, invoice_id: str, actor: str) -> dict[str, Any]:
     """Apply available same-currency credit as payment without changing VAT totals."""
     row = invoice(root, invoice_id)
+    if row.get("status") == "draft": raise ValueError("customer credit cannot be applied to an invoice draft")
     state = invoice_state(row)
     outstanding = _money(state["outstanding"])
     account = CustomerCreditLedger(root).account(row["contact_id"], row.get("currency", "EUR"))
@@ -475,6 +488,7 @@ def _credit_note_pdf(row: dict[str, Any], note: dict[str, Any]) -> bytes:
 
 def create_credit_note(root: Path, invoice_id: str, amount: Any, reason: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
     row = invoice(root, invoice_id); value = _money(amount, "credit note amount"); reason = reason.strip()
+    if row.get("status") == "draft": raise ValueError("a credit note cannot be created for an invoice draft")
     if not reason: raise ValueError("credit note reason is required")
     already = sum((_money(item.get("gross", "0")) for item in row.get("credit_notes", [])), Decimal("0"))
     if value > Decimal(row["totals"]["gross"]) - already: raise ValueError("credit note amount exceeds remaining invoice total")
@@ -621,7 +635,7 @@ def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, 
     attach_contact_document(root,contact_id,document["document_id"],actor,relation=kind,metadata={"subject":subject,"template_id":template_id,**(metadata or {})}); return store.get_document(document["document_id"])
 
 
-def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
+def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
     if not contacts.can_manage(contact_id,actor):raise PermissionError
     crm=ContactCRMStore(root).record(contact_id); selected=form.get("address",""); label,candidates=address_labels(contact,crm,selected); candidate=next((item for item in candidates if item["label"]==label),None)
@@ -634,16 +648,57 @@ def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict
     except ValueError as exc:raise ValueError("invoice/service date must be valid ISO dates") from exc
     try:days=int(form.get("payment_days",crm.get("payment_days") or settings.get("default_payment_days","14")) or 0)
     except ValueError as exc:raise ValueError("payment days must be an integer") from exc
-    due=issue+timedelta(days=max(0,days)); number=_invoice_number(root); invoice_id=str(uuid.uuid4()); fields=contact.get("fields",{}); buyer_name=str(fields.get("company") or fields.get("display_name") or "").strip()
-    created_at=utc_now();row={"invoice_id":invoice_id,"invoice_number":number,"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":label,"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"open","payments":[],"history":[{"type":"issued","at":created_at,"actor":actor}],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":"2.5.2","profile":"EN16931","status":"pending"},"created_at":created_at,"created_by":actor}
+    due=issue+timedelta(days=max(0,days)); invoice_id=str(existing.get("invoice_id")) if existing else str(uuid.uuid4()); fields=contact.get("fields",{}); buyer_name=str(fields.get("company") or fields.get("display_name") or "").strip()
+    now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":label,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":"2.5.2","profile":"EN16931","status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
     available_credit = max(Decimal("0"), Decimal(CustomerCreditLedger(root).account(contact_id, row["currency"])["balance"]))
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
     row["settlement"] = {"customer_credit": f"{planned_credit:.2f}", "bank_due": f"{(Decimal(totals['gross']) - planned_credit).quantize(MONEY):.2f}"}
-    tpl=active_template(root,row["template_id"]); row["template_id"]=tpl["template_id"]; visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); pdfa,pdfa_status=_pdfa3_convert(visual); xml=_cii_xml(row); hybrid=embed_invoice_xml(pdfa,xml,"factur-x.xml"); validation=_validate_hybrid(hybrid,xml); row["zugferd"].update({"pdfa_pipeline":pdfa_status,"validation":validation,"status":"validated" if validation["validated"] else "embedded_unvalidated"})
-    if settings.get("require_zugferd_validation") and not validation["validated"]:raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: "+", ".join(validation.get("details",[])))
-    atomic_json_write(_invoice_store_path(root,invoice_id),row); document=_store_generated_pdf(root,contact_id,f"Rechnung-{number}",hybrid,actor,"invoice",tpl["template_id"],metadata={"invoice_id":invoice_id,"invoice_number":number,"invoice_total":totals["gross"],"invoice_currency":row["currency"],"zugferd_status":row["zugferd"]["status"],"zugferd_version":"2.5.2"}); row["document_id"]=document["document_id"]; atomic_json_write(_invoice_store_path(root,invoice_id),row); DocumentStore(root).history.record("invoice_created",actor,"invoice",invoice_id,{"invoice_number":number,"contact_id":contact_id,"document_id":document["document_id"],"totals":totals,"zugferd":row["zugferd"]})
-    if planned_credit > 0: row = apply_available_customer_credit(root, invoice_id, actor)
+    tpl=active_template(root,row["template_id"]); row["template_id"]=tpl["template_id"]
+    row["history"].append({"type":"draft_updated" if existing else "draft_created","at":now,"actor":actor})
+    return row
+
+
+def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id: str = "") -> dict[str, Any]:
+    existing = invoice(root, invoice_id) if invoice_id else None
+    if existing and (existing.get("status") != "draft" or existing.get("contact_id") != contact_id): raise ValueError("only a matching invoice draft can be edited")
+    row = _invoice_row_from_form(root, contact_id, form, actor, existing)
+    atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
+    DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})
+    return row
+
+
+def _draft_watermark(pdf: bytes) -> bytes:
+    reader=PdfReader(io.BytesIO(pdf)); writer=PdfWriter()
+    for source in reader.pages:
+        overlay=io.BytesIO(); c=canvas.Canvas(overlay,pagesize=A4); c.saveState(); c.setFillColor(colors.Color(.75,.1,.1,alpha=.18)); c.setFont("Helvetica-Bold",42); c.translate(A4[0]/2,A4[1]/2); c.rotate(35); c.drawCentredString(0,0,"ENTWURF / DRAFT"); c.setFont("Helvetica-Bold",12); c.drawCentredString(0,-18*mm,"KEINE RECHNUNG / NOT AN INVOICE"); c.restoreState(); c.save(); overlay.seek(0); writer.add_page(source); writer.pages[-1].merge_page(PdfReader(overlay).pages[0])
+    target=io.BytesIO(); writer.write(target); return target.getvalue()
+
+
+def draft_invoice_pdf(root: Path, row: dict[str, Any]) -> bytes:
+    if row.get("status") != "draft": raise ValueError("invoice is not a draft")
+    tpl=active_template(root,row.get("template_id","")); visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); return _draft_watermark(visual)
+
+
+def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
+    row=invoice(root,invoice_id)
+    if row.get("status") != "draft": raise ValueError("invoice is already finalized")
+    settings=business_settings(root); number=row.get("invoice_number",""); number=_invoice_number(root) if not number or number.startswith("DRAFT-") else number; row["invoice_number"]=number; row["status"]="finalizing"; row["history"].append({"type":"number_assigned","at":utc_now(),"actor":actor,"invoice_number":number}); atomic_json_write(_invoice_store_path(root,invoice_id),row)
+    try:
+        tpl=active_template(root,row["template_id"]); visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); pdfa,pdfa_status=_pdfa3_convert(visual); xml=_cii_xml(row); hybrid=embed_invoice_xml(pdfa,xml,"factur-x.xml"); validation=_validate_hybrid(hybrid,xml); row["zugferd"].update({"pdfa_pipeline":pdfa_status,"validation":validation,"status":"validated" if validation["validated"] else "embedded_unvalidated"})
+        if settings.get("require_zugferd_validation") and not validation["validated"]:
+            raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: "+", ".join(validation.get("details",[])))
+        document=_store_generated_pdf(root,row["contact_id"],f"Rechnung-{number}",hybrid,actor,"invoice",tpl["template_id"],metadata={"invoice_id":invoice_id,"invoice_number":number,"invoice_total":row["totals"]["gross"],"invoice_currency":row["currency"],"zugferd_status":row["zugferd"]["status"],"zugferd_version":"2.5.2"})
+    except Exception as exc:
+        row["status"]="draft"; row["finalization_error"]=str(exc); row["history"].append({"type":"finalization_failed","at":utc_now(),"actor":actor,"error":str(exc)[:500]}); atomic_json_write(_invoice_store_path(root,invoice_id),row)
+        raise
+    row.pop("finalization_error",None); row["document_id"]=document["document_id"]; row["status"]="open"; row["history"].append({"type":"issued","at":utc_now(),"actor":actor}); atomic_json_write(_invoice_store_path(root,invoice_id),row); DocumentStore(root).history.record("invoice_created",actor,"invoice",invoice_id,{"invoice_number":number,"contact_id":row["contact_id"],"document_id":document["document_id"],"totals":row["totals"],"zugferd":row["zugferd"]})
+    if Decimal(row.get("settlement",{}).get("customer_credit","0")) > 0: row = apply_available_customer_credit(root, invoice_id, actor)
     return row,document
+
+
+def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
+    draft=save_invoice_draft(root,contact_id,form,actor)
+    return finalize_invoice(root,draft["invoice_id"],actor)
 
 
 @bp.get("/templates")
@@ -709,12 +764,33 @@ def contact_invoice(contact_id:str):
     try:contact=contacts.get(contact_id,actor)
     except ValueError:abort(404)
     if not contacts.can_manage(contact_id,actor):abort(403)
-    crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else request.args.get("address","");address,addresses=address_labels(contact,crm,selected);settings=business_settings(root)
+    draft_id=request.form.get("invoice_id","").strip() if request.method=="POST" else request.args.get("invoice_id","").strip(); draft=None
+    if draft_id:
+        try:draft=invoice(root,draft_id)
+        except ValueError:abort(404)
+        if draft.get("contact_id")!=contact_id or draft.get("status")!="draft":abort(409)
+    crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else (draft.get("buyer",{}).get("address_id","") if draft else request.args.get("address",""));address,addresses=address_labels(contact,crm,selected);settings=business_settings(root)
     if request.method=="POST":
-        try:row,document=_create_invoice(root,contact_id,request.form,actor);flash(f"Rechnung {row['invoice_number']} erstellt, gespeichert und mit dem Kontakt verknüpft. ZUGFeRD: {row['zugferd']['status']}.");return redirect(url_for("documents.detail",document_id=document["document_id"]))
+        try:
+            row=save_invoice_draft(root,contact_id,request.form,actor,draft_id)
+            if request.form.get("action")=="finalize":
+                row,document=finalize_invoice(root,row["invoice_id"],actor);flash(f"Rechnung {row['invoice_number']} finalisiert und mit dem Kontakt verknüpft. ZUGFeRD: {row['zugferd']['status']}.");return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
+            flash("Rechnungsentwurf schnell gespeichert. Es wurde noch keine endgültige Rechnungsnummer vergeben.");return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
         except PermissionError:abort(403)
         except ValueError as exc:flash(str(exc))
-    payment_days=str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=date.today().isoformat(),service_date=date.today().isoformat(),links=contact_links(root,contact_id))
+    payment_days=str((date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days) if draft else str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=draft.get("issue_date",date.today().isoformat()) if draft else date.today().isoformat(),service_date=draft.get("service_date",date.today().isoformat()) if draft else date.today().isoformat(),links=contact_links(root,contact_id),draft=draft)
+
+
+@bp.get("/invoices/<invoice_id>/draft.pdf")
+@login_required
+def invoice_draft_preview(invoice_id: str):
+    root,actor=_root(),_actor()
+    try:row=invoice(root,invoice_id)
+    except ValueError:abort(404)
+    if not ContactStore(root).can_manage(row["contact_id"],actor):abort(403)
+    try:pdf=draft_invoice_pdf(root,row)
+    except ValueError:abort(409)
+    return send_file(io.BytesIO(pdf),as_attachment=False,download_name=f"{_safe_filename(row['invoice_number'])}.pdf",mimetype="application/pdf")
 
 
 @bp.get("/contacts/<contact_id>/billing")
@@ -791,6 +867,8 @@ def invoice_download(invoice_id: str):
     try: row = invoice(root, invoice_id)
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
+    if row.get("status") == "draft":
+        return send_file(io.BytesIO(draft_invoice_pdf(root,row)),as_attachment=True,download_name=f"{_safe_filename(row['invoice_number'])}.pdf",mimetype="application/pdf")
     try: path = _invoice_pdf_path(root, row)
     except ValueError: abort(404)
     return send_file(path, as_attachment=True, download_name=f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", mimetype="application/pdf")

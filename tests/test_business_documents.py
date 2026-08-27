@@ -13,6 +13,8 @@ from app.document_store import CONTROL_DIR
 from app.business_documents import (
     _epc_qr_payload,
     _credit_note_amounts,
+    _draft_invoice_number,
+    _draft_watermark,
     _invoice_number,
     _template_directory,
     address_labels,
@@ -39,6 +41,22 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_draft_number_does_not_consume_invoice_sequence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual("DRAFT-2026-0001", _draft_invoice_number(root, date(2026, 8, 27)))
+            self.assertRegex(_invoice_number(root), r"^\d{4}-0001$")
+
+    def test_draft_pdf_is_watermarked_without_changing_page_count(self):
+        source = io.BytesIO()
+        pdf = canvas.Canvas(source, pagesize=A4)
+        pdf.drawString(20, 820, "Invoice preview")
+        pdf.showPage()
+        pdf.save()
+        result = _draft_watermark(source.getvalue())
+        self.assertEqual(1, len(PdfReader(io.BytesIO(result)).pages))
+        self.assertGreater(len(result), len(source.getvalue()))
+
     def test_partial_credit_note_preserves_gross_and_vat_split(self):
         row = {"totals": {"gross": "119.00", "vat_groups": {"19": {"basis": "100.00", "tax": "19.00"}}}}
         amounts = _credit_note_amounts(row, __import__("decimal").Decimal("59.50"))
@@ -104,6 +122,18 @@ class BusinessDocumentTests(unittest.TestCase):
         self.assertEqual("100.00", state["outstanding"])
         row["payments"].append({"amount": "100.00"})
         self.assertEqual("paid", invoice_state(row, date(2026, 8, 21))["status"])
+
+    def test_invoice_state_keeps_draft_out_of_receivables(self):
+        state = invoice_state({"status": "draft", "totals": {"gross": "119.00"}})
+        self.assertEqual("draft", state["status"])
+        self.assertEqual("0.00", state["paid"])
+
+    def test_payment_cannot_be_recorded_for_draft(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            (directory / "draft-1.json").write_text(json.dumps({"invoice_id": "draft-1", "status": "draft", "totals": {"gross": "119.00"}}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "draft"):
+                record_invoice_payment(root, "draft-1", {"amount": "119"}, "tester")
 
     def test_payment_is_persisted_and_audited_without_changing_invoice_lines(self):
         with tempfile.TemporaryDirectory() as temp:
