@@ -206,6 +206,22 @@ class BusinessDocumentTests(unittest.TestCase):
 
         self.assertEqual("Max Muster", label.splitlines()[0])
 
+    def test_carddav_company_display_name_does_not_hide_structured_person_name(self):
+        contact = {
+            "fields": {
+                "display_name": "Muster GmbH",
+                "company": "Muster GmbH",
+                "first_name": "Max",
+                "last_name": "Muster",
+            },
+            "addresses": [],
+        }
+        crm = {"addresses": [{"type": "billing", "street": "Altstr. 1", "postal": "47137", "city": "Duisburg"}]}
+
+        label, _choices = address_labels(contact, crm)
+
+        self.assertEqual(["Muster GmbH", "Max Muster", "Altstr. 1", "47137 Duisburg"], label.splitlines())
+
     def test_three_page_template_uses_first_and_follow_background_and_numbers_pages(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

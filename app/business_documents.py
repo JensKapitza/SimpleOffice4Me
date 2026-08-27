@@ -177,9 +177,8 @@ def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> di
 def _recipient_names(contact: dict[str, Any]) -> list[str]:
     fields = contact.get("fields", {})
     company = str(fields.get("company", "")).strip()
-    person = str(fields.get("display_name", "")).strip()
-    if not person:
-        person = " ".join(filter(None, (str(fields.get("first_name", "")).strip(), str(fields.get("last_name", "")).strip())))
+    structured_person = " ".join(filter(None, (str(fields.get("first_name", "")).strip(), str(fields.get("last_name", "")).strip())))
+    person = structured_person or str(fields.get("display_name", "")).strip()
     names: list[str] = []
     for value in (company, person):
         if value and value.casefold() not in {item.casefold() for item in names}:
@@ -668,7 +667,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     except ValueError as exc:raise ValueError("invoice/service date must be valid ISO dates") from exc
     try:days=int(form.get("payment_days",crm.get("payment_days") or settings.get("default_payment_days","14")) or 0)
     except ValueError as exc:raise ValueError("payment days must be an integer") from exc
-    due=issue+timedelta(days=max(0,days)); invoice_id=str(existing.get("invoice_id")) if existing else str(uuid.uuid4()); fields=contact.get("fields",{}); buyer_name=str(fields.get("company") or fields.get("display_name") or "").strip()
+    due=issue+timedelta(days=max(0,days)); invoice_id=str(existing.get("invoice_id")) if existing else str(uuid.uuid4()); fields=contact.get("fields",{}); recipient_names=_recipient_names(contact); buyer_name=recipient_names[0] if recipient_names else ""
     now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":label,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":"2.5.2","profile":"EN16931","status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
     available_credit = max(Decimal("0"), Decimal(CustomerCreditLedger(root).account(contact_id, row["currency"])["balance"]))
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
