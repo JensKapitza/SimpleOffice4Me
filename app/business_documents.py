@@ -375,7 +375,7 @@ def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], 
     path = _invoice_store_path(root, invoice_id)
     with exclusive_file_lock(path.with_suffix(".lock")):
         row = invoice(root, invoice_id); state = invoice_state(row); outstanding = _money(state["outstanding"])
-        if row.get("status") == "draft": raise ValueError("payments cannot be recorded for an invoice draft")
+        if row.get("status") in {"draft", "finalizing"}: raise ValueError("payments cannot be recorded for a draft or while finalizing")
         if outstanding <= 0: raise ValueError("invoice is already paid")
         amount = _money(values.get("amount", ""), "payment amount")
         if amount <= 0 or amount > outstanding: raise ValueError("payment amount must be positive and not exceed the outstanding amount")
@@ -393,7 +393,7 @@ def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], 
 def apply_available_customer_credit(root: Path, invoice_id: str, actor: str) -> dict[str, Any]:
     """Apply available same-currency credit as payment without changing VAT totals."""
     row = invoice(root, invoice_id)
-    if row.get("status") == "draft": raise ValueError("customer credit cannot be applied to an invoice draft")
+    if row.get("status") in {"draft", "finalizing"}: raise ValueError("customer credit cannot be applied before an invoice is finalized")
     state = invoice_state(row)
     outstanding = _money(state["outstanding"])
     account = CustomerCreditLedger(root).account(row["contact_id"], row.get("currency", "EUR"))
@@ -508,7 +508,7 @@ def _credit_note_pdf(row: dict[str, Any], note: dict[str, Any]) -> bytes:
 
 def create_credit_note(root: Path, invoice_id: str, amount: Any, reason: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
     row = invoice(root, invoice_id); value = _money(amount, "credit note amount"); reason = reason.strip()
-    if row.get("status") == "draft": raise ValueError("a credit note cannot be created for an invoice draft")
+    if row.get("status") in {"draft", "finalizing"}: raise ValueError("a credit note cannot be created before an invoice is finalized")
     if not reason: raise ValueError("credit note reason is required")
     already = sum((_money(item.get("gross", "0")) for item in row.get("credit_notes", [])), Decimal("0"))
     if value > Decimal(row["totals"]["gross"]) - already: raise ValueError("credit note amount exceeds remaining invoice total")
@@ -679,10 +679,13 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
 
 
 def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id: str = "") -> dict[str, Any]:
-    existing = invoice(root, invoice_id) if invoice_id else None
-    if existing and (existing.get("status") != "draft" or existing.get("contact_id") != contact_id): raise ValueError("only a matching invoice draft can be edited")
-    row = _invoice_row_from_form(root, contact_id, form, actor, existing)
-    atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
+    path = _invoice_store_path(root, invoice_id) if invoice_id else None
+    lock_path = path.with_suffix(".lock") if path else root / CONTROL_DIR / INVOICE_DIR / ".create.lock"
+    with exclusive_file_lock(lock_path):
+        existing = invoice(root, invoice_id) if invoice_id else None
+        if existing and (existing.get("status") != "draft" or existing.get("contact_id") != contact_id): raise ValueError("only a matching invoice draft can be edited")
+        row = _invoice_row_from_form(root, contact_id, form, actor, existing)
+        atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
     DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})
     return row
 
@@ -700,18 +703,21 @@ def draft_invoice_pdf(root: Path, row: dict[str, Any]) -> bytes:
 
 
 def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
-    row=invoice(root,invoice_id)
-    if row.get("status") != "draft": raise ValueError("invoice is already finalized")
-    settings=business_settings(root); number=row.get("invoice_number",""); number=_invoice_number(root) if not number or number.startswith("DRAFT-") else number; row["invoice_number"]=number; row["status"]="finalizing"; row["history"].append({"type":"number_assigned","at":utc_now(),"actor":actor,"invoice_number":number}); atomic_json_write(_invoice_store_path(root,invoice_id),row)
-    try:
-        tpl=active_template(root,row["template_id"]); visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); pdfa,pdfa_status=_pdfa3_convert(visual); xml=_cii_xml(row); hybrid=embed_invoice_xml(pdfa,xml,"factur-x.xml"); validation=_validate_hybrid(hybrid,xml); row["zugferd"].update({"pdfa_pipeline":pdfa_status,"validation":validation,"status":"validated" if validation["validated"] else "embedded_unvalidated"})
-        if settings.get("require_zugferd_validation") and not validation["validated"]:
-            raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: "+", ".join(validation.get("details",[])))
-        document=_store_generated_pdf(root,row["contact_id"],f"Rechnung-{number}",hybrid,actor,"invoice",tpl["template_id"],metadata={"invoice_id":invoice_id,"invoice_number":number,"invoice_total":row["totals"]["gross"],"invoice_currency":row["currency"],"zugferd_status":row["zugferd"]["status"],"zugferd_version":"2.5.2"})
-    except Exception as exc:
-        row["status"]="draft"; row["finalization_error"]=str(exc); row["history"].append({"type":"finalization_failed","at":utc_now(),"actor":actor,"error":str(exc)[:500]}); atomic_json_write(_invoice_store_path(root,invoice_id),row)
-        raise
-    row.pop("finalization_error",None); row["document_id"]=document["document_id"]; row["status"]="open"; row["history"].append({"type":"issued","at":utc_now(),"actor":actor}); atomic_json_write(_invoice_store_path(root,invoice_id),row); DocumentStore(root).history.record("invoice_created",actor,"invoice",invoice_id,{"invoice_number":number,"contact_id":row["contact_id"],"document_id":document["document_id"],"totals":row["totals"],"zugferd":row["zugferd"]})
+    path=_invoice_store_path(root,invoice_id)
+    with exclusive_file_lock(path.with_suffix(".lock"),blocking=False) as acquired:
+        if not acquired: raise ValueError("invoice finalization is already in progress")
+        row=invoice(root,invoice_id)
+        if row.get("status") != "draft": raise ValueError("invoice is already finalized")
+        settings=business_settings(root); number=row.get("invoice_number",""); number=_invoice_number(root) if not number or number.startswith("DRAFT-") else number; row["invoice_number"]=number; row["history"].append({"type":"number_assigned","at":utc_now(),"actor":actor,"invoice_number":number})
+        try:
+            tpl=active_template(root,row["template_id"]); visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); pdfa,pdfa_status=_pdfa3_convert(visual); xml=_cii_xml(row); hybrid=embed_invoice_xml(pdfa,xml,"factur-x.xml"); validation=_validate_hybrid(hybrid,xml); row["zugferd"].update({"pdfa_pipeline":pdfa_status,"validation":validation,"status":"validated" if validation["validated"] else "embedded_unvalidated"})
+            if settings.get("require_zugferd_validation") and not validation["validated"]:
+                raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: "+", ".join(validation.get("details",[])))
+            document=_store_generated_pdf(root,row["contact_id"],f"Rechnung-{number}",hybrid,actor,"invoice",tpl["template_id"],metadata={"invoice_id":invoice_id,"invoice_number":number,"invoice_total":row["totals"]["gross"],"invoice_currency":row["currency"],"zugferd_status":row["zugferd"]["status"],"zugferd_version":"2.5.2"})
+        except Exception as exc:
+            row["status"]="draft"; row["finalization_error"]=str(exc); row["history"].append({"type":"finalization_failed","at":utc_now(),"actor":actor,"error":str(exc)[:500]}); atomic_json_write(path,row)
+            raise
+        row.pop("finalization_error",None); row["document_id"]=document["document_id"]; row["status"]="open"; row["history"].append({"type":"issued","at":utc_now(),"actor":actor}); atomic_json_write(path,row); DocumentStore(root).history.record("invoice_created",actor,"invoice",invoice_id,{"invoice_number":number,"contact_id":row["contact_id"],"document_id":document["document_id"],"totals":row["totals"],"zugferd":row["zugferd"]})
     if Decimal(row.get("settlement",{}).get("customer_credit","0")) > 0: row = apply_available_customer_credit(root, invoice_id, actor)
     return row,document
 

@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest import mock
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
@@ -21,12 +22,14 @@ from app.business_documents import (
     attach_contact_document,
     contact_links,
     embed_invoice_xml,
+    finalize_invoice,
     inspect_zugferd_pdf,
     invoice_state,
     record_invoice_payment,
     render_business_pdf,
 )
 from app.customer_credit import CustomerCreditLedger
+from app.file_lock import exclusive_file_lock
 
 
 def _three_page_template(root: Path) -> dict:
@@ -134,6 +137,31 @@ class BusinessDocumentTests(unittest.TestCase):
             (directory / "draft-1.json").write_text(json.dumps({"invoice_id": "draft-1", "status": "draft", "totals": {"gross": "119.00"}}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "draft"):
                 record_invoice_payment(root, "draft-1", {"amount": "119"}, "tester")
+
+    def test_parallel_finalization_is_rejected_before_consuming_a_number(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            path = directory / "draft-1.json"
+            path.write_text(json.dumps({"invoice_id": "draft-1", "status": "draft"}), encoding="utf-8")
+            with exclusive_file_lock(path.with_suffix(".lock")):
+                with mock.patch("app.business_documents._invoice_number") as sequence:
+                    with self.assertRaisesRegex(ValueError, "already in progress"):
+                        finalize_invoice(root, "draft-1", "tester")
+            sequence.assert_not_called()
+
+    def test_interrupted_finalization_leaves_persisted_invoice_as_editable_draft(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            path = directory / "draft-1.json"
+            original = {"invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001", "status": "draft", "template_id": "tpl", "history": []}
+            path.write_text(json.dumps(original), encoding="utf-8")
+            with mock.patch("app.business_documents.business_settings", return_value={}), \
+                 mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
+                 mock.patch("app.business_documents.active_template", return_value={"template_id": "tpl"}), \
+                 mock.patch("app.business_documents._invoice_content_pdf", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    finalize_invoice(root, "draft-1", "tester")
+            self.assertEqual(original, json.loads(path.read_text(encoding="utf-8")))
 
     def test_payment_is_persisted_and_audited_without_changing_invoice_lines(self):
         with tempfile.TemporaryDirectory() as temp:
