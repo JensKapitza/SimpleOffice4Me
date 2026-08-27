@@ -1,8 +1,25 @@
 # SimpleOffice4Me
 
-Hallo!
+SimpleOffice4Me ist eine selbst betriebene Office-, Dokumenten- und
+CRM-Anwendung auf Basis von Python und Flask. Sie bündelt Dokumente, Kontakte,
+Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 
-Simple Office APP Python FLASK
+## Funktionen
+
+- Dokumentenverwaltung mit Eingangskorb, Volltextindex, Vorschauen, Versionen,
+  Prüfsummen, Wiederherstellung und nachvollziehbarer Änderungshistorie
+- WebDAV, CalDAV, CardDAV und optional SFTP/SSHFS für Desktop-Programme wie
+  LibreOffice, Thunderbird und Dateimanager
+- CRM-Kontaktübersicht mit Suche, Filtern, Kommunikationshistorie,
+  Änderungshistorie, Benutzerzuordnung und CardDAV-Synchronisation
+- lokale Adresssuche mit Vorschlägen ab drei Zeichen und automatischer
+  Übernahme eindeutiger Angaben in Ort, Postleitzahl und Straße
+- Kalender mit Serien, Erinnerungen, Einladungen, Status, Ressourcen,
+  Buchungskonflikten und optionalem Google-Kalender-Abgleich
+- Rechnungserstellung mit PDF/ZUGFeRD, Nummernkreisen, Vorlagen,
+  CRM-Verknüpfung, Fälligkeiten und Zahlungshistorie
+- zweisprachige Oberfläche in Deutsch und Englisch
+- Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
 
 ## Zielbild
 
@@ -164,10 +181,18 @@ Ressourcenpriorisierung, Fehlerverhalten und Abschaltung.
 Die [schnelle Ansicht einzelner Dokumente](docs/SCHNELLE_DATEIANSICHT.md) verhindert
 Vollbestandsläufe, Hashing und große Metadaten-Schreibvorgänge beim Öffnen einer Datei.
 
-## Teststand
+`restart.sh` startet die Anwendung neu und berücksichtigt aktive Indexer- und
+SSH/SFTP-Dienste. Ein erneuter Aufbau lokaler Indizes kann ohne erneuten
+Download der Quelldaten ausgelöst werden.
 
-Test-Commit vom 25.07.2026.
+## Voraussetzungen
 
+- Python 3
+- ein aktueller Browser, zum Beispiel Firefox oder Chromium
+- optionale Systemwerkzeuge für Dokumentvorschau, OCR, Bildverarbeitung,
+  Virenprüfung und SSH/SFTP gemäß den verlinkten Betriebsanleitungen
 
-NEED FLASK to work
-NEED Python3, firefox, chromium, imagemagic, opencv
+## Tests
+
+Die automatisierten Tests werden bei Pull Requests über GitHub Actions
+ausgeführt. Funktionsbezogene Tests befinden sich im Verzeichnis `tests/`.
