@@ -60,7 +60,12 @@ def main() -> int:
             os.environ["SIMPLEOFFICE_SFTP_HOST_KEY"] = str(path)
             sys.path.insert(0, str(ROOT))
             from app.sftp_server import serve
-            serve()
+            from tools.service_control import register, unregister
+            register("sftp", os.getpid(), "sftp_setup")
+            try:
+                serve()
+            finally:
+                unregister("sftp", os.getpid())
         return 0
     except RuntimeError as exc:
         print(f"SFTP nicht bereit: {exc}", file=sys.stderr)
