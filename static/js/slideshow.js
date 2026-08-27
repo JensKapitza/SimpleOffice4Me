@@ -11,8 +11,9 @@
     const stop = document.getElementById("slide-autoplay-stop");
     const counter = document.getElementById("slide-counter");
     const originalLink = document.getElementById("slide-open-original");
+    const infoToggle = document.getElementById("slide-info-toggle");
     if (!modalElement || !carouselElement || !seconds || !secondsValue || !autostart ||
-        !start || !stop || !counter || !originalLink || !window.bootstrap?.Carousel) return;
+        !start || !stop || !counter || !originalLink || !infoToggle || !window.bootstrap?.Carousel) return;
 
     const originals = Array.from(carouselElement.querySelectorAll(".carousel-item"))
       .map(item => item.dataset.originalUrl);
@@ -26,6 +27,14 @@
     let playing = false;
     const delay = () => Math.min(60, Math.max(3, Number(seconds.value) || 5)) * 1000;
     const updateDelayLabel = () => { secondsValue.textContent = String(Math.round(delay() / 1000)); };
+    const information = Array.from(carouselElement.querySelectorAll("[data-slide-information]"));
+
+    function setInformationVisible(visible) {
+      information.forEach(panel => { panel.hidden = !visible; });
+      infoToggle.setAttribute("aria-expanded", String(visible));
+      infoToggle.querySelector("span").textContent = visible ? infoToggle.dataset.hideLabel : infoToggle.dataset.showLabel;
+      try { window.localStorage.setItem("simpleoffice-slideshow-information", visible ? "show" : "hide"); } catch (_error) { /* storage is optional */ }
+    }
 
     function stopAutoplay() {
       playing = false;
@@ -53,6 +62,7 @@
 
     start.addEventListener("click", startAutoplay);
     stop.addEventListener("click", stopAutoplay);
+    infoToggle.addEventListener("click", () => setInformationVisible(infoToggle.getAttribute("aria-expanded") !== "true"));
     seconds.addEventListener("input", () => { updateDelayLabel(); if (playing) schedule(); });
     autostart.addEventListener("change", () => {
       if (autostart.checked) startAutoplay();
@@ -72,6 +82,9 @@
       schedule();
     });
     updateDelayLabel();
+    let informationVisible = true;
+    try { informationVisible = window.localStorage.getItem("simpleoffice-slideshow-information") !== "hide"; } catch (_error) { /* storage is optional */ }
+    setInformationVisible(informationVisible);
   }
 
   if (document.readyState === "loading") {

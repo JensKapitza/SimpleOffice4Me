@@ -32,6 +32,13 @@ a { text-underline-offset: .16em; }
 .list-group-item-action:hover { background: #f0fdfa; }
 .alert { border-radius: .65rem; }
 .badge { font-weight: 600; letter-spacing: .01em; }
+.slideshow-image-stage { align-items: center; background: #05070a; display: flex; justify-content: center; min-height: 45vh; padding: 1rem 4.5rem; }
+.slideshow-image { max-height: 68vh; object-fit: contain; }
+.slideshow-information { background: #151a21; border-top: 1px solid #374151; }
+.slideshow-metadata { display: grid; gap: .35rem 1.5rem; grid-template-columns: repeat(2, minmax(9rem, 1fr)); }
+.slideshow-metadata > div { display: grid; gap: .5rem; grid-template-columns: minmax(5rem, auto) 1fr; }
+.slideshow-metadata dt { color: #9ca3af; font-size: .75rem; font-weight: 600; text-transform: uppercase; }
+.slideshow-metadata dd { font-size: .875rem; margin: 0; overflow-wrap: anywhere; }
 .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid #e5e7eb; border-radius: .75rem; overflow: hidden; background: #fff; }
 .calendar-weekday { background: #f1f5f9; font-size: .75rem; font-weight: 700; padding: .6rem; text-align: center; text-transform: uppercase; }
 .calendar-day { min-height: 8.5rem; border-right: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb; padding: .45rem; }
@@ -70,4 +77,5 @@ a { text-underline-offset: .16em; }
   .app-navbar .navbar-brand { margin-top: .1rem; }
 }
 @media (max-width: 767px) { .container, .container-xl { padding-inline: 1rem; } .card { border-radius: .7rem; } .calendar-day { min-height: 5.75rem; padding: .25rem; } .calendar-weekday { font-size: .62rem; padding: .35rem .05rem; } .calendar-event { font-size: .63rem; padding: .12rem; } .table-responsive { border: 1px solid var(--so-border); border-radius: .7rem; } .btn-group { flex-wrap: wrap; gap: .4rem; } }
+@media (max-width: 767px) { .slideshow-image-stage { min-height: 35vh; padding: .5rem 2.75rem; } .slideshow-image { max-height: 58vh; } .slideshow-metadata { grid-template-columns: 1fr; } #slide-info-toggle span { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }

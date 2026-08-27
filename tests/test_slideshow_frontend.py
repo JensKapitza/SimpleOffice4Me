@@ -13,6 +13,12 @@ class SlideshowFrontendTest(unittest.TestCase):
         self.assertIn("window.setTimeout(() => carousel.next(), delay())", script)
         self.assertIn('data-original-url="{{ url_for(', template)
         self.assertIn("js/slideshow.js", template)
+        self.assertIn('id="slide-info-toggle"', template)
+        self.assertIn("data-slide-information", template)
+        self.assertIn("picture.image_analysis.width", template)
+        self.assertIn("simpleoffice-slideshow-information", script)
+        self.assertIn("setInformationVisible", script)
+        self.assertNotIn("carousel-caption", template)
         self.assertNotIn("!window.bootstrap || !bootstrap.Carousel", template)
 
 
