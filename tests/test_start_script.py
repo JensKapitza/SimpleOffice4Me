@@ -15,6 +15,7 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("--threads", result.stdout)
         self.assertIn("--channel-timeout", result.stdout)
         self.assertIn("--check-system", result.stdout)
+        self.assertIn("--reindex-osm", result.stdout)
 
     def test_linux_script_rejects_invalid_server_limits_before_starting(self):
         root = Path(__file__).resolve().parents[1]
@@ -30,7 +31,7 @@ class StartScriptTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         script = (root / "start.bat").read_text(encoding="utf-8")
 
-        for option in ("--google-json", "--public-url", "--google-redirect-uri", "--secret-key-file", "--trusted-proxy-hops", "--host", "--port", "--threads", "--channel-timeout"):
+        for option in ("--google-json", "--public-url", "--google-redirect-uri", "--secret-key-file", "--trusted-proxy-hops", "--host", "--port", "--threads", "--channel-timeout", "--reindex-osm"):
             self.assertIn(option, script)
 
     def test_platform_starters_launch_the_tools_package_as_a_module(self):

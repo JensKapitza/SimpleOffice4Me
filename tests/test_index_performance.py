@@ -114,6 +114,14 @@ class IndexProcessIsolationTest(unittest.TestCase):
             self.assertIsNone(launcher.start_index_worker("/srv/documents"))
             popen.assert_not_called()
 
+    def test_launcher_starts_osm_check_and_supports_forced_reindex(self):
+        process = type("Process", (), {"pid": 124})()
+        with patch("tools.launcher.subprocess.Popen", return_value=process) as popen:
+            self.assertIs(process, launcher.start_osm_index_worker("/srv/documents", force=True))
+        command = popen.call_args.args[0]
+        self.assertEqual("tools.osm_index_worker", command[2])
+        self.assertIn("--force", command)
+
 
 class LoginDashboardPerformanceTest(unittest.TestCase):
     def setUp(self):

@@ -20,6 +20,7 @@ from .contact_store import ContactStore
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .mail_reader import _header, _message_text
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex, search_address, unique_candidate
+from tools.launcher import start_osm_index_worker
 
 
 CRM_FILE = "contact-crm.json"
@@ -157,10 +158,15 @@ def register(bp) -> None:
     def crm_osm_build():
         actor = str(g.user["username"])
         if not is_admin(g.user): abort(403)
-        region = request.form.get("region", "").strip(); index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+        region = request.form.get("region", "").strip(); action = request.form.get("action", "download").strip(); index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
         try:
-            source = index.download_region(region); count = index.build(source)
-            flash(f"Lokaler OSM-Adressindex aufgebaut: {count} Adresseinträge.")
+            if action == "reindex":
+                if index.downloaded_source() is None:
+                    raise ValueError("Kein bereits heruntergeladener OSM-Auszug vorhanden")
+            else:
+                index.download_region(region)
+            start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True)
+            flash("Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
             current_app.logger.exception("OSM address index build failed")
             flash(f"OSM-Adressindex konnte nicht aufgebaut werden: {exc}")

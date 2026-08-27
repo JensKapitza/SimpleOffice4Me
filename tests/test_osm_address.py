@@ -82,6 +82,17 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual("retrying", status["state"])
             self.assertEqual(50.0, status["progress_percent"])
 
+    def test_existing_download_can_be_reindexed_without_network(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"local extract")
+            index.status_path.write_text(json.dumps({"source_file": str(source)}), encoding="utf-8")
+            self.assertEqual(source.resolve(), index.downloaded_source())
+            self.assertTrue(index.needs_reindex())
+            self.assertTrue(index.status()["source_available"])
+
 
 if __name__ == "__main__":
     unittest.main()

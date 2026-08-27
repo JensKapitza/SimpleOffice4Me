@@ -37,6 +37,7 @@ if /I "%~1"=="--host" goto :host
 if /I "%~1"=="--port" goto :port
 if /I "%~1"=="--threads" goto :threads
 if /I "%~1"=="--channel-timeout" goto :channel_timeout
+if /I "%~1"=="--reindex-osm" goto :reindex_osm
 if /I "%~1"=="--check-system" goto :check_system
 if /I "%~1"=="--help" goto :help
 if /I "%~1"=="-h" goto :help
@@ -114,6 +115,11 @@ shift
 shift
 goto :parse_args
 
+:reindex_osm
+set "SIMPLEOFFICE_OSM_REINDEX_ON_START=1"
+shift
+goto :parse_args
+
 :check_system
 %PYTHON% "%ROOT%tools\system_requirements.py"
 exit /b %errorlevel%
@@ -135,6 +141,7 @@ echo   --host ADRESSE              Bind-Adresse ^(Standard: 127.0.0.1^)
 echo   --port PORT                 HTTP-Port aus Ersteinrichtung ueberschreiben
 echo   --threads ANZAHL            Waitress-Worker-Threads ^(Standard: 4^)
 echo   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung ^(Standard: 120^)
+echo   --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
 echo   --check-system              Systemwerkzeuge pruefen, ohne Serverstart
 echo   --help                      Diese Hilfe anzeigen
 echo.
