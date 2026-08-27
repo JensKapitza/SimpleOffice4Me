@@ -22,6 +22,21 @@
     });
   }
 
+  function candidateButton(item, apply) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'list-group-item list-group-item-action py-2';
+    const main = document.createElement('div');
+    main.textContent = [item.city, item.postal, item.street].filter(Boolean).join(' · ');
+    const secondary = document.createElement('small');
+    secondary.className = 'text-secondary';
+    secondary.textContent = [item.state, item.country].filter(Boolean).join(' · ');
+    button.append(main, secondary);
+    button.addEventListener('mousedown', event => event.preventDefault());
+    button.addEventListener('click', () => apply(item));
+    return button;
+  }
+
   function markField(input, kind) {
     if (!input) return;
     input.setAttribute(`data-address-${kind}`, '');
@@ -41,7 +56,6 @@
     const status = document.getElementById('osm-status');
     markField(city, 'city'); markField(postal, 'postal'); markField(street, 'street'); markField(country, 'country');
     if (status) status.setAttribute('data-address-status', '');
-
     const row = city?.closest('.row');
     if (row) {
       const cityBox = city?.parentElement, postalBox = postal?.parentElement, countryBox = country?.parentElement, streetBox = street?.parentElement;
@@ -81,9 +95,7 @@
     let serial = 0;
 
     const apply = item => {
-      setValue(city, item.city || '');
-      setValue(postal, item.postal || '');
-      setValue(street, item.street || '');
+      setValue(city, item.city || ''); setValue(postal, item.postal || ''); setValue(street, item.street || '');
       setValue(country, (item.country || value(country) || 'DE').toUpperCase());
       hideAll();
       if (status) status.textContent = 'Eindeutige Adresse übernommen.';
@@ -93,8 +105,7 @@
     const search = async active => {
       if (!active || value(active).length < 3) { hideAll(); return; }
       const requestId = ++serial;
-      const menu = ensureMenu(active);
-      menu.replaceChildren();
+      const menu = ensureMenu(active); menu.replaceChildren();
       const q = [value(city), value(postal), value(street)].filter(Boolean).join(' ');
       const params = new URLSearchParams({q, country: (value(country) || 'DE').toLowerCase()});
       if (status) status.textContent = 'Lokale Adresssuche …';
@@ -108,25 +119,9 @@
         }
         if (payload.unique) { apply(payload.unique); return; }
         const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
-        if (!candidates.length) {
-          if (status) status.textContent = 'Keine passende lokale Adresse gefunden.';
-          return;
-        }
+        if (!candidates.length) { if (status) status.textContent = 'Keine passende lokale Adresse gefunden.'; return; }
         if (status) status.textContent = `${candidates.length} Treffer`;
-        candidates.forEach(item => {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'list-group-item list-group-item-action py-2';
-          const main = document.createElement('div');
-          main.textContent = [item.city, item.postal, item.street].filter(Boolean).join(' · ');
-          const secondary = document.createElement('small');
-          secondary.className = 'text-secondary';
-          secondary.textContent = [item.state, item.country].filter(Boolean).join(' · ');
-          button.append(main, secondary);
-          button.addEventListener('mousedown', event => event.preventDefault());
-          button.addEventListener('click', () => apply(item));
-          menu.append(button);
-        });
+        candidates.forEach(item => menu.append(candidateButton(item, apply)));
       } catch (_error) {
         if (requestId === serial && status) status.textContent = 'Adresssuche nicht verfügbar.';
       }
@@ -142,10 +137,42 @@
     });
   }
 
+  function initFreeform(input) {
+    if (input.dataset.addressFreeformReady === '1') return;
+    input.dataset.addressFreeformReady = '1';
+    input.setAttribute('autocomplete', 'off');
+    let timer = null;
+    let serial = 0;
+    const apply = item => {
+      input.value = [item.street, [item.postal, item.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      hideAll();
+    };
+    const search = async () => {
+      const q = value(input);
+      if (q.length < 3) return;
+      const requestId = ++serial;
+      const menu = ensureMenu(input); menu.replaceChildren();
+      try {
+        const response = await fetch(`${DEFAULT_ENDPOINT}?${new URLSearchParams({q, country: 'de'})}`, {headers: {'Accept': 'application/json'}});
+        const payload = await response.json();
+        if (requestId !== serial || !response.ok || !payload.ready) return;
+        if (payload.unique) { apply(payload.unique); return; }
+        (payload.candidates || []).forEach(item => menu.append(candidateButton(item, apply)));
+      } catch (_error) { /* optional helper: keep manual entry usable */ }
+    };
+    input.addEventListener('input', () => {
+      window.clearTimeout(timer);
+      if (value(input).length < 3) { ensureMenu(input).replaceChildren(); return; }
+      timer = window.setTimeout(search, DEBOUNCE_MS);
+    });
+    input.addEventListener('focus', () => { if (value(input).length >= 3) search(); });
+  }
+
   prepareLegacyCrm();
   prepareGenericForms();
   document.querySelectorAll('[data-address-autocomplete]').forEach(initGroup);
+  document.querySelectorAll('input[name="address"]').forEach(initFreeform);
   document.addEventListener('click', event => {
-    if (!event.target.closest('[data-address-autocomplete]')) hideAll();
+    if (!event.target.closest('[data-address-autocomplete], input[name="address"]')) hideAll();
   });
 })();
