@@ -56,11 +56,13 @@ class ContactExtensionsTest(unittest.TestCase):
         by_activity = crm.overview(contacts.contacts("admin"), query="Sonderbestellung")
         customers = crm.overview(contacts.contacts("admin"), status="active", role="customer")
         recent = crm.overview(contacts.contacts("admin"), sort="recent")
+        without_activity = crm.overview(contacts.contacts("admin"), without_activity=True)
 
         self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in by_query])
         self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in by_activity])
         self.assertEqual([customer["contact_id"]], [row["contact"]["contact_id"] for row in customers])
         self.assertEqual(customer["contact_id"], recent[0]["contact"]["contact_id"])
+        self.assertEqual([supplier["contact_id"]], [row["contact"]["contact_id"] for row in without_activity])
 
     def test_communication_and_changes_share_one_timeline(self):
         contacts = ContactStore(self.root)
