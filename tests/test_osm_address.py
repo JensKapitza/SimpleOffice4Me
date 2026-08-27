@@ -1,8 +1,9 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from app.osm_address import LocalAddressIndex, unique_candidate
+from app.osm_address import LocalAddressIndex, human_bytes, unique_candidate
 
 
 class OsmAddressTests(unittest.TestCase):
@@ -30,6 +31,21 @@ class OsmAddressTests(unittest.TestCase):
         self.assertEqual(candidate, unique_candidate([candidate]))
         self.assertIsNone(unique_candidate([candidate, dict(candidate)]))
         self.assertIsNone(unique_candidate([{"street": "A 1", "city": ""}]))
+
+    def test_human_bytes_formats_download_sizes(self):
+        self.assertEqual("1.0 MiB", human_bytes(1024 * 1024))
+        self.assertEqual("1.5 GiB", human_bytes(int(1.5 * 1024**3)))
+        self.assertEqual("unbekannt", human_bytes(0))
+
+    def test_status_calculates_download_progress(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True, exist_ok=True)
+            index.status_path.write_text(json.dumps({"state": "downloading", "downloaded_bytes": 25, "expected_bytes": 100}), encoding="utf-8")
+            status = index.status()
+            self.assertEqual(25.0, status["progress_percent"])
+            self.assertEqual(25, status["downloaded_bytes"])
+            self.assertEqual(100, status["expected_bytes"])
 
 
 if __name__ == "__main__":
