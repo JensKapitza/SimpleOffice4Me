@@ -4,7 +4,9 @@ SimpleOffice – persönliche Einrichtungsdaten
 Benutzer: {{ remote.username }}
 Server: {{ remote.origin }}
 WebDAV (Dateien): {{ remote.webdav_url }}
-CalDAV (Kalender): {{ remote.caldav_url }}
+CalDAV (Kalender und Aufgaben/VTODO): {{ remote.caldav_url }}
+{% for item in remote.caldav_task_lists %}VTODO-Liste {{ item.name }}: {{ item.url }}
+{% endfor %}
 CardDAV (Kontakte): {{ remote.carddav_url }}
 Nautilus SFTP: {{ remote.nautilus_sftp }}
 SSHFS:

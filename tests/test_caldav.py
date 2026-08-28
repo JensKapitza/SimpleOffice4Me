@@ -52,6 +52,19 @@ class CalDavTest(unittest.TestCase):
         removed = self.client.open(collection, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"><d:sync-token>urn:simpleoffice:caldav:tasks:admin:2</d:sync-token></d:sync-collection>', headers=self.auth)
         self.assertIn("404 Not Found", removed.text); self.assertIn("tasks:admin:3", removed.text)
 
+    def test_vtodo_thunderbird_fields_unknown_properties_and_multiple_lists_roundtrip(self):
+        collection = "/caldav/calendars/admin/tasks-team/"
+        created_list = self.client.open(collection, method="MKCALENDAR", data='<cal:mkcalendar xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav"><d:set><d:prop><d:displayname>Team Tasks</d:displayname><cal:calendar-description>Shared work</cal:calendar-description></d:prop></d:set></cal:mkcalendar>', headers=self.auth)
+        self.assertEqual(201, created_list.status_code)
+        source = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Mozilla.org/NONSGML Mozilla Calendar V1.1//EN", "X-WR-CALNAME:Team Tasks", "BEGIN:VTODO", "UID:tb-task@example.test", "DTSTAMP:20260828T120000Z", "CREATED:20260827T090000Z", "LAST-MODIFIED:20260828T120000Z", "SEQUENCE:4", "DTSTART:20260831T090000Z", "SUMMARY:Thunderbird task", "CLASS:PRIVATE", "URL:https://example.test/tasks/1", "ORGANIZER;CN=Admin:mailto:admin@example.test", "ATTENDEE;CN=User;PARTSTAT=NEEDS-ACTION:mailto:user@example.test", "RELATED-TO;RELTYPE=PARENT:parent@example.test", "RRULE:FREQ=WEEKLY;BYDAY=MO", "RDATE:20260907T090000Z", "EXDATE:20260914T090000Z", "X-MOZ-GENERATION:7", "STATUS:IN-PROCESS", "PERCENT-COMPLETE:25", "END:VTODO", "END:VCALENDAR", ""])
+        resource = collection + "thunderbird.ics"
+        self.assertEqual(201, self.client.put(resource, data=source, headers={**self.auth, "If-None-Match": "*", "Content-Type": "text/calendar"}).status_code)
+        fetched = self.client.get(resource, headers=self.auth).text
+        for expected in ("X-WR-CALNAME:Team Tasks", "SEQUENCE:4", "CLASS:PRIVATE", "URL:https://example.test/tasks/1", "ORGANIZER;CN=Admin:mailto:admin@example.test", "ATTENDEE;CN=User;PARTSTAT=NEEDS-ACTION:mailto:user@example.test", "RELATED-TO;RELTYPE=PARENT:parent@example.test", "RRULE:FREQ=WEEKLY;BYDAY=MO", "RDATE:20260907T090000Z", "EXDATE:20260914T090000Z", "X-MOZ-GENERATION:7"):
+            self.assertIn(expected, fetched)
+        home = self.client.open("/caldav/calendars/admin/", method="PROPFIND", headers={**self.auth, "Depth": "1"})
+        self.assertIn("/tasks-team/", home.text); self.assertIn("Team Tasks", home.text); self.assertIn('name="VTODO"', home.text)
+
     def test_auth_and_foreign_principal_are_isolated(self):
         self.assertEqual(401, self.client.open("/caldav/", method="PROPFIND").status_code)
         self.assertEqual(404, self.client.open("/caldav/principals/other/", method="PROPFIND", headers=self.auth).status_code)

@@ -23,6 +23,7 @@ rem Keep the project-owned venv complete on every start. This upgrades an
 rem existing base-only installation and installs Paramiko for SFTP support.
 python -m pip install --disable-pip-version-check --editable "%ROOT%[sftp]"
 if errorlevel 1 goto :install_error
+python "%ROOT%tools\install_invoice_validator.py"
 python -m tools.launcher start
 exit /b %errorlevel%
 

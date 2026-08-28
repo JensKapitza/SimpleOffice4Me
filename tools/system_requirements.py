@@ -16,6 +16,8 @@ TOOLS = {
     "PDF-Vorschau": ("pdftoppm",),
     "Audio/Video-Vorschau": ("ffmpeg",),
     "Office-Konvertierung": ("libreoffice", "soffice"),
+    "PDF/A-Erzeugung": ("gs", "gswin64c", "gswin32c"),
+    "EN16931-Validator": ("java",),
 }
 DOCS = {
     "ClamAV": "https://docs.clamav.net/manual/Installing.html",
@@ -23,6 +25,8 @@ DOCS = {
     "PDF-Vorschau": "https://poppler.freedesktop.org/",
     "Audio/Video-Vorschau": "https://ffmpeg.org/download.html",
     "Office-Konvertierung": "https://www.libreoffice.org/download/download-libreoffice/",
+    "PDF/A-Erzeugung": "https://www.ghostscript.com/releases/gsdnld.html",
+    "EN16931-Validator": "https://adoptium.net/temurin/releases/",
 }
 
 
@@ -54,11 +58,11 @@ def _commands(label: str, commands: tuple[str, ...]) -> tuple[str, ...]:
 
 def install_help(family: str) -> list[str]:
     if family == "debian":
-        return ["sudo apt update", "sudo apt install clamav clamav-daemon imagemagick poppler-utils ffmpeg libreoffice", "sudo freshclam", "sudo systemctl enable --now clamav-daemon"]
+        return ["sudo apt update", "sudo apt install clamav clamav-daemon imagemagick poppler-utils ffmpeg libreoffice ghostscript default-jre-headless", "sudo freshclam", "sudo systemctl enable --now clamav-daemon"]
     if family == "fedora":
-        return ["sudo dnf install clamav clamav-update clamd ImageMagick poppler-utils ffmpeg-free libreoffice-headless", "sudo freshclam", "sudo systemctl enable --now clamd@scan"]
+        return ["sudo dnf install clamav clamav-update clamd ImageMagick poppler-utils ffmpeg-free libreoffice-headless ghostscript java-21-openjdk-headless", "sudo freshclam", "sudo systemctl enable --now clamd@scan"]
     if family == "macos":
-        return ["brew install clamav imagemagick poppler ffmpeg", "brew install --cask libreoffice", "freshclam"]
+        return ["brew install clamav imagemagick poppler ffmpeg ghostscript openjdk", "brew install --cask libreoffice", "freshclam"]
     if family == "windows":
         return ["ClamAV: offiziellen Windows-Installer verwenden (Link unten).", "winget install ImageMagick.Q16", "winget install Gyan.FFmpeg", "winget install TheDocumentFoundation.LibreOffice"]
     return ["Installiere ClamAV, ImageMagick, Poppler, FFmpeg und LibreOffice mit dem Paketmanager deines Systems."]

@@ -96,7 +96,7 @@ class ProjectStore:
         self._touch(project, actor); self._write_change(project, actor, "project_task_time_booked")
         return entry
 
-    def create_time_group(self, project_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
+    def create_time_group(self, project_id: str, values: dict[str, Any], actor: str, tasks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Combine time entries into one billable line without losing evidence."""
         project = self.project(project_id)
         self._require(actor, values.get("title", ""), "group title")
@@ -104,7 +104,7 @@ class ProjectStore:
         entry_ids = self._values(values.get("entry_ids"))
         entries = {
             entry["entry_id"]: (task, entry)
-            for task in project.get("tasks", [])
+            for task in (tasks if tasks is not None else project.get("tasks", []))
             for entry in task.get("time_entries", [])
         }
         if not entry_ids or not set(entry_ids) <= set(entries):
@@ -140,7 +140,7 @@ class ProjectStore:
         self._write_change(project, actor, "project_time_group_created")
         return group
 
-    def available_time_group_entries(self, project_id: str) -> list[dict[str, Any]]:
+    def available_time_group_entries(self, project_id: str, tasks: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
         """Return completed, not-yet-grouped entries for the group form."""
         project = self.project(project_id)
         grouped = {
@@ -151,19 +151,19 @@ class ProjectStore:
         }
         return [
             {**entry, "task_id": task["task_id"], "task_title": task["title"]}
-            for task in project.get("tasks", [])
+            for task in (tasks if tasks is not None else project.get("tasks", []))
             if task.get("status") == "completed"
             for entry in task.get("time_entries", [])
             if entry.get("entry_id") not in grouped
         ]
 
-    def billing_projection(self, project_id: str, actor: str) -> dict[str, Any]:
+    def billing_projection(self, project_id: str, actor: str, tasks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Return invoice-safe lines and creator-only group evidence separately."""
         self._require(actor, project_id, "project")
         project = self.project(project_id)
         entries = {
             entry["entry_id"]: {**entry, "task_id": task["task_id"], "task_title": task["title"]}
-            for task in project.get("tasks", [])
+            for task in (tasks if tasks is not None else project.get("tasks", []))
             for entry in task.get("time_entries", [])
         }
         grouped: set[str] = set()

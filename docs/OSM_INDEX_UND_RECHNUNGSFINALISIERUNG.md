@@ -81,7 +81,17 @@ Technische Endzustände sind:
 Validatoren werden an der Rechnung gespeichert; vollständige Fehler stehen im
 Anwendungslog und die Rechnungsansicht zeigt den Fehler sichtbar an.
 
-Für eine vollständige EN16931-Prüfung werden veraPDF und ein über
-`SIMPLEOFFICE_ZUGFERD_VALIDATOR` konfigurierter ZUGFeRD-Validator benötigt.
+Die EN16931-Prüfung ist immer aktiv. `start.sh` und `start.bat` installieren
+beim ersten Start automatisch den fest versionierten Mustang-CLI-Validator
+2.25.0 aus Maven Central in `.runtime-tools/` und prüfen den Download anhand
+der veröffentlichten SHA-256-Prüfsumme. Mustang validiert CII/EN16931 und die
+PDF/A-Eigenschaften; eine Rechnung wird ohne erfolgreichen Abschluss nicht
+finalisiert. Erforderlich ist eine Java-Laufzeit. Ein vorhandenes separates
+veraPDF wird zusätzlich erkannt. `SIMPLEOFFICE_ZUGFERD_VALIDATOR` dient nur als
+optionaler Override für eine eigene Validatorinstallation; eine Konfiguration
+ist für den Standardbetrieb nicht erforderlich.
+
 Ghostscript erhält ausschließlich Leserechte auf das verwendete ICC-Profil;
-der Sicherheitsmodus wird nicht global deaktiviert.
+der Sicherheitsmodus wird nicht global deaktiviert. Wenn Java, Ghostscript
+oder der verifizierte Validator nicht verfügbar sind, bleibt die Rechnung als
+Entwurf erhalten und die technische Ursache wird in UI und Log ausgegeben.

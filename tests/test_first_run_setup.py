@@ -37,6 +37,8 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn("https://office.example/webdav/files/jens/", body)
         self.assertIn("https://office.example/caldav/calendars/jens/", body)
+        self.assertIn("https://office.example/caldav/calendars/jens/tasks/", body)
+        self.assertIn("VTODO", body)
         self.assertIn("https://office.example/carddav/addressbooks/jens/contacts/", body)
         self.assertIn("Lesen", body)
         self.assertIn("Schreiben", body)
@@ -58,6 +60,17 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertEqual(302, updated.status_code)
         task = TodoStore(self.root).items("jens")[0]
         self.assertEqual("Kunde zurückrufen", task["title"]); self.assertEqual(50, task["percent_complete"])
+
+    def test_task_management_page_list_kanban_comments_and_time(self):
+        created = self.client.post("/documents/todo", data={"title": "VTODO UI", "return_to": "tasks", "due": "2026-09-03"}, base_url=self.base_url)
+        self.assertIn("/documents/tasks", created.headers["Location"])
+        task = TodoStore(self.root).items("jens")[0]
+        page = self.client.get("/documents/tasks", base_url=self.base_url)
+        self.assertEqual(200, page.status_code); self.assertIn("VTODO UI", page.get_data(as_text=True)); self.assertIn("Kanban", page.get_data(as_text=True))
+        self.assertEqual(302, self.client.post(f"/documents/tasks/{task['id']}/comments", data={"text": "Kommentar"}, base_url=self.base_url).status_code)
+        self.assertEqual(302, self.client.post(f"/documents/tasks/{task['id']}/time", data={"minutes": "15", "note": "Test"}, base_url=self.base_url).status_code)
+        stored = TodoStore(self.root).items("jens")[0]
+        self.assertEqual("Kommentar", stored["comments"][0]["text"]); self.assertEqual(15, stored["time_entries"][0]["minutes"])
 
     def test_remote_http_disables_secret_creation(self):
         client = app.test_client()

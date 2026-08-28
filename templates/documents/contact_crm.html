@@ -32,12 +32,13 @@
           <div class="col-4"><label class="form-label small">{{ tr('contact.postal') }}</label><input id="osm-postal" class="form-control form-control-sm" placeholder="12345" data-address-field="postal"></div>
           <div class="col-6"><label class="form-label small">Straße + Hausnummer</label><input id="osm-street" class="form-control form-control-sm" placeholder="Musterstraße 12" data-address-field="street"></div>
           <div class="col-2"><label class="form-label small">{{ tr('contact.country') }}</label><input id="osm-country" class="form-control form-control-sm text-uppercase" value="DE" maxlength="2" list="crm-country-codes" data-address-field="country"></div>
+          <div class="col-6"><label class="form-label small">Bundesland / Region / State</label><input id="osm-state" class="form-control form-control-sm" placeholder="NRW / CA / Québec" data-address-field="state"></div>
           {{ eu_country_datalist('crm-country-codes') }}
           <div class="col-12"><button id="osm-apply" type="button" class="btn btn-sm btn-outline-success">Adresse übernehmen</button></div>
         </div>
         <div id="osm-status" class="small text-secondary mt-2" data-address-status aria-live="polite"></div><div id="osm-results" class="list-group position-absolute start-0 end-0 mx-3 shadow-sm" data-address-results role="listbox" hidden style="z-index: 1050"></div>
       </div>
-      <label class="form-label">Adressen</label><textarea id="crm-addresses" class="form-control font-monospace mb-3" name="addresses" rows="5" placeholder="billing|Straße 1|12345|Ort|DE">{% for row in crm.addresses|default([]) %}{{ row.type }}|{{ row.street }}|{{ row.postal }}|{{ row.city }}|{{ row.country }}{% if not loop.last %}
+      <label class="form-label">Adressen</label><textarea id="crm-addresses" class="form-control font-monospace mb-3" name="addresses" rows="5" placeholder="billing|Straße 1|12345|Ort|Bundesland|DE">{% for row in crm.addresses|default([]) %}{{ row.type }}|{{ row.street }}|{{ row.postal }}|{{ row.city }}|{{ row.state|default('') }}|{{ row.country }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
       <div class="form-text mb-3">Die lokale OSM-Suche dient nur als Eingabehilfe. Dauerhaft gespeichert wird erst mit „CRM-Daten speichern“.</div>
       <label class="form-label">Kommunikation</label><textarea class="form-control font-monospace mb-3" name="communications" rows="4" placeholder="email|kunde@example.de|yes">{% for row in crm.communications|default([]) %}{{ row.type }}|{{ row.value }}|{{ row.preferred }}{% if not loop.last %}
@@ -57,19 +58,22 @@
 <script>
 (() => {
   const applyButton = document.getElementById('osm-apply');
-  const street = document.getElementById('osm-street'), postal = document.getElementById('osm-postal'), city = document.getElementById('osm-city'), country = document.getElementById('osm-country'), type = document.getElementById('osm-address-type');
+  const street = document.getElementById('osm-street'), postal = document.getElementById('osm-postal'), city = document.getElementById('osm-city'), state = document.getElementById('osm-state'), country = document.getElementById('osm-country'), type = document.getElementById('osm-address-type');
   const status = document.getElementById('osm-status'), addresses = document.getElementById('crm-addresses');
-  applyButton?.addEventListener('click', () => { const values = [type.value, street.value.trim(), postal.value.trim(), city.value.trim(), (country.value || 'DE').trim().toUpperCase()]; if (!values[1] && !values[3]) { status.textContent = 'Straße oder Ort fehlt.'; return; } const line = values.map(value => value.replaceAll('|', ' ')).join('|'); const existing = addresses.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean); if (!existing.includes(line)) existing.push(line); addresses.value = existing.join('\n'); status.textContent = 'Adresse zur CRM-Liste hinzugefügt. Dauerhaft gespeichert wird sie mit „CRM-Daten speichern“.'; });
+  applyButton?.addEventListener('click', () => { const values = [type.value, street.value.trim(), postal.value.trim(), city.value.trim(), state.value.trim(), (country.value || 'DE').trim().toUpperCase()]; if (!values[1] && !values[3]) { status.textContent = 'Straße oder Ort fehlt.'; return; } const line = values.map(value => value.replaceAll('|', ' ')).join('|');
+  const existing = addresses.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean); if (!existing.includes(line)) existing.push(line); addresses.value = existing.join('\n'); status.textContent = 'Adresse zur CRM-Liste hinzugefügt. Dauerhaft gespeichert wird sie mit „CRM-Daten speichern“.'; });
 
   const regionSelect = document.getElementById('osm-region'), regionSize = document.getElementById('osm-region-size'), downloadButton = document.getElementById('osm-download-button');
   const regionInfoEndpoint = {{ url_for('contact_audit.crm_osm_region_info')|tojson }};
   let regionRequest = 0;
   async function updateRegionSize() {
     if (!regionSelect || !regionSize) return;
-    const requestId = ++regionRequest; const region = regionSelect.value;
+    const requestId = ++regionRequest;
+  const region = regionSelect.value;
     regionSize.textContent = 'Downloadgröße wird ermittelt …';
     try {
-      const response = await fetch(`${regionInfoEndpoint}?region=${encodeURIComponent(region)}`, {headers: {'Accept': 'application/json'}}); const payload = await response.json();
+      const response = await fetch(`${regionInfoEndpoint}?region=${encodeURIComponent(region)}`, {headers: {'Accept': 'application/json'}});
+  const payload = await response.json();
       if (requestId !== regionRequest) return;
       if (!response.ok) throw new Error(payload.error || 'size_lookup_failed');
       const info = payload.region || {}; regionSize.textContent = info.bytes ? `Erwartete Downloadgröße: ${info.size}${info.last_modified ? ` · Serverstand: ${info.last_modified}` : ''}` : 'Downloadgröße konnte vorab nicht bestimmt werden.';

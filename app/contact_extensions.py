@@ -41,7 +41,7 @@ EXTERNAL_TYPED_FIELDS = {
     "phone_business": ("TEL", "WORK"),
     "fax": ("TEL", "FAX"),
 }
-EXTERNAL_ADDRESS_FIELDS = ("address_city", "address_postal", "address_street", "address_country")
+EXTERNAL_ADDRESS_FIELDS = ("address_city", "address_postal", "address_street", "address_state", "address_country")
 EXTERNAL_UPDATE_FIELDS = (*EXTERNAL_SCALAR_FIELDS, *EXTERNAL_TYPED_FIELDS, *EXTERNAL_ADDRESS_FIELDS, "tags")
 
 
@@ -77,6 +77,7 @@ def _external_update_values(contact: dict[str, Any]) -> dict[str, str]:
             parts = ContactStore._split_vcard_components(raw.partition(":")[2])
             values["address_street"] = parts[2] if len(parts) > 2 else ""
             values["address_city"] = parts[3] if len(parts) > 3 else ""
+            values["address_state"] = parts[4] if len(parts) > 4 else ""
             values["address_postal"] = parts[5] if len(parts) > 5 else ""
             values["address_country"] = parts[6] if len(parts) > 6 else ""
     return values
@@ -101,7 +102,7 @@ def _raw_field_changes(fields: dict[str, str], accepted: set[str], proposed: dic
             if key.startswith("vcard_") and ContactStore._vcard_property_name(raw) == "ADR" and not replaced:
                 changes[key] = ""; replaced = True
         if any(address.values()):
-            components = ("", "", address["address_street"], address["address_city"], "", address["address_postal"], address["address_country"])
+            components = ("", "", address["address_street"], address["address_city"], address["address_state"], address["address_postal"], address["address_country"])
             changes[f"vcard_external_address_{uuid.uuid4().hex[:8]}"] = "ADR;TYPE=HOME:" + ";".join(_vcard_escape(value) for value in components)
     return changes
 
@@ -263,6 +264,17 @@ def _parse_rows(text: str, columns: int) -> list[list[str]]:
     return result
 
 
+def _parse_address_rows(text: str) -> list[dict[str, str]]:
+    result = []
+    for line in str(text or "").splitlines():
+        if not line.strip(): continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) == 5: parts.insert(4, "")  # legacy row without STATE
+        parts += [""] * max(0, 6 - len(parts))
+        result.append(dict(zip(("type", "street", "postal", "city", "state", "country"), parts[:6])))
+    return result
+
+
 def _eml_preview(root: Path, document_id: str) -> dict[str, Any]:
     store = DocumentStore(root); document = store.get_document(document_id); path = root / str(document.get("last_path", ""))
     if path.suffix.casefold() != ".eml" or not path.is_file() or path.is_symlink(): raise ValueError("document is not a regular EML file")
@@ -346,7 +358,7 @@ def register(bp) -> None:
         if not contacts.can_manage(contact_id, actor): abort(403)
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"])
         if request.method == "POST":
-            values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": [dict(zip(("type", "street", "postal", "city", "country"), row)) for row in _parse_rows(request.form.get("addresses", ""), 5)], "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)]}
+            values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": _parse_address_rows(request.form.get("addresses", "")), "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)]}
             store.save(contact_id, values, actor); flash("CRM-Daten gespeichert. CardDAV-Änderungen können diese Daten nicht löschen."); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
         return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), timeline=store.timeline(contact), all_contacts=contacts.contacts(actor), osm_status=index.status(), osm_regions=GEOFABRIK_REGIONS, osm_admin=is_admin(g.user))

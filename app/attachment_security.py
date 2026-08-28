@@ -268,6 +268,11 @@ class AttachmentSecurity:
                     store.set_tags(imported["document_id"], [*imported.get("tags", []), *tags], actor)
                     for key, value in {"attachment_origin": {"type": "eml", "source_document_id": manifest["document_id"], "source_path": manifest["source_path"], "message_id": manifest["message"]["message_id"], "subject": manifest["message"]["subject"], "from": manifest["message"]["from"], "mime_part": index, "content_type": row["content_type"], "sha256": row["sha256"]}, "malware_scan": record}.items():
                         store.set_attribute(imported["document_id"], key, value, actor)
+                    source_document = store.get_document(manifest["document_id"])
+                    released = list(source_document.get("attributes", {}).get("released_eml_attachments", []))
+                    if imported["document_id"] not in released:
+                        released.append(imported["document_id"])
+                    store.set_attribute(manifest["document_id"], "released_eml_attachments", released[-500:], actor)
                     quarantine_path.unlink(missing_ok=True)
                     results.append({**record, "document_id": imported["document_id"]})
                 except Exception:
@@ -320,10 +325,14 @@ class AttachmentSecurity:
             try:
                 verdict = self.scanner.scan(path)
                 result[verdict.verdict] += 1
-                self._record_scan({**base, "sha256": sha256_file(path), "action": "reported" if verdict.verdict == "infected" else "none", **asdict(verdict)})
+                record = {**base, "sha256": sha256_file(path), "action": "reported" if verdict.verdict == "infected" else "none", **asdict(verdict)}
+                self._record_scan(record)
+                DocumentStore(self.root).set_malware_scan(str(document["document_id"]), record, actor)
             except (OSError, RuntimeError) as exc:
                 result["errors"] += 1
-                self._record_scan({**base, "verdict": "error", "engine": "", "action": "scan_failed", "detail": str(exc)[:1000]})
+                record = {**base, "verdict": "error", "engine": "", "action": "scan_failed", "detail": str(exc)[:1000]}
+                self._record_scan(record)
+                DocumentStore(self.root).set_malware_scan(str(document["document_id"]), record, actor)
         self.record_event("server_scan", actor, "completed", detail="Bestandsprüfung abgeschlossen", counts=result, duration_ms=round((time.monotonic() - started) * 1000))
         DocumentStore(self.root).history.record("managed_documents_malware_scanned", actor, "security", "clamav", result)
         return result
@@ -360,10 +369,30 @@ class AttachmentSecurity:
         except (OSError, RuntimeError) as exc:
             record = {**base, "verdict": "error", "engine": "", "action": "scan_failed", "detail": str(exc)[:1000]}
         self._record_scan(record)
+        # Keep the latest verdict with the document as well.  This makes the
+        # state visible without relying on the size-limited global scan log.
+        DocumentStore(self.root).set_malware_scan(document_id, record, actor)
         DocumentStore(self.root).history.record(
             "managed_document_malware_scanned", actor, "document", document["document_id"],
             {key: record[key] for key in ("scan_id", "verdict", "engine", "action", "detail")},
         )
+        return record
+
+    def latest_document_scan(self, document: dict[str, Any]) -> dict[str, Any] | None:
+        """Return the latest verdict and whether it still covers this revision."""
+        document_id = str(document.get("document_id", ""))
+        embedded = document.get("attributes", {}).get("malware_scan")
+        candidates = [embedded] if isinstance(embedded, dict) else []
+        candidates.extend(
+            row for row in self._all_recent_records()
+            if row.get("document_id") == document_id and "verdict" in row
+        )
+        record = next(iter(sorted((row for row in candidates if isinstance(row, dict)), key=lambda row: str(row.get("scanned_at", "")), reverse=True)), None)
+        if not record:
+            return None
+        current_sha = str(document.get("sha256", ""))
+        record = dict(record)
+        record["current"] = bool(current_sha and record.get("sha256") == current_sha)
         return record
 
     def _all_recent_records(self) -> list[dict[str, Any]]:

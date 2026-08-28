@@ -64,14 +64,15 @@
     const city = document.getElementById('osm-city');
     const postal = document.getElementById('osm-postal');
     const street = document.getElementById('osm-street');
+    const state = document.getElementById('osm-state');
     const country = document.getElementById('osm-country');
     const status = document.getElementById('osm-status');
-    markField(city, 'city'); markField(postal, 'postal'); markField(street, 'street'); markField(country, 'country');
+    markField(city, 'city'); markField(postal, 'postal'); markField(street, 'street'); markField(state, 'state'); markField(country, 'country');
     if (status) status.setAttribute('data-address-status', '');
     const row = city?.closest('.row');
     if (row) {
-      const cityBox = city?.parentElement, postalBox = postal?.parentElement, countryBox = country?.parentElement, streetBox = street?.parentElement;
-      [cityBox, postalBox, countryBox, streetBox].filter(Boolean).forEach(box => row.append(box));
+      const cityBox = city?.parentElement, postalBox = postal?.parentElement, countryBox = country?.parentElement, streetBox = street?.parentElement, stateBox = state?.parentElement;
+      [cityBox, postalBox, stateBox, countryBox, streetBox].filter(Boolean).forEach(box => row.append(box));
     }
     const oldSearch = document.getElementById('osm-search');
     if (oldSearch) oldSearch.hidden = true;
@@ -99,15 +100,17 @@
     const city = group.querySelector('[data-address-city], [data-address-field="city"]');
     const postal = group.querySelector('[data-address-postal], [data-address-field="postal"]');
     const street = group.querySelector('[data-address-street], [data-address-field="street"]');
+    const state = group.querySelector('[data-address-state], [data-address-field="state"]');
     const country = group.querySelector('[data-address-country], [data-address-field="country"]');
     const status = group.querySelector('[data-address-status]');
-    const inputs = [city, postal, street].filter(Boolean);
+    const inputs = [city, postal, street, state].filter(Boolean);
     if (!inputs.length) return;
     let timer = null;
     let serial = 0;
 
     const applyComplete = item => {
       setValue(city, item.city || ''); setValue(postal, item.postal || ''); setValue(street, item.street || '');
+      setValue(state, item.state || value(state));
       setValue(country, (item.country || value(country) || 'DE').toUpperCase());
       hideAll();
       if (status) status.textContent = message('Eindeutige Adresse übernommen.', 'Unique address applied.');
@@ -135,7 +138,7 @@
       if (!active || value(active).length < 3) { hideAll(); return; }
       const requestId = ++serial;
       const menu = ensureMenu(active); menu.replaceChildren();
-      const q = [value(city), value(postal), value(street)].filter(Boolean).join(' ');
+      const q = [value(city), value(postal), value(street), value(state)].filter(Boolean).join(' ');
       const field = active.dataset.addressField || '';
       const params = new URLSearchParams({q, country: (value(country) || 'DE').toLowerCase(), field});
       if (status) status.textContent = message('Lokale Adresssuche …', 'Searching the local address index …');
@@ -224,11 +227,14 @@
       const target = form.querySelector('[data-address-composed]');
       if (target) {
         const country = fieldValue('country').toUpperCase();
-        target.value = [
-          fieldValue('street'),
-          `${fieldValue('postal')} ${fieldValue('city')}`.trim(),
-          country && country !== 'DE' ? country : '',
-        ].filter(Boolean).join(', ');
+        const street = fieldValue('street'), city = fieldValue('city');
+        const postal = fieldValue('postal'), state = fieldValue('state');
+        let rows;
+        if (['US', 'CA', 'AU'].includes(country)) rows = [street, `${city}${city && state ? ', ' : ''}${state} ${postal}`.trim(), country];
+        else if (country === 'JP') rows = [postal, `${state} ${city}`.trim(), street, country];
+        else if (['GB', 'IE'].includes(country)) rows = [street, city, postal, country];
+        else rows = [street, `${postal} ${city}`.trim(), state, country && country !== 'DE' ? country : ''];
+        target.value = rows.filter(Boolean).join('\n');
       }
     });
   });

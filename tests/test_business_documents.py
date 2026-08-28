@@ -24,6 +24,7 @@ from app.business_documents import (
     address_labels,
     attach_contact_document,
     contact_links,
+    din5008_template_guide_pdf,
     embed_invoice_xml,
     finalize_invoice,
     inspect_zugferd_pdf,
@@ -229,8 +230,22 @@ class BusinessDocumentTests(unittest.TestCase):
             validation = _validate_hybrid(target.getvalue(), b"<invoice />")
         self.assertFalse(validation["validated"])
         self.assertIn("verapdf_unavailable", validation["details"])
-        self.assertIn("zugferd_2_5_2_validator_unconfigured", validation["details"])
+        self.assertIn("en16931_default_validator_unavailable", validation["details"])
         self.assertEqual("validation_failed", _zugferd_status("pdfa3_created", validation))
+
+    def test_bundled_mustang_is_the_default_validator_without_env_setting(self):
+        writer = PdfWriter(); writer.add_blank_page(width=595, height=842); target = io.BytesIO(); writer.write(target)
+        with tempfile.TemporaryDirectory() as temp:
+            jar = Path(temp) / "Mustang-CLI-2.25.0.jar"; jar.write_bytes(b"jar")
+            completed = mock.Mock(returncode=0, stdout='<summary status="valid"/>', stderr="")
+            with mock.patch.dict("os.environ", {"SIMPLEOFFICE_MUSTANG_JAR": str(jar)}, clear=True), \
+                 mock.patch("app.business_documents.shutil.which", side_effect=lambda name: "/usr/bin/java" if name == "java" else None), \
+                 mock.patch("app.business_documents.subprocess.run", return_value=completed) as run:
+                validation = _validate_hybrid(target.getvalue(), b"<invoice />")
+        self.assertTrue(validation["validated"])
+        self.assertEqual("mustang-2.25.0", validation["validator"])
+        self.assertIn("--action", run.call_args.args[0])
+        self.assertNotIn("verapdf_unavailable", validation["details"])
 
     def test_pdfa_failure_has_its_own_terminal_status(self):
         self.assertEqual("pdfa_failed", _zugferd_status("ghostscript_pdfa_failed", {"validated": False}))
@@ -378,6 +393,11 @@ class BusinessDocumentTests(unittest.TestCase):
         writer = PdfWriter(); writer.add_blank_page(width=595, height=842); target = io.BytesIO(); writer.write(target)
         with self.assertRaisesRegex(ValueError, "well formed"):
             embed_invoice_xml(target.getvalue(), b"<broken>")
+
+    def test_din5008_template_guide_has_required_three_pages(self):
+        reader = PdfReader(io.BytesIO(din5008_template_guide_pdf()))
+        self.assertEqual(3, len(reader.pages))
+        self.assertIn("DYNAMISCHER INHALT", "\n".join(page.extract_text() or "" for page in reader.pages))
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@
       <div class="col-md-5"><label class="form-label">{{ tr('contact.city') }}</label><input class="form-control" name="address_city" data-address-city value="{{ values.address_city }}"></div>
       <div class="col-md-3"><label class="form-label">{{ tr('contact.postal') }}</label><input class="form-control" name="address_postal" data-address-postal value="{{ values.address_postal }}"></div>
       <div class="col-md-4"><label class="form-label">{{ tr('contact.street') }}</label><input class="form-control" name="address_street" data-address-street value="{{ values.address_street }}"></div>
+      <div class="col-md-5"><label class="form-label">{{ 'State / province / region' if g.language == 'en' else 'Bundesland / Provinz / Region' }}</label><input class="form-control" name="address_state" data-address-state value="{{ values.address_state }}" autocomplete="address-level1"></div>
       <div class="col-md-5"><label class="form-label">{{ tr('contact.country') }}</label><input class="form-control text-uppercase" name="address_country" data-address-country value="{{ values.address_country or 'DE' }}" maxlength="2" list="public-country-codes"><div class="form-text">{% if g.language == 'en' %}ISO 3166-1 alpha-2; free entry remains possible.{% else %}ISO 3166-1 Alpha-2; freie Eingabe bleibt möglich.{% endif %}</div></div>
       {{ eu_country_datalist('public-country-codes') }}
       <div class="col-12"><div class="form-text" data-address-status aria-live="polite"></div></div>

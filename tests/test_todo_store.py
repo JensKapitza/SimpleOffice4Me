@@ -49,6 +49,29 @@ class TodoStoreTest(unittest.TestCase):
         self.assertTrue(deleted[0]["deleted"])
         self.assertTrue(new_token.endswith(":2"))
 
+    def test_task_lists_sharing_and_integrations_are_canonical(self):
+        team = self.store.create_list({"name": "Team", "description": "Gemeinsam", "color": "#ff0000"}, "admin", "team")
+        self.store.update_list("team", {"permissions": {"editor": ["read", "create", "edit", "complete"]}}, "admin")
+        created = self.store.add("Kunde anrufen", "editor", {"list_id": team["list_id"], "project_id": "p1", "contact_id": "c1", "document_ids": ["d1"], "estimated_minutes": 30})
+        self.assertEqual("admin", created["owner"])
+        self.assertEqual([created["id"]], [row["id"] for row in self.store.items("editor", project_id="p1")])
+        changed = self.store.update(created["id"], {"percent_complete": 100}, "editor")
+        self.assertEqual("completed", changed["status"]); self.assertTrue(changed["completed_at"])
+        self.store.add_comment(created["id"], "Erledigt", "editor")
+        self.store.book_time(created["id"], 25, "Telefonat", "editor", "2026-08-28")
+        final = self.store.items("admin", contact_id="c1")[0]
+        self.assertEqual(25, final["time_entries"][0]["minutes"]); self.assertEqual("d1", final["document_ids"][0])
+
+    def test_project_migration_is_idempotent_and_keeps_backup(self):
+        path = self.root / CONTROL_DIR / "todo.json"; path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"items": [{"id": "old", "title": "Alt", "done": False}]}), encoding="utf-8")
+        projects = [{"project_id": "p1", "title": "Migration", "tasks": [{"task_id": "t1", "title": "Server", "status": "in_progress", "planned_end": "2026-09-01", "time_entries": [{"entry_id": "e1", "minutes": 60}]}]}]
+        first = self.store.migrate_project_tasks(projects, "admin"); second = self.store.migrate_project_tasks(projects, "admin")
+        self.assertEqual(1, first["migrated"]); self.assertEqual(0, second["migrated"]); self.assertEqual(1, second["skipped"])
+        task = self.store.project_tasks("p1", "admin")[0]
+        self.assertEqual("in_progress", task["status"]); self.assertEqual(60, task["time_entries"][0]["minutes"])
+        self.assertTrue((path.parent / "migrations" / "todo-v1-backup.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

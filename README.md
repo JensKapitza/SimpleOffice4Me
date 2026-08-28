@@ -18,7 +18,8 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
   Buchungskonflikten und optionalem Google-Kalender-Abgleich
 - Rechnungserstellung mit PDF/ZUGFeRD, Nummernkreisen, Vorlagen,
   CRM-Verknüpfung, Fälligkeiten, Zahlungshistorie und nachvollziehbarer
-  Ausbuchung uneinbringlicher Forderungen
+  Ausbuchung uneinbringlicher Forderungen; EN16931/PDF-A wird verpflichtend
+  mit dem automatisch installierten Standardvalidator geprüft
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
 
@@ -202,6 +203,8 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 
 - Python 3
 - ein aktueller Browser, zum Beispiel Firefox oder Chromium
+- Ghostscript und eine Java-Laufzeit für die verpflichtende PDF/A-/EN16931-
+  Rechnungsprüfung; der Mustang-Validator selbst wird automatisch installiert
 - optionale Systemwerkzeuge für Dokumentvorschau, OCR, Bildverarbeitung,
   Virenprüfung und SSH/SFTP gemäß den verlinkten Betriebsanleitungen
 
