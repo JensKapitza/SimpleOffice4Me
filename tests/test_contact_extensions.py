@@ -2,7 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.contact_extensions import ContactCRMStore, _eml_preview
+from app import app
+from app.contact_extensions import ContactCRMStore, _eml_preview, _external_update_values
 from app.contact_store import ContactStore
 from app.document_store import DocumentStore
 from app.settings_store import TRANSLATIONS, translate, ui_literal_translations
@@ -43,6 +44,72 @@ class ContactExtensionsTest(unittest.TestCase):
         proposal = next(item for item in crm.proposals() if item["proposal_id"] == proposal_id)
         self.assertEqual("pending", proposal["status"])
         self.assertEqual("a@example.test", contacts.get(contact["contact_id"], "admin")["fields"]["email"])
+
+    def test_external_update_can_clear_fields_without_losing_unknown_vcard_data(self):
+        contacts = ContactStore(self.root)
+        contact = contacts.upsert_vcard(
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:person-1\r\nFN:Ada Example\r\n"
+            "N:Example;Ada;;;\r\nEMAIL:ada@example.test\r\nEMAIL;TYPE=WORK:ada@work.test\r\n"
+            "TEL:+49111\r\nTEL;TYPE=CELL:+49222\r\nORG:Example GmbH;Sales\r\n"
+            "ADR;TYPE=HOME:;;Old Street 1;Berlin;;10115;DE\r\nIMPP:xmpp:ada@example.test\r\nEND:VCARD\r\n",
+            "admin",
+        )
+        crm = ContactCRMStore(self.root)
+        token = crm.create_update_token(contact["contact_id"], "admin")
+        proposal_id = crm.submit_proposal(token, {
+            "email": "", "department": "Support", "mobile": "+49333",
+            "address_city": "Duisburg", "address_postal": "47137",
+            "address_street": "Weserstr. 27", "address_country": "DE",
+            "tags": "Kunde, Newsletter",
+        }, "127.0.0.1")
+
+        crm.resolve_proposal(proposal_id, "accept", [
+            "email", "department", "mobile", "address_city", "address_postal",
+            "address_street", "address_country", "tags",
+        ], "admin")
+
+        updated = contacts.get(contact["contact_id"], "admin")
+        exported = contacts.vcard(contact["contact_id"], "admin")
+        self.assertNotIn("email", updated["fields"])
+        self.assertEqual("Support", updated["fields"]["department"])
+        self.assertEqual(["Kunde", "Newsletter"], updated["tags"])
+        self.assertIn("TEL;TYPE=CELL:+49333", exported)
+        self.assertIn("ADR;TYPE=HOME:;;Weserstr. 27;Duisburg;;47137;DE", exported)
+        self.assertIn("EMAIL;TYPE=WORK:ada@work.test", exported)
+        self.assertIn("IMPP:xmpp:ada@example.test", exported)
+
+    def test_external_update_values_exposes_typed_vcard_fields(self):
+        contact = {"fields": {
+            "display_name": "Person", "vcard_001_email": "EMAIL;TYPE=HOME:private@example.test",
+            "vcard_002_tel": "TEL;TYPE=FAX:+49444",
+            "vcard_003_adr": "ADR;TYPE=HOME:;;Weserstr. 27;Duisburg;;47137;DE",
+        }, "tags": ["Kunde"]}
+
+        values = _external_update_values(contact)
+
+        self.assertEqual("private@example.test", values["email_private"])
+        self.assertEqual("+49444", values["fax"])
+        self.assertEqual("Duisburg", values["address_city"])
+        self.assertEqual("47137", values["address_postal"])
+        self.assertEqual("Kunde", values["tags"])
+
+    def test_public_update_form_renders_all_sections_and_token_scoped_address_search(self):
+        contacts = ContactStore(self.root)
+        contact = contacts.upsert({"display_name": "Person", "company": "Example GmbH"}, "admin")
+        token = ContactCRMStore(self.root).create_update_token(contact["contact_id"], "admin")
+        previous = {key: app.config.get(key) for key in ("DOCUMENT_ROOT", "TESTING")}
+        app.config.update(DOCUMENT_ROOT=str(self.root), TESTING=True)
+        try:
+            response = app.test_client().get(f"/contact-update/{token}")
+        finally:
+            app.config.update(previous)
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn('name="department"', body)
+        self.assertIn('name="email_business"', body)
+        self.assertIn('name="fax"', body)
+        self.assertIn('name="address_city"', body)
+        self.assertIn(f"/contact-update/{token}/address-search.json", body)
 
     def test_crm_overview_searches_and_filters_combined_contact_data(self):
         contacts = ContactStore(self.root)

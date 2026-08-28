@@ -1,2 +1,49 @@
 {% extends "layout.html" %}
-{% block body %}<main class="container py-5" style="max-width:760px">{% if submitted %}<div class="alert alert-success"><h1 class="h4">Änderung übermittelt</h1><p class="mb-0">Die Angaben wurden als Vorschlag gespeichert und werden intern geprüft. Der Kontakt wurde nicht direkt überschrieben.</p></div>{% else %}<h1 class="h3">Kontaktdaten aktualisieren</h1><p class="text-secondary">Bitte nur die Daten anpassen, die geändert werden sollen. Die Änderungen werden vor der Übernahme geprüft.</p><form method="post" class="row g-3"><div class="col-md-6"><label class="form-label">Vorname</label><input class="form-control" name="first_name" value="{{ contact.fields.first_name|default('') }}"></div><div class="col-md-6"><label class="form-label">Nachname</label><input class="form-control" name="last_name" value="{{ contact.fields.last_name|default('') }}"></div><div class="col-12"><label class="form-label">Anzeigename</label><input class="form-control" name="display_name" value="{{ contact.fields.display_name|default('') }}"></div><div class="col-md-6"><label class="form-label">E-Mail</label><input class="form-control" name="email" type="email" value="{{ contact.fields.email|default('') }}"></div><div class="col-md-6"><label class="form-label">Telefon</label><input class="form-control" name="phone" value="{{ contact.fields.phone|default('') }}"></div><div class="col-12"><label class="form-label">Firma</label><input class="form-control" name="company" value="{{ contact.fields.company|default('') }}"></div><div class="col-12"><label class="form-label">Notiz / weitere Änderung</label><textarea class="form-control" name="note" rows="4">{{ contact.fields.note|default('') }}</textarea></div><div class="col-12"><button class="btn btn-primary">Änderungsvorschlag senden</button></div></form>{% endif %}</main>{% endblock %}
+{% block body %}
+<main class="container py-5" style="max-width:900px">
+  {% if submitted %}
+  <div class="alert alert-success"><h1 class="h4">{{ tr('contact_update.submitted') }}</h1><p class="mb-0">{{ tr('contact_update.submitted_text') }}</p></div>
+  {% else %}
+  <h1 class="h3">{{ tr('contact_update.title') }}</h1>
+  <p class="text-secondary">{{ tr('contact_update.explanation') }}</p>
+  {% if error %}<div class="alert alert-warning">{{ tr('contact_update.no_changes') }}</div>{% endif %}
+  <form method="post" class="row g-3">
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.first_name') }}</label><input class="form-control" name="first_name" value="{{ values.first_name }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.last_name') }}</label><input class="form-control" name="last_name" value="{{ values.last_name }}"></div>
+    <div class="col-md-8"><label class="form-label">{{ tr('contact.display_name') }}</label><input required class="form-control" name="display_name" value="{{ values.display_name }}"></div>
+    <div class="col-md-4"><label class="form-label">{{ tr('contact.nickname') }}</label><input class="form-control" name="nickname" value="{{ values.nickname }}"></div>
+
+    <div class="col-12"><h2 class="h5 mt-2">{{ tr('contact.organization') }}</h2></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.company') }}</label><input class="form-control" name="company" value="{{ values.company }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.department') }}</label><input class="form-control" name="department" value="{{ values.department }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.title') }}</label><input class="form-control" name="title" value="{{ values.title }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.role') }}</label><input class="form-control" name="role" value="{{ values.role }}"></div>
+
+    <div class="col-12"><h2 class="h5 mt-2">{{ tr('contact.communication') }}</h2></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.email') }}</label><input class="form-control" name="email" type="email" value="{{ values.email }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.email_private') }}</label><input class="form-control" name="email_private" type="email" value="{{ values.email_private }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.email_business') }}</label><input class="form-control" name="email_business" type="email" value="{{ values.email_business }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.phone') }}</label><input class="form-control" name="phone" value="{{ values.phone }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.mobile') }}</label><input class="form-control" name="mobile" value="{{ values.mobile }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.phone_business') }}</label><input class="form-control" name="phone_business" value="{{ values.phone_business }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.phone_private') }}</label><input class="form-control" name="phone_private" value="{{ values.phone_private }}"></div>
+    <div class="col-md-6"><label class="form-label">{{ tr('contact.fax') }}</label><input class="form-control" name="fax" value="{{ values.fax }}"></div>
+
+    <div class="col-12"><h2 class="h5 mt-2">{{ tr('contact.address') }}</h2></div>
+    <div class="col-12 position-relative" data-address-autocomplete data-address-endpoint="{{ url_for('contact_audit.crm_public_address_search', token=request.view_args.token) }}"><div class="row g-3">
+      <div class="col-md-5"><label class="form-label">{{ tr('contact.city') }}</label><input class="form-control" name="address_city" data-address-city value="{{ values.address_city }}"></div>
+      <div class="col-md-3"><label class="form-label">{{ tr('contact.postal') }}</label><input class="form-control" name="address_postal" data-address-postal value="{{ values.address_postal }}"></div>
+      <div class="col-md-4"><label class="form-label">{{ tr('contact.street') }}</label><input class="form-control" name="address_street" data-address-street value="{{ values.address_street }}"></div>
+      <div class="col-md-5"><label class="form-label">{{ tr('contact.country') }}</label><input class="form-control" name="address_country" data-address-country value="{{ values.address_country or 'DE' }}"></div>
+      <div class="col-12"><div class="form-text" data-address-status aria-live="polite"></div></div>
+    </div></div>
+
+    <div class="col-md-4"><label class="form-label">{{ tr('contact.birthday') }}</label><input class="form-control" name="birthday" type="date" value="{{ values.birthday }}"></div>
+    <div class="col-md-8"><label class="form-label">{{ tr('contact.website') }}</label><input class="form-control" name="website" type="url" value="{{ values.website }}"></div>
+    <div class="col-12"><label class="form-label">{{ tr('contact.tags') }}</label><input class="form-control" name="tags" value="{{ values.tags }}"></div>
+    <div class="col-12"><label class="form-label">{{ tr('contact.note') }}</label><textarea class="form-control" name="note" rows="4">{{ values.note }}</textarea></div>
+    <div class="col-12"><button class="btn btn-primary">{{ tr('contact_update.submit') }}</button></div>
+  </form>
+  {% endif %}
+</main>
+{% endblock %}

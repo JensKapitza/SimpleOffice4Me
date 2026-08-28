@@ -21,11 +21,32 @@ Der Abschlussbericht enthält:
 aus SQLite gelesen. Eine unplausibel stark eingebrochene Datenmenge beendet
 den Import als Fehler.
 
+Während des Neuaufbaus aktualisiert der Worker ungefähr alle zwei Sekunden
+`processed`, `inserted`, `updated`, `duplicates`, `rejected`, Laufzeit und
+Datensätze pro Sekunde. Diese Werte stehen im Worker-Log und in der
+CRM-Administration. HTTP-Statusabfragen führen währenddessen kein zusätzliches
+`COUNT(*)` über die wachsende Tabelle aus. Der Administrator sieht außerdem
+den tatsächlich verwendeten `DOCUMENT_ROOT`, den absoluten Pfad der
+`addresses.sqlite3` sowie getrennt die Gesamtgröße des Index und die Anzahl
+der bei einer Suche angezeigten Treffer.
+
+Der `osmium export` schreibt seine Diagnose in eine temporäre Datei. Dadurch
+kann keine unbeachtete `stderr`-Pipe volllaufen und den Export blockieren. Ein
+festgefahrener Export wird standardmäßig nach sechs Stunden abgebrochen; der
+Wert kann mit `SIMPLEOFFICE_OSM_EXPORT_TIMEOUT` zwischen einer und 24 Stunden
+gesetzt werden. Eine unterbrochene SQLite-Transaktion wird zurückgerollt.
+
 Ein bereits heruntergeladener Extrakt kann ohne erneuten Download vollständig
 neu indexiert werden:
 
 ```bash
 python tools/osm_index_worker.py --root /pfad/zum/dokument-root --force
+```
+
+Das Log zeigt währenddessen beispielsweise:
+
+```text
+OSM-Index: processed=1200000 inserted=1185000 updated=0 duplicates=12000 rejected=3000 rate=24500/s
 ```
 
 Nach der Aktualisierung muss der Deutschland-Index einmal mit `--force` neu

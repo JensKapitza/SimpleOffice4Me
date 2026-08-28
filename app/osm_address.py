@@ -15,9 +15,10 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -161,14 +162,13 @@ class LocalAddressIndex:
 
     def status(self) -> dict[str, Any]:
         status: dict[str, Any] = {"ready": False, "count": 0, "osmium": bool(shutil.which("osmium"))}
-        try:
-            if self.status_path.is_file():
-                loaded = json.loads(self.status_path.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    status.update(loaded)
-        except (OSError, json.JSONDecodeError):
-            pass
-        if self.db_path.is_file():
+        status.update(self._stored_status())
+        status["document_root"] = str(self.root)
+        status["database_path"] = str(self.db_path)
+        # Do not scan a many-million-row table from an HTTP request while the
+        # writer is rebuilding it. The completed status always contains the
+        # actual SELECT COUNT(*) result calculated inside the import transaction.
+        if self.db_path.is_file() and status.get("state") != "indexing":
             try:
                 with self._db() as db:
                     status["count"] = int(db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
@@ -187,12 +187,21 @@ class LocalAddressIndex:
         return status
 
     def _write_status(self, **values: Any) -> None:
-        current = self.status()
+        # Status writes must stay O(1). Calling status() here used to execute a
+        # full COUNT(*) and made the worker appear stuck after a large import.
+        current = self._stored_status()
         current.update(values)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         temporary = self.status_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         temporary.replace(self.status_path)
+
+    def _stored_status(self) -> dict[str, Any]:
+        try:
+            loaded = json.loads(self.status_path.read_text(encoding="utf-8"))
+            return loaded if isinstance(loaded, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
 
     @staticmethod
     def _source(region: str) -> tuple[str, str]:
@@ -437,7 +446,14 @@ class LocalAddressIndex:
             changed,
         )
 
-    def _import_geojson_lines(self, db: sqlite3.Connection, lines: Any, *, batch_size: int = 2000) -> dict[str, int]:
+    def _import_geojson_lines(
+        self,
+        db: sqlite3.Connection,
+        lines: Any,
+        *,
+        batch_size: int = 2000,
+        progress: Callable[[dict[str, int]], None] | None = None,
+    ) -> dict[str, int]:
         stats = {
             "processed": 0,
             "inserted": 0,
@@ -469,40 +485,105 @@ class LocalAddressIndex:
             if len(rows) >= batch_size:
                 self._store_batch(db, rows, stats)
                 rows.clear()
+                if progress:
+                    progress(dict(stats))
         self._store_batch(db, rows, stats)
         stats["stored"] = int(db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+        if progress:
+            progress(dict(stats))
         return stats
 
-    def build(self, source: str | Path) -> dict[str, int]:
+    def build(
+        self,
+        source: str | Path,
+        *,
+        progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, int]:
         source = Path(source).resolve()
         if not source.is_file() or source.suffix.casefold() != ".pbf":
             raise ValueError("a regular .osm.pbf extract is required")
         osmium = shutil.which("osmium")
         if not osmium:
             raise RuntimeError("osmium is required to build the local address index")
-        self._write_status(state="indexing", source_file=str(source), indexed_at="", error="")
+        started = time.monotonic()
+        self._write_status(state="indexing", source_file=str(source), indexed_at="", error="", processed=0, inserted=0, updated=0, duplicates=0, id_collisions=0, rejected=0, stored=0)
         with tempfile.TemporaryDirectory(prefix="simpleoffice-osm-") as temporary_dir:
             filtered = Path(temporary_dir) / "addresses.osm.pbf"
             subprocess.run(
                 [osmium, "tags-filter", str(source), "nwr/addr:housenumber", "nwr/addr:street", "nwr/addr:postcode", "nwr/addr:city", "-o", str(filtered), "--overwrite"],
                 check=True, timeout=7200, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
             )
-            process = subprocess.Popen(
-                [osmium, "export", str(filtered), "-f", "geojsonseq"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-            )
-            assert process.stdout is not None
-            with self._db() as db:
-                db.execute("DELETE FROM address")
-                stats = self._import_geojson_lines(db, process.stdout)
-                stderr = process.stderr.read() if process.stderr else ""
-                rc = process.wait(timeout=60)
-                if rc:
-                    raise RuntimeError(f"osmium export failed: {stderr[-500:]}")
-                accepted = stats["inserted"] + stats["updated"] + stats["duplicates"]
-                if accepted >= 10_000 and stats["stored"] < accepted // 2:
-                    raise RuntimeError(f"OSM index plausibility check failed: processed={stats['processed']} accepted={accepted} stored={stats['stored']}")
-        self._write_status(state="ready", ready=True, count=stats["stored"], indexed_at=utc_now(), error="", **stats)
+            last_progress = 0.0
+
+            def report(current: dict[str, int]) -> None:
+                nonlocal last_progress
+                now = time.monotonic()
+                if not current.get("stored") and now - last_progress < 2:
+                    return
+                elapsed = max(0.001, now - started)
+                payload: dict[str, Any] = {
+                    **current,
+                    "state": "indexing",
+                    "elapsed_seconds": round(elapsed, 1),
+                    "records_per_second": round(current["processed"] / elapsed),
+                }
+                self._write_status(**payload)
+                if progress:
+                    progress(payload)
+                last_progress = now
+
+            # stderr is a file, not a pipe: verbose osmium output can therefore
+            # never fill a pipe and deadlock the exporter while stdout is read.
+            with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as stderr_log:
+                process = subprocess.Popen(
+                    [osmium, "export", str(filtered), "-f", "geojsonseq"],
+                    stdout=subprocess.PIPE, stderr=stderr_log, text=True, encoding="utf-8",
+                )
+                assert process.stdout is not None
+                timed_out = threading.Event()
+
+                def abort_export() -> None:
+                    timed_out.set()
+                    if process.poll() is None:
+                        try:
+                            process.kill()
+                        except OSError:
+                            pass
+
+                try:
+                    configured_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_TIMEOUT", "21600"))
+                except ValueError:
+                    configured_timeout = 21600
+                export_timeout = max(3600, min(configured_timeout, 86400))
+                watchdog = threading.Timer(export_timeout, abort_export)
+                watchdog.daemon = True
+                watchdog.start()
+                try:
+                    with self._db() as db:
+                        db.execute("DELETE FROM address")
+                        stats = self._import_geojson_lines(db, process.stdout, progress=report)
+                        rc = process.wait(timeout=60)
+                        stderr_log.seek(0, os.SEEK_END)
+                        stderr_log.seek(max(0, stderr_log.tell() - 4000))
+                        stderr = stderr_log.read()
+                        if timed_out.is_set():
+                            raise subprocess.TimeoutExpired(process.args, export_timeout, stderr=stderr[-4000:])
+                        if rc:
+                            raise RuntimeError(f"osmium export failed: {stderr[-500:]}")
+                        accepted = stats["inserted"] + stats["updated"] + stats["duplicates"]
+                        if accepted >= 10_000 and stats["stored"] < accepted // 2:
+                            raise RuntimeError(f"OSM index plausibility check failed: processed={stats['processed']} accepted={accepted} stored={stats['stored']}")
+                finally:
+                    watchdog.cancel()
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=10)
+        elapsed = round(time.monotonic() - started, 1)
+        self._write_status(state="ready", ready=True, count=stats["stored"], indexed_at=utc_now(), error="", elapsed_seconds=elapsed, **stats)
         return stats
 
     def search(self, query: str, *, country_code: str = "de", limit: int = 5) -> list[dict[str, Any]]:

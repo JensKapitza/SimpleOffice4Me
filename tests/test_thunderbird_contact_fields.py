@@ -93,6 +93,27 @@ class ThunderbirdContactFieldTests(unittest.TestCase):
         self.assertIn("IMPP:xmpp:max@example.test", exported)
         self.assertIn("X-MOZILLA-HTML:TRUE", exported)
 
+    def test_carddav_raw_key_reindexing_keeps_multiple_emails_and_phones(self):
+        card = (
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:multi-contact\r\nFN:Multi Contact\r\n"
+            "N:Contact;Multi;;;\r\nEMAIL:main@example.test\r\n"
+            "EMAIL;TYPE=WORK:one@work.test\r\nEMAIL;TYPE=WORK:two@work.test\r\n"
+            "TEL:+49111\r\nTEL;TYPE=CELL:+49222\r\nTEL;TYPE=CELL:+49333\r\n"
+            "IMPP:xmpp:multi@example.test\r\nEND:VCARD\r\n"
+        )
+        contact = self.store.upsert_vcard(card, "admin")
+        reindexed = (
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:multi-contact\r\nFN:Multi Contact\r\n"
+            "N:Contact;Multi;;;\r\nEMAIL:main@example.test\r\nTEL:+49111\r\n"
+            "IMPP:xmpp:multi@example.test\r\nEND:VCARD\r\n"
+        )
+
+        self.store.conditional_upsert_vcard(reindexed, "carddav:admin", contact["contact_id"])
+        exported = self.store.vcard(contact["contact_id"], "admin")
+
+        for expected in ("one@work.test", "two@work.test", "+49222", "+49333", "IMPP:xmpp:multi@example.test"):
+            self.assertIn(expected, exported)
+
     def test_simpleoffice_extension_fields_survive_vcard_roundtrip(self):
         contact = self.store.upsert(
             {

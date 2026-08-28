@@ -175,6 +175,41 @@ class ContactStore:
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
             return self._upsert_locked(fields, actor, contact_id, source)
 
+    def patch_fields(self, contact_id: str, changes: dict[str, str], actor: str) -> dict[str, Any]:
+        """Atomically change selected fields while retaining every other field."""
+        self._require_actor(actor)
+        schema = self.schema()
+        with exclusive_file_lock(self.control / ".contacts-write.lock"):
+            payload = self._read(self.contacts_path, {"contacts": []})
+            existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
+            if existing is None:
+                raise ValueError("unknown contact")
+            if not self._can_manage(existing, self._principal(actor)):
+                raise ValueError("contact is not shared with this user")
+            merged = dict(existing.get("fields", {}))
+            for key, value in changes.items():
+                key = str(key).strip()
+                if not key or key.startswith("__"):
+                    continue
+                normalized = str(value).strip()
+                if normalized:
+                    merged[key] = normalized
+                else:
+                    merged.pop(key, None)
+            values = {
+                (key if key in schema.get("aliases", {}) else f"custom_{key}"): value
+                for key, value in merged.items()
+            }
+            fields = self._normalize(values, schema)
+            if not fields.get("display_name"):
+                fields["display_name"] = " ".join(
+                    part for part in (fields.get("first_name", ""), fields.get("last_name", "")) if part
+                ).strip()
+            missing = [field for field in schema.get("required", []) if not fields.get(field)]
+            if missing:
+                raise ValueError(f"required contact fields missing: {', '.join(missing)}")
+            return self._upsert_locked(fields, actor, contact_id, payload=payload)
+
     def _validated_fields(self, values: dict[str, str]) -> dict[str, str]:
         schema = self.schema()
         fields = self._normalize(values, schema)
@@ -305,6 +340,14 @@ class ContactStore:
     @staticmethod
     def _vcard_property_name(line: str) -> str:
         return line.partition(":")[0].split(";", 1)[0].rsplit(".", 1)[-1].upper()
+
+    @staticmethod
+    def _vcard_property_signature(line: str) -> str:
+        """Return a stable property/parameter signature without its value."""
+        header = line.partition(":")[0]
+        property_part, *parameters = header.split(";")
+        normalized_parameters = sorted(parameter.strip().upper() for parameter in parameters if parameter.strip())
+        return ";".join((property_part.strip().upper(), *normalized_parameters))
 
     def vcard(self, contact_id: str, actor: str = "") -> str:
         contact = self.get(contact_id, actor)
@@ -467,18 +510,39 @@ class ContactStore:
         field_policy = {
             "first_name": "name", "last_name": "name", "department": "department",
         }
-        incoming_raw_names = {
-            self._vcard_property_name(value)
-            for key, value in incoming.items()
-            if key.startswith("vcard_") and self._safe_raw_vcard_line(value)
-        }
+        incoming_by_signature: dict[str, list[str]] = {}
+        for key, value in incoming.items():
+            if key.startswith("vcard_") and self._safe_raw_vcard_line(value):
+                incoming_by_signature.setdefault(self._vcard_property_signature(value), []).append(value)
+        remaining_incoming = {signature: list(values) for signature, values in incoming_by_signature.items()}
+        preserved_index = 0
         for key, value in existing.items():
             if key in merged:
-                continue
+                if not key.startswith("vcard_"):
+                    continue
+                if merged[key] == value:
+                    signature = self._vcard_property_signature(value)
+                    candidates = remaining_incoming.get(signature, [])
+                    if value in candidates:
+                        candidates.remove(value)
+                    continue
             if key.startswith("vcard_"):
-                name = self._vcard_property_name(value)
-                if name not in incoming_raw_names:
-                    merged[key] = value
+                safe = self._safe_raw_vcard_line(value)
+                if not safe:
+                    continue
+                signature = self._vcard_property_signature(safe)
+                candidates = remaining_incoming.get(signature, [])
+                if safe in candidates:
+                    candidates.remove(safe)
+                    continue
+                if candidates:
+                    candidates.pop(0)
+                    continue
+                target = key
+                while target in merged:
+                    preserved_index += 1
+                    target = f"vcard_preserved_{preserved_index:03d}_{self._vcard_property_name(safe).casefold()}"
+                merged[target] = safe
                 continue
             policy_key = field_policy.get(key, key)
             if policy_key not in released:

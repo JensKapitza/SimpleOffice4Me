@@ -110,6 +110,15 @@ Zeitpunkt in der Revisionshistorie festgehalten. Die Objekte liegen einzeln als
 JSON-Dateien unter `.simpleoffice-meta/objects/`, sodass parallele Änderungen
 an unterschiedlichen Objekten nicht dieselbe Datendatei überschreiben.
 
+Historische oder teilweise migrierte JSON-Datensätze erhalten beim Lesen ein
+vollständiges, aktuelles Objektmodell mit sicheren Standardwerten für Listen,
+freie Felder, Notizen, Dokumentverknüpfungen und Rechnungsdaten. Eine reine
+Listen- oder Detailansicht schreibt die Quelldatei dabei nicht um. Dadurch
+bleiben alte Daten nachvollziehbar und `/documents/objects` kann auch
+unvollständige Altbestände darstellen. Tritt künftig dennoch ein Jinja-Fehler
+auf, enthält das Fehlerlog Request-ID, Endpoint, Template, Zeile und die
+fehlende Variable.
+
 Das Ablaufdatum eines Objekts ist zunächst ein sichtbares Stammdatenfeld. Eine
 spätere Ausbaustufe kann es als zusätzliche Fristquelle in den bestehenden
 Fristenkern einspeisen. Bis dahin verändert ein Objektablauf ausdrücklich

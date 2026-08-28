@@ -27,7 +27,16 @@ def run_osm_index(root: str | Path, *, force: bool = False) -> int:
             return 0
         lower_process_priority()
         try:
-            stats = index.build(source)
+            def report(progress):
+                print(
+                    "OSM-Index: "
+                    f"processed={progress['processed']} inserted={progress['inserted']} "
+                    f"updated={progress['updated']} duplicates={progress['duplicates']} "
+                    f"rejected={progress['rejected']} rate={progress['records_per_second']}/s",
+                    flush=True,
+                )
+
+            stats = index.build(source, progress=report)
         except Exception as exc:
             index._write_status(state="error", ready=index.status().get("ready", False), error=str(exc)[:500])
             print(f"OSM-Indexierung fehlgeschlagen: {exc}", file=sys.stderr, flush=True)

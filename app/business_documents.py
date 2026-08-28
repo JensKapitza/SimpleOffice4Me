@@ -65,6 +65,14 @@ MONEY = Decimal("0.01")
 QTY = Decimal("0.001")
 SUPPORTED_TEMPLATE_SUFFIXES = {".pdf", ".odt", ".ott", ".doc", ".docx", ".rtf", ".odp", ".ppt", ".pptx"}
 logger = logging.getLogger(__name__)
+WRITE_OFF_REASONS = {
+    "customer_deceased",
+    "insolvency",
+    "unknown_address",
+    "collection_uneconomical",
+    "goodwill",
+    "other",
+}
 
 
 def _root() -> Path:
@@ -350,18 +358,79 @@ def invoice_state(row: dict[str, Any], today: date | None = None) -> dict[str, A
     """Return payment state without changing the immutable invoice snapshot."""
     if row.get("status") == "draft":
         gross = _money(row.get("totals", {}).get("gross", "0"))
-        return {"status": "draft", "paid": "0.00", "credited": "0.00", "effective_total": f"{gross:.2f}", "outstanding": f"{gross:.2f}"}
+        return {"status": "draft", "paid": "0.00", "credited": "0.00", "written_off": "0.00", "effective_total": f"{gross:.2f}", "collectible_outstanding": f"{gross:.2f}", "outstanding": f"{gross:.2f}", "collection_stopped": False}
     original_gross = _money(row.get("totals", {}).get("gross", "0"))
     credited = sum((_money(item.get("gross", "0")) for item in row.get("credit_notes", []) if isinstance(item, dict)), Decimal("0"))
     gross = max(Decimal("0"), original_gross - credited)
     paid = sum((_money(item.get("amount", "0")) for item in row.get("payments", []) if isinstance(item, dict)), Decimal("0"))
-    paid = min(paid, gross); outstanding = max(Decimal("0"), gross - paid)
-    status = "credited" if credited > 0 and gross == 0 else "paid" if outstanding == 0 else "partial" if paid > 0 else "open"
+    paid = min(paid, gross)
+    write_offs = [item for item in row.get("write_offs", []) if isinstance(item, dict) and not item.get("reversed_at")]
+    written_off = min(sum((_money(item.get("amount", "0")) for item in write_offs), Decimal("0")), max(Decimal("0"), gross - paid))
+    collectible = max(Decimal("0"), gross - paid - written_off)
+    collection_stopped = any(bool(item.get("stop_collection")) for item in write_offs)
+    outstanding = Decimal("0") if collection_stopped else collectible
+    status = "written_off" if written_off > 0 and (collectible == 0 or collection_stopped) else "credited" if credited > 0 and gross == 0 else "paid" if outstanding == 0 else "partial" if paid > 0 or written_off > 0 else "open"
     try:
         if outstanding > 0 and date.fromisoformat(str(row.get("due_date", ""))) < (today or date.today()): status = "overdue"
     except ValueError:
         pass
-    return {"status": status, "paid": f"{paid.quantize(MONEY):.2f}", "credited": f"{credited.quantize(MONEY):.2f}", "effective_total": f"{gross.quantize(MONEY):.2f}", "outstanding": f"{outstanding.quantize(MONEY):.2f}"}
+    return {"status": status, "paid": f"{paid.quantize(MONEY):.2f}", "credited": f"{credited.quantize(MONEY):.2f}", "written_off": f"{written_off.quantize(MONEY):.2f}", "effective_total": f"{gross.quantize(MONEY):.2f}", "collectible_outstanding": f"{collectible.quantize(MONEY):.2f}", "outstanding": f"{outstanding.quantize(MONEY):.2f}", "collection_stopped": collection_stopped}
+
+
+def write_off_invoice(root: Path, invoice_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
+    path = _invoice_store_path(root, invoice_id)
+    with exclusive_file_lock(path.with_suffix(".lock")):
+        row = invoice(root, invoice_id)
+        state = invoice_state(row)
+        if row.get("status") in {"draft", "finalizing"}:
+            raise ValueError("a draft invoice cannot be written off")
+        if state["status"] in {"paid", "credited", "written_off"} or Decimal(state["collectible_outstanding"]) <= 0:
+            raise ValueError("invoice has no collectible outstanding amount")
+        reason = str(values.get("reason", "")).strip()
+        if reason not in WRITE_OFF_REASONS:
+            raise ValueError("write-off reason is invalid")
+        note = str(values.get("note", "")).strip()[:2000]
+        if reason == "other" and not note:
+            raise ValueError("a note is required for another write-off reason")
+        amount = _money(values.get("amount", ""), "write-off amount")
+        collectible = Decimal(state["collectible_outstanding"])
+        if amount <= 0 or amount > collectible:
+            raise ValueError("write-off amount must be positive and not exceed the collectible outstanding amount")
+        written_off_at = str(values.get("written_off_at", "")).strip() or date.today().isoformat()
+        try:
+            write_off_date = date.fromisoformat(written_off_at)
+        except ValueError as exc:
+            raise ValueError("write-off date must be a valid ISO date") from exc
+        try:
+            issue_date = date.fromisoformat(str(row.get("issue_date", "")))
+        except ValueError:
+            issue_date = None
+        if issue_date and write_off_date < issue_date:
+            raise ValueError("write-off date cannot precede the invoice date")
+        stop_collection = str(values.get("stop_collection", "")).casefold() in {"1", "true", "yes", "on"}
+        if stop_collection and amount != collectible:
+            raise ValueError("stopping collection requires writing off the full collectible outstanding amount")
+        entry = {
+            "write_off_id": uuid.uuid4().hex,
+            "reason": reason,
+            "note": note,
+            "written_off_at": written_off_at,
+            "recorded_at": utc_now(),
+            "recorded_by": actor,
+            "original_outstanding": state["collectible_outstanding"],
+            "amount": f"{amount:.2f}",
+            "stop_collection": stop_collection,
+        }
+        row.setdefault("write_offs", []).append(entry)
+        new_state = invoice_state(row)
+        row["status"] = new_state["status"]
+        row["collection_stopped"] = new_state["collection_stopped"]
+        row["updated_at"] = utc_now()
+        row["updated_by"] = actor
+        row.setdefault("history", []).append({"type": "invoice_written_off", "at": row["updated_at"], "actor": actor, "write_off_id": entry["write_off_id"], "reason": reason, "amount": entry["amount"], "original_outstanding": entry["original_outstanding"], "stop_collection": stop_collection})
+        atomic_json_write(path, row)
+    DocumentStore(root).history.record("invoice_written_off", actor, "invoice", invoice_id, {"invoice_number": row.get("invoice_number", ""), "contact_id": row.get("contact_id", ""), **entry})
+    return {**row, "payment_state": new_state}
 
 
 def invoices(root: Path) -> list[dict[str, Any]]:
@@ -378,7 +447,7 @@ def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], 
     path = _invoice_store_path(root, invoice_id)
     with exclusive_file_lock(path.with_suffix(".lock")):
         row = invoice(root, invoice_id); state = invoice_state(row); outstanding = _money(state["outstanding"])
-        if row.get("status") in {"draft", "finalizing"}: raise ValueError("payments cannot be recorded for a draft or while finalizing")
+        if row.get("status") in {"draft", "finalizing"} or state["status"] == "written_off": raise ValueError("payments cannot be recorded for a draft, while finalizing or after collection was stopped")
         if outstanding <= 0: raise ValueError("invoice is already paid")
         amount = _money(values.get("amount", ""), "payment amount")
         if amount <= 0 or amount > outstanding: raise ValueError("payment amount must be positive and not exceed the outstanding amount")
@@ -396,7 +465,7 @@ def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], 
 def apply_available_customer_credit(root: Path, invoice_id: str, actor: str) -> dict[str, Any]:
     """Apply available same-currency credit as payment without changing VAT totals."""
     row = invoice(root, invoice_id)
-    if row.get("status") in {"draft", "finalizing"}: raise ValueError("customer credit cannot be applied before an invoice is finalized")
+    if row.get("status") in {"draft", "finalizing", "written_off"}: raise ValueError("customer credit cannot be applied before an invoice is finalized or after collection was stopped")
     state = invoice_state(row)
     outstanding = _money(state["outstanding"])
     account = CustomerCreditLedger(root).account(row["contact_id"], row.get("currency", "EUR"))
@@ -1079,7 +1148,7 @@ def invoice_overview():
         searchable=f"{row.get('invoice_number','')} {row.get('buyer',{}).get('name','')} {contact.get('fields',{}).get('display_name','')}"
         if query and query not in searchable.casefold():continue
         rows.append({**row,"contact":contact})
-    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows)}
+    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}
     return render_template("documents/invoice_overview.html",rows=rows,stats=stats,query=request.args.get("q","").strip(),selected_status=selected_status)
 
 @bp.get("/invoices/<invoice_id>")
@@ -1089,7 +1158,7 @@ def invoice_detail(invoice_id:str):
     except ValueError:abort(404)
     contacts=ContactStore(_root());contact=contacts.get(row["contact_id"],_actor())
     if not contacts.can_manage(row["contact_id"],_actor()):abort(403)
-    return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,today=date.today().isoformat(),credit=CustomerCreditLedger(_root()).account(row["contact_id"],row.get("currency","EUR")))
+    return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,today=date.today().isoformat(),credit=CustomerCreditLedger(_root()).account(row["contact_id"],row.get("currency","EUR")),write_off_reasons=sorted(WRITE_OFF_REASONS))
 
 @bp.post("/invoices/<invoice_id>/payments")
 @login_required
@@ -1103,6 +1172,34 @@ def invoice_payment(invoice_id:str):
         keys={"invoice is already paid":"invoice.payment.error.paid","payment amount must be positive and not exceed the outstanding amount":"invoice.payment.error.amount","payment date must be a valid ISO date":"invoice.payment.error.date"}
         flash(translate(g.language,keys.get(str(exc),"invoice.payment.error.default")))
     return redirect(url_for(".invoice_detail",invoice_id=invoice_id))
+
+
+@bp.post("/invoices/<invoice_id>/write-off")
+@login_required
+def invoice_write_off(invoice_id: str):
+    root, actor = _root(), _actor()
+    try:
+        row = invoice(root, invoice_id)
+    except ValueError:
+        abort(404)
+    if not ContactStore(root).can_manage(row["contact_id"], actor):
+        abort(403)
+    error_keys = {
+        "a draft invoice cannot be written off": "writeoff.error.draft",
+        "invoice has no collectible outstanding amount": "writeoff.error.no_outstanding",
+        "write-off reason is invalid": "writeoff.error.reason",
+        "a note is required for another write-off reason": "writeoff.error.note",
+        "write-off amount must be positive and not exceed the collectible outstanding amount": "writeoff.error.amount",
+        "write-off date must be a valid ISO date": "writeoff.error.date",
+        "write-off date cannot precede the invoice date": "writeoff.error.date_before_invoice",
+        "stopping collection requires writing off the full collectible outstanding amount": "writeoff.error.stop_requires_full",
+    }
+    try:
+        write_off_invoice(root, invoice_id, request.form, actor)
+        flash(translate(g.language, "writeoff.saved"))
+    except ValueError as exc:
+        flash(translate(g.language, error_keys.get(str(exc), "writeoff.error")))
+    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 
 
 @bp.post("/invoices/<invoice_id>/apply-credit")

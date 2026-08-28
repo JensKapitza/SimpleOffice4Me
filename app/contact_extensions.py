@@ -19,6 +19,7 @@ from flask import Response, abort, current_app, flash, g, jsonify, redirect, ren
 from .access_control import is_admin
 from .auth import login_required
 from .contact_store import ContactStore
+from .contact_management import ContactManagement
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
@@ -28,6 +29,81 @@ from tools.launcher import start_osm_index_worker
 
 
 CRM_FILE = "contact-crm.json"
+EXTERNAL_SCALAR_FIELDS = (
+    "first_name", "last_name", "display_name", "nickname", "company",
+    "department", "title", "role", "email", "phone", "birthday", "website", "note",
+)
+EXTERNAL_TYPED_FIELDS = {
+    "email_private": ("EMAIL", "HOME"),
+    "email_business": ("EMAIL", "WORK"),
+    "mobile": ("TEL", "CELL"),
+    "phone_private": ("TEL", "HOME"),
+    "phone_business": ("TEL", "WORK"),
+    "fax": ("TEL", "FAX"),
+}
+EXTERNAL_ADDRESS_FIELDS = ("address_city", "address_postal", "address_street", "address_country")
+EXTERNAL_UPDATE_FIELDS = (*EXTERNAL_SCALAR_FIELDS, *EXTERNAL_TYPED_FIELDS, *EXTERNAL_ADDRESS_FIELDS, "tags")
+
+
+def _vcard_types(line: str) -> set[str]:
+    header = line.partition(":")[0]
+    result: set[str] = set()
+    for parameter in header.split(";")[1:]:
+        value = parameter.split("=", 1)[1] if "=" in parameter else parameter
+        result.update(item.strip().upper() for item in value.split(",") if item.strip())
+    return result
+
+
+def _vcard_escape(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def _external_update_values(contact: dict[str, Any]) -> dict[str, str]:
+    fields = contact.get("fields", {})
+    values = {key: str(fields.get(key, "")) for key in EXTERNAL_SCALAR_FIELDS}
+    values.update({key: "" for key in EXTERNAL_TYPED_FIELDS})
+    values.update({key: "" for key in EXTERNAL_ADDRESS_FIELDS})
+    values["tags"] = ", ".join(contact.get("tags", []))
+    for key, raw in fields.items():
+        if not key.startswith("vcard_") or not ContactStore._safe_raw_vcard_line(raw):
+            continue
+        name = ContactStore._vcard_property_name(raw)
+        types = _vcard_types(raw)
+        raw_value = ContactStore._unescape_vcard_text(raw.partition(":")[2])
+        for target, (property_name, type_name) in EXTERNAL_TYPED_FIELDS.items():
+            if name == property_name and type_name in types and not values[target]:
+                values[target] = raw_value
+        if name == "ADR" and not values["address_street"]:
+            parts = ContactStore._split_vcard_components(raw.partition(":")[2])
+            values["address_street"] = parts[2] if len(parts) > 2 else ""
+            values["address_city"] = parts[3] if len(parts) > 3 else ""
+            values["address_postal"] = parts[5] if len(parts) > 5 else ""
+            values["address_country"] = parts[6] if len(parts) > 6 else ""
+    return values
+
+
+def _raw_field_changes(fields: dict[str, str], accepted: set[str], proposed: dict[str, str]) -> dict[str, str]:
+    changes: dict[str, str] = {}
+    for target, (property_name, type_name) in EXTERNAL_TYPED_FIELDS.items():
+        if target not in accepted:
+            continue
+        for key, raw in fields.items():
+            if key.startswith("vcard_") and ContactStore._vcard_property_name(raw) == property_name and type_name in _vcard_types(raw):
+                changes[key] = ""
+        value = proposed.get(target, "").strip()
+        if value:
+            changes[f"vcard_external_{target}_{uuid.uuid4().hex[:8]}"] = f"{property_name};TYPE={type_name}:{_vcard_escape(value)}"
+    if accepted.intersection(EXTERNAL_ADDRESS_FIELDS):
+        current = _external_update_values({"fields": fields})
+        address = {key: proposed.get(key, current.get(key, "")) if key in accepted else current.get(key, "") for key in EXTERNAL_ADDRESS_FIELDS}
+        replaced = False
+        for key, raw in fields.items():
+            if key.startswith("vcard_") and ContactStore._vcard_property_name(raw) == "ADR" and not replaced:
+                changes[key] = ""; replaced = True
+        if any(address.values()):
+            components = ("", "", address["address_street"], address["address_city"], "", address["address_postal"], address["address_country"])
+            changes[f"vcard_external_address_{uuid.uuid4().hex[:8]}"] = "ADR;TYPE=HOME:" + ";".join(_vcard_escape(value) for value in components)
+    return changes
 
 
 class ContactCRMStore:
@@ -129,35 +205,52 @@ class ContactCRMStore:
         return sorted(rows, key=lambda row: (str(row["contact"].get("fields", {}).get("display_name", "")).casefold(), str(row["contact"].get("contact_id", ""))))
 
     def create_update_token(self, contact_id: str, actor: str) -> str:
-        data = self._read(); token = secrets.token_urlsafe(32)
-        data["tokens"].append({"token": token, "contact_id": contact_id, "created_at": utc_now(), "created_by": actor, "used": False})
-        self._write(data); return token
+        with exclusive_file_lock(self.lock_path):
+            data = self._read(); token = secrets.token_urlsafe(32)
+            data["tokens"].append({"token": token, "contact_id": contact_id, "created_at": utc_now(), "created_by": actor, "used": False})
+            self._write(data)
+        return token
 
     def token(self, token: str) -> dict[str, Any] | None:
         return next((item for item in self._read()["tokens"] if item.get("token") == token and not item.get("used")), None)
 
     def submit_proposal(self, token: str, values: dict[str, str], remote: str) -> str:
-        data = self._read(); token_row = next((item for item in data["tokens"] if item.get("token") == token and not item.get("used")), None)
-        if token_row is None: raise ValueError("update link is invalid or already used")
-        proposal_id = uuid.uuid4().hex
-        data["proposals"].append({"proposal_id": proposal_id, "contact_id": token_row["contact_id"], "values": {key: str(value).strip() for key, value in values.items() if str(value).strip()}, "submitted_at": utc_now(), "remote": remote[:120], "status": "pending"})
-        token_row["used"] = True; self._write(data); return proposal_id
+        with exclusive_file_lock(self.lock_path):
+            data = self._read(); token_row = next((item for item in data["tokens"] if item.get("token") == token and not item.get("used")), None)
+            if token_row is None: raise ValueError("update link is invalid or already used")
+            proposal_id = uuid.uuid4().hex
+            clean_values = {key: str(value).strip() for key, value in values.items() if key in EXTERNAL_UPDATE_FIELDS}
+            if not clean_values: raise ValueError("update proposal contains no changes")
+            data["proposals"].append({"proposal_id": proposal_id, "contact_id": token_row["contact_id"], "values": clean_values, "submitted_at": utc_now(), "remote": remote[:120], "status": "pending"})
+            token_row["used"] = True; self._write(data)
+        return proposal_id
 
     def proposals(self) -> list[dict[str, Any]]:
         return sorted(self._read()["proposals"], key=lambda item: item.get("submitted_at", ""), reverse=True)
 
     def resolve_proposal(self, proposal_id: str, action: str, accepted_fields: list[str], actor: str) -> dict[str, Any]:
-        data = self._read(); proposal = next((item for item in data["proposals"] if item.get("proposal_id") == proposal_id), None)
-        if proposal is None or proposal.get("status") != "pending": raise ValueError("proposal is unavailable")
-        if action == "reject": proposal["status"] = "rejected"
-        elif action == "accept":
-            store = ContactStore(self.root); contact = store.get(proposal["contact_id"], actor); merged = dict(contact.get("fields", {}))
-            for key in accepted_fields:
-                if key in proposal.get("values", {}): merged[key] = proposal["values"][key]
-            store.upsert({**merged, **{f"custom_{key}": value for key, value in merged.items() if key not in store.schema().get("aliases", {})}}, actor, proposal["contact_id"])
-            proposal["status"] = "accepted"; proposal["accepted_fields"] = sorted(set(accepted_fields))
-        else: raise ValueError("unknown proposal action")
-        proposal["resolved_at"] = utc_now(); proposal["resolved_by"] = actor; self._write(data)
+        with exclusive_file_lock(self.lock_path):
+            data = self._read(); proposal = next((item for item in data["proposals"] if item.get("proposal_id") == proposal_id), None)
+            if proposal is None or proposal.get("status") != "pending": raise ValueError("proposal is unavailable")
+            contact_store = ContactStore(self.root)
+            if not contact_store.can_manage(proposal["contact_id"], actor): raise ValueError("contact is not shared with this user")
+            if action == "reject": proposal["status"] = "rejected"
+            elif action == "accept":
+                store = contact_store; contact = store.get(proposal["contact_id"], actor); proposed = proposal.get("values", {})
+                accepted = {key for key in accepted_fields if key in EXTERNAL_UPDATE_FIELDS and key in proposed}
+                field_changes = {key: proposed[key] for key in accepted.intersection(EXTERNAL_SCALAR_FIELDS)}
+                field_changes.update(_raw_field_changes(contact.get("fields", {}), accepted, proposed))
+                if field_changes:
+                    store.patch_fields(proposal["contact_id"], field_changes, actor)
+                if "tags" in accepted:
+                    current = store.get(proposal["contact_id"], actor)
+                    ContactManagement(self.root).update_metadata(
+                        proposal["contact_id"], actor,
+                        proposed.get("tags", "").split(","), current.get("groups", []),
+                    )
+                proposal["status"] = "accepted"; proposal["accepted_fields"] = sorted(accepted)
+            else: raise ValueError("unknown proposal action")
+            proposal["resolved_at"] = utc_now(); proposal["resolved_by"] = actor; self._write(data)
         DocumentStore(self.root).history.record("contact_external_update_resolved", actor, "contact-crm", proposal["contact_id"], proposal)
         return proposal
 
@@ -208,14 +301,13 @@ def register(bp) -> None:
     @login_required
     def crm_address_search():
         query = request.args.get("q", "").strip(); country = request.args.get("country", "de").strip() or "de"
-        root = current_app.config["DOCUMENT_ROOT"]
-        if len(query) < 3: return jsonify({"candidates": [], "unique": None, "source": "local_osm", "ready": LocalAddressIndex(root).status()["ready"], "attribution": "© OpenStreetMap contributors"})
+        root = current_app.config["DOCUMENT_ROOT"]; index_status = LocalAddressIndex(root).status()
+        if len(query) < 3: return jsonify({"candidates": [], "unique": None, "shown": 0, "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
         try: candidates = search_address(query, root=root, country_code=country, limit=8)
         except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             current_app.logger.warning("Local OSM address lookup failed: %s", exc)
             return jsonify({"error": "local_address_index_unavailable", "candidates": [], "unique": None, "source": "local_osm", "attribution": "© OpenStreetMap contributors"}), 503
-        index_status = LocalAddressIndex(root).status()
-        return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
+        return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "shown": len(candidates), "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
 
     @bp.get("/documents/contacts/osm-index/region-info.json", endpoint="crm_osm_region_info")
     @login_required
@@ -280,26 +372,53 @@ def register(bp) -> None:
     def crm_update_link(contact_id: str):
         actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"])
         if not contacts.can_manage(contact_id, actor): abort(403)
-        token = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).create_update_token(contact_id, actor); flash("Externer Aktualisierungslink: " + url_for("contact_audit.crm_public_update", token=token, _external=True)); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
+        token = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).create_update_token(contact_id, actor); flash(translate(g.language, "contact_update.link").format(url=url_for("contact_audit.crm_public_update", token=token, _external=True))); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
 
     @bp.route("/contact-update/<token>", methods=("GET", "POST"), endpoint="crm_public_update")
     def crm_public_update(token: str):
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]); row = store.token(token)
         if row is None: abort(404)
         contact = ContactStore(current_app.config["DOCUMENT_ROOT"]).get(row["contact_id"])
+        public_values = _external_update_values(contact)
         if request.method == "POST":
-            store.submit_proposal(token, {"display_name": request.form.get("display_name", ""), "first_name": request.form.get("first_name", ""), "last_name": request.form.get("last_name", ""), "email": request.form.get("email", ""), "phone": request.form.get("phone", ""), "company": request.form.get("company", ""), "note": request.form.get("note", "")}, request.remote_addr or "")
-            return render_template("documents/contact_update_public.html", contact=contact, submitted=True)
-        return render_template("documents/contact_update_public.html", contact=contact, submitted=False)
+            submitted_values = {key: request.form.get(key, "").strip() for key in EXTERNAL_UPDATE_FIELDS}
+            changed = {key: value for key, value in submitted_values.items() if value != public_values.get(key, "")}
+            try:
+                store.submit_proposal(token, changed, request.remote_addr or "")
+            except ValueError as exc:
+                return render_template("documents/contact_update_public.html", contact=contact, values=submitted_values, submitted=False, error=str(exc)), 400
+            return render_template("documents/contact_update_public.html", contact=contact, values=submitted_values, submitted=True, error="")
+        return render_template("documents/contact_update_public.html", contact=contact, values=public_values, submitted=False, error="")
+
+    @bp.get("/contact-update/<token>/address-search.json", endpoint="crm_public_address_search")
+    def crm_public_address_search(token: str):
+        if ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).token(token) is None:
+            abort(404)
+        query = request.args.get("q", "").strip()
+        index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+        if len(query) < 3:
+            return jsonify({"candidates": [], "unique": None, "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
+        try:
+            candidates = search_address(query, root=current_app.config["DOCUMENT_ROOT"], country_code=request.args.get("country", "de"), limit=8)
+        except (OSError, RuntimeError, ValueError, sqlite3.Error):
+            return jsonify({"error": "local_address_index_unavailable", "candidates": [], "unique": None, "source": "local_osm", "attribution": "© OpenStreetMap contributors"}), 503
+        return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
 
     @bp.get("/documents/contacts/proposals", endpoint="crm_proposals")
     @login_required
-    def crm_proposals(): return render_template("documents/contact_proposals.html", proposals=ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).proposals())
+    def crm_proposals():
+        actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"]); rows = []
+        for proposal in ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).proposals():
+            if not contacts.can_manage(proposal.get("contact_id", ""), actor):
+                continue
+            contact = contacts.get(proposal["contact_id"], actor)
+            rows.append({**proposal, "contact": contact, "current_values": _external_update_values(contact)})
+        return render_template("documents/contact_proposals.html", proposals=rows)
 
     @bp.post("/documents/contacts/proposals/<proposal_id>", endpoint="crm_resolve_proposal")
     @login_required
     def crm_resolve_proposal(proposal_id: str):
-        try: ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).resolve_proposal(proposal_id, request.form.get("action", "reject"), request.form.getlist("fields"), str(g.user["username"])); flash("Externe Kontaktänderung verarbeitet.")
+        try: ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).resolve_proposal(proposal_id, request.form.get("action", "reject"), request.form.getlist("fields"), str(g.user["username"])); flash(translate(g.language, "contact_update.resolved"))
         except ValueError as exc: flash(str(exc))
         return redirect(url_for("contact_audit.crm_proposals"))
 

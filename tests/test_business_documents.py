@@ -30,9 +30,11 @@ from app.business_documents import (
     invoice_state,
     record_invoice_payment,
     render_business_pdf,
+    write_off_invoice,
 )
 from app.customer_credit import CustomerCreditLedger
 from app.file_lock import exclusive_file_lock
+from app.settings_store import TRANSLATIONS
 
 
 def _three_page_template(root: Path) -> dict:
@@ -133,6 +135,68 @@ class BusinessDocumentTests(unittest.TestCase):
         state = invoice_state({"status": "draft", "totals": {"gross": "119.00"}})
         self.assertEqual("draft", state["status"])
         self.assertEqual("0.00", state["paid"])
+
+    def test_full_write_off_preserves_invoice_totals_and_stops_collection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            original = {"invoice_id": "invoice-1", "invoice_number": "2026-0001", "contact_id": "contact-1", "issue_date": "2026-08-01", "due_date": "2026-08-15", "status": "overdue", "totals": {"net": "100.00", "tax": "19.00", "gross": "119.00"}, "payments": [], "history": [], "document_id": "pdf-1"}
+            path = directory / "invoice-1.json"; path.write_text(json.dumps(original), encoding="utf-8")
+
+            updated = write_off_invoice(root, "invoice-1", {"reason": "insolvency", "amount": "119", "written_off_at": "2026-08-27", "stop_collection": "on", "note": "Aktenzeichen 1"}, "tester")
+
+            self.assertEqual("written_off", updated["payment_state"]["status"])
+            self.assertEqual("0.00", updated["payment_state"]["outstanding"])
+            self.assertEqual("119.00", updated["payment_state"]["written_off"])
+            self.assertEqual(original["totals"], updated["totals"])
+            self.assertEqual("pdf-1", updated["document_id"])
+            self.assertEqual("tester", updated["write_offs"][0]["recorded_by"])
+            self.assertEqual("invoice_written_off", updated["history"][-1]["type"])
+
+    def test_partial_write_off_can_leave_a_collectible_remainder(self):
+        row = {"status": "open", "due_date": "2026-12-31", "totals": {"gross": "100.00"}, "payments": [], "write_offs": [{"amount": "40.00", "stop_collection": False}]}
+        state = invoice_state(row, date(2026, 8, 27))
+        self.assertEqual("partial", state["status"])
+        self.assertEqual("60.00", state["outstanding"])
+        self.assertEqual("40.00", state["written_off"])
+
+    def test_written_off_invoice_rejects_later_payments(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            row = {"invoice_id": "invoice-1", "invoice_number": "2026-0001", "contact_id": "contact-1", "issue_date": "2026-08-01", "due_date": "2026-08-15", "status": "open", "totals": {"gross": "119.00"}, "payments": [], "history": []}
+            (directory / "invoice-1.json").write_text(json.dumps(row), encoding="utf-8")
+            write_off_invoice(root, "invoice-1", {"reason": "insolvency", "amount": "119", "written_off_at": "2026-08-27", "stop_collection": "on"}, "tester")
+
+            with self.assertRaisesRegex(ValueError, "collection was stopped"):
+                record_invoice_payment(root, "invoice-1", {"amount": "1", "paid_at": "2026-08-27"}, "tester")
+
+    def test_write_off_ui_keys_exist_in_german_and_english(self):
+        keys = {
+            "invoice.status.written_off", "writeoff.title", "writeoff.history",
+            "writeoff.reason.customer_deceased", "writeoff.reason.insolvency",
+            "writeoff.reason.unknown_address", "writeoff.reason.collection_uneconomical",
+            "writeoff.reason.goodwill", "writeoff.reason.other", "writeoff.note",
+            "writeoff.date", "writeoff.amount", "writeoff.stop_collection",
+            "writeoff.submit", "writeoff.saved", "writeoff.error.stop_requires_full",
+        }
+        for language in ("de", "en"):
+            with self.subTest(language=language):
+                self.assertFalse(keys - TRANSLATIONS[language].keys())
+
+    def test_write_off_validates_reason_amount_note_and_date(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            path = directory / "invoice-1.json"
+            row = {"invoice_id": "invoice-1", "issue_date": "2026-08-10", "due_date": "2026-08-20", "status": "open", "totals": {"gross": "100.00"}, "payments": [], "history": []}
+            for values, message in [
+                ({"reason": "invalid", "amount": "10"}, "reason"),
+                ({"reason": "other", "amount": "10"}, "note"),
+                ({"reason": "goodwill", "amount": "101"}, "amount"),
+                ({"reason": "goodwill", "amount": "10", "written_off_at": "2026-08-01"}, "precede"),
+                ({"reason": "goodwill", "amount": "10", "written_off_at": "2026-08-27", "stop_collection": "on"}, "full"),
+            ]:
+                path.write_text(json.dumps(row), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, message):
+                    write_off_invoice(root, "invoice-1", values, "tester")
 
     def test_payment_cannot_be_recorded_for_draft(self):
         with tempfile.TemporaryDirectory() as temp:
