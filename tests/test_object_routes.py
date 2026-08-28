@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from bs4 import BeautifulSoup
+
 from app import app
 from app.db import ensure_auth_database
 
@@ -49,6 +51,37 @@ class ObjectRouteTests(unittest.TestCase):
         self.assertEqual(200, detail.status_code)
         self.assertIn("Altbestand", listing.get_data(as_text=True))
         self.assertIn("[Dokument fehlt]", detail.get_data(as_text=True))
+
+    def test_non_billing_object_hides_invoice_and_category_sections(self):
+        response = self.client.post(
+            "/documents/objects",
+            data={"name": "Notebook", "type": "Gerät", "use_in_invoice": "0", "is_invoice_category": "0"},
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+        self.assertTrue(page.select_one("[data-object-invoice-fields]").has_attr("hidden"))
+        self.assertTrue(page.select_one("[data-object-category-fields]").has_attr("hidden"))
+
+    def test_enabled_billing_sections_are_visible_on_initial_render(self):
+        response = self.client.post(
+            "/documents/objects",
+            data={
+                "name": "Beratung",
+                "type": "Leistung",
+                "use_in_invoice": "1",
+                "is_invoice_category": "1",
+                "invoice_description": "Beratung",
+                "default_vat_rate": "19",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+        self.assertFalse(page.select_one("[data-object-invoice-fields]").has_attr("hidden"))
+        self.assertFalse(page.select_one("[data-object-category-fields]").has_attr("hidden"))
 
 
 if __name__ == "__main__":

@@ -43,3 +43,15 @@ class TemplateShellTests(unittest.TestCase):
         self.assertIn("@media (min-width: 1400px)", stylesheet)
         self.assertIn(".app-navbar .navigation-primary", stylesheet)
         self.assertIn("flex-wrap: wrap", stylesheet)
+
+    def test_object_billing_sections_are_shared_and_toggle_independently(self):
+        listing = (TEMPLATES / "documents" / "objects.html").read_text(encoding="utf-8")
+        detail = (TEMPLATES / "documents" / "object_detail.html").read_text(encoding="utf-8")
+        behavior = (ROOT / "static" / "js" / "object-billing-sections.js").read_text(encoding="utf-8")
+
+        for template in (listing, detail):
+            self.assertIn("data-object-invoice-fields", template)
+            self.assertIn("data-object-category-fields", template)
+            self.assertEqual(1, template.count("object-billing-sections.js"))
+        self.assertIn("invoiceFields.hidden = !invoiceToggle.checked", behavior)
+        self.assertIn("categoryFields.hidden = !categoryToggle.checked", behavior)
