@@ -1,7 +1,10 @@
 import json
+import io
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from app.osm_address import LocalAddressIndex, _remote_total, human_bytes, unique_candidate
 
@@ -76,6 +79,8 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual(25.0, status["progress_percent"])
             self.assertEqual(25, status["downloaded_bytes"])
             self.assertEqual(100, status["expected_bytes"])
+            self.assertEqual(str(Path(root).resolve()), status["document_root"])
+            self.assertEqual(str(index.db_path), status["database_path"])
 
     def test_remote_total_prefers_content_range_for_resume(self):
         self.assertEqual(1000, _remote_total(_Headers({"Content-Range": "bytes 250-499/1000", "Content-Length": "250"}), 250))
@@ -115,6 +120,37 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual(2005, stats["inserted"])
             self.assertEqual(2005, stats["stored"])
             self.assertEqual(2005, stored)
+
+    def test_import_reports_progress_after_each_batch_and_at_completion(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root)); reports = []
+            with index._db() as db:
+                stats = index._import_geojson_lines(
+                    db,
+                    [self._feature(number) for number in range(5)],
+                    batch_size=2,
+                    progress=reports.append,
+                )
+            self.assertEqual([2, 4, 5], [row["processed"] for row in reports])
+            self.assertEqual(5, reports[-1]["stored"])
+            self.assertEqual(stats, reports[-1])
+
+    def test_osmium_stderr_uses_file_instead_of_blocking_pipe(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"extract")
+            process = Mock()
+            process.stdout = io.StringIO(self._feature(27) + "\n")
+            process.wait.return_value = 0
+            process.poll.return_value = 0
+            process.args = ["osmium", "export"]
+            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), patch("app.osm_address.subprocess.run"), patch("app.osm_address.subprocess.Popen", return_value=process) as popen:
+                stats = index.build(source)
+            self.assertEqual(1, stats["stored"])
+            self.assertIsNot(subprocess.PIPE, popen.call_args.kwargs["stderr"])
+            self.assertTrue(hasattr(popen.call_args.kwargs["stderr"], "write"))
 
     def test_missing_osm_id_is_stable_and_exact_duplicate_is_counted(self):
         with tempfile.TemporaryDirectory() as root:

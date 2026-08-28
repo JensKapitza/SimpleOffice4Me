@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from app.object_store import ObjectStore
@@ -57,6 +58,31 @@ class ObjectStoreTests(unittest.TestCase):
             self.store.create({"name": "Lizenz", "type": "Lizenz", "fields": "ohne Trenner"}, "jens")
         with self.assertRaisesRegex(ValueError, "ISO date"):
             self.store.create({"name": "Lizenz", "type": "Lizenz", "expires_at": "morgen"}, "jens")
+
+    def test_historical_sparse_object_gets_complete_read_model_without_rewrite(self):
+        directory = Path(self.temp.name) / ".simpleoffice-meta" / "objects"
+        directory.mkdir(parents=True)
+        object_id = "10000000-0000-0000-0000-000000000001"
+        path = directory / f"{object_id}.json"
+        historical = {"object_id": object_id, "sequence_id": 1, "name": "Altbestand", "type": "Gerät"}
+        path.write_text(json.dumps(historical), encoding="utf-8")
+
+        listed = self.store.objects()[0]
+        detail = self.store.object(object_id)
+
+        for item in (listed, detail):
+            self.assertEqual("active", item["status"])
+            self.assertEqual([], item["tags"])
+            self.assertEqual({}, item["fields"])
+            self.assertEqual([], item["document_ids"])
+            self.assertEqual([], item["notes"])
+            self.assertFalse(item["invoice"]["use_in_invoice"])
+            self.assertFalse(item["invoice"]["is_category"])
+            self.assertEqual("", item["invoice_effective"]["net_price"])
+            self.assertEqual("", item["invoice_effective"]["vat_rate"])
+            self.assertEqual("", item["invoice_effective"]["gross_price"])
+
+        self.assertEqual(historical, json.loads(path.read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":

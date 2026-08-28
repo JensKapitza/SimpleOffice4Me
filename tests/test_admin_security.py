@@ -126,6 +126,17 @@ class AdminSecurityTest(unittest.TestCase):
             self.assertEqual("/documents/example", row["path"])
             self.assertNotIn("hunter2", " ".join(str(value) for value in row))
 
+    def test_jinja_error_context_includes_template_line_and_variable(self):
+        import traceback
+        from jinja2 import UndefinedError
+        from app import _jinja_error_context
+
+        frames = [traceback.FrameSummary("/srv/simpleoffice/templates/documents/objects.html", 17, "top-level template code")]
+        self.assertEqual(
+            ("documents/objects.html", 17, "invoice"),
+            _jinja_error_context(UndefinedError("'dict object' has no attribute 'invoice'"), frames),
+        )
+
     def test_logging_filter_removes_common_credentials(self):
         value = redact("Authorization: Bearer abc password=hunter2 token=xyz /?code=secret")
         for secret in ("abc", "hunter2", "xyz", "secret"):

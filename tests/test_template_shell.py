@@ -24,6 +24,8 @@ class TemplateShellTests(unittest.TestCase):
         layout = (TEMPLATES / "layout.html").read_text(encoding="utf-8")
         self.assertIn("bootstrap-5.3.8", layout)
         self.assertIn("fontawesome-7.3.1", layout)
+        self.assertEqual(1, layout.count("address-autocomplete.js"))
+        self.assertNotIn("address_autocomplete.js", layout)
 
     def test_document_index_uses_collapsible_folder_tree(self):
         index = (TEMPLATES / "documents" / "index.html").read_text(encoding="utf-8")

@@ -8,6 +8,7 @@ import json
 import sys
 import datetime
 import locale
+import re
 import secrets
 import traceback
 
@@ -24,7 +25,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
-from jinja2 import TemplateNotFound
+from jinja2 import TemplateNotFound, UndefinedError
 
 
 MIB = 1024 * 1024
@@ -33,6 +34,27 @@ MAX_UPLOAD_LIMIT_MIB = 4096
 MAX_WEBDAV_QUOTA_MIB = 1024 * 1024
 DEFAULT_WEBDAV_QUARANTINE_MIB = 1024
 MAX_WEBDAV_QUARANTINE_MIB = 64 * 1024
+
+
+def _jinja_error_context(error, extracted_frames):
+    """Return non-sensitive template coordinates for actionable production logs."""
+    if not isinstance(error, UndefinedError):
+        return "", 0, ""
+    template = ""
+    line = 0
+    for frame in reversed(extracted_frames):
+        parts = Path(frame.filename).parts
+        if "templates" not in parts:
+            continue
+        offset = parts.index("templates")
+        template = "/".join(parts[offset + 1:])[:240]
+        line = int(frame.lineno)
+        break
+    message = str(error)
+    match = re.search(r"has no attribute ['\"]([A-Za-z0-9_.:-]+)['\"]", message)
+    if not match:
+        match = re.search(r"['\"]([A-Za-z0-9_.:-]+)['\"] is undefined", message)
+    return template, line, match.group(1)[:120] if match else ""
 
 
 def configured_upload_limit_bytes() -> int:
@@ -282,10 +304,14 @@ def unhandled_application_error(error):
     exception_type = type(error).__name__[:120]
     endpoint = (request.endpoint or "")[:160]
     path = request.path[:500]
+    extracted_frames = traceback.extract_tb(error.__traceback__)[-12:]
+    template, template_line, undefined_variable = _jinja_error_context(error, extracted_frames)
     frames = [
         {"file": Path(frame.filename).name[:160], "line": frame.lineno, "function": frame.name[:160]}
-        for frame in traceback.extract_tb(error.__traceback__)[-12:]
+        for frame in extracted_frames
     ]
+    if template:
+        frames.append({"template": template, "line": template_line, "variable": undefined_variable})
     try:
         from .access_control import error_fingerprint, utc_now
         from .db import get_db
@@ -304,7 +330,10 @@ def unhandled_application_error(error):
         dbh.commit()
     except Exception:
         pass
-    app.logger.error("Unhandled application error request_id=%s type=%s endpoint=%s", request_id, exception_type, endpoint)
+    app.logger.error(
+        "Unhandled application error request_id=%s type=%s endpoint=%s template=%s line=%s variable=%s",
+        request_id, exception_type, endpoint, template or "-", template_line or "-", undefined_variable or "-",
+    )
     return render_template("errors/500.html", request_id=request_id), 500
 
 

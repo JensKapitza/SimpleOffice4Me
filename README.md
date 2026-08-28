@@ -17,7 +17,8 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 - Kalender mit Serien, Erinnerungen, Einladungen, Status, Ressourcen,
   Buchungskonflikten und optionalem Google-Kalender-Abgleich
 - Rechnungserstellung mit PDF/ZUGFeRD, Nummernkreisen, Vorlagen,
-  CRM-Verknüpfung, Fälligkeiten und Zahlungshistorie
+  CRM-Verknüpfung, Fälligkeiten, Zahlungshistorie und nachvollziehbarer
+  Ausbuchung uneinbringlicher Forderungen
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
 
@@ -188,6 +189,11 @@ Der sichere OSM-Neuaufbau, die Importzähler sowie Laufzeit- und Fehlerdiagnose
 für PDF/A/ZUGFeRD sind in
 [OSM-Index und Rechnungsfinalisierung](docs/OSM_INDEX_UND_RECHNUNGSFINALISIERUNG.md)
 dokumentiert.
+Das fachliche Verhalten bei uneinbringlichen Forderungen beschreibt
+[Uneinbringliche Rechnungen ausbuchen](docs/RECHNUNGEN_AUSBUCHEN.md).
+Der feldweise Freigabeablauf für externe Kontaktänderungen und der Schutz
+mehrwertiger CardDAV-/Thunderbird-Felder stehen in
+[Externe Kontaktupdates und CardDAV-Datenerhalt](docs/EXTERNE_KONTAKTUPDATES_UND_CARDDAV.md).
 
 ## Voraussetzungen
 

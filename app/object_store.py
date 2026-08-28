@@ -15,6 +15,21 @@ from .revision_history import RevisionHistory
 
 OBJECT_STATES = {"active", "inactive", "lost", "retired"}
 MONEY = Decimal("0.01")
+INVOICE_DEFAULTS: dict[str, Any] = {
+    "use_in_invoice": False,
+    "is_category": False,
+    "category_object_id": "",
+    "category": "",
+    "description": "",
+    "net_price": "",
+    "gross_price": "",
+    "vat_rate": "",
+    "price_group": "",
+    "default_net_price": "",
+    "default_gross_price": "",
+    "default_vat_rate": "",
+    "default_price_group": "",
+}
 
 
 class ObjectStore:
@@ -30,7 +45,11 @@ class ObjectStore:
         self.directory.mkdir(parents=True, exist_ok=True)
         needle = query.strip().casefold()
         numeric_needle = self._sequence_reference(query)
-        objects = [item for path in self.directory.glob("*.json") if path.name != "sequence.json" and (item := self._read(path))]
+        objects = [
+            self._normalized_item(item)
+            for path in self.directory.glob("*.json")
+            if path.name != "sequence.json" and (item := self._read(path))
+        ]
         width = self.sequence_width(objects)
         for item in objects:
             item["display_id"] = self.format_sequence(item.get("sequence_id", 0), width)
@@ -55,6 +74,7 @@ class ObjectStore:
             item = self._find_by_sequence(sequence) if sequence is not None else None
         if not item:
             raise ValueError("unknown object")
+        item = self._normalized_item(item)
         sequence_id = int(item.get("sequence_id", 0) or 0)
         item["display_id"] = self.format_sequence(sequence_id, self.sequence_width())
         item["original_display_id"] = str(sequence_id)
@@ -125,16 +145,61 @@ class ObjectStore:
         return [item for item in self.objects() if bool(item.get("invoice", {}).get("is_category"))]
 
     def invoice_effective(self, item: dict[str, Any]) -> dict[str, Any]:
-        current = dict(item.get("invoice", {})) if isinstance(item.get("invoice"), dict) else {}
+        current = self._normalized_invoice(item.get("invoice"))
         category_id = str(current.get("category_object_id", "")).strip()
         if category_id and category_id != item.get("object_id"):
             category = self._read(self.directory / f"{category_id}.json")
-            defaults = dict(category.get("invoice", {})) if category and isinstance(category.get("invoice"), dict) else {}
+            defaults = self._normalized_invoice(category.get("invoice")) if category else dict(INVOICE_DEFAULTS)
             for key in ("vat_rate", "net_price", "gross_price", "price_group", "category"):
                 fallback = defaults.get(f"default_{key}", defaults.get(key, ""))
                 if not str(current.get(key, "")).strip() and str(fallback).strip():
                     current[key] = fallback
         return self._reconcile_prices(current)
+
+    @classmethod
+    def _normalized_invoice(cls, value: Any) -> dict[str, Any]:
+        invoice = dict(INVOICE_DEFAULTS)
+        if isinstance(value, dict):
+            invoice.update({key: item for key, item in value.items() if key in invoice})
+        invoice["use_in_invoice"] = cls._bool(invoice["use_in_invoice"])
+        invoice["is_category"] = cls._bool(invoice["is_category"])
+        for key in set(invoice) - {"use_in_invoice", "is_category"}:
+            invoice[key] = str(invoice[key] or "").strip()
+        return invoice
+
+    @classmethod
+    def _normalized_item(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Supply the current read model for historical records without rewriting them."""
+        item = dict(value)
+        for key in (
+            "object_id", "name", "type", "description", "identifier", "location",
+            "expires_at", "created_at", "created_by", "updated_at", "updated_by",
+        ):
+            item[key] = str(item.get(key, "") or "").strip()
+        status = str(item.get("status", "") or "").strip()
+        item["status"] = status if status in OBJECT_STATES else "active"
+        try:
+            item["sequence_id"] = max(0, int(item.get("sequence_id", 0) or 0))
+        except (TypeError, ValueError):
+            item["sequence_id"] = 0
+        item["tags"] = cls._list(item.get("tags", []))
+        item["fields"] = (
+            {str(key).strip(): str(field).strip() for key, field in item.get("fields", {}).items() if str(key).strip()}
+            if isinstance(item.get("fields"), dict) else {}
+        )
+        item["document_ids"] = cls._list(item.get("document_ids", []))
+        notes = item.get("notes", [])
+        item["notes"] = [
+            {
+                "note_id": str(note.get("note_id", "") or "").strip(),
+                "text": str(note.get("text", "") or "").strip(),
+                "created_at": str(note.get("created_at", "") or "").strip(),
+                "created_by": str(note.get("created_by", "") or "").strip(),
+            }
+            for note in notes if isinstance(note, dict)
+        ] if isinstance(notes, list) else []
+        item["invoice"] = cls._normalized_invoice(item.get("invoice"))
+        return item
 
     def attach_document(self, object_id: str, document_id: str, actor: str) -> None:
         item = self.object(object_id)

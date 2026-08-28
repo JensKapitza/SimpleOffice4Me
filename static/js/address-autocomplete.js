@@ -84,10 +84,10 @@
     if (group.dataset.addressAutocompleteReady === '1') return;
     group.dataset.addressAutocompleteReady = '1';
     const endpoint = group.dataset.addressEndpoint || DEFAULT_ENDPOINT;
-    const city = group.querySelector('[data-address-city]');
-    const postal = group.querySelector('[data-address-postal]');
-    const street = group.querySelector('[data-address-street]');
-    const country = group.querySelector('[data-address-country]');
+    const city = group.querySelector('[data-address-city], [data-address-field="city"]');
+    const postal = group.querySelector('[data-address-postal], [data-address-field="postal"]');
+    const street = group.querySelector('[data-address-street], [data-address-field="street"]');
+    const country = group.querySelector('[data-address-country], [data-address-field="country"]');
     const status = group.querySelector('[data-address-status]');
     const inputs = [city, postal, street].filter(Boolean);
     if (!inputs.length) return;
@@ -120,7 +120,9 @@
         if (payload.unique) { apply(payload.unique); return; }
         const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
         if (!candidates.length) { if (status) status.textContent = 'Keine passende lokale Adresse gefunden.'; return; }
-        if (status) status.textContent = `${candidates.length} Treffer`;
+        if (status) status.textContent = Number.isFinite(Number(payload.index_count))
+          ? `${payload.shown ?? candidates.length} Treffer angezeigt · Index enthält ${payload.index_count} Adressen`
+          : `${candidates.length} Treffer angezeigt`;
         candidates.forEach(item => menu.append(candidateButton(item, apply)));
       } catch (_error) {
         if (requestId === serial && status) status.textContent = 'Adresssuche nicht verfügbar.';
@@ -172,6 +174,13 @@
   prepareGenericForms();
   document.querySelectorAll('[data-address-autocomplete]').forEach(initGroup);
   document.querySelectorAll('input[name="address"]').forEach(initFreeform);
+  document.querySelectorAll('form[data-address-compose]').forEach(form => {
+    form.addEventListener('submit', () => {
+      const fieldValue = name => value(form.querySelector(`[data-address-field="${name}"]`));
+      const target = form.querySelector('[data-address-composed]');
+      if (target) target.value = `${fieldValue('street')}, ${fieldValue('postal')} ${fieldValue('city')}`.trim();
+    });
+  });
   document.addEventListener('click', event => {
     if (!event.target.closest('[data-address-autocomplete], input[name="address"]')) hideAll();
   });
