@@ -101,22 +101,31 @@ def _actor() -> str:
 @login_required
 def manage():
     manager = _management()
+    visible_contacts = manager.store.contacts(_actor())
     query = request.args.get("q", "").strip()
     tag = request.args.get("tag", "").strip()
     group = request.args.get("group", "").strip()
     company = request.args.get("company", "").strip()
     incomplete = request.args.get("incomplete", "").strip()
-    contacts = manager.advanced_search(_actor(), query, tag, group, company, incomplete)
+    contacts = manager.advanced_search(_actor(), query, tag, group, company, incomplete, contacts=visible_contacts)
     return render_template(
         "documents/contact_management.html",
-        dashboard=manager.dashboard(_actor()),
+        dashboard=manager.dashboard(_actor(), visible_contacts),
         contacts=contacts,
-        duplicates=manager.duplicate_candidates(_actor()),
         query=query,
         selected_tag=tag,
         selected_group=group,
         company=company,
         incomplete=incomplete,
+    )
+
+
+@bp.get("/documents/contacts/manage/duplicates")
+@login_required
+def duplicates():
+    return render_template(
+        "documents/contact_duplicates.html",
+        duplicates=_management().duplicate_candidates(_actor()),
     )
 
 
@@ -182,10 +191,12 @@ def merge_contacts():
     try:
         merged = _management().merge(target_id, source_id, _actor())
         flash("Kontakte revisionssicher zusammengeführt. Beide vorherigen Fassungen wurden gesichert.")
+        if request.form.get("return_to") == "duplicates":
+            return redirect(url_for("contact_audit.duplicates"))
         return redirect(url_for("documents.contact_detail", contact_id=merged["contact_id"]))
     except ValueError as exc:
         flash(str(exc))
-        return redirect(url_for("contact_audit.manage"))
+        return redirect(url_for("contact_audit.duplicates" if request.form.get("return_to") == "duplicates" else "contact_audit.manage"))
 
 
 @bp.get("/documents/contacts/<contact_id>/snapshots")

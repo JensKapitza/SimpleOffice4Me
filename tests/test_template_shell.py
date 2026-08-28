@@ -15,7 +15,7 @@ class TemplateShellTests(unittest.TestCase):
             if template.name == "layout.html":
                 self.assertIn("i18n.js", content)
                 self.assertIn('lang="{{ g.language', content)
-            elif relative in fragments:
+            elif relative in fragments or template.name.startswith("_"):
                 self.assertNotIn("<html", content)
             else:
                 self.assertRegex(content, r"\{% extends ['\"]layout\.html['\"] %\}", template.relative_to(ROOT))

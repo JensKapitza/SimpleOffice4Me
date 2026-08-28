@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from app.osm_address import LocalAddressIndex, _remote_total, human_bytes, unique_candidate
+from app.osm_address import LocalAddressIndex, _remote_total, field_suggestions, human_bytes, unique_candidate
 
 
 class _Headers(dict):
@@ -64,6 +64,22 @@ class OsmAddressTests(unittest.TestCase):
         self.assertEqual(candidate, unique_candidate([candidate]))
         self.assertIsNone(unique_candidate([candidate, dict(candidate)]))
         self.assertIsNone(unique_candidate([{"street": "A 1", "city": ""}]))
+
+    def test_ambiguous_results_only_suggest_the_requested_field(self):
+        candidates = [
+            {"street": "Weserstraße 27", "postal": "47137", "city": "Duisburg"},
+            {"street": "Weserstraße 29", "postal": "47137", "city": "Duisburg"},
+            {"street": "Weserstraße 27", "postal": "28199", "city": "Bremen"},
+        ]
+        self.assertEqual(
+            [{"field": "city", "value": "Duisburg"}, {"field": "city", "value": "Bremen"}],
+            field_suggestions(candidates, "city"),
+        )
+        self.assertEqual(
+            [{"field": "postal", "value": "47137"}, {"field": "postal", "value": "28199"}],
+            field_suggestions(candidates, "postal"),
+        )
+        self.assertEqual([], field_suggestions(candidates, "country"))
 
     def test_human_bytes_formats_download_sizes(self):
         self.assertEqual("1.0 MiB", human_bytes(1024 * 1024))

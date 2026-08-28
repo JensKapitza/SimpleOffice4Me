@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from "documents/_country_datalist.html" import eu_country_datalist %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main class="container-xl py-4">
@@ -27,9 +28,10 @@
         <div class="row g-2">
           <div class="col-4"><label class="form-label small">Typ</label><select id="osm-address-type" class="form-select form-select-sm"><option value="billing">Rechnung</option><option value="shipping">Lieferung</option><option value="work">Arbeit</option><option value="home">Privat</option><option value="other">Sonstige</option></select></div>
           <div class="col-8"><label class="form-label small">Ort</label><input id="osm-city" class="form-control form-control-sm" placeholder="Ort" data-address-field="city"></div>
-          <div class="col-4"><label class="form-label small">PLZ</label><input id="osm-postal" class="form-control form-control-sm" placeholder="12345" inputmode="numeric" data-address-field="postal"></div>
+          <div class="col-4"><label class="form-label small">{{ tr('contact.postal') }}</label><input id="osm-postal" class="form-control form-control-sm" placeholder="12345" data-address-field="postal"></div>
           <div class="col-6"><label class="form-label small">Straße + Hausnummer</label><input id="osm-street" class="form-control form-control-sm" placeholder="Musterstraße 12" data-address-field="street"></div>
-          <div class="col-2"><label class="form-label small">Land</label><input id="osm-country" class="form-control form-control-sm text-uppercase" value="DE" maxlength="2" data-address-field="country"></div>
+          <div class="col-2"><label class="form-label small">{{ tr('contact.country') }}</label><input id="osm-country" class="form-control form-control-sm text-uppercase" value="DE" maxlength="2" list="crm-country-codes" data-address-field="country"></div>
+          {{ eu_country_datalist('crm-country-codes') }}
           <div class="col-12"><button id="osm-apply" type="button" class="btn btn-sm btn-outline-success">Adresse übernehmen</button></div>
         </div>
         <div id="osm-status" class="small text-secondary mt-2" data-address-status aria-live="polite"></div><div id="osm-results" class="list-group position-absolute start-0 end-0 mx-3 shadow-sm" data-address-results role="listbox" hidden style="z-index: 1050"></div>

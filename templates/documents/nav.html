@@ -21,6 +21,10 @@
         <a class="nav-link" href="{{ url_for('datalogger.index') }}"><i class="fas fa-chart-line me-1" aria-hidden="true"></i>Datenlogger</a>
         <a class="nav-link" href="{{ url_for('documents.security_center') }}"><i class="fas fa-shield-virus me-1" aria-hidden="true"></i>Sicherheit</a>
       </div>
+      <form method="get" action="{{ url_for('documents.quick_search') }}" class="d-flex my-2 my-xxl-0 me-xxl-2" role="search">
+        <label class="visually-hidden" for="global-quick-search">{{ 'Quick search' if g.language == 'en' else 'Schnellsuche' }}</label>
+        <div class="input-group input-group-sm"><input id="global-quick-search" class="form-control" type="search" name="q" value="{{ query if request.endpoint == 'documents.quick_search' else '' }}" placeholder="{{ 'Quick search…' if g.language == 'en' else 'Schnellsuche…' }}"><button class="btn btn-outline-light" title="{{ 'Search' if g.language == 'en' else 'Suchen' }}"><i class="fas fa-magnifying-glass" aria-hidden="true"></i><span class="visually-hidden">{{ 'Search' if g.language == 'en' else 'Suchen' }}</span></button></div>
+      </form>
       <div class="navbar-nav navigation-actions border-top border-xxl-0 pt-2 pt-xxl-0 align-items-xxl-center">
         <a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a>
         <a class="nav-link" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a>

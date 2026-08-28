@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% from "documents/_country_datalist.html" import eu_country_datalist %}
 {% block script %}<script defer src="{{ url_for('static', filename='js/contact-history.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
@@ -73,10 +74,12 @@
             <div class="col-md-3"><label class="form-label small">Typ</label><input class="form-control" name="label" placeholder="z. B. Privat"></div>
             <div class="col-md-9 position-relative" data-address-autocomplete data-address-endpoint="{{ url_for('contact_audit.crm_address_search') }}"><div class="row g-2">
               <div class="col-md-5"><label class="form-label small">Ort</label><input required class="form-control" data-address-field="city" placeholder="Ort"></div>
-              <div class="col-md-3"><label class="form-label small">PLZ</label><input required class="form-control" data-address-field="postal" placeholder="12345" inputmode="numeric"></div>
+              <div class="col-md-3"><label class="form-label small">{{ tr('contact.postal') }}</label><input required class="form-control" data-address-field="postal" placeholder="12345"></div>
               <div class="col-md-4"><label class="form-label small">Straße + Hausnummer</label><input required class="form-control" data-address-field="street" placeholder="Musterstraße 12"></div>
-              <input type="hidden" data-address-field="country" value="DE"><input type="hidden" name="address" data-address-composed>
+              <div class="col-md-4"><label class="form-label small">{{ tr('contact.country') }}</label><input class="form-control text-uppercase" data-address-field="country" value="DE" maxlength="2" list="contact-address-country-codes" aria-describedby="contact-address-country-help"><div class="form-text" id="contact-address-country-help">{% if g.language == 'en' %}Editable ISO country code (e.g. AT, FR).{% else %}ISO-Ländercode, frei änderbar (z. B. AT, FR).{% endif %}</div></div>
+              <input type="hidden" name="address" data-address-composed>
               <div class="col-12"><div class="list-group position-absolute start-0 end-0 shadow-sm" id="contact-address-results" data-address-results role="listbox" hidden style="z-index: 1050"></div><div class="form-text" data-address-status aria-live="polite"></div></div>
+              {{ eu_country_datalist('contact-address-country-codes') }}
             </div></div>
             <div class="col-12 text-end"><button class="btn btn-outline-primary">Hinzufügen</button></div>
           </form>{% endif %}

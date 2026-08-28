@@ -656,3 +656,31 @@ def unique_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
     if item.get("street") and item.get("city") and (item.get("postal") or item.get("country")):
         return item
     return None
+
+
+def field_suggestions(
+    candidates: list[dict[str, Any]], field: str, *, limit: int = 8
+) -> list[dict[str, str]]:
+    """Return deduplicated values for one address field only.
+
+    Ambiguous search results must not leak adjacent values into the UI: a city
+    lookup suggests cities, a postcode lookup postcodes, and a street lookup
+    streets. The complete candidate remains available separately for the
+    guarded, genuinely unique completion path.
+    """
+    selected = _clean(field, 20).casefold()
+    if selected not in {"city", "postal", "street"}:
+        return []
+    maximum = max(1, min(int(limit), 20))
+    seen: set[str] = set()
+    suggestions: list[dict[str, str]] = []
+    for candidate in candidates:
+        value = _clean(candidate.get(selected), 300)
+        identity = value.casefold()
+        if not value or identity in seen:
+            continue
+        seen.add(identity)
+        suggestions.append({"field": selected, "value": value})
+        if len(suggestions) >= maximum:
+            break
+    return suggestions
