@@ -8,6 +8,7 @@ from app.calendar_collections import CalendarCollections, CalendarConflict
 
 
 ICS = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Test//EN", "BEGIN:VEVENT", "UID:meeting-1@example.test", "DTSTAMP:20260804T120000Z", "DTSTART;TZID=Europe/Berlin:20260805T090000", "DTEND;TZID=Europe/Berlin:20260805T100000", "SUMMARY:Planung", "DESCRIPTION:Kalenderausbau", "SEQUENCE:2", "CATEGORIES:Team,Projekt", "END:VEVENT", "END:VCALENDAR", ""])
+VTODO = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Test//EN", "BEGIN:VTODO", "UID:task-1@example.test", "DTSTAMP:20260828T120000Z", "SUMMARY:Angebot prüfen", "DESCRIPTION:Mit Kunde abstimmen", "DUE;VALUE=DATE:20260901", "STATUS:IN-PROCESS", "PERCENT-COMPLETE:40", "PRIORITY:1", "CATEGORIES:CRM,Kunde", "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT1H", "DESCRIPTION:Erinnerung", "END:VALARM", "END:VTODO", "END:VCALENDAR", ""])
 
 
 class CalDavTest(unittest.TestCase):
@@ -31,7 +32,25 @@ class CalDavTest(unittest.TestCase):
         self.assertEqual(307, well_known.status_code); self.assertEqual("http://localhost/caldav/", well_known.headers["Location"])
         self.assertIn("current-user-principal", root.text); self.assertIn("calendar-home-set", principal.text)
         self.assertIn("supported-calendar-component-set", home.text); self.assertIn('name="VEVENT"', home.text)
+        self.assertIn('name="VTODO"', home.text); self.assertIn("/tasks/", home.text)
         self.assertIn("sync-collection", options.headers["DAV"]); self.assertIn("calendar-access", options.headers["DAV"])
+
+    def test_vtodo_collection_roundtrip_query_conflict_and_sync(self):
+        collection = "/caldav/calendars/admin/tasks/"; resource = collection + "offer.ics"
+        created = self.client.put(resource, data=VTODO, headers={**self.auth, "If-None-Match": "*", "Content-Type": "text/calendar"})
+        self.assertEqual(201, created.status_code); etag = created.headers["ETag"]
+        fetched = self.client.get(resource, headers=self.auth)
+        self.assertEqual(200, fetched.status_code); self.assertIn("BEGIN:VTODO", fetched.text); self.assertIn("SUMMARY:Angebot prüfen", fetched.text); self.assertIn("BEGIN:VALARM", fetched.text)
+        query = self.client.open(collection, method="REPORT", data='<cal:calendar-query xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><cal:calendar-data/></d:prop><cal:filter><cal:comp-filter name="VCALENDAR"><cal:comp-filter name="VTODO"/></cal:comp-filter></cal:filter></cal:calendar-query>', headers=self.auth)
+        self.assertEqual(207, query.status_code); self.assertIn("offer.ics", query.text); self.assertIn("Angebot prüfen", query.text)
+        changed = self.client.put(resource, data=VTODO.replace("Angebot prüfen", "Angebot freigeben"), headers={**self.auth, "If-Match": etag})
+        self.assertEqual(204, changed.status_code); self.assertNotEqual(etag, changed.headers["ETag"])
+        self.assertEqual(412, self.client.put(resource, data=VTODO, headers={**self.auth, "If-Match": etag}).status_code)
+        sync = self.client.open(collection, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"><d:sync-token>urn:simpleoffice:caldav:tasks:admin:0</d:sync-token></d:sync-collection>', headers=self.auth)
+        self.assertEqual(207, sync.status_code); self.assertIn("offer.ics", sync.text); self.assertIn("tasks:admin:2", sync.text)
+        self.assertEqual(204, self.client.delete(resource, headers={**self.auth, "If-Match": changed.headers["ETag"]}).status_code)
+        removed = self.client.open(collection, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"><d:sync-token>urn:simpleoffice:caldav:tasks:admin:2</d:sync-token></d:sync-collection>', headers=self.auth)
+        self.assertIn("404 Not Found", removed.text); self.assertIn("tasks:admin:3", removed.text)
 
     def test_auth_and_foreign_principal_are_isolated(self):
         self.assertEqual(401, self.client.open("/caldav/", method="PROPFIND").status_code)

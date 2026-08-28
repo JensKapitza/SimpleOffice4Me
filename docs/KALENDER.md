@@ -52,6 +52,8 @@ Kontakt- und Kalenderkonflikte nicht unkontrolliert vermischt werden.
 
 ## Externe Buchung mit Bestätigung
 
+Die Kalenderseite zeigt die vollständige öffentliche Buchungsadresse direkt an. Sie kann dort kopiert oder in einem neuen Tab geöffnet werden; bei deaktivierter Buchung weist die Oberfläche vor dem Teilen auf die notwendige Aktivierung hin.
+
 Unter `/documents/calendar` lassen sich feste Buchungszeiten aktivieren. Die
 öffentliche Seite `/documents/calendar/book` zeigt dann ausschließlich freie
 Slots; bestehende und bereits angefragte Termine blockieren den Zeitraum. Titel,

@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import secrets
+from collections import Counter
 from pathlib import Path
 from urllib.parse import urlencode
 from calendar import month_name, monthcalendar
@@ -411,7 +412,7 @@ def dashboard():
         system=_system_overview(),
         inbox=inbox["documents"],
         inbox_total=inbox["total"],
-        todos=_todos().items(),
+        todos=_todos().items(str(g.user["username"])),
         pending=_calendar().pending_bookings(),
         scan_status=_store().scan_status(),
         setup_status=_setup().status(str(g.user["username"])),
@@ -797,9 +798,17 @@ def set_language():
 @bp.post("/todo")
 @login_required
 def add_todo():
-    try: _todos().add(request.form.get("title", ""), str(g.user["username"]))
+    try: _todos().add(request.form.get("title", ""), str(g.user["username"]), request.form.to_dict())
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.dashboard"))
+
+
+@bp.post("/todo/<item_id>")
+@login_required
+def update_todo(item_id: str):
+    try: _todos().update(item_id, request.form.to_dict(), str(g.user["username"]))
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.dashboard") + "#todo")
 
 
 @bp.post("/todo/<item_id>/toggle")
@@ -1691,7 +1700,21 @@ def calendar():
             subject = f"Terminbestätigung: {event['title']}"
             body = f"Hallo {event.get('requester_name') or ''},\n\ndein Termin wurde bestätigt. Die Kalendereinladung kannst du hier herunterladen:\n{ics_url}\n"
             event["confirmation_mailto"] = "mailto:" + event["requester_email"] + "?" + urlencode({"subject": subject, "body": body})
-    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=_contacts().contacts(actor), users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    contacts = _contacts().contacts(actor)
+    contact_map = {contact["contact_id"]: contact for contact in contacts}
+    for event in events:
+        contact = contact_map.get(event.get("contact_id"), {})
+        fields = contact.get("fields", {})
+        contact_name = str(fields.get("display_name") or "").strip()
+        event["invite_recipient"] = str(fields.get("email") or "").strip()
+        event["invite_search_label"] = " · ".join(
+            value for value in (str(event.get("title") or "Termin"), contact_name, str(event.get("start") or "")) if value
+        )
+    label_counts = Counter(event["invite_search_label"] for event in events)
+    for event in events:
+        if label_counts[event["invite_search_label"]] > 1:
+            event["invite_search_label"] += f" · #{str(event.get('event_id') or '')[:8]}"
+    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=contacts, users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), booking_url=url_for("documents.book_calendar_slot", _external=True), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
 
 
 @bp.post("/calendar/<event_id>/invite-email")

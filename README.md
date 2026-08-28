@@ -51,6 +51,9 @@ iCalendar-Dateien vor dem Import ist in
 Mehrere Kalender, Rechte, Thunderbird-Synchronisation und die umgesetzten
 Anforderungen aus RFC 5545, 4791, 6578 und 6764 beschreibt
 [docs/CALDAV_RFC_IMPLEMENTIERUNG.md](docs/CALDAV_RFC_IMPLEMENTIERUNG.md).
+Die Dashboard-Aufgaben werden dabei als persönliche CalDAV-`VTODO`-Sammlung
+veröffentlicht und können beispielsweise in Thunderbird mit Fälligkeit,
+Priorität, Kategorien und Alarmen bearbeitet werden.
 Serientermine mit RRULE, Ausnahmen, Zeitzonen, Buchungskonflikten und
 CalDAV-Zeitbereichsabfragen sind in
 [docs/KALENDER_SERIEN_RFC5545.md](docs/KALENDER_SERIEN_RFC5545.md) beschrieben.

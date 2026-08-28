@@ -11,6 +11,8 @@ from app import app
 from app import db as database
 from app.calendar_store import CalendarStore
 from app.calendar_collections import CalendarCollections
+from app.contact_store import ContactStore
+from app.mail_client import MailStore
 
 
 class CalendarWebTest(unittest.TestCase):
@@ -50,6 +52,52 @@ class CalendarWebTest(unittest.TestCase):
         self.assertIn('name="calendar_file"', body)
         self.assertIn('accept=".ics,text/calendar"', body)
         self.assertIn('/documents/calendar/export.ics', body)
+
+    def test_calendar_page_exposes_external_booking_url(self):
+        response = self.client.get("/documents/calendar")
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn('id="external-booking-url"', body)
+        self.assertIn('value="http://localhost/documents/calendar/book"', body)
+        self.assertIn("Link kopieren", body)
+        self.assertIn("Buchungsseite öffnen", body)
+        self.assertIn("Vor dem Teilen die Buchung aktivieren", body)
+
+    def test_calendar_invitation_uses_search_and_contact_recipient(self):
+        contact = ContactStore(Path(app.config["DOCUMENT_ROOT"])).upsert(
+            {"display_name": "Erika Beispiel", "email": "erika@example.test"},
+            "jens",
+        )
+        event = CalendarStore(app.config["DOCUMENT_ROOT"]).add(
+            "Beratung", "Projekt besprechen", "2026-08-10T10:00", "",
+            contact["contact_id"], "jens",
+        )
+        secret = app.config["SECRET_KEY"]
+        MailStore(
+            app.config["DOCUMENT_ROOT"],
+            secret.encode("utf-8") if isinstance(secret, str) else bytes(secret),
+        ).save_account(
+            "jens",
+            {
+                "host": "imap.example.test",
+                "username": "jens@example.test",
+                "smtp_host": "smtp.example.test",
+                "smtp_from": "jens@example.test",
+            },
+            "secret-password",
+            True,
+        )
+
+        response = self.client.get("/documents/calendar")
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn('id="calendar-invite-event-search"', body)
+        self.assertIn("Beratung · Erika Beispiel · 2026-08-10T10:00", body)
+        self.assertIn('value="erika@example.test"', body)
+        self.assertIn("Diesen Termin per E-Mail versenden", body)
+        self.assertIn(event["event_id"], body)
 
     def test_calendar_page_exposes_optional_google_sync_without_secrets(self):
         config = json.dumps({"jens": {"client_id": "client", "client_secret": "very-secret", "refresh_token": "refresh-secret", "calendar_id": "primary", "target_calendar_id": "default"}})
