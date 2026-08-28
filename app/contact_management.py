@@ -29,6 +29,9 @@ class DuplicateCandidate:
     reasons: tuple[str, ...]
     confidence: str = "manual"
     trivial: bool = False
+    differences: tuple[dict[str, str], ...] = ()
+    additions: int = 0
+    conflicts: int = 0
 
 
 class ContactManagement:
@@ -80,34 +83,36 @@ class ContactManagement:
     def _normalized_display(cls, value: Any) -> str:
         return cls._collapse(value)
 
-    def dashboard(self, actor: str) -> dict[str, Any]:
-        contacts = self.store.contacts(actor)
+    def dashboard(self, actor: str, contacts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        contacts = contacts if contacts is not None else self.store.contacts(actor)
         missing_email = sum(not self._norm_email(item.get("fields", {}).get("email")) for item in contacts)
         missing_phone = sum(not self._norm_phone(item.get("fields", {}).get("phone")) for item in contacts)
         missing_company = sum(not self._norm_text(item.get("fields", {}).get("company")) for item in contacts)
         tags = sorted({tag for item in contacts for tag in item.get("tags", []) if str(tag).strip()}, key=str.casefold)
         groups = sorted({group for item in contacts for group in item.get("groups", []) if str(group).strip()}, key=str.casefold)
-        duplicates = self.duplicate_candidates(actor)
         return {
             "total": len(contacts),
             "missing_email": missing_email,
             "missing_phone": missing_phone,
             "missing_company": missing_company,
-            "duplicate_pairs": len(duplicates),
-            "duplicate_trivial": sum(item.trivial for item in duplicates),
-            "duplicate_high_confidence": sum(item.confidence == "high" for item in duplicates),
             "tags": tags,
             "groups": groups,
         }
 
-    def advanced_search(self, actor: str, query: str = "", tag: str = "", group: str = "", company: str = "", incomplete: str = "") -> list[dict[str, Any]]:
-        items = self.store.search(query, actor) if query.strip() else self.store.contacts(actor)
+    def advanced_search(self, actor: str, query: str = "", tag: str = "", group: str = "", company: str = "", incomplete: str = "", *, contacts: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        items = contacts if contacts is not None else self.store.contacts(actor)
+        needle = query.strip().casefold()
         tag_n = self._norm_text(tag)
         group_n = self._norm_text(group)
         company_n = self._norm_text(company)
         result: list[dict[str, Any]] = []
         for item in items:
             fields = item.get("fields", {})
+            if needle:
+                searchable = [item.get("contact_id", ""), *fields.values(), *item.get("tags", []), *item.get("groups", [])]
+                searchable.extend(f"{row.get('label', '')} {row.get('value', '')}" for row in item.get("addresses", []))
+                if needle not in " ".join(str(value) for value in searchable).casefold():
+                    continue
             if tag_n and tag_n not in {self._norm_text(value) for value in item.get("tags", [])}:
                 continue
             if group_n and group_n not in {self._norm_text(value) for value in item.get("groups", [])}:
@@ -125,16 +130,64 @@ class ContactManagement:
 
     def duplicate_candidates(self, actor: str, minimum_score: int = 55) -> list[DuplicateCandidate]:
         contacts = self.store.contacts(actor)
+        # Candidate blocking avoids the previous O(n²) comparison of every
+        # visible contact against every other contact. Every signal capable of
+        # reaching the score threshold gets its own bucket.
+        buckets: dict[tuple[str, str], list[int]] = {}
+        for index, contact in enumerate(contacts):
+            fields = contact.get("fields", {})
+            signals = {
+                ("email", self._norm_email(fields.get("email"))),
+                ("phone", self._norm_phone(fields.get("phone"))),
+                ("name", self._norm_text(fields.get("display_name"))),
+                ("loose_name", self._norm_loose_text(fields.get("display_name"))),
+                ("person_name", "\x1f".join((self._norm_text(fields.get("first_name")), self._norm_text(fields.get("last_name"))))),
+            }
+            signals.update(("address", self._norm_address(row.get("value"))) for row in contact.get("addresses", []))
+            for kind, signal in signals:
+                if signal and signal != "\x1f" and (kind != "phone" or len(signal) >= 6):
+                    buckets.setdefault((kind, signal), []).append(index)
+        pair_indexes: set[tuple[int, int]] = set()
+        for indexes in buckets.values():
+            for offset, left_index in enumerate(indexes):
+                pair_indexes.update((left_index, right_index) for right_index in indexes[offset + 1:])
         candidates: list[DuplicateCandidate] = []
-        for index, left in enumerate(contacts):
-            for right in contacts[index + 1:]:
-                score, reasons, trivial = self._duplicate_score(left, right)
-                if score < minimum_score:
-                    continue
-                confidence = "high" if score >= 90 else "likely" if score >= 70 else "manual"
-                candidates.append(DuplicateCandidate(left, right, score, tuple(reasons), confidence, trivial))
+        for left_index, right_index in pair_indexes:
+            left, right = contacts[left_index], contacts[right_index]
+            score, reasons, trivial = self._duplicate_score(left, right)
+            if score < minimum_score:
+                continue
+            differences = self.merge_preview(left, right)
+            confidence = "high" if score >= 90 else "likely" if score >= 70 else "manual"
+            candidates.append(DuplicateCandidate(
+                left, right, score, tuple(reasons), confidence, trivial,
+                tuple(differences),
+                sum(row["kind"] == "addition" for row in differences),
+                sum(row["kind"] == "conflict" for row in differences),
+            ))
         candidates.sort(key=lambda item: (-item.score, not item.trivial, self._norm_text(item.left.get("fields", {}).get("display_name"))))
         return candidates
+
+    def merge_preview(self, target: dict[str, Any], source: dict[str, Any]) -> list[dict[str, str]]:
+        """Describe exactly what a source would add to or conflict with in a target."""
+        result: list[dict[str, str]] = []
+        target_fields, source_fields = target.get("fields", {}), source.get("fields", {})
+        for field in sorted(set(target_fields) | set(source_fields)):
+            left, right = self._collapse(target_fields.get(field)), self._collapse(source_fields.get(field))
+            if not right or self._norm_text(left) == self._norm_text(right):
+                continue
+            result.append({"field": field, "left": left, "right": right, "kind": "conflict" if left else "addition"})
+        target_addresses = {self._norm_address(row.get("value")) for row in target.get("addresses", [])}
+        for row in source.get("addresses", []):
+            address = self._collapse(row.get("value"))
+            if address and self._norm_address(address) not in target_addresses:
+                result.append({"field": "address", "left": "", "right": address, "kind": "addition"})
+        for field in ("tags", "groups"):
+            existing = {self._norm_text(value) for value in target.get(field, [])}
+            additions = [str(value) for value in source.get(field, []) if self._norm_text(value) not in existing]
+            if additions:
+                result.append({"field": field, "left": "", "right": ", ".join(additions), "kind": "addition"})
+        return result
 
     def _duplicate_score(self, left: dict[str, Any], right: dict[str, Any]) -> tuple[int, list[str], bool]:
         lf, rf = left.get("fields", {}), right.get("fields", {})
@@ -335,7 +388,12 @@ class ContactManagement:
             merged["readers"] = sorted((set(target_n.get("readers", [])) | set(source_n.get("readers", []))) - set(merged["managers"]), key=str.casefold)
             merged["changes"] = [*source_n.get("changes", []), *target_n.get("changes", [])][-200:]
             merged["updated_at"], merged["updated_by"] = utc_now(), actor
-            merged.setdefault("merged_from", []).append({"contact_id": source_id, "at": merged["updated_at"], "actor": actor})
+            merged.setdefault("merged_from", []).append({
+                "contact_id": source_id,
+                "at": merged["updated_at"],
+                "actor": actor,
+                "source": copy.deepcopy(source_n.get("source", {})),
+            })
             payload["contacts"] = [item for item in payload.get("contacts", []) if item.get("contact_id") not in {target_id, source_id}] + [merged]
             atomic_json_write(self.store.contacts_path, payload)
             self.store.history.record("contacts_merged", actor, "contacts", target_id, {"target_id": target_id, "source_id": source_id, "result": merged})

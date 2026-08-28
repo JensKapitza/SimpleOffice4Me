@@ -111,6 +111,25 @@ class AttachmentSecurityTests(unittest.TestCase):
         self.assertEqual(len(EML), event["size"])
         self.assertEqual(64, len(event["sha256"]))
 
+    def test_single_document_scan_records_clean_verdict_and_audit(self):
+        service = AttachmentSecurity(self.root, FakeScanner())
+
+        record = service.scan_document(self.document["document_id"], "alice")
+
+        self.assertEqual("clean", record["verdict"])
+        self.assertEqual(self.document["document_id"], record["document_id"])
+        self.assertEqual("none", record["action"])
+        self.assertEqual(record["scan_id"], service.recent_scans()[0]["scan_id"])
+
+    def test_single_document_scan_records_scanner_failure(self):
+        record = AttachmentSecurity(self.root, FailingScanner()).scan_document(
+            self.document["document_id"], "alice"
+        )
+
+        self.assertEqual("error", record["verdict"])
+        self.assertEqual("scan_failed", record["action"])
+        self.assertIn("scanner unavailable", record["detail"])
+
     def test_manifest_is_user_and_source_hash_bound(self):
         service = AttachmentSecurity(self.root, FakeScanner())
         manifest = service.preview_eml(self.document["document_id"], "alice")

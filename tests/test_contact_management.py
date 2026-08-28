@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.contact_management import ContactManagement
 from app.contact_store import ContactStore
@@ -20,12 +21,45 @@ class ContactManagementTest(unittest.TestCase):
             self.assertIn("gleiche E-Mail", pairs[0].reasons)
             self.assertIn("gleiche Telefonnummer", pairs[0].reasons)
 
+    def test_duplicate_detection_only_compares_blocked_candidates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manager = ContactManagement(Path(temp))
+            contacts = [
+                {"contact_id": str(index), "fields": {"display_name": f"Person {index}", "email": f"person-{index}@example.test"}}
+                for index in range(120)
+            ]
+            calls = 0
+            original = manager._duplicate_score
+
+            def counted(left, right):
+                nonlocal calls
+                calls += 1
+                return original(left, right)
+
+            manager._duplicate_score = counted
+            with patch.object(manager.store, "contacts", return_value=contacts):
+                self.assertEqual([], manager.duplicate_candidates("admin"))
+            self.assertEqual(0, calls)
+
+    def test_duplicate_preview_separates_additions_and_conflicts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manager = ContactManagement(Path(temp))
+            left = manager.store.upsert({"display_name": "Amy Beispiel", "email": "amy@example.test", "company": ""}, "admin")
+            right = manager.store.upsert({"display_name": "Amy Beispiel", "email": "other@example.test", "company": "Muster GmbH"}, "admin")
+
+            differences = manager.merge_preview(left, right)
+
+            by_field = {row["field"]: row for row in differences}
+            self.assertEqual("addition", by_field["company"]["kind"])
+            self.assertEqual("conflict", by_field["email"]["kind"])
+            self.assertNotIn("display_name", by_field)
+
     def test_merge_preserves_target_values_and_fills_missing_fields(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             store = ContactStore(root)
             target = store.upsert({"display_name": "Amy Beispiel", "email": "amy@example.test", "company": ""}, "admin")
-            source = store.upsert({"display_name": "Amy B.", "email": "other@example.test", "company": "Muster GmbH", "phone": "12345"}, "admin")
+            source = store.upsert({"display_name": "Amy B.", "email": "other@example.test", "company": "Muster GmbH", "phone": "12345"}, "admin", source={"provider": "carddav", "source_id": "remote-1"})
             store.add_address(source["contact_id"], "Büro", "Musterweg 1", "admin")
             manager = ContactManagement(root)
             manager.update_metadata(target["contact_id"], "admin", ["Kunde"], ["A"])
@@ -40,6 +74,7 @@ class ContactManagementTest(unittest.TestCase):
             self.assertEqual(["A", "B"], merged["groups"])
             self.assertEqual(1, len(merged["addresses"]))
             self.assertEqual(1, len(store.contacts("admin")))
+            self.assertEqual("carddav", merged["merged_from"][-1]["source"]["provider"])
             reasons = {row["reason"] for row in manager._read_snapshots()["snapshots"]}
             self.assertIn("merge_target", reasons)
             self.assertIn("merge_source", reasons)

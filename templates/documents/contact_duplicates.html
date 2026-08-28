@@ -1,0 +1,30 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-4">
+  <div class="mb-4"><a class="text-decoration-none" href="{{ url_for('documents.contacts') }}">&larr; {% if g.language == 'en' %}Contacts{% else %}Kontakte{% endif %}</a><h1 class="h2 mt-2 mb-1">{% if g.language == 'en' %}Duplicate contacts{% else %}Kontakt-Dubletten{% endif %}</h1><p class="text-secondary mb-0">{% if g.language == 'en' %}Loaded separately so the normal contact manager stays fast.{% else %}Separat geladen, damit der normale Kontaktmanager schnell bleibt.{% endif %}</p></div>
+  <nav class="nav nav-tabs mb-4" aria-label="Kontaktmanagement"><a class="nav-link" href="{{ url_for('contact_audit.manage') }}">{% if g.language == 'en' %}Contacts{% else %}Kontakte{% endif %}</a><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.duplicates') }}">{% if g.language == 'en' %}Duplicates{% else %}Dubletten{% endif %} <span class="badge text-bg-warning ms-1">{{ duplicates|length }}</span></a></nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="alert alert-light border small">{% if g.language == 'en' %}The selected left contact stays. Empty fields, new addresses, tags and groups from the right contact are applied immediately. Conflicting values remain on the left. Both originals are saved as snapshots.{% else %}Der gewählte linke Kontakt bleibt erhalten. Leere Felder, neue Adressen, Tags und Gruppen des rechten Kontakts werden sofort ergänzt. Bei Konflikten bleibt der linke Wert bestehen. Beide Originale werden als Snapshot gesichert.{% endif %}</div>
+  <div class="list-group">
+    {% for pair in duplicates %}
+    <article class="list-group-item py-3">
+      <div class="row g-3 align-items-start">
+        <div class="col-lg-4"><strong>{{ pair.left.fields.display_name }}</strong><div class="small text-secondary">{{ pair.left.fields.email }}{% if pair.left.fields.email and pair.left.fields.phone %} · {% endif %}{{ pair.left.fields.phone }}</div>{% if pair.left.source.provider %}<span class="badge text-bg-light border mt-1">{{ pair.left.source.provider }}</span>{% endif %}</div>
+        <div class="col-lg-1 text-lg-center"><span class="badge text-bg-warning">{{ pair.score }}%</span></div>
+        <div class="col-lg-4"><strong>{{ pair.right.fields.display_name }}</strong><div class="small text-secondary">{{ pair.right.fields.email }}{% if pair.right.fields.email and pair.right.fields.phone %} · {% endif %}{{ pair.right.fields.phone }}</div>{% if pair.right.source.provider %}<span class="badge text-bg-light border mt-1">{{ pair.right.source.provider }}</span>{% endif %}</div>
+        <div class="col-lg-3"><form method="post" action="{{ url_for('contact_audit.merge_contacts') }}"><input type="hidden" name="target_id" value="{{ pair.left.contact_id }}"><input type="hidden" name="source_id" value="{{ pair.right.contact_id }}"><input type="hidden" name="return_to" value="duplicates"><button class="btn btn-sm btn-outline-danger w-100" onclick="return confirm({{ (('Merge now? The left contact remains and both originals are saved.' if g.language == 'en' else 'Jetzt zusammenführen? Der linke Kontakt bleibt und beide Originale werden gesichert.'))|tojson }})">{% if g.language == 'en' %}Merge right into left now{% else %}Rechts sofort in links zusammenführen{% endif %}</button></form></div>
+        <div class="col-12 small text-secondary">{% if g.language == 'en' %}Reasons{% else %}Treffergründe{% endif %}: {{ pair.reasons|join(', ') }}</div>
+        <div class="col-12">
+          <div class="d-flex flex-wrap gap-2 mb-2"><span class="badge text-bg-success">{{ pair.additions }} {% if g.language == 'en' %}new{% else %}neu{% endif %}</span><span class="badge text-bg-secondary">{{ pair.conflicts }} {% if g.language == 'en' %}different{% else %}abweichend{% endif %}</span>{% if not pair.differences %}<span class="badge text-bg-light border">{% if g.language == 'en' %}No additional data{% else %}Keine zusätzlichen Daten{% endif %}</span>{% endif %}</div>
+          {% if pair.differences %}<div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>{% if g.language == 'en' %}Field{% else %}Feld{% endif %}</th><th>{% if g.language == 'en' %}Left / retained{% else %}Links / bleibt{% endif %}</th><th>{% if g.language == 'en' %}Right / new{% else %}Rechts / neu{% endif %}</th></tr></thead><tbody>
+            {% for difference in pair.differences[:2] %}<tr class="{% if difference.kind == 'addition' %}table-success{% else %}table-light{% endif %}"><td>{{ difference.field }}</td><td>{{ difference.left or '—' }}</td><td>{{ difference.right }}</td></tr>{% endfor %}
+          </tbody></table></div>{% endif %}
+          {% if pair.differences|length > 2 %}<details class="mt-2"><summary class="small">{{ pair.differences|length - 2 }} {% if g.language == 'en' %}more changes{% else %}weitere Änderungen{% endif %}</summary><div class="table-responsive mt-2"><table class="table table-sm mb-0"><tbody>{% for difference in pair.differences[2:] %}<tr class="{% if difference.kind == 'addition' %}table-success{% else %}table-light{% endif %}"><td>{{ difference.field }}</td><td>{{ difference.left or '—' }}</td><td>{{ difference.right }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+        </div>
+      </div>
+    </article>
+    {% else %}<div class="list-group-item text-secondary">{% if g.language == 'en' %}No likely duplicates found.{% else %}Keine wahrscheinlichen Dubletten gefunden.{% endif %}</div>{% endfor %}
+  </div>
+</main>
+{% endblock %}

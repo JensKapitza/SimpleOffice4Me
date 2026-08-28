@@ -3,12 +3,13 @@
 {% block body %}
 <main class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
-    <div><a class="text-decoration-none" href="{{ url_for('documents.contacts') }}">&larr; Kontakte</a><h1 class="h2 mt-2 mb-1">Kontaktmanagement</h1><p class="text-secondary mb-0">Datenqualität, Dubletten, Gruppen, Tags, Import und Massenbearbeitung.</p></div>
+    <div><a class="text-decoration-none" href="{{ url_for('documents.contacts') }}">&larr; Kontakte</a><h1 class="h2 mt-2 mb-1">Kontaktmanagement</h1><p class="text-secondary mb-0">Datenqualität, Gruppen, Tags, Import und Massenbearbeitung.</p></div>
   </div>
+  <nav class="nav nav-tabs mb-4" aria-label="Kontaktmanagement"><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.manage') }}">Kontakte</a><a class="nav-link" href="{{ url_for('contact_audit.duplicates') }}">Dubletten</a></nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
 
   <section class="row g-3 mb-4">
-    {% for value, label in [(dashboard.total,'Kontakte'),(dashboard.duplicate_pairs,'Dublettenpaare'),(dashboard.missing_email,'ohne E-Mail'),(dashboard.missing_phone,'ohne Telefon'),(dashboard.missing_company,'ohne Firma')] %}
+    {% for value, label in [(dashboard.total,'Kontakte'),(dashboard.missing_email,'ohne E-Mail'),(dashboard.missing_phone,'ohne Telefon'),(dashboard.missing_company,'ohne Firma')] %}
     <div class="col-6 col-lg"><div class="card h-100"><div class="card-body text-center"><div class="fs-3 fw-semibold">{{ value }}</div><div class="small text-secondary">{{ label }}</div></div></div></div>
     {% endfor %}
   </section>
@@ -30,10 +31,6 @@
       </tbody></table></div>
     </form>
   </div></section>
-
-  <section class="card mb-4"><div class="card-header d-flex justify-content-between"><strong>Dublettenprüfung</strong><span class="badge text-bg-warning">{{ duplicates|length }}</span></div><div class="card-body"><p class="small text-secondary">Merge ist nur möglich, wenn beide Kontakte bearbeitbar sind und denselben Eigentümer haben. Vorher werden beide vollständigen Fassungen als Snapshot gesichert.</p><div class="list-group">
-    {% for pair in duplicates %}<div class="list-group-item"><div class="row g-3 align-items-center"><div class="col-lg-4"><strong>{{ pair.left.fields.display_name }}</strong><br><small>{{ pair.left.fields.email }} · {{ pair.left.fields.phone }}</small></div><div class="col-lg-1 text-center"><span class="badge text-bg-warning">{{ pair.score }}%</span></div><div class="col-lg-4"><strong>{{ pair.right.fields.display_name }}</strong><br><small>{{ pair.right.fields.email }} · {{ pair.right.fields.phone }}</small></div><div class="col-lg-3"><form method="post" action="{{ url_for('contact_audit.merge_contacts') }}"><input type="hidden" name="target_id" value="{{ pair.left.contact_id }}"><input type="hidden" name="source_id" value="{{ pair.right.contact_id }}"><button class="btn btn-sm btn-outline-danger w-100" onclick="return confirm('Kontakte zusammenführen? Beide vorherigen Fassungen werden gesichert.')">Rechts in links zusammenführen</button></form></div><div class="col-12 small text-secondary">Treffergründe: {{ pair.reasons|join(', ') }}</div></div></div>{% else %}<div class="list-group-item text-secondary">Keine wahrscheinlichen Dubletten gefunden.</div>{% endfor %}
-  </div></div></section>
 
   <section class="card"><div class="card-header"><strong>CSV-Import-Center</strong></div><div class="card-body"><p class="small text-secondary">Vorschau schreibt nichts. Beim Import werden alle Zeilen zuerst validiert; bei einem ungültigen Datensatz wird nichts importiert. Bestehende Kontakte mit exakt gleicher E-Mail werden nicht überschrieben, sondern übersprungen und können anschließend über die Dublettenprüfung bearbeitet werden.</p><div class="row g-3"><div class="col-lg-6"><form method="post" action="{{ url_for('contact_audit.import_preview') }}" enctype="multipart/form-data" class="row g-2"><div class="col-8"><input required type="file" class="form-control" name="contacts_file" accept=".csv,text/csv,text/plain"></div><div class="col-4"><button class="btn btn-outline-primary w-100">Nur Vorschau</button></div></form></div><div class="col-lg-6"><form method="post" action="{{ url_for('contact_audit.import_csv') }}" enctype="multipart/form-data" class="row g-2"><div class="col-8"><input required type="file" class="form-control" name="contacts_file" accept=".csv,text/csv,text/plain"></div><div class="col-4"><button class="btn btn-primary w-100" onclick="return confirm('Validierte CSV-Kontakte jetzt importieren?')">Importieren</button></div></form></div></div></div></section>
 </main>

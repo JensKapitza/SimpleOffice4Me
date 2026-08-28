@@ -23,7 +23,7 @@ from .contact_management import ContactManagement
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
-from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex, search_address, unique_candidate
+from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex, field_suggestions, search_address, unique_candidate
 from .settings_store import translate
 from tools.launcher import start_osm_index_worker
 
@@ -300,14 +300,14 @@ def register(bp) -> None:
     @bp.get("/documents/contacts/address-search.json", endpoint="crm_address_search")
     @login_required
     def crm_address_search():
-        query = request.args.get("q", "").strip(); country = request.args.get("country", "de").strip() or "de"
+        query = request.args.get("q", "").strip(); country = request.args.get("country", "de").strip() or "de"; field = request.args.get("field", "").strip()
         root = current_app.config["DOCUMENT_ROOT"]; index_status = LocalAddressIndex(root).status()
-        if len(query) < 3: return jsonify({"candidates": [], "unique": None, "shown": 0, "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
+        if len(query) < 3: return jsonify({"candidates": [], "suggestions": [], "unique": None, "shown": 0, "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
         try: candidates = search_address(query, root=root, country_code=country, limit=8)
         except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             current_app.logger.warning("Local OSM address lookup failed: %s", exc)
             return jsonify({"error": "local_address_index_unavailable", "candidates": [], "unique": None, "source": "local_osm", "attribution": "© OpenStreetMap contributors"}), 503
-        return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "shown": len(candidates), "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
+        return jsonify({"candidates": candidates, "suggestions": field_suggestions(candidates, field), "unique": unique_candidate(candidates), "shown": len(candidates), "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
 
     @bp.get("/documents/contacts/osm-index/region-info.json", endpoint="crm_osm_region_info")
     @login_required
@@ -394,15 +394,15 @@ def register(bp) -> None:
     def crm_public_address_search(token: str):
         if ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).token(token) is None:
             abort(404)
-        query = request.args.get("q", "").strip()
+        query = request.args.get("q", "").strip(); field = request.args.get("field", "").strip()
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
         if len(query) < 3:
-            return jsonify({"candidates": [], "unique": None, "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
+            return jsonify({"candidates": [], "suggestions": [], "unique": None, "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
         try:
             candidates = search_address(query, root=current_app.config["DOCUMENT_ROOT"], country_code=request.args.get("country", "de"), limit=8)
         except (OSError, RuntimeError, ValueError, sqlite3.Error):
             return jsonify({"error": "local_address_index_unavailable", "candidates": [], "unique": None, "source": "local_osm", "attribution": "© OpenStreetMap contributors"}), 503
-        return jsonify({"candidates": candidates, "unique": unique_candidate(candidates), "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
+        return jsonify({"candidates": candidates, "suggestions": field_suggestions(candidates, field), "unique": unique_candidate(candidates), "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
 
     @bp.get("/documents/contacts/proposals", endpoint="crm_proposals")
     @login_required

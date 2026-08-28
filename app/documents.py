@@ -340,6 +340,57 @@ def document_search():
     )
 
 
+@bp.get("/quick-search")
+@login_required
+def quick_search():
+    """Search the main registers and jump directly for one unambiguous hit."""
+    query = request.args.get("q", "").strip()
+    matches: list[dict[str, str]] = []
+    if query:
+        needle = query.casefold()
+        try:
+            literal = json.dumps(query + "*", ensure_ascii=False)
+            rows = _store().search_page(f"name: {literal} ODER tag: {literal}", page_size=12)["results"]
+        except ValueError:
+            rows = []
+        matches.extend({
+            "kind": "document", "label": row["path"], "detail": row.get("state", ""),
+            "url": url_for("documents.detail", document_id=row["document_id"]),
+        } for row in rows)
+        matches.extend({
+            "kind": "object", "label": row.get("name", row["object_id"]), "detail": row.get("display_id", ""),
+            "url": url_for("documents.object_detail", object_id=row["object_id"]),
+        } for row in _objects().objects(query)[:12])
+        project_rows = [row for row in _projects().projects() if needle in json.dumps(row, ensure_ascii=False).casefold()][:12]
+        matches.extend({
+            "kind": "project", "label": row.get("title", row["project_id"]), "detail": row.get("status", ""),
+            "url": url_for("documents.project_detail", project_id=row["project_id"]),
+        } for row in project_rows)
+        actor = str(g.user["username"])
+        matches.extend({
+            "kind": "contact", "label": row.get("fields", {}).get("display_name", row["contact_id"]),
+            "detail": row.get("fields", {}).get("company", ""),
+            "url": url_for("documents.contact_detail", contact_id=row["contact_id"]),
+        } for row in _contacts().search(query, actor)[:12])
+
+        # Local import avoids a blueprint startup cycle.
+        from .business_documents import invoices
+        contacts = _contacts()
+        for row in invoices(_store().root):
+            searchable = " ".join((str(row.get("invoice_number", "")), str(row.get("buyer", {}).get("name", "")))).casefold()
+            if needle not in searchable or not contacts.can_manage(row.get("contact_id", ""), actor):
+                continue
+            matches.append({
+                "kind": "invoice", "label": row.get("invoice_number", row["invoice_id"]),
+                "detail": row.get("buyer", {}).get("name", ""),
+                "url": url_for("contact_audit.business_documents.customer_billing", contact_id=row["contact_id"]),
+            })
+        matches = matches[:50]
+        if len(matches) == 1:
+            return redirect(matches[0]["url"])
+    return render_template("documents/quick_search.html", query=query, matches=matches)
+
+
 @bp.post("/search/index")
 @login_required
 def refresh_document_search():
@@ -1047,6 +1098,28 @@ def security_scan_now():
     try: flash(f"Serverprüfung abgeschlossen: {_attachment_security().scan_documents(actor)}")
     except (OSError, RuntimeError, ValueError) as exc: flash(f"Serverprüfung fehlgeschlagen: {exc}")
     return redirect(url_for("documents.security_center"))
+
+
+@bp.post("/<document_id>/security/scan")
+@login_required
+def security_scan_document(document_id: str):
+    _document_or_404(document_id)
+    try:
+        record = _attachment_security().scan_document(document_id, str(g.user["username"]))
+        if record["verdict"] == "clean":
+            flash("ClamAV: The document is clean." if g.language == "en" else "ClamAV: Das Dokument ist unauffällig.")
+        elif record["verdict"] == "infected":
+            flash("ClamAV: Malware detected. The document was reported and not modified." if g.language == "en" else "ClamAV: Schadsoftware erkannt. Das Dokument wurde gemeldet und nicht verändert.")
+        else:
+            flash(("ClamAV scan failed: " if g.language == "en" else "ClamAV-Prüfung fehlgeschlagen: ") + record.get("detail", ""))
+    except (OSError, RuntimeError, ValueError) as exc:
+        flash(("ClamAV scan failed: " if g.language == "en" else "ClamAV-Prüfung fehlgeschlagen: ") + str(exc))
+    view = request.form.get("return_view", "detail")
+    if view == "search":
+        return redirect(url_for("documents.document_search", q=request.form.get("q", ""), page=request.form.get("page", "1")))
+    if view == "index":
+        return redirect(url_for("documents.index", page=request.form.get("page", "1")))
+    return redirect(url_for("documents.detail", document_id=document_id))
 
 
 @bp.post("/security/update")

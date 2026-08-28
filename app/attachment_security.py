@@ -328,6 +328,44 @@ class AttachmentSecurity:
         DocumentStore(self.root).history.record("managed_documents_malware_scanned", actor, "security", "clamav", result)
         return result
 
+    def scan_document(self, document_id: str, actor: str) -> dict[str, Any]:
+        """Scan one managed document and retain an auditable verdict."""
+        document = DocumentStore(self.root).get_document(document_id)
+        candidate = self.root / str(document.get("last_path", ""))
+        if candidate.is_symlink():
+            raise ValueError("managed document file is unavailable")
+        path = candidate.resolve()
+        try:
+            path.relative_to(self.root)
+        except ValueError as exc:
+            raise ValueError("document path is outside the managed root") from exc
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("managed document file is unavailable")
+        base = {
+            "scan_id": uuid.uuid4().hex, "event_type": "file_scan",
+            "scanned_at": utc_now(), "actor": actor,
+            "source_type": "managed-document", "document_id": document["document_id"],
+            "target_path": document.get("last_path", ""), "filename": path.name,
+            "size": path.stat().st_size,
+        }
+        try:
+            verdict = self.scanner.scan(path)
+            if verdict.verdict not in {"clean", "infected"}:
+                raise RuntimeError("ClamAV returned an unsupported verdict")
+            record = {
+                **base, "sha256": sha256_file(path),
+                "action": "reported" if verdict.verdict == "infected" else "none",
+                **asdict(verdict),
+            }
+        except (OSError, RuntimeError) as exc:
+            record = {**base, "verdict": "error", "engine": "", "action": "scan_failed", "detail": str(exc)[:1000]}
+        self._record_scan(record)
+        DocumentStore(self.root).history.record(
+            "managed_document_malware_scanned", actor, "document", document["document_id"],
+            {key: record[key] for key in ("scan_id", "verdict", "engine", "action", "detail")},
+        )
+        return record
+
     def _all_recent_records(self) -> list[dict[str, Any]]:
         try:
             rows = json.loads(self.registry.read_text(encoding="utf-8")).get("scans", [])

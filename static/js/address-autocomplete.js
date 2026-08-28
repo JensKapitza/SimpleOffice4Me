@@ -3,6 +3,8 @@
   const DEFAULT_ENDPOINT = '/documents/contacts/address-search.json';
   const value = el => el ? el.value.trim() : '';
   const setValue = (el, v) => { if (el && v) el.value = v; };
+  const isEnglish = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const message = (de, en) => isEnglish ? en : de;
 
   function ensureMenu(input) {
     let menu = input.parentElement?.querySelector(':scope > .address-autocomplete-menu');
@@ -34,6 +36,16 @@
     button.append(main, secondary);
     button.addEventListener('mousedown', event => event.preventDefault());
     button.addEventListener('click', () => apply(item));
+    return button;
+  }
+
+  function suggestionButton(suggestion, apply) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'list-group-item list-group-item-action py-2';
+    button.textContent = suggestion.value;
+    button.addEventListener('mousedown', event => event.preventDefault());
+    button.addEventListener('click', () => apply(suggestion));
     return button;
   }
 
@@ -94,38 +106,70 @@
     let timer = null;
     let serial = 0;
 
-    const apply = item => {
+    const applyComplete = item => {
       setValue(city, item.city || ''); setValue(postal, item.postal || ''); setValue(street, item.street || '');
       setValue(country, (item.country || value(country) || 'DE').toUpperCase());
       hideAll();
-      if (status) status.textContent = 'Eindeutige Adresse übernommen.';
+      if (status) status.textContent = message('Eindeutige Adresse übernommen.', 'Unique address applied.');
       group.dispatchEvent(new CustomEvent('simpleoffice:address-selected', {bubbles: true, detail: item}));
     };
+
+    const applySuggestion = (active, suggestion) => {
+      if (!active || !suggestion?.value) return;
+      active.value = suggestion.value;
+      hideAll();
+      if (status) status.textContent = message(
+        'Nur das aktuell bearbeitete Feld wurde übernommen.',
+        'Only the currently edited field was applied.'
+      );
+      group.dispatchEvent(new CustomEvent('simpleoffice:address-selected', {
+        bubbles: true,
+        detail: {field: suggestion.field, value: suggestion.value, complete: false},
+      }));
+    };
+
+    const enoughContext = () => [city, postal, street]
+      .filter(input => value(input).length >= 3).length >= 2;
 
     const search = async active => {
       if (!active || value(active).length < 3) { hideAll(); return; }
       const requestId = ++serial;
       const menu = ensureMenu(active); menu.replaceChildren();
       const q = [value(city), value(postal), value(street)].filter(Boolean).join(' ');
-      const params = new URLSearchParams({q, country: (value(country) || 'DE').toLowerCase()});
-      if (status) status.textContent = 'Lokale Adresssuche …';
+      const field = active.dataset.addressField || '';
+      const params = new URLSearchParams({q, country: (value(country) || 'DE').toLowerCase(), field});
+      if (status) status.textContent = message('Lokale Adresssuche …', 'Searching the local address index …');
       try {
         const response = await fetch(`${endpoint}?${params}`, {headers: {'Accept': 'application/json'}});
         const payload = await response.json();
         if (requestId !== serial) return;
         if (!response.ok || !payload.ready) {
-          if (status) status.textContent = payload.ready === false ? 'Lokaler Adressindex ist nicht bereit.' : 'Adresssuche nicht verfügbar.';
+          if (status) status.textContent = payload.ready === false
+            ? message('Lokaler Adressindex ist nicht bereit. Manuelle Eingabe bleibt möglich.', 'The local address index is not ready. Manual entry remains available.')
+            : message('Adresssuche nicht verfügbar. Manuelle Eingabe bleibt möglich.', 'Address search is unavailable. Manual entry remains available.');
           return;
         }
-        if (payload.unique) { apply(payload.unique); return; }
-        const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
-        if (!candidates.length) { if (status) status.textContent = 'Keine passende lokale Adresse gefunden.'; return; }
+        if (payload.unique && enoughContext()) { applyComplete(payload.unique); return; }
+        const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+        if (!suggestions.length) {
+          if (status) status.textContent = message(
+            'Kein sicherer Vorschlag für dieses Feld. Manuelle Eingabe bleibt möglich.',
+            'No safe suggestion for this field. Manual entry remains available.'
+          );
+          return;
+        }
         if (status) status.textContent = Number.isFinite(Number(payload.index_count))
-          ? `${payload.shown ?? candidates.length} Treffer angezeigt · Index enthält ${payload.index_count} Adressen`
-          : `${candidates.length} Treffer angezeigt`;
-        candidates.forEach(item => menu.append(candidateButton(item, apply)));
+          ? message(
+            `${suggestions.length} Feldvorschläge · Index enthält ${payload.index_count} Adressen`,
+            `${suggestions.length} field suggestions · index contains ${payload.index_count} addresses`
+          )
+          : message(`${suggestions.length} Feldvorschläge`, `${suggestions.length} field suggestions`);
+        suggestions.forEach(suggestion => menu.append(suggestionButton(suggestion, item => applySuggestion(active, item))));
       } catch (_error) {
-        if (requestId === serial && status) status.textContent = 'Adresssuche nicht verfügbar.';
+        if (requestId === serial && status) status.textContent = message(
+          'Adresssuche nicht verfügbar. Manuelle Eingabe bleibt möglich.',
+          'Address search is unavailable. Manual entry remains available.'
+        );
       }
     };
 
@@ -178,7 +222,14 @@
     form.addEventListener('submit', () => {
       const fieldValue = name => value(form.querySelector(`[data-address-field="${name}"]`));
       const target = form.querySelector('[data-address-composed]');
-      if (target) target.value = `${fieldValue('street')}, ${fieldValue('postal')} ${fieldValue('city')}`.trim();
+      if (target) {
+        const country = fieldValue('country').toUpperCase();
+        target.value = [
+          fieldValue('street'),
+          `${fieldValue('postal')} ${fieldValue('city')}`.trim(),
+          country && country !== 'DE' ? country : '',
+        ].filter(Boolean).join(', ');
+      }
     });
   });
   document.addEventListener('click', event => {
