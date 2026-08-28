@@ -21,7 +21,9 @@ Der Abschlussbericht enthält:
 aus SQLite gelesen. Eine unplausibel stark eingebrochene Datenmenge beendet
 den Import als Fehler.
 
-Während des Neuaufbaus aktualisiert der Worker ungefähr alle zwei Sekunden
+Während des Neuaufbaus meldet der Status zuerst die Phase `filtering` und danach
+`exporting_importing`. In der zweiten Phase aktualisiert der Worker ungefähr
+alle zwei Sekunden
 `processed`, `inserted`, `updated`, `duplicates`, `rejected`, Laufzeit und
 Datensätze pro Sekunde. Diese Werte stehen im Worker-Log und in der
 CRM-Administration. HTTP-Statusabfragen führen währenddessen kein zusätzliches
@@ -29,6 +31,12 @@ CRM-Administration. HTTP-Statusabfragen führen währenddessen kein zusätzliche
 den tatsächlich verwendeten `DOCUMENT_ROOT`, den absoluten Pfad der
 `addresses.sqlite3` sowie getrennt die Gesamtgröße des Index und die Anzahl
 der bei einer Suche angezeigten Treffer.
+
+`osmium tags-filter` entfernt mit `--remove-tags` die Tags lediglich zur
+Geometrieauflösung benötigter Referenzobjekte. `osmium export` gibt diese
+Objekte deshalb nicht mehr als Millionen irrelevanter Features aus. Die echten
+OSM-Attribute `type` und `id` werden ausdrücklich exportiert und als stabile
+Objektidentität gespeichert.
 
 Der `osmium export` schreibt seine Diagnose in eine temporäre Datei. Dadurch
 kann keine unbeachtete `stderr`-Pipe volllaufen und den Export blockieren. Ein

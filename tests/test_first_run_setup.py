@@ -8,6 +8,7 @@ from app.calendar_collections import CalendarCollections
 from app.contact_store import ContactStore
 from app.db import ensure_auth_database
 from app.webdav import authenticate_password
+from app.todo_store import TodoStore
 
 
 class FirstRunSetupTest(unittest.TestCase):
@@ -40,6 +41,23 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn("Lesen", body)
         self.assertIn("Schreiben", body)
         self.assertIn("Verwalten", body)
+
+    def test_dashboard_task_details_are_saved_in_shared_task_store(self):
+        created = self.client.post(
+            "/documents/todo",
+            data={"title": "Kunde anrufen", "description": "Rückfrage", "due": "2026-09-03", "priority": "1", "categories": "CRM,Kunde"},
+            base_url=self.base_url,
+        )
+        self.assertEqual(302, created.status_code)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertEqual("Rückfrage", task["description"])
+        self.assertEqual(["CRM", "Kunde"], task["categories"])
+        dashboard = self.client.get("/documents/dashboard", base_url=self.base_url).get_data(as_text=True)
+        self.assertIn("CalDAV VTODO", dashboard); self.assertIn("Kunde anrufen", dashboard); self.assertIn("2026-09-03", dashboard)
+        updated = self.client.post(f"/documents/todo/{task['id']}", data={"title": "Kunde zurückrufen", "status": "in-process", "percent_complete": "50"}, base_url=self.base_url)
+        self.assertEqual(302, updated.status_code)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertEqual("Kunde zurückrufen", task["title"]); self.assertEqual(50, task["percent_complete"])
 
     def test_remote_http_disables_secret_creation(self):
         client = app.test_client()

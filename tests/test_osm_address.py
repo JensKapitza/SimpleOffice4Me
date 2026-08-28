@@ -162,11 +162,22 @@ class OsmAddressTests(unittest.TestCase):
             process.wait.return_value = 0
             process.poll.return_value = 0
             process.args = ["osmium", "export"]
-            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), patch("app.osm_address.subprocess.run"), patch("app.osm_address.subprocess.Popen", return_value=process) as popen:
+            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), patch("app.osm_address.subprocess.run") as run, patch("app.osm_address.subprocess.Popen", return_value=process) as popen:
+                run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
                 stats = index.build(source)
             self.assertEqual(1, stats["stored"])
             self.assertIsNot(subprocess.PIPE, popen.call_args.kwargs["stderr"])
             self.assertTrue(hasattr(popen.call_args.kwargs["stderr"], "write"))
+            self.assertIn("--attributes=type,id", popen.call_args.args[0])
+            self.assertIn("--remove-tags", run.call_args.args[0])
+
+    def test_osmium_attributes_preserve_real_object_identity(self):
+        feature = json.loads(self._feature(27))
+        feature["properties"].update({"@type": "node", "@id": 99127})
+        row = LocalAddressIndex._feature_row(feature)
+        self.assertIsNotNone(row)
+        self.assertEqual("node", row[8])
+        self.assertEqual("99127", row[9])
 
     def test_missing_osm_id_is_stable_and_exact_duplicate_is_counted(self):
         with tempfile.TemporaryDirectory() as root:

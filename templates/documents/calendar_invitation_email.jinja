@@ -1,22 +1,72 @@
 <section class="card mb-4" id="smtp-invitation">
   {% set invite_events = events|selectattr('can_edit')|list %}
-  <div class="card-header"><strong>Termin per E-Mail einladen</strong></div>
+  <div class="card-header"><strong>{% if g.language == 'en' %}Send appointment by email{% else %}Termin per E-Mail versenden{% endif %}</strong></div>
   <div class="card-body">
     {% if mail_accounts and invite_events %}
-    <p class="small text-secondary">SimpleOffice erzeugt die iTIP-REQUEST aus dem bestehenden Termin. Die vollständige EML wird vor dem SMTP-Aufruf im privaten Archiv gespeichert.</p>
+    <p class="small text-secondary">{% if g.language == 'en' %}Search by title, contact or time. SimpleOffice creates an iTIP request and stores the complete EML in the private archive before SMTP delivery.{% else %}Nach Titel, Kontakt oder Uhrzeit suchen. SimpleOffice erzeugt daraus eine iTIP-Anfrage und speichert die vollständige EML vor dem SMTP-Versand im privaten Archiv.{% endif %}</p>
     <form method="post" action="{{ url_for('documents.send_calendar_invitation', event_id=invite_events[0].event_id) }}" class="row g-2" id="calendar-invite-form">
-      <div class="col-md-5"><label class="form-label">Termin</label><select class="form-select" id="calendar-invite-event">{% for event in invite_events %}<option value="{{ event.event_id }}">{{ event.title }} · {{ event.start|calendar_display_datetime }}</option>{% endfor %}</select></div>
-      <div class="col-md-3"><label class="form-label">SMTP-Konto</label><select class="form-select" name="account_id">{% for account in mail_accounts %}<option value="{{ account.id }}">{{ account.label }}</option>{% endfor %}</select></div>
-      <div class="col-md-4"><label class="form-label">Empfänger</label><input required type="email" class="form-control" name="recipient"></div>
-      <div class="col-md-4"><label class="form-label">SMTP-Passwort</label><input type="password" class="form-control" name="smtp_password" placeholder="falls nicht gespeichert"></div>
-      <div class="col-md-8"><label class="form-label">Begleittext</label><input class="form-control" name="body" value="Bitte den beigefügten Termin prüfen."></div>
-      <div class="col-12"><button class="btn btn-primary">Vor Versand archivieren und einladen</button></div>
+      <div class="col-md-5"><label class="form-label" for="calendar-invite-event-search">{% if g.language == 'en' %}Appointment quick search{% else %}Termin-Schnellsuche{% endif %}</label><input required class="form-control" type="search" id="calendar-invite-event-search" list="calendar-invite-events" autocomplete="off" value="{{ invite_events[0].invite_search_label }}" placeholder="{% if g.language == 'en' %}Title, contact or time…{% else %}Titel, Kontakt oder Uhrzeit…{% endif %}"><datalist id="calendar-invite-events">{% for event in invite_events %}<option value="{{ event.invite_search_label }}"></option>{% endfor %}</datalist><div class="form-text">{% if g.language == 'en' %}Enter part of the title, contact or date and select a match.{% else %}Einen Teil von Titel, Kontakt oder Datum eingeben und einen Treffer auswählen.{% endif %}</div></div>
+      <div class="col-md-3"><label class="form-label">{% if g.language == 'en' %}SMTP account{% else %}SMTP-Konto{% endif %}</label><select class="form-select" name="account_id">{% for account in mail_accounts %}<option value="{{ account.id }}">{{ account.label }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="form-label">{% if g.language == 'en' %}Recipient{% else %}Empfänger{% endif %}</label><input required type="email" class="form-control" id="calendar-invite-recipient" name="recipient" value="{{ invite_events[0].invite_recipient }}"></div>
+      <div class="col-md-4"><label class="form-label">{% if g.language == 'en' %}SMTP password{% else %}SMTP-Passwort{% endif %}</label><input type="password" class="form-control" name="smtp_password" placeholder="{% if g.language == 'en' %}if not stored{% else %}falls nicht gespeichert{% endif %}"></div>
+      <div class="col-md-8"><label class="form-label">{% if g.language == 'en' %}Message{% else %}Begleittext{% endif %}</label><input class="form-control" name="body" value="{% if g.language == 'en' %}Please review the attached appointment.{% else %}Bitte den beigefügten Termin prüfen.{% endif %}"></div>
+      <div class="col-12"><button class="btn btn-primary">{% if g.language == 'en' %}Archive and send invitation{% else %}Archivieren und Einladung versenden{% endif %}</button></div>
     </form>
-    <script>document.getElementById('calendar-invite-event')?.addEventListener('change', function () { document.getElementById('calendar-invite-form').action = {{ url_for('documents.calendar')|tojson }} + '/' + encodeURIComponent(this.value) + '/invite-email'; });</script>
+    <script>
+    (() => {
+      const form = document.getElementById('calendar-invite-form');
+      const search = document.getElementById('calendar-invite-event-search');
+      const recipient = document.getElementById('calendar-invite-recipient');
+      const ids = {{ invite_events|map(attribute='event_id')|list|tojson }};
+      const labels = {{ invite_events|map(attribute='invite_search_label')|list|tojson }};
+      const recipients = {{ invite_events|map(attribute='invite_recipient')|list|tojson }};
+      const choices = ids.map((id, index) => ({id, label: labels[index], recipient: recipients[index]}));
+      const selectEvent = (id) => {
+        const event = choices.find(item => item.id === id);
+        if (!event) return false;
+        search.value = event.label;
+        search.setCustomValidity('');
+        form.action = {{ url_for('documents.calendar')|tojson }} + '/' + encodeURIComponent(event.id) + '/invite-email';
+        if (!recipient.value || choices.some(item => item.recipient === recipient.value)) recipient.value = event.recipient || '';
+        return true;
+      };
+      search?.addEventListener('input', () => {
+        const event = choices.find(item => item.label === search.value);
+        if (event) selectEvent(event.id);
+      });
+      form?.addEventListener('submit', event => {
+        const match = choices.find(item => item.label === search.value);
+        if (!match) {
+          event.preventDefault();
+          search.setCustomValidity({{ ('Please select an appointment from the suggestions.' if g.language == 'en' else 'Bitte einen Termin aus den Vorschlägen auswählen.')|tojson }});
+          search.reportValidity();
+        } else selectEvent(match.id);
+      });
+      document.addEventListener('DOMContentLoaded', () => choices.forEach(event => {
+        const modal = document.getElementById(`calendar-event-${event.id}`);
+        const firstForm = modal?.querySelector('.modal-body form');
+        if (!modal || !firstForm) return;
+        const actions = document.createElement('div');
+        actions.className = 'd-flex flex-wrap gap-2 border-top pt-3 mb-3';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-primary';
+        button.innerHTML = '<i class="fas fa-envelope me-1" aria-hidden="true"></i>' + {{ ('Send this appointment by email' if g.language == 'en' else 'Diesen Termin per E-Mail versenden')|tojson }};
+        button.addEventListener('click', () => {
+          selectEvent(event.id);
+          if (window.bootstrap) window.bootstrap.Modal.getInstance(modal)?.hide();
+          document.getElementById('smtp-invitation')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+          window.setTimeout(() => search.focus(), 250);
+        });
+        actions.append(button);
+        firstForm.before(actions);
+      }));
+    })();
+    </script>
     {% elif not mail_accounts %}
-    <div class="alert alert-secondary mb-0">Zuerst im Reiter IMAP ein SMTP-Konto konfigurieren. Einladungen werden anschließend hier beim Kalender erstellt und versandt.</div>
+    <div class="alert alert-secondary mb-0">{% if g.language == 'en' %}Configure an SMTP account on the IMAP tab first. Invitations can then be created and sent here in the calendar.{% else %}Zuerst im Reiter IMAP ein SMTP-Konto konfigurieren. Einladungen werden anschließend hier beim Kalender erstellt und versandt.{% endif %}</div>
     {% else %}
-    <p class="text-secondary mb-0">Für eine Einladung zunächst einen Termin anlegen.</p>
+    <p class="text-secondary mb-0">{% if g.language == 'en' %}Create an appointment before sending an invitation.{% else %}Für eine Einladung zunächst einen Termin anlegen.{% endif %}</p>
     {% endif %}
   </div>
 </section>

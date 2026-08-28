@@ -3,7 +3,8 @@
 ## Zweck und Nutzen
 
 SimpleOffice4Me stellt mehrere getrennte Kalender bereit und synchronisiert
-`VEVENT`-Ressourcen mit Thunderbird und anderen CalDAV-Clients. Kalender haben
+`VEVENT`-Ressourcen sowie die persönliche Aufgabenliste als `VTODO` mit
+Thunderbird und anderen CalDAV-Clients. Kalender haben
 Name, Farbe, Beschreibung, Zeitzone, Eigentümer und eigene Lese- oder
 Bearbeitungsfreigaben. Bestehende Termine ohne `calendar_id` bleiben ohne
 Migration im persönlichen Kalender `default` sichtbar.
@@ -23,6 +24,10 @@ Quelle: [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545.html).
 - `ORGANIZER` und wiederholte `ATTENDEE`-Properties werden einschließlich
   `CN`, `ROLE`, `PARTSTAT` und `RSVP` gespeichert (Abschnitte 3.8.4.1,
   3.8.4.3, 3.2.12, 3.2.9 und 3.2.17).
+- Die integrierte Aufgabensammlung verarbeitet `VTODO` mit `SUMMARY`,
+  `DESCRIPTION`, Status, Fortschritt, Priorität, Start, Fälligkeit, Abschluss,
+  Kategorien und eingebetteten `VALARM`-Komponenten. Unbekannte
+  Erweiterungszeilen bleiben beim Roundtrip erhalten.
 
 ### CalDAV – RFC 4791
 
@@ -78,7 +83,9 @@ Quelle: [RFC 6764](https://www.rfc-editor.org/rfc/rfc6764.html).
 3. Ein separates CalDAV-App-Passwort mit mindestens zwölf Zeichen setzen. Es ist
    weder das Anmelde- noch das CardDAV-Passwort.
 4. In Thunderbird die angezeigte Serveradresse eintragen. Discovery ermittelt
-   Principal, Home-Set und lesbare Collections.
+   Principal, Home-Set und lesbare Collections. Die integrierte Sammlung
+   **Aufgaben** wird automatisch als beschreibbare `VTODO`-Collection gefunden;
+   Web-Dashboard und Thunderbird bearbeiten denselben Bestand.
 
 Beim Anlegen oder Bearbeiten eines Termins steht jeder beschreibbare Kalender
 zur Auswahl. Farben markieren Monatsansicht und Terminliste; lokale Filter
@@ -98,6 +105,9 @@ korrekt erzeugen.
 - Jeder Benutzer besitzt einen getrennten logischen `default`-Kalender mit
   eigenem Sync-Token und Journal. Ressourcennamen, UIDs und Revisionen anderer
   Benutzer werden weder sichtbar noch für den eigenen Token gezählt.
+- Die Aufgabensammlung besitzt ebenfalls pro Benutzer einen eigenen Sync-Token,
+  starke ETags und Tombstones. Alte Einträge aus `todo.json` bleiben sichtbar
+  und erhalten beim ersten Bearbeiten den angemeldeten Benutzer als Eigentümer.
 - XML und ICS sind auf 1 MiB begrenzt. XML wird ohne externe Entitäten geparst;
   Ressourcennamen sind auf sichere Zeichen begrenzt.
 - Anlage, Änderung, Löschung, Freigabe und Aktivierung werden benutzerbezogen in
@@ -150,8 +160,9 @@ dokumentiert.
 
 ## Bewusste Grenzen
 
-- `VTODO`, `VJOURNAL`, `VFREEBUSY` und vollständiges Scheduling/iTIP für
-  Serieninstanzen sind noch nicht implementiert.
+- `VJOURNAL` und vollständiges Scheduling/iTIP für Aufgaben und Serieninstanzen
+  sind noch nicht implementiert. `VFREEBUSY` wird im Scheduling-Endpunkt
+  unterstützt, jedoch nicht als normale Kalenderressource gespeichert.
 - Zeitbereichsfilter expandieren den dokumentierten RRULE-Teilumfang und
   berücksichtigen `RDATE`, `EXDATE` sowie einzelne `RECURRENCE-ID`-Ausnahmen.
 - Das Sync-Journal ist auf 1000 Einträge begrenzt. Termin-Tombstones und

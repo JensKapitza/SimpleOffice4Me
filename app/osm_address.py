@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -165,6 +166,14 @@ class LocalAddressIndex:
         status.update(self._stored_status())
         status["document_root"] = str(self.root)
         status["database_path"] = str(self.db_path)
+        if status.get("state") == "indexing" and status.get("phase_started_at"):
+            try:
+                phase_started = datetime.fromisoformat(str(status["phase_started_at"]).replace("Z", "+00:00"))
+                if phase_started.tzinfo is None:
+                    phase_started = phase_started.replace(tzinfo=timezone.utc)
+                status["phase_elapsed_seconds"] = max(0, round((datetime.now(timezone.utc) - phase_started).total_seconds()))
+            except ValueError:
+                pass
         # Do not scan a many-million-row table from an HTTP request while the
         # writer is rebuilding it. The completed status always contains the
         # actual SELECT COUNT(*) result calculated inside the import transaction.
@@ -393,6 +402,11 @@ class LocalAddressIndex:
                 osm_type, osm_id = feature_id.split("/", 1)
             else:
                 osm_type, osm_id = "osm", feature_id
+        elif properties.get("@id") is not None:
+            # ``osmium export --attributes=type,id`` preserves the source
+            # object identity without generating unstable batch IDs.
+            osm_type = _clean(properties.get("@type") or "osm", 40).casefold() or "osm"
+            osm_id = _clean(properties.get("@id"), 120)
         else:
             osm_type = _clean(properties.get("@type") or properties.get("osm_type") or "feature", 40).casefold() or "feature"
             identity = "\x1f".join((street, house, postal, city, country, state, lat, lon, osm_type))
@@ -506,13 +520,14 @@ class LocalAddressIndex:
         if not osmium:
             raise RuntimeError("osmium is required to build the local address index")
         started = time.monotonic()
-        self._write_status(state="indexing", source_file=str(source), indexed_at="", error="", processed=0, inserted=0, updated=0, duplicates=0, id_collisions=0, rejected=0, stored=0)
+        self._write_status(state="indexing", phase="filtering", phase_started_at=utc_now(), source_file=str(source), indexed_at="", error="", processed=0, inserted=0, updated=0, duplicates=0, id_collisions=0, rejected=0, stored=0)
         with tempfile.TemporaryDirectory(prefix="simpleoffice-osm-") as temporary_dir:
             filtered = Path(temporary_dir) / "addresses.osm.pbf"
             subprocess.run(
-                [osmium, "tags-filter", str(source), "nwr/addr:housenumber", "nwr/addr:street", "nwr/addr:postcode", "nwr/addr:city", "-o", str(filtered), "--overwrite"],
+                [osmium, "tags-filter", str(source), "nwr/addr:housenumber", "nwr/addr:street", "nwr/addr:postcode", "nwr/addr:city", "--remove-tags", "--no-progress", "-o", str(filtered), "--overwrite"],
                 check=True, timeout=7200, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
             )
+            self._write_status(state="indexing", phase="exporting_importing", phase_started_at=utc_now(), filtered_bytes=filtered.stat().st_size, filtered_size=human_bytes(filtered.stat().st_size))
             last_progress = 0.0
 
             def report(current: dict[str, int]) -> None:
@@ -524,6 +539,7 @@ class LocalAddressIndex:
                 payload: dict[str, Any] = {
                     **current,
                     "state": "indexing",
+                    "phase": "exporting_importing",
                     "elapsed_seconds": round(elapsed, 1),
                     "records_per_second": round(current["processed"] / elapsed),
                 }
@@ -536,7 +552,7 @@ class LocalAddressIndex:
             # never fill a pipe and deadlock the exporter while stdout is read.
             with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as stderr_log:
                 process = subprocess.Popen(
-                    [osmium, "export", str(filtered), "-f", "geojsonseq"],
+                    [osmium, "export", str(filtered), "-f", "geojsonseq", "--attributes=type,id", "--no-progress"],
                     stdout=subprocess.PIPE, stderr=stderr_log, text=True, encoding="utf-8",
                 )
                 assert process.stdout is not None
@@ -583,7 +599,7 @@ class LocalAddressIndex:
                             process.kill()
                             process.wait(timeout=10)
         elapsed = round(time.monotonic() - started, 1)
-        self._write_status(state="ready", ready=True, count=stats["stored"], indexed_at=utc_now(), error="", elapsed_seconds=elapsed, **stats)
+        self._write_status(state="ready", phase="completed", ready=True, count=stats["stored"], indexed_at=utc_now(), error="", elapsed_seconds=elapsed, **stats)
         return stats
 
     def search(self, query: str, *, country_code: str = "de", limit: int = 5) -> list[dict[str, Any]]:
