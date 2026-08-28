@@ -743,6 +743,16 @@ class DocumentStore:
         )
         self._record_revision("document_attribute_set", author, "documents", metadata["document_id"], metadata)
 
+    def set_malware_scan(self, reference: str | Path, value: dict[str, Any], author: str) -> None:
+        """Persist an immutable-content security verdict even during retention lock."""
+        self._require_actor(author)
+        metadata = self.get_document(reference)
+        metadata.setdefault("attributes", {})["malware_scan"] = dict(value)
+        self._save_document(metadata)
+        self._refresh_search_index(metadata)
+        self._event("document_malware_scan_set", {"document_id": metadata["document_id"], "author": author, "verdict": value.get("verdict", "")})
+        self._record_revision("document_malware_scan_set", author, "documents", metadata["document_id"], {"scan_id": value.get("scan_id", ""), "verdict": value.get("verdict", ""), "scanned_at": value.get("scanned_at", "")})
+
     def set_tags(self, reference: str | Path, tags: list[str], author: str = "") -> dict[str, Any]:
         """Replace document tags while retaining filesystem and revision metadata."""
         self._require_actor(author)

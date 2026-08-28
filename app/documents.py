@@ -75,6 +75,17 @@ def _todos() -> TodoStore:
     return TodoStore(current_app.config["DOCUMENT_ROOT"])
 
 
+def _released_eml_attachments(store: DocumentStore, document: dict[str, Any]) -> list[dict[str, Any]]:
+    """Resolve only explicitly linked clean attachments; never scan the catalog."""
+    result = []
+    for document_id in document.get("attributes", {}).get("released_eml_attachments", []):
+        try: item = store.get_document(str(document_id))
+        except ValueError: continue
+        if item.get("attributes", {}).get("malware_scan", {}).get("verdict") == "clean":
+            result.append(item)
+    return result
+
+
 def _settings() -> SettingsStore:
     return SettingsStore(current_app.config["DOCUMENT_ROOT"])
 
@@ -116,6 +127,7 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         "secure_transport": request.is_secure or host in {"localhost", "127.0.0.1", "::1"},
         "webdav_url": f"{root}/webdav/files/{username}/",
         "caldav_url": f"{root}/caldav/calendars/{username}/",
+        "caldav_task_lists": [{"name": item["name"], "url": f"{root}/caldav/calendars/{username}/" + ("tasks" if item["list_id"] == TodoStore.default_list_id(username) else "tasks-" + item["list_id"]) + "/"} for item in _todos().lists(username) if not item.get("archived")],
         "carddav_url": f"{root}/carddav/addressbooks/{username}/contacts/",
         "webdav_enabled": any(not item.get("expired") for item in credentials_for(username)),
         "caldav_enabled": caldav_enabled, "carddav_enabled": carddav_enabled,
@@ -560,6 +572,7 @@ def projects():
 @bp.route("/projects/<project_id>", methods=("GET", "POST"))
 @login_required
 def project_detail(project_id: str):
+    actor = str(g.user["username"])
     try:
         if request.method == "POST":
             _projects().update_project(project_id, request.form.to_dict(), str(g.user["username"]))
@@ -568,6 +581,8 @@ def project_detail(project_id: str):
         project = _projects().project(project_id)
     except ValueError as exc:
         flash(str(exc)); return redirect(url_for("documents.projects"))
+    _todos().migrate_project_tasks([project], actor)
+    project = {**project, "tasks": _todos().project_tasks(project_id, actor)}
     linked_documents = []
     for document_id in project.get("document_ids", []):
         try:
@@ -576,8 +591,8 @@ def project_detail(project_id: str):
             continue
     return render_template(
         "documents/project_detail.html", project=project, linked_documents=linked_documents,
-        billing=_projects().billing_projection(project_id, str(g.user["username"])),
-        available_time_group_entries=_projects().available_time_group_entries(project_id),
+        billing=_projects().billing_projection(project_id, actor, project["tasks"]),
+        available_time_group_entries=_projects().available_time_group_entries(project_id, project["tasks"]),
     )
 
 
@@ -585,8 +600,9 @@ def project_detail(project_id: str):
 @login_required
 def add_project_task(project_id: str):
     try:
-        values = request.form.to_dict(); values["predecessors"] = request.form.getlist("predecessors")
-        _projects().add_task(project_id, values, str(g.user["username"]))
+        actor = str(g.user["username"]); project = _projects().project(project_id); _todos().migrate_project_tasks([project], actor)
+        values = request.form.to_dict(); values["predecessors"] = request.form.getlist("predecessors"); values.update({"project_id": project_id, "list_id": "project-" + project_id, "start": values.get("planned_start", ""), "due": values.get("planned_end", ""), "assigned_to": request.form.getlist("resources") or values.get("resources", ""), "status": {"open": "needs-action", "in_progress": "in-process", "waiting": "in-process"}.get(values.get("status", "open"), values.get("status"))})
+        _todos().add(values.get("title", ""), actor, values)
         flash("Aufgabe angelegt.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.project_detail", project_id=project_id) + "#aufgaben")
@@ -596,8 +612,8 @@ def add_project_task(project_id: str):
 @login_required
 def update_project_task(project_id: str, task_id: str):
     try:
-        values = request.form.to_dict(); values["predecessors"] = request.form.getlist("predecessors")
-        _projects().update_task(project_id, task_id, values, str(g.user["username"]))
+        values = request.form.to_dict(); values["predecessors"] = request.form.getlist("predecessors"); values.update({"project_id": project_id, "start": values.get("planned_start", ""), "due": values.get("planned_end", ""), "assigned_to": request.form.getlist("resources") or values.get("resources", ""), "status": {"open": "needs-action", "in_progress": "in-process", "waiting": "in-process"}.get(values.get("status", "open"), values.get("status"))})
+        _todos().update(task_id, values, str(g.user["username"]))
         flash("Aufgabe gespeichert.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
@@ -607,7 +623,8 @@ def update_project_task(project_id: str, task_id: str):
 @login_required
 def book_project_task_time(project_id: str, task_id: str):
     try:
-        entry = _projects().book_time(project_id, task_id, request.form.get("date", ""), request.form.get("hours", ""), request.form.get("note", ""), str(g.user["username"]), request.form.get("minutes"))
+        minutes = ProjectStore._duration_minutes(request.form.get("hours", ""), request.form.get("minutes"))
+        entry = _todos().book_time(task_id, minutes, request.form.get("note", ""), str(g.user["username"]), request.form.get("date", ""))
         flash(f"{entry['minutes'] // 60}:{entry['minutes'] % 60:02d} Stunden gebucht.")
     except ValueError as exc:
         flash(str(exc))
@@ -618,13 +635,14 @@ def book_project_task_time(project_id: str, task_id: str):
 @login_required
 def create_project_time_group(project_id: str):
     try:
+        actor = str(g.user["username"]); task_rows = _todos().project_tasks(project_id, actor)
         _projects().create_time_group(project_id, {
             "title": request.form.get("title", ""),
             "invoice_text": request.form.get("invoice_text", ""),
             "hours": request.form.get("hours", ""),
             "minutes": request.form.get("minutes", ""),
             "entry_ids": request.form.getlist("entry_ids"),
-        }, str(g.user["username"]))
+        }, actor, task_rows)
         flash("Abrechnungsgruppe wurde angelegt. Einzelzeiten bleiben intern erhalten.")
     except ValueError as exc:
         flash(str(exc))
@@ -800,7 +818,7 @@ def set_language():
 def add_todo():
     try: _todos().add(request.form.get("title", ""), str(g.user["username"]), request.form.to_dict())
     except ValueError as exc: flash(str(exc))
-    return redirect(url_for("documents.dashboard"))
+    return redirect(url_for("documents.tasks") if request.form.get("return_to") == "tasks" else url_for("documents.dashboard"))
 
 
 @bp.post("/todo/<item_id>")
@@ -808,7 +826,7 @@ def add_todo():
 def update_todo(item_id: str):
     try: _todos().update(item_id, request.form.to_dict(), str(g.user["username"]))
     except ValueError as exc: flash(str(exc))
-    return redirect(url_for("documents.dashboard") + "#todo")
+    return redirect(url_for("documents.tasks") if request.form.get("return_to") == "tasks" else url_for("documents.dashboard") + "#todo")
 
 
 @bp.post("/todo/<item_id>/toggle")
@@ -816,7 +834,76 @@ def update_todo(item_id: str):
 def toggle_todo(item_id: str):
     try: _todos().toggle(item_id, str(g.user["username"]))
     except ValueError as exc: flash(str(exc))
-    return redirect(url_for("documents.dashboard"))
+    return redirect(url_for("documents.tasks") if request.form.get("return_to") == "tasks" else url_for("documents.dashboard"))
+
+
+@bp.get("/tasks")
+@login_required
+def tasks():
+    actor = str(g.user["username"]); rows = _todos().items(actor)
+    status = request.args.get("status", "").strip(); list_id = request.args.get("list_id", "").strip()
+    project_id = request.args.get("project_id", "").strip(); contact_id = request.args.get("contact_id", "").strip()
+    category = request.args.get("category", "").strip(); priority = request.args.get("priority", "").strip(); period = request.args.get("period", "").strip()
+    if status: rows = [row for row in rows if row.get("status") == status]
+    if list_id: rows = [row for row in rows if row.get("list_id") == list_id]
+    if project_id: rows = [row for row in rows if row.get("project_id") == project_id]
+    if contact_id: rows = [row for row in rows if row.get("contact_id") == contact_id]
+    if category: rows = [row for row in rows if category in row.get("categories", [])]
+    if priority: rows = [row for row in rows if str(row.get("priority", 0)) == priority]
+    today = date.today(); week_end = today + timedelta(days=7)
+    if period == "today": rows = [row for row in rows if str(row.get("due", ""))[:10] == today.isoformat()]
+    elif period == "week": rows = [row for row in rows if row.get("due") and today.isoformat() <= str(row["due"])[:10] <= week_end.isoformat()]
+    elif period == "overdue": rows = [row for row in rows if row.get("due") and str(row["due"])[:10] < today.isoformat() and row.get("status") not in {"completed", "cancelled"}]
+    elif period == "none": rows = [row for row in rows if not row.get("due")]
+    all_rows = _todos().items(actor)
+    return render_template("documents/tasks.html", tasks=rows, task_lists=_todos().lists(actor), projects=_projects().projects(), contacts=_contacts().contacts(actor),
+                           users=[item["username"] for item in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()],
+                           categories=sorted({value for row in all_rows for value in row.get("categories", [])}, key=str.casefold), today=today.isoformat(), view=request.args.get("view", "list"))
+
+
+@bp.post("/tasks/lists")
+@login_required
+def create_task_list():
+    try: _todos().create_list(request.form.to_dict(), str(g.user["username"])); flash("Aufgabenliste angelegt. / Task list created.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.tasks"))
+
+
+@bp.post("/tasks/lists/<list_id>")
+@login_required
+def update_task_list(list_id: str):
+    permissions: dict[str, list[str]] = {}
+    for user in request.form.getlist("shared_users"):
+        permissions[user] = [right for right in ("read", "create", "edit", "complete", "delete", "manage") if user in request.form.getlist(right)]
+    try:
+        _todos().update_list(list_id, {**request.form.to_dict(), "archived": request.form.get("archived") == "1", "permissions": permissions}, str(g.user["username"]))
+        flash("Aufgabenliste gespeichert. / Task list saved.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.tasks"))
+
+
+@bp.post("/tasks/<item_id>/comments")
+@login_required
+def add_task_comment(item_id: str):
+    try: _todos().add_comment(item_id, request.form.get("text", ""), str(g.user["username"]))
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.tasks") + "#task-" + item_id)
+
+
+@bp.post("/tasks/<item_id>/time")
+@login_required
+def add_task_time(item_id: str):
+    try: _todos().book_time(item_id, request.form.get("minutes", ""), request.form.get("note", ""), str(g.user["username"]), request.form.get("date", ""))
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.tasks") + "#task-" + item_id)
+
+
+@bp.post("/tasks/<item_id>/delete")
+@login_required
+def delete_task(item_id: str):
+    try: _todos().soft_delete(item_id, str(g.user["username"])); flash("Aufgabe gelöscht. / Task deleted.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.tasks"))
 
 
 @bp.route("/inbox")
@@ -1001,6 +1088,8 @@ def detail(document_id: str):
     query = request.args.get("link_query", "").strip()
     linked_documents = store.relationship_targets(document)
     relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
+    security = _attachment_security()
+    safe_attachments = _released_eml_attachments(store, document)
     return render_template(
         "documents/detail.html",
         document=document,
@@ -1013,7 +1102,21 @@ def detail(document_id: str):
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
         preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "thumbnail_url": url_for("documents.document_thumbnail", document_id=document_id), "collage_url": url_for("documents.document_collage", document_id=document_id) if document.get("preview", {}).get("collage") else "", "preview_status": document.get("preview", {}).get("status", "pending"), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
         defaults=_settings().settings(),
+        document_tasks=[row for row in _todos().items(str(g.user["username"])) if document_id in row.get("document_ids", [])],
+        malware_scan=security.latest_document_scan(document),
+        safe_attachments=safe_attachments,
     )
+
+
+@bp.post("/<document_id>/tasks")
+@login_required
+def create_document_task(document_id: str):
+    document = _document_or_404(document_id)
+    try:
+        _todos().add(request.form.get("title", "") or ("Prüfen: " + document.get("last_path", "Dokument")), str(g.user["username"]), {**request.form.to_dict(), "document_ids": [document_id]})
+        flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")
+    except ValueError as exc: flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id))
 
 
 @bp.get("/recovery")
@@ -1080,7 +1183,8 @@ def document_attachments(document_id: str):
     try:
         if request.method == "GET":
             manifest = _attachment_security().preview_eml(document_id, actor)
-            return render_template("documents/attachments.html", document=document, manifest=manifest)
+            safe_attachments = _released_eml_attachments(_store(), document)
+            return render_template("documents/attachments.html", document=document, manifest=manifest, safe_attachments=safe_attachments)
         selected = [int(value) for value in request.form.getlist("parts")]
         results = _attachment_security().extract(request.form.get("manifest_id", ""), selected, actor)
         clean = sum(1 for row in results if row.get("verdict") == "clean")
@@ -1537,7 +1641,18 @@ def contact_detail(contact_id: str):
     except ValueError:
         abort(404)
     users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
-    return render_template("documents/contact_detail.html", contact=contact, users=users, is_owner=not contact.get("owner") or contact.get("owner") == actor)
+    return render_template("documents/contact_detail.html", contact=contact, users=users, has_photo=_contacts().has_photo(contact), is_owner=not contact.get("owner") or contact.get("owner") == actor,
+                           contact_tasks=_todos().items(actor, contact_id=contact_id), task_lists=_todos().lists(actor))
+
+
+@bp.get("/contacts/<contact_id>/photo")
+@login_required
+def contact_photo(contact_id: str):
+    try:
+        payload, media_type = _contacts().photo(contact_id, str(g.user["username"]))
+    except ValueError:
+        abort(404)
+    return Response(payload, mimetype=media_type, headers={"Content-Security-Policy": "default-src 'none'", "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"})
 
 
 @bp.post("/contacts")
@@ -1581,7 +1696,8 @@ def import_contacts():
 @login_required
 def add_contact_address(contact_id: str):
     try:
-        _contacts().add_address(contact_id, request.form.get("label", ""), request.form.get("address", ""), str(g.user["username"]))
+        components = {key: request.form.get(key, "") for key in ("street", "city", "state", "postal", "country")}
+        _contacts().add_address(contact_id, request.form.get("label", ""), request.form.get("address", ""), str(g.user["username"]), components)
         flash("Adresse gespeichert.")
     except ValueError as exc:
         flash(str(exc))

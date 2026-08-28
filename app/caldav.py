@@ -144,9 +144,19 @@ def _calendar_properties(calendar: dict, actor: str) -> str:
     return f'<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><d:displayname>{escape(calendar["name"])}</d:displayname><cal:calendar-description>{escape(calendar.get("description", ""))}</cal:calendar-description><cal:calendar-timezone-id>{escape(calendar.get("timezone", "UTC"))}</cal:calendar-timezone-id><cal:supported-calendar-data><cal:calendar-data content-type="text/calendar" version="2.0"/></cal:supported-calendar-data><cal:supported-calendar-component-set><cal:comp name="VEVENT"/></cal:supported-calendar-component-set><cal:schedule-calendar-transp><cal:opaque/></cal:schedule-calendar-transp><d:sync-token>{escape(token)}</d:sync-token>{_privileges(CalendarCollections.can_write(calendar, actor))}'
 
 
-def _task_collection_properties(actor: str) -> str:
-    _, token = _todos().sync_changes(actor)
-    return f'<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><d:displayname>Aufgaben</d:displayname><cal:calendar-description>SimpleOffice Aufgaben / Tasks</cal:calendar-description><cal:supported-calendar-data><cal:calendar-data content-type="text/calendar" version="2.0"/></cal:supported-calendar-data><cal:supported-calendar-component-set><cal:comp name="VTODO"/></cal:supported-calendar-component-set><d:sync-token>{escape(token)}</d:sync-token>{_privileges(True)}'
+def _task_path(item: dict, actor: str) -> str:
+    return "tasks" if item["list_id"] == TodoStore.default_list_id(actor) else "tasks-" + item["list_id"]
+
+
+def _task_list_id(calendar_id: str, actor: str) -> str:
+    return TodoStore.default_list_id(actor) if calendar_id == "tasks" else calendar_id.removeprefix("tasks-")
+
+
+def _task_collection_properties(actor: str, item: dict | None = None) -> str:
+    item = item or next(row for row in _todos().lists(actor) if row["list_id"] == TodoStore.default_list_id(actor))
+    _, token = _todos().sync_changes(actor, list_id=item["list_id"])
+    write = item.get("owner") == actor or bool(set((item.get("permissions") or {}).get(actor, [])) & {"create", "edit", "complete", "delete", "manage"})
+    return f'<d:resourcetype><d:collection/><cal:calendar/></d:resourcetype><d:displayname>{escape(item["name"])}</d:displayname><cal:calendar-description>{escape(item.get("description", ""))}</cal:calendar-description><cal:calendar-color>{escape(item.get("color", "#2563eb"))}</cal:calendar-color><cal:supported-calendar-data><cal:calendar-data content-type="text/calendar" version="2.0"/></cal:supported-calendar-data><cal:supported-calendar-component-set><cal:comp name="VTODO"/></cal:supported-calendar-component-set><d:sync-token>{escape(token)}</d:sync-token>{_privileges(write)}'
 
 
 def _todo_ics(item: dict) -> str:
@@ -166,7 +176,12 @@ def _todo_ics(item: dict) -> str:
         now = updated.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     except ValueError:
         now = "19700101T000000Z"
-    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//CalDAV Tasks//EN", "BEGIN:VTODO", f"UID:{esc(item.get('uid') or item['id'] + '@simpleoffice.local')}", f"DTSTAMP:{now}", f"SUMMARY:{esc(item.get('title', ''))}"]
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SimpleOffice4Me//CalDAV Tasks//EN"]
+    lines.extend(str(line) for line in item.get("calendar_extra_lines", []))
+    lines.extend(["BEGIN:VTODO", f"UID:{esc(item.get('uid') or item['id'] + '@simpleoffice.local')}", f"DTSTAMP:{item.get('ical_dtstamp') or now}"])
+    if item.get("ical_created"): lines.append(f"CREATED:{item['ical_created']}")
+    if item.get("ical_last_modified"): lines.append(f"LAST-MODIFIED:{item['ical_last_modified']}")
+    lines.extend([f"SEQUENCE:{int(item.get('sequence', 0) or 0)}", f"SUMMARY:{esc(item.get('title', ''))}"])
     if item.get("description"): lines.append(f"DESCRIPTION:{esc(item['description'])}")
     if item.get("start"):
         parameter, value = stamp(item["start"]); lines.append(f"DTSTART{parameter}:{value}")
@@ -178,6 +193,20 @@ def _todo_ics(item: dict) -> str:
     if item.get("completed_at"):
         _, value = stamp(item["completed_at"]); lines.append(f"COMPLETED:{value}")
     if item.get("categories"): lines.append("CATEGORIES:" + ",".join(esc(value) for value in item["categories"]))
+    if item.get("classification"): lines.append("CLASS:" + esc(item["classification"]))
+    if item.get("url"): lines.append("URL:" + esc(item["url"]))
+    organizer = str(item.get("organizer", ""))
+    if organizer: lines.append(organizer if organizer.upper().startswith("ORGANIZER") else "ORGANIZER:" + organizer)
+    lines.extend(line if str(line).upper().startswith("ATTENDEE") else "ATTENDEE:" + str(line) for line in item.get("attendees", []))
+    relations = list(item.get("related_to", []))
+    if item.get("parent_uid") and not relations: relations.append("RELATED-TO;RELTYPE=PARENT:" + item["parent_uid"])
+    lines.extend(line if str(line).upper().startswith("RELATED-TO") else "RELATED-TO:" + str(line) for line in relations)
+    if item.get("rrule"): lines.append("RRULE:" + str(item["rrule"]))
+    lines.extend(line if str(line).upper().startswith("RDATE") else "RDATE:" + str(line) for line in item.get("rdates", []))
+    lines.extend(line if str(line).upper().startswith("EXDATE") else "EXDATE:" + str(line) for line in item.get("exdates", []))
+    if item.get("project_id"): lines.append("X-SIMPLEOFFICE-PROJECT-ID:" + esc(item["project_id"]))
+    if item.get("contact_id"): lines.append("X-SIMPLEOFFICE-CONTACT-ID:" + esc(item["contact_id"]))
+    for document_id in item.get("document_ids", []): lines.append("X-SIMPLEOFFICE-DOCUMENT-ID:" + esc(document_id))
     lines.extend(str(line) for line in item.get("extra_lines", []) if str(line).upper() not in {"BEGIN:VTODO", "END:VTODO"})
     return "\r\n".join([*lines, "END:VTODO", "END:VCALENDAR", ""])
 
@@ -197,8 +226,9 @@ def _parse_vtodo(content: str) -> dict[str, Any]:
         if line.upper() == "END:VTODO": active = False; continue
         if active: lines.append(line)
     unescape = lambda value: re.sub(r"\\([nN,;\\])", lambda match: "\n" if match.group(1).lower() == "n" else match.group(1), value)
-    known = {"UID", "SUMMARY", "DESCRIPTION", "STATUS", "PERCENT-COMPLETE", "PRIORITY", "DTSTART", "DUE", "COMPLETED", "CATEGORIES", "DTSTAMP", "CREATED", "LAST-MODIFIED"}
-    fields: dict[str, tuple[str, str]] = {}; extra: list[str] = []; alarm = False
+    known = {"UID", "SUMMARY", "DESCRIPTION", "STATUS", "PERCENT-COMPLETE", "PRIORITY", "DTSTART", "DUE", "COMPLETED", "CATEGORIES", "DTSTAMP", "CREATED", "LAST-MODIFIED", "SEQUENCE", "CLASS", "URL", "ORGANIZER", "RRULE"}
+    repeated = {"ATTENDEE", "RELATED-TO", "RDATE", "EXDATE", "X-SIMPLEOFFICE-DOCUMENT-ID"}
+    fields: dict[str, tuple[str, str]] = {}; multiples: dict[str, list[str]] = {key: [] for key in repeated}; extra: list[str] = []; alarm = False
     for line in lines:
         upper = line.upper()
         if upper == "BEGIN:VALARM": alarm = True; extra.append(line); continue
@@ -208,10 +238,13 @@ def _parse_vtodo(content: str) -> dict[str, Any]:
             continue
         if ":" not in line: continue
         left, value = split_content_line(line); key = left.split(";", 1)[0].upper()
-        if key in known:
+        if key in repeated:
+            multiples[key].append(line)
+        elif key in known:
             if key in fields: raise ValueError(f"{key} must not occur more than once in a VTODO")
             fields[key] = (left, value)
-        else: extra.append(line)
+        elif key not in {"X-SIMPLEOFFICE-PROJECT-ID", "X-SIMPLEOFFICE-CONTACT-ID"}: extra.append(line)
+        else: fields[key] = (left, value)
     uid = unescape(fields.get("UID", ("", ""))[1]).strip()
     if not uid: raise ValueError("every VTODO requires UID")
     title = unescape(fields.get("SUMMARY", ("", ""))[1]).strip()
@@ -231,16 +264,42 @@ def _parse_vtodo(content: str) -> dict[str, Any]:
             except ValueError as exc: raise ValueError("invalid VTODO date") from exc
         return parse_ical_datetime(left, value)[0]
 
-    return {"uid": uid, "title": title, "description": unescape(fields.get("DESCRIPTION", ("", ""))[1]), "status": status, "percent_complete": 100 if status == "completed" else percent, "priority": priority, "start": date_value(fields.get("DTSTART")), "due": date_value(fields.get("DUE")), "completed_at": date_value(fields.get("COMPLETED")), "categories": [unescape(value).strip() for value in fields.get("CATEGORIES", ("", ""))[1].split(",") if value.strip()], "extra_lines": extra, "raw_ics": content}
+    start_value = date_value(fields.get("DTSTART"))
+    if fields.get("RRULE", ("", ""))[1] or multiples["RDATE"]:
+        if not start_value: raise ValueError("recurring VTODO requires DTSTART")
+        timezone_id = parse_ical_datetime(*fields["DTSTART"])[1]
+        rdate_values: list[str] = []; exdate_values: list[str] = []
+        for line in multiples["RDATE"]:
+            left, value = split_content_line(line); parsed, _ = parse_ical_list(left, value, timezone_id); rdate_values.extend(parsed)
+        for line in multiples["EXDATE"]:
+            left, value = split_content_line(line); parsed, _ = parse_ical_list(left, value, timezone_id); exdate_values.extend(parsed)
+        try: validate_recurrence({"rrule": fields.get("RRULE", ("", ""))[1], "rdates": rdate_values, "exdates": exdate_values, "timezone": timezone_id}, start_value)
+        except RecurrenceError as exc: raise ValueError(str(exc)) from exc
+
+    try: sequence = max(0, int(fields.get("SEQUENCE", ("", "0"))[1] or 0))
+    except ValueError as exc: raise ValueError("invalid VTODO SEQUENCE") from exc
+    calendar_extra = []
+    active_calendar = True
+    for line in unfolded:
+        if line.upper() == "BEGIN:VTODO": active_calendar = False
+        elif line.upper() == "END:VTODO": active_calendar = True
+        elif active_calendar and line and line.upper() not in {"BEGIN:VCALENDAR", "END:VCALENDAR", "VERSION:2.0"} and not line.upper().startswith("PRODID:"):
+            calendar_extra.append(line)
+    completed_value = date_value(fields.get("COMPLETED"))
+    if completed_value: status = "completed"; percent = 100
+    return {"uid": uid, "title": title, "description": unescape(fields.get("DESCRIPTION", ("", ""))[1]), "status": status, "percent_complete": 100 if status == "completed" else percent, "priority": priority, "start": start_value, "due": date_value(fields.get("DUE")), "completed_at": completed_value, "categories": [unescape(value).strip() for value in fields.get("CATEGORIES", ("", ""))[1].split(",") if value.strip()], "classification": unescape(fields.get("CLASS", ("", ""))[1]), "url": unescape(fields.get("URL", ("", ""))[1]), "organizer": (fields.get("ORGANIZER", ("", ""))[0] + ":" + fields.get("ORGANIZER", ("", ""))[1]) if "ORGANIZER" in fields else "", "attendees": multiples["ATTENDEE"], "related_to": multiples["RELATED-TO"], "rrule": fields.get("RRULE", ("", ""))[1], "rdates": multiples["RDATE"], "exdates": multiples["EXDATE"], "sequence": sequence, "ical_created": fields.get("CREATED", ("", ""))[1], "ical_last_modified": fields.get("LAST-MODIFIED", ("", ""))[1], "ical_dtstamp": fields.get("DTSTAMP", ("", ""))[1], "project_id": unescape(fields.get("X-SIMPLEOFFICE-PROJECT-ID", ("", ""))[1]), "contact_id": unescape(fields.get("X-SIMPLEOFFICE-CONTACT-ID", ("", ""))[1]), "document_ids": [unescape(line.split(":", 1)[1]) for line in multiples["X-SIMPLEOFFICE-DOCUMENT-ID"]], "calendar_extra_lines": calendar_extra, "extra_lines": extra, "raw_ics": content}
 
 
 def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
     """Expose the existing SimpleOffice task list as a CalDAV VTODO calendar."""
     store = _todos()
-    collection = home + "tasks/"
+    list_id = _task_list_id(parts[2], actor)
+    try: task_list = next(row for row in store.lists(actor) if row["list_id"] == list_id)
+    except StopIteration: return Response("not found", 404)
+    collection = home + parts[2] + "/"
     if len(parts) == 3:
         if request.method == "PROPFIND":
-            items = [(collection, _task_collection_properties(actor), "HTTP/1.1 200 OK")]
+            items = [(collection, _task_collection_properties(actor, task_list), "HTTP/1.1 200 OK")]
             if request.headers.get("Depth", "0") != "0":
                 items.extend(
                     (
@@ -248,7 +307,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
                         f"<d:getetag>{store.etag(item)}</d:getetag><d:getcontenttype>text/calendar; charset=utf-8</d:getcontenttype>",
                         "HTTP/1.1 200 OK",
                     )
-                    for item in store.items(actor)
+                    for item in store.items(actor, list_id=list_id)
                 )
             return _multistatus(items)
         if request.method == "REPORT":
@@ -259,10 +318,10 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
             if root.tag == f"{{{DAV}}}sync-collection":
                 token = (root.findtext(f"{{{DAV}}}sync-token") or "").strip()
                 try:
-                    changes, new_token = store.sync_changes(actor, token)
+                    changes, new_token = store.sync_changes(actor, token, list_id)
                 except ValueError:
                     return Response(f'<d:error xmlns:d="{DAV}"><d:valid-sync-token/></d:error>', 403, {"Content-Type": "application/xml"})
-                current = {store.resource(item): item for item in store.items(actor)}
+                current = {store.resource(item): item for item in store.items(actor, list_id=list_id)}
                 rows = []
                 for change in changes:
                     href = collection + change["resource"]
@@ -274,7 +333,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
                 return _multistatus(rows, new_token)
             if root.tag not in {f"{{{CAL}}}calendar-query", f"{{{CAL}}}calendar-multiget"}:
                 return Response("unsupported task report", 403)
-            tasks = store.items(actor)
+            tasks = store.items(actor, list_id=list_id)
             hrefs = [node.text or "" for node in root.findall(f".//{{{DAV}}}href")]
             if len(hrefs) > MAX_HREFS:
                 return Response("too many DAV hrefs", 413)
@@ -325,7 +384,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
     if len(parts) != 4:
         return Response("invalid task resource path", 404)
     resource = parts[3]
-    item = store.get_resource(resource, actor)
+    item = store.get_resource(resource, actor, list_id)
     if request.method == "PROPFIND":
         if item is None:
             return Response("not found", 404)
@@ -343,7 +402,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
             return Response("CalDAV task precondition failed", 412, {"ETag": current} if current else {})
         try:
             values = _parse_vtodo(request.get_data(as_text=True))
-            saved, created = store.put_resource(resource, values, actor, current if if_match else None, request.headers.get("If-None-Match") == "*")
+            saved, created = store.put_resource(resource, values, actor, current if if_match else None, request.headers.get("If-None-Match") == "*", list_id)
         except TodoConflict as exc:
             return Response("CalDAV task precondition failed", 412, {"ETag": store.etag(exc.item)} if exc.item else {})
         except ValueError as exc:
@@ -357,7 +416,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
         if if_match and if_match != current:
             return Response("CalDAV task precondition failed", 412, {"ETag": current})
         try:
-            store.delete_resource(resource, actor, current if if_match else None)
+            store.delete_resource(resource, actor, current if if_match else None, list_id)
         except TodoConflict as exc:
             return Response("CalDAV task precondition failed", 412, {"ETag": store.etag(exc.item)} if exc.item else {})
         except ValueError as exc:
@@ -809,10 +868,10 @@ def endpoint(path: str):
             items = [(home, "<d:resourcetype><d:collection/></d:resourcetype><d:displayname>SimpleOffice Kalender</d:displayname>", "HTTP/1.1 200 OK")]
             if request.headers.get("Depth", "0") != "0":
                 items += [(home + c["calendar_id"] + "/", _calendar_properties(c, actor), "HTTP/1.1 200 OK") for c in store.calendars(actor)]
-                items.append((home + "tasks/", _task_collection_properties(actor), "HTTP/1.1 200 OK"))
+                items += [(home + _task_path(task_list, actor) + "/", _task_collection_properties(actor, task_list), "HTTP/1.1 200 OK") for task_list in _todos().lists(actor) if not task_list.get("archived")]
             return _multistatus(items)
         if len(parts) >= 3 and parts[:2] == ["calendars", actor]:
-            if parts[2] == "tasks":
+            if parts[2] == "tasks" or parts[2].startswith("tasks-"):
                 return _task_endpoint(actor, parts, home)
             try: calendar = store.get(parts[2], actor)
             except ValueError: return Response("not found", 404)
@@ -826,7 +885,14 @@ def endpoint(path: str):
         return Response("not found", 404)
     if len(parts) < 3 or parts[:2] != ["calendars", actor]: return Response("not found", 404)
     calendar_id = parts[2]
-    if calendar_id == "tasks":
+    if calendar_id == "tasks" or calendar_id.startswith("tasks-"):
+        if request.method == "MKCALENDAR" and calendar_id != "tasks":
+            try:
+                root = _xml_root(); name = root.findtext(f".//{{{DAV}}}displayname") or calendar_id.removeprefix("tasks-")
+                description = root.findtext(f".//{{{CAL}}}calendar-description") or ""
+                _todos().create_list({"name": name, "description": description}, actor, calendar_id.removeprefix("tasks-"))
+            except ValueError as exc: return Response(str(exc), 405 if "already exists" in str(exc) else 400)
+            return Response("", 201, {"Location": request.path.rstrip("/") + "/"})
         return _task_endpoint(actor, parts, home)
     if request.method == "MKCALENDAR":
         if len(parts) != 3: return Response("invalid calendar collection path", 409)

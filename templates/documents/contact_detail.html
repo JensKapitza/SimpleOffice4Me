@@ -10,7 +10,7 @@
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
     <div>
       <a href="{{ url_for('documents.contacts') }}" class="text-decoration-none">&larr; Kontakte</a>
-      <h1 class="h2 mt-2 mb-1">{{ contact.fields.display_name }}</h1>
+      <div class="d-flex align-items-center gap-3 mt-2">{% if has_photo %}<img src="{{ url_for('documents.contact_photo', contact_id=contact.contact_id) }}" alt="{{ 'Contact photo' if g.language == 'en' else 'Kontaktfoto' }}: {{ contact.fields.display_name }}" class="rounded-circle border object-fit-cover" width="72" height="72">{% endif %}<h1 class="h2 mb-1">{{ contact.fields.display_name }}</h1></div>
       <p class="text-secondary mb-0">Eigentümer: {{ contact.owner|default('bisher nicht zugeordnet', true) }} · zuletzt geändert von {{ contact.updated_by }}</p>
       {% if can_manage %}<span class="badge text-bg-primary mt-2">Lesen und Bearbeiten</span>{% else %}<span class="badge text-bg-secondary mt-2">Nur Lesen</span>{% endif %}
     </div>
@@ -39,7 +39,7 @@
             <div class="col-md-6"><label class="form-label">Rolle</label><input class="form-control" name="role" value="{{ contact.fields.role|default('') }}"></div>
             <div class="col-12"><label class="form-label">Notiz</label><textarea class="form-control" name="note" rows="5">{{ contact.fields.note|default('') }}</textarea></div>
             {% for key, value in contact.fields.items() if key not in standard_fields %}
-              {% if key.startswith('vcard_') %}
+              {% if key.startswith('vcard_') and 'photo' not in key %}
               <div class="col-12"><label class="form-label">Weitere vCard-Eigenschaft</label><textarea class="form-control font-monospace" name="custom_{{ key }}" rows="2">{{ value }}</textarea><div class="form-text">Unbekanntes oder zusätzliches Thunderbird-Feld. Die komplette vCard-Zeile bleibt beim Synchronisieren erhalten.</div></div>
               {% else %}
               <div class="col-md-6"><label class="form-label">{{ key }}</label><input class="form-control" name="custom_{{ key }}" value="{{ value }}"></div>
@@ -61,7 +61,7 @@
             <dt class="col-sm-4">Rolle</dt><dd class="col-sm-8">{{ contact.fields.role|default('—', true) }}</dd>
             <dt class="col-sm-4">Webseite</dt><dd class="col-sm-8">{{ contact.fields.website|default('—', true) }}</dd>
             <dt class="col-sm-4">Notiz</dt><dd class="col-sm-8" style="white-space:pre-wrap">{{ contact.fields.note|default('—', true) }}</dd>
-            {% for key, value in contact.fields.items() if key not in standard_fields %}<dt class="col-sm-4">{% if key.startswith('vcard_') %}vCard{% else %}{{ key }}{% endif %}</dt><dd class="col-sm-8 text-break" style="white-space:pre-wrap">{{ value }}</dd>{% endfor %}
+            {% for key, value in contact.fields.items() if key not in standard_fields and 'photo' not in key %}<dt class="col-sm-4">{% if key.startswith('vcard_') %}vCard{% else %}{{ key }}{% endif %}</dt><dd class="col-sm-8 text-break" style="white-space:pre-wrap">{{ value }}</dd>{% endfor %}
           </dl>
           {% endif %}
         </div>
@@ -73,10 +73,11 @@
           {% if can_manage %}<form method="post" action="{{ url_for('documents.add_contact_address', contact_id=contact.contact_id) }}" class="row g-2 mt-2" data-address-compose>
             <div class="col-md-3"><label class="form-label small">Typ</label><input class="form-control" name="label" placeholder="z. B. Privat"></div>
             <div class="col-md-9 position-relative" data-address-autocomplete data-address-endpoint="{{ url_for('contact_audit.crm_address_search') }}"><div class="row g-2">
-              <div class="col-md-5"><label class="form-label small">Ort</label><input required class="form-control" data-address-field="city" placeholder="Ort"></div>
-              <div class="col-md-3"><label class="form-label small">{{ tr('contact.postal') }}</label><input required class="form-control" data-address-field="postal" placeholder="12345"></div>
-              <div class="col-md-4"><label class="form-label small">Straße + Hausnummer</label><input required class="form-control" data-address-field="street" placeholder="Musterstraße 12"></div>
-              <div class="col-md-4"><label class="form-label small">{{ tr('contact.country') }}</label><input class="form-control text-uppercase" data-address-field="country" value="DE" maxlength="2" list="contact-address-country-codes" aria-describedby="contact-address-country-help"><div class="form-text" id="contact-address-country-help">{% if g.language == 'en' %}Editable ISO country code (e.g. AT, FR).{% else %}ISO-Ländercode, frei änderbar (z. B. AT, FR).{% endif %}</div></div>
+              <div class="col-md-5"><label class="form-label small">Ort / City</label><input required class="form-control" name="city" data-address-field="city" autocomplete="address-level2" placeholder="Ort"></div>
+              <div class="col-md-3"><label class="form-label small">{{ tr('contact.postal') }}</label><input required class="form-control" name="postal" data-address-field="postal" autocomplete="postal-code" placeholder="12345"></div>
+              <div class="col-md-4"><label class="form-label small">Straße + Hausnummer / Street</label><input required class="form-control" name="street" data-address-field="street" autocomplete="street-address" placeholder="Musterstraße 12"></div>
+              <div class="col-md-4"><label class="form-label small">Bundesland / Region / State</label><input class="form-control" name="state" data-address-field="state" autocomplete="address-level1" placeholder="z. B. NRW, CA, Québec"></div>
+              <div class="col-md-4"><label class="form-label small">{{ tr('contact.country') }}</label><input class="form-control text-uppercase" name="country" data-address-field="country" value="DE" maxlength="2" autocomplete="country" list="contact-address-country-codes" aria-describedby="contact-address-country-help"><div class="form-text" id="contact-address-country-help">{% if g.language == 'en' %}Editable ISO country code (e.g. US, JP, GB).{% else %}ISO-Ländercode, frei änderbar (z. B. US, JP, GB).{% endif %}</div></div>
               <input type="hidden" name="address" data-address-composed>
               <div class="col-12"><div class="list-group position-absolute start-0 end-0 shadow-sm" id="contact-address-results" data-address-results role="listbox" hidden style="z-index: 1050"></div><div class="form-text" data-address-status aria-live="polite"></div></div>
               {{ eu_country_datalist('contact-address-country-codes') }}
@@ -87,6 +88,7 @@
       </div>
     </section>
     <aside class="col-lg-5">
+      <div class="card mb-4"><div class="card-header d-flex justify-content-between"><strong>{{ 'Open tasks' if g.language == 'en' else 'Offene Aufgaben' }}</strong><a href="{{ url_for('documents.tasks', contact_id=contact.contact_id) }}">{{ 'All' if g.language == 'en' else 'Alle' }}</a></div><div class="list-group list-group-flush">{% for item in contact_tasks if item.status not in ['completed','cancelled'] %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.tasks') }}#task-{{ item.id }}"><strong>{{ item.title }}</strong>{% if item.due %}<br><small class="text-secondary">{{ item.due[:10] }}</small>{% endif %}</a>{% else %}<div class="list-group-item text-secondary">{{ 'No open tasks.' if g.language == 'en' else 'Keine offenen Aufgaben.' }}</div>{% endfor %}</div><div class="card-body"><form method="post" action="{{ url_for('documents.add_todo') }}" class="input-group"><input type="hidden" name="contact_id" value="{{ contact.contact_id }}"><input type="hidden" name="return_to" value="tasks"><input required class="form-control" name="title" placeholder="{{ 'New task' if g.language == 'en' else 'Neue Aufgabe' }}"><button class="btn btn-outline-primary">+</button></form></div></div>
       <div class="card mb-4"><div class="card-header">Organisation</div><div class="card-body">
         {% if can_manage %}<form method="post" action="{{ url_for('contact_audit.update_metadata', contact_id=contact.contact_id) }}"><label class="form-label">Tags</label><input class="form-control mb-3" name="tags" value="{{ contact.tags|default([])|join(', ') }}" placeholder="Kunde, Lieferant, Privat"><label class="form-label">Gruppen</label><input class="form-control mb-3" name="groups" value="{{ contact.groups|default([])|join(', ') }}" placeholder="Projekt A, Familie, Verein"><button class="btn btn-outline-primary">Tags und Gruppen speichern</button></form><p class="small text-secondary mt-2 mb-0">Vor Änderungen wird eine vollständige Kontaktversion gesichert.</p>
         {% else %}<p><strong>Tags:</strong> {{ contact.tags|default([])|join(', ') or '—' }}</p><p class="mb-0"><strong>Gruppen:</strong> {{ contact.groups|default([])|join(', ') or '—' }}</p>{% endif %}

@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import tempfile
 import time
@@ -64,6 +65,10 @@ ZUGFERD_FILENAMES = {"factur-x.xml", "zugferd-invoice.xml", "zugferd.xml"}
 MONEY = Decimal("0.01")
 QTY = Decimal("0.001")
 SUPPORTED_TEMPLATE_SUFFIXES = {".pdf", ".odt", ".ott", ".doc", ".docx", ".rtf", ".odp", ".ppt", ".pptx"}
+DIN_LEFT_MARGIN = 25 * mm
+DIN_RIGHT_MARGIN = 20 * mm
+DIN_TOP_RESERVED = 55 * mm
+DIN_BOTTOM_RESERVED = 24 * mm
 logger = logging.getLogger(__name__)
 WRITE_OFF_REASONS = {
     "customer_deceased",
@@ -166,7 +171,7 @@ def active_template(root: Path, template_id: str = "") -> dict[str, Any]:
 
 
 def business_settings(root: Path) -> dict[str, Any]:
-    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_iban": "", "seller_bic": "", "seller_bank": "", "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": "EN16931", "zugferd_version": "2.5.2", "require_zugferd_validation": False}
+    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_iban": "", "seller_bic": "", "seller_bank": "", "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": "EN16931", "zugferd_version": "2.5.2", "require_zugferd_validation": True}
     stored = _read_json(root / CONTROL_DIR / SETTINGS_FILE, {})
     if isinstance(stored, dict): defaults.update(stored)
     return defaults
@@ -174,13 +179,13 @@ def business_settings(root: Path) -> dict[str, Any]:
 
 def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> dict[str, Any]:
     settings = business_settings(root)
-    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "seller_iban", "seller_bic", "seller_bank", "payment_terms", "currency", "zugferd_profile"):
+    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "seller_iban", "seller_bic", "seller_bank", "payment_terms", "currency", "zugferd_profile"):
         settings[key] = str(values.get(key, settings.get(key, ""))).strip()
     try: days = int(str(values.get("default_payment_days", settings.get("default_payment_days", "14"))).strip())
     except ValueError as exc: raise ValueError("default payment days must be an integer") from exc
     if not 0 <= days <= 3650: raise ValueError("default payment days must be between 0 and 3650")
     settings["default_payment_days"] = str(days); settings["seller_country"] = (settings["seller_country"] or "DE").upper()[:2]; settings["currency"] = (settings["currency"] or "EUR").upper()[:3]
-    settings["zugferd_version"] = "2.5.2"; settings["require_zugferd_validation"] = str(values.get("require_zugferd_validation", "")).casefold() in {"1", "true", "yes", "on"}
+    settings["zugferd_version"] = "2.5.2"; settings["require_zugferd_validation"] = True
     path = root / CONTROL_DIR / SETTINGS_FILE; path.parent.mkdir(parents=True, exist_ok=True); atomic_json_write(path, settings)
     DocumentStore(root).history.record("business_settings_updated", actor, "business-settings", "default", {key: value for key, value in settings.items() if "iban" not in key.casefold()})
     return settings
@@ -209,14 +214,14 @@ def address_labels(contact: dict[str, Any], crm: dict[str, Any], selected: str =
     candidates: list[dict[str, str]] = []
     for index, item in enumerate(crm.get("addresses", [])):
         if not isinstance(item, dict): continue
-        street, postal, city = (str(item.get(key, "")).strip() for key in ("street", "postal", "city")); country = str(item.get("country", "")).strip().upper()
+        street, postal, city = (str(item.get(key, "")).strip() for key in ("street", "postal", "city")); state = str(item.get("state", "")).strip(); country = str(item.get("country", "")).strip().upper()
         if not any((street, postal, city)): continue
         address_type = str(item.get("type", "other")).strip() or "other"
-        label = _recipient_label(contact, street, " ".join(filter(None, (postal, city))), country if country and country != "DE" else "")
-        candidates.append({"id": f"crm-{index}", "type": address_type, "label": label, "street": street, "postal": postal, "city": city, "country": country or "DE"})
+        label = _recipient_label(contact, ContactStore.format_postal_address({"street": street, "postal": postal, "city": city, "state": state, "country": "" if country == "DE" else country}))
+        candidates.append({"id": f"crm-{index}", "type": address_type, "label": label, "street": street, "postal": postal, "city": city, "state": state, "country": country or "DE"})
     for index, item in enumerate(contact.get("addresses", [])):
-        value = str(item.get("value", "")).strip()
-        if value: candidates.append({"id": f"contact-{index}", "type": str(item.get("label", "Adresse")), "label": _recipient_label(contact, *value.splitlines()), "street": value, "postal": "", "city": "", "country": "DE"})
+        value = str(item.get("value", "")).strip(); components = item.get("components", {})
+        if value: candidates.append({"id": f"contact-{index}", "type": str(item.get("label", "Adresse")), "label": _recipient_label(contact, *value.splitlines()), "street": components.get("street", value), "postal": components.get("postal", ""), "city": components.get("city", ""), "state": components.get("state", ""), "country": components.get("country", "DE")})
     choice = next((item for item in candidates if item["id"] == selected), None)
     choice = choice or next((item for item in candidates if item["type"].casefold() in {"billing", "rechnung", "rechnungsadresse"}), None)
     choice = choice or (candidates[0] if candidates else None)
@@ -241,8 +246,8 @@ def _markdown_flowables(markdown: str) -> list[Any]:
 
 
 class _ContentDocTemplate(BaseDocTemplate):
-    def __init__(self, target, *, recipient: str = "", subject: str = "", top_margin: float = 55 * mm):
-        super().__init__(target, pagesize=A4, leftMargin=25 * mm, rightMargin=20 * mm, topMargin=top_margin, bottomMargin=24 * mm)
+    def __init__(self, target, *, recipient: str = "", subject: str = "", top_margin: float = DIN_TOP_RESERVED):
+        super().__init__(target, pagesize=A4, leftMargin=DIN_LEFT_MARGIN, rightMargin=DIN_RIGHT_MARGIN, topMargin=max(top_margin, DIN_TOP_RESERVED), bottomMargin=DIN_BOTTOM_RESERVED)
         self.recipient, self.subject = recipient, subject
         self.addPageTemplates(PageTemplate(id="content", frames=[Frame(self.leftMargin, self.bottomMargin, self.width, self.height, id="content")], onPage=self._header))
     def _header(self, canv, doc):
@@ -255,6 +260,32 @@ class _ContentDocTemplate(BaseDocTemplate):
 
 def _content_pdf(recipient: str, subject: str, markdown: str) -> bytes:
     target = io.BytesIO(); _ContentDocTemplate(target, recipient=recipient, subject=subject).build(_markdown_flowables(markdown)); return target.getvalue()
+
+
+def din5008_template_guide_pdf() -> bytes:
+    """Create a three-page DIN-5008 design guide for corporate backgrounds."""
+    target = io.BytesIO(); c = canvas.Canvas(target, pagesize=A4)
+    page_titles = ("Seite 1 – optionale Titelseite", "Seite 2 – erste Inhaltsseite", "Seite 3 – Folgeseiten")
+    for page_number, title in enumerate(page_titles, 1):
+        c.setFont("Helvetica-Bold", 15); c.drawString(15 * mm, A4[1] - 14 * mm, "SimpleOffice DIN-5008 Vorlagenmuster")
+        c.setFont("Helvetica", 10); c.drawString(15 * mm, A4[1] - 20 * mm, title)
+        c.setStrokeColor(colors.HexColor("#1f6feb")); c.setFillColor(colors.Color(.12, .42, .92, alpha=.07))
+        c.rect(DIN_LEFT_MARGIN, DIN_BOTTOM_RESERVED, A4[0] - DIN_LEFT_MARGIN - DIN_RIGHT_MARGIN, A4[1] - DIN_TOP_RESERVED - DIN_BOTTOM_RESERVED, fill=1)
+        c.setFillColor(colors.HexColor("#1f6feb")); c.setFont("Helvetica-Bold", 9)
+        c.drawString(DIN_LEFT_MARGIN + 2 * mm, A4[1] - DIN_TOP_RESERVED - 5 * mm, "DYNAMISCHER INHALT – hier keine statischen Texte/Grafiken platzieren")
+        c.setStrokeColor(colors.HexColor("#238636")); c.setFillColor(colors.Color(.13, .53, .21, alpha=.08))
+        c.rect(15 * mm, A4[1] - 43 * mm, A4[0] - 30 * mm, 18 * mm, fill=1)
+        c.setFillColor(colors.HexColor("#238636")); c.drawString(17 * mm, A4[1] - 34 * mm, "Logo-/Kopfbereich (empfohlen: oberhalb 45 mm)")
+        c.setStrokeColor(colors.HexColor("#9a6700")); c.setFillColor(colors.Color(.85, .63, .08, alpha=.1))
+        c.rect(15 * mm, 5 * mm, A4[0] - 30 * mm, 15 * mm, fill=1)
+        c.setFillColor(colors.HexColor("#9a6700")); c.drawString(17 * mm, 11 * mm, "Fußbereich: Firmenangaben / IBAN; Seitenzahl bei y=10 mm freihalten")
+        if page_number == 2:
+            c.setDash(3, 2); c.setStrokeColor(colors.HexColor("#cf222e")); c.rect(20 * mm, A4[1] - 90 * mm, 85 * mm, 45 * mm, fill=0); c.setDash()
+            c.setFillColor(colors.HexColor("#cf222e")); c.drawString(22 * mm, A4[1] - 94 * mm, "DIN-5008-Anschriftzone (wird vom Renderer dynamisch belegt)")
+        c.setFillColor(colors.black); c.setFont("Helvetica", 8)
+        c.drawRightString(A4[0] - 15 * mm, 25 * mm, f"Musterseite {page_number}/3 – Hilfslinien vor produktiver Verwendung entfernen")
+        c.showPage()
+    c.save(); return target.getvalue()
 
 
 def _cover_overlay(title: str, recipient: str) -> bytes:
@@ -548,7 +579,7 @@ def _invoice_totals(lines: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _invoice_content_pdf(row: dict[str, Any]) -> bytes:
-    target = io.BytesIO(); doc = _ContentDocTemplate(target, top_margin=26 * mm); styles = getSampleStyleSheet(); normal = ParagraphStyle("InvoiceNormal", parent=styles["BodyText"], fontName="Helvetica", fontSize=9, leading=12); small = ParagraphStyle("InvoiceSmall", parent=normal, fontSize=8, leading=10); title = ParagraphStyle("InvoiceTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=16, leading=19)
+    target = io.BytesIO(); doc = _ContentDocTemplate(target); styles = getSampleStyleSheet(); normal = ParagraphStyle("InvoiceNormal", parent=styles["BodyText"], fontName="Helvetica", fontSize=9, leading=12); small = ParagraphStyle("InvoiceSmall", parent=normal, fontSize=8, leading=10); title = ParagraphStyle("InvoiceTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=16, leading=19)
     flow: list[Any] = [Paragraph("Rechnung", title), Spacer(1, 3 * mm)]
     buyer = row["buyer"]; seller = row["seller"]
     header = [[Paragraph("<b>Rechnung an</b><br/>" + "<br/>".join(html.escape(x) for x in buyer["label"].splitlines()), normal), Paragraph(f"<b>Rechnungsnummer:</b> {html.escape(row['invoice_number'])}<br/><b>Rechnungsdatum:</b> {html.escape(row['issue_date'])}<br/><b>Leistungsdatum:</b> {html.escape(row['service_date'])}<br/><b>Fällig:</b> {html.escape(row['due_date'])}", normal)]]
@@ -593,7 +624,7 @@ def _credit_note_amounts(row: dict[str, Any], gross_amount: Decimal) -> dict[str
 
 
 def _credit_note_pdf(row: dict[str, Any], note: dict[str, Any]) -> bytes:
-    target = io.BytesIO(); doc = _ContentDocTemplate(target, top_margin=26 * mm); styles = getSampleStyleSheet(); normal = ParagraphStyle("CreditNormal", parent=styles["BodyText"], fontName="Helvetica", fontSize=9, leading=12); title = ParagraphStyle("CreditTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=16)
+    target = io.BytesIO(); doc = _ContentDocTemplate(target); styles = getSampleStyleSheet(); normal = ParagraphStyle("CreditNormal", parent=styles["BodyText"], fontName="Helvetica", fontSize=9, leading=12); title = ParagraphStyle("CreditTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=16)
     amounts = note["amounts"]; flow: list[Any] = [Paragraph("Gutschrift / Rechnungskorrektur", title), Spacer(1, 4*mm), Paragraph(f"Gutschriftnummer: <b>{html.escape(note['credit_note_number'])}</b><br/>Datum: {html.escape(note['issue_date'])}<br/>Bezug: Rechnung {html.escape(row['invoice_number'])} vom {html.escape(row['issue_date'])}", normal), Spacer(1, 4*mm), Paragraph("Empfänger:<br/>" + "<br/>".join(html.escape(item) for item in row["buyer"]["label"].splitlines()), normal), Spacer(1, 5*mm), Paragraph(f"Grund: {html.escape(note['reason'])}", normal), Spacer(1, 5*mm)]
     rows = [["Steuersatz", "Netto", "Umsatzsteuer", "Brutto"]]
     for rate, values in amounts["vat_groups"].items(): rows.append([f"{rate} %", f"{values['basis']} {row['currency']}", f"{values['tax']} {row['currency']}", f"{values['gross']} {row['currency']}"])
@@ -695,7 +726,7 @@ def embed_invoice_xml(pdf: bytes, xml: bytes, filename: str = "factur-x.xml") ->
 
 
 def _validate_hybrid(pdf: bytes, xml: bytes) -> dict[str, Any]:
-    result={"pdfa":False,"xml":False,"validated":False,"details":[],"pdfa_exit_code":None,"xml_exit_code":None,"pdfa_output":"","xml_output":""}
+    result={"pdfa":False,"xml":False,"validated":False,"details":[],"pdfa_exit_code":None,"xml_exit_code":None,"pdfa_output":"","xml_output":"","validator":""}
     try: ET.fromstring(xml); result["xml"]=True
     except ET.ParseError: result["details"].append("xml_not_well_formed")
     verapdf=shutil.which("verapdf")
@@ -709,18 +740,30 @@ def _validate_hybrid(pdf: bytes, xml: bytes) -> dict[str, Any]:
                 output=check.stdout+check.stderr; text=output.casefold(); result["pdfa_exit_code"]=check.returncode; result["pdfa_output"]=output; result["pdfa"]=check.returncode==0 and ("compliant" in text or "passed" in text) and "not compliant" not in text
                 if not result["pdfa"]: result["details"].append("pdfa_validation_failed"); logger.error("veraPDF validation failed exit_code=%s output=%s", check.returncode, output)
     else: result["details"].append("verapdf_unavailable")
-    validator=os.environ.get("SIMPLEOFFICE_ZUGFERD_VALIDATOR","").strip()
-    if validator:
+    configured=os.environ.get("SIMPLEOFFICE_ZUGFERD_VALIDATOR","").strip()
+    mustang_jar=Path(os.environ.get("SIMPLEOFFICE_MUSTANG_JAR", "") or Path(__file__).resolve().parents[1]/".runtime-tools"/"Mustang-CLI-2.25.0.jar")
+    hybrid_validator = False
+    validator_parts: list[str] = []
+    if configured:
+        validator_parts=shlex.split(configured); result["validator"]="configured_override"
+    elif mustang_jar.is_file() and shutil.which("java"):
+        validator_parts=[shutil.which("java") or "java", "-Xmx1G", "-jar", str(mustang_jar), "--action", "validate", "--source", "{pdf}", "--disable-file-logging", "--no-notices"]
+        hybrid_validator=True; result["validator"]=f"mustang-{mustang_jar.stem.rsplit('-', 1)[-1]}"
+    if validator_parts:
         with tempfile.TemporaryDirectory(prefix="simpleoffice-zugferd-") as temp:
-            xml_path=Path(temp)/"factur-x.xml"; xml_path.write_bytes(xml); cmd=[part.replace("{xml}",str(xml_path)) for part in validator.split()]
+            xml_path=Path(temp)/"factur-x.xml"; xml_path.write_bytes(xml); pdf_path=Path(temp)/"invoice.pdf"; pdf_path.write_bytes(pdf)
+            cmd=[part.replace("{xml}",str(xml_path)).replace("{pdf}",str(pdf_path)) for part in validator_parts]
             try: check=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
             except subprocess.TimeoutExpired as exc:
                 result["xml"]=False; result["details"].append("zugferd_schema_validation_timeout"); result["xml_output"]=str(exc.stdout or "")+str(exc.stderr or ""); logger.error("ZUGFeRD validation timed out: %s", result["xml_output"])
             else:
                 result["xml_exit_code"]=check.returncode; result["xml_output"]=check.stdout+check.stderr; result["xml"]=result["xml"] and check.returncode==0
+                if hybrid_validator and check.returncode==0:
+                    result["pdfa"]=True; result["pdfa_exit_code"]=0; result["pdfa_output"]=result["xml_output"]
+                    result["details"]=[detail for detail in result["details"] if detail != "verapdf_unavailable"]
                 if check.returncode!=0: result["details"].append("zugferd_schema_validation_failed"); logger.error("ZUGFeRD validation failed exit_code=%s output=%s", check.returncode, result["xml_output"])
-    else: result["details"].append("zugferd_2_5_2_validator_unconfigured")
-    result["validated"]=bool(result["pdfa"] and result["xml"] and validator)
+    else: result["details"].append("en16931_default_validator_unavailable")
+    result["validated"]=bool(result["pdfa"] and result["xml"] and validator_parts)
     return result
 
 
@@ -885,7 +928,7 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
             validation = timed("zugferd_validate", lambda: _validate_hybrid(hybrid, xml))
             technical_status = _zugferd_status(str(pdfa_details["status"]), validation)
             row["zugferd"].update({"validation": validation, "status": technical_status})
-            if settings.get("require_zugferd_validation") and technical_status != "validated":
+            if technical_status != "validated":
                 raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: " + ", ".join(validation.get("details", [])))
             document = timed(
                 "final_file_save_and_contact_link",
@@ -925,6 +968,11 @@ def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict
 @bp.get("/templates")
 @login_required
 def template_manager():return render_template("documents/business_templates.html",templates=templates(_root()),is_admin=_is_admin(),business=business_settings(_root()),libreoffice=bool(shutil.which("libreoffice") or shutil.which("soffice")),ghostscript=bool(shutil.which("gs")),verapdf=bool(shutil.which("verapdf")))
+
+@bp.get("/templates/din5008-guide.pdf")
+@login_required
+def din5008_template_guide():
+    return send_file(io.BytesIO(din5008_template_guide_pdf()), mimetype="application/pdf", as_attachment=True, download_name="SimpleOffice-DIN5008-Vorlagenmuster.pdf")
 
 @bp.post("/templates")
 @login_required

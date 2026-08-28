@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import base64
+import binascii
 import hashlib
 import hmac
 import os
@@ -269,8 +271,29 @@ class ContactStore:
     def _clean_metadata_values(values: list[str]) -> list[str]:
         return sorted({" ".join(str(value).strip().split()) for value in values if str(value).strip()}, key=str.casefold)[:100]
 
-    def add_address(self, contact_id: str, label: str, address: str, actor: str) -> dict[str, Any]:
+    @staticmethod
+    def format_postal_address(components: dict[str, str]) -> str:
+        """Format a structured address without discarding country-specific parts."""
+        clean = {key: " ".join(str(value).strip().split()) for key, value in components.items()}
+        street, city = clean.get("street", ""), clean.get("city", "")
+        state, postal = clean.get("state", ""), clean.get("postal", "")
+        country = clean.get("country", "").upper()
+        if country in {"US", "CA", "AU"}:
+            locality = ", ".join(part for part in (city, state) if part)
+            locality = " ".join(part for part in (locality, postal) if part)
+            rows = (street, locality, country)
+        elif country == "JP":
+            rows = (postal, " ".join(part for part in (state, city) if part), street, country)
+        elif country in {"GB", "IE"}:
+            rows = (street, city, postal, country)
+        else:
+            rows = (street, " ".join(part for part in (postal, city) if part), state, country)
+        return "\n".join(row for row in rows if row)
+
+    def add_address(self, contact_id: str, label: str, address: str, actor: str, components: dict[str, str] | None = None) -> dict[str, Any]:
         self._require_actor(actor)
+        components = {key: str(value).strip() for key, value in (components or {}).items() if str(value).strip()}
+        address = address.strip() or self.format_postal_address(components)
         if not address.strip():
             raise ValueError("address is required")
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
@@ -281,7 +304,7 @@ class ContactStore:
             if not self._can_manage(contact, self._principal(actor)):
                 raise ValueError("contact is not shared with this user")
             normalized = " ".join(address.casefold().split())
-            item = {"id": str(uuid.uuid4()), "label": label.strip() or "Adresse", "value": address.strip(), "normalized": normalized, "created_at": utc_now(), "created_by": actor}
+            item = {"id": str(uuid.uuid4()), "label": label.strip() or "Adresse", "value": address.strip(), "normalized": normalized, "components": components, "created_at": utc_now(), "created_by": actor}
             contact.setdefault("addresses", []).append(item)
             contact["updated_at"] = utc_now(); contact["updated_by"] = actor
             atomic_json_write(self.contacts_path, payload)
@@ -335,7 +358,40 @@ class ContactStore:
             return ""
         if name in {"BEGIN", "END", "VERSION", "UID", "FN", "N", "BDAY", "ORG", "NICKNAME", "TITLE", "ROLE", "URL", "NOTE", "CATEGORIES", "X-SIMPLEOFFICE-GROUP"}:
             return ""
-        return line[:4000]
+        # Binary PHOTO values are frequently folded into one very long base64
+        # line.  Truncating them made otherwise valid contact pictures corrupt.
+        return line[:10 * 1024 * 1024] if name == "PHOTO" else line[:4000]
+
+    def photo(self, contact_id: str, actor: str = "") -> tuple[bytes, str]:
+        """Decode a safe raster PHOTO property retained from a vCard."""
+        fields = self.get(contact_id, actor).get("fields", {})
+        raw = next((str(value) for key, value in fields.items() if key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO"), "")
+        header, separator, encoded = raw.partition(":")
+        if not separator:
+            raise ValueError("contact has no embedded photo")
+        params = header.upper().split(";")[1:]
+        if not any(item in {"ENCODING=B", "ENCODING=BASE64"} for item in params) and not encoded.casefold().startswith("data:image/"):
+            raise ValueError("contact photo is not embedded base64")
+        declared = next((item.split("=", 1)[1] for item in params if item.startswith("TYPE=") or item.startswith("MEDIATYPE=")), "")
+        if encoded.casefold().startswith("data:image/"):
+            media_header, _, encoded = encoded.partition(",")
+            declared = media_header[5:].split(";", 1)[0]
+        try:
+            payload = base64.b64decode(re.sub(r"\s+", "", encoded), validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("contact photo contains invalid base64") from exc
+        if not payload or len(payload) > 8 * 1024 * 1024:
+            raise ValueError("contact photo size is invalid")
+        signatures = ((b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"), (b"GIF87a", "image/gif"), (b"GIF89a", "image/gif"))
+        media_type = next((mime for magic, mime in signatures if payload.startswith(magic)), "")
+        if not media_type and payload.startswith(b"RIFF") and payload[8:12] == b"WEBP":
+            media_type = "image/webp"
+        if not media_type:
+            raise ValueError(f"unsupported embedded contact photo type: {declared or 'unknown'}")
+        return payload, media_type
+
+    def has_photo(self, contact: dict[str, Any]) -> bool:
+        return any(key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO" for key, value in contact.get("fields", {}).items())
 
     @staticmethod
     def _vcard_property_name(line: str) -> str:
@@ -414,12 +470,17 @@ class ContactStore:
 
         if "addresses" in released:
             for address in contact.get("addresses", []):
-                address_value = text(address.get("value", ""))
-                if not address_value:
+                address_value = address.get("value", "")
+                components = address.get("components", {})
+                if not address_value and not components:
                     continue
                 label = str(address.get("label", "")).strip().casefold()
                 address_type = "work" if label in {"firma", "arbeit", "work", "office"} else "home" if label in {"privat", "home"} else "other"
-                lines.append(f"ADR;TYPE={address_type}:;;{address_value};;;;")
+                if components:
+                    parts = ("", "", components.get("street", ""), components.get("city", ""), components.get("state", ""), components.get("postal", ""), components.get("country", ""))
+                    lines.append(f"ADR;TYPE={address_type}:" + ";".join(text(part) for part in parts))
+                else:
+                    lines.append(f"ADR;TYPE={address_type}:;;{text(address_value)};;;;")
 
         for property_name, field in VCARD_EXTENSION_FIELDS.items():
             if field in released and fields.get(field):

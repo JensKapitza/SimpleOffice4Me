@@ -74,6 +74,8 @@ class AttachmentSecurityTests(unittest.TestCase):
         extracted = self.store.get_document(rows[0]["document_id"])
         self.assertIn("source:eml", extracted["tags"])
         self.assertEqual(self.document["document_id"], extracted["attributes"]["attachment_origin"]["source_document_id"])
+        source = self.store.get_document(self.document["document_id"])
+        self.assertEqual([rows[0]["document_id"]], source["attributes"]["released_eml_attachments"])
         self.assertEqual(EML, self.original.read_bytes())
 
     def test_infected_attachment_never_becomes_document(self):
@@ -120,6 +122,17 @@ class AttachmentSecurityTests(unittest.TestCase):
         self.assertEqual(self.document["document_id"], record["document_id"])
         self.assertEqual("none", record["action"])
         self.assertEqual(record["scan_id"], service.recent_scans()[0]["scan_id"])
+        latest = service.latest_document_scan(self.store.get_document(self.document["document_id"]))
+        self.assertEqual("clean", latest["verdict"])
+        self.assertTrue(latest["current"])
+
+    def test_latest_scan_becomes_stale_after_document_hash_changes(self):
+        service = AttachmentSecurity(self.root, FakeScanner())
+        service.scan_document(self.document["document_id"], "alice")
+        metadata = self.store.get_document(self.document["document_id"])
+        metadata["sha256"] = "0" * 64
+
+        self.assertFalse(service.latest_document_scan(metadata)["current"])
 
     def test_single_document_scan_records_scanner_failure(self):
         record = AttachmentSecurity(self.root, FailingScanner()).scan_document(

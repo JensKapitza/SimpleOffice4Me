@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -98,6 +99,30 @@ class ContactStoreTest(unittest.TestCase):
             exported = store.vcard(contact["contact_id"], "admin")
             self.assertIn("FN:Dr. Amy\\, Beispiel\\nWerkstatt", exported)
             self.assertIn("N:Bei\\;spiel;A\\,my;;;", exported)
+
+    def test_embedded_png_photo_is_decoded_without_truncation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            payload = b"\x89PNG\r\n\x1a\n" + b"photo" * 1000
+            encoded = base64.b64encode(payload).decode("ascii")
+            card = f"BEGIN:VCARD\r\nVERSION:3.0\r\nUID:photo-1\r\nFN:Photo Person\r\nPHOTO;ENCODING=B;TYPE=PNG:{encoded}\r\nEND:VCARD\r\n"
+            contact = store.upsert_vcard(card, "admin")
+
+            decoded, media_type = store.photo(contact["contact_id"], "admin")
+            self.assertEqual(payload, decoded)
+            self.assertEqual("image/png", media_type)
+            self.assertIn(encoded, store.vcard(contact["contact_id"], "admin"))
+
+    def test_structured_address_keeps_state_and_formats_by_country(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            contact = store.upsert({"display_name": "Ada"}, "admin")
+            address = store.add_address(contact["contact_id"], "Work", "", "admin", {
+                "street": "1 Market St", "city": "San Francisco", "state": "CA", "postal": "94105", "country": "US",
+            })
+            self.assertEqual("1 Market St\nSan Francisco, CA 94105\nUS", address["value"])
+            exported = store.vcard(contact["contact_id"], "admin")
+            self.assertIn("ADR;TYPE=work:;;1 Market St;San Francisco;CA;94105;US", exported)
 
 
 if __name__ == "__main__":

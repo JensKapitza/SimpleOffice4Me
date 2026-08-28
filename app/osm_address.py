@@ -685,7 +685,7 @@ def field_suggestions(
     guarded, genuinely unique completion path.
     """
     selected = _clean(field, 20).casefold()
-    if selected not in {"city", "postal", "street"}:
+    if selected not in {"city", "postal", "street", "state"}:
         return []
     maximum = max(1, min(int(limit), 20))
     seen: set[str] = set()

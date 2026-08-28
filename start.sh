@@ -101,5 +101,6 @@ fi
 # existing base-only installation by installing the optional SFTP dependencies
 # (Paramiko) into exactly the interpreter used to launch SimpleOffice.
 "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
+"$VENV/bin/python" "$ROOT/tools/install_invoice_validator.py" || true
 cd "$ROOT"
 exec "$VENV/bin/python" -m tools.launcher start "$@"

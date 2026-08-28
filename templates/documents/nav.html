@@ -6,6 +6,7 @@
       <div class="navbar-nav navigation-primary me-auto gap-xxl-1">
         <a class="nav-link" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-gauge me-1" aria-hidden="true"></i>{{ tr('overview') }}</a>
         <a class="nav-link" href="{{ url_for('documents.projects') }}"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>Projekte</a>
+        <a class="nav-link" href="{{ url_for('documents.tasks') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
         <a class="nav-link" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1" aria-hidden="true"></i>Objekte</a>
         <a class="nav-link" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive me-1" aria-hidden="true"></i>Speicher</a>
         <a class="nav-link" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>{{ tr('documents') }}</a>
