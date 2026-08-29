@@ -184,6 +184,11 @@ Die technische CRA-Arbeitsakte, sichere Standardwerte, SBOM-Erzeugung,
 Schwachstellenmeldung und die Release-Prüfung stehen in
 [docs/CRA.md](docs/CRA.md), [docs/SECURITY.md](docs/SECURITY.md) und
 [docs/RELEASE_SECURITY_CHECKLIST.md](docs/RELEASE_SECURITY_CHECKLIST.md).
+Administratoren sehen unter **Administration → Inventar** die tatsächlich
+laufende App-, Python- und SQLite-Version, geladene Module, relevante
+Python-Pakete sowie erkannte externe Serverprogramme mit Versionsausgabe.
+Jeder Benutzer kann unter **Einstellungen → Oberfläche** zwischen hellem,
+dunklem und automatisch vom Betriebssystem übernommenem Design wählen.
 Der [getrennte Dokumentindex](docs/PERFORMANCE_INDEXDIENST.md) hält Login,
 Dashboard und WebDAV auch bei mehr als 50.000 Dateien reaktionsfähig und dokumentiert
 Ressourcenpriorisierung, Fehlerverhalten und Abschaltung.
