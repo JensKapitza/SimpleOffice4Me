@@ -111,7 +111,10 @@ Anwendungslog und die Rechnungsansicht zeigt den Fehler sichtbar an.
 Die EN16931-Prüfung ist immer aktiv. `start.sh` und `start.bat` installieren
 beim ersten Start automatisch den fest versionierten Mustang-CLI-Validator
 2.25.0 aus Maven Central in `.runtime-tools/` und prüfen den Download anhand
-der veröffentlichten SHA-256-Prüfsumme. Mustang validiert CII/EN16931 und die
+der stärksten von Maven Central veröffentlichten Prüfsumme. Fehlt wie bei
+Mustang 2.25.0 die SHA-256-Sidecar-Datei, wird die veröffentlichte SHA-1-
+Prüfsumme geprüft und anschließend für lokale Folgeprüfungen ein SHA-256-Hash
+gespeichert. Mustang validiert CII/EN16931 und die
 PDF/A-Eigenschaften; eine Rechnung wird ohne erfolgreichen Abschluss nicht
 finalisiert. Erforderlich ist eine Java-Laufzeit. Ein vorhandenes separates
 veraPDF wird zusätzlich erkannt. `SIMPLEOFFICE_ZUGFERD_VALIDATOR` dient nur als
