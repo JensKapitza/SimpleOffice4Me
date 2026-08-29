@@ -103,6 +103,14 @@ def ensure_auth_database() -> None:
     get_db().execute("CREATE INDEX IF NOT EXISTS security_event_time ON security_event(occurred_at DESC)")
     get_db().execute("CREATE INDEX IF NOT EXISTS application_error_time ON application_error(occurred_at DESC)")
     get_db().execute(
+        """CREATE TABLE IF NOT EXISTS login_throttle (
+            key TEXT PRIMARY KEY,
+            failures INTEGER NOT NULL,
+            window_started INTEGER NOT NULL,
+            blocked_until INTEGER NOT NULL
+        )"""
+    )
+    get_db().execute(
         """CREATE TABLE IF NOT EXISTS oauth_token (
             provider TEXT NOT NULL,
             user_id INTEGER NOT NULL,
