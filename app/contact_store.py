@@ -143,13 +143,20 @@ class ContactStore:
             items = [item for item in items if self._can_read(item, principal)]
         return sorted(items, key=lambda item: item.get("fields", {}).get("display_name", "").casefold())
 
-    def search(self, query: str, actor: str = "") -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        actor: str = "",
+        *,
+        contacts: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         """Find visible contacts across standard, custom, metadata and address fields."""
+        items = contacts if contacts is not None else self.contacts(actor)
         needle = query.strip().casefold()
         if not needle:
-            return self.contacts(actor)
+            return items
         return [
-            contact for contact in self.contacts(actor)
+            contact for contact in items
             if needle in " ".join([
                 contact.get("contact_id", ""),
                 *[str(value) for value in contact.get("fields", {}).values()],
@@ -170,6 +177,10 @@ class ContactStore:
     def can_manage(self, contact_id: str, actor: str) -> bool:
         contact = next((item for item in self.contacts() if item.get("contact_id") == contact_id), None)
         return bool(contact and self._can_manage(contact, self._principal(actor)))
+
+    def can_manage_contact(self, contact: dict[str, Any], actor: str) -> bool:
+        """Check a contact that was already loaded without rereading the store."""
+        return self._can_manage(contact, self._principal(actor))
 
     def upsert(self, values: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None) -> dict[str, Any]:
         self._require_actor(actor)
@@ -337,9 +348,11 @@ class ContactStore:
             self.history.record("contact_sharing_updated", actor, "contacts", contact_id, {"owner": owner, "managers": contact["managers"], "readers": contact["readers"], "updated_at": contact["updated_at"]})
         return contact
 
-    def address_matches(self) -> dict[str, list[str]]:
+    def address_matches(
+        self, contacts: list[dict[str, Any]] | None = None,
+    ) -> dict[str, list[str]]:
         matches: dict[str, list[str]] = {}
-        for contact in self.contacts():
+        for contact in contacts if contacts is not None else self.contacts():
             for address in contact.get("addresses", []):
                 matches.setdefault(address.get("normalized", ""), []).append(contact["contact_id"])
         return {key: value for key, value in matches.items() if key and len(value) > 1}

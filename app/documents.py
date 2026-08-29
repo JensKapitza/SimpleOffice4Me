@@ -1614,10 +1614,27 @@ def remove_ssh_source(source_id: str):
 def contacts():
     actor = str(g.user["username"])
     query = request.args.get("q", "").strip()
-    contacts = _contacts().search(query, actor)
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError:
+        page = 1
+    page_size = 50
+    store = _contacts()
+    visible_contacts = store.contacts(actor)
+    matches = store.search(query, actor, contacts=visible_contacts)
+    total = len(matches)
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, pages)
+    start = (page - 1) * page_size
+    contacts = matches[start:start + page_size]
     address_values = sorted({address.get("value", "") for contact in contacts for address in contact.get("addresses", []) if address.get("value")}, key=str.casefold)
     carddav_endpoint = url_for("carddav.endpoint", path=f"addressbooks/{g.user['username']}/default/", _external=True)
-    return render_template("documents/contacts.html", contacts=contacts, query=query, schema=_contacts().schema(), carddav=_contacts().carddav(), carddav_endpoint=carddav_endpoint, address_matches=_contacts().address_matches(), address_values=address_values)
+    return render_template(
+        "documents/contacts.html", contacts=contacts, query=query,
+        schema=store.schema(), carddav=store.carddav(), carddav_endpoint=carddav_endpoint,
+        address_matches=store.address_matches(contacts), address_values=address_values,
+        page=page, pages=pages, total=total,
+    )
 
 
 @bp.get("/forms")

@@ -10,6 +10,7 @@ import datetime
 import locale
 import re
 import secrets
+import time
 import traceback
 
 from .applogging import initlogging
@@ -289,6 +290,7 @@ from .settings_store import SettingsStore, translate, ui_literal_translations
 @app.before_request
 def assign_request_id():
     g.request_id = secrets.token_hex(8)
+    g.request_started_at = time.perf_counter()
 
 
 @app.before_request
@@ -299,6 +301,16 @@ def verify_browser_request():
 @app.after_request
 def publish_request_id(response):
     response.headers["X-Request-ID"] = getattr(g, "request_id", "")
+    started = getattr(g, "request_started_at", None)
+    if started is not None:
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
+        response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+        log = app.logger.warning if duration_ms > 500 else app.logger.debug
+        log(
+            "request_performance request_id=%s endpoint=%s method=%s status=%s duration_ms=%.1f",
+            getattr(g, "request_id", ""), request.endpoint or "-", request.method,
+            response.status_code, duration_ms,
+        )
     return response
 
 
