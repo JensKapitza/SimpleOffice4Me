@@ -11,7 +11,7 @@ import subprocess
 import secrets
 from collections import Counter
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from calendar import month_name, monthcalendar
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -867,9 +867,37 @@ def tasks():
     elif period == "overdue": rows = [row for row in rows if row.get("due") and str(row["due"])[:10] < today.isoformat() and row.get("status") not in {"completed", "cancelled"}]
     elif period == "none": rows = [row for row in rows if not row.get("due")]
     all_rows = _todos().items(actor)
+    document_ids = {str(document_id) for row in rows for document_id in row.get("document_ids", [])}
+    task_documents: dict[str, dict[str, Any]] = {}
+    for document_id in document_ids:
+        try:
+            task_documents[document_id] = _store().get_document(document_id)
+        except ValueError:
+            continue
+    task_external_attachments: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        links = []
+        for line in row.get("extra_lines", []):
+            raw = str(line)
+            if not raw.upper().startswith("ATTACH") or ":" not in raw:
+                continue
+            header, value = raw.split(":", 1)
+            value = value.strip()
+            if len(value) > 2000 or any(ord(character) < 32 for character in value):
+                continue
+            try:
+                parsed = urlsplit(value)
+            except ValueError:
+                continue
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                continue
+            label = next((part.split("=", 1)[1].strip('"') for part in header.split(";") if part.upper().startswith("FILENAME=")), "")
+            links.append({"url": value, "label": label or parsed.path.rsplit("/", 1)[-1] or parsed.netloc})
+        task_external_attachments[str(row["id"])] = links[:50]
     return render_template("documents/tasks.html", tasks=rows, task_lists=_todos().lists(actor), projects=_projects().projects(), contacts=_contacts().contacts(actor),
                            users=[item["username"] for item in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()],
-                           categories=sorted({value for row in all_rows for value in row.get("categories", [])}, key=str.casefold), today=today.isoformat(), view=request.args.get("view", "list"))
+                           categories=sorted({value for row in all_rows for value in row.get("categories", [])}, key=str.casefold), today=today.isoformat(), view=request.args.get("view", "list"),
+                           task_documents=task_documents, task_external_attachments=task_external_attachments)
 
 
 @bp.post("/tasks/lists")
@@ -1124,7 +1152,12 @@ def detail(document_id: str):
 def create_document_task(document_id: str):
     document = _document_or_404(document_id)
     try:
-        _todos().add(request.form.get("title", "") or ("Prüfen: " + document.get("last_path", "Dokument")), str(g.user["username"]), {**request.form.to_dict(), "document_ids": [document_id]})
+        title = request.form.get("title", "") or ("Prüfen: " + document.get("last_path", "Dokument"))
+        description = request.form.get("description", "").strip() or (
+            "Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: "
+            + str(document.get("last_path", "Dokument"))
+        )
+        _todos().add(title, str(g.user["username"]), {**request.form.to_dict(), "description": description, "document_ids": [document_id]})
         flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
