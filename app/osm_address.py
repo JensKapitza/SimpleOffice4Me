@@ -102,6 +102,7 @@ class LocalAddressIndex:
         self.build_status_path = self.build_dir / "checkpoint.json"
         self.filtered_path = self.build_dir / "addresses.filtered.osm.pbf"
         self.staging_db_path = self.build_dir / "addresses.staging.sqlite3"
+        self.filter_log_path = self.build_dir / "osmium-filter.log"
         self.export_log_path = self.build_dir / "osmium-export.log"
         self.download_lock = self.data_dir / ".download.lock"
         self.build_lock = self.data_dir / ".build.lock"
@@ -286,6 +287,7 @@ class LocalAddressIndex:
             Path(str(self.staging_db_path) + "-journal"),
             Path(str(self.staging_db_path) + "-wal"),
             Path(str(self.staging_db_path) + "-shm"),
+            self.filter_log_path,
             self.export_log_path,
             self.build_status_path,
         ):
@@ -820,14 +822,48 @@ class LocalAddressIndex:
         if not (filtered.is_file() and previous_build.get("filtered_complete")):
             filtered_part = filtered.with_suffix(filtered.suffix + ".part")
             filtered_part.unlink(missing_ok=True)
-            subprocess.run(
-                [osmium, "tags-filter", str(source), "nwr/addr:housenumber", "nwr/addr:street", "nwr/addr:postcode", "nwr/addr:city", "--remove-tags", "--no-progress", "-o", str(filtered_part), "--overwrite"],
-                check=True,
-                timeout=max(3600, min(int(os.environ.get("SIMPLEOFFICE_OSM_FILTER_TIMEOUT", "21600")), 86400)),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            filter_command = [
+                osmium, "tags-filter", str(source),
+                "nwr/addr:housenumber", "nwr/addr:street",
+                "nwr/addr:postcode", "nwr/addr:city",
+                "--remove-tags", "--no-progress",
+                # The temporary name ends in .pbf.part, from which osmium can
+                # not infer an output format. Without this explicit format it
+                # exits immediately with status 2.
+                "-f", "pbf", "-o", str(filtered_part), "--overwrite",
+            ]
+            try:
+                completed = subprocess.run(
+                    filter_command,
+                    check=True,
+                    timeout=max(3600, min(int(os.environ.get("SIMPLEOFFICE_OSM_FILTER_TIMEOUT", "21600")), 86400)),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                stderr = str(exc.stderr or "").strip()
+                detail = stderr[-4000:] or f"keine stderr-Ausgabe; Befehl: {' '.join(filter_command)}"
+                self.filter_log_path.write_text(
+                    f"[{utc_now()}] {type(exc).__name__}\n{detail}\n",
+                    encoding="utf-8",
+                )
+                self._write_build_status(
+                    filter_complete=False,
+                    filter_error=detail,
+                    filter_log=str(self.filter_log_path),
+                    filter_failed_at=utc_now(),
+                )
+                if isinstance(exc, subprocess.TimeoutExpired):
+                    raise RuntimeError(
+                        f"osmium tags-filter timed out after {exc.timeout} seconds: {detail[-1000:]}"
+                    ) from exc
+                raise RuntimeError(
+                    f"osmium tags-filter failed with exit {exc.returncode}: {detail[-1000:]}"
+                ) from exc
+            filter_stderr = str(getattr(completed, "stderr", "") or "")
+            if filter_stderr:
+                self.filter_log_path.write_text(filter_stderr[-4000:], encoding="utf-8")
             if not filtered_part.is_file() or filtered_part.stat().st_size == 0:
                 raise RuntimeError("osmium tags-filter produced no usable address extract")
             filtered_part.replace(filtered)
@@ -835,6 +871,7 @@ class LocalAddressIndex:
                 source_fingerprint=fingerprint,
                 source_file=str(source),
                 filtered_complete=True,
+                filter_error="",
                 filtered_bytes=filtered.stat().st_size,
                 filtered_at=utc_now(),
             )
