@@ -199,6 +199,8 @@ class LocalAddressIndex:
         status.update(self._stored_status())
         status["document_root"] = str(self.root)
         status["database_path"] = str(self.db_path)
+        status["filter_log"] = str(self.filter_log_path) if self.filter_log_path.is_file() else ""
+        status["export_log"] = str(self.export_log_path) if self.export_log_path.is_file() else ""
         if status.get("state") == "indexing" and status.get("phase_started_at"):
             try:
                 phase_started = datetime.fromisoformat(str(status["phase_started_at"]).replace("Z", "+00:00"))
@@ -210,7 +212,8 @@ class LocalAddressIndex:
         # Do not scan a many-million-row table from an HTTP request while the
         # writer is rebuilding it. The completed status always contains the
         # actual SELECT COUNT(*) result calculated inside the import transaction.
-        if self.db_path.is_file() and status.get("state") != "indexing":
+        active_states = {"downloading", "resuming", "retrying", "indexing"}
+        if self.db_path.is_file() and status.get("state") not in active_states:
             try:
                 with self._db() as db:
                     status["count"] = int(db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
@@ -779,10 +782,50 @@ class LocalAddressIndex:
                 db.execute("DETACH DATABASE osm_staging")
         return stored
 
+    def _promote_city_staging_index(self, city: str, expected_count: int) -> int:
+        """Replace one city's rows atomically while all other cities stay live."""
+        with self._open_db(self.staging_db_path, staging=True) as staging:
+            selected = int(staging.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+        if selected != expected_count:
+            raise RuntimeError(
+                f"OSM city staging count mismatch: expected={expected_count} stored={selected}"
+            )
+        with self._db() as db:
+            db.execute("ATTACH DATABASE ? AS osm_staging", (str(self.staging_db_path),))
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("DELETE FROM main.address WHERE city = ? COLLATE NOCASE", (city,))
+                db.execute(
+                    """INSERT INTO main.address(
+                           street,house_number,postal,city,country,state,lat,lon,
+                           osm_type,osm_id,normalized
+                       )
+                       SELECT street,house_number,postal,city,country,state,lat,lon,
+                              osm_type,osm_id,normalized
+                       FROM osm_staging.address
+                       WHERE 1
+                       ON CONFLICT(osm_type,osm_id) DO UPDATE SET
+                         street=excluded.street, house_number=excluded.house_number,
+                         postal=excluded.postal, city=excluded.city,
+                         country=excluded.country, state=excluded.state,
+                         lat=excluded.lat, lon=excluded.lon,
+                         normalized=excluded.normalized"""
+                )
+                stored = int(db.execute("SELECT COUNT(*) FROM main.address").fetchone()[0])
+                self._create_search_indexes(db)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+            finally:
+                db.execute("DETACH DATABASE osm_staging")
+        return stored
+
     def build(
         self,
         source: str | Path,
         *,
+        city: str = "",
         progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, int]:
         source = Path(source).resolve()
@@ -791,8 +834,14 @@ class LocalAddressIndex:
         osmium = shutil.which("osmium")
         if not osmium:
             raise RuntimeError("osmium is required to build the local address index")
+        city = " ".join(str(city).split()).strip()
+        if len(city) > 120 or any(ord(character) < 32 for character in city):
+            raise ValueError("invalid OSM city filter")
         started = time.monotonic()
-        fingerprint = self._source_fingerprint(source)
+        source_fingerprint = self._source_fingerprint(source)
+        fingerprint = hashlib.sha256(
+            f"{source_fingerprint}\0city:{city.casefold()}".encode("utf-8")
+        ).hexdigest() if city else source_fingerprint
         previous_build = self._build_status()
         if previous_build.get("source_fingerprint") != fingerprint:
             self._discard_stale_build()
@@ -801,6 +850,7 @@ class LocalAddressIndex:
         self._write_build_status(
             source_fingerprint=fingerprint,
             source_file=str(source),
+            city=city,
             completed_at="",
             build_started_at=utc_now(),
             export_complete=bool(
@@ -812,6 +862,7 @@ class LocalAddressIndex:
         self._write_status(
             state="indexing", phase="filtering", phase_started_at=utc_now(),
             source_file=str(source), source_fingerprint=fingerprint, indexed_at="",
+            city=city,
             error="", ready=active_ready, resumable=True,
             processed=0, inserted=0, updated=0, duplicates=0,
             id_collisions=0, rejected=0, stored=0,
@@ -822,10 +873,12 @@ class LocalAddressIndex:
         if not (filtered.is_file() and previous_build.get("filtered_complete")):
             filtered_part = filtered.with_suffix(filtered.suffix + ".part")
             filtered_part.unlink(missing_ok=True)
-            filter_command = [
-                osmium, "tags-filter", str(source),
+            expressions = [f"nwr/addr:city={city}"] if city else [
                 "nwr/addr:housenumber", "nwr/addr:street",
                 "nwr/addr:postcode", "nwr/addr:city",
+            ]
+            filter_command = [
+                osmium, "tags-filter", str(source), *expressions,
                 "--remove-tags", "--no-progress",
                 # The temporary name ends in .pbf.part, from which osmium can
                 # not infer an output format. Without this explicit format it
@@ -919,13 +972,17 @@ class LocalAddressIndex:
                 state="indexing", phase="publishing", phase_started_at=utc_now(),
                 processed=current["processed"], stored=current["stored"],
             )
-            current["stored"] = self._promote_staging_index(current["stored"])
+            current["stored"] = (
+                self._promote_city_staging_index(city, current["stored"])
+                if city else self._promote_staging_index(current["stored"])
+            )
             self.staging_db_path.unlink(missing_ok=True)
             Path(str(self.staging_db_path) + "-journal").unlink(missing_ok=True)
             elapsed = round(time.monotonic() - started, 1)
             self._write_build_status(
                 source_fingerprint=fingerprint,
                 source_file=str(source),
+                city=city,
                 filtered_complete=True,
                 export_complete=True,
                 completed_at=utc_now(),
@@ -934,6 +991,7 @@ class LocalAddressIndex:
             self._write_status(
                 state="ready", phase="completed", ready=True,
                 count=current["stored"], indexed_at=utc_now(), error="",
+                city=city,
                 elapsed_seconds=elapsed, resumed=resume_position > 0,
                 resume_processed=resume_position, staging_database="", **current,
             )
@@ -967,6 +1025,11 @@ class LocalAddressIndex:
             with self.export_log_path.open("a+", encoding="utf-8") as stderr_log:
                 stderr_log.write(f"\n[{utc_now()}] export start resume_after={resumed_at}\n")
                 stderr_log.flush()
+                try:
+                    idle_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT", "1800"))
+                except ValueError as exc:
+                    raise ValueError("invalid OSM export idle timeout") from exc
+                idle_timeout = max(300, min(idle_timeout, 86400))
                 process = subprocess.Popen(
                     [osmium, "export", str(filtered), "-f", "geojsonseq", "--attributes=type,id", "--no-progress"],
                     stdout=subprocess.PIPE, stderr=stderr_log, text=True, encoding="utf-8",
@@ -975,12 +1038,6 @@ class LocalAddressIndex:
                 timed_out = threading.Event()
                 watchdog_stop = threading.Event()
                 last_output = [time.monotonic()]
-
-                try:
-                    idle_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT", "1800"))
-                except ValueError as exc:
-                    raise ValueError("invalid OSM export idle timeout") from exc
-                idle_timeout = max(300, min(idle_timeout, 86400))
 
                 def watch_export() -> None:
                     while not watchdog_stop.wait(min(30, max(1, idle_timeout // 10))):
