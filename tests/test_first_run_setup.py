@@ -7,7 +7,7 @@ from pathlib import Path
 from app import app
 from app.calendar_collections import CalendarCollections
 from app.contact_store import ContactStore
-from app.db import ensure_auth_database
+from app.db import ensure_auth_database, get_db
 from app.webdav import authenticate_password
 from app.todo_store import TodoStore
 from app.document_store import DocumentStore
@@ -45,6 +45,23 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn("Lesen", body)
         self.assertIn("Schreiben", body)
         self.assertIn("Verwalten", body)
+
+    def test_dark_theme_is_saved_per_user_and_rendered_on_next_request(self):
+        response = self.client.post(
+            "/documents/settings",
+            data={
+                "display_name": "Jens", "theme": "dark", "default_language": "de",
+                "timezone": "Europe/Berlin", "default_state": "new",
+                "default_duration_minutes": "60", "default_expiry_days": "7",
+            },
+            base_url=self.base_url,
+        )
+        self.assertEqual(302, response.status_code)
+        with app.app_context():
+            self.assertEqual("dark", get_db().execute("SELECT theme FROM user WHERE username='jens'").fetchone()[0])
+        page = self.client.get("/documents/settings", base_url=self.base_url).get_data(as_text=True)
+        self.assertIn('data-theme-preference="dark"', page)
+        self.assertIn('value="dark" selected', page)
 
     def test_dashboard_task_details_are_saved_in_shared_task_store(self):
         created = self.client.post(
