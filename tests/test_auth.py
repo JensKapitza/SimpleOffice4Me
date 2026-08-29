@@ -170,5 +170,32 @@ class AuthTest(unittest.TestCase):
         with app.app_context():
             identity = database.get_db().execute("SELECT provider, subject, email FROM oauth_identity").fetchone()
             profile = database.get_db().execute("SELECT display_name, email FROM user WHERE username = ?", ("jens-2",)).fetchone()
+            oauth_token = database.get_db().execute("SELECT access_token, refresh_token FROM oauth_token").fetchone()
         self.assertEqual(("google", "google-subject", "jens@example.test"), tuple(identity))
         self.assertEqual(("Jens Google", "jens@example.test"), tuple(profile))
+        self.assertTrue(oauth_token["access_token"].startswith("enc:v1:"))
+        self.assertNotIn("access", oauth_token["access_token"])
+
+    def test_public_registration_is_closed_after_bootstrap_by_default(self):
+        self.client.post("/auth/register", data={"username": "owner", "password": "sicheres-passwort"})
+        previous = {key: app.config.get(key) for key in ("TESTING", "TEST_CSRF_PROTECTION", "ALLOW_PUBLIC_REGISTRATION")}
+        app.config.update(TESTING=False, TEST_CSRF_PROTECTION=False, ALLOW_PUBLIC_REGISTRATION=False)
+        try:
+            with self.client.session_transaction() as browser_session:
+                browser_session["_csrf_token"] = "x" * 43
+            response = self.client.post(
+                "/auth/register",
+                data={"username": "intruder", "password": "sicheres-passwort", "_csrf_token": "x" * 43},
+            )
+            self.assertEqual(403, response.status_code)
+        finally:
+            app.config.update(previous)
+
+    def test_repeated_login_failures_return_429_with_retry_after(self):
+        self.client.post("/auth/register", data={"username": "owner", "password": "sicheres-passwort"})
+        for _ in range(5):
+            response = self.client.post("/auth/login", data={"username": "owner", "password": "falsch"})
+            self.assertEqual(200, response.status_code)
+        blocked = self.client.post("/auth/login", data={"username": "owner", "password": "sicheres-passwort"})
+        self.assertEqual(429, blocked.status_code)
+        self.assertGreater(int(blocked.headers["Retry-After"]), 0)
