@@ -127,20 +127,26 @@ def osm_status():
 def osm_build():
     region = request.form.get("region", "").strip()
     action = request.form.get("action", "download").strip()
+    city = " ".join(request.form.get("city", "").split()).strip()
     index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
     try:
-        if action not in {"download", "reindex"}:
+        if action not in {"download", "reindex", "reindex_city"}:
             raise ValueError("Unbekannte OSM-Aktion")
-        if action == "reindex":
+        if action in {"reindex", "reindex_city"}:
             if index.downloaded_source() is None:
                 raise ValueError("Kein bereits heruntergeladener OSM-Auszug vorhanden")
-            start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True)
+            if action == "reindex_city" and (not city or len(city) > 120):
+                raise ValueError("Für den Ortsindex ist ein gültiger Ortsname erforderlich")
+            if action == "reindex_city":
+                start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True, city=city)
+            else:
+                start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True)
         else:
             if region not in GEOFABRIK_REGIONS:
                 raise ValueError("Unbekannte Geofabrik-Region")
             start_osm_download_worker(current_app.config["DOCUMENT_ROOT"], region)
-        audit("osm_address_index_started", "service", "osm-addresses", detail={"action": action, "region": region})
-        flash("OSM-Download und Indexierung wurden im Hintergrund gestartet." if action == "download" else "Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
+        audit("osm_address_index_started", "service", "osm-addresses", detail={"action": action, "region": region, "city": city})
+        flash(f"Teilindex für {city} wurde im Hintergrund gestartet." if action == "reindex_city" else "OSM-Download und Indexierung wurden im Hintergrund gestartet." if action == "download" else "Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         current_app.logger.exception("OSM address index build failed")
         audit("osm_address_index_failed", "service", "osm-addresses", outcome="failure", detail={"action": action, "region": region, "error_type": type(exc).__name__})

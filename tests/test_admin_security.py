@@ -83,6 +83,15 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("/admin/osm-addresses", response.headers["Location"])
         start.assert_called_once_with(app.config["DOCUMENT_ROOT"], force=True)
 
+        with patch("app.admin.LocalAddressIndex.downloaded_source", return_value=Path(self.temp.name) / "germany.osm.pbf"), \
+             patch("app.admin.start_osm_index_worker") as start:
+            response = self.admin.post(
+                "/admin/osm-addresses/build",
+                data={"action": "reindex_city", "city": "Duisburg"},
+            )
+        self.assertEqual(302, response.status_code)
+        start.assert_called_once_with(app.config["DOCUMENT_ROOT"], force=True, city="Duisburg")
+
         with patch("app.admin.start_osm_download_worker") as download:
             response = self.admin.post(
                 "/admin/osm-addresses/build",

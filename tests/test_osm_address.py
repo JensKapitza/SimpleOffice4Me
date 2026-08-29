@@ -310,6 +310,38 @@ class OsmAddressTests(unittest.TestCase):
                     index.build(source)
             popen.assert_not_called()
 
+    def test_city_reindex_filters_and_replaces_only_selected_city(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"extract")
+            with index._db() as db:
+                berlin = list(LocalAddressIndex._feature_row(json.loads(self._feature(1))) or ())
+                berlin[3] = "Berlin"
+                berlin[9] = "berlin-1"
+                berlin[10] = "teststrasse 1 47137 berlin de"
+                db.execute(
+                    "INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    berlin,
+                )
+            process = Mock()
+            process.stdout = io.StringIO(self._feature(27) + "\n")
+            process.wait.return_value = 0
+            process.poll.return_value = 0
+            process.args = ["osmium", "export"]
+            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), \
+                 patch("app.osm_address.subprocess.run") as run, \
+                 patch("app.osm_address.subprocess.Popen", return_value=process):
+                run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
+                stats = index.build(source, city="Duisburg")
+            command = run.call_args.args[0]
+            self.assertIn("nwr/addr:city=Duisburg", command)
+            with index._db() as db:
+                cities = [row[0] for row in db.execute("SELECT city FROM address ORDER BY city")]
+            self.assertEqual(["Berlin", "Duisburg"], cities)
+            self.assertEqual(2, stats["stored"])
+
     def test_tags_filter_failure_reports_stderr_and_keeps_diagnostic_log(self):
         with tempfile.TemporaryDirectory() as root:
             index = LocalAddressIndex(Path(root))
