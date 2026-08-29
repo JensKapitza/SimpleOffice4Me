@@ -69,7 +69,13 @@ SUPPORTED_TEMPLATE_SUFFIXES = {".pdf", ".odt", ".ott", ".doc", ".docx", ".rtf", 
 DIN_LEFT_MARGIN = 25 * mm
 DIN_RIGHT_MARGIN = 20 * mm
 DIN_TOP_RESERVED = 55 * mm
-DIN_BOTTOM_RESERVED = 24 * mm
+# Keep dynamic content out of the lowest 4 cm on every template page.  This
+# area belongs to the corporate background; only the renderer's page number
+# uses a small protected corridor around the horizontal centre at y=10 mm.
+DIN_BOTTOM_RESERVED = 40 * mm
+PAGE_NUMBER_Y = 10 * mm
+PAGE_NUMBER_CLEAR_BOTTOM = 6 * mm
+PAGE_NUMBER_CLEAR_TOP = 14 * mm
 logger = logging.getLogger(__name__)
 WRITE_OFF_REASONS = {
     "customer_deceased",
@@ -278,13 +284,16 @@ def din5008_template_guide_pdf() -> bytes:
         c.rect(15 * mm, A4[1] - 43 * mm, A4[0] - 30 * mm, 18 * mm, fill=1)
         c.setFillColor(colors.HexColor("#238636")); c.drawString(17 * mm, A4[1] - 34 * mm, "Logo-/Kopfbereich (empfohlen: oberhalb 45 mm)")
         c.setStrokeColor(colors.HexColor("#9a6700")); c.setFillColor(colors.Color(.85, .63, .08, alpha=.1))
-        c.rect(15 * mm, 5 * mm, A4[0] - 30 * mm, 15 * mm, fill=1)
-        c.setFillColor(colors.HexColor("#9a6700")); c.drawString(17 * mm, 11 * mm, "Fußbereich: Firmenangaben / IBAN; Seitenzahl bei y=10 mm freihalten")
+        c.rect(15 * mm, 0, A4[0] - 30 * mm, DIN_BOTTOM_RESERVED, fill=1)
+        c.setFillColor(colors.HexColor("#9a6700")); c.drawString(17 * mm, 34 * mm, "4 cm FREIER FUSSBEREICH – Logo, Firmenangaben, IBAN und Infotexte")
+        c.setStrokeColor(colors.HexColor("#cf222e")); c.setFillColor(colors.white)
+        c.rect(A4[0] / 2 - 32 * mm, PAGE_NUMBER_CLEAR_BOTTOM, 64 * mm, PAGE_NUMBER_CLEAR_TOP - PAGE_NUMBER_CLEAR_BOTTOM, fill=1)
+        c.setFillColor(colors.HexColor("#cf222e")); c.drawCentredString(A4[0] / 2, PAGE_NUMBER_Y, f"SEITENZAHL FREIHALTEN · {page_number} / 3")
         if page_number == 2:
             c.setDash(3, 2); c.setStrokeColor(colors.HexColor("#cf222e")); c.rect(20 * mm, A4[1] - 90 * mm, 85 * mm, 45 * mm, fill=0); c.setDash()
             c.setFillColor(colors.HexColor("#cf222e")); c.drawString(22 * mm, A4[1] - 94 * mm, "DIN-5008-Anschriftzone (wird vom Renderer dynamisch belegt)")
-        c.setFillColor(colors.black); c.setFont("Helvetica", 8)
-        c.drawRightString(A4[0] - 15 * mm, 25 * mm, f"Musterseite {page_number}/3 – Hilfslinien vor produktiver Verwendung entfernen")
+        c.setFillColor(colors.black); c.setFont("Helvetica", 7)
+        c.drawRightString(A4[0] - 17 * mm, 18 * mm, "Hilfslinien und Beschriftungen vor produktiver Verwendung entfernen")
         c.showPage()
     c.save(); return target.getvalue()
 
@@ -296,7 +305,7 @@ def _cover_overlay(title: str, recipient: str) -> bytes:
 
 
 def _number_overlay(number: int, total: int) -> bytes:
-    target = io.BytesIO(); c = canvas.Canvas(target, pagesize=A4); c.setFont("Helvetica", 8.5); c.drawCentredString(A4[0] / 2, 10 * mm, f"{number} / {total}"); c.save(); return target.getvalue()
+    target = io.BytesIO(); c = canvas.Canvas(target, pagesize=A4); c.setFont("Helvetica", 8.5); c.drawCentredString(A4[0] / 2, PAGE_NUMBER_Y, f"{number} / {total}"); c.save(); return target.getvalue()
 
 
 def _background_page(root: Path, template_row: dict[str, Any], index: int):

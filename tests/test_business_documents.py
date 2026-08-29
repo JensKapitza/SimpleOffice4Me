@@ -8,11 +8,16 @@ from unittest import mock
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
 from app.document_store import CONTROL_DIR
 
 from app.business_documents import (
+    DIN_BOTTOM_RESERVED,
+    PAGE_NUMBER_CLEAR_BOTTOM,
+    PAGE_NUMBER_CLEAR_TOP,
+    _ContentDocTemplate,
     _epc_qr_payload,
     _credit_note_amounts,
     _draft_invoice_number,
@@ -458,7 +463,18 @@ class BusinessDocumentTests(unittest.TestCase):
     def test_din5008_template_guide_has_required_three_pages(self):
         reader = PdfReader(io.BytesIO(din5008_template_guide_pdf()))
         self.assertEqual(3, len(reader.pages))
-        self.assertIn("DYNAMISCHER INHALT", "\n".join(page.extract_text() or "" for page in reader.pages))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertIn("DYNAMISCHER INHALT", text)
+        self.assertEqual(3, text.count("4 cm FREIER FUSSBEREICH"))
+        self.assertEqual(3, text.count("SEITENZAHL FREIHALTEN"))
+
+    def test_all_dynamic_content_pages_reserve_four_centimetres_at_bottom(self):
+        target = io.BytesIO()
+        document = _ContentDocTemplate(target)
+        self.assertEqual(40 * mm, DIN_BOTTOM_RESERVED)
+        self.assertEqual(DIN_BOTTOM_RESERVED, document.bottomMargin)
+        self.assertLess(PAGE_NUMBER_CLEAR_BOTTOM, PAGE_NUMBER_CLEAR_TOP)
+        self.assertLess(PAGE_NUMBER_CLEAR_TOP, DIN_BOTTOM_RESERVED)
 
 
 if __name__ == "__main__":
