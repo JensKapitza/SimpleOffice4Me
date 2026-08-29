@@ -292,6 +292,26 @@ class OsmAddressTests(unittest.TestCase):
             self.assertTrue(hasattr(popen.call_args.kwargs["stderr"], "write"))
             self.assertIn("--attributes=type,id", popen.call_args.args[0])
             self.assertIn("--remove-tags", run.call_args.args[0])
+            self.assertEqual("pbf", run.call_args.args[0][run.call_args.args[0].index("-f") + 1])
+
+    def test_tags_filter_failure_reports_stderr_and_keeps_diagnostic_log(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"extract")
+            failure = subprocess.CalledProcessError(
+                2, ["osmium", "tags-filter"], stderr="Can not determine output format"
+            )
+            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), \
+                 patch("app.osm_address.subprocess.run", side_effect=failure):
+                with self.assertRaisesRegex(RuntimeError, "Can not determine output format"):
+                    index.build(source)
+
+            self.assertIn("Can not determine output format", index.filter_log_path.read_text())
+            checkpoint = index._build_status()
+            self.assertFalse(checkpoint["filter_complete"])
+            self.assertIn("Can not determine output format", checkpoint["filter_error"])
 
     def test_failed_export_reuses_filtered_extract_and_resumes_staging_index(self):
         with tempfile.TemporaryDirectory() as root:
