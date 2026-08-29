@@ -65,6 +65,23 @@ class AdminSecurityTest(unittest.TestCase):
     def test_non_admin_cannot_read_administration(self):
         self.assertEqual(403, self.worker.get("/admin/users").status_code)
         self.assertEqual(403, self.worker.get("/admin/logs").status_code)
+        self.assertEqual(403, self.worker.get("/admin/osm-addresses").status_code)
+
+    def test_osm_index_service_is_managed_only_in_administration(self):
+        page = self.admin.get("/admin/osm-addresses")
+        body = page.get_data(as_text=True)
+        self.assertEqual(200, page.status_code)
+        self.assertIn("Lokaler OpenStreetMap-Adressindex", body)
+        self.assertIn("/admin/osm-addresses/build", body)
+        self.assertEqual(404, self.admin.get("/documents/contacts/osm-index/region-info.json").status_code)
+        self.assertEqual(404, self.admin.post("/documents/contacts/osm-index/build").status_code)
+
+        with patch("app.admin.LocalAddressIndex.downloaded_source", return_value=Path(self.temp.name) / "germany.osm.pbf"), \
+             patch("app.admin.start_osm_index_worker") as start:
+            response = self.admin.post("/admin/osm-addresses/build", data={"action": "reindex"})
+        self.assertEqual(302, response.status_code)
+        self.assertIn("/admin/osm-addresses", response.headers["Location"])
+        start.assert_called_once_with(app.config["DOCUMENT_ROOT"], force=True)
 
     def test_clamav_server_actions_require_explicit_security_admin_allowlist(self):
         # Application administrator alone is deliberately insufficient. Server

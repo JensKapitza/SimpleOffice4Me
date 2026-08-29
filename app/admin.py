@@ -5,16 +5,19 @@ from __future__ import annotations
 import csv
 import io
 import json
+import subprocess
 from datetime import datetime, timezone
 
-from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import FEATURES, activity_for, audit, is_admin, permissions_for, safe_delta, utc_now
 from .auth import login_required
 from .contact_owner_admin import assign_ownerless_contacts, ownerless_contacts
 from .db import get_db
+from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex
 from .request_audit import audit_mutation_response
 from .system_identity import system_info
+from tools.launcher import start_osm_index_worker
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 bp.after_app_request(audit_mutation_response)
@@ -89,6 +92,50 @@ def users():
         permissions={row["id"]: permissions_for(row["id"]) for row in rows},
         ownerless_contacts=orphaned[:100], ownerless_count=len(orphaned),
     )
+
+
+@bp.get("/osm-addresses")
+@admin_required
+def osm_address_index():
+    index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+    return render_template(
+        "admin/osm_address_index.html",
+        osm_status=index.status(),
+        osm_regions=GEOFABRIK_REGIONS,
+    )
+
+
+@bp.get("/osm-addresses/region-info.json")
+@admin_required
+def osm_region_info():
+    region = request.args.get("region", "").strip()
+    index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+    try:
+        return jsonify({"region": index.region_info(region), "status": index.status()})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@bp.post("/osm-addresses/build")
+@admin_required
+def osm_build():
+    region = request.form.get("region", "").strip()
+    action = request.form.get("action", "download").strip()
+    index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+    try:
+        if action == "reindex":
+            if index.downloaded_source() is None:
+                raise ValueError("Kein bereits heruntergeladener OSM-Auszug vorhanden")
+        else:
+            index.download_region(region)
+        start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True)
+        audit("osm_address_index_started", "service", "osm-addresses", detail={"action": action, "region": region})
+        flash("Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        current_app.logger.exception("OSM address index build failed")
+        audit("osm_address_index_failed", "service", "osm-addresses", outcome="failure", detail={"action": action, "region": region, "error_type": type(exc).__name__})
+        flash(f"OSM-Adressindex konnte nicht aufgebaut werden: {exc}")
+    return redirect(url_for("admin.osm_address_index"))
 
 
 @bp.post("/contacts/assign-owner")

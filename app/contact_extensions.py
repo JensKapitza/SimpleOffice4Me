@@ -7,7 +7,6 @@ import io
 import json
 import secrets
 import sqlite3
-import subprocess
 import uuid
 from email import policy
 from email.parser import BytesParser
@@ -16,16 +15,14 @@ from typing import Any
 
 from flask import Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
-from .access_control import is_admin
 from .auth import login_required
 from .contact_store import ContactStore
 from .contact_management import ContactManagement
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
-from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex, field_suggestions, search_address, unique_candidate
+from .osm_address import LocalAddressIndex, field_suggestions, search_address, unique_candidate
 from .settings_store import translate
-from tools.launcher import start_osm_index_worker
 
 
 CRM_FILE = "contact-crm.json"
@@ -321,36 +318,6 @@ def register(bp) -> None:
             return jsonify({"error": "local_address_index_unavailable", "candidates": [], "unique": None, "source": "local_osm", "attribution": "© OpenStreetMap contributors"}), 503
         return jsonify({"candidates": candidates, "suggestions": field_suggestions(candidates, field), "unique": unique_candidate(candidates), "shown": len(candidates), "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
 
-    @bp.get("/documents/contacts/osm-index/region-info.json", endpoint="crm_osm_region_info")
-    @login_required
-    def crm_osm_region_info():
-        if not is_admin(g.user): abort(403)
-        region = request.args.get("region", "").strip()
-        index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
-        try:
-            return jsonify({"region": index.region_info(region), "status": index.status()})
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
-    @bp.post("/documents/contacts/osm-index/build", endpoint="crm_osm_build")
-    @login_required
-    def crm_osm_build():
-        actor = str(g.user["username"])
-        if not is_admin(g.user): abort(403)
-        region = request.form.get("region", "").strip(); action = request.form.get("action", "download").strip(); index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
-        try:
-            if action == "reindex":
-                if index.downloaded_source() is None:
-                    raise ValueError("Kein bereits heruntergeladener OSM-Auszug vorhanden")
-            else:
-                index.download_region(region)
-            start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True)
-            flash("Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
-        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-            current_app.logger.exception("OSM address index build failed")
-            flash(f"OSM-Adressindex konnte nicht aufgebaut werden: {exc}")
-        return redirect(request.referrer or url_for("documents.contacts"))
-
     @bp.route("/documents/contacts/<contact_id>/crm", methods=("GET", "POST"), endpoint="crm_contact")
     @login_required
     def crm_contact(contact_id: str):
@@ -361,7 +328,7 @@ def register(bp) -> None:
             values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": _parse_address_rows(request.form.get("addresses", "")), "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)]}
             store.save(contact_id, values, actor); flash("CRM-Daten gespeichert. CardDAV-Änderungen können diese Daten nicht löschen."); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
-        return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), timeline=store.timeline(contact), all_contacts=contacts.contacts(actor), osm_status=index.status(), osm_regions=GEOFABRIK_REGIONS, osm_admin=is_admin(g.user))
+        return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), timeline=store.timeline(contact), all_contacts=contacts.contacts(actor), osm_status=index.status())
 
     @bp.post("/documents/contacts/<contact_id>/crm/activity", endpoint="crm_add_activity")
     @login_required
