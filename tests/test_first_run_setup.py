@@ -1,4 +1,5 @@
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from app.contact_store import ContactStore
 from app.db import ensure_auth_database
 from app.webdav import authenticate_password
 from app.todo_store import TodoStore
+from app.document_store import DocumentStore
 
 
 class FirstRunSetupTest(unittest.TestCase):
@@ -71,6 +73,28 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertEqual(302, self.client.post(f"/documents/tasks/{task['id']}/time", data={"minutes": "15", "note": "Test"}, base_url=self.base_url).status_code)
         stored = TodoStore(self.root).items("jens")[0]
         self.assertEqual("Kommentar", stored["comments"][0]["text"]); self.assertEqual(15, stored["time_entries"][0]["minutes"])
+
+    def test_document_task_has_description_and_reachable_attachments(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"offer"), "Angebot.pdf", "jens")
+        response = self.client.post(
+            f"/documents/{document['document_id']}/tasks",
+            data={"title": "Angebot prüfen"},
+            base_url=self.base_url,
+        )
+        self.assertEqual(302, response.status_code)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertIn("erforderliche Bearbeitung", task["description"])
+        self.assertEqual([document["document_id"]], task["document_ids"])
+        TodoStore(self.root).update(
+            task["id"],
+            {"extra_lines": ['ATTACH;FILENAME="extern.pdf":https://files.example/extern.pdf']},
+            "jens",
+        )
+        body = self.client.get("/documents/tasks", base_url=self.base_url).get_data(as_text=True)
+        self.assertIn("Angebot.pdf", body)
+        self.assertIn(f"/documents/{document['document_id']}", body)
+        self.assertIn("extern.pdf", body)
+        self.assertIn("https://files.example/extern.pdf", body)
 
     def test_remote_http_disables_secret_creation(self):
         client = app.test_client()
