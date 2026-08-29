@@ -43,7 +43,7 @@ class AdminSecurityTest(unittest.TestCase):
         self.temp.cleanup()
 
     def update_worker(self, **overrides):
-        data = {"feature_" + key: "1" for key in ("documents", "calendar", "contacts", "mail", "webdav", "sync", "projects")}
+        data = {"feature_" + key: "1" for key in ("documents", "calendar", "contacts", "mail", "webdav", "sync", "projects", "datalogger")}
         data.update(overrides)
         return self.admin.post(f"/admin/users/{self.worker_id}", data=data)
 
@@ -61,6 +61,23 @@ class AdminSecurityTest(unittest.TestCase):
         self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
         self.assertEqual(403, self.worker.get("/documents/").status_code)
         self.assertEqual(200, self.admin.get("/documents/").status_code)
+
+    def test_user_admin_filters_explains_and_updates_profile_without_session_reset(self):
+        page = self.admin.get("/admin/users?q=worker&status=active")
+        body = page.get_data(as_text=True)
+        self.assertEqual(200, page.status_code)
+        self.assertIn("So funktioniert die Rechteverwaltung", body)
+        self.assertIn("Erlaubte Anwendungsbereiche", body)
+        self.assertIn("worker", body)
+        with app.app_context():
+            before = database.get_db().execute("SELECT auth_version FROM user WHERE id=?", (self.worker_id,)).fetchone()[0]
+        response = self.update_worker(display_name="Fachkraft", email="worker@example.test")
+        self.assertEqual(302, response.status_code)
+        with app.app_context():
+            row = database.get_db().execute("SELECT display_name,email,auth_version FROM user WHERE id=?", (self.worker_id,)).fetchone()
+        self.assertEqual("Fachkraft", row["display_name"])
+        self.assertEqual("worker@example.test", row["email"])
+        self.assertEqual(before, row["auth_version"])
 
     def test_non_admin_cannot_read_administration(self):
         self.assertEqual(403, self.worker.get("/admin/users").status_code)

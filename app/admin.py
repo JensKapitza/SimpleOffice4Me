@@ -27,6 +27,17 @@ AUDIT_FILTER_KEYS = (
     "request_id", "client_ip", "from_at", "to_at",
 )
 
+FEATURE_DETAILS = {
+    "documents": ("Dokumente und Suche", "Documents and search", "Dokumentablage, Suche, Vorschau und Sicherheitsprüfung.", "Document storage, search, preview and security checks."),
+    "calendar": ("Kalender und CalDAV", "Calendar and CalDAV", "Termine, Buchungsseiten sowie Kalender-Synchronisation.", "Events, booking pages and calendar synchronization."),
+    "contacts": ("Kontakte und CardDAV", "Contacts and CardDAV", "Kontakte, CRM-Daten und Adressbuch-Synchronisation.", "Contacts, CRM data and address-book synchronization."),
+    "mail": ("E-Mail", "Email", "IMAP, SMTP und Sieve einschließlich gespeicherter Kontoeinstellungen.", "IMAP, SMTP and Sieve including stored account settings."),
+    "webdav": ("WebDAV", "WebDAV", "Dateizugriff über WebDAV und zugehörige Einstellungen.", "File access through WebDAV and related settings."),
+    "sync": ("Synchronisation", "Synchronization", "Replikation und externe Synchronisationsläufe.", "Replication and external synchronization jobs."),
+    "projects": ("Projekte und Zeiten", "Projects and time", "Projekte, Aufgabenbezug und Zeiterfassung.", "Projects, task relations and time tracking."),
+    "datalogger": ("Datenlogger", "Data logger", "Sensoren, Messwerte und Datenlogger-Konfiguration.", "Sensors, measurements and data-logger configuration."),
+}
+
 
 def admin_required(view):
     @login_required
@@ -86,10 +97,35 @@ def _export_filename(extension: str) -> str:
 @admin_required
 def users():
     rows = get_db().execute("SELECT * FROM user ORDER BY is_admin DESC, username COLLATE NOCASE").fetchall()
+    query = request.args.get("q", "").strip()[:120].casefold()
+    status_filter = request.args.get("status", "all").strip().casefold()
+    if status_filter not in {"all", "active", "admin", "disabled"}:
+        status_filter = "all"
+    visible = []
+    for row in rows:
+        if query and query not in " ".join(
+            str(row[key] or "").casefold() for key in ("username", "display_name", "email")
+        ):
+            continue
+        if status_filter == "active" and row["is_disabled"]:
+            continue
+        if status_filter == "admin" and not (row["is_admin"] and not row["is_disabled"]):
+            continue
+        if status_filter == "disabled" and not row["is_disabled"]:
+            continue
+        visible.append(row)
     orphaned = ownerless_contacts(current_app.config["DOCUMENT_ROOT"])
     return render_template(
-        "admin/users.html", users=rows, features=FEATURES,
-        permissions={row["id"]: permissions_for(row["id"]) for row in rows},
+        "admin/users.html", users=visible, account_users=rows, features=FEATURES,
+        feature_details=FEATURE_DETAILS,
+        permissions={row["id"]: permissions_for(row["id"]) for row in visible},
+        user_stats={
+            "total": len(rows),
+            "active": sum(not row["is_disabled"] for row in rows),
+            "admins": sum(row["is_admin"] and not row["is_disabled"] for row in rows),
+            "disabled": sum(bool(row["is_disabled"]) for row in rows),
+        },
+        user_query=request.args.get("q", "").strip()[:120], user_status=status_filter,
         ownerless_contacts=orphaned[:100], ownerless_count=len(orphaned),
     )
 
@@ -197,6 +233,14 @@ def update_user(user_id: int):
         abort(404)
     disabled = request.form.get("is_disabled") == "1"
     administrator = request.form.get("is_admin") == "1"
+    display_name = " ".join(request.form.get("display_name", "").split()).strip()
+    email = request.form.get("email", "").strip()
+    if len(display_name) > 200 or len(email) > 320 or any(character in email for character in "\r\n"):
+        flash("Anzeigename oder E-Mail-Adresse ist zu lang oder ungültig.")
+        return redirect(url_for("admin.users"))
+    if email and ("@" not in email or email.startswith("@") or email.endswith("@")):
+        flash("Die E-Mail-Adresse ist nicht plausibel.")
+        return redirect(url_for("admin.users"))
     if target["id"] == g.user["id"] and (disabled or not administrator):
         flash("Das eigene aktive Administratorkonto kann nicht gesperrt oder herabgestuft werden.")
         return redirect(url_for("admin.users"))
@@ -209,13 +253,18 @@ def update_user(user_id: int):
             return redirect(url_for("admin.users"))
     before = {
         "admin": bool(target["is_admin"]), "disabled": bool(target["is_disabled"]),
+        "display_name": str(target["display_name"] or ""), "email": str(target["email"] or ""),
         **{f"feature:{key}": value for key, value in permissions_for(user_id).items()},
     }
     requested_features = {feature: request.form.get(f"feature_{feature}") == "1" for feature in FEATURES}
+    access_changed = administrator != bool(target["is_admin"]) or disabled != bool(target["is_disabled"]) or any(
+        requested_features[key] != before[f"feature:{key}"] for key in FEATURES
+    )
     db.execute(
-        """UPDATE user SET is_admin = ?, is_disabled = ?, auth_version = auth_version + 1,
+        """UPDATE user SET display_name = ?, email = ?, is_admin = ?, is_disabled = ?,
+               auth_version = auth_version + ?,
                updated_at = ? WHERE id = ?""",
-        (int(administrator), int(disabled), utc_now(), user_id),
+        (display_name, email, int(administrator), int(disabled), int(access_changed), utc_now(), user_id),
     )
     for feature, enabled in requested_features.items():
         db.execute(
@@ -226,9 +275,9 @@ def update_user(user_id: int):
             (user_id, feature, int(enabled), utc_now(), g.user["id"]),
         )
     db.commit()
-    after = {"admin": administrator, "disabled": disabled, **{f"feature:{key}": value for key, value in requested_features.items()}}
+    after = {"admin": administrator, "disabled": disabled, "display_name": display_name, "email": email, **{f"feature:{key}": value for key, value in requested_features.items()}}
     audit("user_access_updated", "user", str(user_id), detail={"username": target["username"], "changes": safe_delta(before, after)})
-    flash(f"Rechte für {target['username']} gespeichert; vorhandene Sitzungen wurden beendet.")
+    flash(f"Konto {target['username']} gespeichert; vorhandene Sitzungen wurden beendet." if access_changed else f"Profildaten für {target['username']} gespeichert; Sitzungen bleiben aktiv.")
     return redirect(url_for("admin.users"))
 
 
