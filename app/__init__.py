@@ -14,6 +14,7 @@ import traceback
 
 from .applogging import initlogging
 from .secret_key import load_or_create_secret_key
+from .security_controls import csrf_token, protect_browser_mutation
 
 from .bs4 import download_file, renderwithbs4
 
@@ -201,6 +202,13 @@ app.config['GOOGLE_OAUTH_REDIRECT_URI'] = os.environ.get('SIMPLEOFFICE_GOOGLE_RE
 app.config['GOOGLE_OAUTH_REDIRECT_URIS'] = google_oauth_redirect_uris()
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=12)
+app.config['GOOGLE_OAUTH_AUTO_PROVISION'] = os.environ.get(
+    'SIMPLEOFFICE_GOOGLE_AUTO_PROVISION', '0'
+).strip().casefold() in {'1', 'true', 'yes', 'on'}
+app.config['ALLOW_PUBLIC_REGISTRATION'] = os.environ.get(
+    'SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION', '0'
+).strip().casefold() in {'1', 'true', 'yes', 'on'}
 app.config['MCP_ENABLED'] = os.environ.get('SIMPLEOFFICE_MCP', '1').strip().casefold() in {'1', 'true', 'yes', 'on'}
 
 
@@ -283,6 +291,11 @@ def assign_request_id():
     g.request_id = secrets.token_hex(8)
 
 
+@app.before_request
+def verify_browser_request():
+    protect_browser_mutation()
+
+
 @app.after_request
 def publish_request_id(response):
     response.headers["X-Request-ID"] = getattr(g, "request_id", "")
@@ -348,7 +361,11 @@ def load_interface_preferences():
 @app.context_processor
 def template_preferences():
     language = getattr(g, "language", "de")
-    return {"tr": lambda key: translate(language, key), "ui_literal_translations": ui_literal_translations(language)}
+    return {
+        "tr": lambda key: translate(language, key),
+        "ui_literal_translations": ui_literal_translations(language),
+        "csrf_token": csrf_token,
+    }
 
 
 @app.template_filter('datetime')
@@ -401,6 +418,10 @@ def add_header(response):
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    if request.is_secure:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     # The application serves all assets itself. Inline Bootstrap/Jinja helpers
     # still require unsafe-inline; removing that needs a dedicated nonce pass.
     response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
