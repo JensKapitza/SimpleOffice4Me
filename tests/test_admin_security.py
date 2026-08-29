@@ -83,6 +83,28 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(403, self.worker.get("/admin/users").status_code)
         self.assertEqual(403, self.worker.get("/admin/logs").status_code)
         self.assertEqual(403, self.worker.get("/admin/osm-addresses").status_code)
+        self.assertEqual(403, self.worker.get("/admin/inventory").status_code)
+
+    def test_runtime_inventory_is_admin_only_and_refreshable(self):
+        sample = {
+            "collected_at": "2026-08-29T14:00:00Z",
+            "system": {"python": "3.14.0", "python_implementation": "CPython", "os": "Linux", "process_id": 123, "machine": "x86_64"},
+            "application": {"version": "0.1.0", "sqlite": "3.50", "wsgi": "Waitress", "environment": "production", "document_root": "/srv/documents", "database": "/srv/app.sqlite", "upload_limit_mib": 512, "mcp_enabled": True, "webdav_clamav": True},
+            "modules": [{"name": "documents", "url_prefix": "–", "routes": 20}],
+            "packages": [{"name": "Flask", "version": "3.1.3", "status": "available"}],
+            "tools": [{"label_de": "Ghostscript / PDF-A", "label_en": "Ghostscript / PDF-A", "command": "gs", "status": "available", "version": "10.05"}],
+        }
+        with patch("app.admin.runtime_inventory", return_value=sample):
+            page = self.admin.get("/admin/inventory")
+        body = page.get_data(as_text=True)
+        self.assertEqual(200, page.status_code)
+        self.assertIn("System- und Laufzeitinventar", body)
+        self.assertIn("Ghostscript / PDF-A", body)
+        self.assertIn("3.1.3", body)
+        with patch("app.admin.clear_runtime_inventory") as clear:
+            refreshed = self.admin.post("/admin/inventory/refresh")
+        self.assertEqual(302, refreshed.status_code)
+        clear.assert_called_once_with()
 
     def test_osm_index_service_is_managed_only_in_administration(self):
         page = self.admin.get("/admin/osm-addresses")
