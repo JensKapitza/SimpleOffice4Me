@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import smtplib
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
 from pathlib import Path
@@ -680,7 +682,8 @@ class CalendarStore:
             raise ValueError("invalid tag visibility")
         changed_at = utc_now()
         description = description_fields(reason, str((metadata or {}).get("description_html", "")), str((metadata or {}).get("description_format", "")), existing)
-        values = {"title": title.strip(), **description, "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, **normalize_metadata(metadata, existing)}
+        appointment = CalendarStore._appointment_metadata(metadata, existing)
+        values = {"title": title.strip(), **description, "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, **normalize_metadata(metadata, existing), **appointment}
         changes = list(existing.get("changes", [])) if existing else []
         for field, new_value in values.items():
             old_value = existing.get(field, "") if existing else ""
@@ -699,6 +702,47 @@ class CalendarStore:
             "updated_by": actor,
             **{key: value for key, value in (existing or {}).items() if key not in {*values, "owner", "managers", "changes", "created_at", "created_by", "updated_at", "updated_by"}},
         }
+
+    @staticmethod
+    def _appointment_metadata(metadata: dict[str, Any] | None, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Normalize optional CRM/billing fields without making them CalDAV requirements."""
+        previous = existing or {}
+        if metadata is None or not any(key in metadata for key in ("appointment_type", "attendance", "billable", "billing_description", "billing_quantity", "billing_net_price", "billing_vat_rate", "billing_currency")):
+            return {
+                "appointment_type": str(previous.get("appointment_type", "")),
+                "attendance": str(previous.get("attendance", "")),
+                "billing": dict(previous.get("billing", {})) if isinstance(previous.get("billing"), dict) else {},
+            }
+        appointment_type = str(metadata.get("appointment_type", "")).strip()[:120]
+        attendance = str(metadata.get("attendance", "")).strip().casefold()
+        if attendance not in {"", "customer_attended", "provider_attended", "both_attended", "not_attended"}:
+            raise ValueError("invalid appointment attendance status")
+        billable = str(metadata.get("billable", "")).strip().casefold() in {"1", "true", "yes", "on"}
+
+        def decimal_value(key: str, default: str, places: str) -> str:
+            raw = str(metadata.get(key, default) or default).strip().replace(",", ".")
+            try:
+                value = Decimal(raw).quantize(Decimal(places), rounding=ROUND_HALF_UP)
+            except InvalidOperation as exc:
+                raise ValueError(f"invalid {key.replace('_', ' ')}") from exc
+            if value < 0 or (key == "billing_quantity" and value <= 0):
+                raise ValueError(f"invalid {key.replace('_', ' ')}")
+            return format(value.normalize(), "f")
+
+        currency = str(metadata.get("billing_currency", "EUR") or "EUR").strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", currency):
+            raise ValueError("billing currency must contain three letters")
+        billing = {
+            "billable": billable,
+            "description": str(metadata.get("billing_description", "")).strip()[:500],
+            "quantity": decimal_value("billing_quantity", "1", "0.001"),
+            "net_price": decimal_value("billing_net_price", "0", "0.01"),
+            "vat_rate": decimal_value("billing_vat_rate", "19", "0.01"),
+            "currency": currency,
+        }
+        if Decimal(billing["vat_rate"]) > 100:
+            raise ValueError("billing VAT rate must not exceed 100 percent")
+        return {"appointment_type": appointment_type, "attendance": attendance, "billing": billing}
 
     @staticmethod
     def _can_view(event: dict[str, Any], actor: str) -> bool:

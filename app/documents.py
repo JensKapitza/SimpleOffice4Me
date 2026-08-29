@@ -256,6 +256,14 @@ def _calendar_metadata() -> dict[str, Any]:
         "event_url": request.form.get("event_url", ""),
         "resources": [item.strip() for item in request.form.get("resources", "").split(",") if item.strip()],
         "conferences": conferences,
+        "appointment_type": request.form.get("appointment_type", ""),
+        "attendance": request.form.get("attendance", ""),
+        "billable": request.form.get("billable", ""),
+        "billing_description": request.form.get("billing_description", ""),
+        "billing_quantity": request.form.get("billing_quantity", "1"),
+        "billing_net_price": request.form.get("billing_net_price", "0"),
+        "billing_vat_rate": request.form.get("billing_vat_rate", "19"),
+        "billing_currency": request.form.get("billing_currency", "EUR"),
     }
 
 
@@ -418,6 +426,8 @@ def refresh_document_search():
 @bp.get("/dashboard")
 @login_required
 def dashboard():
+    from .business_documents import customer_account_overview
+
     inbox = _store().inbox_page(page=1, page_size=8)
     return render_template(
         "documents/dashboard.html",
@@ -428,6 +438,7 @@ def dashboard():
         pending=_calendar().pending_bookings(),
         scan_status=_store().scan_status(),
         setup_status=_setup().status(str(g.user["username"])),
+        customer_accounts=customer_account_overview(_store().root, str(g.user["username"])),
     )
 
 

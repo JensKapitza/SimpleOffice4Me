@@ -75,6 +75,34 @@ class CalendarMetadataTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not shared"):
                 store.update(event["event_id"], event["title"], event["reason"], event["start"], event["end"], "", "other", "private", "", [], metadata={"location": "Fremd"})
 
+    def test_optional_free_text_appointment_type_and_billing_can_be_changed_later(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            event = store.add("Besuch", "Erstgespräch", "2026-08-10T09:00", "2026-08-10T10:00", "customer-1", "admin")
+            self.assertEqual("", event["appointment_type"])
+            self.assertFalse(event["billing"])
+
+            changed = store.update(
+                event["event_id"], event["title"], event["reason"], event["start"], event["end"],
+                "customer-1", "admin", "private", "", [], metadata={
+                    "appointment_type": "Individuelle Technikberatung vor Ort",
+                    "attendance": "provider_attended",
+                    "billable": "1",
+                    "billing_description": "Beratung und Bestandsaufnahme",
+                    "billing_quantity": "1,5",
+                    "billing_net_price": "80,00",
+                    "billing_vat_rate": "19",
+                    "billing_currency": "eur",
+                },
+            )
+            self.assertEqual("Individuelle Technikberatung vor Ort", changed["appointment_type"])
+            self.assertEqual("provider_attended", changed["attendance"])
+            self.assertTrue(changed["billing"]["billable"])
+            self.assertEqual("1.5", changed["billing"]["quantity"])
+            self.assertEqual("80", changed["billing"]["net_price"])
+            self.assertEqual("EUR", changed["billing"]["currency"])
+            self.assertTrue(any(item["field"] == "appointment_type" for item in changed["changes"]))
+
     def test_transparent_and_cancelled_metadata_release_booking_slots(self):
         with tempfile.TemporaryDirectory() as temp:
             store = CalendarStore(Path(temp))

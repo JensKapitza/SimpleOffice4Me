@@ -9,6 +9,7 @@ from unittest import mock
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from werkzeug.datastructures import MultiDict
 from app.document_store import CONTROL_DIR
 
 from app.business_documents import (
@@ -16,13 +17,16 @@ from app.business_documents import (
     _credit_note_amounts,
     _draft_invoice_number,
     _draft_watermark,
+    _build_invoice_lines,
     _pdfa3_convert,
     _validate_hybrid,
     _zugferd_status,
     _invoice_number,
     _template_directory,
+    _validate_project_sources,
     address_labels,
     attach_contact_document,
+    customer_account_overview,
     contact_links,
     din5008_template_guide_pdf,
     embed_invoice_xml,
@@ -34,6 +38,8 @@ from app.business_documents import (
     write_off_invoice,
 )
 from app.customer_credit import CustomerCreditLedger
+from app.calendar_store import CalendarStore
+from app.contact_store import ContactStore
 from app.file_lock import exclusive_file_lock
 from app.settings_store import TRANSLATIONS
 
@@ -110,6 +116,61 @@ class BusinessDocumentTests(unittest.TestCase):
             self.assertEqual("50.00", ledger.account("customer-1")["balance"])
             with self.assertRaisesRegex(ValueError, "exceeds"):
                 ledger.refund("customer-1", "51", actor="tester")
+
+    def test_customer_account_overview_separates_credit_and_open_claims(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contact = ContactStore(root).upsert({"display_name": "Kunde Konto"}, "tester")
+            CustomerCreditLedger(root).add(
+                contact["contact_id"], "40", kind="topup",
+                tax_treatment="outside_scope", actor="tester",
+            )
+            directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
+            invoice = {
+                "invoice_id": "invoice-1", "invoice_number": "2026-0001",
+                "contact_id": contact["contact_id"], "issue_date": "2026-08-01",
+                "due_date": "2026-09-01", "status": "open", "currency": "EUR",
+                "totals": {"gross": "119.00"}, "payments": [], "document_id": "document-1",
+            }
+            (directory / "invoice-1.json").write_text(json.dumps(invoice), encoding="utf-8")
+
+            overview = customer_account_overview(root, "tester")
+
+            self.assertEqual("40.00", overview["credit_total"])
+            self.assertEqual("119.00", overview["outstanding_total"])
+            self.assertEqual("-79.00", overview["rows"][0]["net"])
+
+    def test_appointment_invoice_source_is_snapshotted_and_cannot_be_billed_twice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            event = CalendarStore(root).add(
+                "Beratung", "Technik", "2026-08-10T10:00", "2026-08-10T11:00",
+                "customer-1", "tester", metadata={
+                    "appointment_type": "Sonderberatung", "billable": "1",
+                    "billing_description": "Technische Beratung", "billing_quantity": "1",
+                    "billing_net_price": "100", "billing_vat_rate": "19", "billing_currency": "EUR",
+                },
+            )
+            form = MultiDict([
+                ("line_object_id", ""), ("line_project_id", ""),
+                ("line_source_type", "calendar_event"), ("line_source_id", event["event_id"]),
+                ("line_description", "Technische Beratung"), ("line_category", "Termin"),
+                ("line_quantity", "1"), ("line_net_price", "100"), ("line_vat_rate", "19"),
+            ])
+            lines = _build_invoice_lines(root, form)
+            self.assertEqual(event["event_id"], lines[0]["source_id"])
+            self.assertEqual("calendar_event", lines[0]["source_type"])
+            _validate_project_sources(root, {"invoice_id": "draft-1", "contact_id": "customer-1", "lines": lines}, "tester")
+
+            directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True, exist_ok=True)
+            issued = {
+                "invoice_id": "issued-1", "contact_id": "customer-1", "status": "open",
+                "issue_date": "2026-08-10", "due_date": "2026-08-24", "currency": "EUR",
+                "totals": {"gross": "119.00"}, "payments": [], "document_id": "document-1", "lines": lines,
+            }
+            (directory / "issued-1.json").write_text(json.dumps(issued), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "already been invoiced"):
+                _validate_project_sources(root, {"invoice_id": "draft-2", "contact_id": "customer-1", "lines": lines}, "tester")
 
     def test_referral_is_unique_and_cannot_reference_same_customer(self):
         with tempfile.TemporaryDirectory() as temp:
