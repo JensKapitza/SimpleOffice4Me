@@ -4,7 +4,7 @@
 <main class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div><h1 class="h2 mb-1">{{ 'User administration' if g.language == 'en' else 'Benutzerverwaltung' }}</h1><p class="text-secondary mb-0">{{ 'Control accounts, roles, feature access and contact ownership.' if g.language == 'en' else 'Konten, Rollen, Funktionszugriffe und Kontaktbesitz kontrollieren.' }}</p></div>
-    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('admin.osm_address_index') }}">OSM</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">{{ 'Errors and audit' if g.language == 'en' else 'Fehler und Audit' }}</a></div>
+    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">{{ 'Inventory' if g.language == 'en' else 'Inventar' }}</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.osm_address_index') }}">OSM</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">{{ 'Errors and audit' if g.language == 'en' else 'Fehler und Audit' }}</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
   <div class="row g-3 mb-4">

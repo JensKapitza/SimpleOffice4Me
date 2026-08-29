@@ -40,7 +40,9 @@ nicht auf PyPI gelistet und wurde erwartungsgemäß vom Abhängigkeitsdienst
   Zugangsdaten, ersetzt aber keine Volume-Verschlüsselung.
 - Betriebssystempakete und externe Werkzeuge wie Ghostscript, LibreOffice,
   ClamAV, osmium und Java-Validatoren sind nicht Bestandteil des Python-SBOM.
-  Sie müssen je Release separat inventarisiert und geprüft werden.
+  Die Admin-Inventarseite erfasst ihre installierte Version reproduzierbar;
+  die Schwachstellenbewertung dieser Systempakete muss je Release weiterhin
+  mit dem Paketmanager bzw. Herstellerhinweisen erfolgen.
 - Herstelleridentität, Produktklassifizierung, Supportzeitraum, Risikoanalyse,
   EU-Konformitätserklärung, CE-Prozess und CRA-Meldeorganisation sind vor einer
   Konformitätsbehauptung verbindlich festzulegen.

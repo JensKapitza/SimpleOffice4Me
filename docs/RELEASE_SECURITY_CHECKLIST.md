@@ -9,5 +9,6 @@
 - [ ] Sicherheitsrelevante Änderungen, offene Risiken und Upgrade-Hinweise im Release-Nachweis festgehalten.
 - [ ] Öffentliche Registrierung und Google-Autoprovisionierung bleiben deaktiviert oder die begründete Ausnahme ist dokumentiert.
 - [ ] HTTPS, Proxy-Vertrauensgrenze, HSTS und widerrufbare DAV-/MCP-Zugänge in der Zielumgebung geprüft.
+- [ ] Admin-Inventar aktualisiert; fehlende oder veraltete externe Programme und Betriebssystempakete bewertet.
 - [ ] Private Sicherheitsmeldungen erreichen eine dauerhaft überwachte Herstellerstelle; CRA-Meldeverantwortliche sind benannt.
 - [ ] Falls CRA anwendbar: technische Akte, Risikoanalyse und EU-Konformitätsprozess durch verantwortliche Stelle geprüft.

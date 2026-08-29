@@ -16,6 +16,7 @@ from .contact_owner_admin import assign_ownerless_contacts, ownerless_contacts
 from .db import get_db
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex
 from .request_audit import audit_mutation_response
+from .runtime_inventory import clear_runtime_inventory, runtime_inventory
 from .system_identity import system_info
 from tools.launcher import start_osm_download_worker, start_osm_index_worker
 
@@ -128,6 +129,21 @@ def users():
         user_query=request.args.get("q", "").strip()[:120], user_status=status_filter,
         ownerless_contacts=orphaned[:100], ownerless_count=len(orphaned),
     )
+
+
+@bp.get("/inventory")
+@admin_required
+def inventory():
+    return render_template("admin/inventory.html", inventory=runtime_inventory())
+
+
+@bp.post("/inventory/refresh")
+@admin_required
+def refresh_inventory():
+    clear_runtime_inventory()
+    audit("runtime_inventory_refreshed", "system", "runtime")
+    flash("Systeminventar wurde neu geprüft. / Runtime inventory refreshed.")
+    return redirect(url_for("admin.inventory"))
 
 
 @bp.get("/osm-addresses")

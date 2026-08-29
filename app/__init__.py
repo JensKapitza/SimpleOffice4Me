@@ -355,6 +355,8 @@ def load_interface_preferences():
     settings = SettingsStore(app.config["DOCUMENT_ROOT"]).settings()
     language = session.get("simpleoffice_language", settings["interface"]["default_language"])
     g.language = language if language in ("de", "en") else settings["interface"]["default_language"]
+    user_theme = str(g.user["theme"] or "system") if getattr(g, "user", None) is not None else "system"
+    g.theme_preference = user_theme if user_theme in {"light", "dark", "system"} else "system"
     g.app_settings = settings
 
 

@@ -11,12 +11,15 @@ REQUIRED = (
     "docs/RELEASE_SECURITY_CHECKLIST.md",
     "tools/generate_sbom.py",
     "app/security_controls.py",
+    "app/runtime_inventory.py",
     "static/js/security.js",
+    "static/js/theme.js",
 )
 
 REQUIRED_MARKERS = {
-    "app/__init__.py": ("protect_browser_mutation", "Strict-Transport-Security"),
+    "app/__init__.py": ("protect_browser_mutation", "Strict-Transport-Security", "theme_preference"),
     "app/auth.py": ("record_login_failure", "GOOGLE_OAUTH_AUTO_PROVISION", "protect_value"),
+    "app/admin.py": ("runtime_inventory", "refresh_inventory"),
     ".github/workflows/ci.yml": ("pip_audit", "tools/cra_check.py", "tools/generate_sbom.py"),
 }
 
