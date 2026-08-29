@@ -50,6 +50,9 @@
     });
     const calendars = {{ calendars|tojson }};
     const events = {{ events|tojson }};
+    const appointmentTypes = document.createElement('datalist'); appointmentTypes.id = 'appointment-type-options';
+    ['Beratung', 'Vor-Ort-Termin', 'Kundentermin', 'Wartung', 'Besprechung'].forEach(value => { const option = document.createElement('option'); option.value = value; appointmentTypes.append(option); });
+    document.body.append(appointmentTypes);
     const writable = calendars.filter(item => item.owner === {{ current_username|tojson }} || item.access[{{ current_username|tojson }}] === 'edit');
     const selectGroup = (selected = 'default') => {
       const group = document.createElement('div'); group.className = 'col-md-6';
@@ -71,12 +74,26 @@
       group.querySelector('[name="conferences"]').value = (event.conferences || []).map(item => `${item.uri} | ${item.label || ''} | ${(item.features || []).join(',')}`).join('\n');
       return group;
     };
+    const billingFields = (event = {}) => {
+      const billing = event.billing || {};
+      const group = document.createElement('fieldset'); group.className = 'col-12 border rounded p-3';
+      group.innerHTML = '<legend class="h6">{{ "Appointment and billing" if g.language == "en" else "Termin und Abrechnung" }}</legend><p class="small text-secondary">{{ "All fields are optional and can also be changed after the appointment. The appointment type accepts free text." if g.language == "en" else "Alle Angaben sind optional und können auch nach dem Termin geändert werden. Die Terminart akzeptiert Freitext." }}</p><div class="row g-2"><div class="col-md-6"><label class="form-label">{{ "Appointment type" if g.language == "en" else "Terminart" }}</label><input class="form-control" name="appointment_type" list="appointment-type-options" maxlength="120" placeholder="{{ "Select or enter freely" if g.language == "en" else "Auswählen oder frei eingeben" }}"></div><div class="col-md-6"><label class="form-label">{{ "Attendance" if g.language == "en" else "Wahrnehmung" }}</label><select class="form-select" name="attendance"><option value="">{{ "Not specified" if g.language == "en" else "Keine Angabe" }}</option><option value="customer_attended">{{ "Customer attended" if g.language == "en" else "Kunde war anwesend" }}</option><option value="provider_attended">{{ "I attended / was on site" if g.language == "en" else "Ich war vor Ort" }}</option><option value="both_attended">{{ "Both attended" if g.language == "en" else "Beide waren anwesend" }}</option><option value="not_attended">{{ "Not attended" if g.language == "en" else "Nicht wahrgenommen" }}</option></select></div><div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" value="1" name="billable"><label class="form-check-label">{{ "Bill this appointment" if g.language == "en" else "Diesen Termin abrechnen" }}</label></div><div class="col-md-6"><label class="form-label">{{ "Invoice description" if g.language == "en" else "Leistungsbeschreibung" }}</label><input class="form-control" name="billing_description" maxlength="500" placeholder="{{ "e.g. consulting" if g.language == "en" else "z. B. Beratung" }}"></div><div class="col-md-2"><label class="form-label">{{ "Quantity" if g.language == "en" else "Menge" }}</label><input class="form-control" name="billing_quantity" inputmode="decimal" value="1"></div><div class="col-md-2"><label class="form-label">{{ "Net price" if g.language == "en" else "Netto-Preis" }}</label><input class="form-control" name="billing_net_price" inputmode="decimal" value="0.00"></div><div class="col-md-1"><label class="form-label">{{ "VAT" if g.language == "en" else "MwSt." }}</label><input class="form-control" name="billing_vat_rate" inputmode="decimal" value="19"></div><div class="col-md-1"><label class="form-label">{{ "Currency" if g.language == "en" else "Währung" }}</label><input class="form-control text-uppercase" name="billing_currency" maxlength="3" value="EUR"></div></div>';
+      group.querySelector('[name="appointment_type"]').value = event.appointment_type || '';
+      group.querySelector('[name="attendance"]').value = event.attendance || '';
+      group.querySelector('[name="billable"]').checked = Boolean(billing.billable);
+      group.querySelector('[name="billing_description"]').value = billing.description || '';
+      group.querySelector('[name="billing_quantity"]').value = billing.quantity || '1';
+      group.querySelector('[name="billing_net_price"]').value = billing.net_price || '0.00';
+      group.querySelector('[name="billing_vat_rate"]').value = billing.vat_rate || '19';
+      group.querySelector('[name="billing_currency"]').value = billing.currency || 'EUR';
+      return group;
+    };
     const creationHeader = [...document.querySelectorAll('.card-header')].find(node => node.textContent.trim() === 'Termin anlegen');
     const creationForm = creationHeader?.nextElementSibling?.querySelector('form');
-    if (creationForm) { creationForm.prepend(selectGroup()); creationForm.querySelector('button')?.closest('.col-12')?.before(metadataFields()); }
+    if (creationForm) { creationForm.prepend(selectGroup()); const target = creationForm.querySelector('button')?.closest('.col-12'); target?.before(metadataFields()); target?.before(billingFields()); }
     events.forEach(event => {
       const modal = document.getElementById(`calendar-event-${event.event_id}`); const editForm = modal?.querySelector(`form[action$="/calendar/${event.event_id}"]`);
-      if (editForm) { editForm.prepend(selectGroup(event.calendar_id || 'default')); editForm.querySelector('button')?.closest('.col-12')?.before(metadataFields(event)); }
+      if (editForm) { editForm.prepend(selectGroup(event.calendar_id || 'default')); const target = editForm.querySelector('button')?.closest('.col-12'); target?.before(metadataFields(event)); target?.before(billingFields(event)); }
       if (modal && event.can_edit) {
         const form = document.createElement('form'); form.method = 'post'; form.action = `{{ url_for('documents.calendar') }}/${event.event_id}/participants`; form.className = 'border-top mt-3 pt-3';
         const heading = document.createElement('h3'); heading.className = 'h6'; heading.textContent = 'Teilnehmer';
@@ -128,6 +145,8 @@
         const summary = document.createElement('div'); summary.className = 'alert alert-light border d-flex flex-wrap gap-2 align-items-center';
         const status = document.createElement('span'); status.className = 'badge text-bg-secondary'; status.textContent = ({confirmed: 'Bestätigt', tentative: 'Vorläufig', cancelled: 'Abgesagt'})[event.ical_status] || 'Bestätigt'; summary.append(status);
         if ((event.transparency || 'opaque') === 'transparent') { const free = document.createElement('span'); free.className = 'badge text-bg-info'; free.textContent = 'Als frei markiert'; summary.append(free); }
+        if (event.appointment_type) { const type = document.createElement('span'); type.className = 'badge text-bg-light border'; type.textContent = event.appointment_type; summary.append(type); }
+        if (event.billing?.billable) { const billed = document.createElement('span'); billed.className = 'badge text-bg-success'; billed.textContent = `${event.billing.net_price || '0.00'} ${event.billing.currency || 'EUR'} netto`; summary.append(billed); }
         if (event.location) { const location = document.createElement('span'); location.textContent = 'Ort: ' + event.location; summary.append(location); }
         if (event.event_url) { const link = document.createElement('a'); link.href = event.event_url; link.rel = 'noopener noreferrer'; link.textContent = 'Termin-Link'; summary.append(link); }
         (event.conferences || []).forEach(conference => { const link = document.createElement('a'); link.className = 'btn btn-sm btn-outline-primary'; link.href = conference.uri; link.rel = 'noopener noreferrer'; link.textContent = conference.label || 'Konferenz öffnen'; summary.append(link); });

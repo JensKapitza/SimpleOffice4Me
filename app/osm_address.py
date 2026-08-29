@@ -14,7 +14,6 @@ import re
 import shutil
 import sqlite3
 import subprocess
-import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -99,6 +98,11 @@ class LocalAddressIndex:
         self.data_dir = self.control / "osm-addresses"
         self.db_path = self.data_dir / "addresses.sqlite3"
         self.status_path = self.data_dir / "status.json"
+        self.build_dir = self.data_dir / "build"
+        self.build_status_path = self.build_dir / "checkpoint.json"
+        self.filtered_path = self.build_dir / "addresses.filtered.osm.pbf"
+        self.staging_db_path = self.build_dir / "addresses.staging.sqlite3"
+        self.export_log_path = self.build_dir / "osmium-export.log"
         self.download_lock = self.data_dir / ".download.lock"
         self.build_lock = self.data_dir / ".build.lock"
 
@@ -127,15 +131,28 @@ class LocalAddressIndex:
         selected = Path(source).resolve() if source else self.downloaded_source()
         if selected is None or not selected.is_file():
             return False
+        try:
+            build_status = self._build_status()
+            if (
+                build_status.get("source_fingerprint") == self._source_fingerprint(selected)
+                and build_status.get("build_started_at")
+                and not build_status.get("completed_at")
+            ):
+                return True
+        except OSError:
+            pass
         if not self.db_path.is_file() or not self.status().get("ready"):
             return True
         return selected.stat().st_mtime_ns > self.db_path.stat().st_mtime_ns
 
     def _db(self) -> sqlite3.Connection:
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.db_path)
+        return self._open_db(self.db_path, staging=False)
+
+    def _open_db(self, path: Path, *, staging: bool) -> sqlite3.Connection:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(path)
         db.row_factory = sqlite3.Row
-        db.execute("PRAGMA journal_mode=WAL")
+        db.execute(f"PRAGMA journal_mode={'DELETE' if staging else 'WAL'}")
         db.execute("PRAGMA synchronous=NORMAL")
         db.executescript(
             """
@@ -154,12 +171,27 @@ class LocalAddressIndex:
                 normalized TEXT NOT NULL,
                 UNIQUE(osm_type, osm_id)
             );
-            CREATE INDEX IF NOT EXISTS address_postal ON address(postal);
-            CREATE INDEX IF NOT EXISTS address_city ON address(city COLLATE NOCASE);
-            CREATE INDEX IF NOT EXISTS address_street ON address(street COLLATE NOCASE);
             """
         )
+        if not staging:
+            self._create_search_indexes(db)
+        if staging:
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS build_progress (
+                       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                       source_fingerprint TEXT NOT NULL,
+                       stats_json TEXT NOT NULL,
+                       updated_at TEXT NOT NULL
+                   )"""
+            )
+        db.commit()
         return db
+
+    @staticmethod
+    def _create_search_indexes(db: sqlite3.Connection) -> None:
+        db.execute("CREATE INDEX IF NOT EXISTS address_postal ON address(postal)")
+        db.execute("CREATE INDEX IF NOT EXISTS address_city ON address(city COLLATE NOCASE)")
+        db.execute("CREATE INDEX IF NOT EXISTS address_street ON address(street COLLATE NOCASE)")
 
     def status(self) -> dict[str, Any]:
         status: dict[str, Any] = {"ready": False, "count": 0, "osmium": bool(shutil.which("osmium"))}
@@ -193,6 +225,18 @@ class LocalAddressIndex:
         source = self.downloaded_source()
         status["source_available"] = source is not None
         status["source_file"] = str(source) if source else ""
+        build_status = self._build_status()
+        status["resume_available"] = bool(
+            source
+            and build_status.get("build_started_at")
+            and not build_status.get("completed_at")
+            and (
+                self.filtered_path.is_file()
+                or self.staging_db_path.is_file()
+            )
+        )
+        status["filtered_checkpoint_available"] = self.filtered_path.is_file()
+        status["staging_checkpoint_available"] = self.staging_db_path.is_file()
         return status
 
     def _write_status(self, **values: Any) -> None:
@@ -211,6 +255,41 @@ class LocalAddressIndex:
             return loaded if isinstance(loaded, dict) else {}
         except (OSError, json.JSONDecodeError):
             return {}
+
+    def _build_status(self) -> dict[str, Any]:
+        try:
+            loaded = json.loads(self.build_status_path.read_text(encoding="utf-8"))
+            return loaded if isinstance(loaded, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _write_build_status(self, **values: Any) -> None:
+        current = self._build_status()
+        current.update(values)
+        self.build_dir.mkdir(parents=True, exist_ok=True)
+        temporary = self.build_status_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(self.build_status_path)
+
+    @staticmethod
+    def _source_fingerprint(source: Path) -> str:
+        stat = source.stat()
+        identity = f"{source.resolve()}\x1f{stat.st_size}\x1f{stat.st_mtime_ns}"
+        return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+    def _discard_stale_build(self) -> None:
+        """Remove only resumable build artifacts, never the active index/download."""
+        for path in (
+            self.filtered_path,
+            self.filtered_path.with_suffix(self.filtered_path.suffix + ".part"),
+            self.staging_db_path,
+            Path(str(self.staging_db_path) + "-journal"),
+            Path(str(self.staging_db_path) + "-wal"),
+            Path(str(self.staging_db_path) + "-shm"),
+            self.export_log_path,
+            self.build_status_path,
+        ):
+            path.unlink(missing_ok=True)
 
     @staticmethod
     def _source(region: str) -> tuple[str, str]:
@@ -507,6 +586,197 @@ class LocalAddressIndex:
             progress(dict(stats))
         return stats
 
+    @staticmethod
+    def _empty_import_stats() -> dict[str, int]:
+        return {
+            "processed": 0,
+            "inserted": 0,
+            "updated": 0,
+            "duplicates": 0,
+            "id_collisions": 0,
+            "rejected": 0,
+            "stored": 0,
+        }
+
+    def _load_staging_progress(self, db: sqlite3.Connection, source_fingerprint: str) -> dict[str, int]:
+        row = db.execute(
+            "SELECT source_fingerprint, stats_json FROM build_progress WHERE singleton=1"
+        ).fetchone()
+        if row is None or str(row["source_fingerprint"]) != source_fingerprint:
+            db.execute("DELETE FROM address")
+            db.execute("DELETE FROM build_progress")
+            db.commit()
+            return self._empty_import_stats()
+        try:
+            loaded = json.loads(str(row["stats_json"]))
+            stats = self._empty_import_stats()
+            for key in stats:
+                stats[key] = max(0, int(loaded.get(key, 0)))
+            stats["stored"] = int(db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+            return stats
+        except (TypeError, ValueError, json.JSONDecodeError):
+            db.execute("DELETE FROM address")
+            db.execute("DELETE FROM build_progress")
+            db.commit()
+            return self._empty_import_stats()
+
+    @staticmethod
+    def _save_staging_progress(
+        db: sqlite3.Connection,
+        source_fingerprint: str,
+        stats: dict[str, int],
+        stream_hash: str = "",
+    ) -> None:
+        checkpoint = {**stats, "_stream_sha256": stream_hash}
+        db.execute(
+            """INSERT INTO build_progress(singleton,source_fingerprint,stats_json,updated_at)
+               VALUES(1,?,?,?)
+               ON CONFLICT(singleton) DO UPDATE SET
+                 source_fingerprint=excluded.source_fingerprint,
+                 stats_json=excluded.stats_json,
+                 updated_at=excluded.updated_at""",
+            (source_fingerprint, json.dumps(checkpoint, separators=(",", ":")), utc_now()),
+        )
+
+    @staticmethod
+    def _staging_line_hash(db: sqlite3.Connection) -> str:
+        row = db.execute("SELECT stats_json FROM build_progress WHERE singleton=1").fetchone()
+        if row is None:
+            return ""
+        try:
+            loaded = json.loads(str(row["stats_json"]))
+            return str(loaded.get("_stream_sha256", ""))
+        except (AttributeError, json.JSONDecodeError):
+            return ""
+
+    def _import_geojson_lines_resumable(
+        self,
+        db: sqlite3.Connection,
+        lines: Any,
+        source_fingerprint: str,
+        *,
+        batch_size: int = 2000,
+        progress: Callable[[dict[str, int]], None] | None = None,
+    ) -> dict[str, int]:
+        """Import and commit bounded batches, skipping the confirmed stream prefix.
+
+        The checkpoint is stored in the same SQLite transaction as each batch.
+        A killed worker therefore loses at most the currently uncommitted batch;
+        restarting osmium may replay its stream, but confirmed lines are skipped.
+        """
+        stats = self._load_staging_progress(db, source_fingerprint)
+        resume_after = stats["processed"]
+        checkpoint_hash = self._staging_line_hash(db)
+        stream_hasher = hashlib.sha256()
+        skipped = 0
+        since_commit = 0
+        rows: list[tuple[str, ...]] = []
+
+        def commit_batch() -> None:
+            nonlocal since_commit
+            inserted_before = stats["inserted"]
+            self._store_batch(db, rows, stats)
+            rows.clear()
+            # COUNT(*) over tens of millions of rows after every batch would
+            # make the importer progressively slower. Inserts are the only
+            # operation that changes cardinality; verify the real count once
+            # after the complete stream.
+            stats["stored"] += stats["inserted"] - inserted_before
+            self._save_staging_progress(
+                db, source_fingerprint, stats, stream_hasher.hexdigest()
+            )
+            db.commit()
+            since_commit = 0
+            if progress:
+                progress(dict(stats))
+
+        for raw_line in lines:
+            line = str(raw_line).strip().lstrip("\x1e")
+            if not line:
+                continue
+            stream_hasher.update(line.encode("utf-8"))
+            stream_hasher.update(b"\n")
+            if skipped < resume_after:
+                skipped += 1
+                if skipped == resume_after:
+                    replay_hash = stream_hasher.hexdigest()
+                    if not checkpoint_hash or replay_hash != checkpoint_hash:
+                        db.execute("DELETE FROM address")
+                        db.execute("DELETE FROM build_progress")
+                        db.commit()
+                        raise RuntimeError(
+                            "OSM resume stream changed at checkpoint; staging was reset"
+                        )
+                if progress and skipped % batch_size == 0:
+                    progress({**stats, "replayed": skipped, "replay_target": resume_after})
+                continue
+            stats["processed"] += 1
+            since_commit += 1
+            try:
+                feature = json.loads(line)
+            except json.JSONDecodeError:
+                stats["rejected"] += 1
+            else:
+                if not isinstance(feature, dict):
+                    stats["rejected"] += 1
+                else:
+                    row = self._feature_row(feature)
+                    if row is None:
+                        stats["rejected"] += 1
+                    else:
+                        rows.append(row)
+            if since_commit >= batch_size:
+                commit_batch()
+        if skipped < resume_after:
+            raise RuntimeError(
+                f"OSM export ended before checkpoint: replayed={skipped} expected={resume_after}"
+            )
+        if since_commit or not resume_after:
+            commit_batch()
+        elif progress:
+            progress(dict(stats))
+        stats["stored"] = int(db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+        self._save_staging_progress(
+            db, source_fingerprint, stats, stream_hasher.hexdigest()
+        )
+        db.commit()
+        return stats
+
+    def _promote_staging_index(self, expected_count: int) -> int:
+        """Publish staging in one live-DB transaction while readers keep the old snapshot."""
+        if not self.staging_db_path.is_file():
+            raise RuntimeError("OSM staging database disappeared before publication")
+        with self._db() as db:
+            db.execute("ATTACH DATABASE ? AS osm_staging", (str(self.staging_db_path),))
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("DROP INDEX IF EXISTS main.address_postal")
+                db.execute("DROP INDEX IF EXISTS main.address_city")
+                db.execute("DROP INDEX IF EXISTS main.address_street")
+                db.execute("DELETE FROM main.address")
+                db.execute(
+                    """INSERT INTO main.address(
+                           street,house_number,postal,city,country,state,lat,lon,
+                           osm_type,osm_id,normalized
+                       )
+                       SELECT street,house_number,postal,city,country,state,lat,lon,
+                              osm_type,osm_id,normalized
+                       FROM osm_staging.address"""
+                )
+                stored = int(db.execute("SELECT COUNT(*) FROM main.address").fetchone()[0])
+                if stored != expected_count:
+                    raise RuntimeError(
+                        f"OSM publication count mismatch: staging={expected_count} live={stored}"
+                    )
+                self._create_search_indexes(db)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+            finally:
+                db.execute("DETACH DATABASE osm_staging")
+        return stored
+
     def build(
         self,
         source: str | Path,
@@ -520,77 +790,210 @@ class LocalAddressIndex:
         if not osmium:
             raise RuntimeError("osmium is required to build the local address index")
         started = time.monotonic()
-        self._write_status(state="indexing", phase="filtering", phase_started_at=utc_now(), source_file=str(source), indexed_at="", error="", processed=0, inserted=0, updated=0, duplicates=0, id_collisions=0, rejected=0, stored=0)
-        with tempfile.TemporaryDirectory(prefix="simpleoffice-osm-") as temporary_dir:
-            filtered = Path(temporary_dir) / "addresses.osm.pbf"
+        fingerprint = self._source_fingerprint(source)
+        previous_build = self._build_status()
+        if previous_build.get("source_fingerprint") != fingerprint:
+            self._discard_stale_build()
+            previous_build = {}
+        self.build_dir.mkdir(parents=True, exist_ok=True)
+        self._write_build_status(
+            source_fingerprint=fingerprint,
+            source_file=str(source),
+            completed_at="",
+            build_started_at=utc_now(),
+            export_complete=bool(
+                previous_build.get("export_complete")
+                and not previous_build.get("completed_at")
+            ),
+        )
+        active_ready = bool(self.db_path.is_file() and self._stored_status().get("ready"))
+        self._write_status(
+            state="indexing", phase="filtering", phase_started_at=utc_now(),
+            source_file=str(source), source_fingerprint=fingerprint, indexed_at="",
+            error="", ready=active_ready, resumable=True,
+            processed=0, inserted=0, updated=0, duplicates=0,
+            id_collisions=0, rejected=0, stored=0,
+            replayed=0, replay_target=0,
+        )
+
+        filtered = self.filtered_path
+        if not (filtered.is_file() and previous_build.get("filtered_complete")):
+            filtered_part = filtered.with_suffix(filtered.suffix + ".part")
+            filtered_part.unlink(missing_ok=True)
             subprocess.run(
-                [osmium, "tags-filter", str(source), "nwr/addr:housenumber", "nwr/addr:street", "nwr/addr:postcode", "nwr/addr:city", "--remove-tags", "--no-progress", "-o", str(filtered), "--overwrite"],
-                check=True, timeout=7200, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                [osmium, "tags-filter", str(source), "nwr/addr:housenumber", "nwr/addr:street", "nwr/addr:postcode", "nwr/addr:city", "--remove-tags", "--no-progress", "-o", str(filtered_part), "--overwrite"],
+                check=True,
+                timeout=max(3600, min(int(os.environ.get("SIMPLEOFFICE_OSM_FILTER_TIMEOUT", "21600")), 86400)),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
             )
-            self._write_status(state="indexing", phase="exporting_importing", phase_started_at=utc_now(), filtered_bytes=filtered.stat().st_size, filtered_size=human_bytes(filtered.stat().st_size))
-            last_progress = 0.0
+            if not filtered_part.is_file() or filtered_part.stat().st_size == 0:
+                raise RuntimeError("osmium tags-filter produced no usable address extract")
+            filtered_part.replace(filtered)
+            self._write_build_status(
+                source_fingerprint=fingerprint,
+                source_file=str(source),
+                filtered_complete=True,
+                filtered_bytes=filtered.stat().st_size,
+                filtered_at=utc_now(),
+            )
+        else:
+            self._write_status(
+                state="indexing", phase="reusing_filtered", phase_started_at=utc_now(),
+                resumed=True, filtered_bytes=filtered.stat().st_size,
+                filtered_size=human_bytes(filtered.stat().st_size),
+            )
 
-            def report(current: dict[str, int]) -> None:
-                nonlocal last_progress
-                now = time.monotonic()
-                if not current.get("stored") and now - last_progress < 2:
-                    return
-                elapsed = max(0.001, now - started)
-                payload: dict[str, Any] = {
-                    **current,
-                    "state": "indexing",
-                    "phase": "exporting_importing",
-                    "elapsed_seconds": round(elapsed, 1),
-                    "records_per_second": round(current["processed"] / elapsed),
-                }
-                self._write_status(**payload)
-                if progress:
-                    progress(payload)
-                last_progress = now
+        self._write_status(
+            state="indexing", phase="exporting_importing", phase_started_at=utc_now(),
+            filtered_bytes=filtered.stat().st_size,
+            filtered_size=human_bytes(filtered.stat().st_size),
+        )
+        last_progress = 0.0
+        resumed_at = 0
 
-            # stderr is a file, not a pipe: verbose osmium output can therefore
-            # never fill a pipe and deadlock the exporter while stdout is read.
-            with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as stderr_log:
+        def report(current: dict[str, int]) -> None:
+            nonlocal last_progress
+            now = time.monotonic()
+            if now - last_progress < 2:
+                return
+            elapsed = max(0.001, now - started)
+            run_records = max(0, current["processed"] - resumed_at)
+            payload: dict[str, Any] = {
+                **current,
+                "state": "indexing",
+                "phase": "exporting_importing",
+                "resumed": resumed_at > 0,
+                "resume_processed": resumed_at,
+                "replayed": current.get("replayed", 0),
+                "replay_target": current.get("replay_target", 0),
+                "elapsed_seconds": round(elapsed, 1),
+                "records_per_second": round(run_records / elapsed),
+                "last_checkpoint_at": utc_now(),
+            }
+            self._write_status(**payload)
+            if progress:
+                progress(payload)
+            last_progress = now
+
+        def publish(current: dict[str, int], resume_position: int) -> dict[str, int]:
+            self._write_status(
+                state="indexing", phase="publishing", phase_started_at=utc_now(),
+                processed=current["processed"], stored=current["stored"],
+            )
+            current["stored"] = self._promote_staging_index(current["stored"])
+            self.staging_db_path.unlink(missing_ok=True)
+            Path(str(self.staging_db_path) + "-journal").unlink(missing_ok=True)
+            elapsed = round(time.monotonic() - started, 1)
+            self._write_build_status(
+                source_fingerprint=fingerprint,
+                source_file=str(source),
+                filtered_complete=True,
+                export_complete=True,
+                completed_at=utc_now(),
+                imported_processed=current["processed"],
+            )
+            self._write_status(
+                state="ready", phase="completed", ready=True,
+                count=current["stored"], indexed_at=utc_now(), error="",
+                elapsed_seconds=elapsed, resumed=resume_position > 0,
+                resume_processed=resume_position, staging_database="", **current,
+            )
+            return current
+
+        if (
+            previous_build.get("export_complete")
+            and not previous_build.get("completed_at")
+            and self.staging_db_path.is_file()
+        ):
+            with self._open_db(self.staging_db_path, staging=True) as staging_db:
+                stats = self._load_staging_progress(staging_db, fingerprint)
+            if stats["processed"] <= 0 or stats["stored"] <= 0:
+                raise RuntimeError("completed OSM staging checkpoint is empty")
+            self._write_status(
+                resumed=True, resume_processed=stats["processed"],
+                phase="publishing", staging_database=str(self.staging_db_path),
+            )
+            return publish(stats, stats["processed"])
+
+        # stderr is a regular persistent file: it cannot deadlock the exporter
+        # and remains available after a crash for diagnostics.
+        with self._open_db(self.staging_db_path, staging=True) as staging_db:
+            resumed_at = self._load_staging_progress(staging_db, fingerprint)["processed"]
+            self._write_status(
+                resumed=resumed_at > 0,
+                resume_processed=resumed_at,
+                processed=resumed_at,
+                staging_database=str(self.staging_db_path),
+            )
+            with self.export_log_path.open("a+", encoding="utf-8") as stderr_log:
+                stderr_log.write(f"\n[{utc_now()}] export start resume_after={resumed_at}\n")
+                stderr_log.flush()
                 process = subprocess.Popen(
                     [osmium, "export", str(filtered), "-f", "geojsonseq", "--attributes=type,id", "--no-progress"],
                     stdout=subprocess.PIPE, stderr=stderr_log, text=True, encoding="utf-8",
                 )
                 assert process.stdout is not None
                 timed_out = threading.Event()
-
-                def abort_export() -> None:
-                    timed_out.set()
-                    if process.poll() is None:
-                        try:
-                            process.kill()
-                        except OSError:
-                            pass
+                watchdog_stop = threading.Event()
+                last_output = [time.monotonic()]
 
                 try:
-                    configured_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_TIMEOUT", "21600"))
-                except ValueError:
-                    configured_timeout = 21600
-                export_timeout = max(3600, min(configured_timeout, 86400))
-                watchdog = threading.Timer(export_timeout, abort_export)
-                watchdog.daemon = True
+                    idle_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT", "1800"))
+                except ValueError as exc:
+                    raise ValueError("invalid OSM export idle timeout") from exc
+                idle_timeout = max(300, min(idle_timeout, 86400))
+
+                def watch_export() -> None:
+                    while not watchdog_stop.wait(min(30, max(1, idle_timeout // 10))):
+                        if process.poll() is None and time.monotonic() - last_output[0] >= idle_timeout:
+                            timed_out.set()
+                            try:
+                                process.kill()
+                            except OSError:
+                                pass
+                            return
+
+                def observed_lines() -> Any:
+                    for line in process.stdout:
+                        last_output[0] = time.monotonic()
+                        yield line
+
+                watchdog = threading.Thread(target=watch_export, name="osm-export-watchdog", daemon=True)
                 watchdog.start()
                 try:
-                    with self._db() as db:
-                        db.execute("DELETE FROM address")
-                        stats = self._import_geojson_lines(db, process.stdout, progress=report)
-                        rc = process.wait(timeout=60)
-                        stderr_log.seek(0, os.SEEK_END)
-                        stderr_log.seek(max(0, stderr_log.tell() - 4000))
-                        stderr = stderr_log.read()
-                        if timed_out.is_set():
-                            raise subprocess.TimeoutExpired(process.args, export_timeout, stderr=stderr[-4000:])
-                        if rc:
-                            raise RuntimeError(f"osmium export failed: {stderr[-500:]}")
-                        accepted = stats["inserted"] + stats["updated"] + stats["duplicates"]
-                        if accepted >= 10_000 and stats["stored"] < accepted // 2:
-                            raise RuntimeError(f"OSM index plausibility check failed: processed={stats['processed']} accepted={accepted} stored={stats['stored']}")
+                    stats = self._import_geojson_lines_resumable(
+                        staging_db, observed_lines(), fingerprint, progress=report
+                    )
+                    last_progress = 0.0
+                    report(stats)
+                    rc = process.wait(timeout=60)
+                    stderr_log.flush()
+                    stderr_log.seek(0, os.SEEK_END)
+                    stderr_log.seek(max(0, stderr_log.tell() - 4000))
+                    stderr = stderr_log.read()
+                    if timed_out.is_set():
+                        raise subprocess.TimeoutExpired(
+                            process.args, idle_timeout, stderr=stderr[-4000:]
+                        )
+                    if rc:
+                        raise RuntimeError(f"osmium export failed: {stderr[-500:]}")
+                    accepted = stats["inserted"] + stats["updated"] + stats["duplicates"]
+                    if accepted >= 10_000 and stats["stored"] < accepted // 2:
+                        raise RuntimeError(
+                            "OSM index plausibility check failed: "
+                            f"processed={stats['processed']} accepted={accepted} stored={stats['stored']}"
+                        )
+                    self._write_build_status(
+                        export_complete=True,
+                        export_completed_at=utc_now(),
+                        imported_processed=stats["processed"],
+                        imported_stored=stats["stored"],
+                    )
                 finally:
-                    watchdog.cancel()
+                    watchdog_stop.set()
+                    watchdog.join(timeout=2)
                     if process.poll() is None:
                         process.terminate()
                         try:
@@ -598,9 +1001,11 @@ class LocalAddressIndex:
                         except subprocess.TimeoutExpired:
                             process.kill()
                             process.wait(timeout=10)
-        elapsed = round(time.monotonic() - started, 1)
-        self._write_status(state="ready", phase="completed", ready=True, count=stats["stored"], indexed_at=utc_now(), error="", elapsed_seconds=elapsed, **stats)
-        return stats
+        # Publish only a complete and plausible staging database. The final
+        # copy is one transaction, so readers see either the old or the complete
+        # new index. An interruption rolls back the live DB and leaves staging
+        # plus checkpoint available for another attempt.
+        return publish(stats, resumed_at)
 
     def search(self, query: str, *, country_code: str = "de", limit: int = 5) -> list[dict[str, Any]]:
         query = _clean(query, 500)

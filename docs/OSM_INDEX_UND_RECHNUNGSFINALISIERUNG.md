@@ -38,11 +38,38 @@ Objekte deshalb nicht mehr als Millionen irrelevanter Features aus. Die echten
 OSM-Attribute `type` und `id` werden ausdrücklich exportiert und als stabile
 Objektidentität gespeichert.
 
-Der `osmium export` schreibt seine Diagnose in eine temporäre Datei. Dadurch
-kann keine unbeachtete `stderr`-Pipe volllaufen und den Export blockieren. Ein
-festgefahrener Export wird standardmäßig nach sechs Stunden abgebrochen; der
-Wert kann mit `SIMPLEOFFICE_OSM_EXPORT_TIMEOUT` zwischen einer und 24 Stunden
-gesetzt werden. Eine unterbrochene SQLite-Transaktion wird zurückgerollt.
+Die gefilterte PBF-Zwischenbasis liegt dauerhaft unter
+`.simpleoffice/osm-addresses/build/addresses.filtered.osm.pbf`. Sie wird bei
+gleichem Download nicht erneut erzeugt. Der Import schreibt in
+`addresses.staging.sqlite3` und bestätigt jeweils 2.000 Eingabedatensätze in
+einer eigenen SQLite-Transaktion. Erst ein vollständig exportierter und
+plausibler Staging-Index ersetzt atomar den aktiven `addresses.sqlite3`.
+
+Wird Anwendung, Worker oder `osmium` unterbrochen, bleiben gefilterte Basis,
+Staging-Datenbank und bestätigte Datensatzposition erhalten. Beim nächsten
+Start erzeugt `osmium` denselben deterministischen Stream erneut; der Import
+überspringt dessen bereits bestätigten Präfix und arbeitet danach weiter. Ein
+neuer Download ist nur erforderlich, wenn sich die Quelldatei geändert hat.
+Ein fortlaufender SHA-256-Fingerabdruck prüft dabei den gesamten bestätigten
+Stream-Präfix. Bei abweichender Reihenfolge wird Staging verworfen, statt
+unbemerkt unvollständige Daten zu veröffentlichen.
+Ist der Export bereits vollständig und nur die Veröffentlichung wurde
+unterbrochen, veröffentlicht der Neustart direkt den fertigen Staging-Index;
+der OSM-Stream wird dann nicht erneut abgespielt.
+
+`osmium export` schreibt seine Diagnose dauerhaft in
+`.simpleoffice/osm-addresses/build/osmium-export.log`. Dadurch kann keine
+unbeachtete `stderr`-Pipe volllaufen. Es gibt keinen festen Gesamtlaufzeit-
+Timeout mehr: Solange Datensätze geliefert werden, darf auch ein mehr als sechs
+Stunden dauernder Deutschland-Export weiterlaufen. Nur wenn standardmäßig 30
+Minuten keinerlei Ausgabe erfolgt, beendet ein Leerlauf-Watchdog den Prozess.
+Der Wert kann über `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` zwischen 300 und
+86.400 Sekunden gesetzt werden. Die nächste Ausführung setzt am letzten
+bestätigten Batch fort.
+
+Der Download verwendet eine `.part`-Datei und HTTP-Range-Requests. Ein
+abgebrochener Download wird daher ab dem bestätigten Byte fortgesetzt, sofern
+Geofabrik Range-Requests für die Datei akzeptiert.
 
 Ein bereits heruntergeladener Extrakt kann ohne erneuten Download vollständig
 neu indexiert werden:

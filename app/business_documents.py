@@ -45,6 +45,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import BaseDocTemplate, Frame, ListFlowable, ListItem, PageTemplate, Paragraph, Spacer, Table, TableStyle
 
 from .auth import login_required
+from .calendar_store import CalendarStore
 from .contact_extensions import ContactCRMStore
 from .customer_credit import CustomerCreditLedger
 from .contact_store import ContactStore
@@ -474,6 +475,43 @@ def invoices(root: Path) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda item: (str(item.get("issue_date", "")), str(item.get("invoice_number", ""))), reverse=True)
 
 
+def customer_account_overview(root: Path, actor: str, currency: str = "") -> dict[str, Any]:
+    """Return visible customer balances with one contact and one ledger scan."""
+    selected_currency = (currency or business_settings(root).get("currency") or "EUR").upper()[:3]
+    contacts = ContactStore(root).contacts(actor)
+    contact_map = {item["contact_id"]: item for item in contacts}
+    contact_ids = set(contact_map)
+    credit_accounts = CustomerCreditLedger(root).accounts(contact_ids, selected_currency)
+    claims = defaultdict(lambda: Decimal("0"))
+    for row in invoices(root):
+        contact_id = str(row.get("contact_id", ""))
+        if contact_id not in contact_ids or str(row.get("currency", "EUR")).upper() != selected_currency:
+            continue
+        claims[contact_id] += Decimal(row["payment_state"]["outstanding"])
+    rows = []
+    for contact_id, contact in contact_map.items():
+        credit = Decimal(credit_accounts[contact_id]["balance"])
+        outstanding = claims[contact_id]
+        if not credit and not outstanding:
+            continue
+        fields = contact.get("fields", {})
+        rows.append({
+            "contact_id": contact_id,
+            "name": str(fields.get("display_name") or fields.get("company") or contact_id),
+            "credit": f"{credit.quantize(MONEY):.2f}",
+            "outstanding": f"{outstanding.quantize(MONEY):.2f}",
+            "net": f"{(credit - outstanding).quantize(MONEY):.2f}",
+            "currency": selected_currency,
+        })
+    rows.sort(key=lambda item: (-(Decimal(item["outstanding"]) + Decimal(item["credit"])), item["name"].casefold()))
+    return {
+        "currency": selected_currency,
+        "credit_total": f"{sum((Decimal(item['credit']) for item in rows), Decimal('0')).quantize(MONEY):.2f}",
+        "outstanding_total": f"{sum((Decimal(item['outstanding']) for item in rows), Decimal('0')).quantize(MONEY):.2f}",
+        "rows": rows,
+    }
+
+
 def record_invoice_payment(root: Path, invoice_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
     path = _invoice_store_path(root, invoice_id)
     with exclusive_file_lock(path.with_suffix(".lock")):
@@ -529,9 +567,12 @@ def _build_invoice_lines(root: Path, form) -> list[dict[str, Any]]:
         object_id = object_ids[index].strip() if index < len(object_ids) else ""; description = descriptions[index].strip() if index < len(descriptions) else ""; qty_text = quantities[index] if index < len(quantities) else "1"; net_text = nets[index] if index < len(nets) else "0"; vat_text = vats[index] if index < len(vats) else "0"; category=categories[index].strip() if index<len(categories) else ""; project_id=project_ids[index].strip() if index<len(project_ids) else ""; source_type=source_types[index].strip() if index<len(source_types) else ""; source_id=source_ids[index].strip() if index<len(source_ids) else ""
         if not object_id and not description: continue
         snapshot: dict[str, Any] = {"category":category}
-        if any((project_id,source_type,source_id)):
-            if not all((project_id,source_type,source_id)) or source_type not in {"time_group","time_entry"}: raise ValueError(f"invoice line {index + 1}: invalid project billing source")
+        if project_id:
+            if not all((source_type,source_id)) or source_type not in {"time_group","time_entry"}: raise ValueError(f"invoice line {index + 1}: invalid project billing source")
             snapshot.update({"project_id":project_id,"project_source_type":source_type,"project_source_id":source_id})
+        elif source_type or source_id:
+            if source_type != "calendar_event" or not source_id: raise ValueError(f"invoice line {index + 1}: invalid appointment billing source")
+            snapshot.update({"source_type":"calendar_event","source_id":source_id})
         if object_id:
             try:
                 obj = store.object(object_id); effective = store.invoice_effective(obj)
@@ -557,6 +598,14 @@ def _billed_project_sources(root: Path, exclude_invoice_id: str = "") -> set[tup
     return {ref for item in invoices(root) if item.get("invoice_id") != exclude_invoice_id and item.get("status") != "draft" and item.get("document_id") for ref in _project_source_refs(item)}
 
 
+def _appointment_source_refs(row: dict[str, Any]) -> set[str]:
+    return {str(line.get("source_id", "")) for line in row.get("lines", []) if line.get("source_type") == "calendar_event" and line.get("source_id")}
+
+
+def _billed_appointment_sources(root: Path, exclude_invoice_id: str = "") -> set[str]:
+    return {event_id for item in invoices(root) if item.get("invoice_id") != exclude_invoice_id and item.get("status") != "draft" and item.get("document_id") for event_id in _appointment_source_refs(item)}
+
+
 def _validate_project_sources(root: Path, row: dict[str, Any], actor: str) -> None:
     refs=[(str(line.get("project_id","")),str(line.get("project_source_type","")),str(line.get("project_source_id",""))) for line in row.get("lines",[]) if line.get("project_id")]
     if len(refs)!=len(set(refs)): raise ValueError("a project billing item can only appear once on an invoice")
@@ -567,6 +616,16 @@ def _validate_project_sources(root: Path, row: dict[str, Any], actor: str) -> No
         projection=store.billing_projection(project_id,actor)
         available.update((project_id,str(line["source_type"]),str(line["source_id"])) for line in projection["lines"])
     if not set(refs)<=available: raise ValueError("a selected project billing item no longer exists")
+    appointment_refs = [str(line.get("source_id", "")) for line in row.get("lines", []) if line.get("source_type") == "calendar_event"]
+    if len(appointment_refs) != len(set(appointment_refs)):
+        raise ValueError("an appointment can only appear once on an invoice")
+    if set(appointment_refs) & _billed_appointment_sources(root, row.get("invoice_id", "")):
+        raise ValueError("a selected appointment has already been invoiced")
+    events = {item["event_id"]: item for item in CalendarStore(root).events(actor)}
+    for event_id in appointment_refs:
+        event = events.get(event_id)
+        if not event or event.get("contact_id") != row.get("contact_id") or not event.get("billing", {}).get("billable"):
+            raise ValueError("a selected billable appointment no longer exists")
 
 
 def _invoice_totals(lines: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1027,6 +1086,43 @@ def project_invoice_candidates():
             minutes=int(line.get("minutes",0)); quantity=(Decimal(minutes)/Decimal(60)).quantize(QTY).normalize()
             items.append({"project_id":project["project_id"],"project_title":project["title"],"source_type":line["source_type"],"source_id":line["source_id"],"description":line["description"],"minutes":minutes,"quantity":format(quantity,"f"),"category":"","net_price":"","vat_rate":"19"})
     return jsonify({"items":items})
+
+
+@bp.get("/contacts/<contact_id>/appointment-invoice-candidates.json")
+@login_required
+def appointment_invoice_candidates(contact_id: str):
+    root, actor = _root(), _actor()
+    contacts = ContactStore(root)
+    if not contacts.can_manage(contact_id, actor):
+        abort(403)
+    billed = _billed_appointment_sources(root)
+    items = []
+    for event in CalendarStore(root).events(actor):
+        billing = event.get("billing", {}) if isinstance(event.get("billing"), dict) else {}
+        if event.get("contact_id") != contact_id or event.get("event_id") in billed or not billing.get("billable"):
+            continue
+        if event.get("status", "active") in {"cancelled", "deleted", "moved"}:
+            continue
+        appointment_type = str(event.get("appointment_type") or "").strip()
+        description = str(billing.get("description") or "").strip()
+        if not description:
+            prefix = f"{appointment_type}: " if appointment_type else "Termin: "
+            description = f"{prefix}{event.get('title', 'Leistung')} ({str(event.get('start', ''))[:10]})"
+        items.append({
+            "source_type": "calendar_event",
+            "source_id": event["event_id"],
+            "event_id": event["event_id"],
+            "event_start": event.get("start", ""),
+            "appointment_type": appointment_type,
+            "attendance": event.get("attendance", ""),
+            "description": description,
+            "quantity": billing.get("quantity", "1"),
+            "net_price": billing.get("net_price", "0.00"),
+            "vat_rate": billing.get("vat_rate", "19"),
+            "currency": billing.get("currency", "EUR"),
+            "category": "Termin",
+        })
+    return jsonify({"items": sorted(items, key=lambda item: item["event_start"], reverse=True)})
 
 @bp.route("/contacts/<contact_id>/letter",methods=("GET","POST"))
 @login_required

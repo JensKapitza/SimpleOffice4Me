@@ -125,6 +125,26 @@ class OsmAddressTests(unittest.TestCase):
             self.assertTrue(index.needs_reindex())
             self.assertTrue(index.status()["source_available"])
 
+    def test_interrupted_build_is_resumed_even_when_live_index_is_newer(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"local extract")
+            with index._db() as db:
+                db.execute(
+                    "INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    ("Altstraße", "1", "12345", "Ort", "DE", "", "", "", "node", "1", "altstrasse 1 12345 ort de"),
+                )
+            index._write_status(ready=True, state="error", source_file=str(source))
+            index._write_build_status(
+                source_fingerprint=index._source_fingerprint(source),
+                source_file=str(source),
+                build_started_at="2026-08-29T00:00:00Z",
+                completed_at="",
+            )
+            self.assertTrue(index.needs_reindex(source))
+
     def test_import_over_batch_size_keeps_every_missing_osm_id(self):
         with tempfile.TemporaryDirectory() as root:
             index = LocalAddressIndex(Path(root))
@@ -151,6 +171,108 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual(5, reports[-1]["stored"])
             self.assertEqual(stats, reports[-1])
 
+    def test_resumable_import_commits_batches_and_skips_confirmed_prefix(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            fingerprint = "same-download"
+            with index._open_db(index.staging_db_path, staging=True) as db:
+                first = index._import_geojson_lines_resumable(
+                    db,
+                    [self._feature(number) for number in range(3)],
+                    fingerprint,
+                    batch_size=2,
+                )
+            self.assertEqual(3, first["processed"])
+            self.assertEqual(3, first["stored"])
+
+            # osmium starts its deterministic stream at the beginning again.
+            # Only records after the transactionally confirmed prefix are new.
+            with index._open_db(index.staging_db_path, staging=True) as db:
+                resumed = index._import_geojson_lines_resumable(
+                    db,
+                    [self._feature(number) for number in range(5)],
+                    fingerprint,
+                    batch_size=2,
+                )
+            self.assertEqual(5, resumed["processed"])
+            self.assertEqual(5, resumed["inserted"])
+            self.assertEqual(0, resumed["duplicates"])
+            self.assertEqual(5, resumed["stored"])
+
+    def test_resumable_import_counts_full_table_only_once_at_completion(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            statements = []
+            with index._open_db(index.staging_db_path, staging=True) as db:
+                db.set_trace_callback(statements.append)
+                stats = index._import_geojson_lines_resumable(
+                    db,
+                    [self._feature(number) for number in range(5005)],
+                    "same-download",
+                    batch_size=1000,
+                )
+            count_queries = [
+                statement for statement in statements
+                if "SELECT COUNT(*) FROM ADDRESS" in statement.upper()
+            ]
+            self.assertEqual(5005, stats["stored"])
+            self.assertEqual(1, len(count_queries))
+
+    def test_resumable_import_discards_checkpoint_for_changed_download(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            with index._open_db(index.staging_db_path, staging=True) as db:
+                index._import_geojson_lines_resumable(
+                    db, [self._feature(1)], "old-download", batch_size=1
+                )
+            with index._open_db(index.staging_db_path, staging=True) as db:
+                rebuilt = index._import_geojson_lines_resumable(
+                    db, [self._feature(9)], "new-download", batch_size=1
+                )
+                houses = [row[0] for row in db.execute("SELECT house_number FROM address")]
+            self.assertEqual(1, rebuilt["processed"])
+            self.assertEqual(1, rebuilt["stored"])
+            self.assertEqual(["9"], houses)
+
+    def test_resumable_import_rejects_changed_stream_order(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            fingerprint = "same-download"
+            with index._open_db(index.staging_db_path, staging=True) as db:
+                index._import_geojson_lines_resumable(
+                    db,
+                    [self._feature(number) for number in range(3)],
+                    fingerprint,
+                    batch_size=2,
+                )
+                with self.assertRaisesRegex(RuntimeError, "resume stream changed"):
+                    index._import_geojson_lines_resumable(
+                        db,
+                        [self._feature(1), self._feature(0), self._feature(2)],
+                        fingerprint,
+                        batch_size=2,
+                    )
+                self.assertEqual(0, db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+
+    def test_resumable_import_rejects_stream_shorter_than_checkpoint(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            fingerprint = "same-download"
+            with index._open_db(index.staging_db_path, staging=True) as db:
+                index._import_geojson_lines_resumable(
+                    db,
+                    [self._feature(number) for number in range(3)],
+                    fingerprint,
+                    batch_size=2,
+                )
+                with self.assertRaisesRegex(RuntimeError, "ended before checkpoint"):
+                    index._import_geojson_lines_resumable(
+                        db,
+                        [self._feature(0), self._feature(1)],
+                        fingerprint,
+                        batch_size=2,
+                    )
+
     def test_osmium_stderr_uses_file_instead_of_blocking_pipe(self):
         with tempfile.TemporaryDirectory() as root:
             index = LocalAddressIndex(Path(root))
@@ -170,6 +292,82 @@ class OsmAddressTests(unittest.TestCase):
             self.assertTrue(hasattr(popen.call_args.kwargs["stderr"], "write"))
             self.assertIn("--attributes=type,id", popen.call_args.args[0])
             self.assertIn("--remove-tags", run.call_args.args[0])
+
+    def test_failed_export_reuses_filtered_extract_and_resumes_staging_index(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"extract")
+            with index._db() as db:
+                db.execute(
+                    "INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    ("Bisherige Straße", "1", "12345", "Ort", "DE", "", "", "", "node", "old", "bisherige strasse 1 12345 ort de"),
+                )
+
+            failed = Mock()
+            failed.stdout = io.StringIO("\n".join(self._feature(number) for number in range(3)) + "\n")
+            failed.wait.return_value = 1
+            failed.poll.return_value = 1
+            failed.args = ["osmium", "export"]
+            completed = Mock()
+            completed.stdout = io.StringIO("\n".join(self._feature(number) for number in range(5)) + "\n")
+            completed.wait.return_value = 0
+            completed.poll.return_value = 0
+            completed.args = ["osmium", "export"]
+
+            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), patch("app.osm_address.subprocess.run") as run, patch("app.osm_address.subprocess.Popen", side_effect=[failed, completed]):
+                run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
+                with self.assertRaisesRegex(RuntimeError, "osmium export failed"):
+                    index.build(source)
+                self.assertTrue(index.filtered_path.is_file())
+                with index._open_db(index.staging_db_path, staging=True) as db:
+                    self.assertEqual(3, db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+                with index._db() as db:
+                    self.assertEqual(
+                        "Bisherige Straße",
+                        db.execute("SELECT street FROM address").fetchone()[0],
+                    )
+
+                stats = index.build(source)
+
+            self.assertEqual(1, run.call_count, "persistent filtered PBF must not be regenerated")
+            self.assertEqual(5, stats["processed"])
+            self.assertEqual(5, stats["stored"])
+            with index._db() as db:
+                self.assertEqual(5, db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
+
+    def test_failed_publication_retries_without_replaying_completed_export(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"extract")
+            completed = Mock()
+            completed.stdout = io.StringIO("\n".join(self._feature(number) for number in range(4)) + "\n")
+            completed.wait.return_value = 0
+            completed.poll.return_value = 0
+            completed.args = ["osmium", "export"]
+            real_promote = index._promote_staging_index
+            attempts = 0
+
+            def flaky_promote(expected):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise RuntimeError("publication interrupted")
+                return real_promote(expected)
+
+            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), patch("app.osm_address.subprocess.run") as run, patch("app.osm_address.subprocess.Popen", return_value=completed) as popen, patch.object(index, "_promote_staging_index", side_effect=flaky_promote):
+                run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
+                with self.assertRaisesRegex(RuntimeError, "publication interrupted"):
+                    index.build(source)
+                self.assertTrue(index._build_status()["export_complete"])
+                stats = index.build(source)
+
+            self.assertEqual(1, popen.call_count, "completed osmium stream must not be replayed")
+            self.assertEqual(2, attempts)
+            self.assertEqual(4, stats["stored"])
 
     def test_osmium_attributes_preserve_real_object_identity(self):
         feature = json.loads(self._feature(27))

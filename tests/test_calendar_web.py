@@ -64,6 +64,42 @@ class CalendarWebTest(unittest.TestCase):
         self.assertIn("Buchungsseite öffnen", body)
         self.assertIn("Vor dem Teilen die Buchung aktivieren", body)
 
+    def test_appointment_type_is_optional_free_text_and_billable_after_creation(self):
+        contact = ContactStore(Path(app.config["DOCUMENT_ROOT"])).upsert(
+            {"display_name": "Kunde Termin", "email": "termin@example.test"}, "jens",
+        )
+        created = self.client.post("/documents/calendar", data={
+            "title": "Vor-Ort-Termin", "reason": "Bestandsaufnahme",
+            "start": "2026-08-10T10:00", "end": "2026-08-10T11:00",
+            "contact_id": contact["contact_id"], "visibility": "private",
+            "owner": "jens", "calendar_id": "default",
+        })
+        self.assertEqual(302, created.status_code)
+        store = CalendarStore(app.config["DOCUMENT_ROOT"])
+        event = store.events("jens")[0]
+        self.assertEqual("", event["appointment_type"])
+
+        changed = self.client.post(f"/documents/calendar/{event['event_id']}", data={
+            "title": event["title"], "reason": event["reason"], "start": event["start"],
+            "end": event["end"], "contact_id": contact["contact_id"], "visibility": "private",
+            "calendar_id": "default", "appointment_type": "Freie Sonderberatung",
+            "attendance": "both_attended", "billable": "1",
+            "billing_description": "Individuelle Beratung", "billing_quantity": "2",
+            "billing_net_price": "75", "billing_vat_rate": "19", "billing_currency": "EUR",
+        })
+        self.assertEqual(302, changed.status_code)
+        event = store.get(event["event_id"], "jens")
+        self.assertEqual("Freie Sonderberatung", event["appointment_type"])
+        self.assertTrue(event["billing"]["billable"])
+
+        candidates = self.client.get(
+            f"/documents/business/contacts/{contact['contact_id']}/appointment-invoice-candidates.json"
+        )
+        self.assertEqual(200, candidates.status_code)
+        item = candidates.get_json()["items"][0]
+        self.assertEqual(event["event_id"], item["source_id"])
+        self.assertEqual("75", item["net_price"])
+
     def test_calendar_invitation_uses_search_and_contact_recipient(self):
         contact = ContactStore(Path(app.config["DOCUMENT_ROOT"])).upsert(
             {"display_name": "Erika Beispiel", "email": "erika@example.test"},

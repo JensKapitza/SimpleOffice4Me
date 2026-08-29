@@ -51,13 +51,29 @@ class CustomerCreditLedger:
         return value
 
     def account(self, contact_id: str, currency: str = "EUR") -> dict[str, Any]:
-        currency = currency.upper()
-        entries = [
-            item for item in self._read()["entries"]
-            if item.get("contact_id") == contact_id and item.get("currency") == currency
-        ]
-        balance = sum((Decimal(str(item.get("signed_amount", "0"))) for item in entries), Decimal("0"))
-        return {"contact_id": contact_id, "currency": currency, "balance": f"{balance.quantize(MONEY):.2f}", "entries": list(reversed(entries))}
+        return self.accounts({contact_id}, currency).get(
+            contact_id,
+            {"contact_id": contact_id, "currency": currency.upper(), "balance": "0.00", "entries": []},
+        )
+
+    def accounts(self, contact_ids: set[str], currency: str = "EUR") -> dict[str, dict[str, Any]]:
+        """Read all requested customer balances in one ledger pass for dashboards."""
+        normalized_currency = currency.upper()
+        grouped = {contact_id: [] for contact_id in contact_ids}
+        for item in self._read()["entries"]:
+            contact_id = str(item.get("contact_id", ""))
+            if contact_id in grouped and item.get("currency") == normalized_currency:
+                grouped[contact_id].append(item)
+        result: dict[str, dict[str, Any]] = {}
+        for contact_id, entries in grouped.items():
+            balance = sum((Decimal(str(item.get("signed_amount", "0"))) for item in entries), Decimal("0"))
+            result[contact_id] = {
+                "contact_id": contact_id,
+                "currency": normalized_currency,
+                "balance": f"{balance.quantize(MONEY):.2f}",
+                "entries": list(reversed(entries)),
+            }
+        return result
 
     def add(self, contact_id: str, amount: Any, *, kind: str, tax_treatment: str,
             actor: str, note: str = "", reference: str = "", currency: str = "EUR",
