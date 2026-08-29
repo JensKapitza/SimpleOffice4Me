@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import json
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,7 +17,9 @@ def build_sbom() -> dict:
         if not name:
             continue
         components.append({"type": "library", "name": name, "version": distribution.version, "purl": f"pkg:pypi/{name}@{distribution.version}"})
-    return {"bomFormat": "CycloneDX", "specVersion": "1.5", "serialNumber": "urn:uuid:00000000-0000-4000-8000-000000000001", "version": 1,
+    inventory = "\n".join(f"{item['name']}=={item['version']}" for item in components)
+    serial = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/JensKapitza/SimpleOffice4Me\n" + inventory)
+    return {"bomFormat": "CycloneDX", "specVersion": "1.5", "serialNumber": f"urn:uuid:{serial}", "version": 1,
             "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": "0.1.0"}}, "components": components}
 
 

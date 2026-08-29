@@ -180,6 +180,10 @@ Konfiguration und Sicherheitsgrenzen stehen unter
 [Produktionsbetrieb mit Waitress](docs/PRODUKTIONSBETRIEB.md). Updates laufen
 mit `update.sh` oder `update.bat`
 über ein sicheres `git pull --ff-only`.
+Die technische CRA-Arbeitsakte, sichere Standardwerte, SBOM-Erzeugung,
+Schwachstellenmeldung und die Release-Prüfung stehen in
+[docs/CRA.md](docs/CRA.md), [docs/SECURITY.md](docs/SECURITY.md) und
+[docs/RELEASE_SECURITY_CHECKLIST.md](docs/RELEASE_SECURITY_CHECKLIST.md).
 Der [getrennte Dokumentindex](docs/PERFORMANCE_INDEXDIENST.md) hält Login,
 Dashboard und WebDAV auch bei mehr als 50.000 Dateien reaktionsfähig und dokumentiert
 Ressourcenpriorisierung, Fehlerverhalten und Abschaltung.
