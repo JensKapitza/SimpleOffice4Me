@@ -122,6 +122,12 @@ class IndexProcessIsolationTest(unittest.TestCase):
         self.assertEqual("tools.osm_index_worker", command[2])
         self.assertIn("--force", command)
 
+        with patch("tools.launcher.subprocess.Popen", return_value=process) as popen:
+            self.assertIs(process, launcher.start_osm_download_worker("/srv/documents", "germany"))
+        command = popen.call_args.args[0]
+        self.assertEqual("tools.osm_download_worker", command[2])
+        self.assertEqual("germany", command[-1])
+
 
 class LoginDashboardPerformanceTest(unittest.TestCase):
     def setUp(self):

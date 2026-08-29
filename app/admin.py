@@ -17,7 +17,7 @@ from .db import get_db
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex
 from .request_audit import audit_mutation_response
 from .system_identity import system_info
-from tools.launcher import start_osm_index_worker
+from tools.launcher import start_osm_download_worker, start_osm_index_worker
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 bp.after_app_request(audit_mutation_response)
@@ -116,6 +116,12 @@ def osm_region_info():
         return jsonify({"error": str(exc)}), 400
 
 
+@bp.get("/osm-addresses/status.json")
+@admin_required
+def osm_status():
+    return jsonify(LocalAddressIndex(current_app.config["DOCUMENT_ROOT"]).status())
+
+
 @bp.post("/osm-addresses/build")
 @admin_required
 def osm_build():
@@ -123,14 +129,18 @@ def osm_build():
     action = request.form.get("action", "download").strip()
     index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
     try:
+        if action not in {"download", "reindex"}:
+            raise ValueError("Unbekannte OSM-Aktion")
         if action == "reindex":
             if index.downloaded_source() is None:
                 raise ValueError("Kein bereits heruntergeladener OSM-Auszug vorhanden")
+            start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True)
         else:
-            index.download_region(region)
-        start_osm_index_worker(current_app.config["DOCUMENT_ROOT"], force=True)
+            if region not in GEOFABRIK_REGIONS:
+                raise ValueError("Unbekannte Geofabrik-Region")
+            start_osm_download_worker(current_app.config["DOCUMENT_ROOT"], region)
         audit("osm_address_index_started", "service", "osm-addresses", detail={"action": action, "region": region})
-        flash("Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
+        flash("OSM-Download und Indexierung wurden im Hintergrund gestartet." if action == "download" else "Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         current_app.logger.exception("OSM address index build failed")
         audit("osm_address_index_failed", "service", "osm-addresses", outcome="failure", detail={"action": action, "region": region, "error_type": type(exc).__name__})

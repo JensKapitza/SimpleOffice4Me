@@ -116,6 +116,25 @@ def start_osm_index_worker(document_root: str, *, force: bool = False) -> subpro
     return subprocess.Popen(command, **options)
 
 
+def start_osm_download_worker(document_root: str, region: str) -> subprocess.Popen[bytes]:
+    """Download a resumable Geofabrik extract and index it outside WSGI."""
+    command = [
+        sys.executable,
+        "-m",
+        "tools.osm_download_worker",
+        "--root",
+        document_root,
+        "--region",
+        region,
+    ]
+    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        options["creationflags"] = 0x00004000
+    else:
+        options["start_new_session"] = True
+    return subprocess.Popen(command, **options)
+
+
 def datalogger_enabled() -> bool:
     return os.environ.get("SIMPLEOFFICE_DATALOGGER", "1").strip().casefold() not in {"0", "false", "no", "off"}
 

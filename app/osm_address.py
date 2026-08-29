@@ -199,6 +199,8 @@ class LocalAddressIndex:
         status.update(self._stored_status())
         status["document_root"] = str(self.root)
         status["database_path"] = str(self.db_path)
+        status["filter_log"] = str(self.filter_log_path) if self.filter_log_path.is_file() else ""
+        status["export_log"] = str(self.export_log_path) if self.export_log_path.is_file() else ""
         if status.get("state") == "indexing" and status.get("phase_started_at"):
             try:
                 phase_started = datetime.fromisoformat(str(status["phase_started_at"]).replace("Z", "+00:00"))
@@ -210,7 +212,8 @@ class LocalAddressIndex:
         # Do not scan a many-million-row table from an HTTP request while the
         # writer is rebuilding it. The completed status always contains the
         # actual SELECT COUNT(*) result calculated inside the import transaction.
-        if self.db_path.is_file() and status.get("state") != "indexing":
+        active_states = {"downloading", "resuming", "retrying", "indexing"}
+        if self.db_path.is_file() and status.get("state") not in active_states:
             try:
                 with self._db() as db:
                     status["count"] = int(db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
@@ -967,6 +970,11 @@ class LocalAddressIndex:
             with self.export_log_path.open("a+", encoding="utf-8") as stderr_log:
                 stderr_log.write(f"\n[{utc_now()}] export start resume_after={resumed_at}\n")
                 stderr_log.flush()
+                try:
+                    idle_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT", "1800"))
+                except ValueError as exc:
+                    raise ValueError("invalid OSM export idle timeout") from exc
+                idle_timeout = max(300, min(idle_timeout, 86400))
                 process = subprocess.Popen(
                     [osmium, "export", str(filtered), "-f", "geojsonseq", "--attributes=type,id", "--no-progress"],
                     stdout=subprocess.PIPE, stderr=stderr_log, text=True, encoding="utf-8",
@@ -975,12 +983,6 @@ class LocalAddressIndex:
                 timed_out = threading.Event()
                 watchdog_stop = threading.Event()
                 last_output = [time.monotonic()]
-
-                try:
-                    idle_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT", "1800"))
-                except ValueError as exc:
-                    raise ValueError("invalid OSM export idle timeout") from exc
-                idle_timeout = max(300, min(idle_timeout, 86400))
 
                 def watch_export() -> None:
                     while not watchdog_stop.wait(min(30, max(1, idle_timeout // 10))):

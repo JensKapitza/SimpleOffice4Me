@@ -83,6 +83,28 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("/admin/osm-addresses", response.headers["Location"])
         start.assert_called_once_with(app.config["DOCUMENT_ROOT"], force=True)
 
+        with patch("app.admin.start_osm_download_worker") as download:
+            response = self.admin.post(
+                "/admin/osm-addresses/build",
+                data={"action": "download", "region": "germany"},
+            )
+        self.assertEqual(302, response.status_code)
+        download.assert_called_once_with(app.config["DOCUMENT_ROOT"], "germany")
+
+        with patch("app.admin.start_osm_download_worker") as download, \
+             patch("app.admin.start_osm_index_worker") as reindex:
+            response = self.admin.post(
+                "/admin/osm-addresses/build",
+                data={"action": "erase", "region": "germany"},
+            )
+        self.assertEqual(302, response.status_code)
+        download.assert_not_called()
+        reindex.assert_not_called()
+
+        status = self.admin.get("/admin/osm-addresses/status.json")
+        self.assertEqual(200, status.status_code)
+        self.assertIn("database_path", status.get_json())
+
     def test_clamav_server_actions_require_explicit_security_admin_allowlist(self):
         # Application administrator alone is deliberately insufficient. Server
         # actions are a separate privilege configured through the security-admin
