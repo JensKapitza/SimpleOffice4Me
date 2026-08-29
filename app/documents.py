@@ -795,6 +795,10 @@ def settings():
 @bp.post("/settings")
 @login_required
 def save_settings():
+    theme = request.form.get("theme", "system").strip().casefold()
+    if theme not in {"light", "dark", "system"}:
+        flash("Unbekanntes Farbschema. / Unknown color scheme.")
+        return redirect(url_for("documents.settings"))
     values = {
         "interface": {"default_language": request.form.get("default_language", "de"), "timezone": request.form.get("timezone", "Europe/Berlin")},
         "documents": {"default_state": request.form.get("default_state", "new"), "default_tags": request.form.get("default_tags", "").split(","), "upload_to_archive": request.form.get("upload_to_archive") == "1"},
@@ -806,7 +810,7 @@ def save_settings():
         display_name = request.form.get("display_name", "").strip()
         if not display_name:
             raise ValueError("Anzeigename fehlt.")
-        get_db().execute("UPDATE user SET display_name = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?", (display_name, "manual", g.user["id"]))
+        get_db().execute("UPDATE user SET display_name = ?, theme = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?", (display_name, theme, "manual", g.user["id"]))
         get_db().commit()
         flash("Standardwerte gespeichert. Bestehende Daten wurden nicht verändert.")
     except (TypeError, ValueError) as exc:
