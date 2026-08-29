@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ g.language|default('de') }}">
+<html lang="{{ g.language|default('de') }}" data-theme-preference="{{ g.theme_preference|default('system') }}" data-bs-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-5.3.8/css/bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-7.3.1/css/all.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   {% block script %}{% endblock %}
 </head>
 <body>
