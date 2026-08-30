@@ -1,23 +1,23 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <h1 class="h3">Dateisicherheit / ClamAV</h1>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="card mb-4"><div class="card-body">
     <p>Status: <span class="badge {% if status.state == 'available' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ status.state }}</span></p>
     <p class="text-break">{{ status.engine }} {{ status.version }}</p>
     {% if is_admin %}
     <div class="d-flex gap-2">
-      <form method="post" action="{{ url_for('documents.security_scan_now') }}"><button class="btn btn-danger">Verwaltete Dateien jetzt scannen</button></form>
-      <form method="post" action="{{ url_for('documents.security_update') }}"><button class="btn btn-outline-primary">Signaturen jetzt aktualisieren</button></form>
+      <form method="post" action="{{ url_for('documents.security_scan_now') }}"><button type="submit" class="btn btn-danger">Verwaltete Dateien jetzt scannen</button></form>
+      <form method="post" action="{{ url_for('documents.security_update') }}"><button type="submit" class="btn btn-outline-primary">Signaturen jetzt aktualisieren</button></form>
     </div>
     {% else %}<p class="text-secondary">Serveraktionen sind ausschließlich für konfigurierte Sicherheitsadministratoren sichtbar.</p>{% endif %}
   </div></div>
 
   <h2 class="h4">ClamAV-Ereignisse</h2>
   <div class="table-responsive"><table class="table table-sm align-middle">
-    <thead><tr><th>Zeit</th><th>Quelle</th><th>Datei</th><th>Ergebnis</th><th>Aktion</th><th>Benutzer</th><th>Engine</th><th>Details</th></tr></thead>
+    <thead><tr><th scope="col">Zeit</th><th scope="col">Quelle</th><th scope="col">Datei</th><th scope="col">Ergebnis</th><th scope="col">Aktion</th><th scope="col">Benutzer</th><th scope="col">Engine</th><th scope="col">Details</th></tr></thead>
     <tbody>
     {% for row in scans %}
       <tr>

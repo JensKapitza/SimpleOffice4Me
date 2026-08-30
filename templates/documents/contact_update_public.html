@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% from "documents/_country_datalist.html" import eu_country_datalist %}
 {% block body %}
-<main class="container py-5" style="max-width:900px">
+<main id="main-content" class="container py-5" style="max-width:900px">
   {% if submitted %}
   <div class="alert alert-success"><h1 class="h4">{{ tr('contact_update.submitted') }}</h1><p class="mb-0">{{ tr('contact_update.submitted_text') }}</p></div>
   {% else %}
@@ -45,7 +45,7 @@
     <div class="col-md-8"><label class="form-label">{{ tr('contact.website') }}</label><input class="form-control" name="website" type="url" value="{{ values.website }}"></div>
     <div class="col-12"><label class="form-label">{{ tr('contact.tags') }}</label><input class="form-control" name="tags" value="{{ values.tags }}"></div>
     <div class="col-12"><label class="form-label">{{ tr('contact.note') }}</label><textarea class="form-control" name="note" rows="4">{{ values.note }}</textarea></div>
-    <div class="col-12"><button class="btn btn-primary">{{ tr('contact_update.submit') }}</button></div>
+    <div class="col-12"><button type="submit" class="btn btn-primary">{{ tr('contact_update.submit') }}</button></div>
   </form>
   {% endif %}
 </main>

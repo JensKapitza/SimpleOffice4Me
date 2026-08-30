@@ -2,7 +2,7 @@
 {% block title %}Archivierte E-Mail{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div><h1 class="h3 mb-1"><i class="far fa-envelope-open me-2"></i>Archivierte E-Mail</h1><p class="text-secondary mb-0">Lokale EML-Vorschau. Aktive HTML-Inhalte werden nicht ausgeführt.</p></div>
     <a class="btn btn-outline-secondary" href="{{ url_for('mail_reader.index', account=account_id, mode='archive', q=query) }}"><i class="fas fa-arrow-left me-1"></i>Zurück zum Archiv</a>

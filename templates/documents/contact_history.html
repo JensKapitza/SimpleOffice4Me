@@ -1,16 +1,16 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div><a href="{{ url_for('documents.contacts') }}" class="text-decoration-none">&larr; {{ tr('contacts') }}</a><h1 class="h2 mt-2 mb-1">{{ labels.title }}</h1><p class="text-secondary mb-0">{{ labels.description }}</p></div>
   </div>
-  <form method="get" class="card card-body mb-4">
+  <form role="search" method="get" class="card card-body mb-4">
     <div class="row g-3 align-items-end">
-      <div class="col-lg-5"><label class="form-label" for="audit-query">{{ labels.search }}</label><input class="form-control" id="audit-query" name="q" value="{{ query }}" placeholder="{{ labels.search_hint }}"></div>
+      <div class="col-lg-5"><label class="form-label" for="audit-query">{{ labels.search }}</label><input type="search" class="form-control" id="audit-query" name="q" value="{{ query }}" placeholder="{{ labels.search_hint }}"></div>
       <div class="col-md-3"><label class="form-label" for="audit-editor">{{ labels.editor }}</label><select class="form-select" id="audit-editor" name="editor"><option value="">{{ labels.all_editors }}</option>{% for item in history.editors %}<option value="{{ item }}" {% if item == editor %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
       <div class="col-md-3"><label class="form-label" for="audit-field">{{ labels.changed_field }}</label><select class="form-select" id="audit-field" name="field"><option value="">{{ labels.all_fields }}</option>{% for item in history.fields %}<option value="{{ item }}" {% if item == field %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
-      <div class="col-md-1"><button class="btn btn-primary w-100" title="{{ labels.filter }}"><i class="fas fa-filter" aria-hidden="true"></i><span class="visually-hidden">{{ labels.filter }}</span></button></div>
+      <div class="col-md-1"><button type="submit" class="btn btn-primary w-100" title="{{ labels.filter }}"><i class="fas fa-filter" aria-hidden="true"></i><span class="visually-hidden">{{ labels.filter }}</span></button></div>
     </div>
   </form>
   <div class="d-flex justify-content-between align-items-center gap-3 mb-3"><p class="text-secondary mb-0">{{ history.total }} {{ labels.changes }} · {{ labels.page }} {{ page }} / {{ pages }}</p>{% if query or editor or field %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contact_audit.history') }}">{{ labels.reset }}</a>{% endif %}</div>

@@ -1,12 +1,12 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
     <div><a class="text-decoration-none" href="{{ url_for('documents.contacts') }}">&larr; Kontakte</a><h1 class="h2 mt-2 mb-1">Kontaktmanagement</h1><p class="text-secondary mb-0">Datenqualität, Gruppen, Tags, Import und Massenbearbeitung.</p></div>
   </div>
   <nav class="nav nav-tabs mb-4" aria-label="Kontaktmanagement"><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.manage') }}">Kontakte</a><a class="nav-link" href="{{ url_for('contact_audit.duplicates') }}">Dubletten</a></nav>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <section class="row g-3 mb-4">
     {% for value, label in [(dashboard.total,'Kontakte'),(dashboard.missing_email,'ohne E-Mail'),(dashboard.missing_phone,'ohne Telefon'),(dashboard.missing_company,'ohne Firma')] %}
@@ -14,25 +14,25 @@
     {% endfor %}
   </section>
 
-  <section class="card mb-4"><div class="card-header"><strong>Erweiterte Suche</strong></div><div class="card-body"><form method="get" class="row g-2">
-    <div class="col-lg-4"><input class="form-control" name="q" value="{{ query }}" placeholder="Name, E-Mail, Telefon, Adresse, Tag, Gruppe …"></div>
+  <section class="card mb-4"><div class="card-header"><strong>Erweiterte Suche</strong></div><div class="card-body"><form role="search" method="get" class="row g-2">
+    <div class="col-lg-4"><input type="search" class="form-control" name="q" value="{{ query }}" placeholder="Name, E-Mail, Telefon, Adresse, Tag, Gruppe …"></div>
     <div class="col-lg-2"><select class="form-select" name="tag"><option value="">Alle Tags</option>{% for tag in dashboard.tags %}<option value="{{ tag }}" {% if selected_tag == tag %}selected{% endif %}>{{ tag }}</option>{% endfor %}</select></div>
     <div class="col-lg-2"><select class="form-select" name="group"><option value="">Alle Gruppen</option>{% for group in dashboard.groups %}<option value="{{ group }}" {% if selected_group == group %}selected{% endif %}>{{ group }}</option>{% endfor %}</select></div>
     <div class="col-lg-2"><input class="form-control" name="company" value="{{ company }}" placeholder="Firma"></div>
     <div class="col-lg-2"><select class="form-select" name="incomplete"><option value="">Vollständigkeit egal</option><option value="email" {% if incomplete == 'email' %}selected{% endif %}>ohne E-Mail</option><option value="phone" {% if incomplete == 'phone' %}selected{% endif %}>ohne Telefon</option><option value="company" {% if incomplete == 'company' %}selected{% endif %}>ohne Firma</option></select></div>
-    <div class="col-12"><button class="btn btn-primary">Filtern</button><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.manage') }}">Zurücksetzen</a></div>
+    <div class="col-12"><button type="submit" class="btn btn-primary">Filtern</button><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.manage') }}">Zurücksetzen</a></div>
   </form></div></section>
 
   <section class="card mb-4"><div class="card-header"><strong>Massenbearbeitung und Export</strong></div><div class="card-body">
     <form method="post" action="{{ url_for('contact_audit.bulk_metadata') }}">
-      <div class="row g-2 mb-3"><div class="col-md-4"><input class="form-control" name="add_tags" placeholder="Tags ergänzen, kommagetrennt"></div><div class="col-md-4"><input class="form-control" name="add_groups" placeholder="Gruppen ergänzen, kommagetrennt"></div><div class="col-md-2"><button class="btn btn-outline-primary w-100">Metadaten anwenden</button></div><div class="col-md-2"><button class="btn btn-outline-secondary w-100" formaction="{{ url_for('contact_audit.bulk_export') }}">Auswahl als vCard</button></div></div>
-      <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th><input class="form-check-input" type="checkbox" id="select-all-contacts"></th><th>Kontakt</th><th>Firma</th><th>Tags</th><th>Gruppen</th><th>Geändert</th></tr></thead><tbody>
+      <div class="row g-2 mb-3"><div class="col-md-4"><input class="form-control" name="add_tags" placeholder="Tags ergänzen, kommagetrennt"></div><div class="col-md-4"><input class="form-control" name="add_groups" placeholder="Gruppen ergänzen, kommagetrennt"></div><div class="col-md-2"><button type="submit" class="btn btn-outline-primary w-100">Metadaten anwenden</button></div><div class="col-md-2"><button type="submit" class="btn btn-outline-secondary w-100" formaction="{{ url_for('contact_audit.bulk_export') }}">Auswahl als vCard</button></div></div>
+      <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col"><input class="form-check-input" type="checkbox" id="select-all-contacts"></th><th scope="col">Kontakt</th><th scope="col">Firma</th><th scope="col">Tags</th><th scope="col">Gruppen</th><th scope="col">Geändert</th></tr></thead><tbody>
         {% for contact in contacts %}<tr><td><input class="form-check-input contact-selection" type="checkbox" name="contact_ids" value="{{ contact.contact_id }}"></td><td><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">{{ contact.fields.display_name }}</a><div class="small text-secondary">{{ contact.fields.email }} {{ contact.fields.phone }}</div></td><td>{{ contact.fields.company }}</td><td>{% for tag in contact.tags|default([]) %}<span class="badge text-bg-light border me-1">{{ tag }}</span>{% endfor %}</td><td>{% for group in contact.groups|default([]) %}<span class="badge text-bg-secondary me-1">{{ group }}</span>{% endfor %}</td><td class="small">{{ contact.updated_at }}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Keine passenden Kontakte.</td></tr>{% endfor %}
       </tbody></table></div>
     </form>
   </div></section>
 
-  <section class="card"><div class="card-header"><strong>CSV-Import-Center</strong></div><div class="card-body"><p class="small text-secondary">Vorschau schreibt nichts. Beim Import werden alle Zeilen zuerst validiert; bei einem ungültigen Datensatz wird nichts importiert. Bestehende Kontakte mit exakt gleicher E-Mail werden nicht überschrieben, sondern übersprungen und können anschließend über die Dublettenprüfung bearbeitet werden.</p><div class="row g-3"><div class="col-lg-6"><form method="post" action="{{ url_for('contact_audit.import_preview') }}" enctype="multipart/form-data" class="row g-2"><div class="col-8"><input required type="file" class="form-control" name="contacts_file" accept=".csv,text/csv,text/plain"></div><div class="col-4"><button class="btn btn-outline-primary w-100">Nur Vorschau</button></div></form></div><div class="col-lg-6"><form method="post" action="{{ url_for('contact_audit.import_csv') }}" enctype="multipart/form-data" class="row g-2"><div class="col-8"><input required type="file" class="form-control" name="contacts_file" accept=".csv,text/csv,text/plain"></div><div class="col-4"><button class="btn btn-primary w-100" onclick="return confirm('Validierte CSV-Kontakte jetzt importieren?')">Importieren</button></div></form></div></div></div></section>
+  <section class="card"><div class="card-header"><strong>CSV-Import-Center</strong></div><div class="card-body"><p class="small text-secondary">Vorschau schreibt nichts. Beim Import werden alle Zeilen zuerst validiert; bei einem ungültigen Datensatz wird nichts importiert. Bestehende Kontakte mit exakt gleicher E-Mail werden nicht überschrieben, sondern übersprungen und können anschließend über die Dublettenprüfung bearbeitet werden.</p><div class="row g-3"><div class="col-lg-6"><form method="post" action="{{ url_for('contact_audit.import_preview') }}" enctype="multipart/form-data" class="row g-2"><div class="col-8"><input required type="file" class="form-control" name="contacts_file" accept=".csv,text/csv,text/plain"></div><div class="col-4"><button type="submit" class="btn btn-outline-primary w-100">Nur Vorschau</button></div></form></div><div class="col-lg-6"><form method="post" action="{{ url_for('contact_audit.import_csv') }}" enctype="multipart/form-data" class="row g-2"><div class="col-8"><input required type="file" class="form-control" name="contacts_file" accept=".csv,text/csv,text/plain"></div><div class="col-4"><button type="submit" class="btn btn-primary w-100" onclick="return confirm('Validierte CSV-Kontakte jetzt importieren?')">Importieren</button></div></form></div></div></div></section>
 </main>
 <script>document.getElementById('select-all-contacts')?.addEventListener('change',event=>document.querySelectorAll('.contact-selection').forEach(item=>item.checked=event.target.checked));</script>
 {% endblock %}
