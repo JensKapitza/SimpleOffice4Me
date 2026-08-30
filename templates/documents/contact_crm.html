@@ -6,7 +6,7 @@
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">← Kontakt</a><h1 class="h3 mt-2">CRM: {{ contact.fields.display_name }}</h1><p class="text-secondary">Kaufmännische Daten bleiben serverseitig und werden durch CardDAV-/Thunderbird-Änderungen nicht gelöscht.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.crm_proposals') }}">Externe Änderungsvorschläge</a></div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
 
-  <form method="post" class="row g-4">
+  <form method="post" class="row g-4" autocomplete="off">
     <section class="col-lg-7"><div class="card"><div class="card-header">Stammdaten und Konditionen</div><div class="card-body row g-3">
       <div class="col-12"><label class="form-label">Rollen</label><div>{% for value,label in [('customer','Kunde'),('supplier','Lieferant'),('contact_person','Ansprechpartner'),('private','Privat'),('other','Sonstige')] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="roles" value="{{ value }}" {% if value in crm.roles|default([]) %}checked{% endif %}>{{ label }}</label>{% endfor %}</div></div>
       <div class="col-md-4"><label class="form-label">Status</label><select class="form-select" name="status">{% for value,label in [('active','Aktiv'),('inactive','Inaktiv'),('prospect','Interessent'),('blocked','Gesperrt'),('former','Ehemalig')] %}<option value="{{ value }}" {% if crm.status|default('active') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
@@ -21,11 +21,11 @@
         {% if not osm_status.ready %}<div class="alert alert-warning py-2 small">{{ 'No local OSM address index is available yet.' if g.language == 'en' else 'Noch kein lokaler OSM-Adressindex vorhanden.' }} {% if g.user.is_admin %}<a href="{{ url_for('admin.osm_address_index') }}">{{ 'Open administration' if g.language == 'en' else 'Administration öffnen' }}</a>{% else %}{{ 'An administrator must configure it.' if g.language == 'en' else 'Ein Administrator muss ihn einrichten.' }}{% endif %}</div>{% endif %}
         <div class="row g-2">
           <div class="col-4"><label class="form-label small">Typ</label><select id="osm-address-type" class="form-select form-select-sm"><option value="billing">Rechnung</option><option value="shipping">Lieferung</option><option value="work">Arbeit</option><option value="home">Privat</option><option value="other">Sonstige</option></select></div>
-          <div class="col-8"><label class="form-label small">Ort</label><input id="osm-city" class="form-control form-control-sm" placeholder="Ort" data-address-field="city"></div>
-          <div class="col-4"><label class="form-label small">{{ tr('contact.postal') }}</label><input id="osm-postal" class="form-control form-control-sm" placeholder="12345" data-address-field="postal"></div>
-          <div class="col-6"><label class="form-label small">Straße + Hausnummer</label><input id="osm-street" class="form-control form-control-sm" placeholder="Musterstraße 12" data-address-field="street"></div>
-          <div class="col-2"><label class="form-label small">{{ tr('contact.country') }}</label><input id="osm-country" class="form-control form-control-sm text-uppercase" value="DE" maxlength="2" list="crm-country-codes" data-address-field="country"></div>
-          <div class="col-6"><label class="form-label small">Bundesland / Region / State</label><input id="osm-state" class="form-control form-control-sm" placeholder="NRW / CA / Québec" data-address-field="state"></div>
+          <div class="col-8"><label class="form-label small">Ort</label><input id="osm-city" class="form-control form-control-sm" placeholder="Ort" data-address-field="city" autocomplete="off"></div>
+          <div class="col-4"><label class="form-label small">{{ tr('contact.postal') }}</label><input id="osm-postal" class="form-control form-control-sm" placeholder="12345" data-address-field="postal" autocomplete="off"></div>
+          <div class="col-6"><label class="form-label small">Straße + Hausnummer</label><input id="osm-street" class="form-control form-control-sm" placeholder="Musterstraße 12" data-address-field="street" autocomplete="off"></div>
+          <div class="col-2"><label class="form-label small">{{ tr('contact.country') }}</label><input id="osm-country" class="form-control form-control-sm text-uppercase" value="DE" maxlength="2" list="crm-country-codes" data-address-field="country" autocomplete="off"></div>
+          <div class="col-6"><label class="form-label small">Bundesland / Region / State</label><input id="osm-state" class="form-control form-control-sm" placeholder="NRW / CA / Québec" data-address-field="state" autocomplete="off"></div>
           {{ eu_country_datalist('crm-country-codes') }}
           <div class="col-12"><button id="osm-apply" type="button" class="btn btn-sm btn-outline-success">Adresse übernehmen</button></div>
         </div>

@@ -1163,9 +1163,25 @@ def search_address(query: str, *, root: str | Path, country_code: str = "de", li
 
 
 def unique_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if len(candidates) != 1:
+    # OSM commonly contains the same postal address as a node and as part of a
+    # way.  Those are distinct OSM objects, but not distinct choices for a
+    # person entering an address.  Judge uniqueness by the visible postal
+    # address and never by the OSM object id.
+    unique: dict[tuple[str, ...], dict[str, Any]] = {}
+    for candidate in candidates:
+        identity = tuple(
+            _clean(candidate.get(key), 300).casefold()
+            for key in ("street", "postal", "city", "state", "country")
+        )
+        current = unique.get(identity)
+        if current is None or (
+            current.get("match_quality") == "fallback"
+            and candidate.get("match_quality") != "fallback"
+        ):
+            unique[identity] = candidate
+    if len(unique) != 1:
         return None
-    item = candidates[0]
+    item = next(iter(unique.values()))
     if item.get("match_quality") == "fallback":
         return None
     if item.get("street") and item.get("city") and (item.get("postal") or item.get("country")):
@@ -1175,7 +1191,7 @@ def unique_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 def field_suggestions(
     candidates: list[dict[str, Any]], field: str, *, limit: int = 8
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Return deduplicated values for one address field only.
 
     Ambiguous search results must not leak adjacent values into the UI: a city
@@ -1188,14 +1204,28 @@ def field_suggestions(
         return []
     maximum = max(1, min(int(limit), 20))
     seen: set[str] = set()
-    suggestions: list[dict[str, str]] = []
+    suggestions: list[dict[str, Any]] = []
     for candidate in candidates:
         value = _clean(candidate.get(selected), 300)
         identity = value.casefold()
         if not value or identity in seen:
             continue
         seen.add(identity)
-        suggestions.append({"field": selected, "value": value})
+        suggestion: dict[str, Any] = {"field": selected, "value": value}
+        if selected == "postal":
+            # A postcode may occur on many OSM objects.  Only carry the city
+            # along when every result for that postcode agrees on one
+            # non-empty city.  Street/state/country remain untouched.
+            cities: dict[str, str] = {}
+            for row in candidates:
+                if _clean(row.get("postal"), 300).casefold() != identity:
+                    continue
+                city = _clean(row.get("city"), 300)
+                if city:
+                    cities.setdefault(city.casefold(), city)
+            if len(cities) == 1:
+                suggestion["fills"] = {"city": next(iter(cities.values()))}
+        suggestions.append(suggestion)
         if len(suggestions) >= maximum:
             break
     return suggestions
