@@ -318,11 +318,18 @@ class ContactManagement:
         return self.store._read(self.snapshots_path, {"snapshots": []})
 
     def _snapshot_locked(self, contact: dict[str, Any], actor: str, reason: str) -> dict[str, Any]:
+        return self._snapshots_locked([(contact, reason)], actor)[0]
+
+    def _snapshots_locked(self, contacts: list[tuple[dict[str, Any], str]], actor: str) -> list[dict[str, Any]]:
+        """Persist several contact snapshots with one bounded file write."""
         payload = self._read_snapshots()
-        snapshot = {"snapshot_id": str(uuid.uuid4()), "contact_id": contact.get("contact_id", ""), "created_at": utc_now(), "created_by": actor, "reason": reason, "contact": copy.deepcopy(contact)}
-        payload["snapshots"] = (payload.get("snapshots", []) + [snapshot])[-self.SNAPSHOT_LIMIT:]
+        snapshots = [
+            {"snapshot_id": str(uuid.uuid4()), "contact_id": contact.get("contact_id", ""), "created_at": utc_now(), "created_by": actor, "reason": reason, "contact": copy.deepcopy(contact)}
+            for contact, reason in contacts
+        ]
+        payload["snapshots"] = (payload.get("snapshots", []) + snapshots)[-self.SNAPSHOT_LIMIT:]
         atomic_json_write(self.snapshots_path, payload)
-        return snapshot
+        return snapshots
 
     def snapshots(self, contact_id: str, actor: str) -> list[dict[str, Any]]:
         self.store.get(contact_id, actor)
@@ -449,9 +456,17 @@ class ContactManagement:
                 if score < 70 or not trivial or any(self._is_blocking_bulk_conflict(row) for row in preview):
                     raise ValueError("bulk merge only accepts high-confidence pairs without conflicting values")
 
+            self._snapshots_locked(
+                [
+                    (by_id[contact_id], reason)
+                    for target_id, source_id in normalized_pairs
+                    for contact_id, reason in ((target_id, "merge_target"), (source_id, "merge_source"))
+                ],
+                actor,
+            )
             for target_id, source_id in normalized_pairs:
                 target, source = by_id[target_id], by_id[source_id]
-                merged = self._merge_pair_locked(target, source, actor)
+                merged = self._merge_pair_locked(target, source, actor, snapshot=False)
                 merged_rows.append(merged)
                 audit_rows.append({"target_id": target_id, "source_id": source_id})
 
@@ -463,11 +478,11 @@ class ContactManagement:
             )
         return merged_rows
 
-    def _merge_pair_locked(self, target: dict[str, Any], source: dict[str, Any], actor: str) -> dict[str, Any]:
+    def _merge_pair_locked(self, target: dict[str, Any], source: dict[str, Any], actor: str, *, snapshot: bool = True) -> dict[str, Any]:
         """Build one merged contact while the contacts write lock is held."""
         source_id = str(source.get("contact_id", ""))
-        self._snapshot_locked(target, actor, "merge_target")
-        self._snapshot_locked(source, actor, "merge_source")
+        if snapshot:
+            self._snapshots_locked([(target, "merge_target"), (source, "merge_source")], actor)
         target_n, source_n = self.normalize_contact(target), self.normalize_contact(source)
         merged = copy.deepcopy(target_n)
         merged_fields = dict(source_n.get("fields", {}))
