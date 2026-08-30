@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/slideshow.css') }}">{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main class="container py-4">
@@ -33,7 +34,33 @@
   </nav>
   {% endif %}
   {% if pictures %}
-  <div class="modal fade" id="slideshow" tabindex="-1" aria-labelledby="slideshow-title"><div class="modal-dialog modal-fullscreen"><div class="modal-content bg-dark"><div class="modal-header border-secondary text-white"><h2 class="modal-title fs-5" id="slideshow-title">Diashow</h2><span class="small text-white-50" id="slide-counter">1 / {{ pictures|length }}</span><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body p-0 d-flex align-items-center"><div id="image-carousel" class="carousel slide w-100" data-bs-interval="false"><div class="carousel-indicators">{% for picture in pictures %}<button type="button" data-bs-target="#image-carousel" data-bs-slide-to="{{ loop.index0 }}" class="{% if loop.first %}active{% endif %}" aria-label="Bild {{ loop.index }}"></button>{% endfor %}</div><div class="carousel-inner">{% for picture in pictures %}<div class="carousel-item {% if loop.first %}active{% endif %} text-center" data-original-url="{{ url_for('documents.image_preview', document_id=picture.document_id) }}"><img class="img-fluid" style="max-height:calc(100vh - 10rem)" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" src="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"><div class="carousel-caption position-static py-2"><span class="text-white text-break">{{ picture.last_path }}</span>{% if picture.image_analysis %}<small class="d-block text-white-50">{{ picture.image_analysis.width|default('?') }} × {{ picture.image_analysis.height|default('?') }} px · {{ picture.image_analysis.format|default('?') }}</small>{% endif %}</div></div>{% endfor %}</div><button class="carousel-control-prev" type="button" data-bs-target="#image-carousel" data-bs-slide="prev"><span class="carousel-control-prev-icon"></span><span class="visually-hidden">Vorheriges Bild</span></button><button class="carousel-control-next" type="button" data-bs-target="#image-carousel" data-bs-slide="next"><span class="carousel-control-next-icon"></span><span class="visually-hidden">Nächstes Bild</span></button></div></div><div class="modal-footer border-secondary justify-content-between"><div class="d-flex flex-wrap align-items-center gap-2"><div class="form-check form-switch mb-0"><input id="slide-autostart" class="form-check-input" type="checkbox" checked><label class="form-check-label text-white-50 small" for="slide-autostart">Automatisch starten</label></div><label class="text-white-50 small" for="slide-seconds">Anzeige</label><input id="slide-seconds" class="form-range" type="range" min="3" max="60" value="5" style="width:10rem" aria-label="Sekunden pro Bild"><span class="text-white small"><span id="slide-seconds-value">5</span> Sek.</span><button id="slide-autoplay-start" type="button" class="btn btn-sm btn-light">Start</button><button id="slide-autoplay-stop" type="button" class="btn btn-sm btn-outline-light" disabled>Stop</button></div><a id="slide-open-original" class="btn btn-outline-light" href="{{ url_for('documents.image_preview', document_id=pictures[0].document_id) }}" target="_blank" rel="noopener">Original öffnen</a></div></div></div></div>
+  <div class="modal fade" id="slideshow" tabindex="-1" aria-labelledby="slideshow-title">
+    <div class="modal-dialog modal-fullscreen"><div class="modal-content slideshow-shell">
+      <h2 class="visually-hidden" id="slideshow-title">{{ tr('slideshow.title') }}</h2>
+      <div class="slideshow-counter" id="slide-counter" aria-live="polite">1 / {{ pictures|length }}</div>
+      <button type="button" class="btn-close btn-close-white slideshow-close" data-bs-dismiss="modal" aria-label="{{ tr('slideshow.close') }}"></button>
+      <details class="slideshow-details">
+        <summary class="btn btn-sm btn-dark"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> {{ tr('slideshow.info_controls') }}</summary>
+        <div class="slideshow-details-panel">
+          <div id="slide-current-title" class="small fw-semibold text-break"></div>
+          <div id="slide-current-meta" class="small text-white-50 mt-1"></div>
+          <div id="slide-current-tags" class="small text-white-50 text-break"></div>
+          <hr class="border-secondary my-2">
+          <div class="form-check form-switch mb-2"><input id="slide-autostart" class="form-check-input" type="checkbox" checked><label class="form-check-label small" for="slide-autostart">{{ tr('slideshow.autostart') }}</label></div>
+          <label class="small d-flex align-items-center gap-2" for="slide-seconds"><span>{{ tr('slideshow.duration') }}</span><input id="slide-seconds" class="form-range m-0" type="range" min="3" max="60" value="5"><span class="text-nowrap"><span id="slide-seconds-value">5</span> {{ tr('slideshow.seconds') }}</span></label>
+          <div class="d-flex gap-2 mt-2"><button id="slide-autoplay-start" type="button" class="btn btn-sm btn-light">{{ tr('slideshow.start') }}</button><button id="slide-autoplay-stop" type="button" class="btn btn-sm btn-outline-light" disabled>{{ tr('slideshow.stop') }}</button><a id="slide-open-original" class="btn btn-sm btn-outline-light ms-auto" href="{{ url_for('documents.image_preview', document_id=pictures[0].document_id) }}" target="_blank" rel="noopener">{{ tr('slideshow.open_original') }}</a></div>
+        </div>
+      </details>
+      <div class="modal-body p-0 slideshow-stage">
+        <div id="image-carousel" class="carousel slide h-100" data-bs-interval="false">
+          <div class="carousel-inner h-100">{% for picture in pictures %}{% set analysis = picture.image_analysis or {} %}<div class="carousel-item h-100 {% if loop.first %}active{% endif %}" data-original-url="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" data-slide-title="{{ picture.last_path }}" data-slide-meta="{{ analysis.width|default('?') }} × {{ analysis.height|default('?') }} px · {{ analysis.format|default('?') }}" data-slide-tags="{{ picture.tags|join(', ') }}"><img class="slideshow-image" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" src="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></div>{% endfor %}</div>
+          <button class="carousel-control-prev" type="button" data-bs-target="#image-carousel" data-bs-slide="prev"><span class="carousel-control-prev-icon"></span><span class="visually-hidden">{{ tr('slideshow.previous') }}</span></button>
+          <button class="carousel-control-next" type="button" data-bs-target="#image-carousel" data-bs-slide="next"><span class="carousel-control-next-icon"></span><span class="visually-hidden">{{ tr('slideshow.next') }}</span></button>
+        </div>
+        <div class="slideshow-filmstrip" id="slide-filmstrip" role="tablist" aria-label="{{ tr('slideshow.thumbnails') }}">{% for picture in pictures %}<button type="button" class="slideshow-thumb {% if loop.first %}active{% endif %}" data-bs-target="#image-carousel" data-bs-slide-to="{{ loop.index0 }}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" aria-label="{{ tr('slideshow.image') }} {{ loop.index }}"><img src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" loading="lazy" alt=""></button>{% endfor %}</div>
+      </div>
+    </div></div>
+  </div>
   <script src="{{ url_for('static', filename='js/slideshow.js') }}"></script>
   {% endif %}
 </main>
