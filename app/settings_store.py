@@ -67,6 +67,36 @@ UI_LITERAL_TRANSLATIONS = {
 TRANSLATIONS["de"].update({"invoice.status.draft": "Entwurf", "invoice.recipient_type": "Empfängerart", "invoice.recipient.private": "Privatperson", "invoice.recipient.company": "Firma", "invoice.recipient.company_name": "Firmenname", "invoice.recipient.contact": "Name / Ansprechpartner", "invoice.recipient.contact_optional": "Ansprechpartner (optional)", "invoice.project.add": "Projekt abrechnen", "invoice.project.open": "Offene Projektposten", "invoice.project.none": "Keine offenen Projektposten vorhanden.", "invoice.category": "Kategorie"})
 TRANSLATIONS["en"].update({"invoice.status.draft": "Draft", "invoice.recipient_type": "Recipient type", "invoice.recipient.private": "Private person", "invoice.recipient.company": "Company", "invoice.recipient.company_name": "Company name", "invoice.recipient.contact": "Name / contact person", "invoice.recipient.contact_optional": "Contact person (optional)", "invoice.project.add": "Bill project", "invoice.project.open": "Open project items", "invoice.project.none": "No open project items available.", "invoice.category": "Category"})
 TRANSLATIONS["de"].update({
+    "slideshow.title": "Diashow",
+    "slideshow.close": "Diashow schließen",
+    "slideshow.info_controls": "Info und Steuerung",
+    "slideshow.autostart": "Automatisch starten",
+    "slideshow.duration": "Anzeigedauer",
+    "slideshow.seconds": "Sek.",
+    "slideshow.start": "Start",
+    "slideshow.stop": "Stop",
+    "slideshow.open_original": "Original öffnen",
+    "slideshow.previous": "Vorheriges Bild",
+    "slideshow.next": "Nächstes Bild",
+    "slideshow.thumbnails": "Bildübersicht",
+    "slideshow.image": "Bild",
+})
+TRANSLATIONS["en"].update({
+    "slideshow.title": "Slideshow",
+    "slideshow.close": "Close slideshow",
+    "slideshow.info_controls": "Info and controls",
+    "slideshow.autostart": "Start automatically",
+    "slideshow.duration": "Display time",
+    "slideshow.seconds": "sec.",
+    "slideshow.start": "Start",
+    "slideshow.stop": "Stop",
+    "slideshow.open_original": "Open original",
+    "slideshow.previous": "Previous image",
+    "slideshow.next": "Next image",
+    "slideshow.thumbnails": "Image overview",
+    "slideshow.image": "Image",
+})
+TRANSLATIONS["de"].update({
     "invoice.status.written_off": "Ausgebucht",
     "writeoff.title": "Forderung ausbuchen",
     "writeoff.history": "Ausbuchungshistorie",

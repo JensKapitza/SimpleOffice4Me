@@ -11,11 +11,17 @@
     const stop = document.getElementById("slide-autoplay-stop");
     const counter = document.getElementById("slide-counter");
     const originalLink = document.getElementById("slide-open-original");
+    const currentTitle = document.getElementById("slide-current-title");
+    const currentMeta = document.getElementById("slide-current-meta");
+    const currentTags = document.getElementById("slide-current-tags");
+    const filmstrip = document.getElementById("slide-filmstrip");
     if (!modalElement || !carouselElement || !seconds || !secondsValue || !autostart ||
-        !start || !stop || !counter || !originalLink || !window.bootstrap?.Carousel) return;
+        !start || !stop || !counter || !originalLink || !currentTitle || !currentMeta ||
+        !currentTags || !filmstrip || !window.bootstrap?.Carousel) return;
 
-    const originals = Array.from(carouselElement.querySelectorAll(".carousel-item"))
-      .map(item => item.dataset.originalUrl);
+    const items = Array.from(carouselElement.querySelectorAll(".carousel-item"));
+    const originals = items.map(item => item.dataset.originalUrl);
+    const thumbnails = Array.from(filmstrip.querySelectorAll(".slideshow-thumb"));
     const carousel = window.bootstrap.Carousel.getOrCreateInstance(carouselElement, {
       interval: false,
       ride: false,
@@ -26,6 +32,22 @@
     let playing = false;
     const delay = () => Math.min(60, Math.max(3, Number(seconds.value) || 5)) * 1000;
     const updateDelayLabel = () => { secondsValue.textContent = String(Math.round(delay() / 1000)); };
+
+    function showSlideState(index) {
+      const safeIndex = Math.min(items.length - 1, Math.max(0, index));
+      const item = items[safeIndex];
+      counter.textContent = `${safeIndex + 1} / ${originals.length}`;
+      originalLink.href = originals[safeIndex];
+      currentTitle.textContent = item?.dataset.slideTitle || "";
+      currentMeta.textContent = item?.dataset.slideMeta || "";
+      currentTags.textContent = item?.dataset.slideTags || "";
+      thumbnails.forEach((thumbnail, thumbnailIndex) => {
+        const active = thumbnailIndex === safeIndex;
+        thumbnail.classList.toggle("active", active);
+        thumbnail.setAttribute("aria-selected", String(active));
+      });
+      thumbnails[safeIndex]?.scrollIntoView({behavior: "smooth", block: "nearest", inline: "center"});
+    }
 
     function stopAutoplay() {
       playing = false;
@@ -59,6 +81,8 @@
       else stopAutoplay();
     });
     modalElement.addEventListener("shown.bs.modal", () => {
+      const activeIndex = Math.max(0, items.findIndex(item => item.classList.contains("active")));
+      showSlideState(activeIndex);
       if (autostart.checked) startAutoplay();
     });
     modalElement.addEventListener("hidden.bs.modal", stopAutoplay);
@@ -67,11 +91,17 @@
     });
     carouselElement.addEventListener("slid.bs.carousel", event => {
       const index = Number.isInteger(event.to) ? event.to : 0;
-      counter.textContent = `${index + 1} / ${originals.length}`;
-      originalLink.href = originals[index];
+      showSlideState(index);
       schedule();
     });
+    modalElement.addEventListener("keydown", event => {
+      if (event.key === " " && !["INPUT", "BUTTON", "A", "SUMMARY"].includes(event.target.tagName)) {
+        event.preventDefault();
+        if (playing) stopAutoplay(); else startAutoplay();
+      }
+    });
     updateDelayLabel();
+    showSlideState(0);
   }
 
   if (document.readyState === "loading") {
