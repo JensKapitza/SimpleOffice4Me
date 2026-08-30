@@ -3,6 +3,7 @@ import unittest
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from app.contact_store import ContactStore
 
@@ -57,6 +58,20 @@ class ContactStoreTest(unittest.TestCase):
             self.assertEqual([contact["contact_id"]], [item["contact_id"] for item in store.search("4711", "admin")])
             self.assertEqual([contact["contact_id"]], [item["contact_id"] for item in store.search("Klauberg", "admin")])
             self.assertEqual([], store.search("Meier", "other"))
+
+    def test_search_and_address_matches_reuse_preloaded_contacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            contact = store.upsert({"display_name": "Vorab geladen"}, "admin")
+            store.add_address(contact["contact_id"], "Work", "Weserstr. 27", "admin")
+            loaded = store.contacts("admin")
+
+            with patch.object(store, "contacts", side_effect=AssertionError("contact store reread")):
+                result = store.search("Weser", "admin", contacts=loaded)
+                matches = store.address_matches(loaded)
+
+            self.assertEqual([contact["contact_id"]], [item["contact_id"] for item in result])
+            self.assertEqual({}, matches)
 
     def test_parallel_carddav_writes_do_not_lose_contacts_or_conflict_in_git(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -619,23 +619,25 @@ def _billed_appointment_sources(root: Path, exclude_invoice_id: str = "") -> set
 def _validate_project_sources(root: Path, row: dict[str, Any], actor: str) -> None:
     refs=[(str(line.get("project_id","")),str(line.get("project_source_type","")),str(line.get("project_source_id",""))) for line in row.get("lines",[]) if line.get("project_id")]
     if len(refs)!=len(set(refs)): raise ValueError("a project billing item can only appear once on an invoice")
-    billed=_billed_project_sources(root,row.get("invoice_id",""))
-    if set(refs)&billed: raise ValueError("a selected project billing item has already been invoiced")
-    store=ProjectStore(root); available:set[tuple[str,str,str]]=set()
-    for project_id in {ref[0] for ref in refs}:
-        projection=store.billing_projection(project_id,actor)
-        available.update((project_id,str(line["source_type"]),str(line["source_id"])) for line in projection["lines"])
-    if not set(refs)<=available: raise ValueError("a selected project billing item no longer exists")
+    if refs:
+        billed=_billed_project_sources(root,row.get("invoice_id",""))
+        if set(refs)&billed: raise ValueError("a selected project billing item has already been invoiced")
+        store=ProjectStore(root); available:set[tuple[str,str,str]]=set()
+        for project_id in {ref[0] for ref in refs}:
+            projection=store.billing_projection(project_id,actor)
+            available.update((project_id,str(line["source_type"]),str(line["source_id"])) for line in projection["lines"])
+        if not set(refs)<=available: raise ValueError("a selected project billing item no longer exists")
     appointment_refs = [str(line.get("source_id", "")) for line in row.get("lines", []) if line.get("source_type") == "calendar_event"]
     if len(appointment_refs) != len(set(appointment_refs)):
         raise ValueError("an appointment can only appear once on an invoice")
-    if set(appointment_refs) & _billed_appointment_sources(root, row.get("invoice_id", "")):
-        raise ValueError("a selected appointment has already been invoiced")
-    events = {item["event_id"]: item for item in CalendarStore(root).events(actor)}
-    for event_id in appointment_refs:
-        event = events.get(event_id)
-        if not event or event.get("contact_id") != row.get("contact_id") or not event.get("billing", {}).get("billable"):
-            raise ValueError("a selected billable appointment no longer exists")
+    if appointment_refs:
+        if set(appointment_refs) & _billed_appointment_sources(root, row.get("invoice_id", "")):
+            raise ValueError("a selected appointment has already been invoiced")
+        events = {item["event_id"]: item for item in CalendarStore(root).events(actor)}
+        for event_id in appointment_refs:
+            event = events.get(event_id)
+            if not event or event.get("contact_id") != row.get("contact_id") or not event.get("billing", {}).get("billable"):
+                raise ValueError("a selected billable appointment no longer exists")
 
 
 def _invoice_totals(lines: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1063,15 +1065,21 @@ def inspect_zugferd_pdf(path: Path) -> dict[str,Any]:
 
 def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, actor: str, kind: str, template_id: str, *, metadata: dict[str,Any]|None=None) -> dict[str,Any]:
     now=datetime.now(timezone.utc); directory=root/"generated"/kind/now.strftime("%Y")/contact_id; directory.mkdir(parents=True,exist_ok=True); path=directory/f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"; path.write_bytes(pdf)
-    store=DocumentStore(root); store.scan(); document=store.get_document(path); store.set_attribute(document["document_id"],"contact_id",contact_id,actor); store.set_attribute(document["document_id"],"business_document_kind",kind,actor); store.set_attribute(document["document_id"],"business_template_id",template_id,actor); store.set_tags(document["document_id"],[kind,"crm"],author=actor)
-    for key,value in (metadata or {}).items():
-        if value is not None and not isinstance(value,(dict,list)):store.set_attribute(document["document_id"],str(key),str(value),actor)
+    store=DocumentStore(root); document=store.get_document(path)
+    document=store.update_metadata(
+        document["document_id"], author=actor, tags=[kind,"crm"],
+        attributes={
+            "contact_id": contact_id, "business_document_kind": kind,
+            "business_template_id": template_id,
+            **{str(key): str(value) for key,value in (metadata or {}).items() if value is not None and not isinstance(value,(dict,list))},
+        },
+    )
     attach_contact_document(root,contact_id,document["document_id"],actor,relation=kind,metadata={"subject":subject,"template_id":template_id,**(metadata or {})}); return store.get_document(document["document_id"])
 
 
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
-    if not contacts.can_manage(contact_id,actor):raise PermissionError
+    if not contacts.can_manage_contact(contact,actor):raise PermissionError
     crm=ContactCRMStore(root).record(contact_id); selected=form.get("address",""); label,candidates=address_labels(contact,crm,selected); candidate=next((item for item in candidates if item["label"]==label),None)
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
@@ -1328,7 +1336,7 @@ def contact_invoice(contact_id:str):
     root,actor=_root(),_actor();contacts=ContactStore(root)
     try:contact=contacts.get(contact_id,actor)
     except ValueError:abort(404)
-    if not contacts.can_manage(contact_id,actor):abort(403)
+    if not contacts.can_manage_contact(contact,actor):abort(403)
     draft_id=request.form.get("invoice_id","").strip() if request.method=="POST" else request.args.get("invoice_id","").strip(); draft=None
     if draft_id:
         try:draft=invoice(root,draft_id)
@@ -1372,9 +1380,9 @@ def customer_billing(contact_id: str):
     root, actor = _root(), _actor(); contacts = ContactStore(root)
     try: contact = contacts.get(contact_id, actor)
     except ValueError: abort(404)
-    if not contacts.can_manage(contact_id, actor): abort(403)
+    if not contacts.can_manage_contact(contact, actor): abort(403)
     rows = [row for row in invoices(root) if row.get("contact_id") == contact_id]
-    candidates = [item for item in contacts.contacts(actor) if item.get("contact_id") != contact_id and contacts.can_manage(item["contact_id"], actor)]
+    candidates = [item for item in contacts.contacts(actor) if item.get("contact_id") != contact_id and contacts.can_manage_contact(item, actor)]
     customer_documents = _customer_document_rows(root, contact_id, rows)
     return render_template("documents/customer_billing.html", contact=contact, rows=rows,
                            customer_documents=customer_documents,
@@ -1493,11 +1501,11 @@ def customer_document_archive_download(contact_id: str):
 @login_required
 def invoice_overview():
     root,actor=_root(),_actor();contacts=ContactStore(root);query=request.args.get("q","").strip().casefold();selected_status=request.args.get("status","").strip()
+    contact_map={item["contact_id"]:item for item in contacts.contacts(actor) if contacts.can_manage_contact(item,actor)}
     rows=[]
     for row in invoices(root):
-        try:contact=contacts.get(row["contact_id"],actor)
-        except ValueError:continue
-        if not contacts.can_manage(row["contact_id"],actor):continue
+        contact=contact_map.get(row.get("contact_id"))
+        if contact is None:continue
         state=row["payment_state"]["status"]
         if selected_status and state!=selected_status:continue
         searchable=f"{row.get('invoice_number','')} {row.get('buyer',{}).get('name','')} {contact.get('fields',{}).get('display_name','')}"
@@ -1512,7 +1520,7 @@ def invoice_detail(invoice_id:str):
     try:row=invoice(_root(),invoice_id)
     except ValueError:abort(404)
     contacts=ContactStore(_root());contact=contacts.get(row["contact_id"],_actor())
-    if not contacts.can_manage(row["contact_id"],_actor()):abort(403)
+    if not contacts.can_manage_contact(contact,_actor()):abort(403)
     return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,today=date.today().isoformat(),credit=CustomerCreditLedger(_root()).account(row["contact_id"],row.get("currency","EUR")),write_off_reasons=sorted(WRITE_OFF_REASONS))
 
 @bp.post("/invoices/<invoice_id>/payments")

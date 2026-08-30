@@ -41,6 +41,24 @@ class ContactManagementTest(unittest.TestCase):
                 self.assertEqual([], manager.duplicate_candidates("admin"))
             self.assertEqual(0, calls)
 
+    def test_duplicate_candidates_recommend_richer_contact_and_cap_bulk_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manager = ContactManagement(Path(temp))
+            contacts = []
+            for index in range(101):
+                email = f"person-{index}@example.test"
+                contacts.extend((
+                    {"contact_id": f"thin-{index}", "fields": {"display_name": f"Person {index}", "email": email}},
+                    {"contact_id": f"rich-{index}", "fields": {"display_name": f"Person {index} Import", "email": email, "phone": f"123456{index}"}},
+                ))
+
+            with patch.object(manager.store, "contacts", return_value=contacts):
+                candidates = manager.duplicate_candidates("admin")
+
+            self.assertEqual(101, len(candidates))
+            self.assertEqual(100, sum(candidate.bulk_eligible for candidate in candidates))
+            self.assertTrue(all(candidate.left["contact_id"].startswith("rich-") for candidate in candidates))
+
     def test_duplicate_preview_separates_additions_and_conflicts(self):
         with tempfile.TemporaryDirectory() as temp:
             manager = ContactManagement(Path(temp))
@@ -90,6 +108,63 @@ class ContactManagementTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "different owners"):
                 ContactManagement(root).merge(left["contact_id"], right["contact_id"], "admin")
+
+    def test_bulk_merge_combines_independent_safe_pairs_in_one_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            first = store.upsert({"display_name": "Amy", "email": "amy@example.test", "company": "Example GmbH"}, "admin")
+            first_duplicate = store.upsert({"display_name": "Amy B.", "email": "AMY@example.test", "phone": "123456"}, "admin")
+            second = store.upsert({"display_name": "Ben", "email": "ben@example.test"}, "admin")
+            second_duplicate = store.upsert({"display_name": "Benjamin", "email": "BEN@example.test", "website": "https://example.test"}, "admin")
+
+            merged = ContactManagement(root).bulk_merge([
+                (first["contact_id"], first_duplicate["contact_id"]),
+                (second_duplicate["contact_id"], second["contact_id"]),
+            ], "admin")
+
+            self.assertEqual(2, len(merged))
+            self.assertEqual(2, len(store.contacts("admin")))
+            by_id = {row["contact_id"]: row for row in merged}
+            self.assertEqual("123456", by_id[first["contact_id"]]["fields"]["phone"])
+            self.assertEqual("https://example.test", by_id[second_duplicate["contact_id"]]["fields"]["website"])
+            snapshots = ContactManagement(root)._read_snapshots()["snapshots"]
+            self.assertEqual(4, len([row for row in snapshots if row["reason"].startswith("merge_")]))
+
+    def test_bulk_merge_rejects_overlapping_pairs_without_changing_contacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            first = store.upsert({"display_name": "Amy", "email": "amy@example.test"}, "admin")
+            second = store.upsert({"display_name": "Amy B.", "email": "amy@example.test"}, "admin")
+            third = store.upsert({"display_name": "Amy C.", "email": "amy@example.test"}, "admin")
+
+            with self.assertRaisesRegex(ValueError, "only occur in one"):
+                ContactManagement(root).bulk_merge([
+                    (first["contact_id"], second["contact_id"]),
+                    (first["contact_id"], third["contact_id"]),
+                ], "admin")
+
+            self.assertEqual(3, len(store.contacts("admin")))
+            self.assertEqual([], ContactManagement(root)._read_snapshots()["snapshots"])
+
+    def test_bulk_merge_rejects_field_conflicts_without_partial_merge(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            safe_left = store.upsert({"display_name": "Amy", "email": "amy@example.test"}, "admin")
+            safe_right = store.upsert({"display_name": "Amy B.", "email": "amy@example.test"}, "admin")
+            conflict_left = store.upsert({"display_name": "Ben", "email": "shared@example.test", "company": "Links GmbH"}, "admin")
+            conflict_right = store.upsert({"display_name": "Benjamin", "email": "shared@example.test", "company": "Rechts GmbH"}, "admin")
+
+            with self.assertRaisesRegex(ValueError, "without conflicting"):
+                ContactManagement(root).bulk_merge([
+                    (safe_left["contact_id"], safe_right["contact_id"]),
+                    (conflict_left["contact_id"], conflict_right["contact_id"]),
+                ], "admin")
+
+            self.assertEqual(4, len(store.contacts("admin")))
+            self.assertEqual([], ContactManagement(root)._read_snapshots()["snapshots"])
 
     def test_bulk_metadata_is_atomic_for_permissions(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -67,36 +67,52 @@ UI_LITERAL_TRANSLATIONS = {
 TRANSLATIONS["de"].update({"invoice.status.draft": "Entwurf", "invoice.recipient_type": "Empfängerart", "invoice.recipient.private": "Privatperson", "invoice.recipient.company": "Firma", "invoice.recipient.company_name": "Firmenname", "invoice.recipient.contact": "Name / Ansprechpartner", "invoice.recipient.contact_optional": "Ansprechpartner (optional)", "invoice.project.add": "Projekt abrechnen", "invoice.project.open": "Offene Projektposten", "invoice.project.none": "Keine offenen Projektposten vorhanden.", "invoice.category": "Kategorie"})
 TRANSLATIONS["en"].update({"invoice.status.draft": "Draft", "invoice.recipient_type": "Recipient type", "invoice.recipient.private": "Private person", "invoice.recipient.company": "Company", "invoice.recipient.company_name": "Company name", "invoice.recipient.contact": "Name / contact person", "invoice.recipient.contact_optional": "Contact person (optional)", "invoice.project.add": "Bill project", "invoice.project.open": "Open project items", "invoice.project.none": "No open project items available.", "invoice.category": "Category"})
 TRANSLATIONS["de"].update({
+    "slideshow.title": "Diashow",
+    "slideshow.close": "Diashow schließen",
+    "slideshow.info_controls": "Info und Steuerung",
+    "slideshow.autostart": "Automatisch starten",
+    "slideshow.duration": "Anzeigedauer",
+    "slideshow.seconds": "Sek.",
+    "slideshow.start": "Start",
+    "slideshow.stop": "Stop",
+    "slideshow.open_original": "Original öffnen",
+    "slideshow.previous": "Vorheriges Bild",
+    "slideshow.next": "Nächstes Bild",
+    "slideshow.thumbnails": "Bildübersicht",
+    "slideshow.image": "Bild",
+})
+TRANSLATIONS["en"].update({
+    "slideshow.title": "Slideshow",
+    "slideshow.close": "Close slideshow",
+    "slideshow.info_controls": "Info and controls",
+    "slideshow.autostart": "Start automatically",
+    "slideshow.duration": "Display time",
+    "slideshow.seconds": "sec.",
+    "slideshow.start": "Start",
+    "slideshow.stop": "Stop",
+    "slideshow.open_original": "Open original",
+    "slideshow.previous": "Previous image",
+    "slideshow.next": "Next image",
+    "slideshow.thumbnails": "Image overview",
+    "slideshow.image": "Image",
+})
+TRANSLATIONS["de"].update({
     "billing.customer_archive": "Kundenakte als ZIP",
     "billing.customer_documents": "Belege und Kundendokumente",
     "billing.customer_documents_explanation": "Explizit verknüpfte Dokumente und Rechnungsbelege; der Kundenakten-Export enthält Herkunft, Prüfsummen und Protokolle.",
     "billing.document_search_placeholder": "Datei, Beziehung oder Schlagwort",
-    "billing.document": "Dokument",
-    "billing.relation": "Beziehung",
-    "billing.origin": "Herkunft",
-    "billing.linked_at": "Verknüpft / erfasst",
-    "billing.origin_email": "E-Mail-Archiv",
-    "billing.origin_attachment": "E-Mail-Anhang",
-    "billing.origin_copy": "Dokumentkopie",
-    "billing.origin_local": "Lokaler Dokumentimport",
-    "billing.document_unavailable": "Datei fehlt",
-    "billing.no_customer_documents": "Noch keine Kundendokumente verknüpft.",
+    "billing.document": "Dokument", "billing.relation": "Beziehung", "billing.origin": "Herkunft", "billing.linked_at": "Verknüpft / erfasst",
+    "billing.origin_email": "E-Mail-Archiv", "billing.origin_attachment": "E-Mail-Anhang", "billing.origin_copy": "Dokumentkopie", "billing.origin_local": "Lokaler Dokumentimport",
+    "billing.document_unavailable": "Datei fehlt", "billing.no_customer_documents": "Noch keine Kundendokumente verknüpft.",
 })
 TRANSLATIONS["en"].update({
     "billing.customer_archive": "Customer archive as ZIP",
     "billing.customer_documents": "Receipts and customer documents",
     "billing.customer_documents_explanation": "Explicitly linked documents and invoice records; the customer archive includes provenance, checksums and audit logs.",
     "billing.document_search_placeholder": "File, relation or tag",
-    "billing.document": "Document",
-    "billing.relation": "Relation",
-    "billing.origin": "Origin",
-    "billing.linked_at": "Linked / recorded",
-    "billing.origin_email": "Email archive",
-    "billing.origin_attachment": "Email attachment",
-    "billing.origin_copy": "Document copy",
-    "billing.origin_local": "Local document import",
-    "billing.document_unavailable": "File missing",
-    "billing.no_customer_documents": "No customer documents linked yet.",
+    "billing.document": "Document", "billing.relation": "Relation", "billing.origin": "Origin", "billing.linked_at": "Linked / recorded",
+    "billing.origin_email": "Email archive", "billing.origin_attachment": "Email attachment", "billing.origin_copy": "Document copy", "billing.origin_local": "Local document import",
+    "billing.document_unavailable": "File missing", "billing.no_customer_documents": "No customer documents linked yet.",
 })
 TRANSLATIONS["de"].update({
     "invoice.status.written_off": "Ausgebucht",
@@ -218,6 +234,45 @@ _CONTACT_UPDATE_FIELD_LABELS = {
 for _field, (_de_label, _en_label) in _CONTACT_UPDATE_FIELD_LABELS.items():
     TRANSLATIONS["de"][f"contact_update.field.{_field}"] = _de_label
     TRANSLATIONS["en"][f"contact_update.field.{_field}"] = _en_label
+
+TRANSLATIONS["de"].update({
+    "duplicates.title": "Kontakt-Dubletten", "duplicates.subtitle": "Separat geladen, damit der normale Kontaktmanager schnell bleibt.",
+    "duplicates.candidates": "mögliche Dubletten", "duplicates.navigation": "Kontaktmanagement", "duplicates.tab": "Dubletten",
+    "duplicates.select_all_safe": "Alle sicheren Paare auswählen", "duplicates.bulk_help": "Bis zu 100 eindeutige, inhaltlich konfliktfreie und nicht überlappende Paare können je Durchlauf zusammengeführt werden.",
+    "duplicates.selected": "ausgewählt", "duplicates.merge_selected": "Ausgewählte zusammenführen", "duplicates.bulk_confirm": "Alle ausgewählten Kontaktpaare jetzt zusammenführen? Beide Originalfassungen werden jeweils gesichert.",
+    "duplicates.merge_explanation": "Der inhaltsreichere Kontakt wird empfohlen und bleibt beim Massen-Merge erhalten. Leere Felder, neue Adressen, Tags und Gruppen werden sofort ergänzt. Konflikte müssen einzeln geprüft werden. Beide Originale werden als Snapshot gesichert.",
+    "duplicates.select_pair": "Kontaktpaar auswählen", "duplicates.individual_only": "Nur einzeln zusammenführen", "duplicates.recommended": "Empfohlen / bleibt",
+    "duplicates.keep_recommended": "Empfohlenen Kontakt behalten", "duplicates.keep_other": "Stattdessen anderen behalten",
+    "duplicates.single_confirm": "Kontakte jetzt zusammenführen und den empfohlenen Kontakt behalten? Beide Originale werden gesichert.",
+    "duplicates.single_confirm_reverse": "Kontakte jetzt zusammenführen und stattdessen den anderen Kontakt behalten? Beide Originale werden gesichert.",
+    "duplicates.reasons": "Treffergründe", "duplicates.new": "neu", "duplicates.different": "abweichend", "duplicates.safe_bulk": "Sicherer Massen-Merge",
+    "duplicates.review_required": "Prüfung erforderlich", "duplicates.no_additional": "Keine zusätzlichen Daten", "duplicates.field": "Feld",
+    "duplicates.retained": "Empfohlen / bleibt", "duplicates.incoming": "Wird ergänzt", "duplicates.more_changes": "weitere Änderungen", "duplicates.none": "Keine wahrscheinlichen Dubletten gefunden.",
+    "duplicates.merge_success": "Kontakte revisionssicher zusammengeführt. Beide vorherigen Fassungen wurden gesichert.", "duplicates.bulk_success": "{count} Kontakt-Dublette(n) revisionssicher zusammengeführt.",
+    "duplicates.error.invalid": "Die Dublettenauswahl ist ungültig.", "duplicates.error.none_selected": "Keine Kontaktpaare ausgewählt.", "duplicates.error.distinct": "Jede Auswahl benötigt zwei unterschiedliche Kontakte.",
+    "duplicates.error.overlap": "Ein Kontakt darf nur in einem ausgewählten Dublettenpaar vorkommen.", "duplicates.error.missing": "Mindestens ein ausgewählter Kontakt ist nicht mehr vorhanden.",
+    "duplicates.error.editable": "Alle ausgewählten Kontakte müssen bearbeitbar sein.", "duplicates.error.conflict": "Der Massen-Merge erlaubt nur eindeutige Paare ohne widersprüchliche Werte.", "duplicates.error.owner": "Kontakte mit unterschiedlichen Eigentümern können nicht zusammengeführt werden.",
+    "duplicates.reason.email": "gleiche E-Mail", "duplicates.reason.phone": "gleiche Telefonnummer", "duplicates.reason.display_name": "gleicher Anzeigename", "duplicates.reason.loose_name": "Name nur durch Leerzeichen/Zeichen verschieden", "duplicates.reason.company": "gleiche Firma", "duplicates.reason.person_name": "gleicher Vor-/Nachname", "duplicates.reason.address": "gleiche Adresse normalisiert", "duplicates.reason.core_conflicts": "{count} abweichende Kernfelder",
+})
+TRANSLATIONS["en"].update({
+    "duplicates.title": "Duplicate contacts", "duplicates.subtitle": "Loaded separately so the normal contact manager stays fast.",
+    "duplicates.candidates": "possible duplicates", "duplicates.navigation": "Contact management", "duplicates.tab": "Duplicates",
+    "duplicates.select_all_safe": "Select all safe pairs", "duplicates.bulk_help": "Up to 100 unambiguous, semantically conflict-free, non-overlapping pairs can be merged per batch.",
+    "duplicates.selected": "selected", "duplicates.merge_selected": "Merge selected", "duplicates.bulk_confirm": "Merge all selected contact pairs now? Both original versions of each pair will be saved.",
+    "duplicates.merge_explanation": "The more complete contact is recommended and retained by bulk merge. Empty fields, new addresses, tags and groups are added immediately. Conflicts require individual review. Both originals are saved as snapshots.",
+    "duplicates.select_pair": "Select contact pair", "duplicates.individual_only": "Individual merge only", "duplicates.recommended": "Recommended / retained",
+    "duplicates.keep_recommended": "Keep recommended contact", "duplicates.keep_other": "Keep the other contact instead",
+    "duplicates.single_confirm": "Merge these contacts now and keep the recommended contact? Both originals will be saved.",
+    "duplicates.single_confirm_reverse": "Merge these contacts now and keep the other contact instead? Both originals will be saved.",
+    "duplicates.reasons": "Match reasons", "duplicates.new": "new", "duplicates.different": "different", "duplicates.safe_bulk": "Safe bulk merge",
+    "duplicates.review_required": "Review required", "duplicates.no_additional": "No additional data", "duplicates.field": "Field",
+    "duplicates.retained": "Recommended / retained", "duplicates.incoming": "Added data", "duplicates.more_changes": "more changes", "duplicates.none": "No likely duplicates found.",
+    "duplicates.merge_success": "Contacts merged with an audit trail. Both previous versions were saved.", "duplicates.bulk_success": "{count} duplicate contact pair(s) merged with an audit trail.",
+    "duplicates.error.invalid": "The duplicate selection is invalid.", "duplicates.error.none_selected": "No contact pairs selected.", "duplicates.error.distinct": "Each selection requires two different contacts.",
+    "duplicates.error.overlap": "A contact may only occur in one selected duplicate pair.", "duplicates.error.missing": "At least one selected contact no longer exists.",
+    "duplicates.error.editable": "All selected contacts must be editable.", "duplicates.error.conflict": "Bulk merge only accepts unambiguous pairs without conflicting values.", "duplicates.error.owner": "Contacts with different owners cannot be merged.",
+    "duplicates.reason.email": "same email address", "duplicates.reason.phone": "same phone number", "duplicates.reason.display_name": "same display name", "duplicates.reason.loose_name": "name differs only in spacing/punctuation", "duplicates.reason.company": "same company", "duplicates.reason.person_name": "same first/last name", "duplicates.reason.address": "same normalized address", "duplicates.reason.core_conflicts": "{count} conflicting core field(s)",
+})
 
 
 def translate(language: str, key: str) -> str:

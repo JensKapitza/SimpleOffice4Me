@@ -52,6 +52,39 @@ class ContactDuplicatesWebTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("Kontakt-Dubletten", body)
         self.assertIn("Max Mustermann", body)
+        self.assertIn("bulk-merge-form", body)
+        self.assertIn("Alle sicheren Paare auswählen", body)
+
+    def test_bulk_merge_endpoint_merges_selected_safe_pairs(self):
+        store = ContactStore(Path(app.config["DOCUMENT_ROOT"]))
+        first = store.upsert({"display_name": "Max", "email": "max@example.test"}, "jens")
+        duplicate = store.upsert({"display_name": "Max M.", "email": "MAX@example.test", "phone": "123456"}, "jens")
+
+        response = self.client.post(
+            "/documents/contacts/manage/duplicates/merge-bulk",
+            data={"pairs": f"{first['contact_id']}:{duplicate['contact_id']}"},
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("1 Kontakt-Dublette(n)", response.get_data(as_text=True))
+        contacts = store.contacts("jens")
+        self.assertEqual(1, len(contacts))
+        self.assertEqual("123456", contacts[0]["fields"]["phone"])
+
+    def test_bulk_merge_endpoint_rejects_malformed_selection(self):
+        store = ContactStore(Path(app.config["DOCUMENT_ROOT"]))
+        store.upsert({"display_name": "Max", "email": "max@example.test"}, "jens")
+        store.upsert({"display_name": "Max M.", "email": "MAX@example.test"}, "jens")
+
+        response = self.client.post(
+            "/documents/contacts/manage/duplicates/merge-bulk",
+            data={"pairs": "invalid"},
+            follow_redirects=True,
+        )
+
+        self.assertIn("Die Dublettenauswahl ist ungültig.", response.get_data(as_text=True))
+        self.assertEqual(2, len(store.contacts("jens")))
 
 
 if __name__ == "__main__":
