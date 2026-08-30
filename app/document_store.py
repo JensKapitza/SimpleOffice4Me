@@ -743,6 +743,43 @@ class DocumentStore:
         )
         self._record_revision("document_attribute_set", author, "documents", metadata["document_id"], metadata)
 
+    def update_metadata(
+        self,
+        reference: str | Path,
+        *,
+        attributes: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+        author: str = "",
+    ) -> dict[str, Any]:
+        """Apply related metadata changes with one sidecar/index/audit write."""
+        self._require_actor(author)
+        metadata = self.get_document(reference)
+        self._require_document_editable(metadata)
+        changed_attributes = {
+            str(key).strip(): value for key, value in (attributes or {}).items()
+            if str(key).strip()
+        }
+        metadata.setdefault("attributes", {}).update(changed_attributes)
+        if tags is not None:
+            previous = set(metadata.get("tags", []))
+            updated = sorted({tag.strip() for tag in tags if tag.strip()}, key=str.casefold)
+            tagged_at = metadata.setdefault("tagged_at", {})
+            now = utc_now()
+            for tag in updated:
+                if tag not in previous:
+                    tagged_at[tag] = now
+            metadata["tags"] = updated
+        self._save_document(metadata)
+        self._refresh_search_index(metadata)
+        details = {
+            "document_id": metadata["document_id"], "author": author,
+            "attribute_keys": sorted(changed_attributes),
+            "tags_changed": tags is not None,
+        }
+        self._event("document_metadata_updated", details)
+        self._record_revision("document_metadata_updated", author, "documents", metadata["document_id"], details)
+        return metadata
+
     def set_malware_scan(self, reference: str | Path, value: dict[str, Any], author: str) -> None:
         """Persist an immutable-content security verdict even during retention lock."""
         self._require_actor(author)

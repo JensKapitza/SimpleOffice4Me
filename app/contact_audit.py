@@ -37,7 +37,7 @@ def change_history(store: ContactStore, actor: str, query: str = "", editor: str
     fields: set[str] = set()
     for contact in store.contacts(actor):
         contact_id = str(contact.get("contact_id", ""))
-        if not store.can_manage(contact_id, actor):
+        if not store.can_manage_contact(contact, actor):
             continue
         display_name = str(contact.get("fields", {}).get("display_name", ""))
         for change in contact.get("changes", []):

@@ -140,6 +140,11 @@ class AuthTest(unittest.TestCase):
         app.config.update(self.saved)
         self.temp.cleanup()
 
+    def test_responses_expose_request_duration_for_slow_request_diagnosis(self):
+        response = self.client.get("/auth/login")
+        self.assertRegex(response.headers.get("Server-Timing", ""), r"^app;dur=\d+\.\d$")
+        self.assertTrue(response.headers.get("X-Request-ID"))
+
     def test_google_json_callback_is_used_when_request_url_is_not_configured(self):
         app.config.update(GOOGLE_OAUTH_REDIRECT_URI="", GOOGLE_OAUTH_REDIRECT_URIS=("https://office.example.test/auth/google/callback",))
         with app.test_request_context("/auth/google", base_url="http://127.0.0.1:8080"):

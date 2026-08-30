@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app import app
 from app.contact_audit import LABELS, change_history
@@ -60,6 +61,17 @@ class ContactAuditTests(unittest.TestCase):
 
             self.assertGreater(history["total"], 100)
             self.assertEqual(100, len(history["entries"]))
+
+    def test_history_does_not_reread_complete_store_per_contact(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            for index in range(25):
+                store.upsert({"display_name": f"Kontakt {index}"}, "admin")
+
+            with patch.object(store, "can_manage", side_effect=AssertionError("per-contact store read")):
+                history = change_history(store, "admin")
+
+            self.assertGreaterEqual(history["total"], 25)
 
 
 if __name__ == "__main__":
