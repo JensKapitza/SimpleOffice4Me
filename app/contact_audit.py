@@ -11,6 +11,7 @@ from .contact_management import ContactManagement
 from .contact_store import ContactStore
 from .contact_tools import ContactTools
 from .db import get_db
+from .settings_store import translate
 
 
 bp = Blueprint("contact_audit", __name__)
@@ -123,9 +124,28 @@ def manage():
 @bp.get("/documents/contacts/manage/duplicates")
 @login_required
 def duplicates():
+    candidates = _management().duplicate_candidates(_actor())
+    reason_keys = {
+        "gleiche E-Mail": "duplicates.reason.email",
+        "gleiche Telefonnummer": "duplicates.reason.phone",
+        "gleicher Anzeigename": "duplicates.reason.display_name",
+        "Name nur durch Leerzeichen/Zeichen verschieden": "duplicates.reason.loose_name",
+        "gleiche Firma": "duplicates.reason.company",
+        "gleicher Vor-/Nachname": "duplicates.reason.person_name",
+        "gleiche Adresse normalisiert": "duplicates.reason.address",
+    }
+    localized_reasons: dict[str, str] = {}
+    for candidate in candidates:
+        for reason in candidate.reasons:
+            if reason.endswith(" abweichende Kernfelder"):
+                count = reason.split(" ", 1)[0]
+                localized_reasons[reason] = translate(g.language, "duplicates.reason.core_conflicts").format(count=count)
+            else:
+                localized_reasons[reason] = translate(g.language, reason_keys.get(reason, reason))
     return render_template(
         "documents/contact_duplicates.html",
-        duplicates=_management().duplicate_candidates(_actor()),
+        duplicates=candidates,
+        localized_reasons=localized_reasons,
     )
 
 
@@ -190,13 +210,47 @@ def merge_contacts():
     source_id = request.form.get("source_id", "").strip()
     try:
         merged = _management().merge(target_id, source_id, _actor())
-        flash("Kontakte revisionssicher zusammengeführt. Beide vorherigen Fassungen wurden gesichert.")
+        flash(translate(g.language, "duplicates.merge_success"))
         if request.form.get("return_to") == "duplicates":
             return redirect(url_for("contact_audit.duplicates"))
         return redirect(url_for("documents.contact_detail", contact_id=merged["contact_id"]))
     except ValueError as exc:
-        flash(str(exc))
+        flash(_duplicate_error_message(exc))
         return redirect(url_for("contact_audit.duplicates" if request.form.get("return_to") == "duplicates" else "contact_audit.manage"))
+
+
+@bp.post("/documents/contacts/manage/duplicates/merge-bulk")
+@login_required
+def bulk_merge_contacts():
+    pairs: list[tuple[str, str]] = []
+    try:
+        for selection in request.form.getlist("pairs"):
+            target_id, separator, source_id = selection.partition(":")
+            if not separator:
+                raise ValueError("invalid duplicate selection")
+            pairs.append((target_id, source_id))
+        merged = _management().bulk_merge(pairs, _actor())
+        flash(translate(g.language, "duplicates.bulk_success").format(count=len(merged)))
+    except ValueError as exc:
+        flash(_duplicate_error_message(exc))
+    return redirect(url_for("contact_audit.duplicates"))
+
+
+def _duplicate_error_message(error: ValueError) -> str:
+    key = {
+        "invalid duplicate selection": "duplicates.error.invalid",
+        "no duplicate pairs selected": "duplicates.error.none_selected",
+        "every selection requires two different contacts": "duplicates.error.distinct",
+        "a contact may only occur in one selected duplicate pair": "duplicates.error.overlap",
+        "one or more selected contacts no longer exist": "duplicates.error.missing",
+        "all selected contacts must be editable": "duplicates.error.editable",
+        "bulk merge only accepts high-confidence pairs without conflicting values": "duplicates.error.conflict",
+        "contacts with different owners cannot be merged": "duplicates.error.owner",
+        "two different contacts are required": "duplicates.error.distinct",
+        "unknown contact": "duplicates.error.missing",
+        "both contacts must be editable": "duplicates.error.editable",
+    }.get(str(error))
+    return translate(g.language, key) if key else str(error)
 
 
 @bp.get("/documents/contacts/<contact_id>/snapshots")
