@@ -93,6 +93,10 @@ class FirstRunSetupTest(unittest.TestCase):
 
     def test_document_task_has_description_and_reachable_attachments(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"offer"), "Angebot.pdf", "jens")
+        email_document = DocumentStore(self.root).import_upload(io.BytesIO(b"mail"), "Anfrage.eml", "jens")
+        contact = ContactStore(self.root).upsert(
+            {"display_name": "Kunde Beispiel", "email": "kunde@example.test"}, "jens"
+        )
         response = self.client.post(
             f"/documents/{document['document_id']}/tasks",
             data={"title": "Angebot prüfen"},
@@ -104,7 +108,11 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertEqual([document["document_id"]], task["document_ids"])
         TodoStore(self.root).update(
             task["id"],
-            {"extra_lines": ['ATTACH;FILENAME="extern.pdf":https://files.example/extern.pdf']},
+            {
+                "contact_id": contact["contact_id"],
+                "email_document_id": email_document["document_id"],
+                "extra_lines": ['ATTACH;FILENAME="extern.pdf":https://files.example/extern.pdf'],
+            },
             "jens",
         )
         body = self.client.get("/documents/tasks", base_url=self.base_url).get_data(as_text=True)
@@ -112,6 +120,10 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn(f"/documents/{document['document_id']}", body)
         self.assertIn("extern.pdf", body)
         self.assertIn("https://files.example/extern.pdf", body)
+        self.assertIn("Kunde Beispiel", body)
+        self.assertIn(f"/documents/contacts/{contact['contact_id']}", body)
+        self.assertIn("Anfrage.eml", body)
+        self.assertIn(f"/documents/{email_document['document_id']}", body)
 
     def test_remote_http_disables_secret_creation(self):
         client = app.test_client()

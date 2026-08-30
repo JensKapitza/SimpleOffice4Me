@@ -872,6 +872,7 @@ def tasks():
     elif period == "none": rows = [row for row in rows if not row.get("due")]
     all_rows = _todos().items(actor)
     document_ids = {str(document_id) for row in rows for document_id in row.get("document_ids", [])}
+    document_ids.update(str(row.get("email_document_id")) for row in rows if row.get("email_document_id"))
     task_documents: dict[str, dict[str, Any]] = {}
     for document_id in document_ids:
         try:
@@ -898,10 +899,12 @@ def tasks():
             label = next((part.split("=", 1)[1].strip('"') for part in header.split(";") if part.upper().startswith("FILENAME=")), "")
             links.append({"url": value, "label": label or parsed.path.rsplit("/", 1)[-1] or parsed.netloc})
         task_external_attachments[str(row["id"])] = links[:50]
-    return render_template("documents/tasks.html", tasks=rows, task_lists=_todos().lists(actor), projects=_projects().projects(), contacts=_contacts().contacts(actor),
+    contacts = _contacts().contacts(actor)
+    task_contacts = {str(contact["contact_id"]): contact for contact in contacts}
+    return render_template("documents/tasks.html", tasks=rows, task_lists=_todos().lists(actor), projects=_projects().projects(), contacts=contacts,
                            users=[item["username"] for item in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()],
                            categories=sorted({value for row in all_rows for value in row.get("categories", [])}, key=str.casefold), today=today.isoformat(), view=request.args.get("view", "list"),
-                           task_documents=task_documents, task_external_attachments=task_external_attachments)
+                           task_documents=task_documents, task_external_attachments=task_external_attachments, task_contacts=task_contacts)
 
 
 @bp.post("/tasks/lists")

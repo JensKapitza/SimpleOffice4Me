@@ -27,6 +27,15 @@ class TemplateShellTests(unittest.TestCase):
         self.assertEqual(1, layout.count("address-autocomplete.js"))
         self.assertNotIn("address_autocomplete.js", layout)
 
+    def test_address_autocomplete_disables_browser_autofill_and_deduplicates(self):
+        behavior = (ROOT / "static" / "js" / "address-autocomplete.js").read_text(encoding="utf-8")
+        self.assertIn("setAttribute('autocomplete', 'off')", behavior)
+        self.assertIn("uniqueBy(payload.suggestions", behavior)
+        self.assertIn("suggestion.field === 'postal' && fills.city", behavior)
+        for name in ("contact_crm.html", "contact_detail.html", "contact_update_public.html", "business_templates.html"):
+            template = (TEMPLATES / "documents" / name).read_text(encoding="utf-8")
+            self.assertIn('autocomplete="off"', template, name)
+
     def test_document_index_uses_collapsible_folder_tree(self):
         index = (TEMPLATES / "documents" / "index.html").read_text(encoding="utf-8")
         self.assertIn("data-document-tree", index)

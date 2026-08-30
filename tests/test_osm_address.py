@@ -63,7 +63,12 @@ class OsmAddressTests(unittest.TestCase):
     def test_unique_requires_one_complete_candidate(self):
         candidate = {"street": "A 1", "postal": "12345", "city": "Ort", "country": "DE"}
         self.assertEqual(candidate, unique_candidate([candidate]))
-        self.assertIsNone(unique_candidate([candidate, dict(candidate)]))
+        self.assertEqual(candidate, unique_candidate([candidate, dict(candidate)]))
+        self.assertEqual(
+            candidate,
+            unique_candidate([{**candidate, "match_quality": "fallback"}, candidate]),
+        )
+        self.assertIsNone(unique_candidate([candidate, {**candidate, "city": "Anderer Ort"}]))
         self.assertIsNone(unique_candidate([{"street": "A 1", "city": ""}]))
 
     def test_ambiguous_results_only_suggest_the_requested_field(self):
@@ -77,10 +82,23 @@ class OsmAddressTests(unittest.TestCase):
             field_suggestions(candidates, "city"),
         )
         self.assertEqual(
-            [{"field": "postal", "value": "47137"}, {"field": "postal", "value": "28199"}],
+            [
+                {"field": "postal", "value": "47137", "fills": {"city": "Duisburg"}},
+                {"field": "postal", "value": "28199", "fills": {"city": "Bremen"}},
+            ],
             field_suggestions(candidates, "postal"),
         )
         self.assertEqual([], field_suggestions(candidates, "country"))
+
+    def test_postcode_suggestion_does_not_fill_ambiguous_city(self):
+        candidates = [
+            {"street": "A 1", "postal": "12345", "city": "Ort A"},
+            {"street": "B 2", "postal": "12345", "city": "Ort B"},
+        ]
+        self.assertEqual(
+            [{"field": "postal", "value": "12345"}],
+            field_suggestions(candidates, "postal"),
+        )
 
     def test_human_bytes_formats_download_sizes(self):
         self.assertEqual("1.0 MiB", human_bytes(1024 * 1024))
