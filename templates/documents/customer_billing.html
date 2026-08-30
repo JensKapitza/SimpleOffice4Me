@@ -4,7 +4,7 @@
 <main class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">← {{ tr('billing.customer') }}</a><h1 class="h2 mt-2">{{ tr('billing.title') }}: {{ contact.fields.display_name }}</h1></div>
-    <div class="btn-group"><a class="btn btn-primary" href="{{ url_for('.contact_invoice', contact_id=contact.contact_id) }}">{{ tr('billing.new_invoice') }}</a>{% if rows %}<a class="btn btn-outline-primary" href="{{ url_for('.customer_invoice_archive', contact_id=contact.contact_id) }}">{{ tr('billing.download_all') }}</a>{% endif %}</div>
+    <div class="btn-group"><a class="btn btn-primary" href="{{ url_for('.contact_invoice', contact_id=contact.contact_id) }}">{{ tr('billing.new_invoice') }}</a>{% if rows %}<a class="btn btn-outline-primary" href="{{ url_for('.customer_invoice_archive', contact_id=contact.contact_id) }}">{{ tr('billing.download_all') }}</a>{% endif %}{% if rows or customer_documents %}<a class="btn btn-outline-success" href="{{ url_for('.customer_document_archive_download', contact_id=contact.contact_id) }}">{{ tr('billing.customer_archive') }}</a>{% endif %}</div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
 
@@ -12,6 +12,27 @@
     <section class="col-lg-8">
       <div class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>{{ tr('billing.invoices') }}</strong><input id="customer-invoice-search" class="form-control form-control-sm" style="max-width:22rem" placeholder="{{ tr('billing.search_placeholder') }}"></div>
         <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>{{ tr('invoice.number') }}</th><th>{{ tr('invoice.issue_date') }}</th><th>{{ tr('invoice.status') }}</th><th class="text-end">{{ tr('invoice.total') }}</th><th class="text-end">{{ tr('invoice.outstanding') }}</th><th></th></tr></thead><tbody id="customer-invoice-list">{% for row in rows %}<tr data-search="{{ row.invoice_number }} {{ row.issue_date }} {{ row.payment_state.status }}"><td><strong>{{ row.invoice_number }}</strong></td><td>{{ row.issue_date }}</td><td><span class="badge {% if row.payment_state.status == 'paid' %}text-bg-success{% elif row.payment_state.status == 'overdue' %}text-bg-danger{% elif row.payment_state.status == 'partial' %}text-bg-warning{% else %}text-bg-primary{% endif %}">{{ tr('invoice.status.' ~ row.payment_state.status) }}</span></td><td class="text-end">{{ row.totals.gross }} {{ row.currency }}</td><td class="text-end">{{ row.payment_state.outstanding }} {{ row.currency }}</td><td class="text-end"><div class="btn-group btn-group-sm"><a class="btn btn-outline-primary" href="{{ url_for('.invoice_detail', invoice_id=row.invoice_id) }}">{{ tr('invoice.open') }}</a><a class="btn btn-outline-secondary" href="{{ url_for('.invoice_download', invoice_id=row.invoice_id) }}">{{ tr('billing.download') }}</a></div></td></tr>{% else %}<tr><td colspan="6" class="text-secondary">{{ tr('invoice.none') }}</td></tr>{% endfor %}</tbody></table></div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div><strong>{{ tr('billing.customer_documents') }}</strong><div class="small text-secondary">{{ tr('billing.customer_documents_explanation') }}</div></div>
+          <input id="customer-document-search" class="form-control form-control-sm" style="max-width:22rem" placeholder="{{ tr('billing.document_search_placeholder') }}">
+        </div>
+        <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>{{ tr('billing.document') }}</th><th>{{ tr('billing.relation') }}</th><th>{{ tr('billing.origin') }}</th><th>{{ tr('billing.linked_at') }}</th><th></th></tr></thead><tbody id="customer-document-list">
+          {% for item in customer_documents %}
+            {% set document = item.document or {} %}
+            {% set attributes = document.attributes or {} %}
+            {% set link = item.links[0] if item.links else {} %}
+            <tr data-search="{{ document.last_path }} {{ link.relation }} {{ document.tags|join(' ') }}">
+              <td><strong>{{ item.filename or item.document_id }}</strong><div class="small text-secondary"><code>{{ item.document_id[:12] }}</code>{% if document.sha256 %} · SHA-256 {{ document.sha256[:12] }}…{% endif %}</div></td>
+              <td>{{ link.relation or ('invoice' if item.invoice_ids else '—') }}</td>
+              <td class="small">{% if attributes.email_origin %}{{ tr('billing.origin_email') }} · {{ attributes.email_origin.folder or '—' }}{% elif attributes.attachment_origin %}{{ tr('billing.origin_attachment') }}{% elif attributes.copied_from %}{{ tr('billing.origin_copy') }}{% else %}{{ tr('billing.origin_local') }}{% endif %}</td>
+              <td class="small">{{ (link.created_at or document.first_seen_at or '')[:19] or '—' }}</td>
+              <td class="text-end">{% if item.available %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.detail', document_id=item.document_id) }}">{{ tr('invoice.open') }}</a>{% else %}<span class="badge text-bg-warning">{{ tr('billing.document_unavailable') }}</span>{% endif %}</td>
+            </tr>
+          {% else %}<tr><td colspan="5" class="text-secondary">{{ tr('billing.no_customer_documents') }}</td></tr>{% endfor %}
+        </tbody></table></div>
       </div>
 
       <div class="card"><div class="card-header"><strong>{{ tr('billing.credit_history') }}</strong></div><div class="list-group list-group-flush">{% for entry in credit.entries %}<div class="list-group-item d-flex justify-content-between gap-3"><div><strong>{{ tr('billing.credit_kind.' ~ entry.kind) }}</strong><div class="small">{{ entry.note or entry.reference }}</div><div class="small text-secondary">{{ tr('billing.tax_treatment.' ~ entry.tax_treatment) }}</div></div><div class="text-end {% if entry.signed_amount|float < 0 %}text-danger{% else %}text-success{% endif %}"><strong>{{ entry.signed_amount }} {{ entry.currency }}</strong><div class="small text-secondary">{{ entry.created_at[:10] }} · {{ entry.created_by }}</div></div></div>{% else %}<div class="list-group-item text-secondary">{{ tr('billing.no_credit_entries') }}</div>{% endfor %}</div></div>
@@ -27,5 +48,12 @@
     </aside>
   </div>
 </main>
-<script>document.getElementById('customer-invoice-search')?.addEventListener('input',event=>{const query=event.target.value.trim().toLocaleLowerCase();document.querySelectorAll('#customer-invoice-list tr[data-search]').forEach(row=>{row.hidden=query&&!row.dataset.search.toLocaleLowerCase().includes(query);});});</script>
+<script>
+for (const [inputId, listId] of [['customer-invoice-search','customer-invoice-list'],['customer-document-search','customer-document-list']]) {
+  document.getElementById(inputId)?.addEventListener('input', event => {
+    const query=event.target.value.trim().toLocaleLowerCase();
+    document.querySelectorAll(`#${listId} tr[data-search]`).forEach(row => { row.hidden=query&&!row.dataset.search.toLocaleLowerCase().includes(query); });
+  });
+}
+</script>
 {% endblock %}

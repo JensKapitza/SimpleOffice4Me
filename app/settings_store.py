@@ -67,6 +67,38 @@ UI_LITERAL_TRANSLATIONS = {
 TRANSLATIONS["de"].update({"invoice.status.draft": "Entwurf", "invoice.recipient_type": "Empfängerart", "invoice.recipient.private": "Privatperson", "invoice.recipient.company": "Firma", "invoice.recipient.company_name": "Firmenname", "invoice.recipient.contact": "Name / Ansprechpartner", "invoice.recipient.contact_optional": "Ansprechpartner (optional)", "invoice.project.add": "Projekt abrechnen", "invoice.project.open": "Offene Projektposten", "invoice.project.none": "Keine offenen Projektposten vorhanden.", "invoice.category": "Kategorie"})
 TRANSLATIONS["en"].update({"invoice.status.draft": "Draft", "invoice.recipient_type": "Recipient type", "invoice.recipient.private": "Private person", "invoice.recipient.company": "Company", "invoice.recipient.company_name": "Company name", "invoice.recipient.contact": "Name / contact person", "invoice.recipient.contact_optional": "Contact person (optional)", "invoice.project.add": "Bill project", "invoice.project.open": "Open project items", "invoice.project.none": "No open project items available.", "invoice.category": "Category"})
 TRANSLATIONS["de"].update({
+    "billing.customer_archive": "Kundenakte als ZIP",
+    "billing.customer_documents": "Belege und Kundendokumente",
+    "billing.customer_documents_explanation": "Explizit verknüpfte Dokumente und Rechnungsbelege; der Kundenakten-Export enthält Herkunft, Prüfsummen und Protokolle.",
+    "billing.document_search_placeholder": "Datei, Beziehung oder Schlagwort",
+    "billing.document": "Dokument",
+    "billing.relation": "Beziehung",
+    "billing.origin": "Herkunft",
+    "billing.linked_at": "Verknüpft / erfasst",
+    "billing.origin_email": "E-Mail-Archiv",
+    "billing.origin_attachment": "E-Mail-Anhang",
+    "billing.origin_copy": "Dokumentkopie",
+    "billing.origin_local": "Lokaler Dokumentimport",
+    "billing.document_unavailable": "Datei fehlt",
+    "billing.no_customer_documents": "Noch keine Kundendokumente verknüpft.",
+})
+TRANSLATIONS["en"].update({
+    "billing.customer_archive": "Customer archive as ZIP",
+    "billing.customer_documents": "Receipts and customer documents",
+    "billing.customer_documents_explanation": "Explicitly linked documents and invoice records; the customer archive includes provenance, checksums and audit logs.",
+    "billing.document_search_placeholder": "File, relation or tag",
+    "billing.document": "Document",
+    "billing.relation": "Relation",
+    "billing.origin": "Origin",
+    "billing.linked_at": "Linked / recorded",
+    "billing.origin_email": "Email archive",
+    "billing.origin_attachment": "Email attachment",
+    "billing.origin_copy": "Document copy",
+    "billing.origin_local": "Local document import",
+    "billing.document_unavailable": "File missing",
+    "billing.no_customer_documents": "No customer documents linked yet.",
+})
+TRANSLATIONS["de"].update({
     "invoice.status.written_off": "Ausgebucht",
     "writeoff.title": "Forderung ausbuchen",
     "writeoff.history": "Ausbuchungshistorie",

@@ -17,9 +17,10 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 - Kalender mit Serien, Erinnerungen, Einladungen, Status, Ressourcen,
   Buchungskonflikten und optionalem Google-Kalender-Abgleich
 - Rechnungserstellung mit PDF/ZUGFeRD, Nummernkreisen, Vorlagen,
-  CRM-Verknüpfung, Fälligkeiten, Zahlungshistorie und nachvollziehbarer
-  Ausbuchung uneinbringlicher Forderungen; EN16931/PDF-A wird verpflichtend
-  mit dem automatisch installierten Standardvalidator geprüft
+  CRM-Verknüpfung, Fälligkeiten, Zahlungshistorie, Ausbuchung uneinbringlicher
+  Forderungen und Kundenakten-Export als ZIP mit Rechnungsdaten,
+  Dokumentherkunft, SHA-256-Prüfsummen und Audit-Protokollen; EN16931/PDF-A
+  wird verpflichtend mit dem automatisch installierten Standardvalidator geprüft
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
 
