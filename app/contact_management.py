@@ -40,6 +40,8 @@ class ContactManagement:
     SNAPSHOT_LIMIT = 500
     BULK_LIMIT = 500
     BULK_MERGE_LIMIT = 100
+    MANUAL_MERGE_LIMIT = 100
+    COPY_MARKER_RE = re.compile(r"\b(?:copy|kopie)\b(?:\s+(?:von|of))?(?:\s+\d+)?", re.IGNORECASE)
 
     def __init__(self, root: str | Path):
         self.store = ContactStore(root)
@@ -85,6 +87,52 @@ class ContactManagement:
     @classmethod
     def _normalized_display(cls, value: Any) -> str:
         return cls._collapse(value)
+
+    @classmethod
+    def _clean_name(cls, value: Any) -> str:
+        """Remove standalone importer markers such as Copy or Kopie."""
+        text = cls._collapse(value)
+        return cls._collapse(cls.COPY_MARKER_RE.sub("", text).strip(" -–—,()[]"))
+
+    @staticmethod
+    def _raw_property_value(line: str) -> str:
+        return ContactStore._unescape_vcard_text(str(line).partition(":")[2]).strip()
+
+    def _property_values(self, contact: dict[str, Any], field: str, property_name: str) -> list[str]:
+        values: list[str] = []
+        primary = self._collapse(contact.get("fields", {}).get(field))
+        if primary:
+            values.append(primary)
+        for key, raw in contact.get("fields", {}).items():
+            if not str(key).startswith("vcard_"):
+                continue
+            safe = ContactStore._safe_raw_vcard_line(str(raw))
+            if safe and ContactStore._vcard_property_name(safe) == property_name:
+                value = self._raw_property_value(safe)
+                if value:
+                    values.append(value)
+        normalizer = self._norm_email if field == "email" else self._norm_phone if field == "phone" else self._norm_text
+        result: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = normalizer(value)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                result.append(value)
+        return result
+
+    def _contact_signals(self, contact: dict[str, Any]) -> dict[str, set[str]]:
+        fields = contact.get("fields", {})
+        return {
+            "email": {self._norm_email(value) for value in self._property_values(contact, "email", "EMAIL") if self._norm_email(value)},
+            "phone": {self._norm_phone(value) for value in self._property_values(contact, "phone", "TEL") if len(self._norm_phone(value)) >= 6},
+            "name": {value for value in (
+                self._norm_text(self._clean_name(fields.get("display_name"))),
+                "\x1f".join((self._norm_text(self._clean_name(fields.get("first_name"))), self._norm_text(self._clean_name(fields.get("last_name"))))),
+            ) if value and value != "\x1f"},
+            "company": {self._norm_text(fields.get("company"))} - {""},
+            "address": {self._norm_address(row.get("value")) for row in contact.get("addresses", []) if self._norm_address(row.get("value"))},
+        }
 
     def dashboard(self, actor: str, contacts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         contacts = contacts if contacts is not None else self.store.contacts(actor)
@@ -139,14 +187,13 @@ class ContactManagement:
         buckets: dict[tuple[str, str], list[int]] = {}
         for index, contact in enumerate(contacts):
             fields = contact.get("fields", {})
+            contact_signals = self._contact_signals(contact)
             signals = {
-                ("email", self._norm_email(fields.get("email"))),
-                ("phone", self._norm_phone(fields.get("phone"))),
-                ("name", self._norm_text(fields.get("display_name"))),
-                ("loose_name", self._norm_loose_text(fields.get("display_name"))),
-                ("person_name", "\x1f".join((self._norm_text(fields.get("first_name")), self._norm_text(fields.get("last_name"))))),
+                (kind, signal)
+                for kind, values in contact_signals.items()
+                for signal in values
             }
-            signals.update(("address", self._norm_address(row.get("value"))) for row in contact.get("addresses", []))
+            signals.add(("loose_name", self._norm_loose_text(self._clean_name(fields.get("display_name")))))
             for kind, signal in signals:
                 if signal and signal != "\x1f" and (kind != "phone" or len(signal) >= 6):
                     buckets.setdefault((kind, signal), []).append(index)
@@ -186,6 +233,33 @@ class ContactManagement:
                 used_for_bulk.update((left_id, right_id))
             result.append(replace(candidate, bulk_eligible=eligible))
         return result
+
+    def merge_search(self, actor: str, query: str = "", match: str = "any") -> list[dict[str, Any]]:
+        """Return editable contacts plus shared-field indicators for manual merging."""
+        match = match if match in {"any", "name", "email", "phone", "company", "address"} else "any"
+        contacts = [
+            contact for contact in self.advanced_search(actor, query=query)
+            if self.store.can_manage_contact(contact, actor)
+        ][:500]
+        signals = [self._contact_signals(contact) for contact in contacts]
+        counts: dict[tuple[str, str], int] = {}
+        for contact_signals in signals:
+            for kind, values in contact_signals.items():
+                for value in values:
+                    counts[(kind, value)] = counts.get((kind, value), 0) + 1
+        rows: list[dict[str, Any]] = []
+        labels = {"name": "Name", "email": "E-Mail", "phone": "Telefon", "company": "Firma", "address": "Adresse"}
+        for contact, contact_signals in zip(contacts, signals):
+            indicators = [
+                labels[kind]
+                for kind in ("email", "phone", "name", "company", "address")
+                if any(counts.get((kind, value), 0) > 1 for value in contact_signals[kind])
+            ]
+            if match != "any" and labels[match] not in indicators:
+                continue
+            rows.append({"contact": contact, "match_indicators": indicators})
+        rows.sort(key=lambda row: self._norm_text(row["contact"].get("fields", {}).get("display_name")))
+        return rows
 
     @staticmethod
     def _contact_completeness(contact: dict[str, Any]) -> tuple[int, int, int]:
@@ -238,22 +312,25 @@ class ContactManagement:
                 if strong:
                     strong_matches += 1
 
-        email_l, email_r = self._norm_email(lf.get("email")), self._norm_email(rf.get("email"))
-        phone_l, phone_r = self._norm_phone(lf.get("phone")), self._norm_phone(rf.get("phone"))
-        name_l, name_r = self._norm_text(lf.get("display_name")), self._norm_text(rf.get("display_name"))
-        loose_name_l, loose_name_r = self._norm_loose_text(lf.get("display_name")), self._norm_loose_text(rf.get("display_name"))
+        emails_l = {self._norm_email(value) for value in self._property_values(left, "email", "EMAIL") if self._norm_email(value)}
+        emails_r = {self._norm_email(value) for value in self._property_values(right, "email", "EMAIL") if self._norm_email(value)}
+        phones_l = {self._norm_phone(value) for value in self._property_values(left, "phone", "TEL") if self._norm_phone(value)}
+        phones_r = {self._norm_phone(value) for value in self._property_values(right, "phone", "TEL") if self._norm_phone(value)}
+        name_l, name_r = self._norm_text(self._clean_name(lf.get("display_name"))), self._norm_text(self._clean_name(rf.get("display_name")))
+        loose_name_l, loose_name_r = self._norm_loose_text(self._clean_name(lf.get("display_name"))), self._norm_loose_text(self._clean_name(rf.get("display_name")))
         company_l, company_r = self._norm_text(lf.get("company")), self._norm_text(rf.get("company"))
 
-        equal_nonempty(email_l, email_r, 75, "gleiche E-Mail", True)
-        if phone_l and len(phone_l) >= 6 and phone_l == phone_r:
+        if emails_l.intersection(emails_r):
+            score += 75; reasons.append("gleiche E-Mail"); strong_matches += 1
+        if any(len(value) >= 6 for value in phones_l.intersection(phones_r)):
             score += 65; reasons.append("gleiche Telefonnummer"); strong_matches += 1
         equal_nonempty(name_l, name_r, 40, "gleicher Anzeigename")
         if loose_name_l and loose_name_l == loose_name_r and name_l != name_r:
             score += 30; reasons.append("Name nur durch Leerzeichen/Zeichen verschieden")
         equal_nonempty(company_l, company_r, 10, "gleiche Firma")
 
-        left_name_parts = (self._norm_text(lf.get("first_name")), self._norm_text(lf.get("last_name")))
-        right_name_parts = (self._norm_text(rf.get("first_name")), self._norm_text(rf.get("last_name")))
+        left_name_parts = (self._norm_text(self._clean_name(lf.get("first_name"))), self._norm_text(self._clean_name(lf.get("last_name"))))
+        right_name_parts = (self._norm_text(self._clean_name(rf.get("first_name"))), self._norm_text(self._clean_name(rf.get("last_name"))))
         if any(left_name_parts) and left_name_parts == right_name_parts and name_l != name_r:
             score += 30; reasons.append("gleicher Vor-/Nachname")
 
@@ -262,10 +339,13 @@ class ContactManagement:
         if left_addresses and right_addresses and left_addresses.intersection(right_addresses):
             score += 45; reasons.append("gleiche Adresse normalisiert"); strong_matches += 1
 
-        for key in ("email", "phone", "birthday"):
-            lv, rv = self._norm_text(lf.get(key)), self._norm_text(rf.get(key))
-            if lv and rv and lv != rv:
-                conflicts += 1
+        if emails_l and emails_r and not emails_l.intersection(emails_r):
+            conflicts += 1
+        if phones_l and phones_r and not phones_l.intersection(phones_r):
+            conflicts += 1
+        birthday_l, birthday_r = self._norm_text(lf.get("birthday")), self._norm_text(rf.get("birthday"))
+        if birthday_l and birthday_r and birthday_l != birthday_r:
+            conflicts += 1
         if conflicts:
             score -= min(30, conflicts * 10)
             reasons.append(f"{conflicts} abweichende Kernfelder")
@@ -412,6 +492,49 @@ class ContactManagement:
             self.store.history.record("contacts_merged", actor, "contacts", target_id, {"target_id": target_id, "source_id": source_id, "result": merged})
             return merged
 
+    def merge_many(self, contact_ids: list[str], actor: str, target_id: str = "") -> dict[str, Any]:
+        """Atomically merge two or more explicitly selected contacts into one."""
+        unique_ids = list(dict.fromkeys(str(value).strip() for value in contact_ids if str(value).strip()))
+        if len(unique_ids) < 2:
+            raise ValueError("at least two contacts are required")
+        if len(unique_ids) > self.MANUAL_MERGE_LIMIT:
+            raise ValueError(f"at most {self.MANUAL_MERGE_LIMIT} contacts can be merged at once")
+        principal = self.store._principal(actor)
+        with exclusive_file_lock(self.store.control / ".contacts-write.lock"):
+            payload = self.store._read(self.store.contacts_path, {"contacts": []})
+            by_id = {str(item.get("contact_id", "")): item for item in payload.get("contacts", [])}
+            contacts = [by_id.get(contact_id) for contact_id in unique_ids]
+            if any(contact is None for contact in contacts):
+                raise ValueError("one or more selected contacts no longer exist")
+            selected = [contact for contact in contacts if contact is not None]
+            if any(not self.store._can_manage(contact, principal) for contact in selected):
+                raise ValueError("all selected contacts must be editable")
+            owners = {
+                contact.get("owner") or self.store._principal(str(contact.get("created_by", "")))
+                for contact in selected
+            }
+            if len(owners) != 1:
+                raise ValueError("contacts with different owners cannot be merged")
+            target = by_id.get(target_id) if target_id in unique_ids else max(selected, key=self._contact_completeness)
+            sources = [contact for contact in selected if contact is not target]
+            self._snapshots_locked(
+                [(contact, "merge_target" if contact is target else "merge_source") for contact in selected],
+                actor,
+            )
+            merged = copy.deepcopy(target)
+            for source in sources:
+                merged = self._merge_pair_locked(merged, source, actor, snapshot=False)
+            payload["contacts"] = [
+                item for item in payload.get("contacts", [])
+                if str(item.get("contact_id", "")) not in set(unique_ids)
+            ] + [merged]
+            atomic_json_write(self.store.contacts_path, payload)
+            self.store.history.record(
+                "contacts_multi_merged", actor, "contacts", str(merged.get("contact_id", "")),
+                {"contact_ids": unique_ids, "target_id": merged.get("contact_id", ""), "result": merged},
+            )
+            return merged
+
     def bulk_merge(self, pairs: list[tuple[str, str]], actor: str) -> list[dict[str, Any]]:
         """Merge independent, unambiguous duplicate pairs in one atomic write.
 
@@ -485,8 +608,7 @@ class ContactManagement:
             self._snapshots_locked([(target, "merge_target"), (source, "merge_source")], actor)
         target_n, source_n = self.normalize_contact(target), self.normalize_contact(source)
         merged = copy.deepcopy(target_n)
-        merged_fields = dict(source_n.get("fields", {}))
-        merged_fields.update({key: value for key, value in target_n.get("fields", {}).items() if str(value).strip()})
+        merged_fields = self._merge_fields(target_n, source_n)
         merged["fields"] = merged_fields
         address_keys: set[str] = set()
         addresses: list[dict[str, Any]] = []
@@ -510,6 +632,72 @@ class ContactManagement:
             "actor": actor,
             "source": copy.deepcopy(source_n.get("source", {})),
         })
+        return merged
+
+    def _merge_fields(self, target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+        """Merge scalar fields and preserve distinct multi-value vCard data."""
+        target_fields = target.get("fields", {})
+        source_fields = source.get("fields", {})
+        merged = {
+            key: value for key, value in target_fields.items()
+            if not str(key).startswith("vcard_") and str(value).strip()
+        }
+        for key, value in source_fields.items():
+            if not str(key).startswith("vcard_") and str(value).strip() and not str(merged.get(key, "")).strip():
+                merged[key] = value
+
+        raw_lines: list[str] = []
+        raw_seen: set[str] = set()
+        multi_seen: dict[str, set[str]] = {"EMAIL": set(), "TEL": set()}
+        multi_specs = (("email", "EMAIL", self._norm_email), ("phone", "TEL", self._norm_phone))
+        for contact in (target, source):
+            fields = contact.get("fields", {})
+            for field, property_name, normalizer in multi_specs:
+                value = self._collapse(fields.get(field))
+                normalized = normalizer(value)
+                if not normalized or normalized in multi_seen[property_name]:
+                    continue
+                multi_seen[property_name].add(normalized)
+                if normalizer(self._collapse(merged.get(field))) != normalized:
+                    raw_lines.append(f"{property_name}:{value}")
+            for key, raw in fields.items():
+                if not str(key).startswith("vcard_"):
+                    continue
+                safe = ContactStore._safe_raw_vcard_line(str(raw))
+                if not safe:
+                    continue
+                property_name = ContactStore._vcard_property_name(safe)
+                if property_name in multi_seen:
+                    normalizer = self._norm_email if property_name == "EMAIL" else self._norm_phone
+                    normalized = normalizer(self._raw_property_value(safe))
+                    if not normalized or normalized in multi_seen[property_name]:
+                        continue
+                    multi_seen[property_name].add(normalized)
+                signature = self._norm_text(safe)
+                if signature not in raw_seen:
+                    raw_seen.add(signature)
+                    raw_lines.append(safe)
+        for index, raw in enumerate(raw_lines):
+            merged[f"vcard_merged_{index:03d}_{ContactStore._vcard_property_name(raw).casefold()}"] = raw
+
+        first_name = self._clean_name(merged.get("first_name"))
+        last_name = self._clean_name(merged.get("last_name"))
+        if first_name:
+            merged["first_name"] = first_name
+        else:
+            merged.pop("first_name", None)
+        if last_name:
+            merged["last_name"] = last_name
+        else:
+            merged.pop("last_name", None)
+        generated_name = " ".join(part for part in (first_name, last_name) if part).strip()
+        clean_display = next((
+            value for value in (
+                self._clean_name(target_fields.get("display_name")),
+                self._clean_name(source_fields.get("display_name")),
+            ) if value
+        ), "Kontakt")
+        merged["display_name"] = generated_name or clean_display
         return merged
 
     def restore(self, snapshot_id: str, actor: str) -> dict[str, Any]:
