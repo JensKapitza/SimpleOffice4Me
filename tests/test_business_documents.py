@@ -72,7 +72,7 @@ class BusinessDocumentTests(unittest.TestCase):
             pdf.save()
 
             with mock.patch.object(DocumentStore, "scan", side_effect=AssertionError("full archive scan")), \
-                 mock.patch.object(DocumentStore, "update_metadata", autospec=True, wraps=DocumentStore.update_metadata) as update:
+                 mock.patch.object(DocumentStore, "update_metadata", autospec=True, side_effect=DocumentStore.update_metadata) as update:
                 document = _store_generated_pdf(
                     root, "contact-1", "Rechnung-1", source.getvalue(), "admin",
                     "invoice", "template-1", metadata={"invoice_id": "invoice-1"},

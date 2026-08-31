@@ -12,6 +12,7 @@ validated when the configured PDF/A-3 and XML validation steps actually succeed.
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import io
 import json
@@ -30,7 +31,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 from pypdf import PdfReader, PdfWriter
@@ -851,6 +852,194 @@ def contact_links(root: Path, contact_id: str) -> list[dict[str, Any]]:
     rows=_read_json(_link_path(root),{"links":[]}).get("links",[]); return sorted((row for row in rows if row.get("contact_id")==contact_id),key=lambda row:row.get("created_at",""),reverse=True)
 
 
+def _customer_document_rows(root: Path, contact_id: str, invoice_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Resolve only authoritative customer/document relations, without name guessing."""
+    store = DocumentStore(root)
+    linked: dict[str, dict[str, Any]] = {}
+    for link in contact_links(root, contact_id):
+        document_id = str(link.get("document_id", "")).strip()
+        if not document_id:
+            continue
+        entry = linked.setdefault(document_id, {"document_id": document_id, "links": [], "invoice_ids": []})
+        entry["links"].append(link)
+    for row in invoice_rows if invoice_rows is not None else invoices(root):
+        if row.get("contact_id") != contact_id:
+            continue
+        document_id = str(row.get("document_id", "")).strip()
+        if document_id:
+            entry = linked.setdefault(document_id, {"document_id": document_id, "links": [], "invoice_ids": []})
+            entry["invoice_ids"].append(str(row.get("invoice_id", "")))
+    result: list[dict[str, Any]] = []
+    for document_id, relation in linked.items():
+        try:
+            document = store.get_document(document_id)
+        except ValueError:
+            result.append({**relation, "available": False, "error": "document_metadata_missing"})
+            continue
+        candidate = root / str(document.get("last_path", ""))
+        path = candidate.resolve()
+        try:
+            path.relative_to(root)
+            safe = candidate.is_file() and not candidate.is_symlink()
+        except ValueError:
+            safe = False
+        result.append({**relation, "document": document, "path": path,
+                       "filename": Path(str(document.get("last_path", ""))).name,
+                       "available": safe,
+                       **({} if safe else {"error": "document_file_missing_or_unsafe"})})
+    return sorted(result, key=lambda item: str(item.get("document", {}).get("last_seen_at", "")), reverse=True)
+
+
+def _document_provenance(document: dict[str, Any]) -> dict[str, Any]:
+    attributes = document.get("attributes", {}) if isinstance(document.get("attributes"), dict) else {}
+    origin_keys = {
+        "attachment_origin", "copied_from", "email_origin", "import_origin",
+        "mail_origin", "source", "webdav_origin",
+    }
+    origins = {
+        key: value for key, value in attributes.items()
+        if key in origin_keys or key.endswith("_origin")
+    }
+    return {
+        "first_seen_at": document.get("first_seen_at", ""),
+        "last_seen_at": document.get("last_seen_at", ""),
+        "current_storage_path": document.get("last_path", ""),
+        "location_history": document.get("location_history", []),
+        "content_history": document.get("content_history", []),
+        "origins": origins,
+        "malware_scan": attributes.get("malware_scan", {}),
+    }
+
+
+def _archive_member_name(document: dict[str, Any], used: set[str]) -> str:
+    original = Path(str(document.get("last_path", "document"))).name
+    stem = _safe_filename(Path(original).stem) or "document"
+    suffix = Path(original).suffix.lower()[:20]
+    candidate = f"documents/{stem}{suffix}"
+    if candidate in used:
+        candidate = f"documents/{stem}-{str(document.get('document_id', ''))[:8]}{suffix}"
+    counter = 2
+    unique = candidate
+    while unique in used:
+        unique = f"documents/{stem}-{counter}{suffix}"
+        counter += 1
+    used.add(unique)
+    return unique
+
+
+def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -> tuple[BinaryIO, dict[str, Any]]:
+    """Build an auditable customer archive with files, provenance and history."""
+    contact_id = str(contact["contact_id"])
+    store = DocumentStore(root)
+    invoice_rows = [row for row in invoices(root) if row.get("contact_id") == contact_id]
+    document_rows = _customer_document_rows(root, contact_id, invoice_rows)
+    if not document_rows and not invoice_rows:
+        raise ValueError("customer archive is empty")
+
+    # Python 3.10's SpooledTemporaryFile does not expose ``seekable`` while
+    # ZipFile expects that attribute when reopening an archive for reading.
+    # TemporaryFile remains disk-backed, bounded in memory and compatible
+    # with every supported Python version.
+    target = tempfile.TemporaryFile(mode="w+b")
+    export_id, exported_at = str(uuid.uuid4()), utc_now()
+    manifest_documents: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+    document_ids = {str(row["document_id"]) for row in document_rows}
+    document_logbooks = {document_id: [] for document_id in document_ids}
+    for event in store.logbook():
+        if event.get("source") == "revision":
+            related_document_id = str(event.get("key", ""))
+        else:
+            related_document_id = str(event.get("document_id") or event.get("source_document_id") or "")
+        if related_document_id in document_logbooks:
+            document_logbooks[related_document_id].append(event)
+    try:
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            for row in document_rows:
+                document = row.get("document", {})
+                record: dict[str, Any] = {
+                    "document_id": row["document_id"],
+                    "available": bool(row.get("available")),
+                    "relations": row.get("links", []),
+                    "invoice_ids": sorted(set(row.get("invoice_ids", []))),
+                }
+                if not row.get("available"):
+                    record["error"] = row.get("error", "document_unavailable")
+                    manifest_documents.append(record)
+                    continue
+                member_name = _archive_member_name(document, used_names)
+                digest = hashlib.sha256()
+                size = 0
+                with row["path"].open("rb") as source, archive.open(member_name, "w", force_zip64=True) as destination:
+                    while chunk := source.read(1024 * 1024):
+                        destination.write(chunk)
+                        digest.update(chunk)
+                        size += len(chunk)
+                actual_sha256 = digest.hexdigest()
+                record.update({
+                    "archive_path": member_name,
+                    "filename": Path(str(document.get("last_path", ""))).name,
+                    "size": size,
+                    "sha256": actual_sha256,
+                    "stored_sha256": document.get("sha256", ""),
+                    "hash_matches_metadata": actual_sha256 == document.get("sha256"),
+                    "state": document.get("state", ""),
+                    "tags": document.get("tags", []),
+                    "provenance": _document_provenance(document),
+                })
+                archive.writestr(
+                    f"audit/documents/{row['document_id']}.json",
+                    json.dumps(document_logbooks[row["document_id"]], ensure_ascii=False, indent=2) + "\n",
+                )
+                manifest_documents.append(record)
+
+            export_record = {
+                "export_id": export_id,
+                "action": "customer_document_archive_exported",
+                "exported_at": exported_at,
+                "exported_by": actor,
+                "contact_id": contact_id,
+                "customer_name": contact.get("fields", {}).get("display_name", ""),
+                "document_count": sum(1 for row in manifest_documents if row.get("available")),
+                "unavailable_document_count": sum(1 for row in manifest_documents if not row.get("available")),
+                "invoice_count": len(invoice_rows),
+            }
+            manifest = {
+                "format": "SimpleOffice4Me customer document archive",
+                "format_version": 1,
+                "customer": {"contact_id": contact_id, "display_name": export_record["customer_name"]},
+                "export": export_record,
+                "scope": "Explicit customer-document links and invoices linked by contact_id; no name-based inference.",
+                "documents": manifest_documents,
+                "invoices": invoice_rows,
+            }
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+            archive.writestr("audit/export.json", json.dumps(export_record, ensure_ascii=False, indent=2) + "\n")
+            archive.writestr("invoices/invoices.json", json.dumps(invoice_rows, ensure_ascii=False, indent=2) + "\n")
+            archive.writestr("README.txt", (
+                "KUNDENAKTE / CUSTOMER DOCUMENT ARCHIVE\n\n"
+                "manifest.json enthält die Dokumentliste, SHA-256-Prüfsummen, Verknüpfungen und Herkunftsnachweise.\n"
+                "audit/ enthält den protokollierten Export und die Historie jedes enthaltenen Dokuments.\n"
+                "invoices/invoices.json enthält die gespeicherten Rechnungsdatensätze.\n"
+                "Dokumente werden nur über explizite Kontaktverknüpfungen oder eine eindeutige contact_id der Rechnung zugeordnet.\n\n"
+                "manifest.json contains the document list, SHA-256 checksums, relations and provenance.\n"
+                "audit/ contains the recorded export and each included document's audit history.\n"
+                "invoices/invoices.json contains the stored invoice records.\n"
+                "Documents are included only through explicit contact links or an invoice's authoritative contact_id.\n"
+            ))
+        revision = store.history.record(
+            "customer_document_archive_exported", actor, "customer-exports", export_id,
+            {**export_record, "document_ids": [row["document_id"] for row in manifest_documents],
+             "invoice_ids": [str(row.get("invoice_id", "")) for row in invoice_rows]},
+        )
+        export_record["audit_revision"] = revision
+        target.seek(0)
+        return target, export_record
+    except Exception:
+        target.close()
+        raise
+
+
 def attach_contact_document(root: Path, contact_id: str, document_id: str, actor: str, *, relation: str="correspondence", metadata: dict[str,Any]|None=None) -> dict[str,Any]:
     path=_link_path(root)
     with exclusive_file_lock(path.with_suffix(".lock")):
@@ -889,16 +1078,16 @@ def inspect_zugferd_pdf(path: Path) -> dict[str,Any]:
 
 def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, actor: str, kind: str, template_id: str, *, metadata: dict[str,Any]|None=None) -> dict[str,Any]:
     now=datetime.now(timezone.utc); directory=root/"generated"/kind/now.strftime("%Y")/contact_id; directory.mkdir(parents=True,exist_ok=True); path=directory/f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"; path.write_bytes(pdf)
-    store=DocumentStore(root); document=store.get_document(path)
-    document=store.update_metadata(
-        document["document_id"], author=actor, tags=[kind,"crm"],
+    store=DocumentStore(root); document=store.get_document(path); document_id=document["document_id"]
+    store.update_metadata(
+        document_id, author=actor, tags=[kind,"crm"],
         attributes={
             "contact_id": contact_id, "business_document_kind": kind,
             "business_template_id": template_id,
             **{str(key): str(value) for key,value in (metadata or {}).items() if value is not None and not isinstance(value,(dict,list))},
         },
     )
-    attach_contact_document(root,contact_id,document["document_id"],actor,relation=kind,metadata={"subject":subject,"template_id":template_id,**(metadata or {})}); return store.get_document(document["document_id"])
+    attach_contact_document(root,contact_id,document_id,actor,relation=kind,metadata={"subject":subject,"template_id":template_id,**(metadata or {})}); return store.get_document(document_id)
 
 
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1207,7 +1396,9 @@ def customer_billing(contact_id: str):
     if not contacts.can_manage_contact(contact, actor): abort(403)
     rows = [row for row in invoices(root) if row.get("contact_id") == contact_id]
     candidates = [item for item in contacts.contacts(actor) if item.get("contact_id") != contact_id and contacts.can_manage_contact(item, actor)]
+    customer_documents = _customer_document_rows(root, contact_id, rows)
     return render_template("documents/customer_billing.html", contact=contact, rows=rows,
+                           customer_documents=customer_documents,
                            credit=CustomerCreditLedger(root).account(contact_id),
                            referrals=CustomerCreditLedger(root).referrals(contact_id),
                            candidates=candidates, today=date.today().isoformat())
@@ -1294,6 +1485,30 @@ def customer_invoice_archive(contact_id: str):
     if count == 0: abort(404)
     target.seek(0)
     return send_file(target, as_attachment=True, download_name=f"Rechnungen-{_safe_filename(contact_id)}.zip", mimetype="application/zip")
+
+
+@bp.get("/contacts/<contact_id>/customer-documents.zip")
+@login_required
+def customer_document_archive_download(contact_id: str):
+    root, actor = _root(), _actor()
+    contacts = ContactStore(root)
+    try:
+        contact = contacts.get(contact_id, actor)
+    except ValueError:
+        abort(404)
+    if not contacts.can_manage(contact_id, actor):
+        abort(403)
+    try:
+        target, _summary = customer_document_archive(root, contact, actor)
+    except ValueError:
+        abort(404)
+    response = send_file(
+        target, as_attachment=True,
+        download_name=f"Kundenakte-{_safe_filename(contact.get('fields', {}).get('display_name', contact_id))}.zip",
+        mimetype="application/zip", conditional=False,
+    )
+    response.call_on_close(target.close)
+    return response
 
 @bp.get("/invoices")
 @login_required
