@@ -84,6 +84,7 @@ class TemplateAccessibilityTests(unittest.TestCase):
         for path, form in search_forms:
             opening = form.split(">", 1)[0]
             self.assertNotRegex(opening, r"\bmethod=[\"']post[\"']")
+            self.assertTrue(_attributes(opening).get("aria-label"), path)
             query_fields = re.findall(r"<input\b[^>]*\bname=[\"']q[\"'][^>]*>", form, re.I)
             self.assertTrue(query_fields, path)
             self.assertTrue(any(_attributes(tag).get("type") == "search" for tag in query_fields), path)

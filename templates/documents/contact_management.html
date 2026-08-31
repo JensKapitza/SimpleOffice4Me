@@ -14,7 +14,7 @@
     {% endfor %}
   </section>
 
-  <section class="card mb-4"><div class="card-header"><strong>Erweiterte Suche</strong></div><div class="card-body"><form role="search" method="get" class="row g-2">
+  <section class="card mb-4"><div class="card-header"><strong>Erweiterte Suche</strong></div><div class="card-body"><form role="search" aria-label="Kontakte erweitert suchen" method="get" class="row g-2">
     <div class="col-lg-4"><input type="search" class="form-control" name="q" value="{{ query }}" placeholder="Name, E-Mail, Telefon, Adresse, Tag, Gruppe …"></div>
     <div class="col-lg-2"><select class="form-select" name="tag"><option value="">Alle Tags</option>{% for tag in dashboard.tags %}<option value="{{ tag }}" {% if selected_tag == tag %}selected{% endif %}>{{ tag }}</option>{% endfor %}</select></div>
     <div class="col-lg-2"><select class="form-select" name="group"><option value="">Alle Gruppen</option>{% for group in dashboard.groups %}<option value="{{ group }}" {% if selected_group == group %}selected{% endif %}>{{ group }}</option>{% endfor %}</select></div>

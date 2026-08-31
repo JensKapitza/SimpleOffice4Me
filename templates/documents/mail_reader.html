@@ -10,7 +10,7 @@
   </div>
 
   <section class="card mb-3"><div class="card-body py-2">
-    <form role="search" method="get" class="row g-2 align-items-center">
+    <form role="search" aria-label="E-Mails suchen" method="get" class="row g-2 align-items-center">
       <div class="col-lg-3"><label class="visually-hidden" for="mail-account">Konto</label><select id="mail-account" class="form-select" name="account" onchange="this.form.submit()">{% for account in accounts %}<option value="{{ account.id }}" {% if selected and selected.id == account.id %}selected{% endif %}>{{ account.label }} · {{ account.username }}</option>{% else %}<option>Kein Konto konfiguriert</option>{% endfor %}</select></div>
       <input type="hidden" name="mode" value="{{ mode }}">
       {% if mode == 'inbox' %}<input type="hidden" name="folder" value="{{ folder }}">{% endif %}
