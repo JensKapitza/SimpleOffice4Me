@@ -944,6 +944,15 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
     export_id, exported_at = str(uuid.uuid4()), utc_now()
     manifest_documents: list[dict[str, Any]] = []
     used_names: set[str] = set()
+    document_ids = {str(row["document_id"]) for row in document_rows}
+    document_logbooks = {document_id: [] for document_id in document_ids}
+    for event in store.logbook():
+        if event.get("source") == "revision":
+            related_document_id = str(event.get("key", ""))
+        else:
+            related_document_id = str(event.get("document_id") or event.get("source_document_id") or "")
+        if related_document_id in document_logbooks:
+            document_logbooks[related_document_id].append(event)
     try:
         with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
             for row in document_rows:
@@ -980,7 +989,7 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
                 })
                 archive.writestr(
                     f"audit/documents/{row['document_id']}.json",
-                    json.dumps(store.logbook(row["document_id"]), ensure_ascii=False, indent=2) + "\n",
+                    json.dumps(document_logbooks[row["document_id"]], ensure_ascii=False, indent=2) + "\n",
                 )
                 manifest_documents.append(record)
 
@@ -995,12 +1004,6 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
                 "unavailable_document_count": sum(1 for row in manifest_documents if not row.get("available")),
                 "invoice_count": len(invoice_rows),
             }
-            revision = store.history.record(
-                "customer_document_archive_exported", actor, "customer-exports", export_id,
-                {**export_record, "document_ids": [row["document_id"] for row in manifest_documents],
-                 "invoice_ids": [str(row.get("invoice_id", "")) for row in invoice_rows]},
-            )
-            export_record["audit_revision"] = revision
             manifest = {
                 "format": "SimpleOffice4Me customer document archive",
                 "format_version": 1,
@@ -1024,6 +1027,12 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
                 "invoices/invoices.json contains the stored invoice records.\n"
                 "Documents are included only through explicit contact links or an invoice's authoritative contact_id.\n"
             ))
+        revision = store.history.record(
+            "customer_document_archive_exported", actor, "customer-exports", export_id,
+            {**export_record, "document_ids": [row["document_id"] for row in manifest_documents],
+             "invoice_ids": [str(row.get("invoice_id", "")) for row in invoice_rows]},
+        )
+        export_record["audit_revision"] = revision
         target.seek(0)
         return target, export_record
     except Exception:

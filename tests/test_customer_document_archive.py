@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from app import app
 from app import db as database
@@ -72,6 +73,33 @@ class CustomerDocumentArchiveTest(unittest.TestCase):
         self.assertEqual("jens", audit["exported_by"])
         self.assertTrue((self.root / ".simpleoffice-history" / "snapshots" / "customer-exports" / f"{export['export_id']}.json").is_file())
         self.assertNotIn(unlinked["document_id"], json.dumps(manifest))
+
+    def test_archive_reads_audit_history_once_for_all_documents(self):
+        self._linked_document()
+        second = DocumentStore(self.root).import_upload(io.BytesIO(b"second receipt"), "Beleg September.txt", "jens")
+        attach_contact_document(self.root, self.contact["contact_id"], second["document_id"], "jens", relation="receipt")
+
+        with mock.patch.object(DocumentStore, "logbook", autospec=True, side_effect=DocumentStore.logbook) as logbook:
+            target, _export = customer_document_archive(self.root, self.contact, "jens")
+        target.close()
+
+        self.assertEqual(1, logbook.call_count)
+
+    def test_failed_archive_write_does_not_record_successful_export(self):
+        self._linked_document()
+        original = zipfile.ZipFile.writestr
+
+        def fail_manifest(archive, name, *args, **kwargs):
+            if name == "manifest.json":
+                raise OSError("simulated archive failure")
+            return original(archive, name, *args, **kwargs)
+
+        with mock.patch.object(zipfile.ZipFile, "writestr", autospec=True, side_effect=fail_manifest):
+            with self.assertRaisesRegex(OSError, "simulated archive failure"):
+                customer_document_archive(self.root, self.contact, "jens")
+
+        exports = self.root / ".simpleoffice-history" / "snapshots" / "customer-exports"
+        self.assertFalse(exports.exists())
 
     def test_missing_linked_file_is_reported_instead_of_silently_omitted(self):
         linked = self._linked_document()
