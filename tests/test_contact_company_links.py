@@ -22,8 +22,11 @@ class ContactCompanyLinksTest(unittest.TestCase):
         app.config.update(self.saved); self.temp.cleanup()
 
     def test_company_contact_is_offered_and_person_is_linked(self):
-        page = self.client.get("/documents/contacts")
-        self.assertIn("Musterwerke GmbH", page.get_data(as_text=True))
+        short = self.client.get("/documents/contacts/company-search?q=M")
+        search = self.client.get("/documents/contacts/company-search?q=Mu")
+        self.assertEqual([], short.get_json()["items"])
+        self.assertEqual("Musterwerke GmbH", search.get_json()["items"][0]["company_name"])
+        self.assertEqual(self.company["contact_id"], search.get_json()["items"][0]["contact_id"])
 
         response = self.client.post("/documents/contacts", data={
             "first_name": "Anna", "last_name": "Beispiel", "display_name": "Anna Beispiel",
@@ -35,6 +38,10 @@ class ContactCompanyLinksTest(unittest.TestCase):
         self.assertEqual(self.company["contact_id"], person["fields"]["company_contact_id"])
         self.assertEqual("Musterwerke GmbH", person["fields"]["company"])
 
+    def test_company_search_obeys_contact_read_permissions(self):
+        other = app.test_client(); other.post("/auth/register", data={"username": "other", "password": "anderes-passwort"}); other.post("/auth/login", data={"username": "other", "password": "anderes-passwort"})
+        self.assertEqual([], other.get("/documents/contacts/company-search?q=Mu").get_json()["items"])
+
     def test_company_page_lists_assigned_people(self):
         person = self.store.upsert({"display_name": "Anna Beispiel", "company": "Musterwerke GmbH", "custom_company_contact_id": self.company["contact_id"], "email": "anna@muster.test"}, "jens")
         page = self.client.get(f"/documents/contacts/{self.company['contact_id']}")
@@ -43,6 +50,13 @@ class ContactCompanyLinksTest(unittest.TestCase):
         self.assertIn("Zugeordnete Personen", body)
         self.assertIn("Anna Beispiel", body)
         self.assertIn(f"/documents/contacts/{person['contact_id']}", body)
+
+    def test_new_person_inherits_company_contact_address(self):
+        self.store.add_address(self.company["contact_id"], "Geschäftlich", "Musterweg 4\n12345 Berlin", "jens", {"street": "Musterweg 4", "postal": "12345", "city": "Berlin", "country": "DE"})
+        self.client.post("/documents/contacts", data={"display_name": "Anna Beispiel", "company": "Musterwerke GmbH", "company_contact_id": self.company["contact_id"]})
+        person = next(item for item in self.store.contacts("jens") if item["fields"]["display_name"] == "Anna Beispiel")
+        self.assertEqual("Musterweg 4", person["addresses"][0]["components"]["street"])
+        self.assertEqual("Firma", person["addresses"][0]["label"])
 
     def test_company_rename_updates_linked_people(self):
         person = self.store.upsert({"display_name": "Anna Beispiel", "company": "Musterwerke GmbH", "custom_company_contact_id": self.company["contact_id"]}, "jens")
