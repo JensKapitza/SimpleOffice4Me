@@ -20,6 +20,24 @@ Abläufe.
 Damit wurden mehr als 500 konkrete HTML-Elemente verbessert. Zusätzlich bleiben
 alle Adress-Autocomplete-Felder gegen konkurrierendes Browser-Autofill geschützt.
 
+## Zweiter Durchlauf
+
+Der zweite Durchlauf ergänzt weitere risikoarme Browser- und
+Barrierefreiheitsregeln:
+
+| Bereich | abgesicherte Stellen |
+| --- | ---: |
+| Formulare mit expliziter GET-/POST-Methode | 182 |
+| Benannte Navigationsbereiche | 12 |
+| Bilder mit Lade- und Dekodierhinweisen | 4 |
+| Neue Fenster ohne Referrer-Weitergabe | 7 |
+| Vor-/Zurück-Beziehungen in Seitennavigationen | 18 |
+| Benannte Dialog-Schaltflächen | 2 |
+
+Die erste Diashow-Großansicht erhält zusätzlich hohe Ladepriorität; weitere
+Bilder bleiben verzögert geladen. Aktuelle Seiten und Auslassungszeichen in der
+Messwertnavigation sind für Hilfstechnologien eindeutig markiert.
+
 ## Abgesicherte Regeln
 
 `tests/test_template_accessibility.py` prüft bei jeder CI-Ausführung:
@@ -30,4 +48,8 @@ alle Adress-Autocomplete-Felder gegen konkurrierendes Browser-Autofill geschütz
 - Informationsmeldungen werden von Hilfstechnologien angekündigt;
 - Adress-Autocomplete wird nicht von Browser-Autofill überlagert;
 - Such-Landmarken enthalten ausschließlich echte Suchformulare;
-- einklappbare Bereiche veröffentlichen Zustand und Ziel.
+- einklappbare Bereiche veröffentlichen Zustand und Ziel;
+- Bilder benennen Lade-, Dekodier- und Alternativtext-Verhalten;
+- neue Browserfenster übertragen keinen Referrer;
+- Formulare und Navigationen deklarieren ihre Semantik;
+- Seitennavigation und Dialog-Schaltflächen benennen ihre Funktion.

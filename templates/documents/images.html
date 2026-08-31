@@ -6,7 +6,7 @@
   <h1>Bilder</h1>
   <p class="text-muted">Bilder bleiben normale, hashbasiert verwaltete Dokumente. EXIF, OCR-Text und daraus erzeugte Tags werden lokal gespeichert und revisionssicher protokolliert.</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
-  <form class="row g-2 mb-3">
+  <form method="get" class="row g-2 mb-3">
     <div class="col-md-5"><input class="form-control" name="tag" value="{{ tag }}" placeholder="Tag filtern, z. B. dank oder dan*"></div>
     <div class="col-md-3"><select class="form-select" name="period"><option value="all" {{ 'selected' if period == 'all' }}>Alle Zeiten</option><option value="week" {{ 'selected' if period == 'week' }}>Diese Woche</option><option value="month" {{ 'selected' if period == 'month' }}>Dieser Monat</option><option value="year" {{ 'selected' if period == 'year' }}>Dieses Jahr</option></select></div>
     <div class="col-auto"><button type="submit" class="btn btn-outline-primary">Filtern</button></div>
@@ -15,7 +15,7 @@
   <div class="row g-3">
     {% for picture in pictures %}
     <div class="col-sm-6 col-lg-3"><div class="card h-100">
-      <a href="{{ url_for('documents.image_preview', document_id=picture.document_id) }}"><img class="card-img-top" loading="lazy" src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></a>
+      <a href="{{ url_for('documents.image_preview', document_id=picture.document_id) }}"><img class="card-img-top" loading="lazy" decoding="async" src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></a>
       <div class="card-body"><small class="d-block text-break">{{ picture.last_path }}</small><small class="text-muted">{{ picture.first_seen_at }}</small>
         {% if picture.image_analysis %}<div class="small text-secondary mt-1">{{ picture.image_analysis.format|default('?') }} · {{ picture.image_analysis.width|default('?') }} × {{ picture.image_analysis.height|default('?') }} px{% if picture.image_analysis.exif.Model %} · {{ picture.image_analysis.exif.Model }}{% endif %}</div>{% if picture.image_analysis.ocr_characters %}<div class="small text-secondary">OCR: {{ picture.image_analysis.ocr_characters }} Zeichen</div>{% endif %}{% endif %}
         <form method="post" action="{{ url_for('documents.set_document_tags', document_id=picture.document_id) }}"><input class="form-control form-control-sm my-1" name="tags" value="{{ picture.tags|join(', ') }}" placeholder="Tags"><button type="submit" class="btn btn-sm btn-outline-primary">Tags speichern</button><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=picture.document_id) }}">Verwalten / freigeben</a></form>
@@ -28,8 +28,8 @@
   <nav class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-4" aria-label="Bilderseiten">
     <small class="text-secondary">{{ (page - 1) * page_size + 1 }}–{{ (page - 1) * page_size + pictures|length }} von {{ total }} Bildern</small>
     <div class="btn-group">
-      {% if page > 1 %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.images', tag=tag, period=period, page=page - 1) }}">← Vorherige 500</a>{% endif %}
-      {% if has_next %}<a class="btn btn-outline-primary" href="{{ url_for('documents.images', tag=tag, period=period, page=page + 1) }}">Nächste 500 →</a>{% endif %}
+      {% if page > 1 %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.images', tag=tag, period=period, page=page - 1) }}" rel="prev">← Vorherige 500</a>{% endif %}
+      {% if has_next %}<a class="btn btn-outline-primary" href="{{ url_for('documents.images', tag=tag, period=period, page=page + 1) }}" rel="next">Nächste 500 →</a>{% endif %}
     </div>
   </nav>
   {% endif %}
@@ -48,16 +48,16 @@
           <hr class="border-secondary my-2">
           <div class="form-check form-switch mb-2"><input id="slide-autostart" class="form-check-input" type="checkbox" checked><label class="form-check-label small" for="slide-autostart">{{ tr('slideshow.autostart') }}</label></div>
           <label class="small d-flex align-items-center gap-2" for="slide-seconds"><span>{{ tr('slideshow.duration') }}</span><input id="slide-seconds" class="form-range m-0" type="range" min="3" max="60" value="5"><span class="text-nowrap"><span id="slide-seconds-value">5</span> {{ tr('slideshow.seconds') }}</span></label>
-          <div class="d-flex gap-2 mt-2"><button id="slide-autoplay-start" type="button" class="btn btn-sm btn-light">{{ tr('slideshow.start') }}</button><button id="slide-autoplay-stop" type="button" class="btn btn-sm btn-outline-light" disabled>{{ tr('slideshow.stop') }}</button><a id="slide-open-original" class="btn btn-sm btn-outline-light ms-auto" href="{{ url_for('documents.image_preview', document_id=pictures[0].document_id) }}" target="_blank" rel="noopener">{{ tr('slideshow.open_original') }}</a></div>
+          <div class="d-flex gap-2 mt-2"><button id="slide-autoplay-start" type="button" class="btn btn-sm btn-light">{{ tr('slideshow.start') }}</button><button id="slide-autoplay-stop" type="button" class="btn btn-sm btn-outline-light" disabled>{{ tr('slideshow.stop') }}</button><a id="slide-open-original" class="btn btn-sm btn-outline-light ms-auto" href="{{ url_for('documents.image_preview', document_id=pictures[0].document_id) }}" target="_blank" rel="noopener noreferrer">{{ tr('slideshow.open_original') }}</a></div>
         </div>
       </details>
       <div class="modal-body p-0 slideshow-stage">
         <div id="image-carousel" class="carousel slide h-100" data-bs-interval="false">
-          <div class="carousel-inner h-100">{% for picture in pictures %}{% set analysis = picture.image_analysis or {} %}<div class="carousel-item h-100 {% if loop.first %}active{% endif %}" data-original-url="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" data-slide-title="{{ picture.last_path }}" data-slide-meta="{{ analysis.width|default('?') }} × {{ analysis.height|default('?') }} px · {{ analysis.format|default('?') }}" data-slide-tags="{{ picture.tags|join(', ') }}"><img class="slideshow-image" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" src="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></div>{% endfor %}</div>
+          <div class="carousel-inner h-100">{% for picture in pictures %}{% set analysis = picture.image_analysis or {} %}<div class="carousel-item h-100 {% if loop.first %}active{% endif %}" data-original-url="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" data-slide-title="{{ picture.last_path }}" data-slide-meta="{{ analysis.width|default('?') }} × {{ analysis.height|default('?') }} px · {{ analysis.format|default('?') }}" data-slide-tags="{{ picture.tags|join(', ') }}"><img class="slideshow-image" loading="{% if loop.first %}eager{% else %}lazy{% endif %}" decoding="async" fetchpriority="{% if loop.first %}high{% else %}auto{% endif %}" src="{{ url_for('documents.image_preview', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></div>{% endfor %}</div>
           <button class="carousel-control-prev" type="button" data-bs-target="#image-carousel" data-bs-slide="prev"><span class="carousel-control-prev-icon"></span><span class="visually-hidden">{{ tr('slideshow.previous') }}</span></button>
           <button class="carousel-control-next" type="button" data-bs-target="#image-carousel" data-bs-slide="next"><span class="carousel-control-next-icon"></span><span class="visually-hidden">{{ tr('slideshow.next') }}</span></button>
         </div>
-        <div class="slideshow-filmstrip" id="slide-filmstrip" role="tablist" aria-label="{{ tr('slideshow.thumbnails') }}">{% for picture in pictures %}<button type="button" class="slideshow-thumb {% if loop.first %}active{% endif %}" data-bs-target="#image-carousel" data-bs-slide-to="{{ loop.index0 }}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" aria-label="{{ tr('slideshow.image') }} {{ loop.index }}"><img src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" loading="lazy" alt=""></button>{% endfor %}</div>
+        <div class="slideshow-filmstrip" id="slide-filmstrip" role="tablist" aria-label="{{ tr('slideshow.thumbnails') }}">{% for picture in pictures %}<button type="button" class="slideshow-thumb {% if loop.first %}active{% endif %}" data-bs-target="#image-carousel" data-bs-slide-to="{{ loop.index0 }}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" aria-label="{{ tr('slideshow.image') }} {{ loop.index }}"><img src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" loading="lazy" decoding="async" alt=""></button>{% endfor %}</div>
       </div>
     </div></div>
   </div>

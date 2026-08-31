@@ -30,7 +30,7 @@
 <i class="fas fa-shield-virus me-1" aria-hidden="true">
 </i>{{ 'Scan with ClamAV' if g.language == 'en' else 'Mit ClamAV prüfen' }}</button>
 </form>
-<a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener">
+<a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">
 <i class="fas fa-arrow-up-right-from-square me-1" aria-hidden="true">
 </i>{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a>
 <a class="btn btn-primary" href="{{ url_for('webdav.setup_document', document_id=document.document_id) }}">
