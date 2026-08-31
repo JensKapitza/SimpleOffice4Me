@@ -5,7 +5,7 @@
 {% block body %}
 {% set username = g.user['username'] %}
 {% set can_manage = is_owner or username in contact.managers|default([]) %}
-{% set standard_fields = ['first_name','last_name','display_name','nickname','email','phone','birthday','company','department','title','role','website','note'] %}
+{% set standard_fields = ['first_name','last_name','display_name','nickname','email','phone','birthday','company','company_contact_id','department','title','role','website','note'] %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
     <div>
@@ -14,7 +14,7 @@
       <p class="text-secondary mb-0">Eigentümer: {{ contact.owner|default('bisher nicht zugeordnet', true) }} · zuletzt geändert von {{ contact.updated_by }}</p>
       {% if can_manage %}<span class="badge text-bg-primary mt-2">Lesen und Bearbeiten</span>{% else %}<span class="badge text-bg-secondary mt-2">Nur Lesen</span>{% endif %}
     </div>
-    <div class="btn-group">{% if can_manage %}<a class="btn btn-primary" href="{{ url_for('contact_audit.business_documents.customer_billing', contact_id=contact.contact_id) }}">{{ tr('billing.title') }}</a><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a>{% endif %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
+    <div class="btn-group">{% if can_manage %}<a class="btn btn-primary" href="{{ url_for('contact_audit.business_documents.customer_billing', contact_id=contact.contact_id) }}">{{ tr('billing.title') }}</a><a class="btn btn-outline-secondary" href="#company-people">Personen ({{ company_people|length }})</a><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.snapshots', contact_id=contact.contact_id) }}">Versionen</a>{% endif %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.download_contact_vcard', contact_id=contact.contact_id) }}">vCard</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-4">
@@ -23,7 +23,7 @@
         <div class="card-header">Kontaktdaten{% if can_manage %} bearbeiten{% endif %}</div>
         <div class="card-body">
           {% if can_manage %}
-          <form method="post" action="{{ url_for('documents.save_contact') }}" class="row g-3">
+          <form method="post" action="{{ url_for('documents.save_contact') }}" class="row g-3" data-company-link-form>
             <input type="hidden" name="contact_id" value="{{ contact.contact_id }}">
             <div class="col-md-6"><label class="form-label">Vorname</label><input class="form-control" name="first_name" value="{{ contact.fields.first_name|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Nachname</label><input class="form-control" name="last_name" value="{{ contact.fields.last_name|default('') }}"></div>
@@ -33,7 +33,7 @@
             <div class="col-md-6"><label class="form-label">Telefon</label><input class="form-control" name="phone" value="{{ contact.fields.phone|default('') }}"></div>
             <div class="col-md-4"><label class="form-label">Geburtstag</label><input class="form-control" type="date" name="birthday" value="{{ contact.fields.birthday|default('') }}"></div>
             <div class="col-md-8"><label class="form-label">Webseite</label><input class="form-control" type="url" name="website" value="{{ contact.fields.website|default('') }}"></div>
-            <div class="col-md-6"><label class="form-label">Firma / Organisation</label><input class="form-control" name="company" value="{{ contact.fields.company|default('') }}"></div>
+            <div class="col-md-6"><label class="form-label" for="contact-company">Firma / Organisation</label><input id="contact-company" class="form-control" name="company" value="{{ linked_company.fields.display_name if linked_company else contact.fields.company|default('') }}" list="company-contact-options" autocomplete="off" data-company-name><input type="hidden" name="company_contact_id" value="{{ linked_company.contact_id if linked_company else '' }}" data-company-id><datalist id="company-contact-options">{% for item in company_contacts %}<option value="{{ item.name }}" data-contact-id="{{ item.contact_id }}"></option>{% endfor %}</datalist><div class="form-text">Kontakt auswählen, um Firma und Ansprechpartner intern zu verknüpfen.</div></div>
             <div class="col-md-6"><label class="form-label">Abteilung</label><input class="form-control" name="department" value="{{ contact.fields.department|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Position / Titel</label><input class="form-control" name="title" value="{{ contact.fields.title|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Rolle</label><input class="form-control" name="role" value="{{ contact.fields.role|default('') }}"></div>
@@ -55,7 +55,7 @@
             <dt class="col-sm-4">E-Mail</dt><dd class="col-sm-8">{{ contact.fields.email|default('—', true) }}</dd>
             <dt class="col-sm-4">Telefon</dt><dd class="col-sm-8">{{ contact.fields.phone|default('—', true) }}</dd>
             <dt class="col-sm-4">Geburtstag</dt><dd class="col-sm-8">{{ contact.fields.birthday|default('—', true) }}</dd>
-            <dt class="col-sm-4">Firma</dt><dd class="col-sm-8">{{ contact.fields.company|default('—', true) }}</dd>
+            <dt class="col-sm-4">Firma</dt><dd class="col-sm-8">{% if linked_company %}<a href="{{ url_for('documents.contact_detail', contact_id=linked_company.contact_id) }}">{{ linked_company.fields.display_name }}</a>{% else %}{{ contact.fields.company|default('—', true) }}{% endif %}</dd>
             <dt class="col-sm-4">Abteilung</dt><dd class="col-sm-8">{{ contact.fields.department|default('—', true) }}</dd>
             <dt class="col-sm-4">Position</dt><dd class="col-sm-8">{{ contact.fields.title|default('—', true) }}</dd>
             <dt class="col-sm-4">Rolle</dt><dd class="col-sm-8">{{ contact.fields.role|default('—', true) }}</dd>
@@ -88,6 +88,7 @@
       </div>
     </section>
     <aside class="col-lg-5">
+      <div class="card mb-4" id="company-people"><div class="card-header"><strong>Zugeordnete Personen</strong><span class="badge text-bg-secondary ms-1">{{ company_people|length }}</span></div><div class="list-group list-group-flush">{% for person in company_people %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.contact_detail', contact_id=person.contact_id) }}"><div class="d-flex justify-content-between gap-2"><strong>{{ person.fields.display_name }}</strong>{% if person.fields.title %}<span class="small text-secondary">{{ person.fields.title }}</span>{% endif %}</div><div class="small text-secondary">{% if person.fields.department %}{{ person.fields.department }}{% endif %}{% if person.fields.email %}{% if person.fields.department %} · {% endif %}{{ person.fields.email }}{% endif %}{% if person.fields.phone %} · {{ person.fields.phone }}{% endif %}</div></a>{% else %}<div class="list-group-item text-secondary">Noch keine Personen zugeordnet. Bei einem Personenkontakt diese Firma im Feld „Firma / Organisation“ auswählen.</div>{% endfor %}</div><div class="card-footer small text-secondary">Diese interne Zuordnung wird nicht über CardDAV übertragen.</div></div>
       <div class="card mb-4"><div class="card-header d-flex justify-content-between"><strong>{{ 'Open tasks' if g.language == 'en' else 'Offene Aufgaben' }}</strong><a href="{{ url_for('documents.tasks', contact_id=contact.contact_id) }}">{{ 'All' if g.language == 'en' else 'Alle' }}</a></div><div class="list-group list-group-flush">{% for item in contact_tasks if item.status not in ['completed','cancelled'] %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.tasks') }}#task-{{ item.id }}"><strong>{{ item.title }}</strong>{% if item.due %}<br><small class="text-secondary">{{ item.due[:10] }}</small>{% endif %}</a>{% else %}<div class="list-group-item text-secondary">{{ 'No open tasks.' if g.language == 'en' else 'Keine offenen Aufgaben.' }}</div>{% endfor %}</div><div class="card-body"><form method="post" action="{{ url_for('documents.add_todo') }}" class="input-group"><input type="hidden" name="contact_id" value="{{ contact.contact_id }}"><input type="hidden" name="return_to" value="tasks"><input required class="form-control" name="title" placeholder="{{ 'New task' if g.language == 'en' else 'Neue Aufgabe' }}"><button type="submit" class="btn btn-outline-primary">+</button></form></div></div>
       <div class="card mb-4"><div class="card-header">Organisation</div><div class="card-body">
         {% if can_manage %}<form method="post" action="{{ url_for('contact_audit.update_metadata', contact_id=contact.contact_id) }}"><label class="form-label">Tags</label><input class="form-control mb-3" name="tags" value="{{ contact.tags|default([])|join(', ') }}" placeholder="Kunde, Lieferant, Privat"><label class="form-label">Gruppen</label><input class="form-control mb-3" name="groups" value="{{ contact.groups|default([])|join(', ') }}" placeholder="Projekt A, Familie, Verein"><button type="submit" class="btn btn-outline-primary">Tags und Gruppen speichern</button></form><p class="small text-secondary mt-2 mb-0">Vor Änderungen wird eine vollständige Kontaktversion gesichert.</p>
@@ -128,4 +129,5 @@
     </aside>
   </div>
 </main>
+<script>(()=>{document.querySelectorAll('[data-company-link-form]').forEach(form=>{const input=form.querySelector('[data-company-name]'),hidden=form.querySelector('[data-company-id]'),list=document.getElementById(input?.getAttribute('list'));input?.addEventListener('input',()=>{const matches=Array.from(list?.options||[]).filter(option=>option.value.trim().toLocaleLowerCase()===input.value.trim().toLocaleLowerCase());hidden.value=matches.length===1?matches[0].dataset.contactId:'';});});})();</script>
 {% endblock %}

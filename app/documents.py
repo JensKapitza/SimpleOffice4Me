@@ -1632,11 +1632,12 @@ def contacts():
     contacts = matches[start:start + page_size]
     address_values = sorted({address.get("value", "") for contact in contacts for address in contact.get("addresses", []) if address.get("value")}, key=str.casefold)
     carddav_endpoint = url_for("carddav.endpoint", path=f"addressbooks/{g.user['username']}/default/", _external=True)
+    company_contacts = [{"contact_id": item["contact_id"], "name": store.company_name(item)} for item in visible_contacts if store.company_name(item)]
     return render_template(
         "documents/contacts.html", contacts=contacts, query=query,
         schema=store.schema(), carddav=store.carddav(), carddav_endpoint=carddav_endpoint,
         address_matches=store.address_matches(contacts), address_values=address_values,
-        page=page, pages=pages, total=total,
+        page=page, pages=pages, total=total, company_contacts=company_contacts,
     )
 
 
@@ -1709,8 +1710,12 @@ def contact_detail(contact_id: str):
     except ValueError:
         abort(404)
     users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
-    return render_template("documents/contact_detail.html", contact=contact, users=users, has_photo=_contacts().has_photo(contact), is_owner=not contact.get("owner") or contact.get("owner") == actor,
-                           contact_tasks=_todos().items(actor, contact_id=contact_id), task_lists=_todos().lists(actor))
+    store = _contacts(); visible = store.contacts(actor); company_id = str(contact.get("fields", {}).get("company_contact_id", ""))
+    linked_company = next((item for item in visible if item.get("contact_id") == company_id), None)
+    company_contacts = [{"contact_id": item["contact_id"], "name": store.company_name(item)} for item in visible if item.get("contact_id") != contact_id and store.company_name(item)]
+    return render_template("documents/contact_detail.html", contact=contact, users=users, has_photo=store.has_photo(contact), is_owner=not contact.get("owner") or contact.get("owner") == actor,
+                           contact_tasks=_todos().items(actor, contact_id=contact_id), task_lists=_todos().lists(actor), company_contacts=company_contacts,
+                           company_people=store.company_people(contact, actor), linked_company=linked_company)
 
 
 @bp.get("/contacts/<contact_id>/photo")
@@ -1728,7 +1733,18 @@ def contact_photo(contact_id: str):
 def save_contact():
     contact_id = request.form.get("contact_id", "")
     try:
-        contact = _contacts().upsert(request.form.to_dict(), str(g.user["username"]), contact_id)
+        store = _contacts(); actor = str(g.user["username"]); values = request.form.to_dict(); company_id = values.get("company_contact_id", "").strip()
+        candidates = store.contacts(actor)
+        if company_id:
+            if company_id == contact_id: raise ValueError("Ein Kontakt kann nicht sich selbst als Firma zugeordnet werden")
+            company_contact = next((item for item in candidates if item.get("contact_id") == company_id), None)
+            if company_contact is None: raise ValueError("Die ausgewählte Firma ist nicht verfügbar")
+            values["company"] = store.company_name(company_contact); values["custom_company_contact_id"] = company_id
+        else:
+            typed = str(values.get("company", "")).strip().casefold()
+            exact = [item for item in candidates if item.get("contact_id") != contact_id and store.company_name(item).casefold() == typed] if typed else []
+            if len(exact) == 1: values["company"] = store.company_name(exact[0]); values["custom_company_contact_id"] = exact[0]["contact_id"]
+        contact = store.upsert(values, actor, contact_id)
         flash("Kontakt gespeichert.")
     except ValueError as exc:
         flash(str(exc))
