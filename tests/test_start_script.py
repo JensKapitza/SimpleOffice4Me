@@ -44,6 +44,16 @@ class StartScriptTests(unittest.TestCase):
         self.assertNotIn('"$ROOT/tools/launcher.py" start', linux)
         self.assertNotIn('tools\\launcher.py" start', windows)
 
+    def test_platform_starters_install_security_tools_in_the_project_venv(self):
+        root = Path(__file__).resolve().parents[1]
+        linux = (root / "start.sh").read_text(encoding="utf-8")
+        windows = (root / "start.bat").read_text(encoding="utf-8")
+
+        self.assertIn("[sftp,security]", linux)
+        self.assertIn("[sftp,security]", windows)
+        self.assertIn("pip-audit", linux)
+        self.assertIn("pip-audit", windows)
+
     def test_stop_and_update_scripts_manage_the_existing_service(self):
         root = Path(__file__).resolve().parents[1]
         linux_stop = (root / "stop.sh").read_text(encoding="utf-8")
@@ -75,5 +85,5 @@ class StartScriptTests(unittest.TestCase):
         script = (root / "tools" / "system_requirements.py").read_text(encoding="utf-8")
         for family in ("debian", "fedora", "macos", "windows"):
             self.assertIn(f'family == "{family}"', script)
-        for tool in ("clamdscan", "freshclam", "magick", "pdftoppm", "ffmpeg", "libreoffice"):
+        for tool in ("clamdscan", "freshclam", "magick", "pdftoppm", "ffmpeg", "libreoffice", "verapdf"):
             self.assertIn(tool, script)

@@ -20,8 +20,8 @@ if not exist ".venv\Scripts\python.exe" (
 
 call ".venv\Scripts\activate.bat"
 rem Keep the project-owned venv complete on every start. This upgrades an
-rem existing base-only installation and installs Paramiko for SFTP support.
-python -m pip install --disable-pip-version-check --editable "%ROOT%[sftp]"
+rem existing base-only installation and installs Paramiko plus pip-audit.
+python -m pip install --disable-pip-version-check --editable "%ROOT%[sftp,security]"
 if errorlevel 1 goto :install_error
 python "%ROOT%tools\install_invoice_validator.py"
 python -m tools.launcher start

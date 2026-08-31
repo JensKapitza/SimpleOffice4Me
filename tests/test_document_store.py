@@ -200,6 +200,30 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual(37, len(filtered["events"]))
             self.assertTrue(all(item["actor"] == "jens" for item in filtered["events"]))
 
+    def test_document_logbook_uses_git_history_and_describes_tasks_and_renames(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "Angebot.pdf"
+            source.write_bytes(b"offer")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(source)
+            store.record_document_task_created(
+                document["document_id"],
+                {"id": "task-1", "title": "Angebot prüfen", "list_id": "personal", "created_at": "2026-08-31T10:00:00+00:00"},
+                "jens",
+            )
+            store.move_document(document["document_id"], "Archiv", "jens", destination_name="Angebot-2026.pdf")
+
+            with patch.object(store, "logbook", side_effect=AssertionError("complete audit scan")):
+                result = store.logbook_page(document_id=document["document_id"])
+
+            by_action = {item["action"]: item for item in result["events"]}
+            self.assertEqual("Angebot prüfen", by_action["document_task_created"]["task_title"])
+            self.assertEqual("task-1", by_action["document_task_created"]["task_id"])
+            self.assertEqual("Angebot.pdf", by_action["document_moved"]["from"])
+            self.assertEqual("Archiv/Angebot-2026.pdf", by_action["document_moved"]["to"])
+
     def test_document_page_does_not_load_the_complete_archive(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

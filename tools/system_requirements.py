@@ -17,6 +17,7 @@ TOOLS = {
     "Audio/Video-Vorschau": ("ffmpeg",),
     "Office-Konvertierung": ("libreoffice", "soffice"),
     "PDF/A-Erzeugung": ("gs", "gswin64c", "gswin32c"),
+    "PDF/A-Prüfung": ("verapdf",),
     "EN16931-Validator": ("java",),
 }
 DOCS = {
@@ -26,6 +27,7 @@ DOCS = {
     "Audio/Video-Vorschau": "https://ffmpeg.org/download.html",
     "Office-Konvertierung": "https://www.libreoffice.org/download/download-libreoffice/",
     "PDF/A-Erzeugung": "https://www.ghostscript.com/releases/gsdnld.html",
+    "PDF/A-Prüfung": "https://verapdf.org/software/",
     "EN16931-Validator": "https://adoptium.net/temurin/releases/",
 }
 

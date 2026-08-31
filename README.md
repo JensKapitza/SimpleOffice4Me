@@ -215,8 +215,14 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 - ein aktueller Browser, zum Beispiel Firefox oder Chromium
 - Ghostscript und eine Java-Laufzeit für die verpflichtende PDF/A-/EN16931-
   Rechnungsprüfung; der Mustang-Validator selbst wird automatisch installiert
+- optional `veraPDF` als Host-Werkzeug im `PATH` für eine zusätzliche separate
+  PDF/A-Prüfung; Mustang deckt die verpflichtende Standardprüfung bereits ab
 - optionale Systemwerkzeuge für Dokumentvorschau, OCR, Bildverarbeitung,
   Virenprüfung und SSH/SFTP gemäß den verlinkten Betriebsanleitungen
+
+Die Startskripte installieren die Python-Extras `sftp` und `security` in die
+projektlokale `.venv`. Dadurch stehen unter anderem Paramiko und `pip-audit`
+nach jedem regulären Start in genau der verwendeten Python-Umgebung bereit.
 
 ## Tests
 

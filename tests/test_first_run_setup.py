@@ -106,6 +106,14 @@ class FirstRunSetupTest(unittest.TestCase):
         task = TodoStore(self.root).items("jens")[0]
         self.assertIn("erforderliche Bearbeitung", task["description"])
         self.assertEqual([document["document_id"]], task["document_ids"])
+        audit = DocumentStore(self.root).logbook_page(document_id=document["document_id"])["events"]
+        created = next(item for item in audit if item.get("action") == "document_task_created")
+        self.assertEqual("Angebot prüfen", created["task_title"])
+        self.assertEqual(task["id"], created["task_id"])
+        logbook = self.client.get(f"/documents/logbook?document_id={document['document_id']}", base_url=self.base_url)
+        self.assertEqual(200, logbook.status_code)
+        self.assertIn("document_task_created", logbook.get_data(as_text=True))
+        self.assertIn("Angebot prüfen", logbook.get_data(as_text=True))
         TodoStore(self.root).update(
             task["id"],
             {

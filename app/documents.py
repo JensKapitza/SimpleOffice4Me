@@ -1164,7 +1164,9 @@ def create_document_task(document_id: str):
             "Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: "
             + str(document.get("last_path", "Dokument"))
         )
-        _todos().add(title, str(g.user["username"]), {**request.form.to_dict(), "description": description, "document_ids": [document_id]})
+        actor = str(g.user["username"])
+        task = _todos().add(title, actor, {**request.form.to_dict(), "description": description, "document_ids": [document_id]})
+        _store().record_document_task_created(document_id, task, actor)
         flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
@@ -1460,7 +1462,14 @@ def set_state(document_id: str):
 @login_required
 def move_document(document_id: str):
     try:
-        moved = _store().move_document(document_id, request.form.get("destination_folder", ""), str(g.user["username"]))
+        store = _store()
+        document = store.get_document(document_id)
+        destination_name = request.form.get("destination_name", "").strip()
+        destination_folder = request.form.get("destination_folder", "").strip()
+        if destination_name and not destination_folder:
+            parent = Path(str(document.get("last_path", ""))).parent
+            destination_folder = "." if str(parent) == "." else str(parent)
+        moved = store.move_document(document_id, destination_folder, str(g.user["username"]), destination_name=destination_name)
         flash(f"Dokument verschoben nach {moved['last_path']}. Die Dokument-ID bleibt unverändert.")
     except (OSError, ValueError) as exc:
         flash(str(exc))
@@ -1539,9 +1548,15 @@ def logbook():
         page = max(1, int(request.args.get("page", "1")))
     except ValueError:
         page = 1
-    filters = {key: request.args.get(key, "").strip() for key in ("q", "actor", "action", "from_at", "to_at")}
-    result = _store().logbook_page(page=page, query=filters["q"], actor=filters["actor"], action=filters["action"], from_at=filters["from_at"], to_at=filters["to_at"])
-    return render_template("documents/logbook.html", events=result["events"], page=result["page"], has_next=result["has_next"], filters=filters)
+    filters = {key: request.args.get(key, "").strip() for key in ("q", "actor", "action", "from_at", "to_at", "document_id")}
+    document = None
+    if filters["document_id"]:
+        try:
+            document = _store().get_document(filters["document_id"])
+        except ValueError:
+            abort(404)
+    result = _store().logbook_page(page=page, query=filters["q"], actor=filters["actor"], action=filters["action"], from_at=filters["from_at"], to_at=filters["to_at"], document_id=filters["document_id"])
+    return render_template("documents/logbook.html", events=result["events"], page=result["page"], has_next=result["has_next"], filters=filters, log_document=document)
 
 
 @bp.route("/archives")

@@ -126,12 +126,13 @@
 <input required class="form-control" name="state" value="{{ document.state }}">
 <button type="submit" class="btn btn-outline-primary">Setzen</button>
 </form>
-<label class="form-label">In Ordner verschieben</label>
-<form method="post" action="{{ url_for('documents.move_document', document_id=document.document_id) }}" class="input-group">
-<input required class="form-control" name="destination_folder" placeholder="z. B. Rechnungen/2026" aria-describedby="move-help">
-<button type="submit" class="btn btn-outline-primary">Verschieben</button>
+<label class="form-label">Verschieben oder umbenennen</label>
+<form method="post" action="{{ url_for('documents.move_document', document_id=document.document_id) }}" class="row g-2">
+<div class="col-md-6"><input class="form-control" name="destination_folder" placeholder="Zielordner, z. B. Rechnungen/2026" aria-describedby="move-help"></div>
+<div class="col-md-6"><input class="form-control" name="destination_name" value="{{ document.last_path.rsplit('/', 1)[-1] }}" placeholder="Dateiname" aria-label="Neuer Dateiname"></div>
+<div class="col-12"><button type="submit" class="btn btn-outline-primary">Verschieben oder umbenennen</button></div>
 </form>
-<div id="move-help" class="form-text">Relativer Zielordner im Dokumentenspeicher. Die ID und Verknüpfungen bleiben erhalten.</div>
+<div id="move-help" class="form-text">Zielordner oder Dateiname ändern. Alter und neuer Pfad werden im Datei-Log protokolliert; ID und Verknüpfungen bleiben erhalten.</div>
 </div>
 </div>
 <div class="card mb-4">
