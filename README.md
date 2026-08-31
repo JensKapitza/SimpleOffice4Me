@@ -21,6 +21,9 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
   Forderungen und Kundenakten-Export als ZIP mit Rechnungsdaten,
   Dokumentherkunft, SHA-256-Prüfsummen und Audit-Protokollen; EN16931/PDF-A
   wird verpflichtend mit dem automatisch installierten Standardvalidator geprüft
+- einfache EÜR-Belegerfassung für Einnahmen und Ausgaben mit Originaldatei,
+  Vollständigkeitsprüfung, EUR-/Umsatzsteuerberechnung, Prüfstatus,
+  Jahresübersicht und CSV-/ZIP-Übergabe an den Steuerberater
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
 

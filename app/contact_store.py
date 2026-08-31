@@ -174,6 +174,24 @@ class ContactStore:
             raise ValueError("contact is not shared with this user")
         return contact
 
+    @staticmethod
+    def company_name(contact: dict[str, Any]) -> str:
+        fields = contact.get("fields", {})
+        return str(fields.get("company") or fields.get("display_name") or "").strip()
+
+    def company_people(self, company: dict[str, Any], actor: str = "") -> list[dict[str, Any]]:
+        """Return web-only person assignments, including unambiguous legacy name links."""
+        company_id = str(company.get("contact_id", ""))
+        names = {value.casefold() for value in (self.company_name(company), str(company.get("fields", {}).get("display_name", "")).strip()) if value}
+        rows = []
+        for contact in self.contacts(actor):
+            if contact.get("contact_id") == company_id: continue
+            fields = contact.get("fields", {})
+            explicit = str(fields.get("company_contact_id", "")) == company_id
+            legacy = not fields.get("company_contact_id") and str(fields.get("company", "")).strip().casefold() in names
+            if explicit or legacy: rows.append(contact)
+        return rows
+
     def can_manage(self, contact_id: str, actor: str) -> bool:
         contact = next((item for item in self.contacts() if item.get("contact_id") == contact_id), None)
         return bool(contact and self._can_manage(contact, self._principal(actor)))
@@ -274,8 +292,20 @@ class ContactStore:
             "source": source or existing.get("source", {}) if existing else (source or {}),
         }
         payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
+        synced: list[dict[str, Any]] = []
+        canonical_company = self.company_name(contact)
+        if canonical_company:
+            for linked in payload["contacts"]:
+                linked_fields = linked.get("fields", {})
+                if linked.get("contact_id") == contact["contact_id"] or linked_fields.get("company_contact_id") != contact["contact_id"] or linked_fields.get("company") == canonical_company:
+                    continue
+                old_company = str(linked_fields.get("company", "")); linked_fields["company"] = canonical_company
+                linked.setdefault("changes", []).append({"field": "company", "old": old_company, "new": canonical_company, "at": changed_at, "actor": actor})
+                linked["changes"] = linked["changes"][-200:]; linked["updated_at"] = changed_at; linked["updated_by"] = actor; synced.append(dict(linked))
         atomic_json_write(self.contacts_path, payload)
         self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
+        for linked in synced:
+            self.history.record("contact_company_synced", actor, "contacts", linked["contact_id"], linked)
         return contact
 
     @staticmethod
