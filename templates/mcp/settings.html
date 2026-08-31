@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <h1 class="h2">ChatGPT- und MCP-Zugang</h1>
   <p class="text-secondary">MCP bedient SimpleOffice im Namen deines Kontos. Funktionssperren und Dateiordner-Rechte gelten unverändert.</p>
   {% if secret %}<div class="alert alert-warning"><strong>Zugang jetzt kopieren – er wird nicht erneut angezeigt.</strong><pre class="mt-2 mb-0 user-select-all">{{ secret }}</pre></div>{% endif %}
@@ -10,14 +10,14 @@
       <label class="form-label">Name</label><input class="form-control mb-3" required maxlength="80" name="name" placeholder="Mein ChatGPT">
       <label class="form-label">Gültigkeit in Tagen</label><input class="form-control mb-3" required type="number" min="1" max="365" name="days" value="30">
       <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="can_write" value="1" id="mcp-write"><label class="form-check-label" for="mcp-write">Schreibende Werkzeuge erlauben</label></div>
-      <button class="btn btn-primary">Zugang einmalig erzeugen</button>
+      <button type="submit" class="btn btn-primary">Zugang einmalig erzeugen</button>
     </form></div></div></section>
-    <section class="col-lg-7"><div class="card"><div class="card-header">Zugänge</div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>Name</th><th>Präfix</th><th>Rechte</th><th>Ablauf</th><th></th></tr></thead><tbody>
-      {% for token in tokens %}<tr><td>{{ token.name }}</td><td><code>{{ token.token_prefix }}…</code></td><td>{{ 'Lesen + Schreiben' if token.can_write else 'Nur Lesen' }}</td><td>{{ token.expires_at }}{% if token.revoked_at %}<br><span class="badge bg-secondary">widerrufen</span>{% endif %}</td><td>{% if not token.revoked_at %}<form method="post" action="{{ url_for('mcp.revoke', token_id=token.id) }}"><button class="btn btn-sm btn-outline-danger">Widerrufen</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch kein Zugang vorhanden.</td></tr>{% endfor %}
+    <section class="col-lg-7"><div class="card"><div class="card-header">Zugänge</div><div class="table-responsive"><table class="table mb-0"><thead><tr><th scope="col">Name</th><th scope="col">Präfix</th><th scope="col">Rechte</th><th scope="col">Ablauf</th><th scope="col"></th></tr></thead><tbody>
+      {% for token in tokens %}<tr><td>{{ token.name }}</td><td><code>{{ token.token_prefix }}…</code></td><td>{{ 'Lesen + Schreiben' if token.can_write else 'Nur Lesen' }}</td><td>{{ token.expires_at }}{% if token.revoked_at %}<br><span class="badge bg-secondary">widerrufen</span>{% endif %}</td><td>{% if not token.revoked_at %}<form method="post" action="{{ url_for('mcp.revoke', token_id=token.id) }}"><button type="submit" class="btn btn-sm btn-outline-danger">Widerrufen</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch kein Zugang vorhanden.</td></tr>{% endfor %}
     </tbody></table></div></div></section>
   </div>
   <div class="card mt-4"><div class="card-header">Verbindung</div><div class="card-body"><p>Endpunkt: <code>{{ url_for('mcp.endpoint', _external=True) }}</code></p><p>Authorization-Header: <code>Bearer &lt;Zugang&gt;</code>. Entfernt ist HTTPS Pflicht. Die Vorlage <code>simpleoffice.mcp.json.example</code> enthält absichtlich kein Geheimnis.</p></div></div>
-  <div class="card mt-4"><div class="card-header">Verarbeitungsjournal{% if g.user.is_admin %} aller Benutzer{% endif %}</div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Benutzer</th><th>Werkzeug</th><th>Ziel</th><th>Ergebnis</th><th>Request-ID</th></tr></thead><tbody>
+  <div class="card mt-4"><div class="card-header">Verarbeitungsjournal{% if g.user.is_admin %} aller Benutzer{% endif %}</div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Zeit</th><th scope="col">Benutzer</th><th scope="col">Werkzeug</th><th scope="col">Ziel</th><th scope="col">Ergebnis</th><th scope="col">Request-ID</th></tr></thead><tbody>
     {% for operation in operations %}<tr><td>{{ operation.occurred_at }}</td><td>{{ operation.username }}</td><td><code>{{ operation.tool }}</code></td><td>{{ operation.target_id or '–' }}</td><td>{{ operation.outcome }}{% if operation.error_type %} ({{ operation.error_type }}){% endif %}</td><td><code>{{ operation.request_id }}</code></td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Noch keine MCP-Verarbeitung protokolliert.</td></tr>{% endfor %}
   </tbody></table></div></div>
 </main>

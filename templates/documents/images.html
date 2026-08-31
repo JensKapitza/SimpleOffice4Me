@@ -2,14 +2,14 @@
 {% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/slideshow.css') }}">{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container py-4">
+<main id="main-content" class="container py-4">
   <h1>Bilder</h1>
   <p class="text-muted">Bilder bleiben normale, hashbasiert verwaltete Dokumente. EXIF, OCR-Text und daraus erzeugte Tags werden lokal gespeichert und revisionssicher protokolliert.</p>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <form class="row g-2 mb-3">
     <div class="col-md-5"><input class="form-control" name="tag" value="{{ tag }}" placeholder="Tag filtern, z. B. dank oder dan*"></div>
     <div class="col-md-3"><select class="form-select" name="period"><option value="all" {{ 'selected' if period == 'all' }}>Alle Zeiten</option><option value="week" {{ 'selected' if period == 'week' }}>Diese Woche</option><option value="month" {{ 'selected' if period == 'month' }}>Dieser Monat</option><option value="year" {{ 'selected' if period == 'year' }}>Dieses Jahr</option></select></div>
-    <div class="col-auto"><button class="btn btn-outline-primary">Filtern</button></div>
+    <div class="col-auto"><button type="submit" class="btn btn-outline-primary">Filtern</button></div>
     {% if pictures %}<div class="col-auto"><button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#slideshow">Diashow</button></div>{% endif %}
   </form>
   <div class="row g-3">
@@ -18,8 +18,8 @@
       <a href="{{ url_for('documents.image_preview', document_id=picture.document_id) }}"><img class="card-img-top" loading="lazy" src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></a>
       <div class="card-body"><small class="d-block text-break">{{ picture.last_path }}</small><small class="text-muted">{{ picture.first_seen_at }}</small>
         {% if picture.image_analysis %}<div class="small text-secondary mt-1">{{ picture.image_analysis.format|default('?') }} · {{ picture.image_analysis.width|default('?') }} × {{ picture.image_analysis.height|default('?') }} px{% if picture.image_analysis.exif.Model %} · {{ picture.image_analysis.exif.Model }}{% endif %}</div>{% if picture.image_analysis.ocr_characters %}<div class="small text-secondary">OCR: {{ picture.image_analysis.ocr_characters }} Zeichen</div>{% endif %}{% endif %}
-        <form method="post" action="{{ url_for('documents.set_document_tags', document_id=picture.document_id) }}"><input class="form-control form-control-sm my-1" name="tags" value="{{ picture.tags|join(', ') }}" placeholder="Tags"><button class="btn btn-sm btn-outline-primary">Tags speichern</button><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=picture.document_id) }}">Verwalten / freigeben</a></form>
-        <form method="post" class="mt-1" action="{{ url_for('documents.analyze_image', document_id=picture.document_id) }}"><button class="btn btn-sm btn-outline-secondary">EXIF / OCR erneut analysieren</button></form>
+        <form method="post" action="{{ url_for('documents.set_document_tags', document_id=picture.document_id) }}"><input class="form-control form-control-sm my-1" name="tags" value="{{ picture.tags|join(', ') }}" placeholder="Tags"><button type="submit" class="btn btn-sm btn-outline-primary">Tags speichern</button><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=picture.document_id) }}">Verwalten / freigeben</a></form>
+        <form method="post" class="mt-1" action="{{ url_for('documents.analyze_image', document_id=picture.document_id) }}"><button type="submit" class="btn btn-sm btn-outline-secondary">EXIF / OCR erneut analysieren</button></form>
       </div>
     </div></div>
     {% else %}<p>Keine Bilder im Dokumentbestand.</p>{% endfor %}

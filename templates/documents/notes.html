@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container py-4"><h1>Notiz-Wiki</h1><p class="text-muted">Alle Notizen, dokumentübergreifend und neueste zuerst.</p>
+<main id="main-content" class="container py-4"><h1>Notiz-Wiki</h1><p class="text-muted">Alle Notizen, dokumentübergreifend und neueste zuerst.</p>
 {% for note in notes %}<article class="card mb-3"><div class="card-body"><h2 class="h5"><a href="{{ url_for('documents.detail', document_id=note.document_id) }}">{{ note.path }}</a> <small class="text-muted">Version {{ note.version_number }}</small></h2><div style="white-space: pre-wrap">{{ note.text }}</div><small class="text-muted">{{ note.author }} · {{ note.created_at }}</small></div></article>
-{% else %}<div class="alert alert-info">Noch keine Notizen vorhanden.</div>{% endfor %}</main>
+{% else %}<div class="alert alert-info" role="status" aria-live="polite">Noch keine Notizen vorhanden.</div>{% endfor %}</main>
 {% endblock %}
