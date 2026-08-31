@@ -101,6 +101,60 @@ class TemplateAccessibilityTests(unittest.TestCase):
             self.assertIn(attributes.get("aria-expanded"), {"true", "false"}, path)
             self.assertTrue(attributes.get("aria-controls"), path)
 
+    def test_images_declare_loading_decoding_and_alternative_text(self):
+        images = []
+        for path, content in self.templates.items():
+            images.extend((path, tag) for tag in re.findall(r"<img\b[^>]*>", content, re.I))
+        self.assertGreaterEqual(len(images), 4)
+        for path, tag in images:
+            attributes = _attributes(tag)
+            self.assertIn("alt", attributes, path)
+            self.assertTrue(attributes.get("loading"), path)
+            self.assertEqual("async", attributes.get("decoding"), path)
+        eager = [(path, tag) for path, tag in images if "eager" in _attributes(tag).get("loading", "")]
+        self.assertTrue(eager)
+        for path, tag in eager:
+            self.assertIn("high", _attributes(tag).get("fetchpriority", ""), path)
+
+    def test_new_windows_do_not_send_referrers(self):
+        links = []
+        for path, content in self.templates.items():
+            links.extend((path, tag) for tag in re.findall(r"<a\b[^>]*\btarget=[\"']_blank[\"'][^>]*>", content, re.I))
+        self.assertGreaterEqual(len(links), 7)
+        for path, tag in links:
+            relations = set(_attributes(tag).get("rel", "").split())
+            self.assertTrue({"noopener", "noreferrer"}.issubset(relations), path)
+
+    def test_forms_and_navigation_declare_browser_semantics(self):
+        forms, navigation = [], []
+        for path, content in self.templates.items():
+            forms.extend((path, tag) for tag in re.findall(r"<form\b[^>]*>", content, re.I))
+            navigation.extend((path, tag) for tag in re.findall(r"<nav\b[^>]*>", content, re.I))
+        self.assertGreaterEqual(len(forms), 180)
+        self.assertGreaterEqual(len(navigation), 10)
+        for path, tag in forms:
+            self.assertIn(_attributes(tag).get("method"), {"get", "post"}, path)
+        for path, tag in navigation:
+            attributes = _attributes(tag)
+            self.assertTrue(attributes.get("aria-label") or attributes.get("aria-labelledby"), path)
+
+    def test_paging_and_dialog_controls_expose_their_purpose(self):
+        paging, close_buttons = [], []
+        for path, content in self.templates.items():
+            for tag in re.findall(r"<a\b[^>]*>", content, re.I):
+                if re.search(r"\b(?:event_)?page\s*=\s*(?:event_)?page\s*[+-]\s*1\b", tag):
+                    paging.append((path, tag))
+            for tag in re.findall(r"<button\b[^>]*>", content, re.I):
+                if "btn-close" in _attributes(tag).get("class", "").split():
+                    close_buttons.append((path, tag))
+        self.assertGreaterEqual(len(paging), 16)
+        self.assertGreaterEqual(len(close_buttons), 2)
+        for path, tag in paging:
+            expected = "prev" if re.search(r"-\s*1\b", tag) else "next"
+            self.assertIn(expected, _attributes(tag).get("rel", "").split(), path)
+        for path, tag in close_buttons:
+            self.assertTrue(_attributes(tag).get("aria-label"), path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,6 @@
     </article>
     {% else %}<div class="list-group-item text-secondary">{{ labels.no_entries }}</div>{% endfor %}
   </div>
-  {% if pages > 1 %}<nav aria-label="{{ labels.pagination }}"><ul class="pagination justify-content-center"><li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('contact_audit.history', q=query, editor=editor, field=field, page=page-1) }}">{{ labels.previous }}</a></li><li class="page-item disabled"><span class="page-link">{{ page }} / {{ pages }}</span></li><li class="page-item {% if page >= pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('contact_audit.history', q=query, editor=editor, field=field, page=page+1) }}">{{ labels.next }}</a></li></ul></nav>{% endif %}
+  {% if pages > 1 %}<nav aria-label="{{ labels.pagination }}"><ul class="pagination justify-content-center"><li class="page-item {% if page <= 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('contact_audit.history', q=query, editor=editor, field=field, page=page-1) }}" rel="prev">{{ labels.previous }}</a></li><li class="page-item disabled"><span class="page-link" aria-current="page">{{ page }} / {{ pages }}</span></li><li class="page-item {% if page >= pages %}disabled{% endif %}"><a class="page-link" href="{{ url_for('contact_audit.history', q=query, editor=editor, field=field, page=page+1) }}" rel="next">{{ labels.next }}</a></li></ul></nav>{% endif %}
 </main>
 {% endblock %}
