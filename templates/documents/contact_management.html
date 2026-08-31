@@ -5,7 +5,7 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
     <div><a class="text-decoration-none" href="{{ url_for('documents.contacts') }}">&larr; Kontakte</a><h1 class="h2 mt-2 mb-1">Kontaktmanagement</h1><p class="text-secondary mb-0">Datenqualität, Gruppen, Tags, Import und Massenbearbeitung.</p></div>
   </div>
-  <nav class="nav nav-tabs mb-4" aria-label="Kontaktmanagement"><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.manage') }}">Kontakte</a><a class="nav-link" href="{{ url_for('contact_audit.duplicates') }}">Dubletten</a></nav>
+  <nav class="nav nav-tabs mb-4" aria-label="Kontaktmanagement"><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.manage') }}">Kontakte</a><a class="nav-link" href="{{ url_for('contact_audit.duplicates') }}">Dubletten</a><a class="nav-link" href="{{ url_for('contact_audit.combine_contacts') }}">Zusammenführen</a></nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <section class="row g-3 mb-4">

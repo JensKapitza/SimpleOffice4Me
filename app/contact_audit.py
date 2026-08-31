@@ -149,6 +149,20 @@ def duplicates():
     )
 
 
+@bp.get("/documents/contacts/manage/duplicates/combine")
+@login_required
+def combine_contacts():
+    query = request.args.get("q", "").strip()
+    match = request.args.get("match", "any").strip()
+    rows = _management().merge_search(_actor(), query=query, match=match)
+    return render_template(
+        "documents/contact_combine.html",
+        rows=rows,
+        query=query,
+        selected_match=match if match in {"any", "name", "email", "phone", "company", "address"} else "any",
+    )
+
+
 @bp.post("/documents/contacts/<contact_id>/metadata")
 @login_required
 def update_metadata(contact_id: str):
@@ -236,6 +250,26 @@ def bulk_merge_contacts():
     return redirect(url_for("contact_audit.duplicates"))
 
 
+@bp.post("/documents/contacts/manage/duplicates/combine")
+@login_required
+def merge_selected_contacts():
+    try:
+        merged = _management().merge_many(
+            request.form.getlist("contact_ids"),
+            _actor(),
+            request.form.get("target_id", "").strip(),
+        )
+        flash(translate(g.language, "duplicates.multi_success").format(count=len(request.form.getlist("contact_ids"))))
+        return redirect(url_for("documents.contact_detail", contact_id=merged["contact_id"]))
+    except ValueError as exc:
+        flash(_duplicate_error_message(exc))
+        return redirect(url_for(
+            "contact_audit.combine_contacts",
+            q=request.form.get("q", "").strip(),
+            match=request.form.get("match", "any").strip(),
+        ))
+
+
 def _duplicate_error_message(error: ValueError) -> str:
     key = {
         "invalid duplicate selection": "duplicates.error.invalid",
@@ -249,6 +283,8 @@ def _duplicate_error_message(error: ValueError) -> str:
         "two different contacts are required": "duplicates.error.distinct",
         "unknown contact": "duplicates.error.missing",
         "both contacts must be editable": "duplicates.error.editable",
+        "at least two contacts are required": "duplicates.error.at_least_two",
+        "at most 100 contacts can be merged at once": "duplicates.error.too_many",
     }.get(str(error))
     return translate(g.language, key) if key else str(error)
 

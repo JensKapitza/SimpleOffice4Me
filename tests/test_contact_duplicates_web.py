@@ -86,6 +86,42 @@ class ContactDuplicatesWebTest(unittest.TestCase):
         self.assertIn("Die Dublettenauswahl ist ungültig.", response.get_data(as_text=True))
         self.assertEqual(2, len(store.contacts("jens")))
 
+    def test_combine_tab_filters_contacts_and_shows_match_indicators(self):
+        store = ContactStore(Path(app.config["DOCUMENT_ROOT"]))
+        store.upsert({"display_name": "Amy Eins", "email": "amy@example.test"}, "jens")
+        store.upsert({"display_name": "Amy Zwei", "email": "AMY@example.test"}, "jens")
+        store.upsert({"display_name": "Andere Person", "email": "other@example.test"}, "jens")
+
+        response = self.client.get("/documents/contacts/manage/duplicates/combine?q=Amy&match=email")
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Mehrere Kontakte zusammenführen", body)
+        self.assertIn("Amy Eins", body)
+        self.assertIn("Amy Zwei", body)
+        self.assertNotIn("Andere Person", body)
+        self.assertIn("combine-contact-select", body)
+        self.assertIn("E-Mail", body)
+
+    def test_combine_endpoint_merges_three_selected_contacts(self):
+        store = ContactStore(Path(app.config["DOCUMENT_ROOT"]))
+        first = store.upsert({"display_name": "Max Beispiel", "email": "max@example.test"}, "jens")
+        second = store.upsert({"display_name": "Max Beispiel Copy", "phone": "+49111111"}, "jens")
+        third = store.upsert({"display_name": "Max Beispiel Kopie", "company": "Muster GmbH"}, "jens")
+
+        response = self.client.post(
+            "/documents/contacts/manage/duplicates/combine",
+            data={"contact_ids": [first["contact_id"], second["contact_id"], third["contact_id"]]},
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        contacts = store.contacts("jens")
+        self.assertEqual(1, len(contacts))
+        self.assertEqual("max@example.test", contacts[0]["fields"]["email"])
+        self.assertEqual("+49111111", contacts[0]["fields"]["phone"])
+        self.assertEqual("Muster GmbH", contacts[0]["fields"]["company"])
+
 
 if __name__ == "__main__":
     unittest.main()

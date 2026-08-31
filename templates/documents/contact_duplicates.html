@@ -7,7 +7,7 @@
     <div><a class="text-decoration-none" href="{{ url_for('documents.contacts') }}">&larr; {{ tr('contacts') }}</a><h1 class="h2 mt-2 mb-1">{{ tr('duplicates.title') }}</h1><p class="text-secondary mb-0">{{ tr('duplicates.subtitle') }}</p></div>
     {% if duplicates %}<div class="text-end"><strong class="fs-4">{{ duplicates|length }}</strong><div class="small text-secondary">{{ tr('duplicates.candidates') }}</div></div>{% endif %}
   </div>
-  <nav class="nav nav-tabs mb-4" aria-label="{{ tr('duplicates.navigation') }}"><a class="nav-link" href="{{ url_for('contact_audit.manage') }}">{{ tr('contacts') }}</a><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.duplicates') }}">{{ tr('duplicates.tab') }} <span class="badge text-bg-warning ms-1">{{ duplicates|length }}</span></a></nav>
+  <nav class="nav nav-tabs mb-4" aria-label="{{ tr('duplicates.navigation') }}"><a class="nav-link" href="{{ url_for('contact_audit.manage') }}">{{ tr('contacts') }}</a><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.duplicates') }}">{{ tr('duplicates.tab') }} <span class="badge text-bg-warning ms-1">{{ duplicates|length }}</span></a><a class="nav-link" href="{{ url_for('contact_audit.combine_contacts') }}">{{ tr('duplicates.combine_tab') }}</a></nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   {% set bulk_count = duplicates|selectattr('bulk_eligible')|list|length %}

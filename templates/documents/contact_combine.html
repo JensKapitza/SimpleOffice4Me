@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/contact-combine.js') }}"></script>{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="mb-4"><a class="text-decoration-none" href="{{ url_for('documents.contacts') }}">&larr; {{ tr('contacts') }}</a><h1 class="h2 mt-2 mb-1">{{ tr('duplicates.combine_title') }}</h1><p class="text-secondary mb-0">{{ tr('duplicates.combine_subtitle') }}</p></div>
+  <nav class="nav nav-tabs mb-4" aria-label="{{ tr('duplicates.navigation') }}"><a class="nav-link" href="{{ url_for('contact_audit.manage') }}">{{ tr('contacts') }}</a><a class="nav-link" href="{{ url_for('contact_audit.duplicates') }}">{{ tr('duplicates.tab') }}</a><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.combine_contacts') }}">{{ tr('duplicates.combine_tab') }}</a></nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <form method="get" class="card card-body mb-4">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-7"><label class="form-label" for="combine-q">{{ tr('duplicates.search_label') }}</label><input id="combine-q" class="form-control" type="search" name="q" value="{{ query }}" placeholder="{{ tr('duplicates.search_hint') }}"></div>
+      <div class="col-lg-3"><label class="form-label" for="combine-match">{{ tr('duplicates.match_filter') }}</label><select id="combine-match" class="form-select" name="match"><option value="any"{% if selected_match == 'any' %} selected{% endif %}>{{ tr('duplicates.match_any') }}</option><option value="name"{% if selected_match == 'name' %} selected{% endif %}>{{ tr('duplicates.match_name') }}</option><option value="email"{% if selected_match == 'email' %} selected{% endif %}>{{ tr('duplicates.match_email') }}</option><option value="phone"{% if selected_match == 'phone' %} selected{% endif %}>{{ tr('duplicates.match_phone') }}</option><option value="company"{% if selected_match == 'company' %} selected{% endif %}>{{ tr('duplicates.match_company') }}</option><option value="address"{% if selected_match == 'address' %} selected{% endif %}>{{ tr('duplicates.match_address') }}</option></select></div>
+      <div class="col-lg-2"><button class="btn btn-primary w-100" type="submit">{{ tr('duplicates.refine') }}</button></div>
+    </div>
+  </form>
+
+  <form method="post" action="{{ url_for('contact_audit.merge_selected_contacts') }}" id="multi-contact-merge-form">
+    <input type="hidden" name="q" value="{{ query }}"><input type="hidden" name="match" value="{{ selected_match }}">
+    <div class="alert alert-light border d-flex flex-wrap align-items-center gap-3"><span class="me-auto">{{ tr('duplicates.combine_help') }}</span><span id="combine-selection-count" class="badge text-bg-secondary" data-label="{{ tr('duplicates.selected') }}" aria-live="polite">0 {{ tr('duplicates.selected') }}</span><button id="combine-submit" type="submit" class="btn btn-success" disabled data-confirm="{{ tr('duplicates.multi_confirm') }}"><i class="fas fa-object-group me-1" aria-hidden="true"></i>{{ tr('duplicates.combine_selected') }}</button></div>
+    <div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th scope="col"><span class="visually-hidden">{{ tr('duplicates.select_contact') }}</span></th><th scope="col">{{ tr('duplicates.name') }}</th><th scope="col">{{ tr('duplicates.contact_data') }}</th><th scope="col">{{ tr('duplicates.match_indicators') }}</th></tr></thead><tbody>
+      {% for row in rows %}{% set contact = row.contact %}<tr><td><input class="form-check-input combine-contact-select" type="checkbox" name="contact_ids" value="{{ contact.contact_id }}" aria-label="{{ tr('duplicates.select_contact') }}: {{ contact.fields.display_name }}"></td><td><strong>{{ contact.fields.display_name }}</strong>{% if contact.fields.company %}<div class="small text-secondary">{{ contact.fields.company }}</div>{% endif %}</td><td><div>{{ contact.fields.email }}</div><div>{{ contact.fields.phone }}</div></td><td>{% for indicator in row.match_indicators %}<span class="badge text-bg-info me-1">{{ indicator }}</span>{% else %}<span class="text-secondary">—</span>{% endfor %}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">{{ tr('duplicates.no_search_results') }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </form>
+</main>
+{% endblock %}

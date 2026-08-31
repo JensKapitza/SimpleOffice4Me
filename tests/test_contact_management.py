@@ -97,6 +97,85 @@ class ContactManagementTest(unittest.TestCase):
             self.assertIn("merge_target", reasons)
             self.assertIn("merge_source", reasons)
 
+    def test_merge_preserves_different_phone_and_email_as_vcard_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            target = store.upsert({
+                "display_name": "Max Mustermann", "first_name": "Max", "last_name": "Mustermann",
+                "email": "max@example.test", "phone": "+49 211 111111",
+            }, "admin")
+            source = store.upsert({
+                "display_name": "Max Mustermann Kopie", "first_name": "Max", "last_name": "Mustermann Kopie",
+                "email": "max@work.test", "phone": "+49 211 222222",
+            }, "admin")
+
+            merged = ContactManagement(root).merge(target["contact_id"], source["contact_id"], "admin")
+            exported = store.vcard(merged["contact_id"], "admin")
+
+            self.assertEqual("Max Mustermann", merged["fields"]["display_name"])
+            self.assertEqual("Mustermann", merged["fields"]["last_name"])
+            for value in ("max@example.test", "max@work.test", "+49 211 111111", "+49 211 222222"):
+                self.assertIn(value, exported)
+            self.assertEqual(2, sum(line.startswith("EMAIL") for line in exported.splitlines()))
+            self.assertEqual(2, sum(line.startswith("TEL") for line in exported.splitlines()))
+
+    def test_merge_many_combines_three_complementary_contacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            first = store.upsert({"display_name": "Amy Beispiel", "first_name": "Amy", "last_name": "Beispiel", "email": "amy@example.test"}, "admin")
+            second = store.upsert({"display_name": "Amy Beispiel Copy", "phone": "+49170123456"}, "admin")
+            third = store.upsert({"display_name": "Amy Beispiel Kopie 2", "company": "Muster GmbH", "website": "https://example.test"}, "admin")
+
+            merged = ContactManagement(root).merge_many([
+                first["contact_id"], second["contact_id"], third["contact_id"],
+            ], "admin", first["contact_id"])
+
+            self.assertEqual(1, len(store.contacts("admin")))
+            self.assertEqual("Amy Beispiel", merged["fields"]["display_name"])
+            self.assertEqual("amy@example.test", merged["fields"]["email"])
+            self.assertEqual("+49170123456", merged["fields"]["phone"])
+            self.assertEqual("Muster GmbH", merged["fields"]["company"])
+            self.assertEqual(3, len(ContactManagement(root)._read_snapshots()["snapshots"]))
+            self.assertEqual(2, len(merged["merged_from"]))
+
+    def test_copy_prefix_is_removed_from_display_name_without_name_parts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            target = store.upsert({"display_name": "Kopie von Max Mustermann", "email": "max@example.test"}, "admin")
+            source = store.upsert({"display_name": "Max Mustermann Copy 2", "phone": "1234567"}, "admin")
+
+            merged = ContactManagement(root).merge(target["contact_id"], source["contact_id"], "admin")
+
+            self.assertEqual("Max Mustermann", merged["fields"]["display_name"])
+
+    def test_copy_only_target_name_falls_back_to_clean_source_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            target = store.upsert({"display_name": "Kopie", "first_name": "Copy", "email": "max@example.test"}, "admin")
+            source = store.upsert({"display_name": "Max Mustermann", "phone": "1234567"}, "admin")
+
+            merged = ContactManagement(root).merge(target["contact_id"], source["contact_id"], "admin")
+
+            self.assertEqual("Max Mustermann", merged["fields"]["display_name"])
+            self.assertNotIn("first_name", merged["fields"])
+
+    def test_merge_search_filters_by_shared_field_and_reports_indicators(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = ContactStore(root)
+            first = store.upsert({"display_name": "Max Eins", "email": "shared@example.test"}, "admin")
+            second = store.upsert({"display_name": "Max Zwei", "email": "SHARED@example.test", "phone": "1234567"}, "admin")
+            store.upsert({"display_name": "Andere Person", "email": "other@example.test"}, "admin")
+
+            rows = ContactManagement(root).merge_search("admin", query="Max", match="email")
+
+            self.assertEqual({first["contact_id"], second["contact_id"]}, {row["contact"]["contact_id"] for row in rows})
+            self.assertTrue(all("E-Mail" in row["match_indicators"] for row in rows))
+
     def test_merge_rejects_contacts_with_different_owners(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
