@@ -1,11 +1,11 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-lg py-4">
+<main id="main-content" class="container-lg py-4">
   <a class="text-decoration-none" href="{{ url_for('documents.detail', document_id=document.document_id) }}">← Dokument</a>
   <h1 class="h3 mt-2">Dokumente auf dem Desktop bearbeiten</h1>
   <p class="text-secondary text-break">{{ document.last_path }}</p>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if generated_password %}
   <div class="alert alert-warning">
     <strong>App-Passwort jetzt kopieren.</strong> Es wird nur einmal angezeigt, gehört nicht in den Link und ersetzt keinen anderen Gerätezugang.
@@ -43,16 +43,16 @@
       <div class="col-md-3"><label class="form-label" for="credential-path">Freigegebener Ordner</label><input maxlength="500" class="form-control" id="credential-path" name="path_prefix" value="{{ default_path_prefix }}" placeholder="Leer = alle Dokumente"><div class="form-text">Relativer vorhandener Ordner; Unterordner sind eingeschlossen.</div></div>
       <div class="col-md-2"><label class="form-label" for="credential-scope">Berechtigung</label><select class="form-select" id="credential-scope" name="scope"><option value="write">Lesen und schreiben</option><option value="read">Nur lesen</option></select></div>
       <div class="col-md-1"><label class="form-label" for="credential-expiry">Gültigkeit</label><select class="form-select" id="credential-expiry" name="expires_days"><option value="30">30 Tage</option><option value="90" selected>90 Tage</option><option value="365">1 Jahr</option></select></div>
-      <div class="col-md-2"><button class="btn btn-primary w-100">App-Passwort erzeugen</button></div>
+      <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">App-Passwort erzeugen</button></div>
     </form>
     <p class="small text-secondary mt-2">Für jedes Gerät einen eigenen Zugang und möglichst nur den tatsächlich benötigten Ordner verwenden. „Nur lesen“ eignet sich für Backup- und Prüfzwecke; LibreOffice und bidirektionale Synchronisation benötigen „Lesen und schreiben“.</p>
 
     {% if credentials %}
     <h2 class="h5 mt-4">Gerätezugänge</h2>
-    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Bezeichnung</th><th>Ordner und Adresse</th><th>Rechte</th><th>Ablauf</th><th></th></tr></thead><tbody>
-      {% for credential in credentials %}<tr class="{% if credential.expired %}text-secondary{% endif %}"><td>{{ credential.label }}{% if credential.credential_id == 'legacy' %} <span class="badge text-bg-secondary">Bestand</span>{% endif %}</td><td><div>{% if credential.path_prefix %}<code>{{ credential.path_prefix }}</code>{% else %}Alle Dokumente{% endif %}</div><small class="text-break">{{ credential.webdav_url }}</small></td><td>{% if credential.scope == 'read' %}Nur lesen{% else %}Lesen und schreiben{% endif %}</td><td>{% if credential.expired %}<span class="badge text-bg-secondary">Abgelaufen</span>{% elif credential.expires_at %}{{ credential.expires_at[:10] }}{% else %}Ohne Ablauf (Bestand){% endif %}</td><td class="text-end"><form method="post"><input type="hidden" name="credential_id" value="{{ credential.credential_id }}"><button class="btn btn-sm btn-outline-danger" name="action" value="revoke">Widerrufen</button></form></td></tr>{% endfor %}
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Bezeichnung</th><th scope="col">Ordner und Adresse</th><th scope="col">Rechte</th><th scope="col">Ablauf</th><th scope="col"></th></tr></thead><tbody>
+      {% for credential in credentials %}<tr class="{% if credential.expired %}text-secondary{% endif %}"><td>{{ credential.label }}{% if credential.credential_id == 'legacy' %} <span class="badge text-bg-secondary">Bestand</span>{% endif %}</td><td><div>{% if credential.path_prefix %}<code>{{ credential.path_prefix }}</code>{% else %}Alle Dokumente{% endif %}</div><small class="text-break">{{ credential.webdav_url }}</small></td><td>{% if credential.scope == 'read' %}Nur lesen{% else %}Lesen und schreiben{% endif %}</td><td>{% if credential.expired %}<span class="badge text-bg-secondary">Abgelaufen</span>{% elif credential.expires_at %}{{ credential.expires_at[:10] }}{% else %}Ohne Ablauf (Bestand){% endif %}</td><td class="text-end"><form method="post"><input type="hidden" name="credential_id" value="{{ credential.credential_id }}"><button type="submit" class="btn btn-sm btn-outline-danger" name="action" value="revoke">Widerrufen</button></form></td></tr>{% endfor %}
     </tbody></table></div>
-    <form method="post"><button class="btn btn-outline-danger" name="action" value="revoke_all">Alle Zugänge widerrufen</button></form>
+    <form method="post"><button type="submit" class="btn btn-outline-danger" name="action" value="revoke_all">Alle Zugänge widerrufen</button></form>
     {% endif %}
   </div></div>
   <div class="alert alert-secondary small">Bei paralleler Bearbeitung verhindern WebDAV-Sperre und ETag-Prüfung ein unbemerktes Überschreiben. Bearbeitungs- und Aufbewahrungssperren gelten unverändert.</div>

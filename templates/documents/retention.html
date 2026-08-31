@@ -1,12 +1,12 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <div class="mb-4">
     <h1 class="h2">Fristen und manuelle Aussonderung</h1>
     <p class="text-secondary">Es wird niemals automatisch gelöscht. Erst die bestätigte Aktion verschiebt ausschließlich Dokumente, deren sämtliche Aufbewahrungsfristen abgelaufen sind.</p>
   </div>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <section class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span>Vererbte Ordner- und Tagregeln</span>
@@ -42,14 +42,14 @@
           <input class="form-control" id="rule-date" name="expires_at" type="date">
         </div>
         <div class="col-md-3 d-flex align-items-end">
-          <button class="btn btn-primary w-100">Regel hinzufügen</button>
+          <button type="submit" class="btn btn-primary w-100">Regel hinzufügen</button>
         </div>
       </form>
       <p class="small text-secondary mt-3 mb-2">Gib entweder Jahre oder ein festes Datum an. Ein optionales Tag unterstützt Muster wie <code>rechnung*</code>.</p>
     </div>
     <div class="table-responsive">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th>Ordner</th><th>Bezeichnung</th><th>Wirkung</th><th>Tag</th><th>Frist</th><th></th></tr></thead>
+        <thead><tr><th scope="col">Ordner</th><th scope="col">Bezeichnung</th><th scope="col">Wirkung</th><th scope="col">Tag</th><th scope="col">Frist</th><th scope="col"></th></tr></thead>
         <tbody>
           {% for rule in folder_rules %}
           <tr>
@@ -57,7 +57,7 @@
             <td>{{ 'Aufbewahren' if rule.kind == 'retention' else 'Bearbeiten bis' }}</td>
             <td>{{ rule.tag|default('alle') }}</td>
             <td>{% if rule.expires_at %}{{ rule.expires_at }}{% else %}{{ rule.years }} Jahr(e) ab {{ 'Tag' if rule.tag else 'Erstfund' }}{% endif %}</td>
-            <td class="text-end"><form method="post" action="{{ url_for('documents.remove_retention_rule', rule_id=rule.id) }}"><input type="hidden" name="folder" value="{{ rule.folder }}"><button class="btn btn-sm btn-outline-danger">Entfernen</button></form></td>
+            <td class="text-end"><form method="post" action="{{ url_for('documents.remove_retention_rule', rule_id=rule.id) }}"><input type="hidden" name="folder" value="{{ rule.folder }}"><button type="submit" class="btn btn-sm btn-outline-danger">Entfernen</button></form></td>
           </tr>
           {% else %}<tr><td colspan="6" class="text-secondary">Noch keine vererbte Regel konfiguriert.</td></tr>{% endfor %}
         </tbody>
@@ -86,7 +86,7 @@
             <input required class="form-control mb-3" name="destination_folder" value="Aussonderung" placeholder="Aussonderung">
             <label class="form-label">Bestätigung</label>
             <input required class="form-control mb-3" name="confirm" autocomplete="off" placeholder="AUSSONDERN">
-            <button class="btn btn-warning w-100" {% if not candidates %}disabled{% endif %}>{{ candidates|length }} Dokument(e) verschieben</button>
+            <button type="submit" class="btn btn-warning w-100" {% if not candidates %}disabled{% endif %}>{{ candidates|length }} Dokument(e) verschieben</button>
           </form>
           <div class="form-text mt-2">Originale werden verschoben, nicht gelöscht. ID, SHA-256, alter und neuer Pfad sowie Benutzer werden protokolliert.</div>
         </div>

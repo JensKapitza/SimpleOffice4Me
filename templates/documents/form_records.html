@@ -1,16 +1,16 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
     <div><a href="{{ url_for('documents.forms') }}" class="text-decoration-none">&larr; Formulare</a><h1 class="h2 mt-2 mb-1">{{ form.name }}</h1><p class="text-secondary mb-0">{{ form.description }}</p></div>
   </div>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-4">
     <section class="col-lg-5"><div class="card"><div class="card-header">Neuen Datensatz anlegen</div><div class="card-body"><form method="post" class="row g-3">
       {% for field in form.fields if not (form.layout|default('') == 'invoice' and field.key in ['net_amount', 'tax_amount', 'gross_amount']) %}<div class="{{ 'col-12' if field.type == 'textarea' else 'col-md-6' }}"><label class="form-label">{{ field.label }}{% if field.required %} *{% endif %}</label>{% if field.type == 'textarea' %}<textarea class="form-control" name="{{ field.key }}" {% if field.required %}required{% endif %}></textarea>{% elif field.type == 'select' or field.type == 'relation' %}<select class="form-select" name="{{ field.key }}" {% if field.required %}required{% endif %}><option value=""></option>{% for option in (relation_choices.get(field.key, []) if field.type == 'relation' else field.options) %}{% set value = option[0] if field.type == 'relation' else option %}{% set label = option[1] if field.type == 'relation' else option %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>{% else %}<input class="form-control" type="{{ 'number' if field.type in ['number','currency'] else field.type }}" {% if field.type == 'currency' %}step="0.01"{% endif %} name="{{ field.key }}" {% if field.required %}required{% endif %}>{% endif %}</div>{% endfor %}
       {% if form.layout|default('') == 'invoice' %}{% include 'documents/invoice_positions.html' %}{% endif %}
-      <div class="col-12"><button class="btn btn-primary">Speichern</button></div>
+      <div class="col-12"><button type="submit" class="btn btn-primary">Speichern</button></div>
     </form></div></div></section>
     <section class="col-lg-7"><div class="card"><div class="card-header">Gespeicherte Datensätze</div><div class="list-group list-group-flush">
       {% for record in records %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.form_record_detail', form_id=form.form_id, record_id=record.record_id) }}"><div class="d-flex justify-content-between gap-3"><strong>{{ record['values'].get(form.title_field, record.record_id) or record.record_id }}</strong><span class="small text-secondary">{{ record.updated_at }}</span></div><div class="small text-secondary">{{ record.updated_by }}</div></a>{% else %}<div class="list-group-item text-secondary">Noch keine Datensätze.</div>{% endfor %}

@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
-{% block body %}<main class="container-xl py-4">
+{% block body %}<main id="main-content" class="container-xl py-4">
 <div class="d-flex justify-content-between align-items-start gap-3">
 <div>
 <a href="{{ url_for('documents.detail', document_id=document.document_id) }}">← Dokument</a>
@@ -32,6 +32,6 @@
 <br>
 <small class="text-secondary">{{ item.content_type }} · {{ item.size }} Bytes · SHA-256 <code>{{ item.sha256[:16] }}…</code> · MIME-Teil {{ item.part }}</small>
 </span>
-</label>{% else %}<div class="list-group-item text-secondary">Keine MIME-Anhänge gefunden.</div>{% endfor %}</div>{% if manifest.attachments %}<button class="btn btn-danger">Ausgewählte Anhänge prüfen und übernehmen</button>{% endif %}</form>
+</label>{% else %}<div class="list-group-item text-secondary">Keine MIME-Anhänge gefunden.</div>{% endfor %}</div>{% if manifest.attachments %}<button type="submit" class="btn btn-danger">Ausgewählte Anhänge prüfen und übernehmen</button>{% endif %}</form>
 <p class="small text-secondary mt-3">Die unveränderte EML-Datei bleibt erhalten. Dateinamen sind Metadaten und werden nicht als vertrauenswürdig behandelt.</p>
 </main>{% endblock %}

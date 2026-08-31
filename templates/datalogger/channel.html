@@ -1,10 +1,10 @@
 {% extends "layout.html" %}{% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container py-4">
+<main id="main-content" class="container py-4">
   <a href="{{ url_for('datalogger.index') }}">← Datenlogger</a>
   <h1><span style="color:{{ channel.color }}">●</span> {{ channel.name }}</h1>
   <p>{{ channel.description }}</p>
-  {% with messages=get_flashed_messages() %}{% for message in messages %}<div class="alert alert-info">{{ message }}</div>{% endfor %}{% endwith %}
+  {% with messages=get_flashed_messages() %}{% for message in messages %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}{% endwith %}
 
   <section class="card mb-4"><div class="card-body">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -21,18 +21,18 @@
     </form>
 
     <div class="table-responsive"><table class="table table-sm align-middle">
-      <thead><tr><th>Zeitpunkt</th><th>Quelle</th><th>Messgröße</th><th>Wert</th><th>Qualität</th></tr></thead>
+      <thead><tr><th scope="col">Zeitpunkt</th><th scope="col">Quelle</th><th scope="col">Messgröße</th><th scope="col">Wert</th><th scope="col">Qualität</th></tr></thead>
       <tbody>{% for x in samples|reverse %}<tr><td>{{ x.measured_at }}</td><td><strong>{{ x.source_name }}</strong><br><small class="text-secondary">{{ x.source_kind }}</small></td><td><code>{{ x.source_metric or '—' }}</code></td><td>{{ x.value }} {{ channel.unit }}</td><td>{{ x.quality }}</td></tr>{% else %}<tr><td colspan="5">Noch keine Messwerte.</td></tr>{% endfor %}</tbody>
     </table></div>
 
     {% if pages > 1 %}
     <nav aria-label="Messwertseiten"><ul class="pagination pagination-sm justify-content-center flex-wrap">
-      <li class="page-item {{ 'disabled' if page <= 1 else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page-1, per_page=per_page) }}">Zurück</a></li>
+      <li class="page-item {{ 'disabled' if page <= 1 else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page-1, per_page=per_page) }}" rel="prev">Zurück</a></li>
       {% set start_page = [1, page-2]|max %}{% set end_page = [pages, page+2]|min %}
-      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=1, per_page=per_page) }}">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
-      {% for p in range(start_page, end_page + 1) %}<li class="page-item {{ 'active' if p == page else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=p, per_page=per_page) }}">{{ p }}</a></li>{% endfor %}
-      {% if end_page < pages %}{% if end_page < pages-1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=pages, per_page=per_page) }}">{{ pages }}</a></li>{% endif %}
-      <li class="page-item {{ 'disabled' if page >= pages else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page+1, per_page=per_page) }}">Weiter</a></li>
+      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=1, per_page=per_page) }}">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>{% endif %}{% endif %}
+      {% for p in range(start_page, end_page + 1) %}<li class="page-item {{ 'active' if p == page else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=p, per_page=per_page) }}" aria-current="{{ 'page' if p == page else 'false' }}">{{ p }}</a></li>{% endfor %}
+      {% if end_page < pages %}{% if end_page < pages-1 %}<li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=pages, per_page=per_page) }}">{{ pages }}</a></li>{% endif %}
+      <li class="page-item {{ 'disabled' if page >= pages else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page+1, per_page=per_page) }}" rel="next">Weiter</a></li>
     </ul></nav>
     {% endif %}
     <a href="{{ url_for('datalogger.data', channel_id=channel.channel_id) }}">JSON-Export</a>
@@ -41,9 +41,9 @@
   {% if can_edit %}<div class="row g-3">
     <section class="col-lg-6"><div class="card h-100"><div class="card-body">
       <h2 class="h5">Manueller Messwert</h2>
-      <form method="post" action="{{ url_for('datalogger.add_sample', channel_id=channel.channel_id) }}"><label class="form-label">Wert<input required type="number" step="any" name="value" class="form-control"></label><label class="form-label ms-2">Zeitpunkt (optional)<input type="datetime-local" name="measured_at" class="form-control"></label><button class="btn btn-primary">Speichern</button></form>
+      <form method="post" action="{{ url_for('datalogger.add_sample', channel_id=channel.channel_id) }}"><label class="form-label">Wert<input required type="number" step="any" name="value" class="form-control"></label><label class="form-label ms-2">Zeitpunkt (optional)<input type="datetime-local" name="measured_at" class="form-control"></label><button type="submit" class="btn btn-primary">Speichern</button></form>
       <hr><h2 class="h5">Kanal und Rechte</h2>
-      <form method="post"><label class="form-label w-100">Name<input name="name" value="{{ channel.name }}" required class="form-control"></label><label class="form-label w-100">Beschreibung<textarea name="description" class="form-control">{{ channel.description }}</textarea></label><div class="row"><div class="col"><label class="form-label">Einheit<input name="unit" value="{{ channel.unit }}" class="form-control"></label></div><div class="col"><label class="form-label">Farbe<input type="color" name="color" value="{{ channel.color }}" class="form-control form-control-color"></label></div></div><label class="form-label w-100">Lesen (Benutzernamen, Komma)<input name="readers" value="{{ channel.readers|join(', ') if channel.readers is not string else (channel.readers|replace('[','')|replace(']','')|replace('"','')) }}" class="form-control" list="users"></label><label class="form-label w-100">Bearbeiten (Benutzernamen, Komma)<input name="editors" value="{{ channel.editors|join(', ') if channel.editors is not string else (channel.editors|replace('[','')|replace(']','')|replace('"','')) }}" class="form-control" list="users"></label><datalist id="users">{% for user in users %}<option value="{{ user }}">{% endfor %}</datalist><button class="btn btn-outline-primary">Einstellungen speichern</button></form>
+      <form method="post"><label class="form-label w-100">Name<input name="name" value="{{ channel.name }}" required class="form-control"></label><label class="form-label w-100">Beschreibung<textarea name="description" class="form-control">{{ channel.description }}</textarea></label><div class="row"><div class="col"><label class="form-label">Einheit<input name="unit" value="{{ channel.unit }}" class="form-control"></label></div><div class="col"><label class="form-label">Farbe<input type="color" name="color" value="{{ channel.color }}" class="form-control form-control-color"></label></div></div><label class="form-label w-100">Lesen (Benutzernamen, Komma)<input name="readers" value="{{ channel.readers|join(', ') if channel.readers is not string else (channel.readers|replace('[','')|replace(']','')|replace('"','')) }}" class="form-control" list="users"></label><label class="form-label w-100">Bearbeiten (Benutzernamen, Komma)<input name="editors" value="{{ channel.editors|join(', ') if channel.editors is not string else (channel.editors|replace('[','')|replace(']','')|replace('"','')) }}" class="form-control" list="users"></label><datalist id="users">{% for user in users %}<option value="{{ user }}">{% endfor %}</datalist><button type="submit" class="btn btn-outline-primary">Einstellungen speichern</button></form>
     </div></div></section>
 
     <section class="col-lg-6"><div class="card h-100"><div class="card-body">
@@ -56,10 +56,10 @@
         <div class="form-text mb-2"><strong>Linux:</strong> {{ linux_metrics|join(', ') }}. Leeres Feld verwendet automatisch <code>load1</code>.</div>
         <label class="form-label w-100">Pfad oder URL<input name="path" class="form-control" placeholder="Projekte oder / (Linux-Datenträger)"><input name="url" class="form-control mt-1" placeholder="http://sensor.local/status"></label>
         <label class="form-label w-100">Optionaler HTTP-Header aus Umgebung<input name="header_env" class="form-control" placeholder="SIMPLEOFFICE_SENSOR_KELLER_TOKEN"></label>
-        <label><input type="checkbox" name="recursive" value="1" checked> Unterordner einbeziehen</label><button class="btn btn-primary d-block mt-2">Quelle speichern</button>
+        <label><input type="checkbox" name="recursive" value="1" checked> Unterordner einbeziehen</label><button type="submit" class="btn btn-primary d-block mt-2">Quelle speichern</button>
       </form>
       <hr><h3 class="h6">Vorhandene Quellen</h3>
-      {% for source in sources %}<div class="border rounded p-2 mb-2"><strong>{{ source.name }}</strong> · {{ source.kind }} · {{ source.interval_seconds }} s<br><small>Status: {{ source.last_status or 'wartet' }}{% if source.last_error_code %} ({{ source.last_error_code }}){% endif %}</small><form method="post" action="{{ url_for('datalogger.toggle_source', source_id=source.source_id) }}"><input type="hidden" name="enabled" value="{{ 0 if source.enabled else 1 }}"><button class="btn btn-sm btn-outline-secondary">{{ 'Deaktivieren' if source.enabled else 'Aktivieren' }}</button></form></div>{% else %}<p>Keine Quellen.</p>{% endfor %}
+      {% for source in sources %}<div class="border rounded p-2 mb-2"><strong>{{ source.name }}</strong> · {{ source.kind }} · {{ source.interval_seconds }} s<br><small>Status: {{ source.last_status or 'wartet' }}{% if source.last_error_code %} ({{ source.last_error_code }}){% endif %}</small><form method="post" action="{{ url_for('datalogger.toggle_source', source_id=source.source_id) }}"><input type="hidden" name="enabled" value="{{ 0 if source.enabled else 1 }}"><button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Deaktivieren' if source.enabled else 'Aktivieren' }}</button></form></div>{% else %}<p>Keine Quellen.</p>{% endfor %}
     </div></div></section>
   </div>{% endif %}
 

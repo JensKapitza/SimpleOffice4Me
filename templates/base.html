@@ -1,8 +1,8 @@
 {% extends "layout.html" %}
 {% block title %}{{ super() }}{% endblock %}
 {% block body %}
-<main class="container py-4">
-  <nav class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
+<main id="main-content" class="container py-4">
+  <nav class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4" aria-label="Kontonavigation">
     <strong>SimpleOffice</strong>
     <div>
       {% if g.user %}
@@ -12,7 +12,7 @@
       {% endif %}
     </div>
   </nav>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% block content %}{% endblock %}
 </main>
 {% endblock %}

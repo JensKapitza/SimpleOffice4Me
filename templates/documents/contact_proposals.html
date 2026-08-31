@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main class="container-xl py-4">
+<main id="main-content" class="container-xl py-4">
   <a href="{{ url_for('documents.contacts') }}">&larr; {{ tr('contacts') }}</a>
   <h1 class="h3 mt-2">{{ tr('contact_update.proposals') }}</h1>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="list-group">
     {% for item in proposals %}
     <div class="list-group-item">
@@ -12,11 +12,11 @@
       <small class="text-secondary">{{ item.submitted_at }}</small>
       {% if item.status == 'pending' %}
       <form method="post" action="{{ url_for('contact_audit.crm_resolve_proposal', proposal_id=item.proposal_id) }}" class="mt-3">
-        <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>{{ tr('contact_update.accept') }}</th><th>{{ tr('contact_update.field') }}</th><th>{{ tr('contact_update.current') }}</th><th>{{ tr('contact_update.proposed') }}</th></tr></thead><tbody>
+        <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">{{ tr('contact_update.accept') }}</th><th scope="col">{{ tr('contact_update.field') }}</th><th scope="col">{{ tr('contact_update.current') }}</th><th scope="col">{{ tr('contact_update.proposed') }}</th></tr></thead><tbody>
           {% for key,value in item.values.items() %}<tr><td><input class="form-check-input" type="checkbox" name="fields" value="{{ key }}" checked></td><td>{{ tr('contact_update.field.' ~ key) }}</td><td class="text-break">{{ item.current_values.get(key) or '—' }}</td><td class="text-break">{{ value or '—' }}</td></tr>{% endfor %}
         </tbody></table></div>
-        <button class="btn btn-primary" name="action" value="accept">{{ tr('contact_update.accept_selected') }}</button>
-        <button class="btn btn-outline-danger" name="action" value="reject">{{ tr('contact_update.reject') }}</button>
+        <button type="submit" class="btn btn-primary" name="action" value="accept">{{ tr('contact_update.accept_selected') }}</button>
+        <button type="submit" class="btn btn-outline-danger" name="action" value="reject">{{ tr('contact_update.reject') }}</button>
       </form>
       {% endif %}
     </div>

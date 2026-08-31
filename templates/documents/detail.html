@@ -8,7 +8,7 @@
 <option value="same_folder">Gleicher Ordner</option>
 <option value="collection_member">Teil einer Sammlung</option>
 <option value="related" selected>Allgemein verbunden</option>{%- endmacro %}
-{% block body %}<main class="container-xl py-4">
+{% block body %}<main id="main-content" class="container-xl py-4">
 <a class="text-decoration-none" href="{{ url_for('documents.index') }}">← Dokumente</a>
 <div class="d-flex flex-wrap justify-content-between gap-3 mt-2 mb-3">
 <div>
@@ -20,17 +20,17 @@
 <form method="post" action="{{ url_for('documents.create_document_task', document_id=document.document_id) }}">
 <input type="hidden" name="title" value="{{ 'Review: ' if g.language == 'en' else 'Prüfen: ' }}{{ document.last_path }}">
 <input type="hidden" name="description" value="{{ ('Review the document, perform the required work and record the result in this task: ' if g.language == 'en' else 'Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: ') }}{{ document.last_path }}">
-<button class="btn btn-outline-primary">
+<button type="submit" class="btn btn-outline-primary">
 <i class="fas fa-list-check me-1">
 </i>{{ 'As task' if g.language == 'en' else 'Als Aufgabe' }}</button>
 </form>{% if document.last_path.lower().endswith('.eml') %}<a class="btn btn-warning" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">
 <i class="fas fa-paperclip me-1">
 </i>{{ 'Check attachments' if g.language == 'en' else 'Anhänge sicher prüfen' }}</a>{% endif %}<form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}">
-<button class="btn btn-outline-danger">
+<button type="submit" class="btn btn-outline-danger">
 <i class="fas fa-shield-virus me-1" aria-hidden="true">
 </i>{{ 'Scan with ClamAV' if g.language == 'en' else 'Mit ClamAV prüfen' }}</button>
 </form>
-<a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener">
+<a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">
 <i class="fas fa-arrow-up-right-from-square me-1" aria-hidden="true">
 </i>{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a>
 <a class="btn btn-primary" href="{{ url_for('webdav.setup_document', document_id=document.document_id) }}">
@@ -38,7 +38,7 @@
 </i>{{ 'Edit in LibreOffice' if g.language == 'en' else 'In LibreOffice bearbeiten' }}</a>
 <span class="badge text-bg-secondary align-self-center">{{ document.state }}</span>
 </div>
-</div>{% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+</div>{% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 <div class="row g-4">
 <section class="col-lg-7">
 <div class="card mb-4">
@@ -47,7 +47,7 @@
 <form method="post" action="{{ url_for('documents.add_note', document_id=document.document_id) }}">
 <textarea required class="form-control" name="text" rows="3" placeholder="Wissen, Entscheidung oder Beobachtung festhalten …">
 </textarea>
-<button class="btn btn-primary mt-2">Notiz speichern</button>
+<button type="submit" class="btn btn-primary mt-2">Notiz speichern</button>
 </form>
 </div>{% for note in document.notes|reverse %}<article class="list-group-item">
 <div style="white-space:pre-wrap">{{ note.text }}</div>
@@ -59,7 +59,7 @@
 <div class="card-body">
 <form method="get" class="input-group mb-3">
 <input class="form-control" name="link_query" value="{{ link_query }}" placeholder="Dateiname, Dokument-ID oder Tag suchen">
-<button class="btn btn-outline-primary">Suchen</button>
+<button type="submit" class="btn btn-outline-primary">Suchen</button>
 </form>{% if link_query %}<div class="list-group mb-3">{% for match in link_matches %}<div class="list-group-item">
 <strong>{{ match.path }}</strong>
 <br>
@@ -75,7 +75,7 @@
 <input class="form-control form-control-sm" name="label" placeholder="Optionale Bezeichnung">
 </div>
 <div class="col-md-2">
-<button class="btn btn-sm btn-primary w-100">Verbinden</button>
+<button type="submit" class="btn btn-sm btn-primary w-100">Verbinden</button>
 </div>
 <div class="col-12 form-check ms-2">
 <input class="form-check-input" type="checkbox" name="propagates_retention" value="1" id="retention-{{ match.document_id }}">
@@ -100,7 +100,7 @@
 <input class="form-control" name="label" placeholder="Optionale Bezeichnung">
 </div>
 <div class="col-12">
-<button class="btn btn-primary">Freitext verknüpfen</button>
+<button type="submit" class="btn btn-primary">Freitext verknüpfen</button>
 </div>
 </form>
 </details>
@@ -119,17 +119,17 @@
 <label class="form-label">Tags</label>
 <form method="post" action="{{ url_for('documents.set_document_tags', document_id=document.document_id) }}" class="input-group mb-3">
 <input class="form-control" name="tags" value="{{ document.tags|join(', ') }}">
-<button class="btn btn-outline-primary">Speichern</button>
+<button type="submit" class="btn btn-outline-primary">Speichern</button>
 </form>
 <label class="form-label">Zustand</label>
 <form method="post" action="{{ url_for('documents.set_state', document_id=document.document_id) }}" class="input-group mb-3">
 <input required class="form-control" name="state" value="{{ document.state }}">
-<button class="btn btn-outline-primary">Setzen</button>
+<button type="submit" class="btn btn-outline-primary">Setzen</button>
 </form>
 <label class="form-label">In Ordner verschieben</label>
 <form method="post" action="{{ url_for('documents.move_document', document_id=document.document_id) }}" class="input-group">
 <input required class="form-control" name="destination_folder" placeholder="z. B. Rechnungen/2026" aria-describedby="move-help">
-<button class="btn btn-outline-primary">Verschieben</button>
+<button type="submit" class="btn btn-outline-primary">Verschieben</button>
 </form>
 <div id="move-help" class="form-text">Relativer Zielordner im Dokumentenspeicher. Die ID und Verknüpfungen bleiben erhalten.</div>
 </div>
@@ -163,7 +163,7 @@
 <input required class="form-control" type="date" name="expires_at">
 </div>
 <div class="col-12">
-<button class="btn btn-outline-primary w-100">Frist hinzufügen</button>
+<button type="submit" class="btn btn-outline-primary w-100">Frist hinzufügen</button>
 </div>
 </form>
 </div>
@@ -181,7 +181,7 @@
 <summary>Erkannter Text</summary>
 <pre class="small text-wrap mt-2 mb-0">{{ document.ocr_text }}</pre>
 </details>{% endif %}<form method="post" class="mt-3" action="{{ url_for('documents.analyze_image', document_id=document.document_id) }}">
-<button class="btn btn-sm btn-outline-primary">EXIF / OCR erneut analysieren</button>
+<button type="submit" class="btn btn-sm btn-outline-primary">EXIF / OCR erneut analysieren</button>
 </form>
 </div>
 </div>{% endif %}<div class="card mb-4">
@@ -206,7 +206,7 @@
 <input required class="form-check-input" type="checkbox" name="confirm" value="WIEDERHERSTELLEN" id="restore-content-{{ loop.index }}">
 <label class="form-check-label small" for="restore-content-{{ loop.index }}">Als neue Revision wiederherstellen; aktuellen Inhalt archivieren</label>
 </div>
-<button class="btn btn-sm btn-outline-primary">Inhalt wiederherstellen</button>
+<button type="submit" class="btn btn-sm btn-outline-primary">Inhalt wiederherstellen</button>
 </form>{% endif %}</div>{% endfor %}</div>
 </div>{% endif %}<div class="card">
 <div class="card-header">Datei freigeben</div>
@@ -214,7 +214,7 @@
 <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}" class="input-group">
 <input required type="password" class="form-control" name="password" minlength="8" placeholder="Passwort">
 <input class="form-control" type="number" name="expires_days" value="7" min="1" max="365">
-<button class="btn btn-outline-primary">HTTPS-Link erzeugen</button>
+<button type="submit" class="btn btn-outline-primary">HTTPS-Link erzeugen</button>
 </form>
 </div>
 </div>
@@ -234,7 +234,7 @@
 <small class="d-block text-secondary">Erstellt: {{ share.created_at }} · Ablauf: {{ share.expires_at }} · Abrufe: {{ share.access_log|length }}</small>{% if share.status == 'abgelaufen' %}<form method="post" action="{{ url_for('documents.renew_share', document_id=document.document_id, share_id=share.share_id) }}" class="input-group mt-2">
 <input required type="password" class="form-control form-control-sm" name="password" minlength="8" placeholder="Neues Passwort">
 <input class="form-control form-control-sm" type="number" name="expires_days" value="7" min="1" max="365">
-<button class="btn btn-sm btn-outline-primary">Reaktivieren</button>
+<button type="submit" class="btn btn-sm btn-outline-primary">Reaktivieren</button>
 </form>{% endif %}</div>{% else %}<div class="list-group-item text-secondary">Noch keine Freigabelinks.</div>{% endfor %}</div>
 </div>
 </section>{% endblock %}
