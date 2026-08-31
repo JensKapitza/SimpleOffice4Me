@@ -16,7 +16,7 @@ from calendar import month_name, monthcalendar
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
 from .document_store import DocumentStore
@@ -1718,6 +1718,26 @@ def contact_detail(contact_id: str):
                            company_people=store.company_people(contact, actor), linked_company=linked_company)
 
 
+@bp.get("/contacts/company-search")
+@login_required
+def company_contact_search():
+    query = request.args.get("q", "").strip()
+    if len(query) < 2:
+        return jsonify({"items": []})
+    actor = str(g.user["username"]); store = _contacts(); excluded = request.args.get("exclude", "").strip()
+    rows = []
+    for contact in store.search(query, actor):
+        if contact.get("contact_id") == excluded: continue
+        fields = contact.get("fields", {}); company_name = store.company_name(contact)
+        if not company_name: continue
+        rows.append({
+            "contact_id": contact["contact_id"], "company_name": company_name,
+            "display_name": str(fields.get("display_name", "")), "email": str(fields.get("email", "")),
+        })
+        if len(rows) >= 10: break
+    return jsonify({"items": rows})
+
+
 @bp.get("/contacts/<contact_id>/photo")
 @login_required
 def contact_photo(contact_id: str):
@@ -1734,7 +1754,7 @@ def save_contact():
     contact_id = request.form.get("contact_id", "")
     try:
         store = _contacts(); actor = str(g.user["username"]); values = request.form.to_dict(); company_id = values.get("company_contact_id", "").strip()
-        candidates = store.contacts(actor)
+        candidates = store.contacts(actor); company_contact = None
         if company_id:
             if company_id == contact_id: raise ValueError("Ein Kontakt kann nicht sich selbst als Firma zugeordnet werden")
             company_contact = next((item for item in candidates if item.get("contact_id") == company_id), None)
@@ -1743,8 +1763,13 @@ def save_contact():
         else:
             typed = str(values.get("company", "")).strip().casefold()
             exact = [item for item in candidates if item.get("contact_id") != contact_id and store.company_name(item).casefold() == typed] if typed else []
-            if len(exact) == 1: values["company"] = store.company_name(exact[0]); values["custom_company_contact_id"] = exact[0]["contact_id"]
+            if len(exact) == 1:
+                company_contact = exact[0]; values["company"] = store.company_name(company_contact); values["custom_company_contact_id"] = company_contact["contact_id"]
         contact = store.upsert(values, actor, contact_id)
+        if company_contact and not contact.get("addresses") and company_contact.get("addresses"):
+            source_address = company_contact["addresses"][0]
+            store.add_address(contact["contact_id"], "Firma", str(source_address.get("value", "")), actor, components=source_address.get("components", {}))
+            contact = store.get(contact["contact_id"], actor)
         flash("Kontakt gespeichert.")
     except ValueError as exc:
         flash(str(exc))

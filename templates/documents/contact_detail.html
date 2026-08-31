@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% from "documents/_country_datalist.html" import eu_country_datalist %}
-{% block script %}<script defer src="{{ url_for('static', filename='js/contact-history.js') }}"></script>{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/contact-history.js') }}"></script><script defer src="{{ url_for('static', filename='js/company-contact-autocomplete.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 {% set username = g.user['username'] %}
@@ -33,7 +33,7 @@
             <div class="col-md-6"><label class="form-label">Telefon</label><input class="form-control" name="phone" value="{{ contact.fields.phone|default('') }}"></div>
             <div class="col-md-4"><label class="form-label">Geburtstag</label><input class="form-control" type="date" name="birthday" value="{{ contact.fields.birthday|default('') }}"></div>
             <div class="col-md-8"><label class="form-label">Webseite</label><input class="form-control" type="url" name="website" value="{{ contact.fields.website|default('') }}"></div>
-            <div class="col-md-6"><label class="form-label" for="contact-company">Firma / Organisation</label><input id="contact-company" class="form-control" name="company" value="{{ linked_company.fields.display_name if linked_company else contact.fields.company|default('') }}" list="company-contact-options" autocomplete="off" data-company-name><input type="hidden" name="company_contact_id" value="{{ linked_company.contact_id if linked_company else '' }}" data-company-id><datalist id="company-contact-options">{% for item in company_contacts %}<option value="{{ item.name }}" data-contact-id="{{ item.contact_id }}"></option>{% endfor %}</datalist><div class="form-text">Kontakt auswählen, um Firma und Ansprechpartner intern zu verknüpfen.</div></div>
+            <div class="col-md-6 position-relative" data-company-autocomplete data-company-endpoint="{{ url_for('documents.company_contact_search') }}" data-company-exclude="{{ contact.contact_id }}"><label class="form-label" for="contact-company">Firma / Organisation</label><input id="contact-company" class="form-control" name="company" value="{{ linked_company.fields.display_name if linked_company else contact.fields.company|default('') }}" autocomplete="off" data-company-name aria-describedby="contact-company-status"><input type="hidden" name="company_contact_id" value="{{ linked_company.contact_id if linked_company else '' }}" data-company-id><div class="list-group position-absolute start-0 end-0 shadow-sm" data-company-results role="listbox" hidden style="z-index:1050"></div><div class="form-text" id="contact-company-status" data-company-status aria-live="polite">Ab zwei Zeichen werden vorhandene Kontakte gesucht.</div></div>
             <div class="col-md-6"><label class="form-label">Abteilung</label><input class="form-control" name="department" value="{{ contact.fields.department|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Position / Titel</label><input class="form-control" name="title" value="{{ contact.fields.title|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Rolle</label><input class="form-control" name="role" value="{{ contact.fields.role|default('') }}"></div>
@@ -129,5 +129,4 @@
     </aside>
   </div>
 </main>
-<script>(()=>{document.querySelectorAll('[data-company-link-form]').forEach(form=>{const input=form.querySelector('[data-company-name]'),hidden=form.querySelector('[data-company-id]'),list=document.getElementById(input?.getAttribute('list'));input?.addEventListener('input',()=>{const matches=Array.from(list?.options||[]).filter(option=>option.value.trim().toLocaleLowerCase()===input.value.trim().toLocaleLowerCase());hidden.value=matches.length===1?matches[0].dataset.contactId:'';});});})();</script>
 {% endblock %}
