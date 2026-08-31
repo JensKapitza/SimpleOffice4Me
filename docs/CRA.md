@@ -1,6 +1,6 @@
 # Cyber Resilience Act (CRA) – technische Akte
 
-Stand: 26.07.2026. Diese Datei ist eine technische Arbeitsgrundlage und keine rechtliche Konformitätserklärung.
+Stand: 29.08.2026. Diese Datei ist eine technische Arbeitsgrundlage und keine rechtliche Konformitätserklärung. Das aktuelle technische Review steht in [SECURITY_REVIEW_2026-08-29.md](SECURITY_REVIEW_2026-08-29.md).
 
 ## Rechtsgrundlage und Geltung
 
@@ -14,11 +14,11 @@ SimpleOffice4Me ist eine selbst gehostete Software mit digitalen Elementen. Ob s
 
 | CRA-Thema | Umsetzung im Projekt | Nachweis / offener Punkt |
 | --- | --- | --- |
-| Sichere Konfiguration und Zugriffsschutz (Anhang I Teil I) | Login, Passwort-Hashing, Google-OAuth mit State-Prüfung, sichere Cookie-Attribute, Security-Header einschließlich CSP | `app/auth.py`, `app/__init__.py`; CSRF-Schutz und Rate-Limits vor öffentlichem Betrieb ergänzen |
+| Sichere Konfiguration und Zugriffsschutz (Anhang I Teil I) | Sitzungsgebundener CSRF-Schutz, persistente kombinierte Konto-/Netz-Drosselung, gleichförmige Passwortprüfung, geschlossenes Self-Signup, opt-in Google-Autoprovisionierung, verschlüsselte OAuth-Tokens, sichere Cookie-Attribute und HTTP-Sicherheitsheader | `app/security_controls.py`, `app/auth.py`, `app/__init__.py`, `static/js/security.js`, Regressionstests |
 | Schutz von Vertraulichkeit und Integrität | Dateihashes, Integritätsstatus, revisionssichere Ereignisse, kontrollierte Freigaben und keine automatische Löschung nach Spiegelung | `app/document_store.py`, `app/revision_history.py`, `app/replication_store.py` |
 | Schwachstellenbehandlung (Anhang I Teil II) | Sicherheitskontakt, Triage, Behebung, Advisory und Meldeprozess festgelegt | `docs/SECURITY.md`; verantwortliche Herstellerstelle und Erreichbarkeit bei Release eintragen |
 | Komponenten-/Abhängigkeitsübersicht | CycloneDX-SBOM wird aus der installierten Python-Umgebung erstellt | `tools/generate_sbom.py`, Ausgabe `artifacts/sbom.cdx.json` |
-| Sicherheitsupdates und bekannte Schwachstellen | CI führt `pip-audit` aus; Pull Requests und Releases erhalten einen Sicherheitscheck | `.github/workflows/security.yml`, `docs/RELEASE_SECURITY_CHECKLIST.md` |
+| Sicherheitsupdates und bekannte Schwachstellen | CI führt `pip-audit`, den CRA-Nachweischeck und die SBOM-Erzeugung aus; Pull Requests und Releases erhalten einen Sicherheitscheck | `.github/workflows/ci.yml`, `tools/cra_check.py`, `docs/RELEASE_SECURITY_CHECKLIST.md` |
 | Technische Dokumentation und Risikobewertung (Anhang VII) | Dieses Mapping, Architektur-/Betriebsdokumente, Tests und SBOM sind versioniert | Vor formaler Konformitätsbewertung Risikoanalyse, Supportzeitraum, Produktversion und EU-Konformitätserklärung ergänzen |
 | Incident-/Vulnerability-Reporting, Art. 14 | Fristen dokumentiert: 24 h Frühwarnung, 72 h Meldung, Abschlussbericht gemäß Vorfallart | Tatsächliche Meldung über die CRA Single Reporting Platform erfolgt organisatorisch, nicht automatisiert durch diese Anwendung |
 
@@ -33,6 +33,16 @@ python -m unittest discover -s tests -v
 ```
 
 Die SBOM gehört zum jeweiligen Release-Artefakt. Abhängigkeitswarnungen werden vor Release bewertet, dokumentiert und entweder behoben oder mit Risiko, Entscheidung und Termin begründet.
+
+## Behobene technische No-Gos
+
+- Zustandsändernde Browseranfragen konnten ohne an die Sitzung gebundenen Herkunftsnachweis ausgelöst werden.
+- Unbegrenzte Login-Versuche ermöglichten Passwort-Raten; die Drosselung liegt nun pro Konto/IP-Kombination und zusätzlich pro Netzquelle persistent in SQLite.
+- Nach der Erstinstallation konnten sich weitere Personen selbst registrieren; dies ist jetzt standardmäßig geschlossen.
+- Ein beliebiges gültiges Google-Konto konnte automatisch ein lokales Konto erhalten; Autoprovisionierung ist jetzt opt-in.
+- Google-OAuth-Tokens lagen im Klartext in SQLite; neue und erneuerte Tokens werden mit der Installationskennung authentifiziert verschlüsselt.
+- Logout änderte den Sitzungszustand per GET; im Produkt ist nur noch POST erlaubt.
+- Der SBOM-Serienwert war statisch; er wird nun eindeutig aus dem tatsächlichen Komponentenbestand abgeleitet.
 
 Am 26.07.2026 wurde nach einem `pip-audit`-Befund die Bildbibliothek von Pillow 11.x auf mindestens 12.3 angehoben. Befunde des isolierten Prüfwerkzeugs (`pip`) gehören zur Build-Umgebung und werden dort separat aktualisiert.
 

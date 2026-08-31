@@ -10,7 +10,7 @@ from .access_control import audit
 from .system_identity import system_info
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-STATE_CHANGING_GET_ENDPOINTS = {"auth.logout"}
+STATE_CHANGING_GET_ENDPOINTS: set[str] = set()
 FORM_MIMETYPES = {"application/x-www-form-urlencoded", "multipart/form-data"}
 SENSITIVE_NAMES = {
     "password", "passwd", "secret", "token", "authorization", "cookie",

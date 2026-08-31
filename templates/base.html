@@ -6,7 +6,7 @@
     <strong>SimpleOffice</strong>
     <div>
       {% if g.user %}
-        <span class="me-2">{{ g.user['username'] }}</span><a href="{{ url_for('auth.logout') }}">Log Out</a>
+        <span class="me-2">{{ g.user['username'] }}</span><form class="d-inline" method="post" action="{{ url_for('auth.logout') }}"><button class="btn btn-link p-0" type="submit">Log Out</button></form>
       {% else %}
         <a class="me-2" href="{{ url_for('auth.register') }}">Register</a><a href="{{ url_for('auth.login') }}">Log In</a>
       {% endif %}

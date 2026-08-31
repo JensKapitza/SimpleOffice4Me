@@ -8,7 +8,7 @@
   <h1 class="h3">{{ tr('contact_update.title') }}</h1>
   <p class="text-secondary">{{ tr('contact_update.explanation') }}</p>
   {% if error %}<div class="alert alert-warning">{{ tr('contact_update.no_changes') }}</div>{% endif %}
-  <form method="post" class="row g-3">
+  <form method="post" class="row g-3" autocomplete="off">
     <div class="col-md-6"><label class="form-label">{{ tr('contact.first_name') }}</label><input class="form-control" name="first_name" value="{{ values.first_name }}"></div>
     <div class="col-md-6"><label class="form-label">{{ tr('contact.last_name') }}</label><input class="form-control" name="last_name" value="{{ values.last_name }}"></div>
     <div class="col-md-8"><label class="form-label">{{ tr('contact.display_name') }}</label><input required class="form-control" name="display_name" value="{{ values.display_name }}"></div>
@@ -32,11 +32,11 @@
 
     <div class="col-12"><h2 class="h5 mt-2">{{ tr('contact.address') }}</h2></div>
     <div class="col-12 position-relative" data-address-autocomplete data-address-endpoint="{{ url_for('contact_audit.crm_public_address_search', token=request.view_args.token) }}"><div class="row g-3">
-      <div class="col-md-5"><label class="form-label">{{ tr('contact.city') }}</label><input class="form-control" name="address_city" data-address-city value="{{ values.address_city }}"></div>
-      <div class="col-md-3"><label class="form-label">{{ tr('contact.postal') }}</label><input class="form-control" name="address_postal" data-address-postal value="{{ values.address_postal }}"></div>
-      <div class="col-md-4"><label class="form-label">{{ tr('contact.street') }}</label><input class="form-control" name="address_street" data-address-street value="{{ values.address_street }}"></div>
-      <div class="col-md-5"><label class="form-label">{{ 'State / province / region' if g.language == 'en' else 'Bundesland / Provinz / Region' }}</label><input class="form-control" name="address_state" data-address-state value="{{ values.address_state }}" autocomplete="address-level1"></div>
-      <div class="col-md-5"><label class="form-label">{{ tr('contact.country') }}</label><input class="form-control text-uppercase" name="address_country" data-address-country value="{{ values.address_country or 'DE' }}" maxlength="2" list="public-country-codes"><div class="form-text">{% if g.language == 'en' %}ISO 3166-1 alpha-2; free entry remains possible.{% else %}ISO 3166-1 Alpha-2; freie Eingabe bleibt möglich.{% endif %}</div></div>
+      <div class="col-md-5"><label class="form-label">{{ tr('contact.city') }}</label><input class="form-control" name="address_city" data-address-city value="{{ values.address_city }}" autocomplete="off"></div>
+      <div class="col-md-3"><label class="form-label">{{ tr('contact.postal') }}</label><input class="form-control" name="address_postal" data-address-postal value="{{ values.address_postal }}" autocomplete="off"></div>
+      <div class="col-md-4"><label class="form-label">{{ tr('contact.street') }}</label><input class="form-control" name="address_street" data-address-street value="{{ values.address_street }}" autocomplete="off"></div>
+      <div class="col-md-5"><label class="form-label">{{ 'State / province / region' if g.language == 'en' else 'Bundesland / Provinz / Region' }}</label><input class="form-control" name="address_state" data-address-state value="{{ values.address_state }}" autocomplete="off"></div>
+      <div class="col-md-5"><label class="form-label">{{ tr('contact.country') }}</label><input class="form-control text-uppercase" name="address_country" data-address-country value="{{ values.address_country or 'DE' }}" maxlength="2" autocomplete="off" list="public-country-codes"><div class="form-text">{% if g.language == 'en' %}ISO 3166-1 alpha-2; free entry remains possible.{% else %}ISO 3166-1 Alpha-2; freie Eingabe bleibt möglich.{% endif %}</div></div>
       {{ eu_country_datalist('public-country-codes') }}
       <div class="col-12"><div class="form-text" data-address-status aria-live="polite"></div></div>
     </div></div>

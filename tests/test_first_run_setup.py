@@ -1,4 +1,5 @@
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,9 +7,10 @@ from pathlib import Path
 from app import app
 from app.calendar_collections import CalendarCollections
 from app.contact_store import ContactStore
-from app.db import ensure_auth_database
+from app.db import ensure_auth_database, get_db
 from app.webdav import authenticate_password
 from app.todo_store import TodoStore
+from app.document_store import DocumentStore
 
 
 class FirstRunSetupTest(unittest.TestCase):
@@ -44,6 +46,23 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn("Schreiben", body)
         self.assertIn("Verwalten", body)
 
+    def test_dark_theme_is_saved_per_user_and_rendered_on_next_request(self):
+        response = self.client.post(
+            "/documents/settings",
+            data={
+                "display_name": "Jens", "theme": "dark", "default_language": "de",
+                "timezone": "Europe/Berlin", "default_state": "new",
+                "default_duration_minutes": "60", "default_expiry_days": "7",
+            },
+            base_url=self.base_url,
+        )
+        self.assertEqual(302, response.status_code)
+        with app.app_context():
+            self.assertEqual("dark", get_db().execute("SELECT theme FROM user WHERE username='jens'").fetchone()[0])
+        page = self.client.get("/documents/settings", base_url=self.base_url).get_data(as_text=True)
+        self.assertIn('data-theme-preference="dark"', page)
+        self.assertIn('value="dark" selected', page)
+
     def test_dashboard_task_details_are_saved_in_shared_task_store(self):
         created = self.client.post(
             "/documents/todo",
@@ -71,6 +90,40 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertEqual(302, self.client.post(f"/documents/tasks/{task['id']}/time", data={"minutes": "15", "note": "Test"}, base_url=self.base_url).status_code)
         stored = TodoStore(self.root).items("jens")[0]
         self.assertEqual("Kommentar", stored["comments"][0]["text"]); self.assertEqual(15, stored["time_entries"][0]["minutes"])
+
+    def test_document_task_has_description_and_reachable_attachments(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"offer"), "Angebot.pdf", "jens")
+        email_document = DocumentStore(self.root).import_upload(io.BytesIO(b"mail"), "Anfrage.eml", "jens")
+        contact = ContactStore(self.root).upsert(
+            {"display_name": "Kunde Beispiel", "email": "kunde@example.test"}, "jens"
+        )
+        response = self.client.post(
+            f"/documents/{document['document_id']}/tasks",
+            data={"title": "Angebot prüfen"},
+            base_url=self.base_url,
+        )
+        self.assertEqual(302, response.status_code)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertIn("erforderliche Bearbeitung", task["description"])
+        self.assertEqual([document["document_id"]], task["document_ids"])
+        TodoStore(self.root).update(
+            task["id"],
+            {
+                "contact_id": contact["contact_id"],
+                "email_document_id": email_document["document_id"],
+                "extra_lines": ['ATTACH;FILENAME="extern.pdf":https://files.example/extern.pdf'],
+            },
+            "jens",
+        )
+        body = self.client.get("/documents/tasks", base_url=self.base_url).get_data(as_text=True)
+        self.assertIn("Angebot.pdf", body)
+        self.assertIn(f"/documents/{document['document_id']}", body)
+        self.assertIn("extern.pdf", body)
+        self.assertIn("https://files.example/extern.pdf", body)
+        self.assertIn("Kunde Beispiel", body)
+        self.assertIn(f"/documents/contacts/{contact['contact_id']}", body)
+        self.assertIn("Anfrage.eml", body)
+        self.assertIn(f"/documents/{email_document['document_id']}", body)
 
     def test_remote_http_disables_secret_creation(self):
         client = app.test_client()

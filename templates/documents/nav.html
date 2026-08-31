@@ -33,7 +33,7 @@
         <a class="nav-link" href="{{ url_for('documents.settings') }}"><i class="fas fa-cog me-1" aria-hidden="true"></i>{{ tr('settings') }}</a>
         <a class="nav-link" href="{{ url_for('mcp.settings') }}"><i class="fas fa-plug me-1" aria-hidden="true"></i>MCP</a>
         <form method="post" action="{{ url_for('documents.set_language') }}" class="px-xxl-2"><label class="visually-hidden" for="language">Language</label><select class="form-select form-select-sm" id="language" name="language" onchange="this.form.submit()" aria-label="Language"><option value="de" {% if g.language == 'de' %}selected{% endif %}>DE</option><option value="en" {% if g.language == 'en' %}selected{% endif %}>EN</option></select></form>
-        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear me-1" aria-hidden="true"></i>Administration</a>{% endif %}<span class="navbar-text px-xxl-2 small">{{ g.user['display_name'] or g.user['username'] }}</span><a class="nav-link" href="{{ url_for('auth.logout') }}">{{ tr('logout') }}</a>
+        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear me-1" aria-hidden="true"></i>Administration</a>{% endif %}<span class="navbar-text px-xxl-2 small">{{ g.user['display_name'] or g.user['username'] }}</span><form method="post" action="{{ url_for('auth.logout') }}"><button class="nav-link border-0 bg-transparent" type="submit">{{ tr('logout') }}</button></form>
       </div>
     </div>
   </div>

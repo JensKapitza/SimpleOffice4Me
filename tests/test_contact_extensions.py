@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app import app
 from app.contact_extensions import ContactCRMStore, _eml_preview, _external_update_values
@@ -145,6 +146,13 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertIn(activity["activity_id"], {entry.get("activity_id") for entry in timeline})
         self.assertIn("crm_change", {entry.get("type") for entry in timeline})
         self.assertIn("contact_change", {entry.get("type") for entry in timeline})
+
+    def test_timeline_reuses_already_loaded_crm_record(self):
+        crm = ContactCRMStore(self.root)
+        record = {"activities": [{"type": "note", "at": "2026-08-29T10:00:00Z"}], "history": []}
+        with patch.object(crm, "record", side_effect=AssertionError("CRM file reread")):
+            timeline = crm.timeline({"contact_id": "contact-1", "changes": []}, record)
+        self.assertEqual("note", timeline[0]["type"])
 
     def test_crm_save_preserves_existing_activities(self):
         crm = ContactCRMStore(self.root)

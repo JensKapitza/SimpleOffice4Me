@@ -1,13 +1,15 @@
 <!doctype html>
-<html lang="{{ g.language|default('de') }}">
+<html lang="{{ g.language|default('de') }}" data-theme-preference="{{ g.theme_preference|default('system') }}" data-bs-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f766e">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}SimpleOffice4Me{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-5.3.8/css/bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-7.3.1/css/all.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   {% block script %}{% endblock %}
 </head>
 <body>
@@ -16,6 +18,7 @@
   {% block body %}{% endblock %}
   {% block footer %}{% endblock %}
   <script src="{{ url_for('static', filename='vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/security.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   <script src="{{ url_for('static', filename='js/calendar_quick_wins.js') }}"></script>
   <script src="{{ url_for('static', filename='js/address-autocomplete.js') }}"></script>

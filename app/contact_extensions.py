@@ -177,8 +177,10 @@ class ContactCRMStore:
         DocumentStore(self.root).history.record("contact_crm_activity_added", actor, "contact-crm", contact_id, activity)
         return activity
 
-    def timeline(self, contact: dict[str, Any]) -> list[dict[str, Any]]:
-        crm = self.record(str(contact.get("contact_id", "")))
+    def timeline(
+        self, contact: dict[str, Any], crm: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        crm = crm if crm is not None else self.record(str(contact.get("contact_id", "")))
         entries = [dict(item) for item in crm.get("activities", [])]
         entries.extend(dict(item) for item in crm.get("history", []))
         entries.extend({"type": "contact_change", **dict(item)} for item in contact.get("changes", []))
@@ -287,16 +289,19 @@ def register(bp) -> None:
     @bp.get("/documents/contacts/crm", endpoint="crm_overview")
     @login_required
     def crm_overview():
-        actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage(contact["contact_id"], actor)]; store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"])
+        actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage_contact(contact, actor)]; store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"])
         query = request.args.get("q", "").strip(); status = request.args.get("status", "").strip(); role = request.args.get("role", "").strip(); sort = request.args.get("sort", "name").strip(); without_activity = request.args.get("without_activity") == "1"
         rows = store.overview(contacts, query, status, role, sort, without_activity)
         stats = {"total": len(rows), "active": sum(row["crm"].get("status", "active") == "active" for row in rows), "prospect": sum(row["crm"].get("status") == "prospect" for row in rows), "without_activity": sum(not row["activity_count"] for row in rows)}
-        return render_template("documents/contact_crm_overview.html", rows=rows, stats=stats, query=query, selected_status=status, selected_role=role, selected_sort=sort, without_activity=without_activity)
+        try: page = max(1, int(request.args.get("page", "1")))
+        except ValueError: page = 1
+        page_size = 50; pages = max(1, (len(rows) + page_size - 1) // page_size); page = min(page, pages); start = (page - 1) * page_size
+        return render_template("documents/contact_crm_overview.html", rows=rows[start:start + page_size], stats=stats, query=query, selected_status=status, selected_role=role, selected_sort=sort, without_activity=without_activity, page=page, pages=pages)
 
     @bp.get("/documents/contacts/crm.csv", endpoint="crm_export")
     @login_required
     def crm_export():
-        actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage(contact["contact_id"], actor)]
+        actor = str(g.user["username"]); contacts_store = ContactStore(current_app.config["DOCUMENT_ROOT"]); contacts = [contact for contact in contacts_store.contacts(actor) if contacts_store.can_manage_contact(contact, actor)]
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]); rows = store.overview(contacts, request.args.get("q", ""), request.args.get("status", ""), request.args.get("role", ""), request.args.get("sort", "name"), request.args.get("without_activity") == "1")
         header_keys = ("name", "company", "email", "phone", "status", "roles", "customer_number", "supplier_number", "latest_activity", "activities")
         headers = tuple(translate(g.language, f"crm.csv.{key}") for key in header_keys)
@@ -321,14 +326,16 @@ def register(bp) -> None:
     @bp.route("/documents/contacts/<contact_id>/crm", methods=("GET", "POST"), endpoint="crm_contact")
     @login_required
     def crm_contact(contact_id: str):
-        actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"]); contact = contacts.get(contact_id, actor)
-        if not contacts.can_manage(contact_id, actor): abort(403)
+        actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"]); visible_contacts = contacts.contacts(actor); contact = next((item for item in visible_contacts if item.get("contact_id") == contact_id), None)
+        if contact is None: abort(404)
+        if not contacts.can_manage_contact(contact, actor): abort(403)
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"])
         if request.method == "POST":
             values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": _parse_address_rows(request.form.get("addresses", "")), "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)]}
             store.save(contact_id, values, actor); flash("CRM-Daten gespeichert. CardDAV-Änderungen können diese Daten nicht löschen."); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
-        return render_template("documents/contact_crm.html", contact=contact, crm=store.record(contact_id), timeline=store.timeline(contact), all_contacts=contacts.contacts(actor), osm_status=index.status())
+        crm = store.record(contact_id)
+        return render_template("documents/contact_crm.html", contact=contact, crm=crm, timeline=store.timeline(contact, crm), osm_status=index.status())
 
     @bp.post("/documents/contacts/<contact_id>/crm/activity", endpoint="crm_add_activity")
     @login_required

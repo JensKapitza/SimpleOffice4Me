@@ -12,7 +12,7 @@ import copy
 import re
 import unicodedata
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -32,11 +32,14 @@ class DuplicateCandidate:
     differences: tuple[dict[str, str], ...] = ()
     additions: int = 0
     conflicts: int = 0
+    blocking_conflicts: int = 0
+    bulk_eligible: bool = False
 
 
 class ContactManagement:
     SNAPSHOT_LIMIT = 500
     BULK_LIMIT = 500
+    BULK_MERGE_LIMIT = 100
 
     def __init__(self, root: str | Path):
         self.store = ContactStore(root)
@@ -157,6 +160,8 @@ class ContactManagement:
             score, reasons, trivial = self._duplicate_score(left, right)
             if score < minimum_score:
                 continue
+            if self._contact_completeness(right) > self._contact_completeness(left):
+                left, right = right, left
             differences = self.merge_preview(left, right)
             confidence = "high" if score >= 90 else "likely" if score >= 70 else "manual"
             candidates.append(DuplicateCandidate(
@@ -164,9 +169,38 @@ class ContactManagement:
                 tuple(differences),
                 sum(row["kind"] == "addition" for row in differences),
                 sum(row["kind"] == "conflict" for row in differences),
+                sum(self._is_blocking_bulk_conflict(row) for row in differences),
             ))
         candidates.sort(key=lambda item: (-item.score, not item.trivial, self._norm_text(item.left.get("fields", {}).get("display_name"))))
-        return candidates
+        used_for_bulk: set[str] = set()
+        result: list[DuplicateCandidate] = []
+        for candidate in candidates:
+            left_id = str(candidate.left.get("contact_id", ""))
+            right_id = str(candidate.right.get("contact_id", ""))
+            eligible = bool(
+                candidate.trivial and not candidate.blocking_conflicts
+                and left_id not in used_for_bulk and right_id not in used_for_bulk
+                and len(used_for_bulk) // 2 < self.BULK_MERGE_LIMIT
+            )
+            if eligible:
+                used_for_bulk.update((left_id, right_id))
+            result.append(replace(candidate, bulk_eligible=eligible))
+        return result
+
+    @staticmethod
+    def _contact_completeness(contact: dict[str, Any]) -> tuple[int, int, int]:
+        """Prefer the richer record as the default merge target."""
+        fields = contact.get("fields", {})
+        filled = sum(bool(str(value).strip()) for value in fields.values())
+        related = len(contact.get("addresses", [])) + len(contact.get("tags", [])) + len(contact.get("groups", []))
+        history = len(contact.get("changes", []))
+        return filled, related, history
+
+    @staticmethod
+    def _is_blocking_bulk_conflict(difference: dict[str, str]) -> bool:
+        # A different display name is expected for many otherwise identical
+        # imports and the selected target name remains visible and unchanged.
+        return difference.get("kind") == "conflict" and difference.get("field") != "display_name"
 
     def merge_preview(self, target: dict[str, Any], source: dict[str, Any]) -> list[dict[str, str]]:
         """Describe exactly what a source would add to or conflict with in a target."""
@@ -284,11 +318,18 @@ class ContactManagement:
         return self.store._read(self.snapshots_path, {"snapshots": []})
 
     def _snapshot_locked(self, contact: dict[str, Any], actor: str, reason: str) -> dict[str, Any]:
+        return self._snapshots_locked([(contact, reason)], actor)[0]
+
+    def _snapshots_locked(self, contacts: list[tuple[dict[str, Any], str]], actor: str) -> list[dict[str, Any]]:
+        """Persist several contact snapshots with one bounded file write."""
         payload = self._read_snapshots()
-        snapshot = {"snapshot_id": str(uuid.uuid4()), "contact_id": contact.get("contact_id", ""), "created_at": utc_now(), "created_by": actor, "reason": reason, "contact": copy.deepcopy(contact)}
-        payload["snapshots"] = (payload.get("snapshots", []) + [snapshot])[-self.SNAPSHOT_LIMIT:]
+        snapshots = [
+            {"snapshot_id": str(uuid.uuid4()), "contact_id": contact.get("contact_id", ""), "created_at": utc_now(), "created_by": actor, "reason": reason, "contact": copy.deepcopy(contact)}
+            for contact, reason in contacts
+        ]
+        payload["snapshots"] = (payload.get("snapshots", []) + snapshots)[-self.SNAPSHOT_LIMIT:]
         atomic_json_write(self.snapshots_path, payload)
-        return snapshot
+        return snapshots
 
     def snapshots(self, contact_id: str, actor: str) -> list[dict[str, Any]]:
         self.store.get(contact_id, actor)
@@ -365,39 +406,111 @@ class ContactManagement:
             source_owner = source.get("owner") or self.store._principal(str(source.get("created_by", "")))
             if target_owner != source_owner:
                 raise ValueError("contacts with different owners cannot be merged")
-            self._snapshot_locked(target, actor, "merge_target")
-            self._snapshot_locked(source, actor, "merge_source")
-            target_n, source_n = self.normalize_contact(target), self.normalize_contact(source)
-            merged = copy.deepcopy(target_n)
-            merged_fields = dict(source_n.get("fields", {}))
-            merged_fields.update({key: value for key, value in target_n.get("fields", {}).items() if str(value).strip()})
-            merged["fields"] = merged_fields
-            address_keys: set[str] = set()
-            addresses: list[dict[str, Any]] = []
-            for address in [*target_n.get("addresses", []), *source_n.get("addresses", [])]:
-                key = self._norm_address(address.get("value"))
-                if key and key in address_keys:
-                    continue
-                if key:
-                    address_keys.add(key)
-                addresses.append(copy.deepcopy(address))
-            merged["addresses"] = addresses
-            merged["tags"] = self._clean_labels([*target_n.get("tags", []), *source_n.get("tags", [])])
-            merged["groups"] = self._clean_labels([*target_n.get("groups", []), *source_n.get("groups", [])])
-            merged["managers"] = sorted(set(target_n.get("managers", [])) | set(source_n.get("managers", [])), key=str.casefold)
-            merged["readers"] = sorted((set(target_n.get("readers", [])) | set(source_n.get("readers", []))) - set(merged["managers"]), key=str.casefold)
-            merged["changes"] = [*source_n.get("changes", []), *target_n.get("changes", [])][-200:]
-            merged["updated_at"], merged["updated_by"] = utc_now(), actor
-            merged.setdefault("merged_from", []).append({
-                "contact_id": source_id,
-                "at": merged["updated_at"],
-                "actor": actor,
-                "source": copy.deepcopy(source_n.get("source", {})),
-            })
+            merged = self._merge_pair_locked(target, source, actor)
             payload["contacts"] = [item for item in payload.get("contacts", []) if item.get("contact_id") not in {target_id, source_id}] + [merged]
             atomic_json_write(self.store.contacts_path, payload)
             self.store.history.record("contacts_merged", actor, "contacts", target_id, {"target_id": target_id, "source_id": source_id, "result": merged})
             return merged
+
+    def bulk_merge(self, pairs: list[tuple[str, str]], actor: str) -> list[dict[str, Any]]:
+        """Merge independent, unambiguous duplicate pairs in one atomic write.
+
+        The score and preview are recalculated from the locked current data.
+        Bulk mode deliberately rejects conflicting or low-confidence pairs;
+        those remain available through the explicit single-contact merge.
+        """
+        if not pairs:
+            raise ValueError("no duplicate pairs selected")
+        if len(pairs) > self.BULK_MERGE_LIMIT:
+            raise ValueError(f"at most {self.BULK_MERGE_LIMIT} duplicate pairs can be merged at once")
+        normalized_pairs = [(str(target).strip(), str(source).strip()) for target, source in pairs]
+        used_ids: set[str] = set()
+        for target_id, source_id in normalized_pairs:
+            if not target_id or not source_id or target_id == source_id:
+                raise ValueError("every selection requires two different contacts")
+            if target_id in used_ids or source_id in used_ids:
+                raise ValueError("a contact may only occur in one selected duplicate pair")
+            used_ids.update((target_id, source_id))
+
+        principal = self.store._principal(actor)
+        merged_rows: list[dict[str, Any]] = []
+        audit_rows: list[dict[str, Any]] = []
+        with exclusive_file_lock(self.store.control / ".contacts-write.lock"):
+            payload = self.store._read(self.store.contacts_path, {"contacts": []})
+            by_id = {str(item.get("contact_id", "")): item for item in payload.get("contacts", [])}
+
+            # Validate the complete batch before creating snapshots or changing
+            # contacts. A rejected pair therefore cannot leave a partial merge.
+            for target_id, source_id in normalized_pairs:
+                target, source = by_id.get(target_id), by_id.get(source_id)
+                if target is None or source is None:
+                    raise ValueError("one or more selected contacts no longer exist")
+                if not self.store._can_manage(target, principal) or not self.store._can_manage(source, principal):
+                    raise ValueError("all selected contacts must be editable")
+                target_owner = target.get("owner") or self.store._principal(str(target.get("created_by", "")))
+                source_owner = source.get("owner") or self.store._principal(str(source.get("created_by", "")))
+                if target_owner != source_owner:
+                    raise ValueError("contacts with different owners cannot be merged")
+                score, _, trivial = self._duplicate_score(target, source)
+                preview = self.merge_preview(target, source)
+                if score < 70 or not trivial or any(self._is_blocking_bulk_conflict(row) for row in preview):
+                    raise ValueError("bulk merge only accepts high-confidence pairs without conflicting values")
+
+            self._snapshots_locked(
+                [
+                    (by_id[contact_id], reason)
+                    for target_id, source_id in normalized_pairs
+                    for contact_id, reason in ((target_id, "merge_target"), (source_id, "merge_source"))
+                ],
+                actor,
+            )
+            for target_id, source_id in normalized_pairs:
+                target, source = by_id[target_id], by_id[source_id]
+                merged = self._merge_pair_locked(target, source, actor, snapshot=False)
+                merged_rows.append(merged)
+                audit_rows.append({"target_id": target_id, "source_id": source_id})
+
+            payload["contacts"] = [item for item in payload.get("contacts", []) if str(item.get("contact_id", "")) not in used_ids] + merged_rows
+            atomic_json_write(self.store.contacts_path, payload)
+            self.store.history.record(
+                "contacts_bulk_merged", actor, "contacts", "bulk",
+                {"pairs": audit_rows, "count": len(merged_rows)},
+            )
+        return merged_rows
+
+    def _merge_pair_locked(self, target: dict[str, Any], source: dict[str, Any], actor: str, *, snapshot: bool = True) -> dict[str, Any]:
+        """Build one merged contact while the contacts write lock is held."""
+        source_id = str(source.get("contact_id", ""))
+        if snapshot:
+            self._snapshots_locked([(target, "merge_target"), (source, "merge_source")], actor)
+        target_n, source_n = self.normalize_contact(target), self.normalize_contact(source)
+        merged = copy.deepcopy(target_n)
+        merged_fields = dict(source_n.get("fields", {}))
+        merged_fields.update({key: value for key, value in target_n.get("fields", {}).items() if str(value).strip()})
+        merged["fields"] = merged_fields
+        address_keys: set[str] = set()
+        addresses: list[dict[str, Any]] = []
+        for address in [*target_n.get("addresses", []), *source_n.get("addresses", [])]:
+            key = self._norm_address(address.get("value"))
+            if key and key in address_keys:
+                continue
+            if key:
+                address_keys.add(key)
+            addresses.append(copy.deepcopy(address))
+        merged["addresses"] = addresses
+        merged["tags"] = self._clean_labels([*target_n.get("tags", []), *source_n.get("tags", [])])
+        merged["groups"] = self._clean_labels([*target_n.get("groups", []), *source_n.get("groups", [])])
+        merged["managers"] = sorted(set(target_n.get("managers", [])) | set(source_n.get("managers", [])), key=str.casefold)
+        merged["readers"] = sorted((set(target_n.get("readers", [])) | set(source_n.get("readers", []))) - set(merged["managers"]), key=str.casefold)
+        merged["changes"] = [*source_n.get("changes", []), *target_n.get("changes", [])][-200:]
+        merged["updated_at"], merged["updated_by"] = utc_now(), actor
+        merged.setdefault("merged_from", []).append({
+            "contact_id": source_id,
+            "at": merged["updated_at"],
+            "actor": actor,
+            "source": copy.deepcopy(source_n.get("source", {})),
+        })
+        return merged
 
     def restore(self, snapshot_id: str, actor: str) -> dict[str, Any]:
         principal = self.store._principal(actor)

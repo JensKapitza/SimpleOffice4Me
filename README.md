@@ -17,9 +17,10 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 - Kalender mit Serien, Erinnerungen, Einladungen, Status, Ressourcen,
   Buchungskonflikten und optionalem Google-Kalender-Abgleich
 - Rechnungserstellung mit PDF/ZUGFeRD, Nummernkreisen, Vorlagen,
-  CRM-Verknüpfung, Fälligkeiten, Zahlungshistorie und nachvollziehbarer
-  Ausbuchung uneinbringlicher Forderungen; EN16931/PDF-A wird verpflichtend
-  mit dem automatisch installierten Standardvalidator geprüft
+  CRM-Verknüpfung, Fälligkeiten, Zahlungshistorie, Ausbuchung uneinbringlicher
+  Forderungen und Kundenakten-Export als ZIP mit Rechnungsdaten,
+  Dokumentherkunft, SHA-256-Prüfsummen und Audit-Protokollen; EN16931/PDF-A
+  wird verpflichtend mit dem automatisch installierten Standardvalidator geprüft
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
 
@@ -180,6 +181,15 @@ Konfiguration und Sicherheitsgrenzen stehen unter
 [Produktionsbetrieb mit Waitress](docs/PRODUKTIONSBETRIEB.md). Updates laufen
 mit `update.sh` oder `update.bat`
 über ein sicheres `git pull --ff-only`.
+Die technische CRA-Arbeitsakte, sichere Standardwerte, SBOM-Erzeugung,
+Schwachstellenmeldung und die Release-Prüfung stehen in
+[docs/CRA.md](docs/CRA.md), [docs/SECURITY.md](docs/SECURITY.md) und
+[docs/RELEASE_SECURITY_CHECKLIST.md](docs/RELEASE_SECURITY_CHECKLIST.md).
+Administratoren sehen unter **Administration → Inventar** die tatsächlich
+laufende App-, Python- und SQLite-Version, geladene Module, relevante
+Python-Pakete sowie erkannte externe Serverprogramme mit Versionsausgabe.
+Jeder Benutzer kann unter **Einstellungen → Oberfläche** zwischen hellem,
+dunklem und automatisch vom Betriebssystem übernommenem Design wählen.
 Der [getrennte Dokumentindex](docs/PERFORMANCE_INDEXDIENST.md) hält Login,
 Dashboard und WebDAV auch bei mehr als 50.000 Dateien reaktionsfähig und dokumentiert
 Ressourcenpriorisierung, Fehlerverhalten und Abschaltung.

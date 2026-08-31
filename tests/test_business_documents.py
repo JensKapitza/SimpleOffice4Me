@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
-from app.document_store import CONTROL_DIR
+from app.document_store import CONTROL_DIR, DocumentStore
 
 from app.business_documents import (
     DIN_BOTTOM_RESERVED,
@@ -28,6 +28,7 @@ from app.business_documents import (
     _zugferd_status,
     _invoice_number,
     _template_directory,
+    _store_generated_pdf,
     _validate_project_sources,
     address_labels,
     attach_contact_document,
@@ -46,6 +47,7 @@ from app.customer_credit import CustomerCreditLedger
 from app.calendar_store import CalendarStore
 from app.contact_store import ContactStore
 from app.file_lock import exclusive_file_lock
+from app.project_store import ProjectStore
 from app.settings_store import TRANSLATIONS
 
 
@@ -61,6 +63,33 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_generated_pdf_indexes_only_new_file_and_batches_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = io.BytesIO()
+            pdf = canvas.Canvas(source, pagesize=A4)
+            pdf.drawString(20, 820, "Invoice")
+            pdf.save()
+
+            with mock.patch.object(DocumentStore, "scan", side_effect=AssertionError("full archive scan")), \
+                 mock.patch.object(DocumentStore, "update_metadata", autospec=True, side_effect=DocumentStore.update_metadata) as update:
+                document = _store_generated_pdf(
+                    root, "contact-1", "Rechnung-1", source.getvalue(), "admin",
+                    "invoice", "template-1", metadata={"invoice_id": "invoice-1"},
+                )
+
+            self.assertEqual("contact-1", document["attributes"]["contact_id"])
+            self.assertEqual("invoice-1", document["attributes"]["invoice_id"])
+            self.assertEqual(1, update.call_count)
+
+    def test_plain_invoice_skips_project_and_calendar_store_reads(self):
+        row = {"invoice_id": "draft-1", "contact_id": "contact-1", "lines": [{"description": "Freier Posten"}]}
+        with mock.patch("app.business_documents._billed_project_sources", side_effect=AssertionError("invoice scan")), \
+             mock.patch("app.business_documents._billed_appointment_sources", side_effect=AssertionError("invoice scan")), \
+             mock.patch.object(ProjectStore, "billing_projection", side_effect=AssertionError("project read")), \
+             mock.patch.object(CalendarStore, "events", side_effect=AssertionError("calendar read")):
+            _validate_project_sources(Path("/unused"), row, "admin")
+
     def test_draft_number_does_not_consume_invoice_sequence(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

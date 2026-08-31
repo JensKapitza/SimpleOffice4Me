@@ -12,12 +12,27 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .db import get_db
 from .google_sync import sync_google_account
 from .access_control import audit, has_feature
+from .security_controls import (
+    clear_login_failures,
+    login_retry_after,
+    protect_value,
+    record_login_failure,
+    rotate_csrf_token,
+    unprotect_value,
+)
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
+
+
+def _registration_enabled() -> bool:
+    if current_app.testing or current_app.config.get("ALLOW_PUBLIC_REGISTRATION"):
+        return True
+    return get_db().execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
 
 
 def _google_config() -> dict[str, str] | None:
@@ -44,6 +59,8 @@ def _login_user(user) -> None:
     session.clear()
     session['user_id'] = user['id']
     session['auth_version'] = user['auth_version']
+    session.permanent = True
+    rotate_csrf_token()
 
 
 def _google_username(db, email: str) -> str:
@@ -58,10 +75,15 @@ def _google_username(db, email: str) -> str:
 
 @bp.route('/register', methods=('GET', 'POST'))
 def register():
+    db = get_db()
+    account_count = db.execute("SELECT COUNT(*) FROM user").fetchone()[0]
+    public_registration = _registration_enabled()
+    current_admin = getattr(g, "user", None) is not None and bool(g.user["is_admin"])
+    if account_count and not public_registration and not current_admin:
+        abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        db = get_db()
         error = None
 
         if not username:
@@ -96,27 +118,40 @@ def login():
         password = request.form.get('password', '')
         db = get_db()
         error = None
+        client_ip = request.remote_addr or "unknown"
+        retry_after = login_retry_after(db, username, client_ip)
+        if retry_after:
+            audit("login", "session", outcome="throttled")
+            flash("Zu viele fehlgeschlagene Anmeldeversuche. Bitte später erneut versuchen.")
+            return render_template(
+                'auth/login.html', google_enabled=_google_config() is not None,
+                registration_enabled=_registration_enabled(),
+            ), 429, {"Retry-After": str(retry_after)}
         user = db.execute(
             'SELECT * FROM user WHERE username = ?', (username,)
         ).fetchone()
+        password_valid = check_password_hash(user['password'] if user is not None else DUMMY_PASSWORD_HASH, password)
 
-        if user is None:
-            error = 'Benutzername oder Passwort ist falsch.'
-        elif not check_password_hash(user['password'], password):
+        if user is None or not password_valid:
             error = 'Benutzername oder Passwort ist falsch.'
         elif user['is_disabled']:
             error = 'Dieses Konto ist gesperrt. Bitte einen Administrator kontaktieren.'
 
         if error is None:
+            clear_login_failures(db, username, client_ip)
             _login_user(user)
             audit("login", "session", outcome="success", actor=user)
             return redirect(url_for('home'))
 
+        record_login_failure(db, username, client_ip)
         audit("login", "session", outcome="denied")
         flash(error)
 
 
-    return render_template('auth/login.html', google_enabled=_google_config() is not None)
+    return render_template(
+        'auth/login.html', google_enabled=_google_config() is not None,
+        registration_enabled=_registration_enabled(),
+    )
 
 
 @bp.get('/google')
@@ -174,6 +209,11 @@ def google_callback():
     identity = db.execute('SELECT user.* FROM oauth_identity JOIN user ON user.id = oauth_identity.user_id WHERE provider = ? AND subject = ?', ('google', subject)).fetchone()
     created = False
     if identity is None:
+        account_count = db.execute("SELECT COUNT(*) FROM user").fetchone()[0]
+        if account_count and not current_app.config.get("GOOGLE_OAUTH_AUTO_PROVISION") and not current_app.testing:
+            audit("google_login", "session", outcome="denied")
+            flash("Dieses Google-Konto ist noch nicht freigegeben. Bitte einen Administrator kontaktieren.")
+            return redirect(url_for('auth.login'))
         # Never bind an OAuth identity to a local account merely because a
         # user selected the same text as a username. Explicit linking can be
         # added later from an authenticated account page.
@@ -192,8 +232,9 @@ def google_callback():
         return redirect(url_for('auth.login'))
     expires_at = (datetime.now(timezone.utc) + timedelta(seconds=int(token.get('expires_in', 0) or 0))).isoformat()
     previous = db.execute('SELECT refresh_token FROM oauth_token WHERE provider = ? AND user_id = ?', ('google', identity['id'])).fetchone()
-    refresh_token = str(token.get('refresh_token', '')).strip() or (previous['refresh_token'] if previous else '')
-    db.execute('INSERT INTO oauth_token (provider, user_id, access_token, refresh_token, expires_at, scopes, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(provider, user_id) DO UPDATE SET access_token = excluded.access_token, refresh_token = excluded.refresh_token, expires_at = excluded.expires_at, scopes = excluded.scopes, updated_at = CURRENT_TIMESTAMP', ('google', identity['id'], access_token, refresh_token, expires_at, str(token.get('scope', ''))))
+    previous_refresh = unprotect_value(str(previous['refresh_token'] or ''), "google-oauth") if previous else ''
+    refresh_token = str(token.get('refresh_token', '')).strip() or previous_refresh
+    db.execute('INSERT INTO oauth_token (provider, user_id, access_token, refresh_token, expires_at, scopes, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(provider, user_id) DO UPDATE SET access_token = excluded.access_token, refresh_token = excluded.refresh_token, expires_at = excluded.expires_at, scopes = excluded.scopes, updated_at = CURRENT_TIMESTAMP', ('google', identity['id'], protect_value(access_token, "google-oauth"), protect_value(refresh_token, "google-oauth"), expires_at, str(token.get('scope', ''))))
     db.commit()
     try:
         synced = sync_google_account(access_token, identity['username'], subject)
@@ -258,8 +299,10 @@ def enforce_feature_permission():
     return None
 
 
-@bp.route('/logout')
+@bp.route('/logout', methods=('GET', 'POST'))
 def logout():
+    if request.method == 'GET' and not current_app.testing:
+        abort(405)
     session.clear()
     return redirect(url_for('home'))
 

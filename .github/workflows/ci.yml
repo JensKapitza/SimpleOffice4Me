@@ -57,3 +57,9 @@ jobs:
           python -m pip install --editable ".[security]"
       - name: Check known dependency vulnerabilities
         run: python -m pip_audit
+      - name: Verify CRA security evidence
+        run: python tools/cra_check.py
+      - name: Generate release SBOM
+        run: |
+          python tools/generate_sbom.py
+          python -m json.tool artifacts/sbom.cdx.json > /dev/null

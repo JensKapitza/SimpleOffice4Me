@@ -5,6 +5,17 @@
   const setValue = (el, v) => { if (el && v) el.value = v; };
   const isEnglish = (document.documentElement.lang || '').toLowerCase().startsWith('en');
   const message = (de, en) => isEnglish ? en : de;
+  const normalized = input => String(input || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+
+  function uniqueBy(items, identity) {
+    const seen = new Set();
+    return (Array.isArray(items) ? items : []).filter(item => {
+      const key = identity(item);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
 
   function ensureMenu(input) {
     let menu = input.parentElement?.querySelector(':scope > .address-autocomplete-menu');
@@ -54,6 +65,8 @@
     input.setAttribute(`data-address-${kind}`, '');
     input.dataset.addressField = kind;
     input.setAttribute('autocomplete', 'off');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-haspopup', 'listbox');
   }
 
   function prepareLegacyCrm() {
@@ -105,6 +118,9 @@
     const status = group.querySelector('[data-address-status]');
     const inputs = [city, postal, street, state].filter(Boolean);
     if (!inputs.length) return;
+    group.closest('form')?.setAttribute('autocomplete', 'off');
+    [[city, 'city'], [postal, 'postal'], [street, 'street'], [state, 'state'], [country, 'country']]
+      .forEach(([input, kind]) => markField(input, kind));
     let timer = null;
     let serial = 0;
 
@@ -120,10 +136,16 @@
     const applySuggestion = (active, suggestion) => {
       if (!active || !suggestion?.value) return;
       active.value = suggestion.value;
+      const fills = suggestion.fills && typeof suggestion.fills === 'object' ? suggestion.fills : {};
+      if (suggestion.field === 'postal' && fills.city) setValue(city, fills.city);
       hideAll();
       if (status) status.textContent = message(
-        'Nur das aktuell bearbeitete Feld wurde übernommen.',
-        'Only the currently edited field was applied.'
+        fills.city
+          ? 'PLZ und der eindeutig zugehörige Ort wurden übernommen.'
+          : 'Nur das aktuell bearbeitete Feld wurde übernommen.',
+        fills.city
+          ? 'The postcode and its unambiguous city were applied.'
+          : 'Only the currently edited field was applied.'
       );
       group.dispatchEvent(new CustomEvent('simpleoffice:address-selected', {
         bubbles: true,
@@ -153,7 +175,9 @@
           return;
         }
         if (payload.unique && enoughContext()) { applyComplete(payload.unique); return; }
-        const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
+        const suggestions = uniqueBy(payload.suggestions, suggestion =>
+          `${normalized(suggestion?.field)}\u0000${normalized(suggestion?.value)}`
+        );
         if (!suggestions.length) {
           if (status) status.textContent = message(
             'Kein sicherer Vorschlag für dieses Feld. Manuelle Eingabe bleibt möglich.',
@@ -190,6 +214,7 @@
     if (input.dataset.addressFreeformReady === '1') return;
     input.dataset.addressFreeformReady = '1';
     input.setAttribute('autocomplete', 'off');
+    input.closest('form')?.setAttribute('autocomplete', 'off');
     let timer = null;
     let serial = 0;
     const apply = item => {
@@ -206,7 +231,9 @@
         const payload = await response.json();
         if (requestId !== serial || !response.ok || !payload.ready) return;
         if (payload.unique) { apply(payload.unique); return; }
-        (payload.candidates || []).forEach(item => menu.append(candidateButton(item, apply)));
+        uniqueBy(payload.candidates, item =>
+          [item?.street, item?.postal, item?.city, item?.state, item?.country].map(normalized).join('\u0000')
+        ).forEach(item => menu.append(candidateButton(item, apply)));
       } catch (_error) { /* optional helper: keep manual entry usable */ }
     };
     input.addEventListener('input', () => {

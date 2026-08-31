@@ -10,10 +10,12 @@ import datetime
 import locale
 import re
 import secrets
+import time
 import traceback
 
 from .applogging import initlogging
 from .secret_key import load_or_create_secret_key
+from .security_controls import csrf_token, protect_browser_mutation
 
 from .bs4 import download_file, renderwithbs4
 
@@ -201,6 +203,13 @@ app.config['GOOGLE_OAUTH_REDIRECT_URI'] = os.environ.get('SIMPLEOFFICE_GOOGLE_RE
 app.config['GOOGLE_OAUTH_REDIRECT_URIS'] = google_oauth_redirect_uris()
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=12)
+app.config['GOOGLE_OAUTH_AUTO_PROVISION'] = os.environ.get(
+    'SIMPLEOFFICE_GOOGLE_AUTO_PROVISION', '0'
+).strip().casefold() in {'1', 'true', 'yes', 'on'}
+app.config['ALLOW_PUBLIC_REGISTRATION'] = os.environ.get(
+    'SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION', '0'
+).strip().casefold() in {'1', 'true', 'yes', 'on'}
 app.config['MCP_ENABLED'] = os.environ.get('SIMPLEOFFICE_MCP', '1').strip().casefold() in {'1', 'true', 'yes', 'on'}
 
 
@@ -281,11 +290,27 @@ from .settings_store import SettingsStore, translate, ui_literal_translations
 @app.before_request
 def assign_request_id():
     g.request_id = secrets.token_hex(8)
+    g.request_started_at = time.perf_counter()
+
+
+@app.before_request
+def verify_browser_request():
+    protect_browser_mutation()
 
 
 @app.after_request
 def publish_request_id(response):
     response.headers["X-Request-ID"] = getattr(g, "request_id", "")
+    started = getattr(g, "request_started_at", None)
+    if started is not None:
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
+        response.headers["Server-Timing"] = f"app;dur={duration_ms:.1f}"
+        log = app.logger.warning if duration_ms > 500 else app.logger.debug
+        log(
+            "request_performance request_id=%s endpoint=%s method=%s status=%s duration_ms=%.1f",
+            getattr(g, "request_id", ""), request.endpoint or "-", request.method,
+            response.status_code, duration_ms,
+        )
     return response
 
 
@@ -342,13 +367,19 @@ def load_interface_preferences():
     settings = SettingsStore(app.config["DOCUMENT_ROOT"]).settings()
     language = session.get("simpleoffice_language", settings["interface"]["default_language"])
     g.language = language if language in ("de", "en") else settings["interface"]["default_language"]
+    user_theme = str(g.user["theme"] or "system") if getattr(g, "user", None) is not None else "system"
+    g.theme_preference = user_theme if user_theme in {"light", "dark", "system"} else "system"
     g.app_settings = settings
 
 
 @app.context_processor
 def template_preferences():
     language = getattr(g, "language", "de")
-    return {"tr": lambda key: translate(language, key), "ui_literal_translations": ui_literal_translations(language)}
+    return {
+        "tr": lambda key: translate(language, key),
+        "ui_literal_translations": ui_literal_translations(language),
+        "csrf_token": csrf_token,
+    }
 
 
 @app.template_filter('datetime')
@@ -401,6 +432,10 @@ def add_header(response):
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    if request.is_secure:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     # The application serves all assets itself. Inline Bootstrap/Jinja helpers
     # still require unsafe-inline; removing that needs a dedicated nonce pass.
     response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")

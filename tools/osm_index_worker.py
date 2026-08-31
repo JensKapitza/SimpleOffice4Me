@@ -17,7 +17,7 @@ class OsmIndexInterrupted(Exception):
     """Raised in the main thread so build cleanup terminates osmium cleanly."""
 
 
-def run_osm_index(root: str | Path, *, force: bool = False) -> int:
+def run_osm_index(root: str | Path, *, force: bool = False, city: str = "") -> int:
     index = LocalAddressIndex(root)
     source = index.downloaded_source()
     if source is None:
@@ -57,7 +57,7 @@ def run_osm_index(root: str | Path, *, force: bool = False) -> int:
                     flush=True,
                 )
 
-            stats = index.build(source, progress=report)
+            stats = index.build(source, city=city, progress=report)
         except OsmIndexInterrupted:
             index._write_status(
                 state="interrupted",
@@ -88,8 +88,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me OSM address index worker")
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--city", default="", help="Replace only this exact addr:city value")
     args = parser.parse_args()
-    raise SystemExit(run_osm_index(args.root, force=args.force))
+    raise SystemExit(run_osm_index(args.root, force=args.force, city=args.city))
 
 
 if __name__ == "__main__":

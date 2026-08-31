@@ -1,5 +1,6 @@
 import json
 import io
+import os
 import subprocess
 import tempfile
 import unittest
@@ -62,7 +63,12 @@ class OsmAddressTests(unittest.TestCase):
     def test_unique_requires_one_complete_candidate(self):
         candidate = {"street": "A 1", "postal": "12345", "city": "Ort", "country": "DE"}
         self.assertEqual(candidate, unique_candidate([candidate]))
-        self.assertIsNone(unique_candidate([candidate, dict(candidate)]))
+        self.assertEqual(candidate, unique_candidate([candidate, dict(candidate)]))
+        self.assertEqual(
+            candidate,
+            unique_candidate([{**candidate, "match_quality": "fallback"}, candidate]),
+        )
+        self.assertIsNone(unique_candidate([candidate, {**candidate, "city": "Anderer Ort"}]))
         self.assertIsNone(unique_candidate([{"street": "A 1", "city": ""}]))
 
     def test_ambiguous_results_only_suggest_the_requested_field(self):
@@ -76,10 +82,23 @@ class OsmAddressTests(unittest.TestCase):
             field_suggestions(candidates, "city"),
         )
         self.assertEqual(
-            [{"field": "postal", "value": "47137"}, {"field": "postal", "value": "28199"}],
+            [
+                {"field": "postal", "value": "47137", "fills": {"city": "Duisburg"}},
+                {"field": "postal", "value": "28199", "fills": {"city": "Bremen"}},
+            ],
             field_suggestions(candidates, "postal"),
         )
         self.assertEqual([], field_suggestions(candidates, "country"))
+
+    def test_postcode_suggestion_does_not_fill_ambiguous_city(self):
+        candidates = [
+            {"street": "A 1", "postal": "12345", "city": "Ort A"},
+            {"street": "B 2", "postal": "12345", "city": "Ort B"},
+        ]
+        self.assertEqual(
+            [{"field": "postal", "value": "12345"}],
+            field_suggestions(candidates, "postal"),
+        )
 
     def test_human_bytes_formats_download_sizes(self):
         self.assertEqual("1.0 MiB", human_bytes(1024 * 1024))
@@ -293,6 +312,53 @@ class OsmAddressTests(unittest.TestCase):
             self.assertIn("--attributes=type,id", popen.call_args.args[0])
             self.assertIn("--remove-tags", run.call_args.args[0])
             self.assertEqual("pbf", run.call_args.args[0][run.call_args.args[0].index("-f") + 1])
+
+    def test_invalid_export_timeout_does_not_start_osmium_process(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"extract")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "invalid"}), \
+                 patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), \
+                 patch("app.osm_address.subprocess.run") as run, \
+                 patch("app.osm_address.subprocess.Popen") as popen:
+                run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
+                with self.assertRaisesRegex(ValueError, "invalid OSM export idle timeout"):
+                    index.build(source)
+            popen.assert_not_called()
+
+    def test_city_reindex_filters_and_replaces_only_selected_city(self):
+        with tempfile.TemporaryDirectory() as root:
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            source = index.data_dir / "test-latest.osm.pbf"
+            source.write_bytes(b"extract")
+            with index._db() as db:
+                berlin = list(LocalAddressIndex._feature_row(json.loads(self._feature(1))) or ())
+                berlin[3] = "Berlin"
+                berlin[9] = "berlin-1"
+                berlin[10] = "teststrasse 1 47137 berlin de"
+                db.execute(
+                    "INSERT INTO address(street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    berlin,
+                )
+            process = Mock()
+            process.stdout = io.StringIO(self._feature(27) + "\n")
+            process.wait.return_value = 0
+            process.poll.return_value = 0
+            process.args = ["osmium", "export"]
+            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), \
+                 patch("app.osm_address.subprocess.run") as run, \
+                 patch("app.osm_address.subprocess.Popen", return_value=process):
+                run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
+                stats = index.build(source, city="Duisburg")
+            command = run.call_args.args[0]
+            self.assertIn("nwr/addr:city=Duisburg", command)
+            with index._db() as db:
+                cities = [row[0] for row in db.execute("SELECT city FROM address ORDER BY city")]
+            self.assertEqual(["Berlin", "Duisburg"], cities)
+            self.assertEqual(2, stats["stored"])
 
     def test_tags_filter_failure_reports_stderr_and_keeps_diagnostic_log(self):
         with tempfile.TemporaryDirectory() as root:
