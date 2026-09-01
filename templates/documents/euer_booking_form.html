@@ -1,0 +1,55 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <a class="text-decoration-none" href="{{ url_for('.overview') }}">← EÜR-Übersicht</a>
+  <div class="mt-2 mb-4"><h1 class="h2 mb-1">Beleg buchen</h1><p class="text-secondary mb-0">Maßgeblich ist das Datum des tatsächlichen Geldflusses.</p></div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-danger" role="alert">{{ message }}</div>{% endfor %}
+  {% if document %}<div class="alert alert-info" role="status" aria-live="polite"><strong>Verknüpfter Beleg:</strong> <a href="{{ url_for('documents.detail', document_id=document.document_id) }}">{{ document.last_path }}</a></div>{% endif %}
+  <form method="post" action="{{ url_for('.create_booking') }}" class="card card-body">
+    <input type="hidden" name="document_id" value="{{ document.document_id if document else values.document_id|default('') }}"><input type="hidden" name="return_to" value="{{ 'document' if document else '' }}">
+    <div class="row g-3">
+      <div class="col-md-3"><label class="form-label" for="direction">Art</label><select class="form-select" id="direction" name="direction" required><option value="expense" {% if values.direction == 'expense' %}selected{% endif %}>Ausgabe</option><option value="income" {% if values.direction == 'income' %}selected{% endif %}>Einnahme</option></select></div>
+      <div class="col-md-3"><label class="form-label" for="booking-date">Zahlungsdatum</label><input class="form-control" id="booking-date" type="date" name="booking_date" value="{{ values.booking_date }}" required></div>
+      <div class="col-md-3"><label class="form-label" for="document-date">Belegdatum</label><input class="form-control" id="document-date" type="date" name="document_date" value="{{ values.document_date }}" required></div>
+      <div class="col-md-3"><label class="form-label" for="gross">Brutto EUR</label><input class="form-control" id="gross" inputmode="decimal" name="gross" value="{{ values.gross }}" placeholder="0,00" required></div>
+      <div class="col-12"><label class="form-label" for="description">Beschreibung</label><input class="form-control" id="description" name="description" maxlength="500" value="{{ values.description }}" required></div>
+      <div class="col-md-6"><label class="form-label" for="category">EÜR-Kategorie</label><select class="form-select" id="category" name="category" required>{% for key, item in categories.items() %}<option value="{{ key }}" data-direction="{{ item.direction }}" {% if values.category == key %}selected{% endif %}>Kz. {{ item.code }} – {{ item.label }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label" for="tax-mode">Steuerbehandlung</label><select class="form-select" id="tax-mode" name="tax_mode"><option value="standard" {% if values.tax_mode == 'standard' %}selected{% endif %}>USt enthalten</option><option value="small_business" {% if values.tax_mode == 'small_business' %}selected{% endif %}>Kleinunternehmer</option><option value="exempt" {% if values.tax_mode == 'exempt' %}selected{% endif %}>Steuerfrei / keine USt</option><option value="reverse_charge" {% if values.tax_mode == 'reverse_charge' %}selected{% endif %}>Reverse Charge</option></select></div>
+      <div class="col-md-3" id="tax-rate-group"><label class="form-label" for="tax-rate">USt-Satz %</label><input class="form-control" id="tax-rate" inputmode="decimal" name="tax_rate" value="{{ values.tax_rate|default('19') }}"></div>
+      <div class="col-md-3" id="business-share-group"><label class="form-label" for="business-share">Betrieblicher Anteil %</label><input class="form-control" id="business-share" inputmode="decimal" name="business_share" value="{{ values.business_share|default('100') }}"></div>
+      <div class="col-md-3"><label class="form-label" for="payment-method">Zahlungsweg</label><select class="form-select" id="payment-method" name="payment_method"><option value="bank">Bank</option><option value="cash">Bar</option><option value="card">Karte</option><option value="other">Sonstiges</option></select></div>
+      <div class="col-md-6"><label class="form-label" for="reference">Referenz</label><input class="form-control" id="reference" name="reference" maxlength="200" value="{{ values.reference|default('') }}" placeholder="Rechnungsnummer, Kontoauszug …"></div>
+      <div class="col-12"><label class="form-label" for="note">Interne Notiz</label><textarea class="form-control" id="note" name="note" rows="3" maxlength="2000">{{ values.note|default('') }}</textarea></div>
+      <div class="col-12 d-flex gap-2"><button type="submit" class="btn btn-primary">Verbindlich buchen</button><a class="btn btn-outline-secondary" href="{{ url_for('.overview') }}">Abbrechen</a></div>
+    </div>
+  </form>
+</main>
+<script>
+(() => {
+  const direction = document.getElementById('direction');
+  const category = document.getElementById('category');
+  const taxMode = document.getElementById('tax-mode');
+  const shareGroup = document.getElementById('business-share-group');
+  const taxGroup = document.getElementById('tax-rate-group');
+  function refresh() {
+    let first = null;
+    for (const option of category.options) {
+      option.hidden = option.dataset.direction !== direction.value;
+      option.disabled = option.hidden;
+      if (!option.hidden && !first) first = option;
+    }
+    if (category.selectedOptions[0]?.hidden && first) {
+      const preferred = direction.value === 'income'
+        ? (taxMode.value === 'standard' ? 'taxable_income' : 'small_business_income')
+        : 'other_expense';
+      const preferredOption = Array.from(category.options).find((option) => option.value === preferred && !option.hidden);
+      (preferredOption || first).selected = true;
+    }
+    shareGroup.hidden = direction.value !== 'expense';
+    taxGroup.hidden = taxMode.value !== 'standard';
+  }
+  direction.addEventListener('change', refresh); taxMode.addEventListener('change', refresh); refresh();
+})();
+</script>
+{% endblock %}

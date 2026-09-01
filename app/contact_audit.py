@@ -367,3 +367,6 @@ _register_contact_extensions(bp)
 # the application keeps one contact-related registration point.
 from .business_documents import bp as _business_documents_bp
 bp.register_blueprint(_business_documents_bp)
+
+from .euer import bp as _euer_bp
+bp.register_blueprint(_euer_bp)

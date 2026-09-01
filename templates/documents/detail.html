@@ -17,6 +17,7 @@
 </p>
 </div>
 <div class="d-flex flex-wrap justify-content-end gap-2 align-self-start">
+<a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}"><i class="fas fa-receipt me-1" aria-hidden="true"></i>Beleg buchen</a>
 <form method="post" action="{{ url_for('documents.create_document_task', document_id=document.document_id) }}">
 <input type="hidden" name="title" value="{{ 'Review: ' if g.language == 'en' else 'Prüfen: ' }}{{ document.last_path }}">
 <input type="hidden" name="description" value="{{ ('Review the document, perform the required work and record the result in this task: ' if g.language == 'en' else 'Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: ') }}{{ document.last_path }}">
