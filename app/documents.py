@@ -1723,7 +1723,7 @@ def contact_detail(contact_id: str):
 def company_contact_search():
     query = request.args.get("q", "").strip()
     if len(query) < 2:
-        return jsonify({"items": []})
+        return jsonify({"items": [], "provider": "local_contacts"})
     actor = str(g.user["username"]); store = _contacts(); excluded = request.args.get("exclude", "").strip()
     rows = []
     for contact in store.search(query, actor):
@@ -1731,11 +1731,14 @@ def company_contact_search():
         fields = contact.get("fields", {}); company_name = store.company_name(contact)
         if not company_name: continue
         rows.append({
+            "source": "contact",
             "contact_id": contact["contact_id"], "company_name": company_name,
             "display_name": str(fields.get("display_name", "")), "email": str(fields.get("email", "")),
         })
         if len(rows) >= 10: break
-    return jsonify({"items": rows})
+    # Company names never leave this server. External providers such as Google
+    # Places are deliberately not part of the contact search contract.
+    return jsonify({"items": rows, "provider": "local_contacts"})
 
 
 @bp.get("/contacts/<contact_id>/photo")
