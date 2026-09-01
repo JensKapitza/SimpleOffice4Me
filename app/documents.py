@@ -2339,8 +2339,8 @@ def calendar_reminders_json():
 @login_required
 def delete_calendar_event(event_id: str):
     try:
-        _calendar().delete(event_id, str(g.user["username"]))
-        flash("Kalendertermin gelöscht.")
+        result = _calendar().delete(event_id, str(g.user["username"]))
+        flash("Terminserie ab heute gelöscht; vergangene Termine bleiben erhalten." if result == "series_truncated" else "Kalendertermin gelöscht.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
