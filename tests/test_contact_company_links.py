@@ -25,6 +25,9 @@ class ContactCompanyLinksTest(unittest.TestCase):
         short = self.client.get("/documents/contacts/company-search?q=M")
         search = self.client.get("/documents/contacts/company-search?q=Mu")
         self.assertEqual([], short.get_json()["items"])
+        self.assertEqual("local_contacts", short.get_json()["provider"])
+        self.assertEqual("local_contacts", search.get_json()["provider"])
+        self.assertEqual("contact", search.get_json()["items"][0]["source"])
         self.assertEqual("Musterwerke GmbH", search.get_json()["items"][0]["company_name"])
         self.assertEqual(self.company["contact_id"], search.get_json()["items"][0]["contact_id"])
 
