@@ -46,6 +46,11 @@ def _ensure() -> None:
       status TEXT NOT NULL DEFAULT 'requested', requested_at TEXT NOT NULL,
       decided_at TEXT, decided_by_employee_id INTEGER,
       FOREIGN KEY(employee_id) REFERENCES employee(id));
+    CREATE TABLE IF NOT EXISTS employee_month_close (
+      employee_id INTEGER NOT NULL, month TEXT NOT NULL,
+      work_minutes INTEGER NOT NULL, break_minutes INTEGER NOT NULL,
+      closed_at TEXT NOT NULL, PRIMARY KEY(employee_id,month),
+      FOREIGN KEY(employee_id) REFERENCES employee(id));
     """)
     db.commit()
 
@@ -138,10 +143,36 @@ def _punch_state(employee_id: int) -> str:
     return str(row["action"]) if row else "clock_out"
 
 
+def _previous_month(shown: date) -> str:
+    first = shown.replace(day=1)
+    return (first - timedelta(days=1)).strftime("%Y-%m")
+
+
+def close_due_months(as_of: date | None = None) -> int:
+    """Freeze the previous month on or after the tenth, once per employee."""
+    _ensure(); shown = as_of or date.today()
+    if shown.day < 10: return 0
+    month = _previous_month(shown); year, number = map(int, month.split("-"))
+    first = date(year, number, 1)
+    following = date(year + (number == 12), 1 if number == 12 else number + 1, 1)
+    db = get_db(); created = 0
+    for employee in db.execute("SELECT id FROM employee WHERE active=1").fetchall():
+        if db.execute("SELECT 1 FROM employee_month_close WHERE employee_id=? AND month=?", (employee["id"], month)).fetchone(): continue
+        work = breaks = 0; current = first
+        while current < following:
+            summary = _day_summary(int(employee["id"]), current); work += summary["work_minutes"]; breaks += summary["break_minutes"]; current += timedelta(days=1)
+        db.execute("INSERT INTO employee_month_close(employee_id,month,work_minutes,break_minutes,closed_at) VALUES(?,?,?,?,?)", (employee["id"], month, work, breaks, utc_now())); created += 1
+    db.commit(); return created
+
+
+def month_is_closed(employee_id: int, month: str) -> bool:
+    return get_db().execute("SELECT 1 FROM employee_month_close WHERE employee_id=? AND month=?", (employee_id, month)).fetchone() is not None
+
+
 @bp.get("")
 @login_required
 def index():
-    _ensure(); db = get_db(); actor = _employee_for_user(int(g.user["id"])); contacts = _contacts()
+    _ensure(); close_due_months(); db = get_db(); actor = _employee_for_user(int(g.user["id"])); contacts = _contacts()
     employees = []
     for row in db.execute("SELECT * FROM employee WHERE active=1 ORDER BY id").fetchall():
         try: contact = contacts.get(row["contact_id"], str(g.user["username"]))
@@ -149,6 +180,7 @@ def index():
         employees.append({**dict(row), "contact": contact, "schedule": json.loads(row["schedule_json"] or "{}"),
                           "today": _day_summary(int(row["id"]), date.today())})
     absences = [dict(row) for row in db.execute("SELECT * FROM employee_absence ORDER BY starts_on DESC,id DESC").fetchall()]
+    month_closes = [dict(row) for row in db.execute("SELECT * FROM employee_month_close ORDER BY month DESC,employee_id").fetchall()]
     by_id = {row["id"]: row for row in employees}
     actor = by_id.get(int(actor["id"])) if actor else None
     for absence in absences:
@@ -156,6 +188,7 @@ def index():
         absence["tags"] = json.loads(absence["tags_json"] or "[]")
     available = [c for c in contacts.contacts(str(g.user["username"])) if c["contact_id"] not in {e["contact_id"] for e in employees}]
     return render_template("personnel/index.html", employees=employees, employee=actor, absences=absences,
+                           month_closes=month_closes,
                            contacts=available, weekdays=WEEKDAYS, can_manage=bool(g.user["is_admin"]),
                            can_approve=bool(actor and actor["can_approve"]))
 
@@ -187,6 +220,8 @@ def punch(action: str):
     if action not in PUNCH_ACTIONS: abort(404)
     employee = _employee_for_user(int(g.user["id"]));
     if employee is None: abort(403)
+    if month_is_closed(int(employee["id"]), date.today().strftime("%Y-%m")):
+        abort(409, description="Dieser Arbeitszeitmonat ist festgeschrieben")
     allowed = {"clock_out": {"clock_in"}, "clock_in": {"break_start", "clock_out"}, "break_start": {"break_end"}, "break_end": {"break_start", "clock_out"}}
     if action not in allowed.get(_punch_state(int(employee["id"])), set()):
         flash("Diese Buchung passt nicht zum aktuellen Stempelstatus.")
@@ -217,9 +252,10 @@ def request_absence():
         if date.fromisoformat(ends) < date.fromisoformat(starts): raise ValueError
     except ValueError: flash("Ungültiger Zeitraum"); return redirect(url_for("personnel.index"))
     kind = request.form.get("kind", "frei")
-    if kind not in {"urlaub", "frei"}: kind = "frei"
+    if kind not in {"urlaub", "frei", "krank"}: kind = "frei"
     tags = sorted({tag.strip()[:50] for tag in request.form.get("tags", "").split(",") if tag.strip()})[:20]
-    get_db().execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,requested_at) VALUES(?,?,?,?,?,?,?)", (employee["id"], kind, starts, ends, json.dumps(tags, ensure_ascii=False), request.form.get("note", "")[:1000], utc_now())); get_db().commit()
+    status = "reported" if kind == "krank" else "requested"
+    get_db().execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at) VALUES(?,?,?,?,?,?,?,?)", (employee["id"], kind, starts, ends, json.dumps(tags, ensure_ascii=False), request.form.get("note", "")[:1000], status, utc_now())); get_db().commit()
     return redirect(url_for("personnel.index"))
 
 
