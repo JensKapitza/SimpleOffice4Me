@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 from werkzeug.security import generate_password_hash
@@ -18,6 +19,7 @@ from .document_store import utc_now
 bp = Blueprint("personnel", __name__, url_prefix="/personnel")
 WEEKDAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 PUNCH_ACTIONS = {"clock_in", "break_start", "break_end", "clock_out"}
+PERSONNEL_TIMEZONE = ZoneInfo("Europe/Berlin")
 
 
 def _contacts() -> ContactStore:
@@ -113,16 +115,27 @@ def _schedule(form) -> dict:
 
 def required_break_minutes(work_minutes: int) -> int:
     if work_minutes > 9 * 60: return 45
-    if work_minutes > 6 * 60: return 30
+    if work_minutes >= 8 * 60: return 30
+    if work_minutes > 6 * 60: return 15
     return 0
 
 
-def _day_summary(employee_id: int, shown: date) -> dict:
-    prefix = shown.isoformat()
+def _local_now() -> datetime:
+    return datetime.now(PERSONNEL_TIMEZONE)
+
+
+def _day_punches(employee_id: int, shown: date) -> list:
+    lower = datetime.combine(shown, time.min, PERSONNEL_TIMEZONE).astimezone(timezone.utc).isoformat(timespec="seconds")
+    upper = datetime.combine(shown + timedelta(days=1), time.min, PERSONNEL_TIMEZONE).astimezone(timezone.utc).isoformat(timespec="seconds")
     rows = get_db().execute(
-        "SELECT action,occurred_at FROM employee_punch WHERE employee_id=? AND substr(occurred_at,1,10)=? ORDER BY occurred_at,id",
-        (employee_id, prefix),
+        "SELECT action,occurred_at FROM employee_punch WHERE employee_id=? AND occurred_at>=? AND occurred_at<? ORDER BY occurred_at,id",
+        (employee_id, lower, upper),
     ).fetchall()
+    return list(rows)
+
+
+def _day_summary(employee_id: int, shown: date, now: datetime | None = None) -> dict:
+    rows = _day_punches(employee_id, shown)
     active = None; break_started = None; work = breaks = 0
     for row in rows:
         stamp = datetime.fromisoformat(row["occurred_at"].replace("Z", "+00:00"))
@@ -133,14 +146,37 @@ def _day_summary(employee_id: int, shown: date) -> dict:
             breaks += max(0, int((stamp - break_started).total_seconds() // 60)); break_started = None; active = stamp
         elif row["action"] == "clock_out" and active:
             work += max(0, int((stamp - active).total_seconds() // 60)); active = None
+    local_current = now or _local_now()
+    if local_current.tzinfo is None: local_current = local_current.replace(tzinfo=PERSONNEL_TIMEZONE)
+    current = local_current.astimezone(timezone.utc)
+    if shown == local_current.astimezone(PERSONNEL_TIMEZONE).date():
+        if active: work += max(0, int((current - active).total_seconds() // 60))
+        if break_started: breaks += max(0, int((current - break_started).total_seconds() // 60))
+    required = required_break_minutes(work)
     return {"work_minutes": work, "break_minutes": breaks, "required_break": required_break_minutes(work),
             "open": bool(active or break_started), "events": [dict(row) for row in rows],
-            "compliant": breaks >= required_break_minutes(work)}
+            "state": rows[-1]["action"] if rows else "clock_out", "compliant": breaks >= required}
 
 
-def _punch_state(employee_id: int) -> str:
-    row = get_db().execute("SELECT action FROM employee_punch WHERE employee_id=? ORDER BY occurred_at DESC,id DESC LIMIT 1", (employee_id,)).fetchone()
-    return str(row["action"]) if row else "clock_out"
+def _punch_state(employee_id: int, shown: date | None = None) -> str:
+    rows = _day_punches(employee_id, shown or _local_now().date())
+    return str(rows[-1]["action"]) if rows else "clock_out"
+
+
+def _schedule_summary(schedule: dict, weekday: int) -> dict:
+    plan = schedule.get(str(weekday), {})
+    hours = float(plan.get("hours", 0) or 0)
+    start = str(plan.get("start", "08:00"))
+    finish = "—"
+    if hours:
+        begins = datetime.combine(date.today(), time.fromisoformat(start))
+        finish = (begins + timedelta(minutes=round(hours * 60))).strftime("%H:%M")
+    return {**plan, "hours": hours, "start": start, "end": finish}
+
+
+def _absence_days(starts_on: str, ends_on: str) -> int:
+    start, end = date.fromisoformat(starts_on), date.fromisoformat(ends_on)
+    return sum(1 for offset in range((end - start).days + 1) if (start + timedelta(days=offset)).weekday() < 5)
 
 
 def _previous_month(shown: date) -> str:
@@ -172,13 +208,16 @@ def month_is_closed(employee_id: int, month: str) -> bool:
 @bp.get("")
 @login_required
 def index():
-    _ensure(); close_due_months(); db = get_db(); actor = _employee_for_user(int(g.user["id"])); contacts = _contacts()
+    _ensure(); close_due_months(); db = get_db(); actor = _employee_for_user(int(g.user["id"])); contacts = _contacts(); today = _local_now().date()
     employees = []
     for row in db.execute("SELECT * FROM employee WHERE active=1 ORDER BY id").fetchall():
         try: contact = contacts.get(row["contact_id"], str(g.user["username"]))
         except ValueError: contact = {"contact_id": row["contact_id"], "fields": {"display_name": "Nicht sichtbarer Kontakt"}}
-        employees.append({**dict(row), "contact": contact, "schedule": json.loads(row["schedule_json"] or "{}"),
-                          "today": _day_summary(int(row["id"]), date.today())})
+        schedule = json.loads(row["schedule_json"] or "{}")
+        employees.append({**dict(row), "contact": contact, "schedule": schedule,
+                          "week_hours": sum(float(value.get("hours", 0) or 0) for value in schedule.values()),
+                          "today_plan": _schedule_summary(schedule, today.weekday()),
+                          "today": _day_summary(int(row["id"]), today)})
     absences = [dict(row) for row in db.execute("SELECT * FROM employee_absence ORDER BY starts_on DESC,id DESC").fetchall()]
     month_closes = [dict(row) for row in db.execute("SELECT * FROM employee_month_close ORDER BY month DESC,employee_id").fetchall()]
     by_id = {row["id"]: row for row in employees}
@@ -186,9 +225,19 @@ def index():
     for absence in absences:
         absence["employee"] = by_id.get(absence["employee_id"])
         absence["tags"] = json.loads(absence["tags_json"] or "[]")
+        absence["workdays"] = _absence_days(absence["starts_on"], absence["ends_on"])
+        absence["can_cancel"] = bool(actor and int(absence["employee_id"]) == int(actor["id"]) and absence["status"] == "requested")
+    agenda = []
+    for offset in range(14):
+        shown = today + timedelta(days=offset)
+        rows = []
+        for item in employees:
+            absence = next((value for value in absences if value["employee_id"] == item["id"] and value["status"] in {"approved", "reported"} and value["starts_on"] <= shown.isoformat() <= value["ends_on"]), None)
+            rows.append({"employee": item, "plan": _schedule_summary(item["schedule"], shown.weekday()), "absence": absence})
+        agenda.append({"date": shown.isoformat(), "weekday": WEEKDAYS[shown.weekday()], "rows": rows})
     available = [c for c in contacts.contacts(str(g.user["username"])) if c["contact_id"] not in {e["contact_id"] for e in employees}]
     return render_template("personnel/index.html", employees=employees, employee=actor, absences=absences,
-                           month_closes=month_closes,
+                           month_closes=month_closes, agenda=agenda, punch_state=_punch_state(int(actor["id"]), today) if actor else "clock_out",
                            contacts=available, weekdays=WEEKDAYS, can_manage=bool(g.user["is_admin"]),
                            can_approve=bool(actor and actor["can_approve"]))
 
@@ -220,10 +269,11 @@ def punch(action: str):
     if action not in PUNCH_ACTIONS: abort(404)
     employee = _employee_for_user(int(g.user["id"]));
     if employee is None: abort(403)
-    if month_is_closed(int(employee["id"]), date.today().strftime("%Y-%m")):
+    today = _local_now().date()
+    if month_is_closed(int(employee["id"]), today.strftime("%Y-%m")):
         abort(409, description="Dieser Arbeitszeitmonat ist festgeschrieben")
     allowed = {"clock_out": {"clock_in"}, "clock_in": {"break_start", "clock_out"}, "break_start": {"break_end"}, "break_end": {"break_start", "clock_out"}}
-    if action not in allowed.get(_punch_state(int(employee["id"])), set()):
+    if action not in allowed.get(_punch_state(int(employee["id"]), today), set()):
         flash("Diese Buchung passt nicht zum aktuellen Stempelstatus.")
         return redirect(url_for("personnel.index"))
     get_db().execute("INSERT INTO employee_punch(employee_id,action,occurred_at,recorded_by) VALUES(?,?,?,?)", (employee["id"], action, utc_now(), g.user["id"])); get_db().commit()
@@ -255,7 +305,23 @@ def request_absence():
     if kind not in {"urlaub", "frei", "krank"}: kind = "frei"
     tags = sorted({tag.strip()[:50] for tag in request.form.get("tags", "").split(",") if tag.strip()})[:20]
     status = "reported" if kind == "krank" else "requested"
+    overlap = get_db().execute("SELECT 1 FROM employee_absence WHERE employee_id=? AND status IN ('requested','approved','reported') AND starts_on<=? AND ends_on>=?", (employee["id"], ends, starts)).fetchone()
+    if overlap:
+        flash("Für diesen Zeitraum besteht bereits eine Abwesenheit.")
+        return redirect(url_for("personnel.index"))
     get_db().execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at) VALUES(?,?,?,?,?,?,?,?)", (employee["id"], kind, starts, ends, json.dumps(tags, ensure_ascii=False), request.form.get("note", "")[:1000], status, utc_now())); get_db().commit()
+    return redirect(url_for("personnel.index"))
+
+
+@bp.post("/absence/<int:absence_id>/cancel")
+@login_required
+def cancel_absence(absence_id: int):
+    employee = _employee_for_user(int(g.user["id"]));
+    if employee is None: abort(403)
+    cursor = get_db().execute("UPDATE employee_absence SET status='cancelled' WHERE id=? AND employee_id=? AND status='requested'", (absence_id, employee["id"]))
+    get_db().commit()
+    if not cursor.rowcount: abort(409, description="Nur eigene offene Anträge können storniert werden")
+    flash("Abwesenheitsantrag storniert.")
     return redirect(url_for("personnel.index"))
 
 
