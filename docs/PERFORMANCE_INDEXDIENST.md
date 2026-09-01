@@ -46,6 +46,13 @@ frühere vollständige Schleife über alle JSON-Dateien entfällt.
    standardmäßig eine Millisekunde Rechen-/I/O-Zeit ab.
 6. Fortschritt und Fehler werden atomar in
    `.simpleoffice-meta/scan-status.json` geschrieben und im Dashboard gezeigt.
+7. Nach dem Start bleibt der Worker aktiv. Watchdog nutzt unter Linux `inotify`
+   und übergibt geänderte Einzelpfade gebündelt an den Index, ohne den gesamten
+   Dokumentbaum erneut zu durchlaufen.
+8. Alle sechs Stunden erfolgt zusätzlich ein vollständiger Konsistenzlauf. Er
+   prüft Pfad, Größe und Nanosekunden-Zeitstempel; unveränderte Dateien werden
+   weder gehasht noch extrahiert. Ändert sich nur der Zeitstempel, bestätigt ein
+   SHA-256-Vergleich den unveränderten Inhalt ohne OCR- oder Textextraktion.
 
 Der Fortschritt trennt `new` und `updated`: `new` bezeichnet eine zuvor nicht
 bekannte Datei. `updated` zählt bekannte Dokumente, deren Inhalt, Zeitstempel,
@@ -64,6 +71,7 @@ wird der reparierbare Index fortgesetzt beziehungsweise erneut abgeglichen.
 | `SIMPLEOFFICE_INDEX_DELAY_SECONDS` | `2` | 0–300 Sekunden Startverzögerung |
 | `SIMPLEOFFICE_INDEX_NICE` | `10` | Unix-Niceness 0–19; unter Windows wird die Prioritätsklasse verwendet |
 | `SIMPLEOFFICE_INDEX_YIELD_MS` | `1` | 0–100 ms Pause je Datei; 0 maximiert Indexdurchsatz, höhere Werte priorisieren Webzugriffe |
+| `SIMPLEOFFICE_INDEX_RECONCILE_SECONDS` | `21600` | 60–86400 Sekunden zwischen vollständigen Konsistenzläufen |
 | `SIMPLEOFFICE_WSGI_THREADS` | `4` | Unverändert 1–64 Waitress-Threads |
 
 Empfehlung für einen interaktiven Server ist der Standard. Bei ausschließlich
