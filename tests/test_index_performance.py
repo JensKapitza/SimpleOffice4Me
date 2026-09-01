@@ -1,7 +1,9 @@
 import os
+import queue
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
@@ -11,7 +13,7 @@ from app import db as database
 from app.document_store import DocumentStore, ScanReport, atomic_json_write
 from app.file_lock import exclusive_file_lock
 from tools import launcher
-from tools.index_worker import run_index
+from tools.index_worker import _IndexEventHandler, run_index
 
 
 class IndexProjectionPerformanceTest(unittest.TestCase):
@@ -72,6 +74,36 @@ class IndexProjectionPerformanceTest(unittest.TestCase):
 
             self.assertEqual(1, report.files)
             self.assertEqual(1, store.inbox_page()["total"])
+
+    def test_timestamp_only_change_rehashes_but_does_not_reprocess_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "existing.txt"; path.write_text("unchanged", encoding="utf-8")
+            store = DocumentStore(temp); store.scan(); before = store.get_document(path)
+            os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1_000_000))
+            with patch.object(store, "_apply_document_text_extraction", side_effect=AssertionError("content reprocessing")):
+                report = store.scan()
+            self.assertEqual(0, report.updated_files)
+            self.assertEqual(before["sha256"], store.get_document(path)["sha256"])
+
+    def test_incremental_events_add_update_and_remove_index_rows(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); store = DocumentStore(root); store.initialize(); path = root / "new.txt"
+            path.write_text("one", encoding="utf-8"); self.assertEqual(1, store.scan_changed_paths([path]).new_files)
+            self.assertEqual(1, store.inbox_page()["total"])
+            path.write_text("two", encoding="utf-8"); self.assertEqual(1, store.scan_changed_paths([path]).updated_files)
+            path.unlink(); store.scan_changed_paths([path]); self.assertEqual(0, store.inbox_page()["total"])
+
+    def test_reconciliation_removes_a_delete_missed_by_watcher(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); path = root / "gone.txt"; path.write_text("gone", encoding="utf-8")
+            store = DocumentStore(root); store.scan(); path.unlink(); store.scan()
+            self.assertEqual(0, store.inbox_page()["total"])
+
+    def test_watcher_ignores_its_own_index_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            changes = queue.Queue(); handler = _IndexEventHandler(changes, Path(temp).resolve())
+            handler.on_any_event(SimpleNamespace(event_type="modified", is_directory=False, src_path=str(Path(temp) / ".simpleoffice-meta" / "scan-status.json"), dest_path=""))
+            self.assertTrue(changes.empty())
 
 
 class IndexProcessIsolationTest(unittest.TestCase):
