@@ -5,7 +5,7 @@ from pathlib import Path
 from app import app
 from app import db as database
 from app.contact_store import ContactStore
-from app.personnel import required_break_minutes
+from app.personnel import close_due_months, required_break_minutes
 
 
 class PersonnelTest(unittest.TestCase):
@@ -34,6 +34,15 @@ class PersonnelTest(unittest.TestCase):
         data = {f"start_{i}":"08:00" for i in range(7)} | {f"hours_{i}":"0" for i in range(7)}; data["hours_0"] = "10.25"
         self.client.post("/personnel/employees/1/settings", data=data)
         with app.app_context(): self.assertEqual("{}", database.get_db().execute("SELECT schedule_json FROM employee WHERE id=1").fetchone()[0])
+
+    def test_previous_month_is_frozen_on_tenth(self):
+        self.client.post("/personnel/employees", data={"contact_id":self.contact["contact_id"]})
+        with app.app_context():
+            self.assertEqual(0, close_due_months(__import__("datetime").date(2026, 9, 9)))
+            self.assertEqual(1, close_due_months(__import__("datetime").date(2026, 9, 10)))
+            row = database.get_db().execute("SELECT month FROM employee_month_close").fetchone()
+            self.assertEqual("2026-08", row["month"])
+            self.assertEqual(0, close_due_months(__import__("datetime").date(2026, 9, 20)))
 
 
 if __name__ == "__main__": unittest.main()
