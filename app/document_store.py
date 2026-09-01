@@ -25,7 +25,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from xml.etree import ElementTree
 
 import click
@@ -2879,6 +2879,11 @@ class DocumentStore:
                     self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
                 if progress:
                     progress(ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors))
+        with self._db() as db:
+            missing = [self.root / row[0] for row in db.execute("SELECT relative_path FROM scan_file").fetchall() if not (self.root / row[0]).exists()]
+        if missing:
+            removed = self.scan_changed_paths(missing)
+            errors += removed.errors
         report = ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors)
         if progress: progress(report)
         return report
@@ -2886,6 +2891,42 @@ class DocumentStore:
     def scan_status(self) -> dict[str, Any]:
         self.initialize()
         return self._read_json(self.scan_status_path, {"state": "idle", "updated_at": None})
+
+    def scan_changed_paths(self, paths: Iterable[str | Path], post_file: Callable[[Path], None] | None = None) -> ScanReport:
+        """Incrementally reconcile paths reported by a filesystem watcher."""
+        self.initialize()
+        files = new_files = updated_files = duplicates = errors = 0
+        for value in {Path(item) for item in paths}:
+            try:
+                path = value.resolve(strict=False)
+                try: relative = str(path.relative_to(self.root))
+                except ValueError: continue
+                if not relative or relative.split(os.sep, 1)[0] in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR}: continue
+                if path.is_file() and not path.is_symlink():
+                    created, updated, duplicate = self._scan_file(path)
+                    if post_file: post_file(path)
+                    files += 1; new_files += int(created); updated_files += int(updated); duplicates += int(duplicate)
+                elif not path.exists():
+                    with self._db() as db:
+                        row = db.execute("SELECT document_id,sha256 FROM scan_file WHERE relative_path=?", (relative,)).fetchone()
+                        if not row: continue
+                        document_id, digest = row[0], row[1]
+                        db.execute("DELETE FROM scan_file WHERE relative_path=?", (relative,))
+                        remaining = db.execute("SELECT 1 FROM scan_file WHERE document_id=? LIMIT 1", (document_id,)).fetchone()
+                        if not remaining:
+                            db.execute("DELETE FROM document_listing WHERE document_id=?", (document_id,))
+                            db.execute("DELETE FROM document_search WHERE document_id=?", (document_id,))
+                            db.execute("DELETE FROM document_relationship WHERE source_id=?", (document_id,))
+                        fingerprint_path = self.fingerprints / f"{digest}.json"
+                        fingerprint = self._read_json(fingerprint_path, {})
+                        if fingerprint:
+                            fingerprint["paths"] = [item for item in fingerprint.get("paths", []) if item != relative]
+                            fingerprint["last_seen_at"] = utc_now()
+                            atomic_json_write(fingerprint_path, fingerprint)
+                        self._event("file_missing", {"path": relative, "document_id": document_id})
+            except (OSError, ValueError) as exc:
+                errors += 1; self._event("scan_error", {"path": str(value), "error": str(exc)})
+        return ScanReport(files, new_files, updated_files, duplicates, errors=errors)
 
     def set_scan_status(self, status: dict[str, Any]) -> None:
         self.initialize()
@@ -2929,9 +2970,11 @@ class DocumentStore:
         relative_path = self.relative(path)
         now = utc_now()
         cached: tuple[str, str] | None = None
+        previous_same_path = None
         previous_path = ""
         if not force_hash:
             with self._db() as db:
+                previous_same_path = db.execute("SELECT document_id,sha256 FROM scan_file WHERE relative_path=?", (relative_path,)).fetchone()
                 row = db.execute(
                     """SELECT document_id, sha256 FROM scan_file
                        WHERE relative_path = ? AND size = ? AND modified_ns = ?""",
@@ -2972,6 +3015,13 @@ class DocumentStore:
             document_id = xattrs.get("document_id") or str(uuid.uuid4())
         metadata_path = self.documents / f"{document_id}.json"
         metadata_exists = metadata_path.exists()
+        if previous_same_path and previous_same_path[1] == digest and metadata_exists:
+            metadata = self._read_json(metadata_path, {})
+            with self._db() as db:
+                db.execute("""UPDATE scan_file SET size=?,modified_ns=?,device=?,inode=?,last_seen_at=?
+                    WHERE relative_path=?""", (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, now, relative_path))
+                if metadata.get("document_id"): self._refresh_listing_index(metadata, db)
+            return False, False, metadata.get("system_state") == "duplicate"
         created = not metadata_exists and not known_identity
         updated = not created
         metadata = self._read_json(metadata_path, {})
