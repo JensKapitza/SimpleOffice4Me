@@ -23,13 +23,15 @@
       const query = input.value.trim();
       hidden.value = '';
       if (query.length < 2) {
+        controller?.abort();
+        controller = undefined;
         close();
         status.textContent = query ? 'Bitte mindestens zwei Zeichen eingeben.' : '';
         return;
       }
       controller?.abort();
       controller = new AbortController();
-      status.textContent = 'Kontakte werden gesucht …';
+      status.textContent = 'Lokale Kontakte werden gesucht …';
       try {
         const url = new URL(endpoint, window.location.origin);
         url.searchParams.set('q', query);
@@ -61,6 +63,10 @@
       }
     };
     input.addEventListener('input', () => {
+      // Never submit a stale contact link while the debounced search is pending.
+      hidden.value = '';
+      controller?.abort();
+      controller = undefined;
       clearTimeout(timer);
       timer = window.setTimeout(search, 200);
     });
