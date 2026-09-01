@@ -5,7 +5,7 @@ from pathlib import Path
 from app import app
 from app import db as database
 from app.contact_store import ContactStore
-from app.personnel import _absence_days, _day_summary, _schedule_summary, close_due_months, required_break_minutes
+from app.personnel import _absence_days, _credited_flex_minutes, _day_summary, _schedule_summary, close_due_months, required_break_minutes
 
 
 class PersonnelTest(unittest.TestCase):
@@ -25,6 +25,11 @@ class PersonnelTest(unittest.TestCase):
     def test_schedule_summary_calculates_end_and_weekdays(self):
         self.assertEqual("16:30", _schedule_summary({"0":{"start":"08:00","hours":8.5}}, 0)["end"])
         self.assertEqual(5, _absence_days("2026-09-07", "2026-09-13"))
+
+    def test_daily_flex_credit_is_limited_to_two_hours(self):
+        self.assertEqual(120, _credited_flex_minutes(660, 480))
+        self.assertEqual(60, _credited_flex_minutes(540, 480))
+        self.assertEqual(-120, _credited_flex_minutes(360, 480))
 
     def test_admin_enrols_contact_and_generated_account_is_disabled(self):
         response = self.client.post("/personnel/employees", data={"contact_id":self.contact["contact_id"]})
@@ -78,6 +83,25 @@ class PersonnelTest(unittest.TestCase):
             db.execute("INSERT INTO employee_punch(employee_id,action,occurred_at,recorded_by) VALUES(?,?,?,?)", (employee_id, "clock_in", "2026-08-31T22:30:00+00:00", user_id)); db.commit()
             self.assertEqual([], _day_summary(employee_id, __import__("datetime").date(2026, 8, 31))["events"])
             self.assertEqual("clock_in", _day_summary(employee_id, __import__("datetime").date(2026, 9, 1))["state"])
+
+    def test_hr_and_team_calendar_are_separate_and_team_hides_sickness(self):
+        self.client.post("/personnel/employees", data={"contact_id":self.contact["contact_id"]})
+        second = ContactStore(Path(self.temp.name) / "docs").upsert({"display_name":"Amy Beispiel","email":"amy@example.test"}, "jens")
+        self.client.post("/personnel/employees", data={"contact_id":second["contact_id"]})
+        with app.app_context():
+            db = database.get_db(); employees = db.execute("SELECT id FROM employee ORDER BY id").fetchall()
+            db.execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at,deputy_employee_id) VALUES(?,?,?,?,?,?,?,?,?)", (employees[0]["id"], "urlaub", "2026-09-07", "2026-09-11", "[]", "privat", "approved", "2026-09-01T10:00:00+00:00", employees[1]["id"]))
+            db.execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at) VALUES(?,?,?,?,?,?,?,?)", (employees[1]["id"], "krank", "2026-09-08", "2026-09-08", "[]", "Diagnose geheim", "reported", "2026-09-01T10:00:00+00:00")); db.commit()
+        hr = self.client.get("/personnel/hr"); team = self.client.get("/personnel/team-calendar")
+        self.assertEqual(200, hr.status_code); self.assertIn(b"Diagnose geheim", hr.data)
+        self.assertEqual(200, team.status_code); self.assertIn(b"Amy Beispiel", team.data)
+        self.assertNotIn(b"Diagnose geheim", team.data); self.assertNotIn(b"<td>Krank", team.data)
+
+    def test_non_hr_user_cannot_open_hr_page(self):
+        self.client.post("/auth/logout")
+        self.client.post("/auth/register", data={"username":"kollege","password":"sicheres-passwort"})
+        self.client.post("/auth/login", data={"username":"kollege","password":"sicheres-passwort"})
+        self.assertEqual(403, self.client.get("/personnel/hr").status_code)
 
 
 if __name__ == "__main__": unittest.main()
