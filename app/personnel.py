@@ -53,7 +53,15 @@ def _ensure() -> None:
       work_minutes INTEGER NOT NULL, break_minutes INTEGER NOT NULL,
       closed_at TEXT NOT NULL, PRIMARY KEY(employee_id,month),
       FOREIGN KEY(employee_id) REFERENCES employee(id));
+    CREATE TABLE IF NOT EXISTS employee_flex_day (
+      employee_id INTEGER NOT NULL, work_date TEXT NOT NULL,
+      planned_minutes INTEGER NOT NULL, actual_minutes INTEGER NOT NULL,
+      balance_minutes INTEGER NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY(employee_id,work_date), FOREIGN KEY(employee_id) REFERENCES employee(id));
     """)
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(employee_absence)").fetchall()}
+    if "deputy_employee_id" not in columns:
+        db.execute("ALTER TABLE employee_absence ADD COLUMN deputy_employee_id INTEGER")
     db.commit()
 
 
@@ -179,6 +187,28 @@ def _absence_days(starts_on: str, ends_on: str) -> int:
     return sum(1 for offset in range((end - start).days + 1) if (start + timedelta(days=offset)).weekday() < 5)
 
 
+def _credited_flex_minutes(actual: int, planned: int) -> int:
+    """Credit at most two overtime hours per day; retain genuine undertime."""
+    return min(120, actual - planned) if actual >= planned else max(-planned, actual - planned)
+
+
+def _flex_account(employee_id: int, schedule: dict) -> dict:
+    weekly_target = round(sum(float(value.get("hours", 0) or 0) for value in schedule.values()) * 60)
+    raw = int(get_db().execute("SELECT COALESCE(SUM(balance_minutes),0) FROM employee_flex_day WHERE employee_id=?", (employee_id,)).fetchone()[0])
+    balance = max(-weekly_target, min(weekly_target, raw)) if weekly_target else 0
+    return {"minutes": balance, "hours": round(balance / 60, 2), "limit_hours": round(weekly_target / 60, 2), "capped": balance != raw}
+
+
+def _update_flex_day(employee_id: int, shown: date, schedule: dict) -> None:
+    summary = _day_summary(employee_id, shown)
+    planned = round(float(schedule.get(str(shown.weekday()), {}).get("hours", 0) or 0) * 60)
+    balance = _credited_flex_minutes(int(summary["work_minutes"]), planned)
+    get_db().execute("""INSERT INTO employee_flex_day(employee_id,work_date,planned_minutes,actual_minutes,balance_minutes,updated_at)
+        VALUES(?,?,?,?,?,?) ON CONFLICT(employee_id,work_date) DO UPDATE SET planned_minutes=excluded.planned_minutes,
+        actual_minutes=excluded.actual_minutes,balance_minutes=excluded.balance_minutes,updated_at=excluded.updated_at""",
+        (employee_id, shown.isoformat(), planned, summary["work_minutes"], balance, utc_now()))
+
+
 def _previous_month(shown: date) -> str:
     first = shown.replace(day=1)
     return (first - timedelta(days=1)).strftime("%Y-%m")
@@ -205,6 +235,18 @@ def month_is_closed(employee_id: int, month: str) -> bool:
     return get_db().execute("SELECT 1 FROM employee_month_close WHERE employee_id=? AND month=?", (employee_id, month)).fetchone() is not None
 
 
+def _employee_names() -> dict[int, str]:
+    rows = get_db().execute("""SELECT employee.id,user.display_name,user.username
+        FROM employee LEFT JOIN user ON user.id=employee.user_id WHERE employee.active=1""").fetchall()
+    return {int(row["id"]): str(row["display_name"] or row["username"] or f"Mitarbeiter {row['id']}") for row in rows}
+
+
+def _require_hr():
+    employee = _employee_for_user(int(g.user["id"]))
+    if not g.user["is_admin"] and not (employee and employee["can_approve"]): abort(403)
+    return employee
+
+
 @bp.get("")
 @login_required
 def index():
@@ -218,10 +260,13 @@ def index():
                           "week_hours": sum(float(value.get("hours", 0) or 0) for value in schedule.values()),
                           "today_plan": _schedule_summary(schedule, today.weekday()),
                           "today": _day_summary(int(row["id"]), today)})
-    absences = [dict(row) for row in db.execute("SELECT * FROM employee_absence ORDER BY starts_on DESC,id DESC").fetchall()]
+        employees[-1]["flex"] = _flex_account(int(row["id"]), schedule)
+    all_absences = [dict(row) for row in db.execute("SELECT * FROM employee_absence ORDER BY starts_on DESC,id DESC").fetchall()]
     month_closes = [dict(row) for row in db.execute("SELECT * FROM employee_month_close ORDER BY month DESC,employee_id").fetchall()]
     by_id = {row["id"]: row for row in employees}
     actor = by_id.get(int(actor["id"])) if actor else None
+    is_hr = bool(g.user["is_admin"] or (actor and actor["can_approve"]))
+    absences = all_absences if is_hr else [value for value in all_absences if actor and int(value["employee_id"]) == int(actor["id"])]
     for absence in absences:
         absence["employee"] = by_id.get(absence["employee_id"])
         absence["tags"] = json.loads(absence["tags_json"] or "[]")
@@ -232,7 +277,7 @@ def index():
         shown = today + timedelta(days=offset)
         rows = []
         for item in employees:
-            absence = next((value for value in absences if value["employee_id"] == item["id"] and value["status"] in {"approved", "reported"} and value["starts_on"] <= shown.isoformat() <= value["ends_on"]), None)
+            absence = next((value for value in all_absences if value["employee_id"] == item["id"] and value["kind"] in {"urlaub", "frei"} and value["status"] == "approved" and value["starts_on"] <= shown.isoformat() <= value["ends_on"]), None)
             rows.append({"employee": item, "plan": _schedule_summary(item["schedule"], shown.weekday()), "absence": absence})
         agenda.append({"date": shown.isoformat(), "weekday": WEEKDAYS[shown.weekday()], "rows": rows})
     available = [c for c in contacts.contacts(str(g.user["username"])) if c["contact_id"] not in {e["contact_id"] for e in employees}]
@@ -240,6 +285,41 @@ def index():
                            month_closes=month_closes, agenda=agenda, punch_state=_punch_state(int(actor["id"]), today) if actor else "clock_out",
                            contacts=available, weekdays=WEEKDAYS, can_manage=bool(g.user["is_admin"]),
                            can_approve=bool(actor and actor["can_approve"]))
+
+
+@bp.get("/hr")
+@login_required
+def hr():
+    _ensure(); actor = _require_hr(); db = get_db(); names = _employee_names()
+    employees = [dict(row) for row in db.execute("SELECT * FROM employee WHERE active=1 ORDER BY id").fetchall()]
+    for employee in employees:
+        employee["name"] = names.get(int(employee["id"]), "—")
+        employee["schedule"] = json.loads(employee["schedule_json"] or "{}")
+        employee["week_hours"] = sum(float(value.get("hours", 0) or 0) for value in employee["schedule"].values())
+    absences = [dict(row) for row in db.execute("SELECT * FROM employee_absence ORDER BY starts_on DESC,id DESC").fetchall()]
+    for absence in absences:
+        absence["employee_name"] = names.get(int(absence["employee_id"]), "—")
+        absence["deputy_name"] = names.get(int(absence["deputy_employee_id"]), "—") if absence.get("deputy_employee_id") else "—"
+        absence["tags"] = json.loads(absence["tags_json"] or "[]")
+        absence["workdays"] = _absence_days(absence["starts_on"], absence["ends_on"])
+    return render_template("personnel/hr.html", employees=employees, absences=absences,
+                           pending=sum(item["status"] == "requested" for item in absences),
+                           can_decide=bool(actor and actor["can_approve"]), actor_employee_id=int(actor["id"]) if actor else 0)
+
+
+@bp.get("/team-calendar")
+@login_required
+def team_calendar():
+    _ensure(); actor = _employee_for_user(int(g.user["id"]))
+    if actor is None and not g.user["is_admin"]: abort(403)
+    names = _employee_names()
+    rows = [dict(row) for row in get_db().execute("""SELECT * FROM employee_absence
+        WHERE kind IN ('urlaub','frei') AND status='approved' ORDER BY starts_on,ends_on,id""").fetchall()]
+    for row in rows:
+        row["employee_name"] = names.get(int(row["employee_id"]), "—")
+        row["deputy_name"] = names.get(int(row["deputy_employee_id"]), "Nicht festgelegt") if row.get("deputy_employee_id") else "Nicht festgelegt"
+        row["workdays"] = _absence_days(row["starts_on"], row["ends_on"])
+    return render_template("personnel/team_calendar.html", absences=rows)
 
 
 @bp.post("/employees")
@@ -273,10 +353,17 @@ def punch(action: str):
     if month_is_closed(int(employee["id"]), today.strftime("%Y-%m")):
         abort(409, description="Dieser Arbeitszeitmonat ist festgeschrieben")
     allowed = {"clock_out": {"clock_in"}, "clock_in": {"break_start", "clock_out"}, "break_start": {"break_end"}, "break_end": {"break_start", "clock_out"}}
-    if action not in allowed.get(_punch_state(int(employee["id"]), today), set()):
+    state = _punch_state(int(employee["id"]), today)
+    summary = _day_summary(int(employee["id"]), today)
+    if summary["work_minutes"] >= 10 * 60 and state == "clock_in" and action != "clock_out":
+        flash("Nach 10 Stunden ist nur noch Gehen zulässig.")
+        return redirect(url_for("personnel.index"))
+    if action not in allowed.get(state, set()):
         flash("Diese Buchung passt nicht zum aktuellen Stempelstatus.")
         return redirect(url_for("personnel.index"))
-    get_db().execute("INSERT INTO employee_punch(employee_id,action,occurred_at,recorded_by) VALUES(?,?,?,?)", (employee["id"], action, utc_now(), g.user["id"])); get_db().commit()
+    get_db().execute("INSERT INTO employee_punch(employee_id,action,occurred_at,recorded_by) VALUES(?,?,?,?)", (employee["id"], action, utc_now(), g.user["id"]))
+    if action == "clock_out": _update_flex_day(int(employee["id"]), today, json.loads(employee["schedule_json"] or "{}"))
+    get_db().commit()
     return redirect(url_for("personnel.index"))
 
 
@@ -305,11 +392,17 @@ def request_absence():
     if kind not in {"urlaub", "frei", "krank"}: kind = "frei"
     tags = sorted({tag.strip()[:50] for tag in request.form.get("tags", "").split(",") if tag.strip()})[:20]
     status = "reported" if kind == "krank" else "requested"
+    deputy_id = request.form.get("deputy_employee_id", "").strip()
+    if deputy_id:
+        deputy = get_db().execute("SELECT id FROM employee WHERE id=? AND active=1", (deputy_id,)).fetchone()
+        if not deputy or int(deputy_id) == int(employee["id"]):
+            flash("Die Vertretung muss ein anderer aktiver Mitarbeiter sein.")
+            return redirect(url_for("personnel.index"))
     overlap = get_db().execute("SELECT 1 FROM employee_absence WHERE employee_id=? AND status IN ('requested','approved','reported') AND starts_on<=? AND ends_on>=?", (employee["id"], ends, starts)).fetchone()
     if overlap:
         flash("Für diesen Zeitraum besteht bereits eine Abwesenheit.")
         return redirect(url_for("personnel.index"))
-    get_db().execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at) VALUES(?,?,?,?,?,?,?,?)", (employee["id"], kind, starts, ends, json.dumps(tags, ensure_ascii=False), request.form.get("note", "")[:1000], status, utc_now())); get_db().commit()
+    get_db().execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at,deputy_employee_id) VALUES(?,?,?,?,?,?,?,?,?)", (employee["id"], kind, starts, ends, json.dumps(tags, ensure_ascii=False), request.form.get("note", "")[:1000], status, utc_now(), int(deputy_id) if deputy_id else None)); get_db().commit()
     return redirect(url_for("personnel.index"))
 
 
@@ -333,4 +426,4 @@ def decide_absence(absence_id: int, decision: str):
     if int(row["employee_id"]) == int(approver["id"]): abort(403)
     if decision not in {"approved", "rejected"}: abort(404)
     get_db().execute("UPDATE employee_absence SET status=?,decided_at=?,decided_by_employee_id=? WHERE id=? AND status='requested'", (decision, utc_now(), approver["id"], absence_id)); get_db().commit()
-    return redirect(url_for("personnel.index"))
+    return redirect(url_for("personnel.hr" if request.form.get("return_to") == "hr" else "personnel.index"))
