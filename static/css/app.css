@@ -85,4 +85,33 @@ a { text-underline-offset: .16em; }
   .app-navbar .navbar-brand { margin-top: .1rem; }
 }
 @media (max-width: 767px) { .container, .container-xl { padding-inline: 1rem; } .card { border-radius: .7rem; } .calendar-day { min-height: 5.75rem; padding: .25rem; } .calendar-weekday { font-size: .62rem; padding: .35rem .05rem; } .calendar-event { font-size: .63rem; padding: .12rem; } .table-responsive { border: 1px solid var(--so-border); border-radius: .7rem; } .btn-group { flex-wrap: wrap; gap: .4rem; } }
+/* Personnel pages remain fully operable on narrow touch screens. */
+.personnel-page .page-actions { align-items: stretch; flex-wrap: wrap; }
+.personnel-page .personnel-row-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+@media (max-width: 575.98px) {
+  .personnel-page { overflow-x: clip; padding-top: 1rem !important; }
+  .personnel-page .page-actions,
+  .personnel-page .page-actions .btn,
+  .personnel-page .personnel-row-actions,
+  .personnel-page .personnel-row-actions form,
+  .personnel-page .personnel-row-actions .btn { width: 100%; }
+  .personnel-page .card-header { align-items: flex-start; flex-direction: column; gap: .25rem; }
+  .personnel-page .input-group { display: grid; gap: .5rem; grid-template-columns: minmax(0, 1fr); }
+  .personnel-page .input-group > .form-control,
+  .personnel-page .input-group > .form-select,
+  .personnel-page .input-group > .btn { border-radius: .5rem !important; margin-left: 0 !important; width: 100%; }
+  .personnel-page .personnel-punch-actions { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .personnel-page .personnel-punch-actions form,
+  .personnel-page .personnel-punch-actions .btn { min-width: 0; width: 100%; }
+  .personnel-page .personnel-punch-status { grid-column: 1 / -1; }
+  .personnel-page .personnel-mobile-table { min-width: 0; }
+  .personnel-page .personnel-mobile-table thead { display: none; }
+  .personnel-page .personnel-mobile-table tbody,
+  .personnel-page .personnel-mobile-table tr,
+  .personnel-page .personnel-mobile-table td { display: block; width: 100%; }
+  .personnel-page .personnel-mobile-table tr { border-bottom: .75rem solid var(--so-body-bg); padding-block: .25rem; }
+  .personnel-page .personnel-mobile-table tr:last-child { border-bottom: 0; }
+  .personnel-page .personnel-mobile-table td { border-bottom: 0; overflow-wrap: anywhere; padding: .45rem .75rem; }
+  .personnel-page .personnel-mobile-table td[data-label]::before { color: var(--so-muted); content: attr(data-label); display: block; font-size: .75rem; font-weight: 700; margin-bottom: .1rem; }
+}
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
