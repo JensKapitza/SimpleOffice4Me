@@ -70,10 +70,10 @@ class SecretBox:
     def encrypt(self, value: str) -> str:
         nonce = os.urandom(12)
         ciphertext = AESGCM(self.key).encrypt(nonce, value.encode("utf-8"), b"simpleoffice-mail-v1")
-        return base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
+        return "enc:v1:" + base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
 
     def decrypt(self, value: str) -> str:
-        raw = base64.urlsafe_b64decode(value.encode("ascii"))
+        raw = base64.urlsafe_b64decode(value.removeprefix("enc:v1:").encode("ascii"))
         return AESGCM(self.key).decrypt(raw[:12], raw[12:], b"simpleoffice-mail-v1").decode("utf-8")
 
 
