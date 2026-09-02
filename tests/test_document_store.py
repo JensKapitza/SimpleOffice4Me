@@ -338,6 +338,14 @@ class DocumentStoreTest(unittest.TestCase):
             store.open_share(first["share_id"], "neues-passwort", "198.51.100.24")
             self.assertEqual("aktiv", store.share_status(first["share_id"])["status"])
 
+    def test_share_password_requires_at_least_twelve_characters(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); source = root / "angebot.txt"; source.write_text("Intern", encoding="utf-8")
+            store = DocumentStore(root); store.scan(); document = store.get_document(source)
+
+            with self.assertRaisesRegex(ValueError, "at least 12 characters"):
+                store.create_share(document["document_id"], "zu-kurz", 7, "admin")
+
     def test_image_scan_extracts_exif_runs_ocr_and_generates_tags(self):
         try:
             from PIL import Image
