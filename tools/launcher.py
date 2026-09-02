@@ -118,6 +118,11 @@ def start_osm_index_worker(document_root: str, *, force: bool = False, city: str
     return subprocess.Popen(command, **options)
 
 
+def osm_index_enabled() -> bool:
+    value = os.environ.get("SIMPLEOFFICE_OSM_INDEX", "1").strip().casefold()
+    return value not in {"0", "false", "no", "off"}
+
+
 def start_osm_download_worker(document_root: str, region: str) -> subprocess.Popen[bytes]:
     """Download a resumable Geofabrik extract and index it outside WSGI."""
     command = [
@@ -232,14 +237,17 @@ def start(configure_only: bool = False) -> None:
         from app.document_store import DocumentStore
         DocumentStore(document_root).set_scan_status({"state": "failed", "error": f"Indexdienst konnte nicht gestartet werden: {exc}"})
         print(f"Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
-    try:
-        osm_worker = start_osm_index_worker(
-            document_root,
-            force=os.environ.get("SIMPLEOFFICE_OSM_REINDEX_ON_START", "").strip().casefold() in {"1", "true", "yes", "on"},
-        )
-    except OSError as exc:
+    if osm_index_enabled():
+        try:
+            osm_worker = start_osm_index_worker(
+                document_root,
+                force=os.environ.get("SIMPLEOFFICE_OSM_REINDEX_ON_START", "").strip().casefold() in {"1", "true", "yes", "on"},
+            )
+        except OSError as exc:
+            osm_worker = None
+            print(f"OSM-Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
+    else:
         osm_worker = None
-        print(f"OSM-Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
     try:
         datalogger_worker = start_datalogger_worker(document_root)
     except OSError as exc:
