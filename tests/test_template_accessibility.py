@@ -155,6 +155,19 @@ class TemplateAccessibilityTests(unittest.TestCase):
         for path, tag in close_buttons:
             self.assertTrue(_attributes(tag).get("aria-label"), path)
 
+    def test_personnel_tables_and_actions_support_small_screens(self):
+        personnel = [
+            self.templates[TEMPLATES / "personnel" / name]
+            for name in ("index.html", "hr.html", "team_calendar.html")
+        ]
+        for content in personnel:
+            self.assertIn("personnel-page", content)
+            self.assertIn("personnel-mobile-table", content)
+            self.assertIn("data-label=", content)
+        self.assertIn("personnel-punch-actions", personnel[0])
+        self.assertIn("personnel-row-actions", personnel[0])
+        self.assertIn("personnel-row-actions", personnel[1])
+
 
 if __name__ == "__main__":
     unittest.main()
