@@ -90,6 +90,14 @@ a { text-underline-offset: .16em; }
 .personnel-page .page-actions { align-items: stretch; flex-wrap: wrap; }
 .personnel-page .personnel-row-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
 @media (max-width: 575.98px) {
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  main.container, main.container-xl { padding-inline: .75rem; }
+  .btn, summary { min-height: 2.75rem; touch-action: manipulation; }
+  .form-control, .form-select { font-size: 1rem; }
+  .card-body { padding: .85rem; }
+  .modal-dialog { margin: .5rem; }
+  code, .text-break { overflow-wrap: anywhere; }
+  [id] { scroll-margin-top: 4.5rem; }
   .personnel-page { overflow-x: clip; padding-top: 1rem !important; }
   .personnel-page .page-actions,
   .personnel-page .page-actions .btn,
