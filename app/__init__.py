@@ -258,6 +258,9 @@ replication_store.init_app(app)
 from . import documents
 app.register_blueprint(documents.bp)
 
+from . import personnel
+app.register_blueprint(personnel.bp)
+
 from . import eur
 app.register_blueprint(eur.bp)
 
