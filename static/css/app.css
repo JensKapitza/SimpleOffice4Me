@@ -3,6 +3,7 @@
 [data-bs-theme="dark"] { --so-primary: #2dd4bf; --so-primary-hover: #5eead4; --so-surface: #111827; --so-body-bg: #0b1220; --so-body-color: #e5e7eb; --so-border: #334155; --so-muted: #94a3b8; --so-focus: rgba(45, 212, 191, .32); }
 body { background: var(--so-body-bg); color: var(--so-body-color); min-width: 320px; }
 a { text-underline-offset: .16em; }
+.min-w-0 { min-width: 0; }
 .skip-link { background: #fff; border: 2px solid var(--so-primary); border-radius: .5rem; color: #111827; left: 1rem; padding: .65rem 1rem; position: fixed; top: 1rem; transform: translateY(-200%); transition: transform .15s ease; z-index: 2000; }
 .skip-link:focus { transform: translateY(0); }
 .container, .container-xl { max-width: 1440px; }
