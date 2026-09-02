@@ -213,7 +213,7 @@
 <div class="card-header">Datei freigeben</div>
 <div class="card-body">
 <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}" class="input-group">
-<input required type="password" class="form-control" name="password" minlength="8" placeholder="Passwort">
+<input required type="password" class="form-control" name="password" minlength="12" placeholder="Passwort">
 <input class="form-control" type="number" name="expires_days" value="7" min="1" max="365">
 <button type="submit" class="btn btn-outline-primary">HTTPS-Link erzeugen</button>
 </form>
@@ -233,7 +233,7 @@
 <span class="badge {% if share.status == 'aktiv' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ share.status }}</span>
 </div>
 <small class="d-block text-secondary">Erstellt: {{ share.created_at }} · Ablauf: {{ share.expires_at }} · Abrufe: {{ share.access_log|length }}</small>{% if share.status == 'abgelaufen' %}<form method="post" action="{{ url_for('documents.renew_share', document_id=document.document_id, share_id=share.share_id) }}" class="input-group mt-2">
-<input required type="password" class="form-control form-control-sm" name="password" minlength="8" placeholder="Neues Passwort">
+<input required type="password" class="form-control form-control-sm" name="password" minlength="12" placeholder="Neues Passwort">
 <input class="form-control form-control-sm" type="number" name="expires_days" value="7" min="1" max="365">
 <button type="submit" class="btn btn-sm btn-outline-primary">Reaktivieren</button>
 </form>{% endif %}</div>{% else %}<div class="list-group-item text-secondary">Noch keine Freigabelinks.</div>{% endfor %}</div>

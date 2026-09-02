@@ -425,8 +425,8 @@ class DocumentStore:
         """Create a password-protected, expiring share for a file or one note."""
         self._require_actor(actor)
         password = password.strip()
-        if len(password) < 8:
-            raise ValueError("share password must contain at least 8 characters")
+        if len(password) < 12:
+            raise ValueError("share password must contain at least 12 characters")
         if not 1 <= expires_days <= 365:
             raise ValueError("share expiry must be between 1 and 365 days")
         document = self.get_document(reference)
@@ -469,7 +469,7 @@ class DocumentStore:
     def renew_share(self, reference: str | Path, share_id: str, password: str, expires_days: int, actor: str) -> dict[str, Any]:
         """Reactivate the same persistent URL, only with a replacement password."""
         self._require_actor(actor)
-        if len(password.strip()) < 8: raise ValueError("share password must contain at least 8 characters")
+        if len(password.strip()) < 12: raise ValueError("share password must contain at least 12 characters")
         if not 1 <= expires_days <= 365: raise ValueError("share expiry must be between 1 and 365 days")
         document_id = self.get_document(reference)["document_id"]
         payload = self._read_json(self.shares_path, {"shares": []})

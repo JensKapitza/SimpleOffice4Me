@@ -181,6 +181,30 @@ class AuthTest(unittest.TestCase):
         self.assertTrue(oauth_token["access_token"].startswith("enc:v1:"))
         self.assertNotIn("access", oauth_token["access_token"])
 
+    def test_registration_requires_twelve_character_password(self):
+        response = self.client.post("/auth/register", data={"username": "short", "password": "only-eight"})
+        self.assertEqual(200, response.status_code)
+        self.assertIn("mindestens 12 Zeichen", response.get_data(as_text=True))
+        with app.app_context():
+            self.assertIsNone(database.get_db().execute("SELECT id FROM user WHERE username='short'").fetchone())
+
+    def test_startup_migrates_legacy_plaintext_database_secrets(self):
+        with app.app_context():
+            db = database.get_db()
+            db.execute("INSERT INTO user(username,password,created_at,updated_at) VALUES(?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", ("legacy", "legacy-password"))
+            user_id = db.execute("SELECT id FROM user WHERE username='legacy'").fetchone()[0]
+            db.execute("INSERT INTO oauth_token(provider,user_id,access_token,refresh_token) VALUES(?,?,?,?)", ("google", user_id, "plain-access-secret", "plain-refresh-secret"))
+            db.commit()
+            database.ensure_auth_database()
+            user = db.execute("SELECT password FROM user WHERE id=?", (user_id,)).fetchone()
+            oauth = db.execute("SELECT access_token,refresh_token FROM oauth_token WHERE user_id=?", (user_id,)).fetchone()
+            self.assertTrue(user["password"].startswith(("scrypt:", "pbkdf2:")))
+            self.assertNotIn("legacy-password", user["password"])
+            self.assertTrue(oauth["access_token"].startswith("enc:v1:"))
+            self.assertTrue(oauth["refresh_token"].startswith("enc:v1:"))
+            self.assertNotIn("plain-access-secret", oauth["access_token"])
+            self.assertNotIn("plain-refresh-secret", oauth["refresh_token"])
+
     def test_public_registration_is_closed_after_bootstrap_by_default(self):
         self.client.post("/auth/register", data={"username": "owner", "password": "sicheres-passwort"})
         previous = {key: app.config.get(key) for key in ("TESTING", "TEST_CSRF_PROTECTION", "ALLOW_PUBLIC_REGISTRATION")}
