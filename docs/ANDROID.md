@@ -32,3 +32,37 @@ HTTPS-Serveradresse, eine Paket-ID und einen verwalteten Signierschlüssel. Es
 bringt keine echte Server-unabhängige Offline-Funktion. Falls Verteilung per MDM
 oder Sideloading erforderlich ist, kann auf Basis der PWA gezielt eine signierte
 TWA für genau diese Serveradresse ergänzt werden.
+
+## Server direkt auf dem Android-Gerät
+
+Für eine lokale Einzelplatzinstallation kann der Flask-/Waitress-Server in
+Termux laufen. Termux sollte gemäß der
+[offiziellen Installationsanleitung](https://github.com/termux/termux-app#installation)
+installiert werden; App und Erweiterungen dürfen nicht aus unterschiedlichen
+Quellen stammen.
+
+In Termux:
+
+```sh
+pkg update -y && pkg install -y git
+git clone https://github.com/JensKapitza/SimpleOffice4Me.git
+cd SimpleOffice4Me
+bash android/setup-termux.sh
+```
+
+Das Setup installiert die Abhängigkeiten, startet den Server unter
+`http://127.0.0.1:8080` und öffnet den Browser. Beim ersten Aufruf wird unter
+**Registrieren** das erste lokale Administratorkonto angelegt. Danach genügen:
+
+```sh
+simpleoffice start
+simpleoffice stop
+simpleoffice status
+simpleoffice log
+```
+
+Die Daten liegen im privaten Termux-App-Bereich. Android kann den Prozess trotz
+Wake-Lock bei Energiesparmaßnahmen beenden; Termux sollte deshalb von der
+Akkuoptimierung ausgenommen werden. Das Telefon-Setup bindet nur an `127.0.0.1`
+und ist nicht aus dem WLAN erreichbar. Ressourcenintensive Dokument-, OSM- und
+Sensor-Hintergrunddienste bleiben auf dem Telefon standardmäßig deaktiviert.
