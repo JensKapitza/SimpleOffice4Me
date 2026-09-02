@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from app.calendar_store import CalendarStore
@@ -65,6 +65,24 @@ class CalendarStoreTest(unittest.TestCase):
             self.assertEqual("Neuer Inhalt", deleted["reason"])
             self.assertTrue(any(change["field"] == "title" for change in deleted["changes"]))
             self.assertEqual({"from": "active", "to": "deleted", "by": "admin"}, {key: deleted["status_history"][-1][key] for key in ("from", "to", "by")})
+
+    def test_deleting_series_only_removes_current_and_future_occurrences(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            event = store.add("Schicht", "Serie", "2026-08-03T09:00", "2026-08-03T10:00", "", "admin")
+            event = store.set_recurrence(event["event_id"], {"rrule": "FREQ=WEEKLY;COUNT=10", "rdates": ["2026-08-19T09:00", "2026-08-21T09:00"], "timezone": "Europe/Berlin"}, "admin", event["updated_at"])
+
+            result = store.delete(event["event_id"], "admin", date(2026, 8, 20))
+
+            saved = store.get(event["event_id"], "admin")
+            self.assertEqual("series_truncated", result)
+            self.assertEqual("active", saved.get("status", "active"))
+            self.assertEqual("2026-08-20", saved["series_deleted_from"])
+            self.assertNotIn("COUNT=", saved["recurrence"]["rrule"])
+            self.assertIn("UNTIL=20260819T215959Z", saved["recurrence"]["rrule"])
+            occurrences = store.occurrences("admin", datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 9, 1, tzinfo=timezone.utc))
+            self.assertTrue(occurrences)
+            self.assertTrue(all(item["start"][:10] < "2026-08-20" for item in occurrences))
 
     def test_only_owner_can_change_event_sharing(self):
         with tempfile.TemporaryDirectory() as temp:

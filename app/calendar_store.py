@@ -535,8 +535,64 @@ class CalendarStore:
             self.history.record("calendar_event_sharing_updated", actor, "calendar", event_id, event)
         return event
 
-    def delete(self, event_id: str, actor: str) -> None:
+    def delete(self, event_id: str, actor: str, from_date: date | None = None) -> str:
+        """Delete one event, or truncate a recurring series without erasing history.
+
+        A series deletion always starts at ``from_date`` (today by default).  If
+        the series has already begun, its RRULE is ended immediately before that
+        local calendar day.  A series which has not begun yet can be deleted as a
+        whole because it has no historical occurrences to retain.
+        """
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read()
+            event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None:
+                raise ValueError("unknown calendar event")
+            if not self._can_view(event, actor):
+                raise ValueError("calendar event is not shared with this user")
+            if not self._can_edit(event, actor):
+                raise ValueError("calendar event is read-only for this user")
+            recurrence = event.get("recurrence", {})
+            tzid = recurrence.get("timezone", "")
+            cutoff = from_date or (datetime.now(ZoneInfo(tzid)).date() if tzid else date.today())
+            if not recurrence or self._recurrence_local_date(event["start"], recurrence.get("timezone", "")) >= cutoff:
+                # Keep the established auditable lifecycle representation for a
+                # single event or a series without historical occurrences.
+                pass
+            else:
+                previous = dict(recurrence)
+                boundary = datetime.combine(cutoff, time.min)
+                if tzid:
+                    boundary = boundary.replace(tzinfo=ZoneInfo(tzid)).astimezone(timezone.utc)
+                until = boundary - timedelta(seconds=1)
+                parts = [part for part in recurrence.get("rrule", "").split(";") if part and not part.upper().startswith(("COUNT=", "UNTIL="))]
+                if parts:
+                    parts.append(f"UNTIL={until.strftime('%Y%m%dT%H%M%SZ') if tzid else until.strftime('%Y%m%dT%H%M%S')}")
+                retained_rdates = [value for value in recurrence.get("rdates", []) if self._recurrence_local_date(value, tzid) < cutoff]
+                normalized = validate_recurrence({**recurrence, "rrule": ";".join(parts), "rdates": retained_rdates}, event["start"])
+                event["recurrence"] = normalized
+                event["recurrence_overrides"] = [value for value in event.get("recurrence_overrides", []) if self._recurrence_local_date(value.get("recurrence_id", ""), tzid) < cutoff]
+                changed_at = utc_now()
+                event["series_deleted_from"] = cutoff.isoformat()
+                event["updated_at"] = changed_at
+                event["updated_by"] = actor
+                event["sequence"] = int(event.get("sequence", 0)) + 1
+                event.pop("raw_ics", None)
+                event.setdefault("changes", []).append({"field": "recurrence", "old": previous, "new": normalized, "at": changed_at, "actor": actor})
+                event["changes"] = event["changes"][-200:]
+                atomic_json_write(self.path, data)
+                self.history.record("calendar_event_series_future_deleted", actor, "calendar", event_id, {**event, "deleted_from": cutoff.isoformat()})
+                return "series_truncated"
         self.set_lifecycle_status(event_id, "deleted", actor)
+        return "deleted"
+
+    @staticmethod
+    def _recurrence_local_date(value: str, tzid: str) -> date:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if tzid:
+            zone = ZoneInfo(tzid)
+            parsed = parsed.replace(tzinfo=zone) if parsed.tzinfo is None else parsed.astimezone(zone)
+        return parsed.date()
 
     def set_lifecycle_status(self, event_id: str, status: str, actor: str, moved_to: str = "") -> dict[str, Any]:
         """Keep cancelled/deleted/moved events as auditable records instead of removing them."""
