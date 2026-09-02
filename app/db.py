@@ -23,6 +23,29 @@ def close_db(e=None):
     if db is not None:
         db.close()
 
+
+def _migrate_sensitive_database_values() -> None:
+    """Replace legacy plaintext authentication material in SQLite in place."""
+    from werkzeug.security import generate_password_hash
+
+    from .security_controls import protect_value
+
+    db = get_db()
+    for row in db.execute("SELECT id, password FROM user").fetchall():
+        password = str(row["password"] or "")
+        if password and not password.startswith(("scrypt:", "pbkdf2:")):
+            db.execute("UPDATE user SET password=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (generate_password_hash(password), row["id"]))
+    for row in db.execute("SELECT provider,user_id,access_token,refresh_token FROM oauth_token").fetchall():
+        access_token = str(row["access_token"] or "")
+        refresh_token = str(row["refresh_token"] or "")
+        protected_access = access_token if not access_token or access_token.startswith("enc:v1:") else protect_value(access_token, "google-oauth")
+        protected_refresh = refresh_token if not refresh_token or refresh_token.startswith("enc:v1:") else protect_value(refresh_token, "google-oauth")
+        if (protected_access, protected_refresh) != (access_token, refresh_token):
+            db.execute(
+                "UPDATE oauth_token SET access_token=?,refresh_token=?,updated_at=CURRENT_TIMESTAMP WHERE provider=? AND user_id=?",
+                (protected_access, protected_refresh, row["provider"], row["user_id"]),
+            )
+
 def init_db():
     db = get_db()
 
@@ -138,6 +161,7 @@ def ensure_auth_database() -> None:
             FOREIGN KEY (user_id) REFERENCES user (id)
         )"""
     )
+    _migrate_sensitive_database_values()
     get_db().execute("CREATE INDEX IF NOT EXISTS mcp_token_user ON mcp_token(user_id, revoked_at)")
     get_db().execute(
         """CREATE TABLE IF NOT EXISTS mcp_operation (
