@@ -427,7 +427,11 @@ def safe_calendar_html(value):
 def add_header(response):
     """Add caching headers for static assets when not in debug mode."""
     app.logger.debug(f"debugging ist {app.debug}")
-    if not app.debug and (
+    if request.endpoint == "service_worker":
+        # Browsers must revalidate the worker itself to discover new cache versions.
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers.pop("Expires", None)
+    elif not app.debug and (
         "text/css" in str(response.content_type)
         or "application/javascript" in str(response.content_type)
     ):
@@ -453,6 +457,15 @@ def add_header(response):
 @app.route('/static/<path:dirname>/<path:filename>')
 def staticfile(dirname="", filename=""):
     return download_file(static_dir,dirname,filename)
+
+
+@app.get('/service-worker.js')
+def service_worker():
+    """Serve the worker at the origin root so it can control every app view."""
+    response = send_from_directory(static_dir, "service-worker.js", mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
 
 
 @app.route('/<myFile>', methods=['GET', 'POST'])
