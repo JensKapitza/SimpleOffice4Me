@@ -90,8 +90,10 @@ def register():
             error = 'Benutzername fehlt.'
         elif not password:
             error = 'Passwort fehlt.'
-        elif len(password) < 8:
-            error = 'Das Passwort muss mindestens 8 Zeichen haben.'
+        elif len(password) < 12:
+            error = 'Das Passwort muss mindestens 12 Zeichen haben.'
+        elif len(password) > 128:
+            error = 'Das Passwort darf höchstens 128 Zeichen haben.'
         elif db.execute(
             'SELECT id FROM user WHERE username = ?', (username,)
         ).fetchone() is not None:
