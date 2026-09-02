@@ -74,7 +74,10 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertEqual("Rückfrage", task["description"])
         self.assertEqual(["CRM", "Kunde"], task["categories"])
         dashboard = self.client.get("/documents/dashboard", base_url=self.base_url).get_data(as_text=True)
-        self.assertIn("CalDAV VTODO", dashboard); self.assertIn("Kunde anrufen", dashboard); self.assertIn("2026-09-03", dashboard)
+        self.assertIn("Kunde anrufen", dashboard); self.assertIn("2026-09-03", dashboard)
+        self.assertIn("Aufgaben verwalten", dashboard)
+        self.assertIn(f'/documents/tasks#task-{task["id"]}', dashboard)
+        self.assertNotIn(f'/documents/todo/{task["id"]}" class="row', dashboard)
         updated = self.client.post(f"/documents/todo/{task['id']}", data={"title": "Kunde zurückrufen", "status": "in-process", "percent_complete": "50"}, base_url=self.base_url)
         self.assertEqual(302, updated.status_code)
         task = TodoStore(self.root).items("jens")[0]
