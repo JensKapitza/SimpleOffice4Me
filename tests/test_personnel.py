@@ -38,6 +38,15 @@ class PersonnelTest(unittest.TestCase):
             employee = database.get_db().execute("SELECT * FROM employee").fetchone(); user = database.get_db().execute("SELECT * FROM user WHERE id=?", (employee["user_id"],)).fetchone()
             self.assertEqual(self.contact["contact_id"], employee["contact_id"]); self.assertEqual(1, user["is_disabled"])
 
+    def test_reader_cannot_enrol_foreign_contact_or_leave_partial_rows(self):
+        store = ContactStore(Path(self.temp.name) / "docs")
+        foreign = store.upsert({"display_name":"Fremder Kontakt","email":"foreign@example.test"}, "owner")
+        store.share(foreign["contact_id"], [], "owner", readers=["jens"])
+        self.assertEqual(403, self.client.post("/personnel/employees", data={"contact_id":foreign["contact_id"]}).status_code)
+        with app.app_context():
+            self.assertEqual(0, database.get_db().execute("SELECT COUNT(*) FROM employee").fetchone()[0])
+            self.assertIsNone(database.get_db().execute("SELECT id FROM user WHERE email='foreign@example.test'").fetchone())
+
     def test_schedule_rejects_more_than_ten_hours(self):
         self.client.post("/personnel/employees", data={"contact_id":self.contact["contact_id"]})
         data = {f"start_{i}":"08:00" for i in range(7)} | {f"hours_{i}":"0" for i in range(7)}; data["hours_0"] = "10.25"
@@ -102,6 +111,12 @@ class PersonnelTest(unittest.TestCase):
         self.client.post("/auth/register", data={"username":"kollege","password":"sicheres-passwort"})
         self.client.post("/auth/login", data={"username":"kollege","password":"sicheres-passwort"})
         self.assertEqual(403, self.client.get("/personnel/hr").status_code)
+
+    def test_unlinked_user_cannot_open_personnel_page(self):
+        self.client.post("/auth/logout")
+        self.client.post("/auth/register", data={"username":"unlinked","password":"sicheres-passwort"})
+        self.client.post("/auth/login", data={"username":"unlinked","password":"sicheres-passwort"})
+        self.assertEqual(403, self.client.get("/personnel").status_code)
 
 
 if __name__ == "__main__": unittest.main()
