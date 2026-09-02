@@ -31,6 +31,7 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
         smtp = self.store.smtp_account("alice", self.account["id"])
         self.assertEqual("secret-password", smtp["smtp_plain_password"])
         stored = json.loads(self.store.accounts_path.read_text())["accounts"][0]["password"]
+        self.assertTrue(stored.startswith("enc:v1:"))
         self.assertNotEqual("secret-password", stored)
 
     def test_explicit_smtp_password_survives_encrypted_storage_roundtrip(self):
