@@ -7,19 +7,20 @@ import re
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 from werkzeug.security import generate_password_hash
 
 from .auth import login_required
 from .contact_store import ContactStore
 from .db import get_db
 from .document_store import utc_now
+from .settings_store import SettingsStore
 
 
 bp = Blueprint("personnel", __name__, url_prefix="/personnel")
 WEEKDAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 PUNCH_ACTIONS = {"clock_in", "break_start", "break_end", "clock_out"}
-PERSONNEL_TIMEZONE = ZoneInfo("Europe/Berlin")
+DEFAULT_PERSONNEL_TIMEZONE = ZoneInfo("Europe/Berlin")
 
 
 def _contacts() -> ContactStore:
@@ -99,7 +100,6 @@ def _link_or_create_user(contact: dict) -> tuple[int, str]:
            VALUES(?,?,?,?,0,1,1,?,?,?)""",
         (username, generate_password_hash(__import__("secrets").token_urlsafe(48)), name, email, now, now, "employee_contact"),
     )
-    db.commit()
     return int(cursor.lastrowid), username
 
 
@@ -129,12 +129,21 @@ def required_break_minutes(work_minutes: int) -> int:
 
 
 def _local_now() -> datetime:
-    return datetime.now(PERSONNEL_TIMEZONE)
+    return datetime.now(_personnel_timezone())
+
+
+def _personnel_timezone() -> ZoneInfo:
+    name = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["interface"]["timezone"]
+    try:
+        return ZoneInfo(name)
+    except (KeyError, ValueError):
+        return DEFAULT_PERSONNEL_TIMEZONE
 
 
 def _day_punches(employee_id: int, shown: date) -> list:
-    lower = datetime.combine(shown, time.min, PERSONNEL_TIMEZONE).astimezone(timezone.utc).isoformat(timespec="seconds")
-    upper = datetime.combine(shown + timedelta(days=1), time.min, PERSONNEL_TIMEZONE).astimezone(timezone.utc).isoformat(timespec="seconds")
+    local_timezone = _personnel_timezone()
+    lower = datetime.combine(shown, time.min, local_timezone).astimezone(timezone.utc).isoformat(timespec="seconds")
+    upper = datetime.combine(shown + timedelta(days=1), time.min, local_timezone).astimezone(timezone.utc).isoformat(timespec="seconds")
     rows = get_db().execute(
         "SELECT action,occurred_at FROM employee_punch WHERE employee_id=? AND occurred_at>=? AND occurred_at<? ORDER BY occurred_at,id",
         (employee_id, lower, upper),
@@ -155,9 +164,10 @@ def _day_summary(employee_id: int, shown: date, now: datetime | None = None) -> 
         elif row["action"] == "clock_out" and active:
             work += max(0, int((stamp - active).total_seconds() // 60)); active = None
     local_current = now or _local_now()
-    if local_current.tzinfo is None: local_current = local_current.replace(tzinfo=PERSONNEL_TIMEZONE)
+    local_timezone = _personnel_timezone()
+    if local_current.tzinfo is None: local_current = local_current.replace(tzinfo=local_timezone)
     current = local_current.astimezone(timezone.utc)
-    if shown == local_current.astimezone(PERSONNEL_TIMEZONE).date():
+    if shown == local_current.astimezone(local_timezone).date():
         if active: work += max(0, int((current - active).total_seconds() // 60))
         if break_started: breaks += max(0, int((current - break_started).total_seconds() // 60))
     required = required_break_minutes(work)
@@ -216,7 +226,7 @@ def _previous_month(shown: date) -> str:
 
 def close_due_months(as_of: date | None = None) -> int:
     """Freeze the previous month on or after the tenth, once per employee."""
-    _ensure(); shown = as_of or date.today()
+    _ensure(); shown = as_of or _local_now().date()
     if shown.day < 10: return 0
     month = _previous_month(shown); year, number = map(int, month.split("-"))
     first = date(year, number, 1)
@@ -250,22 +260,28 @@ def _require_hr():
 @bp.get("")
 @login_required
 def index():
-    _ensure(); close_due_months(); db = get_db(); actor = _employee_for_user(int(g.user["id"])); contacts = _contacts(); today = _local_now().date()
+    _ensure(); close_due_months(); db = get_db(); actor_row = _employee_for_user(int(g.user["id"])); contacts = _contacts(); today = _local_now().date()
+    if actor_row is None and not g.user["is_admin"]: abort(403)
+    is_hr = bool(g.user["is_admin"] or (actor_row and actor_row["can_approve"]))
+    names = _employee_names()
     employees = []
     for row in db.execute("SELECT * FROM employee WHERE active=1 ORDER BY id").fetchall():
         try: contact = contacts.get(row["contact_id"], str(g.user["username"]))
         except ValueError: contact = {"contact_id": row["contact_id"], "fields": {"display_name": "Nicht sichtbarer Kontakt"}}
         schedule = json.loads(row["schedule_json"] or "{}")
-        employees.append({**dict(row), "contact": contact, "schedule": schedule,
+        private = bool(is_hr or (actor_row and int(actor_row["id"]) == int(row["id"])))
+        day = _day_summary(int(row["id"]), today)
+        public_day = day if private else {"open": day["open"], "state": day["state"]}
+        employees.append({**dict(row), "contact": contact, "name": names.get(int(row["id"]), "—"), "schedule": schedule,
                           "week_hours": sum(float(value.get("hours", 0) or 0) for value in schedule.values()),
                           "today_plan": _schedule_summary(schedule, today.weekday()),
-                          "today": _day_summary(int(row["id"]), today)})
-        employees[-1]["flex"] = _flex_account(int(row["id"]), schedule)
+                          "today": public_day, "private_time_visible": private})
+        employees[-1]["flex"] = _flex_account(int(row["id"]), schedule) if private else None
     all_absences = [dict(row) for row in db.execute("SELECT * FROM employee_absence ORDER BY starts_on DESC,id DESC").fetchall()]
-    month_closes = [dict(row) for row in db.execute("SELECT * FROM employee_month_close ORDER BY month DESC,employee_id").fetchall()]
+    all_month_closes = [dict(row) for row in db.execute("SELECT * FROM employee_month_close ORDER BY month DESC,employee_id").fetchall()]
+    month_closes = all_month_closes if is_hr else [row for row in all_month_closes if actor_row and int(row["employee_id"]) == int(actor_row["id"])]
     by_id = {row["id"]: row for row in employees}
-    actor = by_id.get(int(actor["id"])) if actor else None
-    is_hr = bool(g.user["is_admin"] or (actor and actor["can_approve"]))
+    actor = by_id.get(int(actor_row["id"])) if actor_row else None
     absences = all_absences if is_hr else [value for value in all_absences if actor and int(value["employee_id"]) == int(actor["id"])]
     for absence in absences:
         absence["employee"] = by_id.get(absence["employee_id"])
@@ -326,9 +342,19 @@ def team_calendar():
 @login_required
 def add_employee():
     if not g.user["is_admin"]: abort(403)
-    _ensure(); contacts = _contacts(); contact = contacts.get(request.form.get("contact_id", ""), str(g.user["username"])); user_id, username = _link_or_create_user(contact); now = utc_now()
-    get_db().execute("INSERT INTO employee(contact_id,user_id,created_at,updated_at) VALUES(?,?,?,?)", (contact["contact_id"], user_id, now, now)); get_db().commit()
-    contacts.share(contact["contact_id"], [*contact.get("managers", []), username], str(g.user["username"]), readers=contact.get("readers", []))
+    _ensure(); contacts = _contacts(); principal = str(g.user["username"])
+    contact = contacts.get(request.form.get("contact_id", ""), principal)
+    owner = str(contact.get("owner", "")).strip() or ContactStore._principal(str(contact.get("created_by", "")))
+    if owner != ContactStore._principal(principal):
+        abort(403, description="Nur der Eigentümer kann einen Kontakt als Mitarbeiter führen")
+    db = get_db(); user_id, username = _link_or_create_user(contact); now = utc_now()
+    try:
+        db.execute("INSERT INTO employee(contact_id,user_id,created_at,updated_at) VALUES(?,?,?,?)", (contact["contact_id"], user_id, now, now))
+        contacts.share(contact["contact_id"], [*contact.get("managers", []), username], principal, readers=contact.get("readers", []))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     flash("Mitarbeiterkontakt verknüpft. Ein neu erzeugtes Benutzerkonto bleibt bis zur Aktivierung gesperrt.")
     return redirect(url_for("personnel.index"))
 
