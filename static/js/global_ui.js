@@ -56,4 +56,14 @@
       });
     });
   });
+
+  const openFragmentTarget = () => {
+    if (!window.location.hash) return;
+    const target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+    if (!(target instanceof HTMLDetailsElement) || !target.hasAttribute("data-open-fragment")) return;
+    target.open = true;
+    window.requestAnimationFrame(() => target.scrollIntoView({ block: "start" }));
+  };
+  openFragmentTarget();
+  window.addEventListener("hashchange", openFragmentTarget);
 })();
