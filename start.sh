@@ -36,6 +36,12 @@ Die gefundenen Python-Pakete werden vor dem Dependency-Install gegen die
 SimpleOffice-Versionsanforderungen geprüft. Nur fehlende oder zu alte Pakete
 fallen anschließend auf pip in der lokalen .venv zurück.
 
+Unter Termux werden native Kryptografie-Abhängigkeiten ausschließlich über pkg
+bezogen. pip probiert für die übrigen Laufzeitpakete zuerst ausschließlich
+kompatible Wheels. Nur wenn das nicht reicht, werden Build-Werkzeuge installiert
+und ein Source-Fallback versucht; PyNaCl, bcrypt und cryptography werden dabei
+weiterhin nicht aus PyPI gebaut.
+
 Native Paketinstallation kann mit SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert
 werden. Eine vorhandene .venv wird nur dann neu erzeugt, wenn native Pakete
 sonst durch ihre Isolation nicht sichtbar wären.
@@ -102,7 +108,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -n "${TERMUX_VERSION:-}" ] || { [ -n "${PREFIX:-}" ] && [ -x "${PREFIX}/bin/pkg" ]; }; then
+if [ -n "${TERMUX_VERSION:-}" ] \
+  || { [ -n "${PREFIX:-}" ] && [ -x "${PREFIX}/bin/pkg" ]; } \
+  || [ -x /data/data/com.termux/files/usr/bin/pkg ] \
+  || command -v termux-info >/dev/null 2>&1; then
   IS_TERMUX=1
 fi
 
@@ -274,6 +283,10 @@ native_python_packages() {
   esac
 }
 
+termux_build_packages() {
+  printf '%s\n' "clang make pkg-config libffi openssl libsodium"
+}
+
 python_is_compatible() {
   command -v "$PYTHON" >/dev/null 2>&1 || return 1
   "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
@@ -375,6 +388,8 @@ requirements = {
     "cryptography": ">=50,<51",
     "watchdog": ">=6,<7",
     "paramiko": ">=3.5,<6",
+    "bcrypt": ">=3.2",
+    "PyNaCl": ">=1.5",
 }
 
 problems = []
@@ -398,6 +413,47 @@ if problems:
     raise SystemExit(1)
 
 print("Native/System-Python-Pakete erfüllen alle SimpleOffice-Anforderungen.")
+PY
+}
+
+termux_native_dependencies_ok() {
+  "$VENV/bin/python" - <<'PY'
+import importlib
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    from packaging.specifiers import SpecifierSet
+    from packaging.version import Version
+except ImportError:
+    from pip._vendor.packaging.specifiers import SpecifierSet
+    from pip._vendor.packaging.version import Version
+
+requirements = {
+    "cryptography": (">=50,<51", "cryptography"),
+    "Pillow": (">=12.3,<13", "PIL"),
+    "bcrypt": (">=3.2", "bcrypt"),
+    "PyNaCl": (">=1.5", "nacl"),
+}
+problems = []
+for distribution, (specifier, module) in requirements.items():
+    try:
+        installed = version(distribution)
+        if Version(installed) not in SpecifierSet(specifier):
+            problems.append(f"{distribution}: {installed} passt nicht zu {specifier}")
+            continue
+        importlib.import_module(module)
+    except PackageNotFoundError:
+        problems.append(f"{distribution}: fehlt ({specifier})")
+    except Exception as exc:
+        problems.append(f"{distribution}/{module}: nicht importierbar: {exc}")
+
+if problems:
+    print("Termux-native Python-Abhängigkeiten sind nicht verwendbar:")
+    for problem in problems:
+        print(f"  - {problem}")
+    raise SystemExit(1)
+
+print("Termux-native Kryptografie-Pakete sind vorhanden und versionskompatibel.")
 PY
 }
 
@@ -437,27 +493,47 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 
 if [ "$IS_TERMUX" -eq 1 ]; then
-  "$VENV/bin/python" - <<'PY'
-import importlib
+  if ! termux_native_dependencies_ok; then
+    echo "Termux-Pakete werden erneut installiert/aktualisiert, bevor pip verwendet wird."
+    install_native_packages python-cryptography python-pillow python-bcrypt python-pynacl
+    termux_native_dependencies_ok || {
+      echo "Die benötigten nativen Termux-Python-Pakete sind weiterhin nicht verwendbar; pip baut sie absichtlich nicht aus Source." >&2
+      exit 1
+    }
+  fi
 
-modules = ("cryptography", "PIL", "bcrypt", "nacl")
-missing = []
-for module in modules:
-    try:
-        importlib.import_module(module)
-    except Exception as exc:
-        missing.append(f"{module}: {exc}")
-if missing:
-    raise SystemExit("Termux-Systempakete sind nicht importierbar:\n  " + "\n  ".join(missing))
-PY
+  # Android/Termux kann manylinux/musllinux Wheels nicht als native Android-Wheels
+  # verwenden. Diese drei Abhängigkeiten dürfen daher niemals unbemerkt aus Source
+  # gebaut werden. Sie kommen ausschließlich aus pkg und bleiben über
+  # --system-site-packages sichtbar.
+  export PIP_ONLY_BINARY="PyNaCl,bcrypt,cryptography"
+  export PIP_PREFER_BINARY=1
+  export SODIUM_INSTALL=system
 
-  # Install the pure-Python/runtime dependencies first. Native Termux packages
-  # stay visible through --system-site-packages and are therefore not rebuilt.
-  "$VENV/bin/python" -m pip install --disable-pip-version-check \
-    'Flask>=3.0,<4' 'beautifulsoup4>=4.12,<5' \
-    'reportlab>=4.0,<6' 'pypdf>=5.0,<7' 'waitress>=3.0,<4' \
-    'watchdog>=6,<7' 'paramiko>=3.5,<6'
+  termux_runtime_requirements=(
+    'Flask>=3.0,<4'
+    'beautifulsoup4>=4.12,<5'
+    'reportlab>=4.0,<6'
+    'pypdf>=5.0,<7'
+    'waitress>=3.0,<4'
+    'watchdog>=6,<7'
+  )
+
+  echo "Termux: versuche zuerst ausschließlich fertige Wheels für nicht-native Laufzeitpakete ..."
+  if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: "${termux_runtime_requirements[@]}"; then
+    echo "Nicht alle Laufzeitpakete besitzen ein kompatibles Android-Wheel; installiere Build-Werkzeuge für den kontrollierten Fallback."
+    build_packages="$(termux_build_packages)"
+    # shellcheck disable=SC2086
+    install_native_packages $build_packages
+    "$VENV/bin/python" -m pip install --disable-pip-version-check --prefer-binary "${termux_runtime_requirements[@]}"
+  fi
+
+  # Paramiko selbst ist Python-Code. Seine nativen Abhängigkeiten wurden oben
+  # bereits per pkg geprüft; --no-deps verhindert, dass pip PyNaCl/bcrypt/
+  # cryptography erneut auflöst oder zu bauen versucht.
+  "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps 'paramiko>=3.5,<6'
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
+  "$VENV/bin/python" -m pip check
 elif [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && native_dependency_versions_ok; then
   echo "Alle benötigten Python-Abhängigkeiten kommen passend aus der Linux-Umgebung; pip installiert nur SimpleOffice selbst."
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
