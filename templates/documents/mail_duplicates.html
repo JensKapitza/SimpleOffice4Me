@@ -48,7 +48,7 @@
   </div></section>
 
   {% if connection_error %}<div class="alert alert-warning" role="status"><i class="fas fa-triangle-exclamation me-2" aria-hidden="true"></i>{{ connection_error }}</div>{% endif %}
-  {% if read_only %}<div class="alert alert-warning" role="status"><strong>Read-only aktiv.</strong> Indexieren, Suchen und Dubletten prüfen ist möglich. Verschieben und Löschen bleibt blockiert, bis der Schreibzugriff für das Konto ausdrücklich freigegeben wird.</div>{% endif %}
+  {% if read_only %}<div class="alert alert-warning" role="status"><strong>Read-only aktiv.</strong> Indexieren, Suchen, Dubletten prüfen und Federation-Wiederherstellung ins lokale Archiv sind möglich. Verschieben und Löschen auf dem IMAP-Server bleibt blockiert, bis der Schreibzugriff ausdrücklich freigegeben wird.</div>{% endif %}
 
   {% if selected %}
   <section class="row g-3 mb-3" aria-label="Indexstatus">
@@ -61,6 +61,53 @@
   <div class="alert alert-secondary small">
     <strong>Indexeinträge bleiben erhalten.</strong> Wird eine Mail auf ihrem bisherigen Server nicht mehr gefunden, erhält sie den Status <em>Ziel nicht gefunden</em>. Der Datensatz bleibt als Such- und Federation-Hinweis bestehen. Nur ein Administrator kann solche Tombstones endgültig aufräumen.
   </div>
+
+  <section class="card border-primary mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div><strong><i class="fas fa-network-wired me-2" aria-hidden="true"></i>Mail-Federation</strong><div class="small text-secondary">Fehlende Mailziele auf bekannten SimpleOffice-Instanzen anhand von Fingerprints wiederfinden.</div></div>
+      <span class="badge {{ 'text-bg-success' if federation_export_enabled else 'text-bg-secondary' }}">{{ 'dieses Konto stellt Treffer bereit' if federation_export_enabled else 'eigene Trefferfreigabe aus' }}</span>
+    </div>
+    <div class="card-body">
+      <div class="row g-3 align-items-start mb-3">
+        <div class="col-lg-7">
+          <p class="mb-2">Bei der Suche werden nur Raw-SHA-512, normalisierte Content-SHA-512 und Similarity-Fingerprint an authentifizierte bekannte Federation-Peers gesendet. Betreff, Absender, Empfänger und Mailtext werden nicht als Suchmetadaten übertragen.</p>
+          <form method="post" action="{{ url_for('mail_index.federation_discover') }}" class="d-flex flex-wrap gap-2 align-items-center">
+            <input type="hidden" name="account" value="{{ selected.id }}">
+            <button type="submit" class="btn btn-primary" {% if not stats.missing %}disabled{% endif %}><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>{{ stats.missing }} fehlende Ziele auf Peers suchen</button>
+            <span class="small text-secondary">Gefundene Quellen bleiben lokal gespeichert, auch wenn ein Peer später offline ist.</span>
+          </form>
+        </div>
+        <div class="col-lg-5">
+          <div class="border rounded p-3 bg-body-tertiary">
+            <strong>Eigene Maildaten für Federation anbieten</strong>
+            <p class="small text-secondary mt-1 mb-2">Standardmäßig aus. Bei Freigabe beantwortet diese Instanz Fingerprint-Suchen und liefert eine EML nur über einen nicht erratbaren Locator an authentifizierte Federation-Peers.</p>
+            <form method="post" action="{{ url_for('mail_index.federation_export') }}">
+              <input type="hidden" name="account" value="{{ selected.id }}">
+              <input type="hidden" name="enabled" value="{{ '0' if federation_export_enabled else '1' }}">
+              <button type="submit" class="btn {{ 'btn-outline-danger' if federation_export_enabled else 'btn-outline-success' }}">{{ 'Freigabe deaktivieren' if federation_export_enabled else 'Für Federation freigeben' }}</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {% if federation_rows %}
+      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th scope="col">Lokaler Index</th><th scope="col">Peer-Quelle</th><th scope="col">Treffer</th><th scope="col">Verfügbarkeit</th><th scope="col">Aktion</th></tr></thead>
+        <tbody>
+        {% for item in federation_rows %}{% for source in item.sources %}
+          <tr>
+            <td>{% if loop.first %}<strong>{{ item.row.subject }}</strong><div class="small text-secondary">{{ item.row.folder }} · {{ item.row.message_date }}</div>{% endif %}</td>
+            <td><strong>{{ source.peer_id }}</strong>{% if source.last_error %}<div class="small text-danger">letzter Abruf: {{ source.last_error }}</div>{% endif %}</td>
+            <td><span class="badge {{ 'text-bg-success' if source.match_kind in ['raw','content'] else 'text-bg-warning' }}">{{ 'Raw-SHA-512' if source.match_kind == 'raw' else 'Content-SHA-512' if source.match_kind == 'content' else 'ähnlicher Inhalt' }}</span><div class="small text-secondary">{{ source.confidence }} %{% if source.distance %} · Distanz {{ source.distance }}{% endif %}</div></td>
+            <td>{% if source.availability == 'archive' %}<span class="badge text-bg-success">Archiv</span>{% elif source.availability == 'imap' %}<span class="badge text-bg-primary">IMAP erreichbar</span>{% else %}<span class="badge text-bg-secondary">nur Index</span>{% endif %}</td>
+            <td>{% if source.recovered_document_id %}<span class="badge text-bg-success">lokal wiederhergestellt</span>{% elif source.availability != 'index_only' %}<form method="post" action="{{ url_for('mail_index.federation_recover', source_id=source.source_id) }}"><input type="hidden" name="account" value="{{ selected.id }}"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-cloud-arrow-down me-1" aria-hidden="true"></i>EML prüfen & archivieren</button></form>{% else %}<span class="small text-secondary">Peer kennt nur den Index</span>{% endif %}</td>
+          </tr>
+        {% endfor %}{% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}<div class="text-secondary">Noch keine Federation-Quellen gespeichert.</div>{% endif %}
+    </div>
+  </section>
 
   {% if query %}
   <section class="card mb-4">
