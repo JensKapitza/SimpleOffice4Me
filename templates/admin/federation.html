@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h2 mb-1">Federation / SOFP</h1><p class="text-secondary mb-0">Peers, Rechte und Server-zu-Server-Dateitransfers verwalten.</p></div>
+    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzer</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Inventar</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Fehler / Audit</a></div>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Peers</div><div class="fs-3">{{ stats.peers }}</div><small>{{ stats.enabled_peers }} aktiv</small></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Aktive Transfers</div><div class="fs-3">{{ stats.active_transfers }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Abgeschlossen</div><div class="fs-3">{{ stats.completed_transfers }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Fehlgeschlagen</div><div class="fs-3">{{ stats.failed_transfers }}</div></div></div></div>
+  </div>
+  <section class="card mb-4"><div class="card-header">Peer hinzufügen / ändern</div><div class="card-body">
+    <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-3">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-3"><label class="form-label">Peer-ID</label><input class="form-control" name="peer_id" required></div>
+      <div class="col-md-3"><label class="form-label">Name</label><input class="form-control" name="label"></div>
+      <div class="col-md-6"><label class="form-label">Basis-URL</label><input class="form-control" name="base_url" placeholder="http://10.0.0.2:8080" required></div>
+      <div class="col-md-6"><label class="form-label">Bearer-Token</label><input class="form-control" type="password" name="token" autocomplete="new-password"><div class="form-text">Wird verschlüsselt gespeichert.</div></div>
+      <div class="col-md-6"><label class="form-label">Policy JSON</label><input class="form-control font-monospace" name="policy_json" value='{"documents":{"send":true,"receive":true,"seed":true}}'></div>
+      <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="enabled" value="1" checked id="fed-enabled"><label class="form-check-label" for="fed-enabled">Peer aktiv</label></div></div>
+      <div class="col-12"><button class="btn btn-primary">Peer speichern</button></div>
+    </form>
+  </div></section>
+  <section class="card mb-4"><div class="card-header">Peers</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Name</th><th>URL</th><th>Status</th><th>Letzter Kontakt</th><th></th></tr></thead><tbody>
+  {% for peer in peers %}<tr><td><code>{{ peer.peer_id }}</code></td><td>{{ peer.label }}</td><td class="text-break"><code>{{ peer.base_url }}</code></td><td><span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'aus' }}</span>{% if peer.last_error %}<div class="text-danger small">{{ peer.last_error }}</div>{% endif %}</td><td>{{ peer.last_seen_at or '–' }}</td><td class="text-nowrap"><form class="d-inline" method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Test</button></form> <form class="d-inline" method="post" action="{{ url_for('federation_admin.delete_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger">Löschen</button></form></td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Noch keine Peers konfiguriert.</td></tr>{% endfor %}
+  </tbody></table></div></section>
+  <section class="card mb-4"><div class="card-header">Transfer anlegen</div><div class="card-body"><form method="post" action="{{ url_for('federation_admin.create_transfer') }}" class="row g-3"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="col-md-6"><label class="form-label">Blob SHA-256</label><input class="form-control font-monospace" name="blob_hash" required></div><div class="col-md-3"><label class="form-label">Ziel-Peer</label><select class="form-select" name="target_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select></div><div class="col-md-3"><label class="form-label">Operation</label><select class="form-select" name="operation"><option>COPY</option><option>REPLICATE</option><option>VERIFY</option><option>REPAIR</option></select></div><div class="col-12"><button class="btn btn-primary">Transfer anlegen</button></div></form></div></section>
+  <section class="card mb-4"><div class="card-header">Transfers</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Blob</th><th>Ziel</th><th>Status</th><th>Fortschritt</th><th>Fehler</th><th></th></tr></thead><tbody>{% for item in transfers %}<tr><td><code>{{ item.transfer_id }}</code></td><td><code>{{ item.blob_hash[:16] }}…</code></td><td>{{ item.target_peer or item.target_url }}</td><td>{{ item.status }}</td><td>{{ item.transferred_bytes }} / {{ item.total_bytes }}</td><td class="text-danger small">{{ item.error }}</td><td><form method="post" action="{{ url_for('federation_admin.run_transfer', job_id=item.transfer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Start</button></form></td></tr>{% else %}<tr><td colspan="7" class="text-secondary">Keine Transfers.</td></tr>{% endfor %}</tbody></table></div></section>
+  <section class="card"><div class="card-header">Letzte Federation-Ereignisse</div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Aktion</th><th>Peer</th><th>Transfer</th><th>Details</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td><code>{{ event.transfer_id }}</code></td><td><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody></table></div></section>
+</main>
+{% endblock %}
