@@ -11,6 +11,7 @@ from app import app
 from app import db as database
 from app.mail_client import MailStore
 from app.mail_routes import _smtp_authentication_message
+from app.mail_webclient import MailAccountPolicy
 
 
 class MailAuthDiagnosticsTests(unittest.TestCase):
@@ -129,6 +130,9 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
             app.config.update(previous)
 
     def test_send_route_preserves_actionable_local_validation_message(self):
+        # Sending is now fail-safe read-only by default. This validation test
+        # explicitly enables writes so it continues to exercise local compose validation.
+        MailAccountPolicy(self.store).set_read_only("alice", self.account["id"], False)
         client, previous = self._login_client()
         try:
             with patch("app.mail_routes._store", return_value=self.store):

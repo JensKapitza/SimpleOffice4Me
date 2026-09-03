@@ -1,4 +1,4 @@
-"""Authenticated IMAP archive and Sieve editor pages."""
+"""Authenticated IMAP archive, SMTP and Sieve editor pages."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, flash, g, redirect, render_template, r
 
 from .auth import login_required
 from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpSubmission
+from .mail_webclient import MailAccountPolicy, MailReadOnlyError
 from .sieve_sync import ManageSieveSyncClient, activate_server_script, server_state, sync_from_server
 
 bp = Blueprint("mail_client", __name__, url_prefix="/documents/mail")
@@ -24,7 +25,6 @@ def _store() -> MailStore:
 
 
 def _account_with_effective_password(store: MailStore, account_id: str) -> dict:
-    """Use the saved secret just like the mail reader; fall back to manual input only when needed."""
     safe = next((row for row in store.accounts(_actor()) if row["id"] == account_id), None)
     if safe is None:
         raise KeyError("mail account does not exist")
@@ -35,13 +35,6 @@ def _account_with_effective_password(store: MailStore, account_id: str) -> dict:
 
 
 def _smtp_account_with_effective_password(store: MailStore, account_id: str) -> dict:
-    """Resolve SMTP credentials without letting browser autofill replace a saved secret.
-
-    Saved SMTP credentials, configured SMTP password environments, and the
-    intentionally reused saved IMAP credential all take precedence. A manual
-    SMTP password is only used when no configured secret source exists, unless
-    the caller explicitly requests an override.
-    """
     safe = next((row for row in store.accounts(_actor()) if row["id"] == account_id), None)
     if safe is None:
         raise KeyError("mail account does not exist")
@@ -58,7 +51,6 @@ def _smtp_account_with_effective_password(store: MailStore, account_id: str) -> 
 
 
 def _smtp_authentication_message(exc: smtplib.SMTPAuthenticationError) -> str:
-    """Return an actionable SMTP authentication error without echoing server text."""
     code = int(getattr(exc, "smtp_code", 0) or 0)
     status = f" ({code})" if code else ""
     return (
@@ -66,6 +58,11 @@ def _smtp_authentication_message(exc: smtplib.SMTPAuthenticationError) -> str:
         "Bei aktivierter Zwei-Faktor-Anmeldung ist häufig ein App-Passwort erforderlich; "
         "einige Anbieter verlangen stattdessen OAuth."
     )
+
+
+def _readonly_map(store: MailStore, accounts: list[dict]) -> dict[str, bool]:
+    policy = MailAccountPolicy(store)
+    return {row["id"]: policy.read_only(_actor(), row["id"]) for row in accounts}
 
 
 @bp.get("")
@@ -88,9 +85,11 @@ def index():
             script_content = store.script(_actor(), selected["id"], script_name)
         except (OSError, ValueError):
             flash("Sieve-Skript wurde nicht gefunden.")
+    readonly = _readonly_map(store, accounts)
     return render_template(
         "documents/mail_client.html", accounts=accounts, selected=selected, scripts=scripts,
         script_name=script_name, script_content=script_content, sieve_state=sieve_state,
+        readonly=readonly, selected_read_only=readonly.get(selected["id"], True) if selected else True,
     )
 
 
@@ -100,11 +99,29 @@ def save_account():
     try:
         row = _store().save_account(_actor(), request.form.to_dict(), request.form.get("password", ""), request.form.get("remember_password") == "1")
         state = "gespeichert und für diese Installation entsperrbar" if row["password_saved"] else "nicht gespeichert"
-        flash(f"IMAP-Konfiguration gespeichert. Das IMAP-Passwort ist {state}.")
+        flash(f"IMAP-Konfiguration gespeichert. Das IMAP-Passwort ist {state}. Neue Konten bleiben standardmäßig schreibgeschützt.")
         return redirect(url_for("mail_client.index", account=row["id"]))
     except (ValueError, RuntimeError) as exc:
         flash(str(exc))
         return redirect(url_for("mail_client.index"))
+
+
+@bp.post("/accounts/<account_id>/readonly")
+@login_required
+def set_readonly(account_id: str):
+    store = _store()
+    try:
+        # Explicit checkbox/value only. Missing/unknown values fail safe to read-only.
+        writable = request.form.get("writable") == "1"
+        read_only = MailAccountPolicy(store).set_read_only(_actor(), account_id, not writable)
+        if read_only:
+            flash("Konto ist schreibgeschützt. Lesen und lokales Archivieren bleiben möglich; Serveränderungen und Versand sind blockiert.")
+        else:
+            flash("Schreibzugriff für dieses Konto wurde ausdrücklich freigegeben. Senden, Verschieben, Ordner und Sieve-Änderungen sind nun möglich.")
+    except Exception as exc:
+        current_app.logger.warning("Mail account readonly update failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Schreibschutz konnte nicht geändert werden.")
+    return redirect(url_for("mail_client.index", account=account_id))
 
 
 @bp.post("/accounts/<account_id>/test")
@@ -148,7 +165,7 @@ def test_smtp(account_id: str):
         account = _smtp_account_with_effective_password(store, account_id)
         result = SmtpSubmission(store).test(account)
         store.history.record("smtp_account_tested", _actor(), "mail-accounts", account_id, {"host": account["smtp_host"], "port": account["smtp_port"], "security": account["smtp_security"], "features": result["features"]})
-        flash(f"SMTP-Anmeldung erfolgreich: {len(result['features'])} Server-Fähigkeiten.")
+        flash(f"SMTP-Anmeldung erfolgreich: {len(result['features'])} Server-Fähigkeiten. Es wurde nichts versendet.")
     except smtplib.SMTPAuthenticationError as exc:
         current_app.logger.warning("SMTP authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
         flash(_smtp_authentication_message(exc))
@@ -163,12 +180,15 @@ def test_smtp(account_id: str):
 def send(account_id: str):
     try:
         store = _store()
+        MailAccountPolicy(store).require_writable(_actor(), account_id)
         account = _smtp_account_with_effective_password(store, account_id)
         result = SmtpSubmission(store).send(
             _actor(), account, request.form.get("recipients", ""), request.form.get("subject", ""),
             request.form.get("body", ""), request.form.get("calendar_data", ""),
         )
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als unveränderte EML archiviert.")
+    except MailReadOnlyError as exc:
+        flash(str(exc))
     except smtplib.SMTPAuthenticationError as exc:
         current_app.logger.warning("SMTP submission authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
         flash(_smtp_authentication_message(exc))
@@ -202,9 +222,12 @@ def activate_sieve(account_id: str):
     name = request.form.get("server_script", "")
     try:
         store = _store()
+        MailAccountPolicy(store).require_writable(_actor(), account_id)
         account = _account_with_effective_password(store, account_id)
         activate_server_script(store, _actor(), account, name)
         flash(f"Sieve-Skript {name} wurde nach vollständiger Sicherung des Serverbestands aktiviert.")
+    except MailReadOnlyError as exc:
+        flash(str(exc))
     except Exception as exc:
         current_app.logger.warning("Sieve activation failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Sieve-Aktivierung fehlgeschlagen ({type(exc).__name__}).")
@@ -220,6 +243,7 @@ def save_sieve(account_id: str):
         store = _store()
         account = None
         if request.form.get("upload") == "1":
+            MailAccountPolicy(store).require_writable(_actor(), account_id)
             account = _account_with_effective_password(store, account_id)
             sync_from_server(store, _actor(), account)
         saved = store.save_script(_actor(), account_id, name, content)
@@ -235,6 +259,8 @@ def save_sieve(account_id: str):
             flash("Sieve-Serverbestand gesichert; Skript versioniert und anschließend hochgeladen.")
         else:
             flash("Sieve-Skript lokal versioniert gespeichert. Es wurde nicht zum Server übertragen.")
+    except MailReadOnlyError as exc:
+        flash(str(exc))
     except Exception as exc:
         current_app.logger.warning("Sieve update failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Sieve-Aktion fehlgeschlagen ({type(exc).__name__}).")
