@@ -19,6 +19,7 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("apt", result.stdout)
         self.assertIn("pkg", result.stdout)
         self.assertIn("pip", result.stdout)
+        self.assertIn("Versionsanforderungen", result.stdout)
 
     def test_linux_script_rejects_invalid_server_limits_before_starting(self):
         root = Path(__file__).resolve().parents[1]
@@ -39,18 +40,24 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("/etc/os-release", script)
         self.assertIn("native_package_available", script)
         self.assertIn("prepare_native_python_packages", script)
+        self.assertIn("native_dependency_versions_ok", script)
+        self.assertIn("python_is_compatible", script)
         self.assertIn("--system-site-packages", script)
         self.assertIn("SIMPLEOFFICE_NATIVE_PACKAGES", script)
 
-        native_prepare = script.index("prepare_native_python_packages\n")
+        native_prepare = script.index("\nprepare_native_python_packages\n")
+        dependency_check = script.index("native_dependency_versions_ok", native_prepare)
         pip_install = script.index('"$VENV/bin/python" -m pip install', native_prepare)
         self.assertLess(native_prepare, pip_install)
+        self.assertLess(dependency_check, script.rindex('"$VENV/bin/python" -m pip install'))
+        self.assertIn("--no-deps --editable", script)
 
     def test_linux_native_package_map_covers_project_native_dependencies(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "start.sh").read_text(encoding="utf-8")
 
         for package_hint in (
+            "python3-venv",
             "python3-cryptography",
             "python3-pil",
             "python3-paramiko",
@@ -60,6 +67,14 @@ class StartScriptTests(unittest.TestCase):
             "python3-Pillow",
         ):
             self.assertIn(package_hint, script)
+
+        for requirement in (
+            '"Flask": ">=3.0,<4"',
+            '"Pillow": ">=12.3,<13"',
+            '"cryptography": ">=50,<51"',
+            '"paramiko": ">=3.5,<6"',
+        ):
+            self.assertIn(requirement, script)
 
     def test_windows_script_supports_the_same_google_oauth_options(self):
         root = Path(__file__).resolve().parents[1]
