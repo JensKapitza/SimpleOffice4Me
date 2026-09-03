@@ -32,8 +32,12 @@ Optionen:
 
 Beim Start werden unter Linux zuerst vorhandene/native Distribution-Pakete
 verwendet. Unterstützt werden Termux pkg, apt, dnf/yum, pacman, apk und zypper.
-Nur fehlende oder für SimpleOffice ungeeignete Python-Abhängigkeiten fallen
-anschließend auf pip in der lokalen .venv zurück.
+Die gefundenen Python-Pakete werden vor dem Dependency-Install gegen die
+SimpleOffice-Versionsanforderungen geprüft. Nur fehlende oder zu alte Pakete
+fallen anschließend auf pip in der lokalen .venv zurück.
+
+Native Paketinstallation kann mit SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert
+werden. Bereits vorhandene Projekt-.venv und Systempakete bleiben unberührt.
 
 Beispiel:
   ./start.sh --google-json /etc/simpleoffice/google-oauth.json \
@@ -139,7 +143,11 @@ run_privileged() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
   elif command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
+    if [ -t 0 ]; then
+      sudo "$@"
+    else
+      sudo -n "$@"
+    fi
   else
     return 126
   fi
@@ -245,7 +253,7 @@ native_python_packages() {
       printf '%s\n' "python-cryptography python-pillow python-bcrypt python-pynacl"
       ;;
     apt)
-      printf '%s\n' "python3-flask python3-bs4 python3-html5lib python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pil python3-bcrypt python3-nacl"
+      printf '%s\n' "python3-venv python3-flask python3-bs4 python3-html5lib python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pil python3-bcrypt python3-nacl"
       ;;
     dnf|yum)
       printf '%s\n' "python3-flask python3-beautifulsoup4 python3-html5lib python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pillow python3-bcrypt python3-pynacl"
@@ -265,10 +273,23 @@ native_python_packages() {
   esac
 }
 
-ensure_python_runtime() {
-  command -v "$PYTHON" >/dev/null 2>&1 && return 0
+python_is_compatible() {
+  command -v "$PYTHON" >/dev/null 2>&1 || return 1
+  "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+}
 
-  echo "Python 3 wurde nicht gefunden; prüfe native Pakete für $DISTRO_NAME ..."
+ensure_python_runtime() {
+  if python_is_compatible; then
+    return 0
+  fi
+
+  if command -v "$PYTHON" >/dev/null 2>&1; then
+    current_version="$($PYTHON -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || printf 'unbekannt')"
+    echo "Vorhandenes $PYTHON ($current_version) ist zu alt; benötigt wird Python >= 3.10." >&2
+  else
+    echo "Python 3 wurde nicht gefunden; prüfe native Pakete für $DISTRO_NAME ..."
+  fi
+
   packages="$(python_runtime_packages)"
   [ -n "$packages" ] || return 1
 
@@ -280,10 +301,10 @@ ensure_python_runtime() {
   done
   [ -n "$available" ] || return 1
 
-  echo "  installiere Python-Laufzeit über $NATIVE_PM:$available"
+  echo "  installiere/aktualisiere Python-Laufzeit über $NATIVE_PM:$available"
   # shellcheck disable=SC2086
   install_native_packages $available || return 1
-  command -v "$PYTHON" >/dev/null 2>&1
+  python_is_compatible
 }
 
 prepare_native_python_packages() {
@@ -309,7 +330,7 @@ prepare_native_python_packages() {
 
   if [ -n "$missing" ]; then
     echo "  installiere verfügbare Systempakete:$missing"
-    # A fehlendes sudo oder ein Repository-Problem darf den sicheren pip-Fallback
+    # Ein fehlendes sudo oder ein Repository-Problem darf den sicheren pip-Fallback
     # nicht verhindern. Termux bleibt absichtlich strikt, weil native Wheels dort
     # oft nicht zuverlässig gebaut werden können.
     # shellcheck disable=SC2086
@@ -332,11 +353,59 @@ venv_uses_system_site_packages() {
   [ -f "$VENV/pyvenv.cfg" ] && grep -Eiq '^include-system-site-packages[[:space:]]*=[[:space:]]*true$' "$VENV/pyvenv.cfg"
 }
 
+native_dependency_versions_ok() {
+  "$VENV/bin/python" - <<'PY'
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    from packaging.specifiers import SpecifierSet
+    from packaging.version import Version
+except ImportError:
+    from pip._vendor.packaging.specifiers import SpecifierSet
+    from pip._vendor.packaging.version import Version
+
+requirements = {
+    "Flask": ">=3.0,<4",
+    "beautifulsoup4": ">=4.12,<5",
+    "Pillow": ">=12.3,<13",
+    "html5lib": ">=1.1,<2",
+    "reportlab": ">=4.0,<6",
+    "pypdf": ">=5.0,<7",
+    "waitress": ">=3.0,<4",
+    "cryptography": ">=50,<51",
+    "watchdog": ">=6,<7",
+    "paramiko": ">=3.5,<6",
+}
+
+problems = []
+for distribution, specifier in requirements.items():
+    try:
+        installed = version(distribution)
+    except PackageNotFoundError:
+        problems.append(f"{distribution}: fehlt ({specifier})")
+        continue
+    try:
+        compatible = Version(installed) in SpecifierSet(specifier)
+    except Exception:
+        compatible = False
+    if not compatible:
+        problems.append(f"{distribution}: {installed} passt nicht zu {specifier}")
+
+if problems:
+    print("Systempakete decken noch nicht alle Python-Anforderungen ab:")
+    for problem in problems:
+        print(f"  - {problem}")
+    raise SystemExit(1)
+
+print("Native/System-Python-Pakete erfüllen alle SimpleOffice-Anforderungen.")
+PY
+}
+
 detect_linux_distribution
 detect_native_package_manager
 
 if ! ensure_python_runtime; then
-  echo "Python 3 wurde nicht gefunden. Bitte Python 3.10 oder neuer installieren." >&2
+  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird Python 3.10 oder neuer." >&2
   if [ -n "$NATIVE_PM" ]; then
     echo "Erkannter Paketmanager: $NATIVE_PM ($DISTRO_NAME)." >&2
   fi
@@ -349,13 +418,6 @@ fi
 
 "$PYTHON" "$ROOT/tools/system_requirements.py" --missing-only
 prepare_native_python_packages
-
-if ! "$PYTHON" -m venv --help >/dev/null 2>&1; then
-  if [ "$NATIVE_PM" = "apt" ] && native_package_available python3-venv; then
-    echo "Python-venv fehlt; installiere python3-venv über apt."
-    install_native_packages python3-venv || true
-  fi
-fi
 
 if [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && [ -x "$VENV/bin/python" ] && ! venv_uses_system_site_packages; then
   echo "Vorhandene .venv isoliert native Systempakete; erstelle sie kompatibel neu."
@@ -392,10 +454,11 @@ PY
     'reportlab>=4.0,<6' 'pypdf>=5.0,<7' 'waitress>=3.0,<4' \
     'watchdog>=6,<7' 'paramiko>=3.5,<6'
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
+elif [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && native_dependency_versions_ok; then
+  echo "Alle benötigten Python-Abhängigkeiten kommen passend aus der Linux-Umgebung; pip installiert nur SimpleOffice selbst."
+  "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
 else
-  # The venv can see distribution packages when compatible native packages were
-  # found. pip then resolves only packages that are missing or do not satisfy the
-  # project's version constraints and installs those into the project-owned venv.
+  echo "pip ergänzt nur fehlende oder nicht passende Python-Abhängigkeiten in der lokalen .venv."
   "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
 fi
 
