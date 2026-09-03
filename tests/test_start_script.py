@@ -16,6 +16,10 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("--channel-timeout", result.stdout)
         self.assertIn("--check-system", result.stdout)
         self.assertIn("--reindex-osm", result.stdout)
+        self.assertIn("apt", result.stdout)
+        self.assertIn("pkg", result.stdout)
+        self.assertIn("pip", result.stdout)
+        self.assertIn("Versionsanforderungen", result.stdout)
 
     def test_linux_script_rejects_invalid_server_limits_before_starting(self):
         root = Path(__file__).resolve().parents[1]
@@ -26,6 +30,62 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("zwischen 1 und 65535", invalid_port.stderr)
         self.assertEqual(2, invalid_threads.returncode)
         self.assertIn("zwischen 1 und 64", invalid_threads.stderr)
+
+    def test_linux_start_prefers_native_packages_before_pip(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "start.sh").read_text(encoding="utf-8")
+
+        for manager in ("pkg", "apt-get", "dnf", "yum", "pacman", "apk", "zypper"):
+            self.assertIn(manager, script)
+        self.assertIn("/etc/os-release", script)
+        self.assertIn("native_package_available", script)
+        self.assertIn("prepare_native_python_packages", script)
+        self.assertIn("native_dependency_versions_ok", script)
+        self.assertIn("python_is_compatible", script)
+        self.assertIn("--system-site-packages", script)
+        self.assertIn("SIMPLEOFFICE_NATIVE_PACKAGES", script)
+
+        native_prepare = script.index("\nprepare_native_python_packages\n")
+        dependency_check = script.index("native_dependency_versions_ok", native_prepare)
+        pip_install = script.index('"$VENV/bin/python" -m pip install', native_prepare)
+        self.assertLess(native_prepare, pip_install)
+        self.assertLess(dependency_check, script.rindex('"$VENV/bin/python" -m pip install'))
+        self.assertIn("--no-deps --editable", script)
+
+    def test_check_system_stays_non_mutating(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "start.sh").read_text(encoding="utf-8")
+
+        check_mode = script.index('if [ "$CHECK_SYSTEM" -eq 1 ]')
+        runtime_install = script.index("if ! ensure_python_runtime;", check_mode)
+        native_install = script.index("prepare_native_python_packages", runtime_install)
+        self.assertLess(check_mode, runtime_install)
+        self.assertLess(runtime_install, native_install)
+        self.assertIn("--check-system verändert das System nicht", script)
+
+    def test_linux_native_package_map_covers_project_native_dependencies(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "start.sh").read_text(encoding="utf-8")
+
+        for package_hint in (
+            "python3-venv",
+            "python3-cryptography",
+            "python3-pil",
+            "python3-paramiko",
+            "python-cryptography",
+            "python-pillow",
+            "py3-cryptography",
+            "python3-Pillow",
+        ):
+            self.assertIn(package_hint, script)
+
+        for requirement in (
+            '"Flask": ">=3.0,<4"',
+            '"Pillow": ">=12.3,<13"',
+            '"cryptography": ">=50,<51"',
+            '"paramiko": ">=3.5,<6"',
+        ):
+            self.assertIn(requirement, script)
 
     def test_windows_script_supports_the_same_google_oauth_options(self):
         root = Path(__file__).resolve().parents[1]
