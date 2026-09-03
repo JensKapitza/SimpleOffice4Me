@@ -66,7 +66,7 @@
           <a class="list-group-item list-group-item-action" href="{{ url_for('documents.object_detail', object_id=item.object_id) }}">
             <div class="d-flex gap-3 align-items-start">
               {% set photos = item.inventory.photos|default([]) %}
-              {% if photos %}<img src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photos[-1].filename) }}" alt="" style="width:64px;height:80px;object-fit:cover" class="rounded border">{% endif %}
+              {% if photos %}<img src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photos[-1].filename) }}" alt="" loading="lazy" decoding="async" style="width:64px;height:80px;object-fit:cover" class="rounded border">{% endif %}
               <div class="min-w-0 flex-grow-1"><div class="fw-semibold text-truncate">#{{ item.display_id }} {{ item.name }}</div><div class="small text-secondary">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}</div>{% if item.fields.authors %}<div class="small text-truncate">{{ item.fields.authors }}</div>{% endif %}{% if item.fields.market_price %}<div class="small">{{ item.fields.market_price }} {{ item.fields.currency or 'EUR' }}{% if item.fields.price_source %} · {{ item.fields.price_source }}{% endif %}</div>{% endif %}</div>
             </div>
           </a>
