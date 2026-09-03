@@ -1,6 +1,6 @@
 """Mobile-first inventory capture for books and tagged physical objects.
 
-The canonical inventory remains ObjectStore.  This module only adds scanning,
+The canonical inventory remains ObjectStore. This module only adds scanning,
 book metadata lookup, rate-limited Amazon handoff and locally stored photos.
 Amazon pages are never scraped or fetched by the server.
 """
@@ -16,7 +16,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlsplit
 from urllib.request import Request, urlopen
 
 from flask import (
@@ -44,6 +44,8 @@ bp = Blueprint("inventory", __name__, url_prefix="/inventory")
 LOOKUP_INTERVAL_SECONDS = 5
 MAX_PHOTO_BYTES = 12 * 1024 * 1024
 HTTP_TIMEOUT_SECONDS = 5
+MAX_METADATA_BYTES = 2 * 1024 * 1024
+ALLOWED_METADATA_HOSTS = {"www.googleapis.com", "openlibrary.org"}
 BOOK_FIELDS = (
     "isbn",
     "barcode",
@@ -83,6 +85,8 @@ def normalize_isbn(value: Any) -> str:
     """Return a validated canonical ISBN-13, converting valid ISBN-10 values."""
     raw = re.sub(r"[^0-9Xx]", "", str(value or ""))
     if len(raw) == 13 and raw.isdigit():
+        if not raw.startswith(("978", "979")):
+            raise ValueError("ISBN-13 muss mit 978 oder 979 beginnen")
         if _isbn13_checksum(raw[:12]) != raw[-1]:
             raise ValueError("Ungültige ISBN-Prüfziffer")
         return raw
@@ -106,6 +110,9 @@ def isbn_from_barcode(value: Any) -> str:
 
 
 def _http_json(url: str) -> dict[str, Any]:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_METADATA_HOSTS:
+        raise ValueError("Nicht erlaubte Metadatenquelle")
     req = Request(
         url,
         headers={
@@ -113,11 +120,11 @@ def _http_json(url: str) -> dict[str, Any]:
             "User-Agent": "SimpleOffice4Me-inventory/1.0",
         },
     )
-    with urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as response:  # noqa: S310 - fixed trusted hosts only
+    with urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as response:  # noqa: S310 - allowlisted HTTPS hosts only
         if int(getattr(response, "status", 200)) != 200:
             raise ValueError("Metadatenquelle antwortet nicht erfolgreich")
-        data = response.read(2 * 1024 * 1024 + 1)
-    if len(data) > 2 * 1024 * 1024:
+        data = response.read(MAX_METADATA_BYTES + 1)
+    if len(data) > MAX_METADATA_BYTES:
         raise ValueError("Metadatenantwort ist zu groß")
     value = json.loads(data.decode("utf-8"))
     if not isinstance(value, dict):
@@ -125,11 +132,37 @@ def _http_json(url: str) -> dict[str, Any]:
     return value
 
 
+def _google_item_matches_isbn(item: dict[str, Any], isbn: str) -> bool:
+    info = item.get("volumeInfo") if isinstance(item.get("volumeInfo"), dict) else {}
+    identifiers = info.get("industryIdentifiers") if isinstance(info.get("industryIdentifiers"), list) else []
+    normalized: set[str] = set()
+    for row in identifiers:
+        if not isinstance(row, dict):
+            continue
+        try:
+            normalized.add(normalize_isbn(row.get("identifier", "")))
+        except ValueError:
+            continue
+    # Some Google Books records omit industryIdentifiers entirely. In that case
+    # the ISBN query itself is the best available selector; otherwise require an
+    # exact normalized identifier so that a neighbouring edition is not stored.
+    return not normalized or isbn in normalized
+
+
 def parse_google_books(payload: dict[str, Any], isbn: str) -> dict[str, Any]:
     items = payload.get("items") if isinstance(payload, dict) else None
-    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+    if not isinstance(items, list) or not items:
         return {}
-    item = items[0]
+    item = next(
+        (
+            candidate
+            for candidate in items
+            if isinstance(candidate, dict) and _google_item_matches_isbn(candidate, isbn)
+        ),
+        None,
+    )
+    if item is None:
+        return {}
     info = item.get("volumeInfo") if isinstance(item.get("volumeInfo"), dict) else {}
     sale = item.get("saleInfo") if isinstance(item.get("saleInfo"), dict) else {}
     price = sale.get("retailPrice") if isinstance(sale.get("retailPrice"), dict) else sale.get("listPrice")
@@ -189,7 +222,10 @@ def merge_book_metadata(primary: dict[str, Any], fallback: dict[str, Any]) -> di
         if not result.get(key) and value not in (None, "", []):
             result[key] = value
     sources = []
-    for candidate in (primary.get("metadata_source") if primary else "", fallback.get("metadata_source") if fallback else ""):
+    for candidate in (
+        primary.get("metadata_source") if primary else "",
+        fallback.get("metadata_source") if fallback else "",
+    ):
         if candidate and candidate not in sources:
             sources.append(candidate)
     if sources:
@@ -198,12 +234,12 @@ def merge_book_metadata(primary: dict[str, Any], fallback: dict[str, Any]) -> di
 
 
 def lookup_book_metadata(isbn: str) -> dict[str, Any]:
-    google = {}
-    openlibrary = {}
-    errors = []
+    google: dict[str, Any] = {}
+    openlibrary: dict[str, Any] = {}
+    errors: list[str] = []
     try:
         google_payload = _http_json(
-            "https://www.googleapis.com/books/v1/volumes?q=" + quote_plus(f"isbn:{isbn}") + "&maxResults=1"
+            "https://www.googleapis.com/books/v1/volumes?q=" + quote_plus(f"isbn:{isbn}") + "&maxResults=5"
         )
         google = parse_google_books(google_payload, isbn)
     except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
@@ -242,7 +278,7 @@ def _money(value: Any) -> str:
         amount = Decimal(raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except InvalidOperation as exc:
         raise ValueError("Preis ist ungültig") from exc
-    if amount < 0 or amount > Decimal("100000000"):
+    if not amount.is_finite() or amount < 0 or amount > Decimal("100000000"):
         raise ValueError("Preis liegt außerhalb des zulässigen Bereichs")
     return f"{amount:.2f}"
 
@@ -274,10 +310,15 @@ def _fields_text(fields: dict[str, str]) -> str:
 def _find_exact(identifier: str = "", nfc_id: str = "") -> dict[str, Any] | None:
     identifier = _single_line(identifier, 120)
     nfc_id = _single_line(nfc_id, 240)
-    query = identifier or nfc_id
-    if not query:
+    queries = list(dict.fromkeys(value for value in (identifier, nfc_id) if value))
+    if not queries:
         return None
-    for item in _objects().objects(query):
+    store = _objects()
+    candidates: dict[str, dict[str, Any]] = {}
+    for query in queries:
+        for item in store.objects(query):
+            candidates[str(item.get("object_id", ""))] = item
+    for item in candidates.values():
         if identifier and str(item.get("identifier", "")).strip() == identifier:
             return item
         if nfc_id and str(item.get("fields", {}).get("nfc_id", "")).strip() == nfc_id:
@@ -288,7 +329,7 @@ def _find_exact(identifier: str = "", nfc_id: str = "") -> dict[str, Any] | None
 class InventoryEnrichmentStore:
     """Small sidecar for photos and external lookup audit data.
 
-    ObjectStore remains the authoritative item register.  Sidecar records are
+    ObjectStore remains the authoritative item register. Sidecar records are
     keyed only by ObjectStore object IDs and can be rebuilt/ignored independently.
     """
 
@@ -311,6 +352,15 @@ class InventoryEnrichmentStore:
         data = self._read(self.index_path)
         value = data.get("objects", {}).get(str(object_id), {}) if isinstance(data.get("objects"), dict) else {}
         return dict(value) if isinstance(value, dict) else {}
+
+    def object_metas(self) -> dict[str, dict[str, Any]]:
+        data = self._read(self.index_path)
+        objects = data.get("objects", {}) if isinstance(data.get("objects"), dict) else {}
+        return {
+            str(object_id): dict(value)
+            for object_id, value in objects.items()
+            if isinstance(value, dict)
+        }
 
     def record_snapshot(self, object_id: str, fields: dict[str, str], actor: str) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -400,8 +450,9 @@ def index():
     items = _objects().objects()
     rows = []
     sidecar = _inventory()
+    metadata = sidecar.object_metas()
     for item in reversed(items[-80:]):
-        rows.append({**item, "inventory": sidecar.object_meta(item["object_id"])})
+        rows.append({**item, "inventory": metadata.get(item["object_id"], {})})
     return render_template("inventory/index.html", inventory_rows=rows)
 
 
@@ -414,16 +465,26 @@ def book_lookup():
         return jsonify({"ok": False, "error": str(exc)}), 400
     allowed, retry_after = _inventory().consume_rate_limit(str(g.user["username"]), "book-metadata")
     if not allowed:
-        response = jsonify({"ok": False, "error": "Metadatenabruf ist auf einen Klick je 5 Sekunden begrenzt.", "retry_after": retry_after})
+        response = jsonify({
+            "ok": False,
+            "error": "Metadatenabruf ist auf einen Klick je 5 Sekunden begrenzt.",
+            "retry_after": retry_after,
+        })
         response.status_code = 429
         response.headers["Retry-After"] = str(retry_after)
+        response.headers["Cache-Control"] = "no-store"
         return response
     metadata = lookup_book_metadata(isbn)
     if not metadata:
-        return jsonify({"ok": False, "error": "Keine Buchmetadaten gefunden."}), 404
+        response = jsonify({"ok": False, "error": "Keine Buchmetadaten gefunden."})
+        response.status_code = 404
+        response.headers["Cache-Control"] = "no-store"
+        return response
     metadata["ok"] = True
     metadata["amazon_search"] = url_for("inventory.amazon_search", q=isbn)
-    return jsonify(metadata)
+    response = jsonify(metadata)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.get("/find")
@@ -454,11 +515,13 @@ def amazon_search():
         return (
             render_template("inventory/rate_limit.html", retry_after=retry_after),
             429,
-            {"Retry-After": str(retry_after)},
+            {"Retry-After": str(retry_after), "Cache-Control": "no-store"},
         )
-    # Deliberately redirect the signed-in human to normal Amazon search.  The
+    # Deliberately redirect the signed-in human to normal Amazon search. The
     # server neither downloads nor parses Amazon HTML and stores no Amazon data.
-    return redirect("https://www.amazon.de/s?k=" + quote_plus(query), code=303)
+    response = redirect("https://www.amazon.de/s?k=" + quote_plus(query), code=303)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.post("/books")
@@ -478,7 +541,10 @@ def create_book():
     nfc_id = _single_line(request.form.get("nfc_id", ""), 240)
     duplicate = _find_exact(identifier, nfc_id)
     if duplicate and request.form.get("allow_duplicate") != "1":
-        flash(f"Bereits vorhanden: #{duplicate.get('display_id', '')} {duplicate.get('name', '')}. Kein Duplikat angelegt.")
+        flash(
+            f"Bereits vorhanden: #{duplicate.get('display_id', '')} "
+            f"{duplicate.get('name', '')}. Kein Duplikat angelegt."
+        )
         return redirect(url_for("documents.object_detail", object_id=duplicate["object_id"]))
     try:
         fields = _object_fields(request.form, isbn)
@@ -511,7 +577,10 @@ def create_book():
             sidecar.save_photo(item["object_id"], request.files.get("photo"), actor)
         except (OSError, ValueError) as exc:
             photo_error = str(exc)
-        flash(f"Inventarobjekt #{item.get('display_id', '')} wurde angelegt." + (f" Foto nicht gespeichert: {photo_error}" if photo_error else ""))
+        flash(
+            f"Inventarobjekt #{item.get('display_id', '')} wurde angelegt."
+            + (f" Foto nicht gespeichert: {photo_error}" if photo_error else "")
+        )
         return redirect(url_for("inventory.index", created=item["object_id"]))
     except ValueError as exc:
         flash(str(exc))
@@ -523,7 +592,13 @@ def create_book():
 def add_photo(object_id: str):
     try:
         item = _objects().object(object_id)
-        _inventory().save_photo(item["object_id"], request.files.get("photo"), str(g.user["username"]))
+        photo = _inventory().save_photo(
+            item["object_id"],
+            request.files.get("photo"),
+            str(g.user["username"]),
+        )
+        if photo is None:
+            raise ValueError("Kein Foto ausgewählt")
         flash("Inventarfoto wurde gespeichert.")
         return redirect(url_for("inventory.index", created=item["object_id"]))
     except (OSError, ValueError):
