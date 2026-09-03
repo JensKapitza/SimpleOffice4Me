@@ -15,6 +15,13 @@ def _attributes(tag):
     }
 
 
+def _renders_boolean(value: str) -> bool:
+    """Accept a literal ARIA boolean or a Jinja expression with both outcomes."""
+    if value in {"true", "false"}:
+        return True
+    return value.startswith("{{") and value.endswith("}}") and "'true'" in value and "'false'" in value
+
+
 class TemplateAccessibilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -98,7 +105,7 @@ class TemplateAccessibilityTests(unittest.TestCase):
         for path, tag in controls:
             attributes = _attributes(tag)
             self.assertEqual("button", attributes.get("type"), path)
-            self.assertIn(attributes.get("aria-expanded"), {"true", "false"}, path)
+            self.assertTrue(_renders_boolean(attributes.get("aria-expanded", "")), path)
             self.assertTrue(attributes.get("aria-controls"), path)
 
     def test_images_declare_loading_decoding_and_alternative_text(self):
