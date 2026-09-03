@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import os
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore, sha256_file
@@ -16,6 +18,26 @@ MAX_PAGE_SIZE = 1000
 
 def _store() -> DocumentStore:
     return DocumentStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _authorized() -> bool:
+    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if not expected:
+        return bool(current_app.testing)
+    header = request.headers.get("Authorization", "")
+    supplied = header[7:].strip() if header.startswith("Bearer ") else ""
+    return bool(supplied) and hmac.compare_digest(expected, supplied)
+
+
+@bp.before_request
+def authenticate_catalog():
+    if not _authorized():
+        return Response(
+            "federation authentication required\n",
+            401,
+            {"WWW-Authenticate": 'Bearer realm="SimpleOffice4Me Federation"', "Cache-Control": "no-store"},
+        )
+    return None
 
 
 def _bounded_int(value: str, default: int, minimum: int, maximum: int) -> int:
