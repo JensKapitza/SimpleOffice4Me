@@ -101,8 +101,6 @@ class RentalBillingStore(RentalCalculationStore):
     def approve(self, settlement_id: str, actor: str) -> dict[str,Any]:
         lock_path=self.approval_root/f".{safe_name(settlement_id)}.approval.lock"
         with exclusive_file_lock(lock_path):
-            # Re-read editable state only after the cross-process lock was acquired.
-            # Otherwise two requests can render into the same immutable version.
             settlement=self._require_editable(settlement_id); snapshot=self.build_snapshot(settlement_id); approved_at=utc_now()
             snapshot["approval"]={"approved_at":approved_at,"approved_by":actor,"version":int(settlement["version"])}
             directory=self.approval_directory(settlement_id)
@@ -120,20 +118,14 @@ class RentalBillingStore(RentalCalculationStore):
                     tenant_pdf=staging/f"Mieterabrechnung-{safe_name(contact_id)}.pdf"; self._render_tenant_pdf(snapshot,contact_id,tenant_pdf)
                     self._build_tenant_zip(snapshot,contact_id,tenant_pdf,staging/f"Mieterpaket-{safe_name(contact_id)}.zip")
                 self._write_manifest(snapshot,staging)
-
-                # Editable settlements cannot have a valid approved directory.
-                # Remove only stale output for this exact settlement/version, then
-                # publish the freshly rendered tree with a same-filesystem rename.
-                if directory.exists():
-                    shutil.rmtree(directory)
+                if directory.exists(): shutil.rmtree(directory)
                 staging.replace(directory); published=True
                 with self._db() as db:
                     cursor=db.execute("UPDATE rental_settlement SET status='approved',approved_at=?,approved_by=?,snapshot_sha256=?,updated_at=? WHERE settlement_id=? AND status IN ('draft','review')",(approved_at,actor,digest,approved_at,settlement_id))
                     if cursor.rowcount!=1: raise ValueError("Abrechnung konnte nicht atomar freigegeben werden")
             except Exception:
                 shutil.rmtree(staging,ignore_errors=True)
-                if published:
-                    shutil.rmtree(directory,ignore_errors=True)
+                if published: shutil.rmtree(directory,ignore_errors=True)
                 raise
             self._revision("rental_settlement_approved",actor,"rental-settlements",settlement_id,{"snapshot_sha256":digest,"version":settlement["version"]})
             return {"settlement":self.settlement(settlement_id),"snapshot":snapshot,"files":{key:str(value) for key,value in self.approval_files(settlement_id).items()}}
@@ -254,8 +246,21 @@ class RentalBillingStore(RentalCalculationStore):
                 if doc: documents[doc["document_id"]]=doc
         return documents
 
+    @staticmethod
+    def _tenant_document_manifest(documents: dict[str,dict[str,Any]]) -> list[dict[str,Any]]:
+        """Return tenant-safe evidence metadata without internal storage paths."""
+        return [
+            {
+                "document_id": document_id,
+                "name": str(doc.get("name") or ""),
+                "sha256": str(doc.get("sha256") or ""),
+                "size": int(doc.get("size") or 0),
+            }
+            for document_id, doc in sorted(documents.items())
+        ]
+
     def _build_tenant_zip(self,snapshot: dict[str,Any],contact_id: str,tenant_pdf: Path,target: Path) -> None:
-        documents=self._tenant_documents(snapshot,contact_id); manifest={"schema":"simpleoffice-rental-tenant-package-v1","settlement_id":snapshot["settlement"]["settlement_id"],"version":snapshot["settlement"]["version"],"contact_id":contact_id,"snapshot_sha256":snapshot["approval"]["snapshot_sha256"],"documents":list(documents.values())}
+        documents=self._tenant_documents(snapshot,contact_id); manifest={"schema":"simpleoffice-rental-tenant-package-v1","settlement_id":snapshot["settlement"]["settlement_id"],"version":snapshot["settlement"]["version"],"contact_id":contact_id,"snapshot_sha256":snapshot["approval"]["snapshot_sha256"],"documents":self._tenant_document_manifest(documents)}
         with zipfile.ZipFile(target,"w",compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(tenant_pdf,"Mieterabrechnung.pdf"); archive.writestr("manifest.json",json.dumps(manifest,ensure_ascii=False,indent=2)+"\n")
             for doc in documents.values():
