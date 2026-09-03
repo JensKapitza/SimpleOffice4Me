@@ -132,7 +132,8 @@ def _http_json(url: str) -> dict[str, Any]:
     return value
 
 
-def _google_item_matches_isbn(item: dict[str, Any], isbn: str) -> bool:
+def _google_item_isbns(item: dict[str, Any]) -> set[str]:
+    """Return all valid normalized ISBNs advertised by a Google Books item."""
     info = item.get("volumeInfo") if isinstance(item.get("volumeInfo"), dict) else {}
     identifiers = info.get("industryIdentifiers") if isinstance(info.get("industryIdentifiers"), list) else []
     normalized: set[str] = set()
@@ -143,26 +144,27 @@ def _google_item_matches_isbn(item: dict[str, Any], isbn: str) -> bool:
             normalized.add(normalize_isbn(row.get("identifier", "")))
         except ValueError:
             continue
-    # Some Google Books records omit industryIdentifiers entirely. In that case
-    # the ISBN query itself is the best available selector; otherwise require an
-    # exact normalized identifier so that a neighbouring edition is not stored.
-    return not normalized or isbn in normalized
+    return normalized
 
 
 def parse_google_books(payload: dict[str, Any], isbn: str) -> dict[str, Any]:
     items = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(items, list) or not items:
         return {}
-    item = next(
-        (
-            candidate
-            for candidate in items
-            if isinstance(candidate, dict) and _google_item_matches_isbn(candidate, isbn)
-        ),
-        None,
-    )
+    candidates = [candidate for candidate in items if isinstance(candidate, dict)]
+    if not candidates:
+        return {}
+
+    # Prefer an exact edition match across all returned records. Only if Google
+    # supplies no exact ISBN at all may an identifier-less result be used as a
+    # fallback. A neighbouring edition with a different ISBN is never accepted.
+    isbn_sets = [(candidate, _google_item_isbns(candidate)) for candidate in candidates]
+    item = next((candidate for candidate, values in isbn_sets if isbn in values), None)
+    if item is None:
+        item = next((candidate for candidate, values in isbn_sets if not values), None)
     if item is None:
         return {}
+
     info = item.get("volumeInfo") if isinstance(item.get("volumeInfo"), dict) else {}
     sale = item.get("saleInfo") if isinstance(item.get("saleInfo"), dict) else {}
     price = sale.get("retailPrice") if isinstance(sale.get("retailPrice"), dict) else sale.get("listPrice")
@@ -170,6 +172,7 @@ def parse_google_books(payload: dict[str, Any], isbn: str) -> dict[str, Any]:
         price = {}
     authors = info.get("authors") if isinstance(info.get("authors"), list) else []
     categories = info.get("categories") if isinstance(info.get("categories"), list) else []
+    amount = price.get("amount")
     return {
         "isbn": isbn,
         "title": _single_line(info.get("title"), 300),
@@ -181,9 +184,9 @@ def parse_google_books(payload: dict[str, Any], isbn: str) -> dict[str, Any]:
         "page_count": str(info.get("pageCount") or ""),
         "language": _single_line(info.get("language"), 20),
         "categories": "; ".join(_single_line(category, 160) for category in categories if _single_line(category, 160)),
-        "market_price": str(price.get("amount") or ""),
+        "market_price": "" if amount is None else str(amount),
         "currency": _single_line(price.get("currencyCode"), 3).upper(),
-        "price_source": "Google Books" if price.get("amount") is not None else "",
+        "price_source": "Google Books" if amount is not None else "",
         "metadata_source": "Google Books",
     }
 
