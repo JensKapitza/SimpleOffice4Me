@@ -210,7 +210,9 @@ app.config['GOOGLE_OAUTH_AUTO_PROVISION'] = os.environ.get(
 app.config['ALLOW_PUBLIC_REGISTRATION'] = os.environ.get(
     'SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION', '0'
 ).strip().casefold() in {'1', 'true', 'yes', 'on'}
-app.config['MCP_ENABLED'] = os.environ.get('SIMPLEOFFICE_MCP', '1').strip().casefold() in {'1', 'true', 'yes', 'on'}
+app.config['MCP_ENABLED'] = os.environ.get(
+    'SIMPLEOFFICE_MCP', '1'
+).strip().casefold() in {'1', 'true', 'yes', 'on'}
 
 
 @app.errorhandler(RequestEntityTooLarge)
@@ -443,7 +445,8 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    camera_policy = "camera=(self)" if request.blueprint == "inventory" else "camera=()"
+    response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=()")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.is_secure:
