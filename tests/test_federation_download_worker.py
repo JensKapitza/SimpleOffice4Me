@@ -74,6 +74,8 @@ class FederationDownloadWorkerTest(unittest.TestCase):
 
     def test_complete_download_imports_document_with_provenance_tags(self):
         with patch("app.federation_download_worker.remote_blob_manifest", return_value=self.manifest), patch(
+            "app.federation_download_worker._remote_content_manifest", return_value=None
+        ), patch(
             "app.federation_download_worker._request", side_effect=self._chunk_response
         ):
             result = process_download(self.root, self.request["request_id"])
@@ -119,6 +121,8 @@ class FederationDownloadWorkerTest(unittest.TestCase):
             return self._chunk_response(url, **kwargs)
 
         with patch("app.federation_download_worker.remote_blob_manifest", return_value=self.manifest), patch(
+            "app.federation_download_worker._remote_content_manifest", return_value=None
+        ), patch(
             "app.federation_download_worker._request", side_effect=response
         ):
             process_download(self.root, request_id)
