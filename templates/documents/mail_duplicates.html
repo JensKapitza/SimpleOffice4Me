@@ -1,0 +1,111 @@
+{% extends "layout.html" %}
+{% block title %}Mail-Dubletten{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-fluid py-3">
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h1 class="h3 mb-1"><i class="fas fa-clone me-2" aria-hidden="true"></i>Spam & Dubletten</h1>
+      <p class="text-secondary mb-0">Inhaltsbasierte Dublettenerkennung trotz abweichender Header, Relay-Server und Trackingwerte.</p>
+    </div>
+    <div class="btn-group" role="group" aria-label="Mailansicht">
+      <a class="btn btn-outline-primary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '') }}"><i class="fas fa-inbox me-1" aria-hidden="true"></i>Postfach</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '', mode='archive') }}"><i class="fas fa-box-archive me-1" aria-hidden="true"></i>Archiv</a>
+      <a class="btn btn-primary" aria-current="page" href="{{ url_for('mail_index.index', account=selected.id if selected else '') }}"><i class="fas fa-clone me-1" aria-hidden="true"></i>Spam/Dubletten</a>
+    </div>
+  </div>
+
+  {% if not accounts %}
+    <div class="alert alert-secondary">Noch kein Mailkonto vorhanden. <a href="{{ url_for('mail_client.index') }}">Mailkonto konfigurieren</a>.</div>
+  {% else %}
+  <section class="card mb-3"><div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-3">
+        <form method="get" action="{{ url_for('mail_index.index') }}">
+          <label class="form-label" for="duplicate-account">Konto</label>
+          <select id="duplicate-account" class="form-select" name="account" onchange="this.form.submit()">
+            {% for account in accounts %}<option value="{{ account.id }}" {% if selected and account.id == selected.id %}selected{% endif %}>{{ account.label }} · {{ account.username }}</option>{% endfor %}
+          </select>
+        </form>
+      </div>
+      <div class="col-lg-5">
+        <form method="get" action="{{ url_for('mail_index.index') }}" role="search" aria-label="Persistenten Mailindex durchsuchen">
+          <input type="hidden" name="account" value="{{ selected.id if selected else '' }}">
+          <label class="form-label" for="mail-index-search">Mailindex durchsuchen</label>
+          <div class="input-group"><input id="mail-index-search" class="form-control" type="search" name="q" value="{{ query }}" placeholder="Betreff, Absender, Empfänger oder Inhalt"><button type="submit" class="btn btn-outline-primary">Suchen</button></div>
+        </form>
+      </div>
+      <div class="col-lg-4">
+        {% if selected %}<form method="post" action="{{ url_for('mail_index.refresh') }}">
+          <input type="hidden" name="account" value="{{ selected.id }}">
+          <label class="form-label" for="index-per-folder">Index aktualisieren</label>
+          <div class="input-group"><input id="index-per-folder" class="form-control" type="number" min="1" max="500" name="per_folder" value="100" aria-label="Neue Mails je Ordner"><button type="submit" class="btn btn-primary"><i class="fas fa-rotate me-1" aria-hidden="true"></i>Abgleichen</button></div>
+        </form>{% endif %}
+      </div>
+    </div>
+  </div></section>
+
+  {% if connection_error %}<div class="alert alert-warning" role="status"><i class="fas fa-triangle-exclamation me-2" aria-hidden="true"></i>{{ connection_error }}</div>{% endif %}
+  {% if read_only %}<div class="alert alert-warning" role="status"><strong>Read-only aktiv.</strong> Indexieren, Suchen und Dubletten prüfen ist möglich. Verschieben und Löschen bleibt blockiert, bis der Schreibzugriff für das Konto ausdrücklich freigegeben wird.</div>{% endif %}
+
+  {% if selected %}
+  <section class="row g-3 mb-3" aria-label="Indexstatus">
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Indexeinträge</div><div class="fs-3 fw-semibold">{{ stats.total }}</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ziel vorhanden</div><div class="fs-3 fw-semibold">{{ stats.present }}</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ziel nicht gefunden</div><div class="fs-3 fw-semibold">{{ stats.missing }}</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Suchindex</div><div class="fw-semibold mt-2">{{ 'FTS5' if stats.fts5 else 'Fallback' }}</div><div class="small text-secondary">{{ stats.last_seen or 'noch leer' }}</div></div></div></div>
+  </section>
+
+  <div class="alert alert-secondary small">
+    <strong>Indexeinträge bleiben erhalten.</strong> Wird eine Mail auf ihrem bisherigen Server nicht mehr gefunden, erhält sie den Status <em>Ziel nicht gefunden</em>. Der Datensatz bleibt als Such- und Federation-Hinweis bestehen. Nur ein Administrator kann solche Tombstones endgültig aufräumen.
+  </div>
+
+  {% if query %}
+  <section class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center"><strong>Suchergebnisse für „{{ query }}“</strong><span class="badge text-bg-secondary">{{ search_rows|length }}</span></div>
+    <div class="list-group list-group-flush">
+      {% for row in search_rows %}<div class="list-group-item">
+        <div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ row.subject }}</strong><div class="small">{{ row.sender }}</div><div class="small text-secondary">{{ row.folder }} · UID {{ row.uid }} · {{ row.message_date }}</div></div><div>{% if row.present %}<span class="badge text-bg-success">Ziel vorhanden</span>{% else %}<span class="badge text-bg-warning">Ziel nicht gefunden</span>{% endif %}</div></div>
+        {% if not row.present %}<div class="small text-secondary mt-1">{{ row.missing_reason }}</div>{% endif %}
+      </div>{% else %}<div class="list-group-item text-secondary text-center py-4">Keine Treffer im persistenten Index.</div>{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><div><strong>Erkannte Inhaltsgruppen</strong><div class="small text-secondary">Exakte normalisierte SHA-512-Dubletten und sehr ähnliche Inhalte.</div></div><span class="badge text-bg-secondary">{{ groups|length }} Gruppen</span></div>
+    <div class="card-body">
+      {% for group in groups %}
+      <article class="border rounded p-3 mb-3">
+        <div class="d-flex flex-wrap justify-content-between gap-3 mb-2">
+          <div><h2 class="h6 mb-1">{{ group.subject }}</h2><div class="small text-secondary">{{ group.sample_sender }}</div></div>
+          <div class="text-end"><span class="badge {{ 'text-bg-danger' if group.exact else 'text-bg-warning' }}">{{ 'gleicher normalisierter Inhalt' if group.exact else 'sehr ähnlicher Inhalt' }}</span><span class="badge text-bg-secondary">{{ group.confidence }} %</span><div class="small text-secondary mt-1">{{ group.present_count }} vorhanden · {{ group.missing_count }} Ziel nicht gefunden</div></div>
+        </div>
+        <div class="list-group mb-3">
+          {% for row in group.rows %}<div class="list-group-item py-2"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ row.sender or '(Absender unbekannt)' }}</strong><div class="small text-secondary">{{ row.folder }} · UID {{ row.uid }} · {{ row.message_date }}</div></div><div>{% if row.present %}<span class="badge text-bg-success">vorhanden</span>{% else %}<span class="badge text-bg-warning">Ziel nicht gefunden</span>{% endif %}</div></div>{% if not row.present %}<div class="small text-secondary">{{ row.missing_reason }}</div>{% endif %}</div>{% endfor %}
+        </div>
+        {% if group.present_count and not read_only %}
+        <div class="row g-2">
+          <div class="col-lg-8"><form method="post" action="{{ url_for('mail_index.move_group') }}" class="d-flex flex-wrap gap-2">
+            <input type="hidden" name="account" value="{{ selected.id }}">{% for row_id in group.row_ids %}<input type="hidden" name="row_id" value="{{ row_id }}">{% endfor %}
+            <label class="visually-hidden" for="target-{{ group.group_id }}">Zielordner</label><select id="target-{{ group.group_id }}" class="form-select flex-grow-1" required name="target"><option value="">Gruppe verschieben nach…</option>{% for item in folders %}{% if item.selectable %}<option value="{{ item.name }}">{{ item.name }}</option>{% endif %}{% endfor %}</select><button type="submit" class="btn btn-outline-primary"><i class="fas fa-folder-tree me-1" aria-hidden="true"></i>Alle verschieben</button>
+          </form></div>
+          <div class="col-lg-4"><form method="post" action="{{ url_for('mail_index.delete_group') }}" onsubmit="return confirm('Alle derzeit noch vorhandenen Mails dieser Gruppe auf dem Mailserver löschen?');">
+            <input type="hidden" name="account" value="{{ selected.id }}">{% for row_id in group.row_ids %}<input type="hidden" name="row_id" value="{{ row_id }}">{% endfor %}<button type="submit" class="btn btn-outline-danger w-100"><i class="fas fa-trash me-1" aria-hidden="true"></i>Vorhandene alle löschen</button>
+          </form></div>
+        </div>
+        {% endif %}
+      </article>
+      {% else %}<p class="text-secondary text-center py-4 mb-0">Noch keine Dublettengruppen erkannt. Zuerst den Index abgleichen.</p>{% endfor %}
+    </div>
+  </section>
+
+  {% if g.user['is_admin'] %}
+  <section class="card border-danger mb-3"><div class="card-header"><strong>Administrator: Index aufräumen</strong></div><div class="card-body"><p class="mb-3">Dies entfernt ausschließlich bereits als <strong>Ziel nicht gefunden</strong> markierte Indexeinträge endgültig. Normalerweise sollten diese Daten für Suche und spätere Federation erhalten bleiben.</p><form method="post" action="{{ url_for('mail_index.cleanup_missing') }}" onsubmit="return confirm('Nicht mehr gefundene Mail-Indexeinträge endgültig löschen?');"><input type="hidden" name="account" value="{{ selected.id }}"><button type="submit" class="btn btn-danger" {% if not stats.missing %}disabled{% endif %}><i class="fas fa-broom me-1" aria-hidden="true"></i>{{ stats.missing }} Tombstone(s) endgültig entfernen</button></form></div></section>
+  {% endif %}
+  {% endif %}
+  {% endif %}
+</main>
+{% endblock %}
