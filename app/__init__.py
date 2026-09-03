@@ -292,6 +292,8 @@ from . import mcp
 app.register_blueprint(mcp.bp)
 from . import datalogger
 app.register_blueprint(datalogger.bp)
+from . import inventory
+app.register_blueprint(inventory.bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
@@ -444,7 +446,8 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    camera_policy = "camera=(self)" if request.blueprint == "inventory" else "camera=()"
+    response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=()")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.is_secure:
