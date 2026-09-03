@@ -9,6 +9,7 @@
         <a class="nav-link" href="{{ url_for('documents.tasks') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
         <a class="nav-link" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1" aria-hidden="true"></i>Objekte</a>
         <a class="nav-link" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive me-1" aria-hidden="true"></i>Speicher</a>
+        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a>{% endif %}
         <a class="nav-link" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>{{ tr('documents') }}</a>
         <a class="nav-link" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}"><i class="fas fa-file-invoice-dollar me-1" aria-hidden="true"></i>{{ tr('invoice.nav') }}</a>
         <a class="nav-link" href="{{ url_for('eur.receipts') }}"><i class="fas fa-receipt me-1" aria-hidden="true"></i>EÜR-Belege</a>
