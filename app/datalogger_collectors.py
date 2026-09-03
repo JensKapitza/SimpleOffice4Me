@@ -199,14 +199,21 @@ def collect_http(config):
             raise CollectionError("secret_missing")
         headers[_safe_header_name(config.get("header_name", "Authorization"))] = secret
     timeout = _bounded_int(config.get("timeout", 5), 5, 1, 15, "timeout_invalid")
+    response = None
     try:
-        with build_opener(_NoRedirect).open(Request(url, headers=headers), timeout=timeout) as response:
-            content_type = response.headers.get_content_type()
-            body = response.read(MAX_HTTP_BYTES + 1)
+        response = build_opener(_NoRedirect).open(Request(url, headers=headers), timeout=timeout)
+        content_type = response.headers.get_content_type()
+        body = response.read(MAX_HTTP_BYTES + 1)
     except CollectionError:
         raise
     except Exception as exc:
         raise CollectionError("http_failed") from exc
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
     if len(body) > MAX_HTTP_BYTES:
         raise CollectionError("response_too_large")
     if content_type not in {"application/json", "application/problem+json"} and not content_type.endswith("+json"):
