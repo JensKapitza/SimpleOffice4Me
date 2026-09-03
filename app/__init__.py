@@ -289,6 +289,8 @@ from . import mcp
 app.register_blueprint(mcp.bp)
 from . import datalogger
 app.register_blueprint(datalogger.bp)
+from . import inventory
+app.register_blueprint(inventory.bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
