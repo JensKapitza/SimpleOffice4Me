@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Linux starter. It owns only the local .venv in this project directory.
+# Linux/Termux starter. Owns only the local .venv in this project directory.
 set -euo pipefail
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PYTHON="${PYTHON:-python3}"
 VENV="$ROOT/.venv"
+IS_TERMUX=0
 
 usage() {
   cat <<'EOF'
@@ -91,16 +92,92 @@ if ! command -v "$PYTHON" >/dev/null 2>&1; then
   exit 1
 fi
 
-"$PYTHON" "$ROOT/tools/system_requirements.py" --missing-only
-
-if [ ! -x "$VENV/bin/python" ]; then
-  "$PYTHON" -m venv "$VENV"
+if [ -n "${TERMUX_VERSION:-}" ] || { [ -n "${PREFIX:-}" ] && [ -x "${PREFIX}/bin/pkg" ]; }; then
+  IS_TERMUX=1
 fi
 
-# Keep the project-owned venv complete on every start. This also upgrades an
-# existing base-only installation by installing the optional SFTP dependencies
-# (Paramiko) into exactly the interpreter used to launch SimpleOffice.
-"$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
+termux_pkg_installed() {
+  command -v dpkg >/dev/null 2>&1 && dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
+}
+
+termux_prepare_python_packages() {
+  [ "$IS_TERMUX" -eq 1 ] || return 0
+
+  echo "Termux erkannt: prüfe native Python-Pakete ..."
+
+  # Prefer Termux builds for packages that otherwise require Rust or native
+  # compilation on Android. Missing packages are installed only when needed.
+  termux_packages="python-cryptography python-pillow python-bcrypt python-pynacl"
+  missing_packages=""
+  for package in $termux_packages; do
+    if termux_pkg_installed "$package"; then
+      echo "  nutze Termux-Paket: $package"
+    else
+      missing_packages="$missing_packages $package"
+    fi
+  done
+
+  if [ -n "$missing_packages" ]; then
+    if command -v pkg >/dev/null 2>&1; then
+      echo "  installiere fehlende Termux-Pakete:$missing_packages"
+      # shellcheck disable=SC2086
+      pkg install -y $missing_packages
+    else
+      echo "Termux wurde erkannt, aber 'pkg' ist nicht verfügbar." >&2
+      exit 1
+    fi
+  fi
+}
+
+venv_uses_system_site_packages() {
+  [ -f "$VENV/pyvenv.cfg" ] && grep -Eiq '^include-system-site-packages[[:space:]]*=[[:space:]]*true$' "$VENV/pyvenv.cfg"
+}
+
+"$PYTHON" "$ROOT/tools/system_requirements.py" --missing-only
+termux_prepare_python_packages
+
+if [ "$IS_TERMUX" -eq 1 ] && [ -x "$VENV/bin/python" ] && ! venv_uses_system_site_packages; then
+  echo "Vorhandene .venv isoliert Termux-Systempakete; erstelle sie kompatibel neu."
+  rm -rf "$VENV"
+fi
+
+if [ ! -x "$VENV/bin/python" ]; then
+  if [ "$IS_TERMUX" -eq 1 ]; then
+    "$PYTHON" -m venv --system-site-packages "$VENV"
+  else
+    "$PYTHON" -m venv "$VENV"
+  fi
+fi
+
+if [ "$IS_TERMUX" -eq 1 ]; then
+  "$VENV/bin/python" - <<'PY'
+import importlib
+
+modules = ("cryptography", "PIL", "bcrypt", "nacl")
+missing = []
+for module in modules:
+    try:
+        importlib.import_module(module)
+    except Exception as exc:
+        missing.append(f"{module}: {exc}")
+if missing:
+    raise SystemExit("Termux-Systempakete sind nicht importierbar:\n  " + "\n  ".join(missing))
+PY
+
+  # Install the pure-Python/runtime dependencies first. Native Termux packages
+  # stay visible through --system-site-packages and are therefore not rebuilt.
+  "$VENV/bin/python" -m pip install --disable-pip-version-check \
+    'Flask>=3.0,<4' 'beautifulsoup4>=4.12,<5' 'html5lib>=1.1,<2' \
+    'reportlab>=4.0,<6' 'pypdf>=5.0,<7' 'waitress>=3.0,<4' \
+    'watchdog>=6,<7' 'paramiko>=3.5,<6'
+  "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
+else
+  # Keep the project-owned venv complete on every start. This also upgrades an
+  # existing base-only installation by installing the optional SFTP dependencies
+  # (Paramiko) into exactly the interpreter used to launch SimpleOffice.
+  "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
+fi
+
 "$VENV/bin/python" "$ROOT/tools/install_invoice_validator.py" || true
 cd "$ROOT"
 exec "$VENV/bin/python" -m tools.launcher start "$@"
