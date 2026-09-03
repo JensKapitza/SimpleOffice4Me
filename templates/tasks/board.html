@@ -28,7 +28,7 @@
     </div>
   </section>
 
-  <form method="get" class="row g-2 mb-3" role="search">
+  <form method="get" class="row g-2 mb-3" role="search" aria-label="{{ 'Search tasks' if g.language == 'en' else 'Aufgaben durchsuchen' }}">
     <div class="col-md-5"><label class="visually-hidden" for="task-q">{{ 'Search' if g.language == 'en' else 'Suche' }}</label><input id="task-q" type="search" name="q" value="{{ query }}" class="form-control" placeholder="{{ 'Search tasks' if g.language == 'en' else 'Aufgaben durchsuchen' }}"></div>
     <div class="col-md-3"><label class="visually-hidden" for="task-list">{{ 'List' if g.language == 'en' else 'Liste' }}</label><select id="task-list" name="list_id" class="form-select"><option value="">{{ 'All lists' if g.language == 'en' else 'Alle Listen' }}</option>{% for list in lists %}<option value="{{ list.list_id }}" {% if selected_list == list.list_id %}selected{% endif %}>{{ list.name }}</option>{% endfor %}</select></div>
     <div class="col-md-3"><label class="visually-hidden" for="task-assigned">{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}</label><input id="task-assigned" name="assigned" value="{{ assigned }}" class="form-control" placeholder="{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}"></div>
