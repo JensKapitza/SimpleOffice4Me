@@ -27,7 +27,7 @@ Optionen:
   --threads ANZAHL            Waitress-Worker-Threads (Standard: 4)
   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
   --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
-  --check-system              Systemwerkzeuge prüfen, ohne Serverstart
+  --check-system              Systemwerkzeuge prüfen, ohne Serverstart/Installation
   --help                      Diese Hilfe anzeigen
 
 Beim Start werden unter Linux zuerst vorhandene/native Distribution-Pakete
@@ -37,7 +37,8 @@ SimpleOffice-Versionsanforderungen geprüft. Nur fehlende oder zu alte Pakete
 fallen anschließend auf pip in der lokalen .venv zurück.
 
 Native Paketinstallation kann mit SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert
-werden. Bereits vorhandene Projekt-.venv und Systempakete bleiben unberührt.
+werden. Eine vorhandene .venv wird nur dann neu erzeugt, wenn native Pakete
+sonst durch ihre Isolation nicht sichtbar wären.
 
 Beispiel:
   ./start.sh --google-json /etc/simpleoffice/google-oauth.json \
@@ -404,16 +405,20 @@ PY
 detect_linux_distribution
 detect_native_package_manager
 
+if [ "$CHECK_SYSTEM" -eq 1 ]; then
+  if ! python_is_compatible; then
+    echo "--check-system verändert das System nicht. Für die Prüfung wird Python 3.10 oder neuer benötigt." >&2
+    exit 1
+  fi
+  exec "$PYTHON" "$ROOT/tools/system_requirements.py"
+fi
+
 if ! ensure_python_runtime; then
   echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird Python 3.10 oder neuer." >&2
   if [ -n "$NATIVE_PM" ]; then
     echo "Erkannter Paketmanager: $NATIVE_PM ($DISTRO_NAME)." >&2
   fi
   exit 1
-fi
-
-if [ "$CHECK_SYSTEM" -eq 1 ]; then
-  exec "$PYTHON" "$ROOT/tools/system_requirements.py"
 fi
 
 "$PYTHON" "$ROOT/tools/system_requirements.py" --missing-only
