@@ -86,8 +86,11 @@ def register(role: str, pid: int, marker: str) -> None:
     temporary = path.with_name(path.name + f".{uuid.uuid4().hex}.tmp")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     descriptor = os.open(temporary, flags, 0o600)
+    raw_descriptor_owned = True
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle = os.fdopen(descriptor, "w", encoding="utf-8")
+        raw_descriptor_owned = False
+        with handle:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -95,10 +98,11 @@ def register(role: str, pid: int, marker: str) -> None:
         if os.name == "posix":
             os.chmod(path, 0o600)
     except Exception:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
+        if raw_descriptor_owned:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         temporary.unlink(missing_ok=True)
         raise
 
@@ -127,7 +131,7 @@ def read(role: str) -> dict[str, object] | None:
             return None
         pid = int(value.get("pid", 0))
         marker = str(value.get("marker", ""))
-        if pid <= 0 or not marker or len(marker) > 512:
+        if pid <= 0 or not marker or len(marker) > 512 or "\x00" in marker:
             return None
         value["pid"] = pid
         return value
