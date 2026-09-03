@@ -1,0 +1,119 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h2 mb-1"><i class="fas fa-mobile-screen-button me-2" aria-hidden="true"></i>Handy-Fotos massenweise importieren</h1><p class="text-secondary mb-0">Viele Fotos auswählen, einzeln zuverlässig übertragen und eingebettete Metadaten möglichst vollständig auswerten.</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.images') }}"><i class="fas fa-images me-1" aria-hidden="true"></i>Bilder öffnen</a>
+  </div>
+
+  <div class="alert alert-info">
+    <strong>Gespeichert werden getrennt:</strong> echte Server-Empfangszeit, vom Browser gemeldete Dateiänderungszeit, EXIF-Aufnahmezeit, Dateiname, MIME-Typ, Dateigröße, SHA-256, Geräte-/Kamera-/Objektivdaten, Abmessungen, GPS (wenn im Bild vorhanden), EXIF sowie – wenn auf dem Server installiert – zusätzliche ExifTool-Felder wie XMP/IPTC.
+  </div>
+
+  <section class="card shadow-sm mb-4">
+    <div class="card-body">
+      <form id="photo-bulk-form" action="{{ url_for('photo_upload.upload_photo') }}" method="post" enctype="multipart/form-data">
+        <input type="hidden" id="photo-csrf" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label for="photo-files" class="form-label fw-semibold">Fotos auswählen</label>
+          <input id="photo-files" class="form-control form-control-lg" type="file" accept="image/jpeg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp" multiple required>
+          <div class="form-text">Auf Android/iPhone kannst du in der Galerie viele Bilder gleichzeitig markieren. Jeder Datensatz wird in einem eigenen Request übertragen; ein einzelner Fehler stoppt die restliche Auswahl nicht.</div>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="photo-archive"><label class="form-check-label" for="photo-archive">Direkt ins feste SHA-256-Archiv importieren</label></div>
+          </div>
+          <div class="col-md-6">
+            <div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="photo-ocr"><label class="form-check-label" for="photo-ocr">OCR direkt beim Upload ausführen</label><div class="form-text">Für hunderte Fotos besser ausgeschaltet lassen; EXIF/Metadaten werden trotzdem sofort ausgewertet.</div></div>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-3 mt-3">
+          <button id="photo-start" class="btn btn-primary btn-lg" type="submit"><i class="fas fa-cloud-arrow-up me-2" aria-hidden="true"></i>Import starten</button>
+          <span id="photo-selection" class="text-secondary" aria-live="polite">Noch keine Fotos ausgewählt.</span>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="photo-progress-section" class="card shadow-sm d-none" aria-live="polite">
+    <div class="card-body">
+      <div class="d-flex justify-content-between gap-3"><strong id="photo-progress-label">Vorbereitung…</strong><span id="photo-progress-percent">0 %</span></div>
+      <div class="progress my-2" role="progressbar" aria-label="Foto-Upload Fortschritt" aria-valuemin="0" aria-valuemax="100"><div id="photo-progress" class="progress-bar" style="width:0%"></div></div>
+      <div id="photo-summary" class="small text-secondary"></div>
+      <div id="photo-errors" class="mt-3"></div>
+      <div id="photo-results" class="list-group list-group-flush mt-3"></div>
+    </div>
+  </section>
+</main>
+<script>
+(() => {
+  const form = document.getElementById('photo-bulk-form');
+  const input = document.getElementById('photo-files');
+  const selection = document.getElementById('photo-selection');
+  const start = document.getElementById('photo-start');
+  const section = document.getElementById('photo-progress-section');
+  const bar = document.getElementById('photo-progress');
+  const label = document.getElementById('photo-progress-label');
+  const percent = document.getElementById('photo-progress-percent');
+  const summary = document.getElementById('photo-summary');
+  const errors = document.getElementById('photo-errors');
+  const results = document.getElementById('photo-results');
+  const endpoint = form.action;
+  const csrf = document.getElementById('photo-csrf').value;
+  const formatBytes = (value) => {
+    if (!Number.isFinite(value) || value <= 0) return '0 B';
+    const units = ['B', 'KiB', 'MiB', 'GiB'];
+    const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+    return `${(value / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+  };
+  input.addEventListener('change', () => {
+    const files = Array.from(input.files || []);
+    const bytes = files.reduce((total, file) => total + file.size, 0);
+    selection.textContent = files.length ? `${files.length} Foto(s) · ${formatBytes(bytes)}` : 'Noch keine Fotos ausgewählt.';
+  });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    start.disabled = true; input.disabled = true; section.classList.remove('d-none'); errors.innerHTML = ''; results.innerHTML = '';
+    const batchId = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const timezone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { return ''; } })();
+    let ok = 0; let failed = 0; let uploadedBytes = 0;
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      label.textContent = `${index + 1} / ${files.length}: ${file.name}`;
+      const data = new FormData();
+      data.append('file', file, file.name);
+      data.append('archive', document.getElementById('photo-archive').checked ? '1' : '0');
+      data.append('run_ocr', document.getElementById('photo-ocr').checked ? '1' : '0');
+      data.append('client_mime_type', file.type || '');
+      data.append('client_size', String(file.size));
+      data.append('client_last_modified_at', Number.isFinite(file.lastModified) && file.lastModified > 0 ? new Date(file.lastModified).toISOString() : '');
+      data.append('client_timezone', timezone);
+      data.append('client_timezone_offset_minutes', String(new Date().getTimezoneOffset()));
+      data.append('client_relative_path', file.webkitRelativePath || '');
+      data.append('batch_id', batchId);
+      data.append('batch_index', String(index + 1));
+      data.append('batch_count', String(files.length));
+      try {
+        const response = await fetch(endpoint, {method: 'POST', body: data, headers: {'X-CSRF-Token': csrf}, credentials: 'same-origin'});
+        const payload = await response.json().catch(() => ({ok: false, error: `HTTP ${response.status}`}));
+        if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        ok += 1; uploadedBytes += file.size;
+        const item = document.createElement('a'); item.className = 'list-group-item list-group-item-action py-2'; item.href = payload.detail_url;
+        item.textContent = `✓ ${file.name} · ${payload.received_at || 'importiert'}`; results.prepend(item);
+      } catch (error) {
+        failed += 1;
+        const alert = document.createElement('div'); alert.className = 'alert alert-warning py-2 mb-2'; alert.textContent = `${file.name}: ${error.message || error}`; errors.append(alert);
+      }
+      const done = index + 1; const value = Math.round((done / files.length) * 100);
+      bar.style.width = `${value}%`; bar.setAttribute('aria-valuenow', String(value)); percent.textContent = `${value} %`;
+      summary.textContent = `${ok} erfolgreich · ${failed} Fehler · ${formatBytes(uploadedBytes)} übertragen`;
+    }
+    label.textContent = failed ? `Fertig: ${ok} importiert, ${failed} Fehler` : `Fertig: ${ok} Foto(s) importiert`;
+    start.disabled = false; input.disabled = false;
+  });
+})();
+</script>
+{% endblock %}
