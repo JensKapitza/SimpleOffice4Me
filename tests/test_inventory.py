@@ -81,6 +81,38 @@ class InventoryBookTests(unittest.TestCase):
         }
         self.assertEqual("Exact Edition", parse_google_books(payload, "9780131103627")["title"])
 
+    def test_google_books_exact_isbn_beats_identifierless_fallback(self):
+        payload = {
+            "items": [
+                {"volumeInfo": {"title": "Unspecified Edition"}},
+                {
+                    "volumeInfo": {
+                        "title": "Exact Edition",
+                        "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9780131103627"}],
+                    }
+                },
+            ]
+        }
+        self.assertEqual("Exact Edition", parse_google_books(payload, "9780131103627")["title"])
+
+    def test_google_books_identifierless_result_remains_fallback(self):
+        payload = {"items": [{"volumeInfo": {"title": "Fallback Without ISBN"}}]}
+        self.assertEqual("Fallback Without ISBN", parse_google_books(payload, "9780131103627")["title"])
+
+    def test_google_books_zero_price_is_preserved(self):
+        payload = {
+            "items": [{
+                "volumeInfo": {
+                    "title": "Free Book",
+                    "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9780131103627"}],
+                },
+                "saleInfo": {"retailPrice": {"amount": 0, "currencyCode": "EUR"}},
+            }]
+        }
+        result = parse_google_books(payload, "9780131103627")
+        self.assertEqual("0", result["market_price"])
+        self.assertEqual("Google Books", result["price_source"])
+
     def test_openlibrary_parser_fills_book_fields(self):
         payload = {
             "ISBN:9780131103627": {
