@@ -1,8 +1,8 @@
 """Browser-request and authentication safeguards.
 
-The DAV and MCP protocols use independently scoped credentials and are not
-cookie-authenticated browser endpoints.  They are deliberately excluded from
-the synchronizer-token check below.
+The DAV, MCP and federation protocols use independently scoped credentials and
+are not cookie-authenticated browser endpoints. They are deliberately excluded
+from the synchronizer-token check below.
 """
 
 from __future__ import annotations
@@ -64,9 +64,9 @@ def protect_browser_mutation() -> None:
         return
     if current_app.testing and not current_app.config.get("TEST_CSRF_PROTECTION", False):
         return
-    # Only credentialed protocol resources are exempt. Their blueprints also
-    # contain browser settings pages, which must remain CSRF protected.
-    if request.path.startswith(("/caldav/", "/carddav/", "/webdav/")) or request.path == "/mcp":
+    # Credentialed protocol resources are exempt. Their browser settings pages
+    # live under /admin and remain CSRF protected.
+    if request.path.startswith(("/caldav/", "/carddav/", "/webdav/", "/federation/v1/")) or request.path == "/mcp":
         return
     expected = session.get("_csrf_token")
     supplied = request.form.get("_csrf_token", "") or request.headers.get("X-CSRF-Token", "")
