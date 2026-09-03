@@ -22,8 +22,11 @@ if ! command -v "$PYTHON_BOOTSTRAP" >/dev/null 2>&1; then
 fi
 
 if [ "$IS_TERMUX" -eq 1 ]; then
-  echo "Termux erkannt: SFTP-Kryptografie wird über pkg bereitgestellt."
-  pkg install -y python-cryptography python-bcrypt python-pynacl
+  echo "Termux erkannt: native Python-/SFTP-Abhängigkeiten werden über pkg bevorzugt."
+  # Pillow gehört bereits zur normalen Web-Laufzeit. Die SFTP-spezifischen
+  # nativen Bibliotheken bcrypt/PyNaCl dürfen unter Android nicht unbemerkt von
+  # pip aus Source gebaut werden.
+  pkg install -y python-cryptography python-pillow python-bcrypt python-pynacl
 
   if [ -x "$VENV_PYTHON" ] && ! grep -Eiq '^include-system-site-packages[[:space:]]*=[[:space:]]*true$' "$VENV/pyvenv.cfg"; then
     echo "Vorhandene .venv isoliert Termux-Pakete; erstelle sie mit Systempaketen neu."
@@ -42,10 +45,25 @@ fi
 if [ "$IS_TERMUX" -eq 1 ]; then
   "$VENV_PYTHON" - <<'PY'
 import importlib
-for module in ("cryptography", "bcrypt", "nacl"):
+for module in ("cryptography", "PIL", "bcrypt", "nacl"):
     importlib.import_module(module)
-print("Termux-SFTP-Kryptografie ist importierbar.")
+print("Termux-native Python-/SFTP-Abhängigkeiten sind importierbar.")
 PY
+
+  # Ein direkter Aufruf von start-sftp.sh muss auch mit einer frischen .venv
+  # funktionieren. Die reinen Web-Laufzeitpakete werden deshalb wie in
+  # start.sh zuerst als fertige Wheels versucht. Erst danach ist ein
+  # kontrollierter Source-Fallback erlaubt. Kryptografie/Pillow bleiben native
+  # Termux-Pakete und sind absichtlich nicht Teil dieser pip-Liste.
+  TERMUX_RUNTIME_REQUIREMENTS="Flask>=3.0,<4 beautifulsoup4>=4.12,<5 reportlab>=4.0,<6 pypdf>=5.0,<7 waitress>=3.0,<4 watchdog>=6,<7"
+  echo "Termux: versuche zuerst fertige Wheels für die gemeinsame Laufzeit ..."
+  # shellcheck disable=SC2086
+  if ! "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: $TERMUX_RUNTIME_REQUIREMENTS; then
+    echo "Nicht alle Laufzeitpakete besitzen ein kompatibles Android-Wheel; installiere Build-Werkzeuge für den kontrollierten Fallback."
+    pkg install -y clang make pkg-config libffi openssl
+    # shellcheck disable=SC2086
+    "$VENV_PYTHON" -m pip install --disable-pip-version-check --prefer-binary $TERMUX_RUNTIME_REQUIREMENTS
+  fi
 
   # Paramiko selbst ist Python-Code. Seine nativen Abhängigkeiten kommen oben
   # aus Termux pkg; --no-deps verhindert einen PyNaCl-/bcrypt-Source-Build.
