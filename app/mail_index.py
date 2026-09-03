@@ -142,7 +142,10 @@ def simhash64(normalized: str) -> str:
     vector = [0] * 64
     for shingle, count in counts.items():
         digest = int.from_bytes(hashlib.blake2b(shingle.encode("utf-8"), digest_size=8).digest(), "big")
-        weight = min(int(count), 4)
+        # Repeated boilerplate is a strong near-duplicate signal.  A cap of four
+        # made a single changed token dominate too many bits in long spam bodies;
+        # keep weighting bounded, but high enough that recurring content wins.
+        weight = min(int(count), 32)
         for bit in range(64):
             vector[bit] += weight if digest & (1 << bit) else -weight
     value = 0
