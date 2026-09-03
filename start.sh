@@ -254,19 +254,19 @@ native_python_packages() {
       printf '%s\n' "python-cryptography python-pillow python-bcrypt python-pynacl"
       ;;
     apt)
-      printf '%s\n' "python3-venv python3-flask python3-bs4 python3-html5lib python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pil python3-bcrypt python3-nacl"
+      printf '%s\n' "python3-venv python3-flask python3-bs4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pil python3-bcrypt python3-nacl"
       ;;
     dnf|yum)
-      printf '%s\n' "python3-flask python3-beautifulsoup4 python3-html5lib python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pillow python3-bcrypt python3-pynacl"
+      printf '%s\n' "python3-flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pillow python3-bcrypt python3-pynacl"
       ;;
     pacman)
-      printf '%s\n' "python-flask python-beautifulsoup4 python-html5lib python-reportlab python-pypdf python-waitress python-watchdog python-paramiko python-cryptography python-pillow python-bcrypt python-pynacl"
+      printf '%s\n' "python-flask python-beautifulsoup4 python-reportlab python-pypdf python-waitress python-watchdog python-paramiko python-cryptography python-pillow python-bcrypt python-pynacl"
       ;;
     apk)
-      printf '%s\n' "py3-flask py3-beautifulsoup4 py3-html5lib py3-reportlab py3-pypdf py3-waitress py3-watchdog py3-paramiko py3-cryptography py3-pillow py3-bcrypt py3-pynacl"
+      printf '%s\n' "py3-flask py3-beautifulsoup4 py3-reportlab py3-pypdf py3-waitress py3-watchdog py3-paramiko py3-cryptography py3-pillow py3-bcrypt py3-pynacl"
       ;;
     zypper)
-      printf '%s\n' "python3-Flask python3-beautifulsoup4 python3-html5lib python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-Pillow python3-bcrypt python3-PyNaCl"
+      printf '%s\n' "python3-Flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-Pillow python3-bcrypt python3-PyNaCl"
       ;;
     *)
       printf '%s\n' ""
@@ -369,7 +369,6 @@ requirements = {
     "Flask": ">=3.0,<4",
     "beautifulsoup4": ">=4.12,<5",
     "Pillow": ">=12.3,<13",
-    "html5lib": ">=1.1,<2",
     "reportlab": ">=4.0,<6",
     "pypdf": ">=5.0,<7",
     "waitress": ">=3.0,<4",
@@ -455,7 +454,7 @@ PY
   # Install the pure-Python/runtime dependencies first. Native Termux packages
   # stay visible through --system-site-packages and are therefore not rebuilt.
   "$VENV/bin/python" -m pip install --disable-pip-version-check \
-    'Flask>=3.0,<4' 'beautifulsoup4>=4.12,<5' 'html5lib>=1.1,<2' \
+    'Flask>=3.0,<4' 'beautifulsoup4>=4.12,<5' \
     'reportlab>=4.0,<6' 'pypdf>=5.0,<7' 'waitress>=3.0,<4' \
     'watchdog>=6,<7' 'paramiko>=3.5,<6'
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"

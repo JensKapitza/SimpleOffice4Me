@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from datetime import datetime, timezone
 
 import click
@@ -6,13 +7,21 @@ from flask import current_app, g
 from flask.cli import with_appcontext
 
 
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+
+
 def get_db():
     if 'db' not in g:
         g.db = sqlite3.connect(
             current_app.config['DATABASE'],
-            detect_types=sqlite3.PARSE_DECLTYPES
+            detect_types=sqlite3.PARSE_DECLTYPES,
+            timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
         )
         g.db.row_factory = sqlite3.Row
+        # Keep concurrent browser/DAV/background requests from failing immediately
+        # on short writer contention and enforce declared relationships.
+        g.db.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+        g.db.execute("PRAGMA foreign_keys=ON")
 
     return g.db
 
@@ -46,6 +55,7 @@ def _migrate_sensitive_database_values() -> None:
                 (protected_access, protected_refresh, row["provider"], row["user_id"]),
             )
 
+
 def init_db():
     db = get_db()
 
@@ -55,14 +65,15 @@ def init_db():
 
 def ensure_auth_database() -> None:
     """Create the login table on first start without replacing existing data."""
-    get_db().execute(
+    db = get_db()
+    db.execute(
         """CREATE TABLE IF NOT EXISTS user (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL
         )"""
     )
-    get_db().execute(
+    db.execute(
         """CREATE TABLE IF NOT EXISTS oauth_identity (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             provider TEXT NOT NULL,
@@ -74,12 +85,12 @@ def ensure_auth_database() -> None:
             FOREIGN KEY (user_id) REFERENCES user (id)
         )"""
     )
-    get_db().execute("CREATE INDEX IF NOT EXISTS oauth_identity_user_id ON oauth_identity(user_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS oauth_identity_user_id ON oauth_identity(user_id)")
     # Additive migration: existing installations retain their user accounts.
-    columns = {row[1] for row in get_db().execute("PRAGMA table_info(user)").fetchall()}
+    columns = {row[1] for row in db.execute("PRAGMA table_info(user)").fetchall()}
     for name in ("display_name", "email", "avatar_url", "profile_source", "profile_updated_at", "theme"):
         if name not in columns:
-            get_db().execute(f"ALTER TABLE user ADD COLUMN {name} TEXT")
+            db.execute(f"ALTER TABLE user ADD COLUMN {name} TEXT")
     additions = {
         "is_admin": "INTEGER NOT NULL DEFAULT 0",
         "is_disabled": "INTEGER NOT NULL DEFAULT 0",
@@ -89,21 +100,21 @@ def ensure_auth_database() -> None:
     }
     for name, definition in additions.items():
         if name not in columns:
-            get_db().execute(f"ALTER TABLE user ADD COLUMN {name} {definition}")
+            db.execute(f"ALTER TABLE user ADD COLUMN {name} {definition}")
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    get_db().execute("UPDATE user SET created_at = COALESCE(created_at, ?), updated_at = COALESCE(updated_at, ?)", (now, now))
+    db.execute("UPDATE user SET created_at = COALESCE(created_at, ?), updated_at = COALESCE(updated_at, ?)", (now, now))
     # Existing installations gain one recoverable administrator without
     # widening any other account. The oldest account is the documented owner.
-    if get_db().execute("SELECT COUNT(*) FROM user WHERE is_admin = 1").fetchone()[0] == 0:
-        get_db().execute("UPDATE user SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM user)")
-    get_db().execute(
+    if db.execute("SELECT COUNT(*) FROM user WHERE is_admin = 1").fetchone()[0] == 0:
+        db.execute("UPDATE user SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM user)")
+    db.execute(
         """CREATE TABLE IF NOT EXISTS user_permission (
             user_id INTEGER NOT NULL, feature TEXT NOT NULL, enabled INTEGER NOT NULL,
             updated_at TEXT NOT NULL, updated_by INTEGER,
             PRIMARY KEY(user_id, feature), FOREIGN KEY(user_id) REFERENCES user(id)
         )"""
     )
-    get_db().execute(
+    db.execute(
         """CREATE TABLE IF NOT EXISTS security_event (
             id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL,
             actor_id INTEGER, actor_name TEXT, action TEXT NOT NULL,
@@ -111,7 +122,7 @@ def ensure_auth_database() -> None:
             detail TEXT NOT NULL DEFAULT '{}'
         )"""
     )
-    get_db().execute(
+    db.execute(
         """CREATE TABLE IF NOT EXISTS application_error (
             id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL,
             request_id TEXT NOT NULL UNIQUE, actor_id INTEGER, exception_type TEXT NOT NULL,
@@ -120,12 +131,14 @@ def ensure_auth_database() -> None:
             resolved_at TEXT, resolved_by INTEGER
         )"""
     )
-    error_columns = {row[1] for row in get_db().execute("PRAGMA table_info(application_error)").fetchall()}
+    error_columns = {row[1] for row in db.execute("PRAGMA table_info(application_error)").fetchall()}
     if "frames" not in error_columns:
-        get_db().execute("ALTER TABLE application_error ADD COLUMN frames TEXT NOT NULL DEFAULT '[]'")
-    get_db().execute("CREATE INDEX IF NOT EXISTS security_event_time ON security_event(occurred_at DESC)")
-    get_db().execute("CREATE INDEX IF NOT EXISTS application_error_time ON application_error(occurred_at DESC)")
-    get_db().execute(
+        db.execute("ALTER TABLE application_error ADD COLUMN frames TEXT NOT NULL DEFAULT '[]'")
+    db.execute("CREATE INDEX IF NOT EXISTS security_event_time ON security_event(occurred_at DESC)")
+    db.execute("CREATE INDEX IF NOT EXISTS security_event_target ON security_event(target_type, target_id, occurred_at DESC)")
+    db.execute("CREATE INDEX IF NOT EXISTS application_error_time ON application_error(occurred_at DESC)")
+    db.execute("CREATE INDEX IF NOT EXISTS application_error_fingerprint ON application_error(fingerprint, occurred_at DESC)")
+    db.execute(
         """CREATE TABLE IF NOT EXISTS login_throttle (
             key TEXT PRIMARY KEY,
             failures INTEGER NOT NULL,
@@ -133,7 +146,15 @@ def ensure_auth_database() -> None:
             blocked_until INTEGER NOT NULL
         )"""
     )
-    get_db().execute(
+    db.execute("CREATE INDEX IF NOT EXISTS login_throttle_expiry ON login_throttle(blocked_until, window_started)")
+    # Throttle rows are short-lived operational state. Clean stale rows during
+    # normal startup so long-running installations do not accumulate them.
+    timestamp = int(time.time())
+    db.execute(
+        "DELETE FROM login_throttle WHERE blocked_until < ? AND window_started < ?",
+        (timestamp, timestamp - 24 * 60 * 60),
+    )
+    db.execute(
         """CREATE TABLE IF NOT EXISTS oauth_token (
             provider TEXT NOT NULL,
             user_id INTEGER NOT NULL,
@@ -146,7 +167,7 @@ def ensure_auth_database() -> None:
             FOREIGN KEY (user_id) REFERENCES user (id)
         )"""
     )
-    get_db().execute(
+    db.execute(
         """CREATE TABLE IF NOT EXISTS mcp_token (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -162,8 +183,8 @@ def ensure_auth_database() -> None:
         )"""
     )
     _migrate_sensitive_database_values()
-    get_db().execute("CREATE INDEX IF NOT EXISTS mcp_token_user ON mcp_token(user_id, revoked_at)")
-    get_db().execute(
+    db.execute("CREATE INDEX IF NOT EXISTS mcp_token_user ON mcp_token(user_id, revoked_at)")
+    db.execute(
         """CREATE TABLE IF NOT EXISTS mcp_operation (
             id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL,
             occurred_at TEXT NOT NULL, actor_id INTEGER NOT NULL, token_id INTEGER NOT NULL,
@@ -171,8 +192,8 @@ def ensure_auth_database() -> None:
             FOREIGN KEY (actor_id) REFERENCES user(id), FOREIGN KEY (token_id) REFERENCES mcp_token(id)
         )"""
     )
-    get_db().execute("CREATE INDEX IF NOT EXISTS mcp_operation_time ON mcp_operation(occurred_at DESC)")
-    get_db().commit()
+    db.execute("CREATE INDEX IF NOT EXISTS mcp_operation_time ON mcp_operation(occurred_at DESC)")
+    db.commit()
 
 
 @click.command('init-db')

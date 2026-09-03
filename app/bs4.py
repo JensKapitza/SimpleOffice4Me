@@ -1,29 +1,39 @@
-from bs4 import BeautifulSoup
-#pip3 install beautifulsoup4 flask
+"""Small compatibility helpers for legacy top-level template routes.
 
-from flask import Flask, send_from_directory, \
-    render_template_string, render_template, \
-    request, session, redirect, abort, send_file, \
-    g
+Historically every rendered page was parsed a second time with BeautifulSoup and
+html5lib only to pretty-print it.  That adds noticeable CPU/RAM cost on small
+systems (especially Termux), can subtly rewrite valid HTML, and provides no
+runtime benefit.  Keep the public helper name for compatibility but return the
+Jinja result directly.
+"""
 
- 
-import os
+from __future__ import annotations
 
-def download_file(static_dir="",dirname="", filename=""):
+from pathlib import Path
+
+from flask import Response, render_template, request, send_from_directory
+
+
+def download_file(static_dir: str = "", dirname: str = "", filename: str = ""):
+    """Serve one static file without allowing the requested directory to escape.
+
+    Flask's ``send_from_directory`` performs its own safe join for ``filename``;
+    this additional check protects the separately supplied ``dirname`` argument.
+    Normal application static assets should use Flask's built-in static route.
+    """
     if request.path == "/favicon.ico":
-        return ""
+        return Response(status=204)
 
-    dirpath = os.path.join(static_dir, dirname)
-    return send_from_directory(dirpath, filename, as_attachment=True)
+    root = Path(static_dir).expanduser().resolve()
+    directory = (root / str(dirname or "")).resolve()
+    if root not in (directory, *directory.parents):
+        return Response("not found", status=404)
+    return send_from_directory(directory, filename, as_attachment=False)
 
 
-def renderwithbs4(myFile="index.html"):
-    if not myFile.endswith('html'):
-        myFile += '.html'
-    resultString = render_template(myFile)
-
-    soup = BeautifulSoup(resultString,features="html5lib")               #make BeautifulSoup
-    prettyHTML = soup.prettify(formatter="html")    
-    #prettyHTML = resultString
-    return prettyHTML
-
+def renderwithbs4(myFile: str = "index.html") -> str:
+    """Render a template once; retained under its historic function name."""
+    template = str(myFile or "index.html").strip()
+    if not template.endswith(".html"):
+        template += ".html"
+    return render_template(template)
