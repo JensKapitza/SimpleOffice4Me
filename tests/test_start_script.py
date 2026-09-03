@@ -52,6 +52,17 @@ class StartScriptTests(unittest.TestCase):
         self.assertLess(dependency_check, script.rindex('"$VENV/bin/python" -m pip install'))
         self.assertIn("--no-deps --editable", script)
 
+    def test_check_system_stays_non_mutating(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "start.sh").read_text(encoding="utf-8")
+
+        check_mode = script.index('if [ "$CHECK_SYSTEM" -eq 1 ]')
+        runtime_install = script.index("if ! ensure_python_runtime;", check_mode)
+        native_install = script.index("prepare_native_python_packages", runtime_install)
+        self.assertLess(check_mode, runtime_install)
+        self.assertLess(runtime_install, native_install)
+        self.assertIn("--check-system verändert das System nicht", script)
+
     def test_linux_native_package_map_covers_project_native_dependencies(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "start.sh").read_text(encoding="utf-8")
