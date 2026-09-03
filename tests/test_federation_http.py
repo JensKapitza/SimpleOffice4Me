@@ -7,6 +7,7 @@ from pathlib import Path
 from flask import Flask
 
 from app.document_store import DocumentStore
+from app.federation_core import build_manifest
 from app.federation_http import bp
 
 
@@ -15,7 +16,7 @@ class FederationHttpTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.app = Flask(__name__)
-        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root))
+        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
         self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
         os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "test-federation-token"
@@ -44,6 +45,7 @@ class FederationHttpTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json["range"])
         self.assertTrue(response.json["curl_resume"])
+        self.assertTrue(response.json["incoming_chunk_put"])
 
     def test_document_range_download(self):
         document_id = self.document["document_id"]
@@ -80,6 +82,40 @@ class FederationHttpTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 416)
         self.assertEqual(response.headers["Content-Range"], "bytes */16")
+
+    def test_prepare_put_and_complete_incoming_transfer(self):
+        source = self.root / "incoming-source.bin"
+        source.write_bytes(b"federation-transfer-test")
+        manifest = build_manifest(source, chunk_size=8)
+        prepare = self.client.post(
+            "/federation/v1/transfers/prepare",
+            headers=self.auth,
+            json={
+                "blob_hash": manifest["blob_hash"],
+                "size": manifest["size"],
+                "chunk_count": manifest["chunk_count"],
+                "manifest": manifest,
+                "operation": "COPY",
+            },
+        )
+        self.assertEqual(prepare.status_code, 201)
+        job_id = prepare.json["transfer_id"]
+        with source.open("rb") as handle:
+            for chunk in manifest["chunks"]:
+                handle.seek(chunk["offset"])
+                data = handle.read(chunk["length"])
+                response = self.client.put(
+                    f"/federation/v1/transfers/{job_id}/chunks/{chunk['index']}",
+                    headers=self.auth,
+                    data=data,
+                )
+                self.assertEqual(response.status_code, 200)
+        status = self.client.get(f"/federation/v1/transfers/{job_id}/status", headers=self.auth)
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json["status"], "complete")
+        final = self.root / ".simpleoffice-meta" / "federation-incoming" / f"{manifest['blob_hash']}.blob"
+        self.assertTrue(final.is_file())
+        self.assertEqual(final.read_bytes(), source.read_bytes())
 
 
 if __name__ == "__main__":
