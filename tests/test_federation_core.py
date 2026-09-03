@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from app import federation_core as f
 
 
