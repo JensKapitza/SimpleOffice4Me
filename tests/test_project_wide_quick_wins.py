@@ -12,6 +12,7 @@ from app.datalogger_collectors import CollectionError, _safe_file_path, collect_
 from app.ics_preview import MAX_UNFOLDED_LINE_CHARS, preview_ics
 from app.revision_history import _path_component
 from app.system_identity import _read_installation_id
+from tools.service_control import _role, process_matches
 
 
 class ProjectWideQuickWinsTest(unittest.TestCase):
@@ -105,6 +106,12 @@ class ProjectWideQuickWinsTest(unittest.TestCase):
                 self.skipTest("symlink creation unavailable")
             with self.assertRaisesRegex(RuntimeError, "symbolic link"):
                 _read_installation_id(link)
+
+    def test_service_roles_are_allowlisted_and_invalid_pids_do_not_match(self):
+        self.assertEqual("web", _role("web"))
+        with self.assertRaises(ValueError):
+            _role("../../web")
+        self.assertFalse(process_matches({"pid": -1, "marker": "launcher.py"}))
 
 
 if __name__ == "__main__":
