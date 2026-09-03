@@ -16,15 +16,19 @@ def test_normal_termux_web_start_excludes_sftp_dependencies():
     assert "pip check" in script
 
 
-def test_optional_sftp_starter_uses_termux_pkg_for_pynacl_and_bcrypt():
+def test_optional_sftp_starter_uses_termux_pkg_for_native_crypto_and_is_standalone():
     root = Path(__file__).resolve().parents[1]
     script = (root / "start-sftp.sh").read_text(encoding="utf-8")
 
-    assert "pkg install -y python-cryptography python-bcrypt python-pynacl" in script
+    for package in ("python-cryptography", "python-pillow", "python-bcrypt", "python-pynacl"):
+        assert package in script
     assert "--system-site-packages" in script
     assert "--only-binary=:all: --no-deps 'paramiko>=3.5,<6'" in script
-    assert 'importlib.import_module(module)' in script
-    assert 'for module in ("cryptography", "bcrypt", "nacl")' in script
+    assert 'for module in ("cryptography", "PIL", "bcrypt", "nacl")' in script
+    assert "Flask>=3.0,<4" in script
+    assert "watchdog>=6,<7" in script
+    assert "--only-binary=:all:" in script
+    assert "pip check" in script
     assert '"$ROOT[sftp]"' in script  # non-Termux explicit SFTP path remains available
 
 
