@@ -1,6 +1,7 @@
 """Canonical, display-safe document provenance tags."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
@@ -65,3 +66,28 @@ def provenance_summary(document: dict[str, Any]) -> dict[str, Any]:
             if key in attributes
         },
     }
+
+
+def persist_origin_tags(root: str | Path, actor: str = "system") -> dict[str, int]:
+    """Backfill derived origin tags into normal document tags.
+
+    Persisting them makes provenance visible in every existing document view and
+    search that already renders or indexes ordinary tags, without introducing a
+    second UI-specific provenance field.
+    """
+    from .document_store import DocumentStore
+
+    store = DocumentStore(root)
+    scanned = changed = errors = 0
+    for document in store.list_documents():
+        scanned += 1
+        try:
+            current = sorted({str(tag).strip() for tag in document.get("tags", []) if str(tag).strip()}, key=str.casefold)
+            desired = document_origin_tags(document)
+            if desired == current:
+                continue
+            store.update_metadata(document["document_id"], tags=desired, author=actor)
+            changed += 1
+        except (OSError, ValueError):
+            errors += 1
+    return {"scanned": scanned, "changed": changed, "errors": errors}
