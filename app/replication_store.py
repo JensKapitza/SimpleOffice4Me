@@ -201,11 +201,13 @@ def init_app(app) -> None:
         federation_catalog_http,
         federation_contacts_http,
         federation_http,
+        federation_mail_http,
         mail_index_routes,
     )
     app.register_blueprint(federation_http.bp)
     app.register_blueprint(federation_catalog_http.bp)
     app.register_blueprint(federation_blocks_http.bp)
     app.register_blueprint(federation_contacts_http.bp)
+    app.register_blueprint(federation_mail_http.bp)
     app.register_blueprint(federation_admin.bp)
     app.register_blueprint(mail_index_routes.bp)
