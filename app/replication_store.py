@@ -60,7 +60,6 @@ class ReplicationStore:
         return target
 
     def import_target(self, target_id: str, actor: str) -> dict[str, Any]:
-        """Import the current contents of an already registered target safely."""
         data = self.status(); target = next((item for item in data["targets"] if item["target_id"] == target_id), None)
         if target is None: raise ValueError("Unbekanntes Spiegelungsziel")
         if target.get("enabled", True) is False: raise ValueError("Spiegelungsziel ist pausiert")
@@ -101,7 +100,6 @@ class ReplicationStore:
         self._save(data, actor, "replication_completed", rule_id); return result
 
     def run_all(self, actor: str) -> dict[str, Any]:
-        """Run every enabled rule; errors are recorded per target and do not stop others."""
         results, errors = [], []
         for rule in self.status()["rules"]:
             if not rule.get("enabled", True): continue
@@ -188,7 +186,6 @@ class ReplicationStore:
 @click.command("run-replications")
 @click.option("--actor", default="system", show_default=True)
 def run_replications_command(actor: str) -> None:
-    """Run all enabled replication rules; intended for systemd/cron timers."""
     result = ReplicationStore(current_app.config["DOCUMENT_ROOT"]).run_all(actor)
     click.echo(json.dumps(result, ensure_ascii=False))
     if result["errors"]: raise click.ClickException("one or more replications failed")
@@ -196,3 +193,9 @@ def run_replications_command(actor: str) -> None:
 
 def init_app(app) -> None:
     app.cli.add_command(run_replications_command)
+    # Federation builds on the same document/replication storage layer. Register
+    # its protocol and administrator surfaces here so normal application startup
+    # activates SOFP without a second bootstrap path.
+    from . import federation_admin, federation_http
+    app.register_blueprint(federation_http.bp)
+    app.register_blueprint(federation_admin.bp)
