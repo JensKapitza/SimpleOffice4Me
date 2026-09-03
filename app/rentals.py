@@ -51,6 +51,25 @@ def _require_admin() -> None:
         abort(403)
 
 
+def _peer_allows_rental_send(policy: object) -> bool:
+    """Fail closed for a sensitive tenant package.
+
+    A rental package is transferred as a document, so an explicit document
+    send permission is mandatory.  Deployments that define an additional
+    ``rentals`` policy must explicitly enable that resource as well.
+    """
+    if not isinstance(policy, dict):
+        return False
+    document_policy = policy.get("documents")
+    if not isinstance(document_policy, dict) or document_policy.get("send") is not True:
+        return False
+    if "rentals" in policy:
+        rental_policy = policy.get("rentals")
+        if not isinstance(rental_policy, dict) or rental_policy.get("send") is not True:
+            return False
+    return True
+
+
 def _back(endpoint: str, **values):
     return redirect(url_for(endpoint, **values))
 
@@ -324,6 +343,7 @@ def correction(settlement_id: str):
 @bp.get("/settlements/<settlement_id>/files/<path:name>")
 @login_required
 def approval_file(settlement_id: str, name: str):
+    _require_admin()
     store = _store(); settlement = store.settlement(settlement_id)
     if settlement["status"] not in {"approved", "sent", "corrected", "void"}: abort(403)
     directory = store.approval_directory(settlement_id).resolve(); path = (directory / name).resolve()
@@ -335,6 +355,7 @@ def approval_file(settlement_id: str, name: str):
 @bp.get("/settlements/<settlement_id>/tenant/<contact_id>/package")
 @login_required
 def tenant_package(settlement_id: str, contact_id: str):
+    _require_admin()
     try:
         path = _store().tenant_package(settlement_id, contact_id)
         _store().record_export(settlement_id, contact_id, "zip_download", path, _actor())
@@ -364,11 +385,8 @@ def federate_tenant_package(settlement_id: str, contact_id: str):
         peer_id = request.form.get("peer_id", "").strip() or _default_peer_for_tenant(store, settlement_id, contact_id)
         federation = FederationStore(_root()); peer = federation.get_peer(peer_id)
         if not peer or not peer.get("enabled"): raise ValueError("Kein aktiver Federation-Peer für den Mieter")
-        policy = peer.get("policy") or {}
-        rental_policy = policy.get("rentals", {}) if isinstance(policy, dict) else {}
-        document_policy = policy.get("documents", {}) if isinstance(policy, dict) else {}
-        if (isinstance(rental_policy, dict) and rental_policy.get("send") is False) or (isinstance(document_policy, dict) and document_policy.get("send") is False):
-            raise ValueError("Peer-Policy verbietet diesen Abrechnungsversand")
+        if not _peer_allows_rental_send(peer.get("policy")):
+            raise ValueError("Peer-Policy erlaubt den Versand von Mietabrechnungen nicht ausdrücklich")
 
         documents = DocumentStore(_root())
         imported = documents.import_file(package, _actor())
