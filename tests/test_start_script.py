@@ -63,7 +63,7 @@ class StartScriptTests(unittest.TestCase):
         self.assertLess(runtime_install, native_install)
         self.assertIn("--check-system verändert das System nicht", script)
 
-    def test_linux_native_package_map_covers_project_native_dependencies(self):
+    def test_linux_native_package_map_covers_web_dependencies(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "start.sh").read_text(encoding="utf-8")
 
@@ -71,7 +71,6 @@ class StartScriptTests(unittest.TestCase):
             "python3-venv",
             "python3-cryptography",
             "python3-pil",
-            "python3-paramiko",
             "python-cryptography",
             "python-pillow",
             "py3-cryptography",
@@ -83,9 +82,13 @@ class StartScriptTests(unittest.TestCase):
             '"Flask": ">=3.0,<4"',
             '"Pillow": ">=12.3,<13"',
             '"cryptography": ">=50,<51"',
-            '"paramiko": ">=3.5,<6"',
         ):
             self.assertIn(requirement, script)
+
+        # Optional SFTP packages belong to start-sftp.sh and must not be pulled
+        # into an ordinary Web start on Linux or Termux.
+        self.assertNotIn("python3-paramiko", script)
+        self.assertNotIn('"paramiko": ">=3.5,<6"', script)
 
     def test_windows_script_supports_the_same_google_oauth_options(self):
         root = Path(__file__).resolve().parents[1]
