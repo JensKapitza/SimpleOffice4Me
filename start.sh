@@ -167,7 +167,7 @@ PY
   # Install the pure-Python/runtime dependencies first. Native Termux packages
   # stay visible through --system-site-packages and are therefore not rebuilt.
   "$VENV/bin/python" -m pip install --disable-pip-version-check \
-    'Flask>=3.0,<4' 'beautifulsoup4>=4.12,<5' 'html5lib>=1.1,<2' \
+    'Flask>=3.0,<4' 'beautifulsoup4>=4.12,<5' \
     'reportlab>=4.0,<6' 'pypdf>=5.0,<7' 'waitress>=3.0,<4' \
     'watchdog>=6,<7' 'paramiko>=3.5,<6'
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
