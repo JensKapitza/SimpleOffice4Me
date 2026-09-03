@@ -3,33 +3,90 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-    <div><h1 class="h2 mb-1">Federation / SOFP</h1><p class="text-secondary mb-0">Peers, Rechte und Server-zu-Server-Dateitransfers verwalten.</p></div>
-    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzer</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Inventar</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Fehler / Audit</a></div>
+    <div><h1 class="h2 mb-1">Federation / SOFP</h1><p class="text-secondary mb-0">Dokumente direkt an bekannte Instanzen senden oder A→B→C übertragen.</p></div>
+    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}">Dokumente</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.replication') }}">Speicher</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Audit</a></div>
   </div>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+
   <div class="row g-3 mb-4">
-    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Peers</div><div class="fs-3">{{ stats.peers }}</div><small>{{ stats.enabled_peers }} aktiv</small></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Aktive Transfers</div><div class="fs-3">{{ stats.active_transfers }}</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Abgeschlossen</div><div class="fs-3">{{ stats.completed_transfers }}</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card"><div class="card-body"><div class="text-secondary small">Fehlgeschlagen</div><div class="fs-3">{{ stats.failed_transfers }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Peers</div><div class="fs-3">{{ stats.peers }}</div><small>{{ stats.enabled_peers }} aktiv</small></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Aktive Transfers</div><div class="fs-3">{{ stats.active_transfers }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Abgeschlossen</div><div class="fs-3">{{ stats.completed_transfers }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Fehlgeschlagen</div><div class="fs-3">{{ stats.failed_transfers }}</div></div></div></div>
   </div>
-  <section class="card mb-4"><div class="card-header">Peer hinzufügen / ändern</div><div class="card-body">
-    <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-3">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <div class="col-md-3"><label class="form-label">Peer-ID</label><input class="form-control" name="peer_id" required></div>
-      <div class="col-md-3"><label class="form-label">Name</label><input class="form-control" name="label"></div>
-      <div class="col-md-6"><label class="form-label">Basis-URL</label><input class="form-control" name="base_url" placeholder="http://10.0.0.2:8080" required></div>
-      <div class="col-md-6"><label class="form-label">Bearer-Token</label><input class="form-control" type="password" name="token" autocomplete="new-password"><div class="form-text">Wird verschlüsselt gespeichert.</div></div>
-      <div class="col-md-6"><label class="form-label">Policy JSON</label><input class="form-control font-monospace" name="policy_json" value='{"documents":{"send":true,"receive":true,"seed":true}}'></div>
-      <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="enabled" value="1" checked id="fed-enabled"><label class="form-check-label" for="fed-enabled">Peer aktiv</label></div></div>
-      <div class="col-12"><button class="btn btn-primary">Peer speichern</button></div>
-    </form>
-  </div></section>
-  <section class="card mb-4"><div class="card-header">Peers</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Name</th><th>URL</th><th>Status</th><th>Letzter Kontakt</th><th></th></tr></thead><tbody>
-  {% for peer in peers %}<tr><td><code>{{ peer.peer_id }}</code></td><td>{{ peer.label }}</td><td class="text-break"><code>{{ peer.base_url }}</code></td><td><span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'aus' }}</span>{% if peer.last_error %}<div class="text-danger small">{{ peer.last_error }}</div>{% endif %}</td><td>{{ peer.last_seen_at or '–' }}</td><td class="text-nowrap"><form class="d-inline" method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Test</button></form> <form class="d-inline" method="post" action="{{ url_for('federation_admin.delete_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger">Löschen</button></form></td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Noch keine Peers konfiguriert.</td></tr>{% endfor %}
+
+  <section class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>Dokument auswählen</strong><span class="text-secondary small">Keine SHA-256-Eingabe nötig</span></div>
+    <div class="card-body">
+      <form method="get" action="{{ url_for('federation_admin.dashboard') }}" class="input-group mb-3">
+        <input class="form-control" type="search" name="q" value="{{ document_query }}" placeholder="Dateiname, Dokument-ID oder Tag">
+        <button class="btn btn-outline-primary" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Suchen</button>
+      </form>
+      <div class="list-group">
+        {% for document in documents %}
+          <a class="list-group-item list-group-item-action d-flex justify-content-between gap-3" href="{{ url_for('federation_admin.dashboard', document_id=document.document_id, q=document_query) }}">
+            <span class="text-break"><strong>{{ document.last_path.rsplit('/', 1)[-1] }}</strong><br><small class="text-secondary">{{ document.last_path }} · {{ document.tags|join(', ') }}</small></span>
+            <code class="small text-nowrap">{{ document.document_id[:8] }}…</code>
+          </a>
+        {% else %}<div class="text-secondary">Keine passenden Dokumente.</div>{% endfor %}
+      </div>
+    </div>
+  </section>
+
+  {% if selected_document %}
+  <section class="card border-primary mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>{{ selected_document.last_path }}</strong><span class="badge text-bg-primary">Ausgewähltes Dokument</span></div>
+    <div class="card-body">
+      <dl class="row small mb-4"><dt class="col-md-2">Dokument-ID</dt><dd class="col-md-10"><code>{{ selected_document.document_id }}</code></dd><dt class="col-md-2">SHA-256</dt><dd class="col-md-10 text-break"><code>{{ selected_document.federation_sha256 }}</code></dd><dt class="col-md-2">Größe</dt><dd class="col-md-10">{{ selected_document.federation_size }} Byte</dd></dl>
+      <div class="row g-4">
+        <div class="col-xl-6">
+          <h2 class="h5">Direkt senden</h2>
+          <p class="text-secondary small">Diese Instanz sendet das Dokument direkt an den gewählten Peer. Vorhandene Chunks werden übersprungen.</p>
+          <form method="post" action="{{ url_for('federation_admin.send_document', document_id=selected_document.document_id) }}" class="row g-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-7"><label class="form-label">Ziel-Peer</label><select class="form-select" name="target_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select></div>
+            <div class="col-md-5"><label class="form-label">Operation</label><select class="form-select" name="operation"><option>COPY</option><option>REPLICATE</option><option>VERIFY</option><option>REPAIR</option></select></div>
+            <div class="col-12 d-flex flex-wrap gap-2"><button class="btn btn-primary" name="start_now" value="1"><i class="fas fa-paper-plane me-1" aria-hidden="true"></i>Jetzt übertragen</button><button class="btn btn-outline-primary" name="start_now" value="0">Nur einplanen</button></div>
+          </form>
+        </div>
+        <div class="col-xl-6">
+          <h2 class="h5">A → B → C</h2>
+          <p class="text-secondary small">Diese Instanz koordiniert. B sendet direkt an C; das dauerhafte C-Passwort wird B nicht offengelegt.</p>
+          <form method="post" action="{{ url_for('federation_admin.orchestrate_document', document_id=selected_document.document_id) }}" class="row g-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-5"><label class="form-label">Quelle B</label><select class="form-select" name="source_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select></div>
+            <div class="col-md-5"><label class="form-label">Ziel C</label><select class="form-select" name="target_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select></div>
+            <div class="col-md-2"><label class="form-label">Typ</label><select class="form-select" name="operation"><option>COPY</option><option>REPLICATE</option></select></div>
+            <div class="col-12"><button class="btn btn-outline-primary"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>B→C koordinieren</button></div>
+          </form>
+        </div>
+      </div>
+      {% if peers %}<hr><div class="d-flex flex-wrap gap-2 align-items-center"><span class="small text-secondary">Auf Peer prüfen:</span>{% for peer in peers if peer.enabled %}<form method="post" action="{{ url_for('federation_admin.document_availability', document_id=selected_document.document_id, peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary">{{ peer.label }}</button></form>{% endfor %}</div>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  <div class="row g-4 mb-4">
+    <section class="col-xl-5"><div class="card h-100"><div class="card-header">Peer hinzufügen / ändern</div><div class="card-body">
+      <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6"><label class="form-label">Peer-ID</label><input class="form-control" name="peer_id" required></div><div class="col-md-6"><label class="form-label">Name</label><input class="form-control" name="label"></div>
+        <div class="col-12"><label class="form-label">Basis-URL</label><input class="form-control" name="base_url" placeholder="http://10.0.0.2:8080" required></div>
+        <div class="col-12"><label class="form-label">Bearer-Token</label><input class="form-control" type="password" name="token" autocomplete="new-password"><div class="form-text">Wird verschlüsselt gespeichert.</div></div>
+        <div class="col-12"><label class="form-label">Policy JSON</label><textarea class="form-control font-monospace" name="policy_json" rows="3">{"documents":{"send":true,"receive":true,"seed":true}}</textarea></div>
+        <div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" name="enabled" value="1" checked id="fed-enabled"><label class="form-check-label" for="fed-enabled">Peer aktiv</label></div>
+        <div class="col-12"><button class="btn btn-primary">Peer speichern</button></div>
+      </form>
+    </div></div></section>
+    <section class="col-xl-7"><div class="card h-100"><div class="card-header">Peers</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID / Name</th><th>URL</th><th>Status</th><th></th></tr></thead><tbody>
+      {% for peer in peers %}<tr><td><strong>{{ peer.label }}</strong><br><code>{{ peer.peer_id }}</code></td><td class="text-break"><code>{{ peer.base_url }}</code></td><td><span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'aus' }}</span>{% if peer.last_error %}<div class="text-danger small text-break">{{ peer.last_error }}</div>{% endif %}</td><td class="text-nowrap"><form class="d-inline" method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Test</button></form> <form class="d-inline" method="post" action="{{ url_for('federation_admin.delete_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger">Löschen</button></form></td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Peers konfiguriert.</td></tr>{% endfor %}
+    </tbody></table></div></div></section>
+  </div>
+
+  <section class="card mb-4"><div class="card-header">Transfers{% if selected_document %} dieses Dokuments{% endif %}</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Richtung</th><th>Blob</th><th>Quelle → Ziel</th><th>Status</th><th>Fortschritt</th><th>Fehler</th><th></th></tr></thead><tbody>
+    {% for item in transfers %}<tr><td><code>{{ item.transfer_id[:12] }}…</code></td><td>{{ item.direction }}</td><td><code>{{ item.blob_hash[:12] }}…</code></td><td>{{ item.source_peer or 'lokal' }} → {{ item.target_peer or item.target_url or 'lokal' }}</td><td><span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-danger' if item.status == 'failed' else 'text-bg-warning' }}">{{ item.status }}</span></td><td>{{ item.transferred_bytes }} / {{ item.total_bytes }}</td><td class="text-danger small text-break">{{ item.error }}</td><td>{% if item.direction == 'outgoing' and item.status != 'complete' %}<form method="post" action="{{ url_for('federation_admin.run_transfer', job_id=item.transfer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Start/Resume</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="8" class="text-secondary">Keine Transfers.</td></tr>{% endfor %}
   </tbody></table></div></section>
-  <section class="card mb-4"><div class="card-header">Transfer anlegen</div><div class="card-body"><form method="post" action="{{ url_for('federation_admin.create_transfer') }}" class="row g-3"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="col-md-6"><label class="form-label">Blob SHA-256</label><input class="form-control font-monospace" name="blob_hash" required></div><div class="col-md-3"><label class="form-label">Ziel-Peer</label><select class="form-select" name="target_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select></div><div class="col-md-3"><label class="form-label">Operation</label><select class="form-select" name="operation"><option>COPY</option><option>REPLICATE</option><option>VERIFY</option><option>REPAIR</option></select></div><div class="col-12"><button class="btn btn-primary">Transfer anlegen</button></div></form></div></section>
-  <section class="card mb-4"><div class="card-header">Transfers</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Blob</th><th>Ziel</th><th>Status</th><th>Fortschritt</th><th>Fehler</th><th></th></tr></thead><tbody>{% for item in transfers %}<tr><td><code>{{ item.transfer_id }}</code></td><td><code>{{ item.blob_hash[:16] }}…</code></td><td>{{ item.target_peer or item.target_url }}</td><td>{{ item.status }}</td><td>{{ item.transferred_bytes }} / {{ item.total_bytes }}</td><td class="text-danger small">{{ item.error }}</td><td><form method="post" action="{{ url_for('federation_admin.run_transfer', job_id=item.transfer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Start</button></form></td></tr>{% else %}<tr><td colspan="7" class="text-secondary">Keine Transfers.</td></tr>{% endfor %}</tbody></table></div></section>
-  <section class="card"><div class="card-header">Letzte Federation-Ereignisse</div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Aktion</th><th>Peer</th><th>Transfer</th><th>Details</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td><code>{{ event.transfer_id }}</code></td><td><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody></table></div></section>
+
+  <details class="card"><summary class="card-header">Letzte Federation-Ereignisse</summary><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Aktion</th><th>Peer</th><th>Transfer</th><th>Details</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td><code>{{ event.transfer_id[:12] }}</code></td><td class="small text-break"><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody></table></div></details>
 </main>
 {% endblock %}
