@@ -8,6 +8,8 @@ from typing import Any
 
 MAX_PREVIEW_BYTES = 1024 * 1024
 MAX_PREVIEW_EVENTS = 200
+MAX_PREVIEW_LINES = 20_000
+MAX_UNFOLDED_LINE_CHARS = 64 * 1024
 
 
 def _unescape_text(value: str) -> str:
@@ -80,9 +82,16 @@ def preview_ics(content: str) -> dict[str, Any]:
     if len(content.encode("utf-8")) > MAX_PREVIEW_BYTES:
         raise ValueError(f"iCalendar preview is limited to {MAX_PREVIEW_BYTES // 1024} KiB")
 
+    physical_lines = content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if len(physical_lines) > MAX_PREVIEW_LINES:
+        raise ValueError(f"iCalendar preview is limited to {MAX_PREVIEW_LINES} lines")
     unfolded: list[str] = []
-    for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    for line in physical_lines:
+        if len(line) > MAX_UNFOLDED_LINE_CHARS:
+            raise ValueError("iCalendar content line is too long")
         if line.startswith((" ", "\t")) and unfolded:
+            if len(unfolded[-1]) + len(line) - 1 > MAX_UNFOLDED_LINE_CHARS:
+                raise ValueError("iCalendar unfolded content line is too long")
             unfolded[-1] += line[1:]
         else:
             unfolded.append(line)
