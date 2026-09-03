@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h2">Mietobjekte &amp; Abrechnung</h1>
+  <p class="text-secondary">Betriebskosten für Einzelobjekte oder Mietobjektgruppen nachvollziehbar abrechnen.</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-8">
+      <div class="card mb-4"><div class="card-header"><strong>Mietobjektgruppen</strong></div><div class="list-group list-group-flush">
+        {% for group in groups %}<a class="list-group-item list-group-item-action" href="{{ url_for('rentals.group_detail', group_id=group.group_id) }}"><strong>{{ group.name }}</strong><span class="float-end">{{ group.units|length }} Objekt(e)</span><div class="small text-secondary">{{ group.description }}</div></a>{% else %}<div class="list-group-item text-secondary">Noch keine Gruppe.</div>{% endfor %}
+      </div></div>
+      <div class="card"><div class="card-header"><strong>Jahresabrechnungen</strong></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Jahr</th><th>Abrechnung</th><th>Version</th><th>Status</th><th>Zeitraum</th></tr></thead><tbody>
+        {% for item in settlements %}<tr><td>{{ item.year }}</td><td><a href="{{ url_for('rentals.settlement_detail', settlement_id=item.settlement_id) }}">{{ item.label }}</a></td><td>v{{ item.version }}</td><td><span class="badge {% if item.status in ['approved','sent'] %}text-bg-success{% elif item.status == 'review' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ item.status }}</span></td><td>{{ item.starts_on }} – {{ item.ends_on }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Abrechnung.</td></tr>{% endfor %}
+      </tbody></table></div></div>
+    </section>
+    <aside class="col-lg-4">
+      <div class="card mb-4"><div class="card-header"><strong>Gruppe anlegen</strong></div><div class="card-body"><form method="post" action="{{ url_for('rentals.create_group') }}" class="row g-2"><div class="col-12"><input required class="form-control" name="name" placeholder="z. B. Musterstraße 10"></div><div class="col-12"><textarea class="form-control" name="description" placeholder="Beschreibung"></textarea></div><div class="col-12"><button class="btn btn-primary w-100">Gruppe anlegen</button></div></form></div></div>
+      <div class="card"><div class="card-header"><strong>Abrechnung anlegen</strong></div><div class="card-body"><form method="post" action="{{ url_for('rentals.create_settlement') }}" class="row g-2">
+        <div class="col-12"><input required class="form-control" name="label" placeholder="Nebenkosten 2026"></div><div class="col-4"><input required type="number" class="form-control" name="year" placeholder="Jahr"></div><div class="col-4"><input required type="date" class="form-control" name="starts_on"></div><div class="col-4"><input required type="date" class="form-control" name="ends_on"></div>
+        <div class="col-12"><select class="form-select" name="group_id"><option value="">– Einzelobjekt –</option>{% for group in groups %}<option value="{{ group.group_id }}">{{ group.name }}</option>{% endfor %}</select></div>
+        <div class="col-12"><select class="form-select" name="object_id"><option value="">– Objekt auswählen –</option>{% for item in objects %}<option value="{{ item.object_id }}">#{{ item.display_id }} {{ item.name }}</option>{% endfor %}</select><div class="form-text">Bei gewählter Gruppe wird das Einzelobjekt ignoriert.</div></div><div class="col-12"><button class="btn btn-primary w-100">Entwurf anlegen</button></div>
+      </form></div></div>
+    </aside>
+  </div>
+</main>
+{% endblock %}

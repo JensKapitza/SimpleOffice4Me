@@ -195,7 +195,8 @@ def init_app(app) -> None:
     app.cli.add_command(run_replications_command)
     # Federation builds on the same document/replication storage layer. Register
     # protocol, offline catalog, reusable blocks, contact payloads, phase-2
-    # multi-source/repair services and admin UI.
+    # multi-source/repair services and admin UI. Rental billing reuses the same
+    # document/federation infrastructure.
     from . import (
         federation_admin,
         federation_blocks_http,
@@ -203,6 +204,7 @@ def init_app(app) -> None:
         federation_contacts_http,
         federation_http,
         federation_phase2,
+        rentals,
     )
     app.register_blueprint(federation_http.bp)
     app.register_blueprint(federation_catalog_http.bp)
@@ -210,3 +212,4 @@ def init_app(app) -> None:
     app.register_blueprint(federation_contacts_http.bp)
     federation_phase2.init_app(app)
     app.register_blueprint(federation_admin.bp)
+    app.register_blueprint(rentals.bp)
