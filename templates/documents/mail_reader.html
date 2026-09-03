@@ -4,100 +4,179 @@
 {% block body %}
 <main id="main-content" class="container-fluid py-3">
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <div><h1 class="h3 mb-1"><i class="fas fa-envelope me-2"></i>Mail</h1><p class="text-secondary mb-0">Postfach lesen oder lokal archivierte Nachrichten öffnen.</p></div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('mail_client.index', account=selected.id if selected else '') }}"><i class="fas fa-gear me-1"></i>Einstellungen</a>
+    <div>
+      <h1 class="h3 mb-1"><i class="fas fa-envelope me-2"></i>Mail</h1>
+      <p class="text-secondary mb-0">Webmail mit Postfach, Archiv, Kontakten und Kalender-Verknüpfung.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      {% if selected %}
+        <span class="badge {{ 'text-bg-warning' if read_only else 'text-bg-success' }}">
+          <i class="fas {{ 'fa-lock' if read_only else 'fa-pen' }} me-1"></i>{{ 'Read-only' if read_only else 'Schreibzugriff' }}
+        </span>
+      {% endif %}
+      <a class="btn btn-outline-primary" href="{{ url_for('documents.calendar') }}"><i class="fas fa-calendar-days me-1"></i>Kalender</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('documents.contacts') if 'documents.contacts' in current_app.view_functions else '/documents/contacts' }}"><i class="fas fa-address-book me-1"></i>Kontakte</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('mail_client.index', account=selected.id if selected else '') }}"><i class="fas fa-gear me-1"></i>Einstellungen</a>
+    </div>
   </div>
 
-  <section class="card mb-3"><div class="card-body py-2">
-    <form role="search" aria-label="E-Mails suchen" method="get" class="row g-2 align-items-center">
-      <div class="col-lg-3"><label class="visually-hidden" for="mail-account">Konto</label><select id="mail-account" class="form-select" name="account" onchange="this.form.submit()">{% for account in accounts %}<option value="{{ account.id }}" {% if selected and selected.id == account.id %}selected{% endif %}>{{ account.label }} · {{ account.username }}</option>{% else %}<option>Kein Konto konfiguriert</option>{% endfor %}</select></div>
-      <input type="hidden" name="mode" value="{{ mode }}">
-      {% if mode == 'inbox' %}<input type="hidden" name="folder" value="{{ folder }}">{% endif %}
-      <div class="col-lg-6"><div class="input-group"><span class="input-group-text"><i class="fas fa-magnifying-glass"></i></span><input type="search" class="form-control" name="q" value="{{ query }}" placeholder="Mail suchen"><button type="submit" class="btn btn-outline-primary">Suchen</button>{% if query %}<a class="btn btn-outline-secondary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '', mode=mode, folder=folder) }}">×</a>{% endif %}</div></div>
-      <div class="col-lg-3 text-lg-end"><div class="btn-group"><a class="btn {{ 'btn-primary' if mode != 'archive' else 'btn-outline-primary' }}" href="{{ url_for('mail_reader.index', account=selected.id if selected else '') }}"><i class="fas fa-inbox me-1"></i>Postfach</a><a class="btn {{ 'btn-primary' if mode == 'archive' else 'btn-outline-primary' }}" href="{{ url_for('mail_reader.index', account=selected.id if selected else '', mode='archive') }}"><i class="fas fa-box-archive me-1"></i>Archiv</a></div></div>
-    </form>
-  </div></section>
+  <section class="card mb-3">
+    <div class="card-body py-2">
+      <form role="search" aria-label="E-Mails suchen" method="get" class="row g-2 align-items-center">
+        <div class="col-lg-3">
+          <label class="visually-hidden" for="mail-account">Konto</label>
+          <select id="mail-account" class="form-select" name="account" onchange="this.form.submit()">
+            {% for account in accounts %}<option value="{{ account.id }}" {% if selected and selected.id == account.id %}selected{% endif %}>{{ account.label }} · {{ account.username }}</option>{% else %}<option>Kein Konto konfiguriert</option>{% endfor %}
+          </select>
+        </div>
+        <input type="hidden" name="mode" value="{{ mode }}">
+        {% if mode != 'archive' %}<input type="hidden" name="folder" value="{{ folder }}">{% endif %}
+        <div class="col-lg-5">
+          <div class="input-group">
+            <span class="input-group-text"><i class="fas fa-magnifying-glass"></i></span>
+            <input type="search" class="form-control" name="q" value="{{ query }}" placeholder="Absender, Empfänger oder Betreff suchen">
+            <button type="submit" class="btn btn-outline-primary">Suchen</button>
+            {% if query %}<a class="btn btn-outline-secondary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '', mode=mode, folder=folder) }}" aria-label="Suche löschen">×</a>{% endif %}
+          </div>
+        </div>
+        <div class="col-lg-4 text-lg-end">
+          <div class="btn-group" role="group" aria-label="Mailansicht">
+            <a class="btn {{ 'btn-primary' if mode != 'archive' else 'btn-outline-primary' }}" href="{{ url_for('mail_reader.index', account=selected.id if selected else '') }}"><i class="fas fa-inbox me-1"></i>Postfach</a>
+            <a class="btn {{ 'btn-primary' if mode == 'archive' else 'btn-outline-primary' }}" href="{{ url_for('mail_reader.index', account=selected.id if selected else '', mode='archive') }}"><i class="fas fa-box-archive me-1"></i>Archiv</a>
+            {% if selected and not read_only %}<button type="button" class="btn btn-success" data-bs-toggle="collapse" data-bs-target="#compose-panel" aria-expanded="{{ 'true' if compose.to or compose.subject else 'false' }}" aria-controls="compose-panel"><i class="fas fa-pen me-1"></i>Neue Mail</button>{% endif %}
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  {% if selected and read_only %}
+  <div class="alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2" role="status">
+    <div><strong>Read-only ist aktiv.</strong> Lesen, Suchen, Anhänge prüfen und lokal archivieren funktionieren. Senden, Verschieben, Gelesen-Status, neue Ordner und Sieve-Änderungen sind blockiert.</div>
+    <a class="btn btn-sm btn-warning" href="{{ url_for('mail_client.index', account=selected.id) }}">Schreibzugriff verwalten</a>
+  </div>
+  {% endif %}
+
+  {% if selected and not read_only %}
+  <section id="compose-panel" class="collapse {{ 'show' if compose.to or compose.subject else '' }} mb-3">
+    <div class="card border-success">
+      <div class="card-header d-flex justify-content-between align-items-center"><strong><i class="fas fa-pen me-2"></i>Neue Nachricht</strong><button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#compose-panel" aria-label="Editor schließen"></button></div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('mail_reader.send_message') }}" class="row g-3">
+          <input type="hidden" name="account" value="{{ selected.id }}">
+          <div class="col-lg-8">
+            <label class="form-label" for="compose-to">An</label>
+            <input id="compose-to" class="form-control" required name="recipients" value="{{ compose.to }}" list="contact-suggestions" placeholder="name@example.org">
+            <datalist id="contact-suggestions"></datalist>
+            <div class="form-text">Kontakte können aus dem SimpleOffice-Adressbuch vorgeschlagen werden.</div>
+          </div>
+          <div class="col-lg-4 d-flex align-items-end gap-2"><a class="btn btn-outline-secondary w-100" href="/documents/contacts"><i class="fas fa-address-book me-1"></i>Kontakte öffnen</a><a class="btn btn-outline-secondary w-100" href="{{ url_for('documents.calendar') }}"><i class="fas fa-calendar-plus me-1"></i>Termin</a></div>
+          <div class="col-12"><label class="form-label" for="compose-subject">Betreff</label><input id="compose-subject" class="form-control" required maxlength="998" name="subject" value="{{ compose.subject }}"></div>
+          <div class="col-12"><label class="form-label" for="compose-body">Nachricht</label><textarea id="compose-body" class="form-control" rows="9" maxlength="1048576" name="body">{{ compose.body }}</textarea></div>
+          <div class="col-12 d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#compose-panel">Abbrechen</button><button type="submit" class="btn btn-success"><i class="fas fa-paper-plane me-1"></i>Senden</button></div>
+        </form>
+      </div>
+    </div>
+  </section>
+  {% endif %}
 
   {% if connection_error %}<div class="alert alert-warning"><i class="fas fa-triangle-exclamation me-2"></i>{{ connection_error }} {% if selected %}<a href="{{ url_for('mail_client.index', account=selected.id) }}" class="alert-link">Kontoeinstellungen öffnen</a>{% endif %}</div>{% endif %}
 
-  {% if not accounts %}<div class="alert alert-secondary">Noch kein Mailkonto vorhanden. <a href="{{ url_for('mail_client.index') }}">IMAP-Konto konfigurieren</a>.</div>
+  {% if not accounts %}
+    <div class="alert alert-secondary">Noch kein Mailkonto vorhanden. <a href="{{ url_for('mail_client.index') }}">IMAP-Konto konfigurieren</a>.</div>
   {% elif mode == 'archive' %}
     <div class="row g-3">
       <section class="col-xl-5 col-lg-6">
-        <div class="card">
-          <div class="card-header d-flex justify-content-between align-items-center"><strong>Archivierte Mails</strong><span class="badge text-bg-secondary">{{ archive_rows|length }}</span></div>
+        <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>Archivierte Mails</strong><span class="badge text-bg-secondary">{{ archive_rows|length }}</span></div>
           <div class="list-group list-group-flush" style="max-height:72vh;overflow:auto">
             {% for row in archive_rows %}
             <a class="list-group-item list-group-item-action {{ 'active' if archive_preview and archive_preview.sha512 == row.archive_id else '' }}" href="{{ url_for('mail_reader.index', account=selected.id, mode='archive', q=query, mail=row.archive_id) }}">
-              <div class="d-flex justify-content-between gap-2"><strong class="text-truncate">{{ row.subject }}</strong><small class="text-nowrap">{{ row.date }}</small></div>
-              <div class="small text-truncate">{{ row.from }}</div>
-              {% if row.to %}<div class="small opacity-75 text-truncate">an {{ row.to }}</div>{% endif %}
-              <div class="small opacity-75 mt-1"><i class="far fa-envelope-open me-1"></i>Öffnen · {{ (row.size / 1024)|round(1) }} KiB</div>
+              <div class="d-flex justify-content-between gap-2"><strong class="text-truncate">{{ row.subject }}</strong><small class="text-nowrap">{{ row.date }}</small></div><div class="small text-truncate">{{ row.from }}</div>{% if row.to %}<div class="small opacity-75 text-truncate">an {{ row.to }}</div>{% endif %}<div class="small opacity-75 mt-1">{{ (row.size / 1024)|round(1) }} KiB</div>
             </a>
             {% else %}<div class="list-group-item text-center text-secondary py-5">Keine archivierten Mails gefunden.</div>{% endfor %}
           </div>
         </div>
       </section>
       <section class="col-xl-7 col-lg-6">
-        <div class="card" style="min-height:60vh">
-          <div class="card-header"><strong>Mail lesen</strong></div>
-          {% if archive_preview %}
-          <div class="card-body">
-            <h2 class="h4 mb-3">{{ archive_preview.subject }}</h2>
-            <div class="border rounded p-3 mb-3 bg-body-tertiary">
-              <div><strong>Von:</strong> {{ archive_preview.from or '—' }}</div>
-              <div><strong>An:</strong> {{ archive_preview.to or '—' }}</div>
-              {% if archive_preview.cc %}<div><strong>CC:</strong> {{ archive_preview.cc }}</div>{% endif %}
-              <div><strong>Datum:</strong> {{ archive_preview.date or '—' }}</div>
-            </div>
-            <div class="border rounded p-3" style="white-space:pre-wrap;max-height:48vh;overflow:auto">{{ archive_preview.text or '(Kein lesbarer Nachrichtentext)' }}</div>
-            {% if archive_preview.attachments %}
-            <h3 class="h6 mt-4">Anhänge</h3>
-            <p class="small text-secondary">Jeder Download wird unmittelbar vorher mit ClamAV geprüft. Ohne erfolgreichen sauberen Scan wird keine Datei ausgegeben.</p>
-            <div class="list-group">
-              {% for attachment in archive_preview.attachments %}
-              <div class="list-group-item">
-                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                  <div>
-                    <div><i class="fas fa-paperclip me-2"></i><strong>{{ attachment.name }}</strong> <small class="text-secondary">{{ attachment.type }}</small></div>
-                    <div class="small text-secondary mt-1">{{ (attachment.size / 1024)|round(1) }} KiB · SHA-256 {{ attachment.sha256[:12] }}…</div>
-                    <div class="mt-1">
-                      {% if attachment.malware_scan %}
-                        {% if attachment.malware_scan.verdict == 'clean' %}<span class="badge text-bg-success">{{ attachment.malware_scan.clamav_tag }}</span><span class="badge text-bg-success">sauber</span>
-                        {% elif attachment.malware_scan.verdict == 'infected' %}<span class="badge text-bg-danger">{{ attachment.malware_scan.clamav_tag }}</span><span class="badge text-bg-danger">Fund</span>
-                        {% else %}<span class="badge text-bg-warning">{{ attachment.malware_scan.clamav_tag }}</span><span class="badge text-bg-warning">Scanfehler</span>{% endif %}
-                        <small class="text-secondary ms-1">zuletzt geprüft {{ attachment.malware_scan.scanned_at }}</small>
-                      {% else %}
-                        <span class="badge text-bg-secondary">CLAMAV: noch nicht geprüft</span>
-                      {% endif %}
-                    </div>
-                  </div>
-                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('mail_reader.archive_attachment', archive_id=archive_preview.sha512, part_index=attachment.part, account=selected.id, q=query) }}"><i class="fas fa-download me-1"></i>Prüfen & herunterladen</a>
-                </div>
-              </div>
-              {% endfor %}
-            </div>
-            {% endif %}
-          </div>
-          {% else %}<div class="card-body d-flex align-items-center justify-content-center text-secondary"><div class="text-center"><i class="far fa-envelope-open fa-3x mb-3"></i><p class="mb-0">Links eine Mail anklicken.</p></div></div>{% endif %}
+        <div class="card" style="min-height:60vh"><div class="card-header"><strong>Mail lesen</strong></div>
+          {% if archive_preview %}<div class="card-body"><h2 class="h4 mb-3">{{ archive_preview.subject }}</h2><div class="border rounded p-3 mb-3 bg-body-tertiary"><div><strong>Von:</strong> {{ archive_preview.from or '—' }}</div><div><strong>An:</strong> {{ archive_preview.to or '—' }}</div>{% if archive_preview.cc %}<div><strong>CC:</strong> {{ archive_preview.cc }}</div>{% endif %}<div><strong>Datum:</strong> {{ archive_preview.date or '—' }}</div></div><div class="border rounded p-3" style="white-space:pre-wrap;max-height:48vh;overflow:auto">{{ archive_preview.text or '(Kein lesbarer Nachrichtentext)' }}</div>
+          {% if archive_preview.attachments %}<h3 class="h6 mt-4">Anhänge</h3><div class="list-group">{% for attachment in archive_preview.attachments %}<div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2"><div><strong>{{ attachment.name }}</strong> <small class="text-secondary">{{ attachment.type }} · {{ (attachment.size / 1024)|round(1) }} KiB</small></div><a class="btn btn-sm btn-outline-primary" href="{{ url_for('mail_reader.archive_attachment', archive_id=archive_preview.sha512, part_index=attachment.part, account=selected.id, q=query) }}"><i class="fas fa-shield-virus me-1"></i>Prüfen & herunterladen</a></div>{% endfor %}</div>{% endif %}</div>{% else %}<div class="card-body d-flex align-items-center justify-content-center text-secondary">Links eine Mail anklicken.</div>{% endif %}
         </div>
       </section>
     </div>
   {% else %}
     <div class="row g-3">
-      <aside class="col-xl-2 col-lg-3">
-        <div class="card position-sticky" style="top: 5rem"><div class="card-header"><strong>Ordner</strong></div><div class="list-group list-group-flush" style="max-height:70vh;overflow:auto">{% for name in folders %}<a class="list-group-item list-group-item-action {{ 'active' if name == folder else '' }}" href="{{ url_for('mail_reader.index', account=selected.id, folder=name) }}"><i class="far fa-folder me-2"></i>{{ name }}</a>{% else %}<div class="list-group-item text-secondary">Keine Ordner geladen.</div>{% endfor %}</div></div>
+      <aside class="col-12 col-lg-3 col-xl-2">
+        <div class="card position-lg-sticky" style="top:5rem">
+          <div class="card-header d-flex justify-content-between align-items-center"><strong>Ordner</strong>{% if not read_only %}<button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#new-folder" aria-label="Ordner anlegen"><i class="fas fa-folder-plus"></i></button>{% endif %}</div>
+          {% if not read_only %}<div id="new-folder" class="collapse border-bottom p-2"><form method="post" action="{{ url_for('mail_reader.create_folder') }}" class="input-group input-group-sm"><input type="hidden" name="account" value="{{ selected.id }}"><input type="hidden" name="current_folder" value="{{ folder }}"><input class="form-control" required name="name" maxlength="500" placeholder="Neuer Ordner"><button type="submit" class="btn btn-primary">Anlegen</button></form></div>{% endif %}
+          <div class="list-group list-group-flush" style="max-height:70vh;overflow:auto">
+            {% for item in folders %}{% if item.selectable %}<a class="list-group-item list-group-item-action {{ 'active' if item.name == folder else '' }}" href="{{ url_for('mail_reader.index', account=selected.id, folder=item.name) }}"><i class="fas {{ 'fa-inbox' if item.role == 'inbox' else 'fa-paper-plane' if item.role == 'sent' else 'fa-file-pen' if item.role == 'drafts' else 'fa-trash' if item.role == 'trash' else 'fa-ban' if item.role == 'junk' else 'fa-box-archive' if item.role == 'archive' else 'fa-folder' }} me-2"></i><span class="text-break">{{ item.name }}</span></a>{% endif %}{% else %}<div class="list-group-item text-secondary">Keine Ordner geladen.</div>{% endfor %}
+          </div>
+        </div>
       </aside>
-      <section class="col-xl-4 col-lg-5">
-        <div class="card"><div class="card-header d-flex justify-content-between"><strong>{{ folder or 'Postfach' }}</strong><span class="badge text-bg-secondary">{{ messages|length }}</span></div><div class="list-group list-group-flush" style="max-height:70vh;overflow:auto">
-          {% for mail in messages %}<a class="list-group-item list-group-item-action {{ 'active' if preview and preview.uid == mail.uid else '' }}" href="{{ url_for('mail_reader.index', account=selected.id, folder=folder, uid=mail.uid, q=query) }}"><div class="d-flex justify-content-between gap-2"><strong class="text-truncate">{{ mail.subject }}</strong><small class="text-nowrap">{{ mail.date }}</small></div><div class="small text-truncate">{{ mail.from }}</div><div class="small opacity-75 text-truncate">an {{ mail.to }}</div>{% if mail.size %}<div class="small opacity-75">{{ (mail.size / 1024)|round(1) }} KiB</div>{% endif %}</a>{% else %}<div class="list-group-item text-center text-secondary py-5">Keine Nachrichten gefunden.</div>{% endfor %}
-        </div></div>
+
+      <section class="col-12 col-lg-4 col-xl-4">
+        <div class="card"><div class="card-header d-flex justify-content-between align-items-center"><strong>{{ folder or 'Postfach' }}</strong><span class="badge text-bg-secondary">{{ mailbox.total }}</span></div>
+          <div class="list-group list-group-flush" style="max-height:70vh;overflow:auto">
+            {% for mail in messages %}
+            <a class="list-group-item list-group-item-action {{ 'active' if preview and preview.uid == mail.uid else '' }} {{ 'fw-semibold' if not mail.seen and not (preview and preview.uid == mail.uid) else '' }}" href="{{ url_for('mail_reader.index', account=selected.id, folder=folder, uid=mail.uid, q=query, page=mailbox.page) }}">
+              <div class="d-flex justify-content-between gap-2"><span class="text-truncate">{% if not mail.seen %}<i class="fas fa-circle fa-2xs me-1" aria-label="Ungelesen"></i>{% endif %}{{ mail.subject }}</span><small class="text-nowrap">{{ mail.date }}</small></div>
+              <div class="small text-truncate">{{ mail.from }}</div><div class="small opacity-75 text-truncate">an {{ mail.to }}</div>{% if mail.size %}<div class="small opacity-75">{{ (mail.size / 1024)|round(1) }} KiB</div>{% endif %}
+            </a>
+            {% else %}<div class="list-group-item text-center text-secondary py-5">Keine Nachrichten gefunden.</div>{% endfor %}
+          </div>
+          {% if mailbox.has_prev or mailbox.has_next %}<div class="card-footer d-flex justify-content-between"><a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not mailbox.has_prev else '' }}" rel="prev" href="{{ url_for('mail_reader.index', account=selected.id, folder=folder, q=query, page=mailbox.page-1) }}">Zurück</a><span class="small align-self-center">Seite {{ mailbox.page }}</span><a class="btn btn-sm btn-outline-secondary {{ 'disabled' if not mailbox.has_next else '' }}" rel="next" href="{{ url_for('mail_reader.index', account=selected.id, folder=folder, q=query, page=mailbox.page+1) }}">Weiter</a></div>{% endif %}
+        </div>
       </section>
-      <section class="col-xl-6 col-lg-4">
-        <div class="card" style="min-height:60vh"><div class="card-header"><strong>Vorschau</strong></div>{% if preview %}<div class="card-body"><div class="d-flex flex-wrap justify-content-between gap-2 mb-3"><div><h2 class="h5 mb-1">{{ preview.subject }}</h2><div><strong>Von:</strong> {{ preview.from }}</div><div><strong>An:</strong> {{ preview.to }}</div>{% if preview.cc %}<div><strong>CC:</strong> {{ preview.cc }}</div>{% endif %}<div class="small text-secondary">{{ preview.date }} · {{ (preview.size / 1024)|round(1) }} KiB</div></div><form method="post" action="{{ url_for('mail_reader.archive_message') }}"><input type="hidden" name="account" value="{{ selected.id }}"><input type="hidden" name="folder" value="{{ folder }}"><input type="hidden" name="uid" value="{{ preview.uid }}"><input type="hidden" name="q" value="{{ query }}"><button type="submit" class="btn btn-primary"><i class="fas fa-box-archive me-1"></i>Archivieren</button></form></div><hr><div class="bg-body-tertiary border rounded p-3" style="white-space:pre-wrap;max-height:48vh;overflow:auto">{{ preview.text }}</div>{% if preview.attachments %}<h3 class="h6 mt-3">Anhänge</h3><div class="list-group">{% for attachment in preview.attachments %}<div class="list-group-item d-flex justify-content-between"><span><i class="fas fa-paperclip me-2"></i>{{ attachment.name }} <small class="text-secondary">{{ attachment.type }}</small></span><span>{{ (attachment.size / 1024)|round(1) }} KiB</span></div>{% endfor %}</div><p class="small text-secondary mt-2">Zum sicheren Herunterladen die Nachricht zuerst archivieren und anschließend im Archiv öffnen.</p>{% endif %}</div>{% else %}<div class="card-body d-flex align-items-center justify-content-center text-secondary"><div class="text-center"><i class="far fa-envelope-open fa-3x mb-3"></i><p>Nachricht auswählen, um sie zu lesen.</p></div></div>{% endif %}</div>
+
+      <section class="col-12 col-lg-5 col-xl-6">
+        <div class="card" style="min-height:60vh"><div class="card-header"><strong>Nachricht</strong></div>
+          {% if preview %}<div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
+              <div><h2 class="h5 mb-1">{{ preview.subject }}</h2><div><strong>Von:</strong> {{ preview.from }}</div><div><strong>An:</strong> {{ preview.to }}</div>{% if preview.cc %}<div><strong>CC:</strong> {{ preview.cc }}</div>{% endif %}<div class="small text-secondary">{{ preview.date }} · {{ (preview.size / 1024)|round(1) }} KiB</div></div>
+              <div class="d-flex flex-wrap gap-2 align-content-start">
+                <form method="post" action="{{ url_for('mail_reader.archive_message') }}"><input type="hidden" name="account" value="{{ selected.id }}"><input type="hidden" name="folder" value="{{ folder }}"><input type="hidden" name="uid" value="{{ preview.uid }}"><input type="hidden" name="q" value="{{ query }}"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-box-archive me-1"></i>Archivieren</button></form>
+                {% if not read_only %}<button type="button" class="btn btn-sm btn-success" data-bs-toggle="collapse" data-bs-target="#compose-panel" onclick="document.getElementById('compose-to').value={{ preview.from|tojson }};document.getElementById('compose-subject').value={{ ('Re: ' ~ preview.subject)|tojson }}"><i class="fas fa-reply me-1"></i>Antworten</button>{% endif %}
+              </div>
+            </div>
+            {% if not read_only %}<div class="d-flex flex-wrap gap-2 mb-3"><form method="post" action="{{ url_for('mail_reader.set_seen') }}"><input type="hidden" name="account" value="{{ selected.id }}"><input type="hidden" name="folder" value="{{ folder }}"><input type="hidden" name="uid" value="{{ preview.uid }}"><input type="hidden" name="seen" value="{{ '0' if preview.seen else '1' }}"><button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Als ungelesen' if preview.seen else 'Als gelesen' }}</button></form><form method="post" action="{{ url_for('mail_reader.move_message') }}" class="d-flex gap-2"><input type="hidden" name="account" value="{{ selected.id }}"><input type="hidden" name="folder" value="{{ folder }}"><input type="hidden" name="uid" value="{{ preview.uid }}"><select class="form-select form-select-sm" name="target" required aria-label="Zielordner"><option value="">Verschieben nach…</option>{% for item in folders %}{% if item.selectable and item.name != folder %}<option value="{{ item.name }}">{{ item.name }}</option>{% endif %}{% endfor %}</select><button type="submit" class="btn btn-sm btn-outline-secondary">Verschieben</button></form></div>{% endif %}
+            <div class="bg-body-tertiary border rounded p-3" style="white-space:pre-wrap;max-height:48vh;overflow:auto">{{ preview.body_text }}</div>
+            {% if preview.attachments %}<h3 class="h6 mt-3">Anhänge</h3><div class="list-group">{% for attachment in preview.attachments %}<div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2"><span><i class="fas fa-paperclip me-2"></i>{{ attachment.filename }} <small class="text-secondary">{{ attachment.content_type }} · {{ (attachment.size / 1024)|round(1) }} KiB</small></span><a class="btn btn-sm btn-outline-primary" href="{{ url_for('mail_reader.live_attachment', part_index=attachment.index, account=selected.id, folder=folder, uid=preview.uid) }}"><i class="fas fa-shield-virus me-1"></i>Prüfen & herunterladen</a></div>{% endfor %}</div>{% endif %}
+          </div>{% else %}<div class="card-body d-flex align-items-center justify-content-center text-secondary"><div class="text-center"><i class="far fa-envelope-open fa-3x mb-3"></i><p>Nachricht auswählen, um sie zu lesen.</p></div></div>{% endif %}
+        </div>
       </section>
     </div>
   {% endif %}
 </main>
+{% if selected and not read_only %}
+<script>
+(() => {
+  const input = document.getElementById('compose-to');
+  const datalist = document.getElementById('contact-suggestions');
+  if (!input || !datalist) return;
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const fragment = input.value.split(',').pop().trim();
+    if (fragment.length < 2) return;
+    timer = setTimeout(async () => {
+      try {
+        const response = await fetch({{ url_for('mail_reader.contacts')|tojson }} + '?q=' + encodeURIComponent(fragment), {headers: {'Accept': 'application/json'}});
+        if (!response.ok) return;
+        const payload = await response.json();
+        datalist.replaceChildren(...payload.contacts.map(row => {
+          const option = document.createElement('option');
+          option.value = row.email;
+          option.label = row.label;
+          return option;
+        }));
+      } catch (_) {}
+    }, 180);
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
