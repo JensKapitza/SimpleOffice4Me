@@ -194,8 +194,8 @@ def run_replications_command(actor: str) -> None:
 def init_app(app) -> None:
     app.cli.add_command(run_replications_command)
     # Federation builds on the same document/replication storage layer. Register
-    # its protocol and administrator surfaces here so normal application startup
-    # activates SOFP without a second bootstrap path.
-    from . import federation_admin, federation_http
+    # protocol, offline catalog exchange and administrator surfaces together.
+    from . import federation_admin, federation_catalog_http, federation_http
     app.register_blueprint(federation_http.bp)
+    app.register_blueprint(federation_catalog_http.bp)
     app.register_blueprint(federation_admin.bp)
