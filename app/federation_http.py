@@ -1,9 +1,11 @@
-"""HTTP transport for resumable SOFP blob downloads and delegated uploads."""
+"""HTTP transport for resumable SOFP downloads, uploads and delegated pushes."""
 from __future__ import annotations
 
 import hmac
 import os
 import re
+import secrets
+import time
 from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
@@ -15,6 +17,7 @@ from .federation_core import (
     capability_summary,
     chunk_range,
     complete,
+    manifest_valid,
     normalize_sha256,
     preallocate,
     transfer_id,
@@ -23,10 +26,12 @@ from .federation_core import (
     write_chunk,
 )
 from .federation_store import FederationStore
+from .federation_worker import push_blob_to_transient_target, validate_transient_target
 
 bp = Blueprint("federation_http", __name__, url_prefix="/federation/v1")
 BLOCK_SIZE = 256 * 1024
 RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+TRANSFER_CAPABILITY_TTL = 60 * 60
 
 
 def _store() -> DocumentStore:
@@ -37,13 +42,38 @@ def _federation() -> FederationStore:
     return FederationStore(current_app.config["DOCUMENT_ROOT"])
 
 
-def _authorized() -> bool:
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
-    if not expected:
-        return bool(current_app.testing)
+def _bearer() -> str:
     header = request.headers.get("Authorization", "")
-    supplied = header[7:].strip() if header.startswith("Bearer ") else ""
-    return bool(supplied) and hmac.compare_digest(expected, supplied)
+    return header[7:].strip() if header.startswith("Bearer ") else ""
+
+
+def _transfer_capability_authorized(supplied: str) -> bool:
+    if not supplied or request.endpoint not in {
+        "federation_http.receive_transfer_chunk",
+        "federation_http.transfer_status",
+    }:
+        return False
+    job_id = str((request.view_args or {}).get("job_id") or "")
+    if not job_id:
+        return False
+    transfer = _federation().get_transfer(job_id, include_secret=True)
+    if not transfer:
+        return False
+    capability = str(transfer.get("capability") or "")
+    created_at = int(transfer.get("created_at") or 0)
+    if not capability or time.time() > created_at + TRANSFER_CAPABILITY_TTL:
+        return False
+    return hmac.compare_digest(capability, supplied)
+
+
+def _authorized() -> bool:
+    supplied = _bearer()
+    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if expected and supplied and hmac.compare_digest(expected, supplied):
+        return True
+    if _transfer_capability_authorized(supplied):
+        return True
+    return bool(current_app.testing and not expected)
 
 
 @bp.before_request
@@ -58,8 +88,11 @@ def authenticate():
 
 
 def _safe_path(store: DocumentStore, relative: str) -> Path:
-    path = (store.root / relative).resolve()
-    if store.root not in (path, *path.parents) or not path.is_file() or path.is_symlink():
+    unresolved = store.root / relative
+    if unresolved.is_symlink():
+        raise ValueError("document unavailable")
+    path = unresolved.resolve()
+    if store.root not in (path, *path.parents) or not path.is_file():
         raise ValueError("document unavailable")
     return path
 
@@ -155,6 +188,9 @@ def capabilities():
         "resources": ["documents", "contacts", "calendars", "tasks"],
         "incoming_chunk_put": True,
         "persistent_transfers": True,
+        "delegated_push": True,
+        "transfer_capabilities": True,
+        "transfer_capability_ttl_seconds": TRANSFER_CAPABILITY_TTL,
     })
     return jsonify(result)
 
@@ -247,17 +283,35 @@ def prepare_transfer():
         digest = normalize_sha256(body.get("blob_hash", ""))
         size = int(body.get("size", 0))
         result_manifest = body.get("manifest") or {}
+        if not manifest_valid(result_manifest):
+            raise ValueError("invalid manifest")
+        if normalize_sha256(result_manifest.get("blob_hash", "")) != digest:
+            raise ValueError("manifest blob mismatch")
+        if int(result_manifest.get("size", -1)) != size:
+            raise ValueError("manifest size mismatch")
         if size < 0 or size > int(current_app.config.get("MAX_CONTENT_LENGTH", 512 * 1024 * 1024)) * 100:
             raise ValueError("invalid size")
         total_chunks = int(result_manifest.get("chunk_count", body.get("chunk_count", 0)))
         if total_chunks < 0 or total_chunks > 1_000_000:
             raise ValueError("invalid chunk count")
-    except (TypeError, ValueError):
+    except (KeyError, TypeError, ValueError):
         return jsonify({"error": "invalid_transfer"}), 400
     jobs = _federation()
     job_id = str(body.get("transfer_id") or transfer_id())[:160]
-    if jobs.get_transfer(job_id):
-        return jsonify({"error": "transfer_exists", "transfer_id": job_id}), 409
+    existing = jobs.get_transfer(job_id)
+    if existing:
+        if normalize_sha256(existing.get("blob_hash", "")) != digest:
+            return jsonify({"error": "transfer_conflict", "transfer_id": job_id}), 409
+        return jsonify({
+            "transfer_id": job_id,
+            "status": existing.get("status"),
+            "have_bitmap": existing.get("have_bitmap", ""),
+            "transferred_bytes": existing.get("transferred_bytes", 0),
+            "total_bytes": existing.get("total_bytes", 0),
+            "status_url": f"/federation/v1/transfers/{job_id}/status",
+        }), 200
+    delegated = bool(body.get("delegated", False))
+    capability = secrets.token_urlsafe(32) if delegated else ""
     partial = jobs.incoming / f"{job_id}.part"
     preallocate(partial, size)
     jobs.create_transfer(
@@ -270,14 +324,64 @@ def prepare_transfer():
         total_bytes=size,
         total_chunks=total_chunks,
         manifest=result_manifest,
+        capability=capability,
     )
     jobs.update_transfer(job_id, final_path=str(partial))
-    return jsonify({
+    response = {
         "transfer_id": job_id,
         "status": "prepared",
+        "have_bitmap": "",
+        "transferred_bytes": 0,
+        "total_bytes": size,
         "chunk_upload_template": f"/federation/v1/transfers/{job_id}/chunks/{{index}}",
         "status_url": f"/federation/v1/transfers/{job_id}/status",
-    }), 201
+    }
+    if capability:
+        response["transfer_capability"] = capability
+        response["transfer_capability_expires_in"] = TRANSFER_CAPABILITY_TTL
+    return jsonify(response), 201
+
+
+@bp.post("/delegations/push")
+def delegated_push():
+    body = request.get_json(silent=True) or {}
+    try:
+        job_id = str(body.get("transfer_id") or "")[:160]
+        digest = normalize_sha256(body.get("blob_hash", ""))
+        target_url = validate_transient_target(str(body.get("target_url") or ""))
+        capability = str(body.get("target_capability") or "")
+        result_manifest = body.get("manifest") or {}
+        if not job_id or len(capability) < 24 or not manifest_valid(result_manifest):
+            raise ValueError("invalid delegation")
+        if normalize_sha256(result_manifest.get("blob_hash", "")) != digest:
+            raise ValueError("manifest mismatch")
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_delegation"}), 400
+    jobs = _federation()
+    existing = jobs.get_transfer(job_id)
+    if existing:
+        if normalize_sha256(existing.get("blob_hash", "")) != digest:
+            return jsonify({"error": "transfer_conflict"}), 409
+    else:
+        jobs.create_transfer(
+            job_id,
+            direction="delegated-outgoing",
+            operation=str(body.get("operation", "COPY")).upper(),
+            blob_hash=digest,
+            status="queued",
+            target_url=target_url,
+            total_bytes=int(result_manifest.get("size", 0)),
+            total_chunks=int(result_manifest.get("chunk_count", 0)),
+            manifest=result_manifest,
+            capability=capability,
+        )
+    try:
+        result = push_blob_to_transient_target(current_app.config["DOCUMENT_ROOT"], job_id)
+    except Exception as exc:
+        return jsonify({"error": "delegated_transfer_failed", "detail": str(exc)[:500], "transfer_id": job_id}), 502
+    result.pop("capability_enc", None)
+    result.pop("final_path", None)
+    return jsonify(result)
 
 
 @bp.put("/transfers/<job_id>/chunks/<int:index>")
@@ -304,7 +408,8 @@ def receive_transfer_chunk(job_id: str, index: int):
     except ValueError:
         return jsonify({"error": "invalid_manifest_hash"}), 409
     target = Path(str(transfer.get("final_path") or ""))
-    if jobs.incoming.resolve() not in (target.resolve(), *target.resolve().parents):
+    resolved = target.resolve()
+    if jobs.incoming.resolve() not in (resolved, *resolved.parents):
         return jsonify({"error": "unsafe_target"}), 409
     write_chunk(target, int(chunk.get("offset", 0)), data)
     have = jobs.have(job_id)
@@ -318,7 +423,13 @@ def receive_transfer_chunk(job_id: str, index: int):
             return jsonify({"error": "final_hash_mismatch"}), 409
         final = jobs.incoming / f"{transfer['blob_hash']}.blob"
         target.replace(final)
-        jobs.update_transfer(job_id, status="complete", transferred_bytes=int(transfer.get("total_bytes", 0)), final_path=str(final), error="")
+        jobs.update_transfer(
+            job_id,
+            status="complete",
+            transferred_bytes=int(transfer.get("total_bytes", 0)),
+            final_path=str(final),
+            error="",
+        )
     current = jobs.get_transfer(job_id) or {}
     return jsonify({
         "transfer_id": job_id,
