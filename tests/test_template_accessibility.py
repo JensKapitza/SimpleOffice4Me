@@ -9,9 +9,12 @@ TAG = re.compile(r"<(?P<name>main|button|th|input|form)\b[^>]*>", re.IGNORECASE)
 
 
 def _attributes(tag):
+    # Close an attribute with the same quote character that opened it. This is
+    # important for Jinja expressions such as {{ 'true' if ... else 'false' }}
+    # inside a normal double-quoted HTML attribute.
     return {
         name.lower(): value
-        for name, value in re.findall(r"([:\w-]+)=[\"']([^\"']*)[\"']", tag)
+        for name, _quote, value in re.findall(r"([:\w-]+)=([\"'])(.*?)\2", tag)
     }
 
 
