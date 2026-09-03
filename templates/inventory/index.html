@@ -25,6 +25,7 @@
           <div class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-3" id="camera-box" hidden><video id="camera-preview" autoplay playsinline muted></video></div>
 
           <form method="post" action="{{ url_for('inventory.create_book') }}" enctype="multipart/form-data" class="row g-3" id="inventory-form">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-7"><label class="form-label" for="isbn">ISBN</label><div class="input-group"><input class="form-control form-control-lg" id="isbn" name="isbn" inputmode="numeric" autocomplete="off" placeholder="978…"><button class="btn btn-outline-primary" type="button" id="lookup-book">Metadaten</button></div><div class="form-text">Abruf maximal einmal je 5 Sekunden.</div></div>
             <div class="col-md-5"><label class="form-label" for="barcode">Barcode / EAN</label><input class="form-control form-control-lg" id="barcode" name="barcode" inputmode="numeric" autocomplete="off"></div>
             <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID / Inhalt</label><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off"><div class="form-text">Web NFC ist insbesondere auf Chromium/Android verfügbar; auf anderen Browsern bleibt das Feld manuell nutzbar.</div></div>
@@ -89,7 +90,7 @@
     if(!value){setStatus('Bitte zuerst ISBN oder EAN erfassen.','warning');return;}
     $('lookup-book').disabled=true;
     try{
-      const response=await fetch(`{{ url_for('inventory.book_lookup') }}?isbn=${encodeURIComponent(value)}`,{headers:{Accept:'application/json'}});
+      const response=await fetch(`{{ url_for('inventory.book_lookup') }}?isbn=${encodeURIComponent(value)}`,{headers:{Accept:'application/json'},cache:'no-store'});
       const data=await response.json();
       if(!response.ok){setStatus(data.error||'Metadaten konnten nicht geladen werden.','warning');return;}
       Object.entries(fieldMap).forEach(([key,id])=>{if(data[key]!==undefined && data[key]!==null && String(data[key]).trim()!=='') $(id).value=String(data[key]);});
