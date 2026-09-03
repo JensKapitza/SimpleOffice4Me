@@ -5,6 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from app.rental_billing import RentalBillingStore, allocate_money
+from app.rentals import _peer_allows_rental_send
 
 
 class RentalBillingTest(unittest.TestCase):
@@ -89,6 +90,15 @@ class RentalBillingTest(unittest.TestCase):
         approved = self.store.approve(settlement_id, "admin")
         self.assertEqual("approved", approved["settlement"]["status"])
         self.assertTrue((directory / "approval-manifest.json").is_file())
+
+    def test_rental_federation_policy_fails_closed(self):
+        self.assertFalse(_peer_allows_rental_send(None))
+        self.assertFalse(_peer_allows_rental_send({}))
+        self.assertFalse(_peer_allows_rental_send({"documents": {}}))
+        self.assertFalse(_peer_allows_rental_send({"documents": {"send": False}}))
+        self.assertFalse(_peer_allows_rental_send({"documents": {"send": True}, "rentals": {"send": False}}))
+        self.assertTrue(_peer_allows_rental_send({"documents": {"send": True}}))
+        self.assertTrue(_peer_allows_rental_send({"documents": {"send": True}, "rentals": {"send": True}}))
 
     def test_tenants_outside_period_are_not_in_statement(self):
         self.store.add_tenancy("o1", "old", "2025-01-01", "2025-12-31", "admin")
