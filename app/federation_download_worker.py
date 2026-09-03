@@ -1,8 +1,10 @@
 """Priority-aware resumable pull pipeline for remote SOFP documents."""
 from __future__ import annotations
 
+import logging
 import re
 import shutil
+import time
 import urllib.error
 from pathlib import Path
 from typing import Any
@@ -14,7 +16,9 @@ from .federation_store import FederationStore
 from .federation_worker import _json_request, _request, remote_blob_manifest
 
 
+logger = logging.getLogger(__name__)
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+_NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError)
 
 
 def _peer(root: str | Path, peer_id: str) -> tuple[FederationStore, dict[str, Any], str]:
@@ -25,6 +29,35 @@ def _peer(root: str | Path, peer_id: str) -> tuple[FederationStore, dict[str, An
     return store, peer, store.peer_token(peer_id)
 
 
+def _defer_request(
+    catalog: FederationCatalog,
+    request_row: dict[str, Any],
+    exc: Exception,
+    *,
+    attempts: int,
+) -> dict[str, Any]:
+    delay = min(3600, 15 * (2 ** min(max(0, attempts - 1), 8)))
+    status = "waiting_peer" if isinstance(exc, _NETWORK_ERRORS) else "retry"
+    updated = catalog.update_request(
+        request_row["request_id"],
+        status=status,
+        attempts=attempts,
+        last_error=str(exc)[:1000],
+        next_attempt_at=int(time.time()) + delay,
+    )
+    catalog.record_event(
+        "download_deferred",
+        request_id=request_row["request_id"],
+        peer_id=request_row["peer_id"],
+        detail={"status": status, "retry_in": delay, "attempts": attempts, "error": str(exc)[:500]},
+    )
+    logger.warning(
+        "federation download deferred request=%s peer=%s status=%s attempts=%s retry_in=%s error=%s",
+        request_row["request_id"], request_row["peer_id"], status, attempts, delay, str(exc)[:300],
+    )
+    return updated
+
+
 def sync_peer_catalog(root: str | Path, peer_id: str, *, page_size: int = 500) -> dict[str, Any]:
     """Copy a peer's document index locally so it remains browsable while offline."""
     federation, peer, token = _peer(root, peer_id)
@@ -32,6 +65,7 @@ def sync_peer_catalog(root: str | Path, peer_id: str, *, page_size: int = 500) -
     cursor = 0
     generation = ""
     imported = 0
+    logger.info("federation catalog sync started peer=%s", peer_id)
     try:
         while True:
             page = _json_request(
@@ -45,7 +79,10 @@ def sync_peer_catalog(root: str | Path, peer_id: str, *, page_size: int = 500) -
             if not page_generation:
                 raise ValueError("Remote-Index besitzt keine Generation")
             if generation and generation != page_generation:
-                # Do not combine pages from different index generations.
+                logger.info(
+                    "federation catalog generation changed during sync peer=%s old=%s new=%s",
+                    peer_id, generation, page_generation,
+                )
                 cursor = 0
                 imported = 0
                 generation = page_generation
@@ -68,10 +105,15 @@ def sync_peer_catalog(root: str | Path, peer_id: str, *, page_size: int = 500) -
             "catalog_synced", peer_id=peer_id,
             detail={"generation": generation, "documents": imported},
         )
+        logger.info(
+            "federation catalog sync completed peer=%s generation=%s documents=%s",
+            peer_id, generation, imported,
+        )
         return {"peer_id": peer_id, "generation": generation, "documents": imported}
     except Exception as exc:
         catalog.fail_index(peer_id, str(exc))
         federation.set_peer_health(peer_id, error=str(exc))
+        logger.exception("federation catalog sync failed peer=%s", peer_id)
         raise
 
 
@@ -131,6 +173,11 @@ def _finalize_document(root: str | Path, request_row: dict[str, Any], partial: P
         author=actor,
     )
     partial.unlink(missing_ok=True)
+    logger.info(
+        "federation document imported request=%s peer=%s remote_document=%s local_document=%s path=%s",
+        request_row["request_id"], request_row["peer_id"], request_row["remote_document_id"],
+        metadata["document_id"], metadata.get("last_path", ""),
+    )
     return metadata
 
 
@@ -142,8 +189,13 @@ def process_download(root: str | Path, request_id: str) -> dict[str, Any]:
         raise ValueError("Download-Anforderung ist unbekannt")
     if request_row["status"] == "complete":
         return request_row
-    federation, peer, token = _peer(root, request_row["peer_id"])
-    manifest = remote_blob_manifest(root, request_row["peer_id"], request_row["blob_hash"])
+    attempts = int(request_row.get("attempts", 0)) + 1
+    try:
+        federation, peer, token = _peer(root, request_row["peer_id"])
+        manifest = remote_blob_manifest(root, request_row["peer_id"], request_row["blob_hash"])
+    except Exception as exc:
+        _defer_request(catalog, request_row, exc, attempts=attempts)
+        raise
     total_chunks = int(manifest.get("chunk_count", 0))
     transfer = federation.get_transfer(request_id)
     partial = federation.incoming / f"pull-{request_id}.part"
@@ -171,13 +223,17 @@ def process_download(root: str | Path, request_id: str) -> dict[str, Any]:
     catalog.update_request(
         request_id,
         status="running",
-        attempts=int(request_row.get("attempts", 0)) + 1,
+        attempts=attempts,
         last_error="",
         next_attempt_at=0,
     )
     federation.record_event(
         "download_started", transfer_id=request_id, peer_id=request_row["peer_id"],
-        detail={"effective_priority": request_row.get("effective_priority", 0), "have_chunks": len(have)},
+        detail={"effective_priority": request_row.get("effective_priority", 0), "have_chunks": len(have), "attempts": attempts},
+    )
+    logger.info(
+        "federation download started request=%s peer=%s effective_priority=%s have=%s total=%s attempt=%s",
+        request_id, request_row["peer_id"], request_row.get("effective_priority", 0), len(have), total_chunks, attempts,
     )
     try:
         for chunk in chunks:
@@ -200,6 +256,10 @@ def process_download(root: str | Path, request_id: str) -> dict[str, Any]:
                 "download_chunk_completed", transfer_id=request_id, peer_id=request_row["peer_id"],
                 detail={"chunk": index, "transferred_bytes": transferred},
             )
+            logger.debug(
+                "federation download chunk complete request=%s peer=%s chunk=%s bytes=%s",
+                request_id, request_row["peer_id"], index, transferred,
+            )
         if not complete(have, total_chunks) or not verify_file(partial, request_row["blob_hash"]):
             raise ValueError("Vollständige Datei konnte nicht verifiziert werden")
         metadata = _finalize_document(root, request_row, partial)
@@ -218,18 +278,17 @@ def process_download(root: str | Path, request_id: str) -> dict[str, Any]:
             "download_imported", transfer_id=request_id, peer_id=request_row["peer_id"],
             detail={"local_document_id": metadata["document_id"], "origin": request_row["remote_document_id"]},
         )
+        logger.info(
+            "federation download completed request=%s peer=%s bytes=%s local_document=%s",
+            request_id, request_row["peer_id"], manifest.get("size", 0), metadata["document_id"],
+        )
         return result
     except Exception as exc:
-        attempts = int(catalog.get_request(request_id).get("attempts", 1))
-        delay = min(3600, 15 * (2 ** min(attempts - 1, 8)))
-        status = "waiting_peer" if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError)) else "retry"
-        catalog.update_request(
-            request_id, status=status, last_error=str(exc)[:1000], next_attempt_at=__import__("time").time_ns() // 1_000_000_000 + delay,
-        )
+        _defer_request(catalog, catalog.get_request(request_id) or request_row, exc, attempts=attempts)
         federation.update_transfer(request_id, status="paused", error=str(exc)[:1000])
-        catalog.record_event(
-            "download_deferred", request_id=request_id, peer_id=request_row["peer_id"],
-            detail={"status": status, "retry_in": delay, "error": str(exc)[:500]},
+        federation.record_event(
+            "download_paused", transfer_id=request_id, peer_id=request_row["peer_id"],
+            detail={"attempts": attempts, "error": str(exc)[:500]},
         )
         raise
 
@@ -243,16 +302,25 @@ def process_queue(root: str | Path, *, limit: int = 10) -> dict[str, Any]:
     catalog = FederationCatalog(root)
     completed, deferred, failed = [], [], []
     handled: set[str] = set()
+    logger.info("federation queue run started limit=%s", limit)
     for _ in range(max(1, min(int(limit), 100))):
         candidates = [row for row in catalog.next_requests(25) if row["request_id"] not in handled]
         if not candidates:
             break
         row = candidates[0]
         handled.add(row["request_id"])
+        logger.info(
+            "federation queue selected request=%s peer=%s effective_priority=%s",
+            row["request_id"], row["peer_id"], row["effective_priority"],
+        )
         try:
             completed.append(process_download(root, row["request_id"]))
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        except _NETWORK_ERRORS as exc:
             deferred.append({"request_id": row["request_id"], "error": str(exc)})
         except Exception as exc:
             failed.append({"request_id": row["request_id"], "error": str(exc)})
+    logger.info(
+        "federation queue run completed completed=%s deferred=%s failed=%s",
+        len(completed), len(deferred), len(failed),
+    )
     return {"completed": completed, "deferred": deferred, "failed": failed}
