@@ -9,7 +9,9 @@ from app.access_control import _redact_detail, has_feature
 from app.applogging import redact
 from app.bs4 import renderwithbs4
 from app.datalogger_collectors import CollectionError, _safe_file_path, collect_file, collect_http
+from app.ics_preview import MAX_UNFOLDED_LINE_CHARS, preview_ics
 from app.revision_history import _path_component
+from app.system_identity import _read_installation_id
 
 
 class ProjectWideQuickWinsTest(unittest.TestCase):
@@ -83,6 +85,26 @@ class ProjectWideQuickWinsTest(unittest.TestCase):
                     "header_name": "Authorization\r\nX-Evil",
                 })
             self.assertEqual("header_name_invalid", caught.exception.code)
+
+    def test_ics_preview_rejects_pathological_unfolded_line(self):
+        prefix = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:test\r\nDTSTART:20260903T120000Z\r\nSUMMARY:"
+        content = prefix + ("A" * (MAX_UNFOLDED_LINE_CHARS + 1)) + "\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+        with self.assertRaisesRegex(ValueError, "too long"):
+            preview_ics(content)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks unavailable")
+    def test_installation_identity_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "target"
+            target.write_text("00000000-0000-4000-8000-000000000001\n", encoding="ascii")
+            link = root / "installation-id"
+            try:
+                link.symlink_to(target)
+            except OSError:
+                self.skipTest("symlink creation unavailable")
+            with self.assertRaisesRegex(RuntimeError, "symbolic link"):
+                _read_installation_id(link)
 
 
 if __name__ == "__main__":
