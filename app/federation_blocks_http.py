@@ -7,7 +7,18 @@ import os
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .document_store import DocumentStore
-from .federation_blocks import FederationBlockStore, content_manifest_valid, normalize_sha512, sha512_bytes
+from .federation_blocks import (
+    DEFAULT_AVG_BLOCK,
+    DEFAULT_MAX_BLOCK,
+    DEFAULT_MIN_BLOCK,
+    HASH_ALGORITHM,
+    ROLLING_WINDOW,
+    SCHEMA,
+    FederationBlockStore,
+    content_manifest_valid,
+    normalize_sha512,
+    sha512_bytes,
+)
 from .federation_core import normalize_sha256
 
 
@@ -59,6 +70,21 @@ def _blob_path(digest: str):
     return path
 
 
+@bp.get("/capabilities")
+def block_capabilities():
+    return jsonify({
+        "schema": SCHEMA,
+        "hash_algorithm": HASH_ALGORITHM,
+        "content_defined": True,
+        "rolling_window": ROLLING_WINDOW,
+        "min_block_size": DEFAULT_MIN_BLOCK,
+        "avg_block_size": DEFAULT_AVG_BLOCK,
+        "max_block_size": DEFAULT_MAX_BLOCK,
+        "cross_file_reuse": True,
+        "local_first": True,
+    })
+
+
 @bp.get("/blobs/<digest>/manifest")
 def content_manifest(digest: str):
     try:
@@ -81,7 +107,7 @@ def block_availability():
         return jsonify({"error": "invalid_hash_list"}), 400
     store = FederationBlockStore(_root())
     available = store.available(values)
-    return jsonify({"hash_algorithm": "sha512", "available": sorted(available)})
+    return jsonify({"hash_algorithm": HASH_ALGORITHM, "available": sorted(available)})
 
 
 @bp.get("/<digest>")
