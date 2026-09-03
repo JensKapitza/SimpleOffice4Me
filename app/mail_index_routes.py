@@ -1,10 +1,16 @@
-"""Mail search-index, duplicate review and admin tombstone cleanup routes."""
+"""Mail search-index, duplicate review, federation recovery and admin cleanup routes."""
 from __future__ import annotations
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
+from .federation_mail import (
+    MailFederationPolicy,
+    MailFederationStore,
+    discover_missing,
+    recover_source,
+)
 from .mail_client import MailStore
 from .mail_index import MailGroupMutator, MailIndexer, MailSearchIndex
 from .mail_webclient import ImapWebClient, MailAccountPolicy, MailReadOnlyError
@@ -38,6 +44,8 @@ def index():
     groups: list[dict] = []
     search_rows: list[dict] = []
     folders: list[dict] = []
+    federation_rows: list[dict] = []
+    federation_export_enabled = False
     stats = {"total": 0, "present": 0, "missing": 0, "last_seen": "", "fts5": False}
     read_only = True
     connection_error = ""
@@ -47,6 +55,32 @@ def index():
         groups = search.duplicate_groups(_actor(), selected["id"])
         if query:
             search_rows = search.search(_actor(), selected["id"], query, include_missing=True, limit=300)
+        federation_export_enabled = MailFederationPolicy(current_app.config["DOCUMENT_ROOT"]).export_enabled(
+            _actor(), selected["id"]
+        )
+        sources = MailFederationStore(current_app.config["DOCUMENT_ROOT"]).list_sources(
+            _actor(), selected["id"], limit=1000
+        )
+        by_row: dict[int, list[dict]] = {}
+        for source in sources:
+            by_row.setdefault(int(source["message_row_id"]), []).append(source)
+        if by_row:
+            indexed = {
+                int(row["id"]): row
+                for row in search.rows_by_ids(_actor(), selected["id"], by_row.keys())
+            }
+            federation_rows = [
+                {"row": indexed[row_id], "sources": rows}
+                for row_id, rows in by_row.items()
+                if row_id in indexed
+            ]
+            federation_rows.sort(
+                key=lambda item: (
+                    int(item["row"].get("present") or 0),
+                    max((int(source.get("confidence") or 0) for source in item["sources"]), default=0),
+                ),
+                reverse=True,
+            )
         read_only = MailAccountPolicy(store).read_only(_actor(), selected["id"])
         try:
             account = store.account(_actor(), selected["id"])
@@ -65,6 +99,8 @@ def index():
         folders=folders,
         read_only=read_only,
         connection_error=connection_error,
+        federation_rows=federation_rows,
+        federation_export_enabled=federation_export_enabled,
     )
 
 
@@ -137,6 +173,78 @@ def delete_group():
     except Exception as exc:
         current_app.logger.warning("Mail duplicate group delete failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Gruppe konnte nicht gelöscht werden ({type(exc).__name__}).")
+    return redirect(url_for("mail_index.index", account=account_id))
+
+
+@bp.post("/federation/export")
+@login_required
+def federation_export():
+    store = _store()
+    account_id = request.form.get("account", "").strip()
+    enabled = request.form.get("enabled") == "1"
+    try:
+        # Ownership is mandatory; an administrator cannot silently export another
+        # user's mailbox through this owner-facing endpoint.
+        store._owned_row(_actor(), account_id)
+        MailFederationPolicy(current_app.config["DOCUMENT_ROOT"]).set_export(
+            _actor(), account_id, enabled, _actor()
+        )
+        store.history.record(
+            "mail_federation_export_changed", _actor(), "mail-accounts", account_id,
+            {"export_enabled": enabled},
+        )
+        flash(
+            "Mailkonto ist für authentifizierte Federation-Fingerprint-Suche und explizite EML-Wiederherstellung freigegeben."
+            if enabled else
+            "Mail-Federation-Freigabe wurde deaktiviert. Bereits lokal gespeicherte Remote-Quellhinweise bleiben erhalten."
+        )
+    except Exception as exc:
+        current_app.logger.warning("Mail federation export toggle failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Federation-Freigabe konnte nicht geändert werden ({type(exc).__name__}).")
+    return redirect(url_for("mail_index.index", account=account_id))
+
+
+@bp.post("/federation/discover")
+@login_required
+def federation_discover():
+    store = _store()
+    account_id = request.form.get("account", "").strip()
+    try:
+        store._owned_row(_actor(), account_id)
+        result = discover_missing(
+            current_app.config["DOCUMENT_ROOT"], _actor(), account_id, row_ids=_row_ids() or None
+        )
+        store.history.record(
+            "mail_federation_discovery", _actor(), "mail-accounts", account_id,
+            {"queried": result["queried"], "peers": result["peers"], "matches": result["matches"], "errors": len(result["errors"])},
+        )
+        flash(
+            f"Federation-Suche: {result['queried']} fehlende Mailziele geprüft, "
+            f"{result['matches']} Quellen auf {result['peers']} Peer(s) gefunden; {len(result['errors'])} Peer-Fehler."
+        )
+    except Exception as exc:
+        current_app.logger.warning("Mail federation discovery failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Federation-Suche fehlgeschlagen ({type(exc).__name__}).")
+    return redirect(url_for("mail_index.index", account=account_id))
+
+
+@bp.post("/federation/recover/<int:source_id>")
+@login_required
+def federation_recover(source_id: int):
+    store = _store()
+    account_id = request.form.get("account", "").strip()
+    try:
+        store._owned_row(_actor(), account_id)
+        result = recover_source(
+            current_app.config["DOCUMENT_ROOT"], store, _actor(), account_id, source_id
+        )
+        flash(
+            f"Mail von Federation-Peer {result['peer_id']} verifiziert und "
+            f"{'bereits vorhandenes Archiv bestätigt' if result['duplicate'] else 'ins private Mailarchiv übernommen'}."
+        )
+    except Exception as exc:
+        current_app.logger.warning("Mail federation recovery failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Federation-Wiederherstellung fehlgeschlagen ({type(exc).__name__}).")
     return redirect(url_for("mail_index.index", account=account_id))
 
 
