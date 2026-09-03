@@ -3,7 +3,7 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-    <div><h1 class="h2 mb-1">Federation / SOFP</h1><p class="text-secondary mb-0">Dokumente direkt an bekannte Instanzen senden oder A→B→C übertragen.</p></div>
+    <div><h1 class="h2 mb-1">Federation / SOFP</h1><p class="text-secondary mb-0">Dokumente senden, Remote-Indizes offline halten und Downloads dynamisch priorisieren.</p></div>
     <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}">Dokumente</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.replication') }}">Speicher</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Audit</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
@@ -11,12 +11,12 @@
   <div class="row g-3 mb-4">
     <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Peers</div><div class="fs-3">{{ stats.peers }}</div><small>{{ stats.enabled_peers }} aktiv</small></div></div></div>
     <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Aktive Transfers</div><div class="fs-3">{{ stats.active_transfers }}</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Abgeschlossen</div><div class="fs-3">{{ stats.completed_transfers }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Offline-Queue</div><div class="fs-3">{{ download_queue|selectattr('status', 'ne', 'complete')|list|length }}</div><small>Priorität live berechnet</small></div></div></div>
     <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="text-secondary small">Fehlgeschlagen</div><div class="fs-3">{{ stats.failed_transfers }}</div></div></div></div>
   </div>
 
   <section class="card mb-4">
-    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>Dokument auswählen</strong><span class="text-secondary small">Keine SHA-256-Eingabe nötig</span></div>
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>Lokales Dokument auswählen</strong><span class="text-secondary small">Herkunfts-Tags werden mit übertragen</span></div>
     <div class="card-body">
       <form method="get" action="{{ url_for('federation_admin.dashboard') }}" class="input-group mb-3">
         <input class="form-control" type="search" name="q" value="{{ document_query }}" placeholder="Dateiname, Dokument-ID oder Tag">
@@ -25,7 +25,7 @@
       <div class="list-group">
         {% for document in documents %}
           <a class="list-group-item list-group-item-action d-flex justify-content-between gap-3" href="{{ url_for('federation_admin.dashboard', document_id=document.document_id, q=document_query) }}">
-            <span class="text-break"><strong>{{ document.last_path.rsplit('/', 1)[-1] }}</strong><br><small class="text-secondary">{{ document.last_path }} · {{ document.tags|join(', ') }}</small></span>
+            <span class="text-break"><strong>{{ document.last_path.rsplit('/', 1)[-1] }}</strong><br><small class="text-secondary">{{ document.last_path }}</small><br>{% for tag in document.visible_tags %}<span class="badge text-bg-light border me-1">{{ tag }}</span>{% endfor %}</span>
             <code class="small text-nowrap">{{ document.document_id[:8] }}…</code>
           </a>
         {% else %}<div class="text-secondary">Keine passenden Dokumente.</div>{% endfor %}
@@ -37,31 +37,30 @@
   <section class="card border-primary mb-4">
     <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>{{ selected_document.last_path }}</strong><span class="badge text-bg-primary">Ausgewähltes Dokument</span></div>
     <div class="card-body">
-      <dl class="row small mb-4"><dt class="col-md-2">Dokument-ID</dt><dd class="col-md-10"><code>{{ selected_document.document_id }}</code></dd><dt class="col-md-2">SHA-256</dt><dd class="col-md-10 text-break"><code>{{ selected_document.federation_sha256 }}</code></dd><dt class="col-md-2">Größe</dt><dd class="col-md-10">{{ selected_document.federation_size }} Byte</dd></dl>
+      <dl class="row small mb-2"><dt class="col-md-2">Dokument-ID</dt><dd class="col-md-10"><code>{{ selected_document.document_id }}</code></dd><dt class="col-md-2">SHA-256</dt><dd class="col-md-10 text-break"><code>{{ selected_document.federation_sha256 }}</code></dd><dt class="col-md-2">Größe</dt><dd class="col-md-10">{{ selected_document.federation_size }} Byte</dd><dt class="col-md-2">Ursprung/Tags</dt><dd class="col-md-10">{% for tag in selected_document.visible_tags %}<span class="badge text-bg-light border me-1 mb-1">{{ tag }}</span>{% endfor %}</dd></dl>
       <div class="row g-4">
         <div class="col-xl-6">
           <h2 class="h5">Direkt senden</h2>
-          <p class="text-secondary small">Diese Instanz sendet das Dokument direkt an den gewählten Peer. Vorhandene Chunks werden übersprungen.</p>
+          <p class="text-secondary small">Diese Instanz sendet das Dokument direkt. Bereits vorhandene Chunks werden beim Resume übersprungen.</p>
           <form method="post" action="{{ url_for('federation_admin.send_document', document_id=selected_document.document_id) }}" class="row g-2">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-7"><label class="form-label">Ziel-Peer</label><select class="form-select" name="target_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select></div>
             <div class="col-md-5"><label class="form-label">Operation</label><select class="form-select" name="operation"><option>COPY</option><option>REPLICATE</option><option>VERIFY</option><option>REPAIR</option></select></div>
-            <div class="col-12 d-flex flex-wrap gap-2"><button class="btn btn-primary" name="start_now" value="1"><i class="fas fa-paper-plane me-1" aria-hidden="true"></i>Jetzt übertragen</button><button class="btn btn-outline-primary" name="start_now" value="0">Nur einplanen</button></div>
+            <div class="col-12 d-flex flex-wrap gap-2"><button class="btn btn-primary" name="start_now" value="1">Jetzt übertragen</button><button class="btn btn-outline-primary" name="start_now" value="0">Nur einplanen</button></div>
           </form>
         </div>
         <div class="col-xl-6">
           <h2 class="h5">A → B → C</h2>
-          <p class="text-secondary small">Diese Instanz koordiniert. B sendet direkt an C; das dauerhafte C-Passwort wird B nicht offengelegt.</p>
+          <p class="text-secondary small">A koordiniert. B sendet direkt an C über eine kurzlebige Transfer-Capability.</p>
           <form method="post" action="{{ url_for('federation_admin.orchestrate_document', document_id=selected_document.document_id) }}" class="row g-2">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-5"><label class="form-label">Quelle B</label><select class="form-select" name="source_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select></div>
             <div class="col-md-5"><label class="form-label">Ziel C</label><select class="form-select" name="target_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select></div>
             <div class="col-md-2"><label class="form-label">Typ</label><select class="form-select" name="operation"><option>COPY</option><option>REPLICATE</option></select></div>
-            <div class="col-12"><button class="btn btn-outline-primary"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>B→C koordinieren</button></div>
+            <div class="col-12"><button class="btn btn-outline-primary">B→C koordinieren</button></div>
           </form>
         </div>
       </div>
-      {% if peers %}<hr><div class="d-flex flex-wrap gap-2 align-items-center"><span class="small text-secondary">Auf Peer prüfen:</span>{% for peer in peers if peer.enabled %}<form method="post" action="{{ url_for('federation_admin.document_availability', document_id=selected_document.document_id, peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary">{{ peer.label }}</button></form>{% endfor %}</div>{% endif %}
     </div>
   </section>
   {% endif %}
@@ -78,15 +77,40 @@
         <div class="col-12"><button class="btn btn-primary">Peer speichern</button></div>
       </form>
     </div></div></section>
-    <section class="col-xl-7"><div class="card h-100"><div class="card-header">Peers</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID / Name</th><th>URL</th><th>Status</th><th></th></tr></thead><tbody>
-      {% for peer in peers %}<tr><td><strong>{{ peer.label }}</strong><br><code>{{ peer.peer_id }}</code></td><td class="text-break"><code>{{ peer.base_url }}</code></td><td><span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'aus' }}</span>{% if peer.last_error %}<div class="text-danger small text-break">{{ peer.last_error }}</div>{% endif %}</td><td class="text-nowrap"><form class="d-inline" method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Test</button></form> <form class="d-inline" method="post" action="{{ url_for('federation_admin.delete_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger">Löschen</button></form></td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Peers konfiguriert.</td></tr>{% endfor %}
+    <section class="col-xl-7"><div class="card h-100"><div class="card-header">Peers / Index-Priorität</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Peer</th><th>Status / Index</th><th>Server-Prio</th><th>Aktionen</th></tr></thead><tbody>
+      {% for peer in peers %}{% set state = catalog_peer_states.get(peer.peer_id, {}) %}<tr><td><strong>{{ peer.label }}</strong><br><code>{{ peer.peer_id }}</code><br><small class="text-secondary text-break">{{ peer.base_url }}</small></td><td><span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'aus' }}</span><br><small>Index: {{ state.last_index_at or 'noch nie' }}</small>{% if state.last_index_error %}<div class="text-danger small">{{ state.last_index_error }}</div>{% endif %}</td><td><form method="post" action="{{ url_for('federation_admin.set_server_priority', peer_id=peer.peer_id) }}" class="input-group input-group-sm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ state.server_priority or 0 }}"><button class="btn btn-outline-secondary">Setzen</button></form></td><td class="text-nowrap"><form class="d-inline" method="post" action="{{ url_for('federation_admin.sync_peer_index', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-success">Index holen</button></form> <form class="d-inline" method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Test</button></form></td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Peers konfiguriert.</td></tr>{% endfor %}
     </tbody></table></div></div></section>
   </div>
+
+  <section class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>Remote-Dateien / Offline-Index</strong><span class="small text-secondary">Auch sichtbar, wenn der Peer gerade nicht erreichbar ist</span></div>
+    <div class="card-body border-bottom">
+      <form method="get" action="{{ url_for('federation_admin.dashboard') }}" class="row g-2">
+        <div class="col-md-4"><select class="form-select" name="remote_peer"><option value="">Alle Peers</option>{% for peer in peers %}<option value="{{ peer.peer_id }}" {% if remote_peer == peer.peer_id %}selected{% endif %}>{{ peer.label }}</option>{% endfor %}</select></div>
+        <div class="col-md-6"><input class="form-control" type="search" name="remote_q" value="{{ remote_query }}" placeholder="Remote-Dateiname, ID oder Tag"></div>
+        <div class="col-md-2"><button class="btn btn-outline-primary w-100">Filtern</button></div>
+      </form>
+    </div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Peer / Datei</th><th>Herkunft / Tags</th><th>Datei-Prio</th><th>Download</th></tr></thead><tbody>
+      {% for item in remote_files %}<tr><td><span class="badge {{ 'text-bg-success' if item.available else 'text-bg-secondary' }}">{{ item.peer_id }}</span> <strong class="text-break">{{ item.path }}</strong><br><small class="text-secondary">{{ item.size }} Byte · <code>{{ item.blob_hash[:12] }}…</code></small></td><td>{% for tag in item.origin_tags %}<span class="badge text-bg-info me-1 mb-1">{{ tag }}</span>{% endfor %}{% for tag in item.tags if tag not in item.origin_tags %}<span class="badge text-bg-light border me-1 mb-1">{{ tag }}</span>{% endfor %}</td><td><form method="post" action="{{ url_for('federation_admin.remote_action') }}" class="input-group input-group-sm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="peer_id" value="{{ item.peer_id }}"><input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}"><input type="hidden" name="remote_q" value="{{ remote_query }}"><input type="hidden" name="action" value="priority"><input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.file_priority }}"><button class="btn btn-outline-secondary">Setzen</button></form></td><td><form method="post" action="{{ url_for('federation_admin.remote_action') }}" class="input-group input-group-sm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="peer_id" value="{{ item.peer_id }}"><input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}"><input type="hidden" name="remote_q" value="{{ remote_query }}"><input type="hidden" name="action" value="download"><input class="form-control" type="number" name="priority" min="-1000" max="1000" value="0" title="Transfer-Priorität"><button class="btn btn-primary">Vormerken</button></form></td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch kein Remote-Index vorhanden. Bei einem Peer „Index holen“ verwenden.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><strong>Priorisierte Download-Pipeline</strong><form method="post" action="{{ url_for('federation_admin.run_download_queue') }}" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input class="form-control form-control-sm" type="number" name="limit" min="1" max="25" value="5" style="width:5rem"><button class="btn btn-sm btn-success">Queue abarbeiten</button></form></div>
+    <div class="card-body py-2"><div class="small text-secondary">Effektive Priorität = Server + Datei + Transfer. Änderungen wirken sofort auf die nächste Auswahl; `waiting_peer` bleibt persistent und wird später erneut versucht.</div></div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Status</th><th>Peer / Datei</th><th>Server</th><th>Datei</th><th>Transfer</th><th>Effektiv</th><th>Fehler</th></tr></thead><tbody>
+      {% for item in download_queue %}<tr><td><span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-warning' if item.status in ['queued','retry','waiting_peer'] else 'text-bg-primary' if item.status == 'running' else 'text-bg-danger' }}">{{ item.status }}</span></td><td><strong>{{ item.peer_id }}</strong><br><span class="text-break">{{ item.path }}</span></td><td>{{ item.server_priority }}</td><td>{{ item.file_priority }}</td><td><form method="post" action="{{ url_for('federation_admin.set_queue_priority', request_id=item.request_id) }}" class="input-group input-group-sm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.transfer_priority }}"><button class="btn btn-outline-secondary">Setzen</button></form></td><td><strong>{{ item.effective_priority }}</strong></td><td class="small text-danger text-break">{{ item.last_error }}</td></tr>{% else %}<tr><td colspan="7" class="text-secondary">Keine vorgemerkten Downloads.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
 
   <section class="card mb-4"><div class="card-header">Transfers{% if selected_document %} dieses Dokuments{% endif %}</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Richtung</th><th>Blob</th><th>Quelle → Ziel</th><th>Status</th><th>Fortschritt</th><th>Fehler</th><th></th></tr></thead><tbody>
     {% for item in transfers %}<tr><td><code>{{ item.transfer_id[:12] }}…</code></td><td>{{ item.direction }}</td><td><code>{{ item.blob_hash[:12] }}…</code></td><td>{{ item.source_peer or 'lokal' }} → {{ item.target_peer or item.target_url or 'lokal' }}</td><td><span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-danger' if item.status == 'failed' else 'text-bg-warning' }}">{{ item.status }}</span></td><td>{{ item.transferred_bytes }} / {{ item.total_bytes }}</td><td class="text-danger small text-break">{{ item.error }}</td><td>{% if item.direction == 'outgoing' and item.status != 'complete' %}<form method="post" action="{{ url_for('federation_admin.run_transfer', job_id=item.transfer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary">Start/Resume</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="8" class="text-secondary">Keine Transfers.</td></tr>{% endfor %}
   </tbody></table></div></section>
 
-  <details class="card"><summary class="card-header">Letzte Federation-Ereignisse</summary><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Aktion</th><th>Peer</th><th>Transfer</th><th>Details</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td><code>{{ event.transfer_id[:12] }}</code></td><td class="small text-break"><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody></table></div></details>
+  <div class="row g-4">
+    <div class="col-xl-6"><details class="card"><summary class="card-header">Federation-Ereignisse</summary><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Aktion</th><th>Peer</th><th>Details</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td class="small text-break"><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody></table></div></details></div>
+    <div class="col-xl-6"><details class="card"><summary class="card-header">Katalog-/Queue-Ereignisse</summary><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Aktion</th><th>Peer</th><th>Details</th></tr></thead><tbody>{% for event in catalog_events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td class="small text-break"><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody></table></div></details></div>
+  </div>
 </main>
 {% endblock %}
