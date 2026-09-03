@@ -19,8 +19,13 @@ class FederationPhase2Test(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        self.app = Flask(__name__)
+        self.app.config["SECRET_KEY"] = "federation-phase2-test-secret"
+        self.context = self.app.app_context()
+        self.context.push()
 
     def tearDown(self):
+        self.context.pop()
         self.temp.cleanup()
 
     def _peer(self, peer_id: str) -> None:
@@ -98,7 +103,7 @@ class FederationResourceEndpointTest(unittest.TestCase):
         )
         self.assertEqual(200, imported.status_code)
         self.assertEqual(1, imported.get_json()["updated"])
-        current = TodoStore(self.root).get(created["id"], "alice")
+        current = next(item for item in TodoStore(self.root).items("alice") if item["id"] == created["id"])
         self.assertEqual("neu", current["description"])
 
     def test_calendar_roundtrip_endpoint(self):
