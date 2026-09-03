@@ -16,6 +16,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from .file_lock import exclusive_file_lock
 from .rental_calc import RentalCalculationStore
 from .rental_types import (
     ALLOCATION_METHODS, CALCULATION_VERSION, LEDGER_KINDS, METRIC_TYPES, MONEY,
@@ -98,24 +99,44 @@ class RentalBillingStore(RentalCalculationStore):
         }
 
     def approve(self, settlement_id: str, actor: str) -> dict[str,Any]:
-        settlement=self._require_editable(settlement_id); snapshot=self.build_snapshot(settlement_id); approved_at=utc_now()
-        snapshot["approval"]={"approved_at":approved_at,"approved_by":actor,"version":int(settlement["version"])}
-        directory=self.approval_directory(settlement_id); directory.mkdir(parents=True,exist_ok=True)
-        snapshot["frozen_evidence"]=self._freeze_documents(snapshot,directory)
-        snapshot_path=directory/"snapshot.json"; snapshot_bytes=(json.dumps(snapshot,ensure_ascii=False,indent=2)+"\n").encode("utf-8"); snapshot_path.write_bytes(snapshot_bytes)
-        digest=sha256_bytes(snapshot_bytes); (directory/"snapshot.sha256").write_text(f"{digest}  snapshot.json\n",encoding="ascii")
-        snapshot["approval"]["snapshot_sha256"]=digest
-        self._render_approval_pdf(snapshot,directory/"Freigabe-und-Berechnungsnachweis.pdf")
-        self._render_landlord_pdf(snapshot,directory/"Vermieter-Abrechnungsblatt.pdf")
-        for contact_id in sorted(snapshot["tenants"]):
-            tenant_pdf=directory/f"Mieterabrechnung-{safe_name(contact_id)}.pdf"; self._render_tenant_pdf(snapshot,contact_id,tenant_pdf)
-            self._build_tenant_zip(snapshot,contact_id,tenant_pdf,directory/f"Mieterpaket-{safe_name(contact_id)}.zip")
-        self._write_manifest(snapshot,directory)
-        with self._db() as db:
-            cursor=db.execute("UPDATE rental_settlement SET status='approved',approved_at=?,approved_by=?,snapshot_sha256=?,updated_at=? WHERE settlement_id=? AND status IN ('draft','review')",(approved_at,actor,digest,approved_at,settlement_id))
-            if cursor.rowcount!=1: raise ValueError("Abrechnung konnte nicht atomar freigegeben werden")
-        self._revision("rental_settlement_approved",actor,"rental-settlements",settlement_id,{"snapshot_sha256":digest,"version":settlement["version"]})
-        return {"settlement":self.settlement(settlement_id),"snapshot":snapshot,"files":{key:str(value) for key,value in self.approval_files(settlement_id).items()}}
+        lock_path=self.approval_root/f".{safe_name(settlement_id)}.approval.lock"
+        with exclusive_file_lock(lock_path):
+            # Re-read editable state only after the cross-process lock was acquired.
+            # Otherwise two requests can render into the same immutable version.
+            settlement=self._require_editable(settlement_id); snapshot=self.build_snapshot(settlement_id); approved_at=utc_now()
+            snapshot["approval"]={"approved_at":approved_at,"approved_by":actor,"version":int(settlement["version"])}
+            directory=self.approval_directory(settlement_id)
+            staging=directory.parent/f".{directory.name}.staging-{uuid.uuid4().hex}"
+            published=False
+            try:
+                staging.mkdir(parents=True,exist_ok=False)
+                snapshot["frozen_evidence"]=self._freeze_documents(snapshot,staging)
+                snapshot_path=staging/"snapshot.json"; snapshot_bytes=(json.dumps(snapshot,ensure_ascii=False,indent=2)+"\n").encode("utf-8"); snapshot_path.write_bytes(snapshot_bytes)
+                digest=sha256_bytes(snapshot_bytes); (staging/"snapshot.sha256").write_text(f"{digest}  snapshot.json\n",encoding="ascii")
+                snapshot["approval"]["snapshot_sha256"]=digest
+                self._render_approval_pdf(snapshot,staging/"Freigabe-und-Berechnungsnachweis.pdf")
+                self._render_landlord_pdf(snapshot,staging/"Vermieter-Abrechnungsblatt.pdf")
+                for contact_id in sorted(snapshot["tenants"]):
+                    tenant_pdf=staging/f"Mieterabrechnung-{safe_name(contact_id)}.pdf"; self._render_tenant_pdf(snapshot,contact_id,tenant_pdf)
+                    self._build_tenant_zip(snapshot,contact_id,tenant_pdf,staging/f"Mieterpaket-{safe_name(contact_id)}.zip")
+                self._write_manifest(snapshot,staging)
+
+                # Editable settlements cannot have a valid approved directory.
+                # Remove only stale output for this exact settlement/version, then
+                # publish the freshly rendered tree with a same-filesystem rename.
+                if directory.exists():
+                    shutil.rmtree(directory)
+                staging.replace(directory); published=True
+                with self._db() as db:
+                    cursor=db.execute("UPDATE rental_settlement SET status='approved',approved_at=?,approved_by=?,snapshot_sha256=?,updated_at=? WHERE settlement_id=? AND status IN ('draft','review')",(approved_at,actor,digest,approved_at,settlement_id))
+                    if cursor.rowcount!=1: raise ValueError("Abrechnung konnte nicht atomar freigegeben werden")
+            except Exception:
+                shutil.rmtree(staging,ignore_errors=True)
+                if published:
+                    shutil.rmtree(directory,ignore_errors=True)
+                raise
+            self._revision("rental_settlement_approved",actor,"rental-settlements",settlement_id,{"snapshot_sha256":digest,"version":settlement["version"]})
+            return {"settlement":self.settlement(settlement_id),"snapshot":snapshot,"files":{key:str(value) for key,value in self.approval_files(settlement_id).items()}}
 
     def clone_correction(self, settlement_id: str, actor: str) -> dict[str,Any]:
         old=self.settlement(settlement_id)
@@ -238,6 +259,6 @@ class RentalBillingStore(RentalCalculationStore):
         with zipfile.ZipFile(target,"w",compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(tenant_pdf,"Mieterabrechnung.pdf"); archive.writestr("manifest.json",json.dumps(manifest,ensure_ascii=False,indent=2)+"\n")
             for doc in documents.values():
-                frozen=snapshot["frozen_evidence"].get(doc["document_id"],{}); source=self.approval_directory(snapshot["settlement"]["settlement_id"])/str(frozen.get("relative_path",""))
+                frozen=snapshot["frozen_evidence"].get(doc["document_id"],{}); source=target.parent/str(frozen.get("relative_path",""))
                 if not source.is_file(): raise ValueError("Eingefrorener Beleg fehlt")
                 archive.write(source,f"Belege/{safe_name(doc['document_id'])}-{safe_name(doc.get('name') or source.name)}")
