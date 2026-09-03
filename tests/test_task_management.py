@@ -43,6 +43,10 @@ class TaskSubtaskPersistenceTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    @staticmethod
+    def _item(store: TodoStore, item_id: str, actor: str) -> dict:
+        return next(item for item in store.items(actor) if item["id"] == item_id)
+
     def test_parent_uid_survives_store_and_vtodo_model(self):
         store = TodoStore(self.root)
         parent = store.add("Hauptaufgabe", "alice", {"project_id": "project-1", "contact_id": "contact-1"})
@@ -55,7 +59,7 @@ class TaskSubtaskPersistenceTest(unittest.TestCase):
                 "contact_id": parent["contact_id"],
             },
         )
-        current = store.get(child["id"], "alice")
+        current = self._item(store, child["id"], "alice")
         self.assertEqual(parent["uid"], current["parent_uid"])
         self.assertEqual("project-1", current["project_id"])
         self.assertEqual("contact-1", current["contact_id"])
@@ -64,7 +68,7 @@ class TaskSubtaskPersistenceTest(unittest.TestCase):
         store = TodoStore(self.root)
         task = store.add("Wiederholen", "alice", {"rrule": "FREQ=WEEKLY", "due": "2026-09-03"})
         store.update(task["id"], {"status": "in-process", "percent_complete": 50}, "alice")
-        current = store.get(task["id"], "alice")
+        current = self._item(store, task["id"], "alice")
         self.assertEqual("FREQ=WEEKLY", current["rrule"])
         self.assertEqual("in-process", current["status"])
 
