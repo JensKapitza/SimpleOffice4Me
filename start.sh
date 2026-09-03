@@ -36,11 +36,10 @@ Die gefundenen Python-Pakete werden vor dem Dependency-Install gegen die
 SimpleOffice-Versionsanforderungen geprüft. Nur fehlende oder zu alte Pakete
 fallen anschließend auf pip in der lokalen .venv zurück.
 
-Unter Termux werden native Kryptografie-Abhängigkeiten ausschließlich über pkg
-bezogen. pip probiert für die übrigen Laufzeitpakete zuerst ausschließlich
-kompatible Wheels. Nur wenn das nicht reicht, werden Build-Werkzeuge installiert
-und ein Source-Fallback versucht; PyNaCl, bcrypt und cryptography werden dabei
-weiterhin nicht aus PyPI gebaut.
+Der normale Webstart installiert ausdrücklich keine optionalen SFTP/SSH-Pakete.
+Paramiko, PyNaCl und bcrypt werden erst von ./start-sftp.sh benötigt und dort
+separat installiert. Unter Termux kommt cryptography weiterhin bevorzugt aus
+pkg; pip probiert für die übrigen Laufzeitpakete zuerst fertige Wheels.
 
 Native Paketinstallation kann mit SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert
 werden. Eine vorhandene .venv wird nur dann neu erzeugt, wenn native Pakete
@@ -260,22 +259,22 @@ python_runtime_packages() {
 native_python_packages() {
   case "$NATIVE_PM" in
     pkg)
-      printf '%s\n' "python-cryptography python-pillow python-bcrypt python-pynacl"
+      printf '%s\n' "python-cryptography python-pillow"
       ;;
     apt)
-      printf '%s\n' "python3-venv python3-flask python3-bs4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pil python3-bcrypt python3-nacl"
+      printf '%s\n' "python3-venv python3-flask python3-bs4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-pil"
       ;;
     dnf|yum)
-      printf '%s\n' "python3-flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pillow python3-bcrypt python3-pynacl"
+      printf '%s\n' "python3-flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-pillow"
       ;;
     pacman)
-      printf '%s\n' "python-flask python-beautifulsoup4 python-reportlab python-pypdf python-waitress python-watchdog python-paramiko python-cryptography python-pillow python-bcrypt python-pynacl"
+      printf '%s\n' "python-flask python-beautifulsoup4 python-reportlab python-pypdf python-waitress python-watchdog python-cryptography python-pillow"
       ;;
     apk)
-      printf '%s\n' "py3-flask py3-beautifulsoup4 py3-reportlab py3-pypdf py3-waitress py3-watchdog py3-paramiko py3-cryptography py3-pillow py3-bcrypt py3-pynacl"
+      printf '%s\n' "py3-flask py3-beautifulsoup4 py3-reportlab py3-pypdf py3-waitress py3-watchdog py3-cryptography py3-pillow"
       ;;
     zypper)
-      printf '%s\n' "python3-Flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-Pillow python3-bcrypt python3-PyNaCl"
+      printf '%s\n' "python3-Flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-Pillow"
       ;;
     *)
       printf '%s\n' ""
@@ -284,7 +283,7 @@ native_python_packages() {
 }
 
 termux_build_packages() {
-  printf '%s\n' "clang make pkg-config libffi openssl libsodium"
+  printf '%s\n' "clang make pkg-config libffi openssl"
 }
 
 python_is_compatible() {
@@ -387,9 +386,6 @@ requirements = {
     "waitress": ">=3.0,<4",
     "cryptography": ">=50,<51",
     "watchdog": ">=6,<7",
-    "paramiko": ">=3.5,<6",
-    "bcrypt": ">=3.2",
-    "PyNaCl": ">=1.5",
 }
 
 problems = []
@@ -412,7 +408,7 @@ if problems:
         print(f"  - {problem}")
     raise SystemExit(1)
 
-print("Native/System-Python-Pakete erfüllen alle SimpleOffice-Anforderungen.")
+print("Native/System-Python-Pakete erfüllen alle SimpleOffice-Web-Anforderungen.")
 PY
 }
 
@@ -431,8 +427,6 @@ except ImportError:
 requirements = {
     "cryptography": (">=50,<51", "cryptography"),
     "Pillow": (">=12.3,<13", "PIL"),
-    "bcrypt": (">=3.2", "bcrypt"),
-    "PyNaCl": (">=1.5", "nacl"),
 }
 problems = []
 for distribution, (specifier, module) in requirements.items():
@@ -448,12 +442,12 @@ for distribution, (specifier, module) in requirements.items():
         problems.append(f"{distribution}/{module}: nicht importierbar: {exc}")
 
 if problems:
-    print("Termux-native Python-Abhängigkeiten sind nicht verwendbar:")
+    print("Termux-native Web-Abhängigkeiten sind nicht verwendbar:")
     for problem in problems:
         print(f"  - {problem}")
     raise SystemExit(1)
 
-print("Termux-native Kryptografie-Pakete sind vorhanden und versionskompatibel.")
+print("Termux-native Web-Pakete sind vorhanden und versionskompatibel.")
 PY
 }
 
@@ -494,21 +488,19 @@ fi
 
 if [ "$IS_TERMUX" -eq 1 ]; then
   if ! termux_native_dependencies_ok; then
-    echo "Termux-Pakete werden erneut installiert/aktualisiert, bevor pip verwendet wird."
-    install_native_packages python-cryptography python-pillow python-bcrypt python-pynacl
+    echo "Termux-Webpakete werden erneut installiert/aktualisiert, bevor pip verwendet wird."
+    install_native_packages python-cryptography python-pillow
     termux_native_dependencies_ok || {
-      echo "Die benötigten nativen Termux-Python-Pakete sind weiterhin nicht verwendbar; pip baut sie absichtlich nicht aus Source." >&2
+      echo "Die benötigten nativen Termux-Webpakete sind weiterhin nicht verwendbar; cryptography wird absichtlich nicht aus Source gebaut." >&2
       exit 1
     }
   fi
 
   # Android/Termux kann manylinux/musllinux Wheels nicht als native Android-Wheels
-  # verwenden. Diese drei Abhängigkeiten dürfen daher niemals unbemerkt aus Source
-  # gebaut werden. Sie kommen ausschließlich aus pkg und bleiben über
-  # --system-site-packages sichtbar.
-  export PIP_ONLY_BINARY="PyNaCl,bcrypt,cryptography"
+  # verwenden. cryptography kommt deshalb ausschließlich aus pkg und bleibt über
+  # --system-site-packages sichtbar. SFTP-Kryptografie ist nicht Teil des Webstarts.
+  export PIP_ONLY_BINARY="cryptography"
   export PIP_PREFER_BINARY=1
-  export SODIUM_INSTALL=system
 
   termux_runtime_requirements=(
     'Flask>=3.0,<4'
@@ -519,27 +511,23 @@ if [ "$IS_TERMUX" -eq 1 ]; then
     'watchdog>=6,<7'
   )
 
-  echo "Termux: versuche zuerst ausschließlich fertige Wheels für nicht-native Laufzeitpakete ..."
+  echo "Termux: versuche zuerst ausschließlich fertige Wheels für Web-Laufzeitpakete ..."
   if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: "${termux_runtime_requirements[@]}"; then
-    echo "Nicht alle Laufzeitpakete besitzen ein kompatibles Android-Wheel; installiere Build-Werkzeuge für den kontrollierten Fallback."
+    echo "Nicht alle Web-Laufzeitpakete besitzen ein kompatibles Android-Wheel; installiere Build-Werkzeuge für den kontrollierten Fallback."
     build_packages="$(termux_build_packages)"
     # shellcheck disable=SC2086
     install_native_packages $build_packages
     "$VENV/bin/python" -m pip install --disable-pip-version-check --prefer-binary "${termux_runtime_requirements[@]}"
   fi
 
-  # Paramiko selbst ist Python-Code. Seine nativen Abhängigkeiten wurden oben
-  # bereits per pkg geprüft; --no-deps verhindert, dass pip PyNaCl/bcrypt/
-  # cryptography erneut auflöst oder zu bauen versucht.
-  "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps 'paramiko>=3.5,<6'
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
   "$VENV/bin/python" -m pip check
 elif [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && native_dependency_versions_ok; then
   echo "Alle benötigten Python-Abhängigkeiten kommen passend aus der Linux-Umgebung; pip installiert nur SimpleOffice selbst."
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
 else
-  echo "pip ergänzt nur fehlende oder nicht passende Python-Abhängigkeiten in der lokalen .venv."
-  "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
+  echo "pip ergänzt nur fehlende oder nicht passende Web-Abhängigkeiten in der lokalen .venv."
+  "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT"
 fi
 
 "$VENV/bin/python" "$ROOT/tools/install_invoice_validator.py" || true
