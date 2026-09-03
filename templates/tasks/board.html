@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+{% block title %}{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }} · SimpleOffice{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-fluid py-3" id="main-content">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h1 class="h3 mb-1">{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</h1>
+      <p class="text-secondary mb-0">{{ 'VTODO board with subtasks, recurrence and CalDAV-compatible fields.' if g.language == 'en' else 'VTODO-Board mit Unteraufgaben, Wiederholungen und CalDAV-kompatiblen Feldern.' }}</p>
+    </div>
+    <button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#new-task" aria-expanded="false" aria-controls="new-task">{{ 'New task' if g.language == 'en' else 'Neue Aufgabe' }}</button>
+  </div>
+
+  <section class="collapse card mb-3" id="new-task">
+    <div class="card-body">
+      <form method="post" action="{{ url_for('tasks.create_task') }}" class="row g-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-lg-5"><label class="form-label">{{ 'Title' if g.language == 'en' else 'Titel' }}</label><input name="title" class="form-control" required maxlength="300"></div>
+        <div class="col-sm-6 col-lg-2"><label class="form-label">{{ 'List' if g.language == 'en' else 'Liste' }}</label><select name="list_id" class="form-select">{% for list in lists %}<option value="{{ list.list_id }}">{{ list.name }}</option>{% endfor %}</select></div>
+        <div class="col-sm-6 col-lg-2"><label class="form-label">{{ 'Due' if g.language == 'en' else 'Fällig' }}</label><input type="date" name="due" class="form-control"></div>
+        <div class="col-sm-6 col-lg-1"><label class="form-label">{{ 'Priority' if g.language == 'en' else 'Priorität' }}</label><input type="number" name="priority" min="0" max="9" value="0" class="form-control"></div>
+        <div class="col-sm-6 col-lg-2"><label class="form-label">RRULE</label><input name="rrule" class="form-control" placeholder="FREQ=WEEKLY;INTERVAL=1"></div>
+        <div class="col-md-6"><label class="form-label">{{ 'Project' if g.language == 'en' else 'Projekt' }}</label><input name="project_id" class="form-control" autocomplete="off"></div>
+        <div class="col-md-6"><label class="form-label">{{ 'Contact' if g.language == 'en' else 'Kontakt' }}</label><input name="contact_id" class="form-control" autocomplete="off"></div>
+        <div class="col-12"><label class="form-label">{{ 'Description' if g.language == 'en' else 'Beschreibung' }}</label><textarea name="description" rows="2" class="form-control"></textarea></div>
+        <div class="col-12"><button type="submit" class="btn btn-primary">{{ 'Create' if g.language == 'en' else 'Anlegen' }}</button></div>
+      </form>
+    </div>
+  </section>
+
+  <form method="get" class="row g-2 mb-3" role="search">
+    <div class="col-md-5"><label class="visually-hidden" for="task-q">{{ 'Search' if g.language == 'en' else 'Suche' }}</label><input id="task-q" type="search" name="q" value="{{ query }}" class="form-control" placeholder="{{ 'Search tasks' if g.language == 'en' else 'Aufgaben durchsuchen' }}"></div>
+    <div class="col-md-3"><label class="visually-hidden" for="task-list">{{ 'List' if g.language == 'en' else 'Liste' }}</label><select id="task-list" name="list_id" class="form-select"><option value="">{{ 'All lists' if g.language == 'en' else 'Alle Listen' }}</option>{% for list in lists %}<option value="{{ list.list_id }}" {% if selected_list == list.list_id %}selected{% endif %}>{{ list.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="visually-hidden" for="task-assigned">{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}</label><input id="task-assigned" name="assigned" value="{{ assigned }}" class="form-control" placeholder="{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}"></div>
+    <div class="col-md-1 d-grid"><button type="submit" class="btn btn-outline-secondary">{{ 'Filter' if g.language == 'en' else 'Filtern' }}</button></div>
+  </form>
+
+  <div class="d-flex gap-3 overflow-auto pb-3 align-items-start" style="scroll-snap-type:x proximity">
+    {% for status, label_de, label_en in columns %}
+      <section class="card flex-shrink-0" style="width:min(88vw, 23rem);scroll-snap-align:start" aria-labelledby="column-{{ status }}">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong id="column-{{ status }}">{{ label_en if g.language == 'en' else label_de }}</strong>
+          <span class="badge text-bg-secondary">{{ grouped[status]|length }}</span>
+        </div>
+        <div class="card-body p-2 d-grid gap-2">
+          {% for task in grouped[status] %}
+            <article class="border rounded p-2 bg-body" id="task-{{ task.id }}">
+              <div class="d-flex justify-content-between gap-2">
+                <strong class="text-break">{{ task.title }}</strong>
+                {% if task.priority %}<span class="badge text-bg-warning">P{{ task.priority }}</span>{% endif %}
+              </div>
+              {% if task.description %}<p class="small text-secondary my-2 text-break">{{ task.description }}</p>{% endif %}
+              <div class="small d-flex flex-wrap gap-1 mb-2">
+                {% if task.due %}<span class="badge text-bg-light border">{{ 'Due' if g.language == 'en' else 'Fällig' }}: {{ task.due }}</span>{% endif %}
+                {% if task.rrule %}<span class="badge text-bg-info">↻ {{ task.rrule }}</span>{% endif %}
+                {% if task.project_id %}<span class="badge text-bg-light border">Projekt: {{ task.project_id }}</span>{% endif %}
+                {% if task.contact_id %}<span class="badge text-bg-light border">Kontakt: {{ task.contact_id }}</span>{% endif %}
+              </div>
+
+              <div class="d-flex flex-wrap gap-1 mb-2">
+                {% for target, target_de, target_en in columns %}{% if target != status %}
+                  <form method="post" action="{{ url_for('tasks.move_task', item_id=task.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="status" value="{{ target }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">{{ target_en if g.language == 'en' else target_de }}</button>
+                  </form>
+                {% endif %}{% endfor %}
+                <form method="post" action="{{ url_for('tasks.complete_occurrence', item_id=task.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-sm btn-success">{{ 'Complete occurrence' if task.rrule and g.language == 'en' else 'Vorkommen erledigen' if task.rrule else 'Complete' if g.language == 'en' else 'Erledigen' }}</button>
+                </form>
+              </div>
+
+              <details class="small">
+                <summary>{{ 'Subtasks' if g.language == 'en' else 'Unteraufgaben' }} ({{ children.get(task.uid, [])|length }})</summary>
+                <div class="pt-2">
+                  {% for child in children.get(task.uid, []) %}
+                    <div class="d-flex justify-content-between gap-2 border-bottom py-1"><span>{{ child.title }}</span><span class="text-secondary">{{ child.status }}</span></div>
+                  {% endfor %}
+                  <form method="post" action="{{ url_for('tasks.create_subtask', item_id=task.id) }}" class="row g-1 mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-8"><input name="title" class="form-control form-control-sm" required placeholder="{{ 'New subtask' if g.language == 'en' else 'Neue Unteraufgabe' }}"></div>
+                    <div class="col-4"><input type="date" name="due" class="form-control form-control-sm"></div>
+                    <div class="col-12"><button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Add subtask' if g.language == 'en' else 'Unteraufgabe hinzufügen' }}</button></div>
+                  </form>
+                </div>
+              </details>
+            </article>
+          {% else %}
+            <div class="text-secondary small p-2">{{ 'No tasks.' if g.language == 'en' else 'Keine Aufgaben.' }}</div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+</main>
+{% endblock %}
