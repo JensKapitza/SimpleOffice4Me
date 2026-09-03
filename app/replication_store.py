@@ -194,8 +194,8 @@ def run_replications_command(actor: str) -> None:
 def init_app(app) -> None:
     app.cli.add_command(run_replications_command)
     # Federation builds on the same document/replication storage layer. Keep
-    # phase-2 multi-source services and mail federation/index registration in a
-    # single deterministic startup path.
+    # phase-2 multi-source services, mail federation/index and rental billing
+    # registration in a single deterministic startup path.
     from . import (
         federation_admin,
         federation_blocks_http,
@@ -205,6 +205,7 @@ def init_app(app) -> None:
         federation_mail_http,
         federation_phase2,
         mail_index_routes,
+        rentals,
     )
     app.register_blueprint(federation_http.bp)
     app.register_blueprint(federation_catalog_http.bp)
@@ -213,4 +214,5 @@ def init_app(app) -> None:
     app.register_blueprint(federation_mail_http.bp)
     federation_phase2.init_app(app)
     app.register_blueprint(federation_admin.bp)
+    app.register_blueprint(rentals.bp)
     app.register_blueprint(mail_index_routes.bp)
