@@ -2,6 +2,7 @@ import hashlib
 import tempfile
 import unittest
 from decimal import Decimal
+from unittest.mock import patch
 
 from app.rental_billing import RentalBillingStore, allocate_money
 
@@ -67,7 +68,27 @@ class RentalBillingTest(unittest.TestCase):
         self.assertTrue((directory / "Vermieter-Abrechnungsblatt.pdf").is_file())
         self.assertTrue((directory / "Mieterpaket-c1.zip").is_file())
         self.assertTrue((directory / "approval-manifest.json").is_file())
+        manifest_before = hashlib.sha256((directory / "approval-manifest.json").read_bytes()).hexdigest()
+        with self.assertRaises(ValueError): self.store.approve(settlement["settlement_id"], "admin")
+        manifest_after = hashlib.sha256((directory / "approval-manifest.json").read_bytes()).hexdigest()
+        self.assertEqual(manifest_before, manifest_after)
         with self.assertRaises(ValueError): self.store.add_cost(settlement["settlement_id"], "Müll", "nachträglich", "10", "2026-01-01", "2026-12-31", "equal", "admin", source_note="darf nicht mehr gehen")
+
+    def test_failed_approval_leaves_no_published_artifacts_and_can_retry(self):
+        self.store.add_tenancy("o1", "c1", "2026-01-01", "", "admin")
+        settlement = self.settlement()
+        settlement_id = settlement["settlement_id"]
+        self.store.add_cost(settlement_id, "Grundsteuer", "Bescheid", "100", "2026-01-01", "2026-12-31", "direct", "admin", direct_object_id="o1", source_note="Handeingabe Test")
+        directory = self.store.approval_directory(settlement_id)
+        with patch.object(self.store, "_render_approval_pdf", side_effect=RuntimeError("render failed")):
+            with self.assertRaises(RuntimeError):
+                self.store.approve(settlement_id, "admin")
+        self.assertEqual("draft", self.store.settlement(settlement_id)["status"])
+        self.assertFalse(directory.exists())
+        self.assertFalse(list(directory.parent.glob(f".{directory.name}.staging-*")))
+        approved = self.store.approve(settlement_id, "admin")
+        self.assertEqual("approved", approved["settlement"]["status"])
+        self.assertTrue((directory / "approval-manifest.json").is_file())
 
     def test_tenants_outside_period_are_not_in_statement(self):
         self.store.add_tenancy("o1", "old", "2025-01-01", "2025-12-31", "admin")
