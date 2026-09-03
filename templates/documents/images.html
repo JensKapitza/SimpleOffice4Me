@@ -3,23 +3,43 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container py-4">
-  <h1>Bilder</h1>
-  <p class="text-muted">Bilder bleiben normale, hashbasiert verwaltete Dokumente. EXIF, OCR-Text und daraus erzeugte Tags werden lokal gespeichert und revisionssicher protokolliert.</p>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2"><div><h1>Bilder</h1><p class="text-muted">Bilder bleiben normale, hashbasiert verwaltete Dokumente. EXIF, OCR-Text und daraus erzeugte Tags werden lokal gespeichert und revisionssicher protokolliert.</p></div></div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="card shadow-sm mb-4" id="mobile-photo-import">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between gap-3 mb-3"><div><h2 class="h5 mb-1"><i class="fas fa-mobile-screen-button me-2" aria-hidden="true"></i>Handy-Fotos massenweise importieren</h2><p class="text-secondary small mb-0">Viele Galerie-Fotos gleichzeitig auswählen. Sie werden einzeln übertragen, damit ein Fehler nicht den ganzen Stapel verwirft.</p></div><span class="badge text-bg-light border align-self-start">EXIF + XMP/IPTC via ExifTool, falls installiert</span></div>
+      <form id="photo-bulk-form" action="{{ url_for('photo_upload.upload_photo') }}" method="post" enctype="multipart/form-data">
+        <input type="hidden" id="photo-csrf" value="{{ csrf_token() }}">
+        <div class="mb-3"><label class="form-label fw-semibold" for="photo-files">Fotos auswählen</label><input id="photo-files" class="form-control form-control-lg" type="file" accept="image/jpeg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp" multiple required><div class="form-text">Gespeichert werden u. a. Server-Uploaddatum, Browser-Dateidatum, EXIF-Aufnahmedatum, Größe, SHA-256, Kamera, Objektiv, Abmessungen, GPS und eingebettete Metadaten.</div></div>
+        <div class="row g-2">
+          <div class="col-md-6"><div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="photo-archive"><label class="form-check-label" for="photo-archive">Direkt ins SHA-256-Archiv</label></div></div>
+          <div class="col-md-6"><div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="photo-ocr"><label class="form-check-label" for="photo-ocr">OCR sofort ausführen</label><div class="form-text">Bei großen Mengen besser aus: Metadaten werden trotzdem sofort eingelesen.</div></div></div>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-3 mt-3"><button id="photo-start" class="btn btn-primary" type="submit"><i class="fas fa-cloud-arrow-up me-1" aria-hidden="true"></i>Import starten</button><span id="photo-selection" class="small text-secondary" aria-live="polite">Noch keine Fotos ausgewählt.</span></div>
+      </form>
+      <div id="photo-progress-section" class="mt-3 d-none" aria-live="polite"><div class="d-flex justify-content-between gap-3"><strong id="photo-progress-label">Vorbereitung…</strong><span id="photo-progress-percent">0 %</span></div><div class="progress my-2" role="progressbar" aria-label="Foto-Upload Fortschritt" aria-valuemin="0" aria-valuemax="100"><div id="photo-progress" class="progress-bar" style="width:0%"></div></div><div id="photo-summary" class="small text-secondary"></div><div id="photo-errors" class="mt-2"></div><div id="photo-results" class="list-group list-group-flush mt-2"></div></div>
+    </div>
+  </section>
+
   <form method="get" class="row g-2 mb-3">
-    <div class="col-md-5"><input class="form-control" name="tag" value="{{ tag }}" placeholder="Tag filtern, z. B. dank oder dan*"></div>
+    <div class="col-md-5"><input class="form-control" name="tag" value="{{ tag }}" placeholder="Tag filtern, z. B. aufnahme-2026-09-03 oder kamera-samsung"></div>
     <div class="col-md-3"><select class="form-select" name="period"><option value="all" {{ 'selected' if period == 'all' }}>Alle Zeiten</option><option value="week" {{ 'selected' if period == 'week' }}>Diese Woche</option><option value="month" {{ 'selected' if period == 'month' }}>Dieser Monat</option><option value="year" {{ 'selected' if period == 'year' }}>Dieses Jahr</option></select></div>
     <div class="col-auto"><button type="submit" class="btn btn-outline-primary">Filtern</button></div>
     {% if pictures %}<div class="col-auto"><button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#slideshow">Diashow</button></div>{% endif %}
   </form>
   <div class="row g-3">
     {% for picture in pictures %}
+    {% set upload = picture.attributes.photo_upload|default({}) %}{% set photo = picture.attributes.photo_metadata|default({}) %}{% set derived = photo.derived|default({}) %}
     <div class="col-sm-6 col-lg-3"><div class="card h-100">
       <a href="{{ url_for('documents.image_preview', document_id=picture.document_id) }}"><img class="card-img-top" loading="lazy" decoding="async" src="{{ url_for('documents.document_thumbnail', document_id=picture.document_id) }}" alt="{{ picture.last_path }}"></a>
-      <div class="card-body"><small class="d-block text-break">{{ picture.last_path }}</small><small class="text-muted">{{ picture.first_seen_at }}</small>
-        {% if picture.image_analysis %}<div class="small text-secondary mt-1">{{ picture.image_analysis.format|default('?') }} · {{ picture.image_analysis.width|default('?') }} × {{ picture.image_analysis.height|default('?') }} px{% if picture.image_analysis.exif.Model %} · {{ picture.image_analysis.exif.Model }}{% endif %}</div>{% if picture.image_analysis.ocr_characters %}<div class="small text-secondary">OCR: {{ picture.image_analysis.ocr_characters }} Zeichen</div>{% endif %}{% endif %}
+      <div class="card-body"><small class="d-block text-break">{{ picture.last_path }}</small>
+        {% if upload.received_at %}<div class="small text-secondary mt-1"><strong>Upload:</strong> {{ upload.received_at }}</div>{% else %}<small class="text-muted">Erfasst: {{ picture.first_seen_at }}</small>{% endif %}
+        {% if derived.captured_at %}<div class="small text-secondary"><strong>Aufnahme:</strong> {{ derived.captured_at }}</div>{% endif %}
+        {% if upload.client_last_modified_at %}<div class="small text-secondary"><strong>Dateidatum:</strong> {{ upload.client_last_modified_at }}</div>{% endif %}
+        {% if picture.image_analysis %}<div class="small text-secondary mt-1">{{ picture.image_analysis.format|default('?') }} · {{ picture.image_analysis.width|default('?') }} × {{ picture.image_analysis.height|default('?') }} px{% if derived.camera_model %} · {{ derived.camera_model }}{% elif picture.image_analysis.exif.Model %} · {{ picture.image_analysis.exif.Model }}{% endif %}{% if derived.gps %} · GPS{% endif %}</div>{% if picture.image_analysis.ocr_characters %}<div class="small text-secondary">OCR: {{ picture.image_analysis.ocr_characters }} Zeichen</div>{% elif picture.image_analysis.ocr_status == 'deferred_bulk_upload' %}<div class="small text-secondary">OCR: für Massenimport zurückgestellt</div>{% endif %}{% endif %}
         <form method="post" action="{{ url_for('documents.set_document_tags', document_id=picture.document_id) }}"><input class="form-control form-control-sm my-1" name="tags" value="{{ picture.tags|join(', ') }}" placeholder="Tags"><button type="submit" class="btn btn-sm btn-outline-primary">Tags speichern</button><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=picture.document_id) }}">Verwalten / freigeben</a></form>
-        <form method="post" class="mt-1" action="{{ url_for('documents.analyze_image', document_id=picture.document_id) }}"><button type="submit" class="btn btn-sm btn-outline-secondary">EXIF / OCR erneut analysieren</button></form>
+        <div class="d-flex flex-wrap gap-1 mt-1"><form method="post" action="{{ url_for('documents.analyze_image', document_id=picture.document_id) }}"><button type="submit" class="btn btn-sm btn-outline-secondary">EXIF / OCR neu</button></form><form method="post" action="{{ url_for('photo_upload.refresh_metadata', document_id=picture.document_id) }}"><button type="submit" class="btn btn-sm btn-outline-secondary">Alle Metadaten neu</button></form></div>
       </div>
     </div></div>
     {% else %}<p>Keine Bilder im Dokumentbestand.</p>{% endfor %}
@@ -64,4 +84,24 @@
   <script src="{{ url_for('static', filename='js/slideshow.js') }}"></script>
   {% endif %}
 </main>
+<script>
+(() => {
+  const form = document.getElementById('photo-bulk-form');
+  const input = document.getElementById('photo-files');
+  if (!form || !input) return;
+  const selection = document.getElementById('photo-selection'); const start = document.getElementById('photo-start'); const section = document.getElementById('photo-progress-section'); const bar = document.getElementById('photo-progress'); const label = document.getElementById('photo-progress-label'); const percent = document.getElementById('photo-progress-percent'); const summary = document.getElementById('photo-summary'); const errors = document.getElementById('photo-errors'); const results = document.getElementById('photo-results'); const csrf = document.getElementById('photo-csrf').value;
+  const formatBytes = (value) => { if (!Number.isFinite(value) || value <= 0) return '0 B'; const units = ['B','KiB','MiB','GiB']; const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1); return `${(value / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`; };
+  input.addEventListener('change', () => { const files = Array.from(input.files || []); selection.textContent = files.length ? `${files.length} Foto(s) · ${formatBytes(files.reduce((sum, file) => sum + file.size, 0))}` : 'Noch keine Fotos ausgewählt.'; });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault(); const files = Array.from(input.files || []); if (!files.length) return; start.disabled = true; input.disabled = true; section.classList.remove('d-none'); errors.innerHTML = ''; results.innerHTML = '';
+    const batchId = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`; const timezone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { return ''; } })(); let ok = 0; let failed = 0; let uploadedBytes = 0;
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]; label.textContent = `${index + 1} / ${files.length}: ${file.name}`; const data = new FormData(); data.append('file', file, file.name); data.append('archive', document.getElementById('photo-archive').checked ? '1' : '0'); data.append('run_ocr', document.getElementById('photo-ocr').checked ? '1' : '0'); data.append('client_mime_type', file.type || ''); data.append('client_size', String(file.size)); data.append('client_last_modified_at', Number.isFinite(file.lastModified) && file.lastModified > 0 ? new Date(file.lastModified).toISOString() : ''); data.append('client_timezone', timezone); data.append('client_timezone_offset_minutes', String(new Date().getTimezoneOffset())); data.append('client_relative_path', file.webkitRelativePath || ''); data.append('batch_id', batchId); data.append('batch_index', String(index + 1)); data.append('batch_count', String(files.length));
+      try { const response = await fetch(form.action, {method:'POST', body:data, headers:{'X-CSRF-Token':csrf}, credentials:'same-origin'}); const payload = await response.json().catch(() => ({ok:false,error:`HTTP ${response.status}`})); if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`); ok += 1; uploadedBytes += file.size; const item = document.createElement('a'); item.className='list-group-item list-group-item-action py-2'; item.href=payload.detail_url; item.textContent=`✓ ${file.name} · ${payload.received_at || 'importiert'}`; results.prepend(item); } catch (error) { failed += 1; const alert=document.createElement('div'); alert.className='alert alert-warning py-2 mb-2'; alert.textContent=`${file.name}: ${error.message || error}`; errors.append(alert); }
+      const value=Math.round(((index+1)/files.length)*100); bar.style.width=`${value}%`; bar.setAttribute('aria-valuenow',String(value)); percent.textContent=`${value} %`; summary.textContent=`${ok} erfolgreich · ${failed} Fehler · ${formatBytes(uploadedBytes)} übertragen`;
+    }
+    label.textContent=failed ? `Fertig: ${ok} importiert, ${failed} Fehler` : `Fertig: ${ok} Foto(s) importiert`; start.disabled=false; input.disabled=false;
+  });
+})();
+</script>
 {% endblock %}

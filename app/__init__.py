@@ -258,6 +258,9 @@ replication_store.init_app(app)
 from . import documents
 app.register_blueprint(documents.bp)
 
+from . import photo_upload
+app.register_blueprint(photo_upload.bp)
+
 from . import task_management
 app.register_blueprint(task_management.bp)
 
