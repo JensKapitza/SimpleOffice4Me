@@ -2,50 +2,53 @@
 
 ## Ziel
 
-SOFP verbindet bekannte, explizit vertrauenswürdig konfigurierte SimpleOffice4Me-Instanzen. Die Richtung wird pro Datentyp getrennt geregelt. Eine Instanz darf Daten anbieten, ohne Daten anzunehmen; eine andere darf nur sammeln. Unterstützt werden zunächst `documents`, `contacts`, `calendars` und `tasks`.
+SOFP verbindet bekannte, administrativ gekoppelte SimpleOffice4Me-Instanzen. Es kombiniert Objekt-Synchronisation mit einem content-addressed, BitTorrent-aehnlichen Chunk-Transport. Dokumente, Kontakte, Kalender und Aufgaben koennen pro Peer und Richtung getrennt freigegeben werden.
 
-Das Protokoll ist kein unkontrolliertes Multi-Master-Dateisystem. Jede Seite behält die Entscheidungshoheit darüber, welche Objekte sie anbietet und welche sie annimmt.
+Das Protokoll muss auch asymmetrische Topologien beherrschen: Ein Steuerknoten A darf einen direkten Server-zu-Server-Transfer B -> C veranlassen, obwohl B nur A kennt. C muss A vertrauen und den Transfer lokal erlauben; B erhaelt fuer C nur eine kurzlebige, auf genau diesen Transfer begrenzte Berechtigung.
 
 ## Grundprinzipien
 
-1. **Bekannte Peers:** keine öffentliche Peer-Suche. Instanzen werden administrativ gekoppelt.
-2. **Send und Receive getrennt:** Berechtigungen gelten je Peer und Ressourcentyp unabhängig.
-3. **Default deny:** neue Peers und neue Ressourcentypen sind zunächst gesperrt.
-4. **Manifest vor Payload:** zunächst werden nur kleine Objektbeschreibungen ausgetauscht.
-5. **Content-addressed:** Dokumente werden primär über SHA-256 identifiziert. Bekannter Inhalt wird nicht erneut übertragen.
-6. **Delta-Sync:** nach dem Erstabgleich werden nur Änderungen seit einem Cursor übertragen.
-7. **Idempotenz:** Wiederholung einer Anfrage darf keine doppelten Objekte erzeugen.
-8. **Keine implizite Löschung:** entfernte Objekte werden als Tombstone angekündigt. Ob ein Peer lokal löscht, archiviert oder ignoriert, bestimmt dessen Policy.
-9. **Auditierbar:** Annahme, Ablehnung, Konflikte und Transfers werden protokolliert.
-10. **Pull-basierte Payloads:** ein Sender kündigt Änderungen an; der Empfänger entscheidet anschließend, welche Payload er tatsächlich abruft.
+1. Bekannte Peers und Default-Deny.
+2. Send, Receive, Relay und Third-Party-Transfer sind getrennte Rechte.
+3. Lokale Empfangspolicy hat immer Vorrang.
+4. Manifest vor Payload; bekannte Inhalte werden nicht erneut uebertragen.
+5. Content-addressed Daten mit SHA-256 und Merkle-Verifikation.
+6. Dateien werden in unabhaengige Chunks zerlegt und koennen parallel von mehreren Quellen kommen.
+7. Delta-Sync ueber monotone Cursor.
+8. Idempotente Operationen und persistente Transfer-Sessions.
+9. Keine implizite Loeschung; Tombstones werden lokal bewertet.
+10. Jeder Transfer und jede Delegation ist auditierbar.
 
-## Peer-Konfiguration
+## Peer- und Rollenmodell
 
-Beispiel:
+Ein Peer kann getrennt folgende Faehigkeiten erhalten:
+
+- `send`: eigene freigegebene Objekte anbieten.
+- `receive`: angebotene Objekte annehmen.
+- `seed`: bereits verifizierte Chunks fuer andere bereitstellen.
+- `relay`: Datenstrom weiterleiten, ohne ihn dauerhaft zu speichern.
+- `orchestrate`: Transfers zwischen anderen Instanzen initiieren.
+- `third_party_source`: auf delegierte Anweisung an einen fremden Zielknoten senden.
+- `third_party_sink`: von einem durch einen vertrauten Orchestrator delegierten Quellknoten empfangen.
+
+Alle Rechte gelten zusaetzlich pro Ressourcentyp und optional Sammlung/Projekt/Kunde.
 
 ```json
 {
   "peer_id": "backup-01",
-  "base_url": "https://backup.example/federation/v1",
-  "enabled": true,
   "resources": {
-    "documents": {"send": false, "receive": true},
-    "contacts":  {"send": false, "receive": true},
+    "documents": {"send": false, "receive": true, "seed": false},
+    "contacts": {"send": false, "receive": true},
     "calendars": {"send": false, "receive": true},
-    "tasks":     {"send": false, "receive": true}
-  }
+    "tasks": {"send": false, "receive": true}
+  },
+  "third_party_sink": true
 }
 ```
-
-Das beschreibt einen Backup-Knoten, der alles annehmen darf, aber nichts zurückliefert.
-
-Ein Kontaktsammler könnte dagegen ausschließlich `contacts.receive=true` setzen. Eine Arbeitsinstanz kann für einen Peer beispielsweise Kalender senden, Kontakte empfangen und Dokumente vollständig sperren.
 
 ## Capability Negotiation
 
 `GET /federation/v1/capabilities`
-
-liefert mindestens:
 
 ```json
 {
@@ -54,225 +57,255 @@ liefert mindestens:
   "instance_id": "uuid",
   "resources": ["documents", "contacts", "calendars", "tasks"],
   "hashes": ["sha256"],
-  "compression": ["gzip"],
-  "max_page_size": 1000,
+  "chunk_hashes": ["sha256"],
+  "merkle": true,
+  "range": true,
+  "multi_source": true,
+  "third_party_transfer": true,
+  "relay": true,
+  "max_parallel_chunks": 16,
+  "preferred_chunk_bytes": 4194304,
   "max_payload_bytes": 52428800
 }
 ```
 
-Die lokale Policy hat immer Vorrang vor den angekündigten Fähigkeiten des Gegenübers.
+## Objekt- und Blobidentitaet
 
-## Objektidentität
+Logische Objekte werden durch `(origin_instance_id, object_id)` identifiziert. Dokumentinhalt wird separat durch `blob_hash` identifiziert. Dadurch kann derselbe Blob beliebig viele Dokumentobjekte referenzieren, ohne erneut gespeichert oder uebertragen zu werden.
 
-Jedes föderierbare Objekt besitzt:
+Jedes Objekt besitzt mindestens `object_id`, `origin_instance_id`, `resource_type`, `revision`, `modified_at`, `deleted` und `content_hash`.
 
-- `object_id`: stabile UUID der Ursprungsinstanz
-- `origin_instance_id`
-- `resource_type`
-- `revision`: monoton steigende lokale Revision
-- `modified_at`
-- `deleted`: Tombstone-Flag
-- `content_hash`: SHA-256 der kanonischen Nutzdaten, sofern sinnvoll
+## Swarm-Manifest und Chunking
 
-Für Dokumente gibt es zusätzlich `blob_hash` und `size`. `blob_hash` ist SHA-256 über die tatsächlichen Datei-Bytes.
-
-Die Kombination `(origin_instance_id, object_id)` ist global die logische Identität. Der Hash dient der Inhalts-Deduplizierung und darf nicht allein die Objektidentität ersetzen.
-
-## Änderungsjournal
-
-Jede Instanz führt ein append-only Federation-Changelog. Jeder Eintrag erhält eine monoton steigende `sequence`.
+Jeder Blob besitzt ein unveraenderliches Transfermanifest:
 
 ```json
 {
-  "sequence": 91822,
-  "resource_type": "documents",
-  "object_id": "uuid",
-  "revision": 7,
-  "operation": "upsert",
-  "content_hash": "sha256:...",
-  "blob_hash": "sha256:...",
-  "size": 184221
-}
-```
-
-Peers speichern je Ressourcentyp den letzten bestätigten Cursor. Dadurch ist die Last proportional zur Anzahl der Änderungen und nicht zur Gesamtgröße des Bestands.
-
-## Sync-Ablauf
-
-### 1. Änderungen abfragen
-
-`GET /federation/v1/changes/{resource}?after=<cursor>&limit=<n>`
-
-Antwort enthält ausschließlich Manifestdaten und `next_cursor`.
-
-### 2. Lokalen Bestand prüfen
-
-Der Empfänger prüft in dieser Reihenfolge:
-
-1. Ist `receive` für Peer und Ressourcentyp erlaubt?
-2. Ist `(origin_instance_id, object_id, revision)` bereits bekannt?
-3. Ist `content_hash` bereits vorhanden?
-4. Bei Dokumenten: existiert `blob_hash` bereits im lokalen Blob-Store?
-5. Verletzt das Objekt Filter, Größenlimit, Speicherlimit oder andere lokale Regeln?
-
-### 3. Bedarf mitteilen
-
-`POST /federation/v1/need`
-
-```json
-{
-  "resource": "documents",
-  "objects": [
-    {"object_id": "...", "revision": 7, "need_metadata": true, "need_blob": false}
+  "blob_hash": "sha256:FILE_HASH",
+  "size": 987654321,
+  "chunk_size": 4194304,
+  "chunk_count": 236,
+  "merkle_root": "sha256:ROOT",
+  "chunks": [
+    {"index": 0, "offset": 0, "length": 4194304, "hash": "sha256:..."},
+    {"index": 1, "offset": 4194304, "length": 4194304, "hash": "sha256:..."}
   ]
 }
 ```
 
-`need_blob=false` ist der zentrale Mechanismus gegen unnötige Dateiübertragung. Ist derselbe SHA-256-Blob bereits vorhanden, werden höchstens fehlende Metadaten übertragen und der bestehende Blob referenziert.
+Chunks sind einzeln adressierbar und verifizierbar. Die Standardgroesse ist verhandelbar. Sehr kleine Dateien duerfen einen einzelnen Chunk verwenden. Fuer sehr grosse Dateien kann die Chunk-Liste paginiert oder als Merkle-Unterbaum geliefert werden.
 
-### 4. Payload abrufen
+## BitTorrent-aehnlicher Multi-Source-Transfer
 
-Metadaten:
+Ein Empfaenger darf fuer denselben `blob_hash` mehrere autorisierte Quellen benutzen. Er verwaltet eine Piece-/Chunk-Bitmap und fordert fehlende Chunks parallel an.
 
-`GET /federation/v1/objects/{resource}/{object_id}?revision=7`
+`GET /federation/v1/blobs/{hash}/availability`
 
-Dateiblobs ausschließlich bei Bedarf:
+liefert eine kompakte Bitmap oder Range-Liste verfuegbarer Chunks. Der Scheduler soll mindestens unterstuetzen:
 
-`GET /federation/v1/blobs/{sha256}`
+- parallele Quellen,
+- rarest-first, wenn mehrere Quellen unterschiedliche Chunks besitzen,
+- endgame mode fuer die letzten fehlenden Chunks,
+- Abbruch doppelter Requests nach erstem gueltigen Ergebnis,
+- dynamische Bewertung nach Durchsatz, RTT und Fehlerquote,
+- Per-Peer-Bandbreitenlimit,
+- globale Upload-/Downloadlimits,
+- Fairness zwischen Transfers,
+- Pause/Resume nach Neustart,
+- Quellwechsel ohne Verlust bereits verifizierter Chunks.
 
-Große Dateien müssen Range Requests und Wiederaufnahme unterstützen. Vor dem Commit wird der empfangene SHA-256 erneut geprüft.
+`GET /federation/v1/blobs/{hash}/chunks/{index}` liefert genau einen Chunk. HTTP Range bleibt als Fallback und fuer Streaming-Clients erhalten.
 
-### 5. Bestätigen
+Ein Chunk wird erst nach Hash-Pruefung in den lokalen Chunk-Store uebernommen. Nach Vollstaendigkeit wird der gesamte `blob_hash` bzw. Merkle-Root erneut validiert.
 
-`POST /federation/v1/ack`
+## Partielle Datenstroeme
 
-Der Empfänger bestätigt bis zu welcher `sequence` er die Änderungen vollständig verarbeitet hat. Erst dann wird sein Cursor fortgeschrieben.
+SOFP muss Dateien nicht vollstaendig lokal zusammensetzen, bevor ein Verbraucher Daten lesen kann. Ein Stream kann aus lokal vorhandenen und parallel von mehreren Servern geladenen Bereichen bestehen.
 
-## Dokument-Deduplizierung
+`POST /federation/v1/streams`
 
-Vor jedem Dateiabruf wird der lokale Blob-Index nach SHA-256 geprüft.
+kann einen Stream fuer `blob_hash`, Byte-Range und Prioritaet erzeugen. Der Scheduler priorisiert Chunks, die fuer den aktuellen Lesepunkt benoetigt werden, und laedt optional ein konfigurierbares Read-Ahead-Fenster.
 
-- Hash vorhanden: keine Dateiübertragung; vorhandenen Blob referenzieren.
-- Hash unbekannt: Blob abrufen, SHA-256 verifizieren, atomar einlagern.
-- Gleicher logischer Datensatz und gleiche Revision: komplett überspringen.
-- Gleicher logischer Datensatz, neuer Hash: neue Revision verarbeiten.
+Damit sind unter anderem moeglich:
 
-Optional kann beim initialen Pairing ein kompaktes Hash-Inventar/Bloom-Filter ausgetauscht werden. Es dient nur als Optimierung. Wegen möglicher False Positives muss vor dem endgültigen Überspringen ein exakter Hash-Lookup möglich bleiben.
+- Video/PDF lesen, waehrend der Rest noch geladen wird,
+- nur einen Byte-Bereich einer grossen Datei abrufen,
+- fehlende Bereiche von B und C parallel beziehen,
+- einen Datenstrom direkt an einen weiteren Server weiterreichen,
+- abgebrochene Transfers exakt ab dem letzten verifizierten Chunk fortsetzen.
 
-## Kontakte, Kalender und Aufgaben
+## Source Discovery innerhalb des Vertrauensnetzes
 
-Diese Ressourcen verwenden dieselbe Manifest-/Cursor-Logik, aber keinen Blobtransfer.
+Es gibt keine offene Internet-DHT. Stattdessen koennen bekannte Peers fuer einen konkreten Hash autorisierte Quellen nennen:
 
-Für kanonische Hashes werden volatile Felder wie lokale Datenbank-ID, Sync-Zeitpunkt und Peer-spezifische Metadaten ausgeschlossen. Dadurch können semantisch identische Datensätze erkannt werden.
+`POST /federation/v1/sources/query`
 
-Für Kontakte können zusätzliche Match-Indikatoren wie normalisierte E-Mail und Telefonnummer zur Duplikatwarnung dienen. Sie dürfen aber nicht automatisch zwei verschiedene globale Objekt-IDs zusammenführen.
+Der Aufrufer sendet Hash und Transferkontext. Die Antwort darf nur Peers enthalten, deren Policy eine Bekanntgabe erlaubt. Ein Knoten darf ausserdem Quellen ueber den Orchestrator nutzen, ohne diese dauerhaft als eigenen Peer zu speichern.
 
-Kalender und Aufgaben behalten UID/RECURRENCE-ID beziehungsweise VTODO-UID als fachliche Kennungen zusätzlich zur föderierten Objekt-ID.
+Optional koennen Peers kompakte Bloom-/Cuckoo-Filter ihres Blob-Bestands austauschen. Ein positiver Filtertreffer muss vor Nutzung exakt bestaetigt werden.
 
-## Konflikte
+## Delegierter Server-zu-Server-Transfer (FXP-aehnlich)
 
-SOFP verwendet keine pauschale Last-Write-Wins-Regel.
+### Beispiel A kennt B und C; B kennt nur A
 
-- Eine neue Revision desselben Ursprungsobjekts ersetzt dessen ältere Revision.
-- Lokale Bearbeitungen einer importierten Kopie erzeugen einen Konflikt oder einen lokalen Fork, sofern keine explizite Schreibberechtigung zum Ursprung besteht.
-- Konflikte werden mit beiden Revisionen gespeichert und in der Oberfläche angezeigt.
-- Automatisches Feld-Merging ist nur für explizit dafür freigegebene Ressourcentypen zulässig.
+A moechte einen Blob von B nach C replizieren. A soll die Datei nicht selbst transportieren muessen.
 
-Damit kann ein Backup-Server exakt sammeln, ohne Änderungen zurückzuschreiben.
+1. A fragt C, ob C den Blob und einen delegierten Transfer von B akzeptiert.
+2. C prueft lokale `receive`- und `third_party_sink`-Policy.
+3. C erzeugt eine kurzlebige Transfer-Session und ein eingeschraenktes Capability-Token.
+4. A sendet B einen signierten Transferauftrag mit Ziel C, Blob-Hash, erlaubten Chunks, Ablaufzeit und C-Token.
+5. B prueft, ob A `orchestrate` darf und ob B fuer diesen Datentyp `third_party_source` erlaubt.
+6. B verbindet sich direkt per HTTPS mit C und uebertraegt die angeforderten Chunks.
+7. C verifiziert jeden Chunk und den Gesamtblob und meldet den Abschluss signiert an A.
 
-## Löschungen
+B muss C dabei nicht dauerhaft kennen oder vertrauen. Das von C ausgestellte Token erlaubt ausschliesslich den bezeichneten Transfer.
 
-Ein Tombstone enthält Objekt-ID, letzte Revision und Löschzeitpunkt. Empfangsregeln unterstützen mindestens:
+`POST /federation/v1/transfers/prepare` auf C erzeugt die Sink-Session.
 
-- `ignore`: lokale Kopie behalten
-- `archive`: lokal archivieren
-- `mirror`: nach definierter Schutzfrist löschen
+`POST /federation/v1/transfers/delegate` auf B uebergibt den Auftrag.
 
-Für Backup-Instanzen sollte standardmäßig `archive` verwendet werden. Ein kompromittierter oder fehlerhafter Ursprung kann dadurch nicht sofort alle Sicherungskopien vernichten.
+`PUT /federation/v1/transfers/{transfer_id}/chunks/{index}` auf C nimmt Daten direkt von B an.
 
-## Filter und Policies
+`GET /federation/v1/transfers/{transfer_id}/status` erlaubt A, den Transfer zu ueberwachen.
 
-Policies können mindestens nach Peer, Ressourcentyp, Richtung und optional Sammlung/Kalender/Adressbuch/Aufgabenliste gelten.
+## Delegationstoken
 
-Sinnvolle zusätzliche Grenzen:
+Delegation darf niemals normale Peer-Credentials weiterreichen. Ein Capability-Token ist signiert und bindet mindestens:
 
-- maximale Dateigröße
-- erlaubte MIME-Typen
-- Tags/Projekte/Kunden
-- Speicherquota
-- Zeitfenster
-- Metadaten-only für Dokumente
-- automatische Annahme oder Quarantäne
+- `transfer_id`,
+- Orchestrator A,
+- Quelle B,
+- Ziel C,
+- `blob_hash`,
+- erlaubte Chunk-/Byte-Bereiche,
+- erlaubte Methode/Richtung,
+- maximale Bytes,
+- `issued_at` und kurze `expires_at`,
+- Nonce,
+- optional Ziel-IP/Host-Key/TLS-Fingerprint.
 
-Die Empfangspolicy wird immer lokal ausgewertet. Ein Remote-System kann sie nicht überschreiben.
+Das Token ist nicht auf andere Dateien oder Ziele uebertragbar. C darf es nach Abschluss oder Abbruch sofort widerrufen.
+
+## Third-Party Multi-Source
+
+A kann C gleichzeitig mehrere Quellen B, D und E vermitteln. C verteilt die fehlenden Chunks selbst oder A kann einen Transferplan vorschlagen. Die lokale Policy von C entscheidet immer, welche Quellen akzeptiert werden.
+
+Beispiel:
+
+```json
+{
+  "blob_hash": "sha256:...",
+  "sources": ["B", "D", "E"],
+  "strategy": "rarest_first",
+  "parallelism": 12
+}
+```
+
+Wenn C nur A kennt, koennen alle Quellen mit separaten, von C ueber A vermittelten One-Time-Capabilities arbeiten. Eine dauerhafte Peer-Beziehung ist nicht erforderlich.
+
+## Relay-Modus
+
+Falls B C wegen NAT, Firewall oder Routing nicht direkt erreicht, darf A optional als Relay dienen. Dabei bleibt der Transfer logisch B -> C; A leitet Chunks nur weiter. Relay ist ein separates Recht und standardmaessig deaktiviert.
+
+Relay-Modi:
+
+- `stream`: ohne dauerhafte Speicherung,
+- `cache`: verifizierte Chunks duerfen temporaer gecacht und fuer denselben autorisierten Transfer wiederverwendet werden,
+- `store-and-forward`: fuer zeitversetzt erreichbare Knoten, nur bei expliziter Policy.
+
+## FTP-aehnliche Transferoperationen
+
+Neben automatischem Sync gibt es explizite Transfer-Jobs. Sie erlauben Copy/Replicate/Move-artige Operationen zwischen Servern, ohne lokale Dateipfade des Remote-Systems offenzulegen.
+
+- `COPY`: Ziel erhaelt eine weitere Referenz/Kopie.
+- `REPLICATE`: Blob wird auf mindestens N gewuenschte Knoten verteilt.
+- `MOVE`: COPY plus separat bestaetigte Quell-Loeschanfrage; niemals atomar behaupten, solange die Quellloeschung nicht bestaetigt wurde.
+- `VERIFY`: Ziel prueft vorhandene Chunks/Blob.
+- `REPAIR`: fehlende oder korrupte Chunks werden aus anderen Quellen rekonstruiert.
+
+Jeder Job besitzt Status, Fortschritt, Bytezaehler, Chunk-Bitmap, Fehlerliste und Audit-Trail.
+
+## Metadaten-Synchronisation
+
+Kontakte, Kalender und Aufgaben verwenden weiterhin Manifest-/Cursor-Sync. Dokument-Metadaten und Blob-Transfer sind getrennt. Ein Ziel kann Metadaten annehmen, den Blob ablehnen oder nur bei Zugriff on-demand laden.
+
+`GET /federation/v1/changes/{resource}?after=<cursor>&limit=<n>` liefert Delta-Manifeste. `POST /federation/v1/need` beschreibt fehlende Metadaten/Blobs. `POST /federation/v1/ack` bestaetigt verarbeitete Sequenzen.
+
+## Deduplizierung
+
+Vor jeder Uebertragung wird geprueft:
+
+1. logische Objekt-Revision bereits vorhanden,
+2. `content_hash` vorhanden,
+3. `blob_hash` vorhanden,
+4. einzelne Chunk-Hashes vorhanden.
+
+Ein vorhandener Gesamtblob wird nie erneut uebertragen. Bei einem teilweise vorhandenen Blob werden nur fehlende oder korrupte Chunks angefordert. Chunks koennen optional blobuebergreifend dedupliziert werden, wenn ihre Hashes identisch sind.
+
+## Konflikte und Loeschungen
+
+Es gibt kein pauschales Last-Write-Wins. Neue Revisionen desselben Ursprungsobjekts ersetzen alte Ursprungsrevisionen. Lokale Aenderungen koennen einen Fork/Konflikt erzeugen. Tombstones unterstuetzen `ignore`, `archive` und `mirror`. Backup-Knoten sollten `archive` verwenden.
 
 ## Sicherheit
 
 Produktiv erforderlich:
 
-- HTTPS
-- zufällige, unveränderliche `instance_id`
-- administratives Pairing
-- pro Peer getrennte Credentials
-- kurzlebige signierte Requests oder mTLS/OAuth2 Client Credentials
-- Replay-Schutz über Timestamp + Nonce
-- Rate Limits und Payload-Limits
-- SHA-256-Verifikation für Blobs
-- keine vom Peer gelieferten lokalen Dateipfade verwenden
-- Dateinamen als untrusted Input behandeln
-- keine Symlinks übernehmen
-- Auditlog für Konfigurations- und Transferereignisse
+- HTTPS, bevorzugt mTLS zwischen dauerhaft gekoppelten Peers,
+- pro Peer getrennte Credentials,
+- signierte kurzlebige Capability-Tokens fuer Delegation,
+- Replay-Schutz durch Nonce + Ablaufzeit,
+- Token-Bindung an Quelle, Ziel, Hash, Richtung und Bytebereich,
+- SSRF-Schutz: ein Transferauftrag darf keine beliebige URL enthalten; Ziele stammen aus validierter Session/Capability,
+- Schutz gegen DNS-Rebinding und Redirects bei Third-Party-Transfers,
+- Rate-, Verbindungs-, Byte- und Speicherlimits,
+- SHA-256/Merkle-Verifikation vor Commit,
+- Dateinamen und Metadaten als untrusted Input,
+- keine Symlinks und keine Remote-Dateipfade,
+- verschluesselte Speicherung von Secrets,
+- vollstaendiges Auditlog fuer Pairing, Delegation, Transfer, Abbruch und Loeschung.
 
-Credentials und private Schlüssel dürfen nicht im Klartext in der Datenbank gespeichert werden.
+## Skalierung und Backpressure
 
-## Skalierung
+- unabhaengige Worker pro Peer/Ressource/Transfer,
+- persistente Transfer-Queue,
+- Chunk-Pipelining und parallele Verbindungen,
+- Empfaenger bestimmt Parallelitaet und Fenster,
+- adaptive Chunk-Auswahl nach Durchsatz,
+- Retry mit exponentiellem Backoff und Jitter,
+- Hash-Inventare als Bloom/Cuckoo-Filter,
+- Cursor statt Vollabgleich,
+- Metadaten-Kompression,
+- Quotas und Prioritaetsklassen,
+- Garbage Collection nur fuer unreferenzierte Chunks nach Schutzfrist.
 
-- Cursor statt vollständiger Bestandsabgleiche
-- paginierte Manifeste
-- Content-addressed Blob-Store
-- Hash-Deduplizierung über alle Peers
-- Batch-Need/ACK statt Request pro Objekt
-- HTTP-Kompression für Metadaten
-- Range Requests für große Dateien
-- Backpressure: Empfänger bestimmt Batchgröße und Abrufgeschwindigkeit
-- exponentielles Retry mit Jitter
-- unabhängige Worker/Cursor pro Peer und Ressourcentyp
+## Backup- und Replikationsmodus
 
-Dadurch kann ein langsamer Dokument-Peer die Kalender- oder Kontaktsynchronisation nicht blockieren.
-
-## Backup-Modus
-
-Ein Peer kann als `backup` markiert werden. Empfohlene Policy:
-
-```json
-{
-  "mode": "backup",
-  "resources": {
-    "documents": {"send": false, "receive": true, "delete": "archive"},
-    "contacts":  {"send": false, "receive": true, "delete": "archive"},
-    "calendars": {"send": false, "receive": true, "delete": "archive"},
-    "tasks":     {"send": false, "receive": true, "delete": "archive"}
-  }
-}
-```
-
-Der Backup-Knoten bestätigt empfangene Revisionen, sendet aber keine fachlichen Änderungen zurück. Restore ist eine separate, explizit gestartete Operation und kein automatischer Reverse-Sync.
+Ein Backup-Knoten kann alle Ressourcen empfangen, nichts automatisch zuruecksenden und Tombstones archivieren. Fuer Dokumente kann zusaetzlich ein Replikationsfaktor definiert werden, z. B. `replicas=3`. Der Orchestrator sucht autorisierte Ziele und verteilt fehlende Chunks direkt zwischen den Servern.
 
 ## Minimaler Implementierungsplan
 
-1. `FederationPeer` und pro Ressourcentyp `send/receive`-Policies.
-2. Append-only Changelog mit `sequence` und Cursor je Peer/Ressource.
-3. Capability-, Changes-, Need-, Object-, Blob- und ACK-Endpunkte.
-4. SHA-256-basierter Blob-Lookup vor Dokumenttransfer.
-5. Worker für inkrementellen Pull mit Retry/Backpressure.
-6. Admin-Oberfläche für Peer-Pairing, Richtungen, Ressourcentypen und Status.
-7. Auditlog, Quarantäne und Konfliktansicht.
-8. Integrationstests mit Sender-only, Receiver-only, Backup und unterbrochenem Transfer.
+1. Peer-/Policy-Modell mit `send`, `receive`, `seed`, `relay`, `orchestrate`, `third_party_source`, `third_party_sink`.
+2. Append-only Changelog und Cursor fuer Objekt-Sync.
+3. Content-addressed Blob- und Chunk-Store mit SHA-256/Merkle-Manifest.
+4. Chunk-, Availability-, Need- und Resume-Endpunkte.
+5. Persistenter Multi-Source-Scheduler mit Bitmap, rarest-first und endgame mode.
+6. Transfer-Sessions und signierte One-Time-Capability-Tokens.
+7. Direkter B -> C Transfer, von A initiiert, inklusive Statuscallback.
+8. Relay-/Store-and-forward-Fallback.
+9. Stream-/Range-API mit Read-Ahead-Priorisierung.
+10. Admin-UI fuer Peers, Rechte, Bandbreite, Replikation und Transferstatus.
+11. Auditlog, Quarantaene, Konflikt- und Tombstone-Ansicht.
+12. Integrationstests fuer Multi-Source, Resume, Source-Ausfall, korrupte Chunks, B->C Delegation, Relay und Backup-Restore.
 
-## Nicht-Ziele von v1
+## Abnahmekriterien
 
-- automatische Verbindung unbekannter Internet-Instanzen
-- globaler Multi-Master-Dateisystem-Sync
-- automatische Konfliktauflösung ohne fachliche Regeln
-- Übertragung eines bekannten Dokumentblobs nur wegen eines anderen Dateinamens
-- Remote-Löschung von Backup-Daten ohne lokale Schutzpolicy
+- Eine 10-GB-Datei kann nach Unterbrechung ohne erneute Uebertragung verifizierter Chunks fortgesetzt werden.
+- Ein Blob kann gleichzeitig aus mindestens drei Quellen geladen werden.
+- Unterschiedliche Quellen duerfen unterschiedliche Teilmengen desselben Blobs besitzen.
+- A kann B anweisen, direkt an C zu senden, obwohl B C vorher nicht als Peer kannte.
+- C kann den delegierten Transfer ablehnen, ohne seine Peer-Konfiguration zu veraendern.
+- Bereits vorhandene Chunks werden nicht erneut uebertragen.
+- Ausfall einer Quelle stoppt einen Multi-Source-Transfer nicht, solange andere Quellen die fehlenden Chunks besitzen.
+- Streaming kann vor Abschluss des Gesamttransfers beginnen.
+- Relay funktioniert als Fallback, ohne Third-Party-Rechte zu umgehen.
+- Kein Delegationstoken kann fuer einen anderen Hash, ein anderes Ziel oder nach Ablauf wiederverwendet werden.
