@@ -6,6 +6,11 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PYTHON="${PYTHON:-python3}"
 VENV="$ROOT/.venv"
 IS_TERMUX=0
+CHECK_SYSTEM=0
+NATIVE_PM=""
+DISTRO_NAME="Linux"
+USE_SYSTEM_SITE_PACKAGES=0
+NATIVE_PACKAGES_FOUND=0
 
 usage() {
   cat <<'EOF'
@@ -22,8 +27,18 @@ Optionen:
   --threads ANZAHL            Waitress-Worker-Threads (Standard: 4)
   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
   --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
-  --check-system              Systemwerkzeuge prüfen, ohne Serverstart
+  --check-system              Systemwerkzeuge prüfen, ohne Serverstart/Installation
   --help                      Diese Hilfe anzeigen
+
+Beim Start werden unter Linux zuerst vorhandene/native Distribution-Pakete
+verwendet. Unterstützt werden Termux pkg, apt, dnf/yum, pacman, apk und zypper.
+Die gefundenen Python-Pakete werden vor dem Dependency-Install gegen die
+SimpleOffice-Versionsanforderungen geprüft. Nur fehlende oder zu alte Pakete
+fallen anschließend auf pip in der lokalen .venv zurück.
+
+Native Paketinstallation kann mit SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert
+werden. Eine vorhandene .venv wird nur dann neu erzeugt, wenn native Pakete
+sonst durch ihre Isolation nicht sichtbar wären.
 
 Beispiel:
   ./start.sh --google-json /etc/simpleoffice/google-oauth.json \
@@ -79,7 +94,7 @@ while [ "$#" -gt 0 ]; do
     --reindex-osm)
       export SIMPLEOFFICE_OSM_REINDEX_ON_START=1; shift ;;
     --check-system)
-      exec "$PYTHON" "$ROOT/tools/system_requirements.py" ;;
+      CHECK_SYSTEM=1; shift ;;
     --help|-h)
       usage; exit 0 ;;
     *)
@@ -87,45 +102,251 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if ! command -v "$PYTHON" >/dev/null 2>&1; then
-  echo "Python 3 wurde nicht gefunden. Bitte Python 3.10 oder neuer installieren." >&2
-  exit 1
-fi
-
 if [ -n "${TERMUX_VERSION:-}" ] || { [ -n "${PREFIX:-}" ] && [ -x "${PREFIX}/bin/pkg" ]; }; then
   IS_TERMUX=1
 fi
 
-termux_pkg_installed() {
-  command -v dpkg >/dev/null 2>&1 && dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q '^install ok installed$'
+detect_linux_distribution() {
+  if [ "$IS_TERMUX" -eq 1 ]; then
+    DISTRO_NAME="Termux"
+    return 0
+  fi
+  if [ -r /etc/os-release ]; then
+    # /etc/os-release is the standard Linux distribution metadata source.
+    # shellcheck disable=SC1091
+    DISTRO_NAME="$(. /etc/os-release; printf '%s' "${PRETTY_NAME:-${ID:-Linux}}")"
+  else
+    DISTRO_NAME="$(uname -s 2>/dev/null || printf 'Linux')"
+  fi
 }
 
-termux_prepare_python_packages() {
-  [ "$IS_TERMUX" -eq 1 ] || return 0
+detect_native_package_manager() {
+  if [ "$IS_TERMUX" -eq 1 ] && command -v pkg >/dev/null 2>&1; then
+    NATIVE_PM="pkg"
+  elif command -v apt-get >/dev/null 2>&1; then
+    NATIVE_PM="apt"
+  elif command -v dnf >/dev/null 2>&1; then
+    NATIVE_PM="dnf"
+  elif command -v yum >/dev/null 2>&1; then
+    NATIVE_PM="yum"
+  elif command -v pacman >/dev/null 2>&1; then
+    NATIVE_PM="pacman"
+  elif command -v apk >/dev/null 2>&1; then
+    NATIVE_PM="apk"
+  elif command -v zypper >/dev/null 2>&1; then
+    NATIVE_PM="zypper"
+  else
+    NATIVE_PM=""
+  fi
+}
 
-  echo "Termux erkannt: prüfe native Python-Pakete ..."
-
-  # Prefer Termux builds for packages that otherwise require Rust or native
-  # compilation on Android. Missing packages are installed only when needed.
-  termux_packages="python-cryptography python-pillow python-bcrypt python-pynacl"
-  missing_packages=""
-  for package in $termux_packages; do
-    if termux_pkg_installed "$package"; then
-      echo "  nutze Termux-Paket: $package"
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    if [ -t 0 ]; then
+      sudo "$@"
     else
-      missing_packages="$missing_packages $package"
+      sudo -n "$@"
+    fi
+  else
+    return 126
+  fi
+}
+
+native_package_installed() {
+  package="$1"
+  case "$NATIVE_PM" in
+    pkg|apt)
+      command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q '^install ok installed$'
+      ;;
+    dnf|yum|zypper)
+      command -v rpm >/dev/null 2>&1 && rpm -q "$package" >/dev/null 2>&1
+      ;;
+    pacman)
+      pacman -Q "$package" >/dev/null 2>&1
+      ;;
+    apk)
+      apk info -e "$package" >/dev/null 2>&1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+native_package_available() {
+  package="$1"
+  native_package_installed "$package" && return 0
+  case "$NATIVE_PM" in
+    pkg)
+      pkg show "$package" >/dev/null 2>&1
+      ;;
+    apt)
+      command -v apt-cache >/dev/null 2>&1 && apt-cache show "$package" >/dev/null 2>&1
+      ;;
+    dnf)
+      dnf -q list --available "$package" >/dev/null 2>&1
+      ;;
+    yum)
+      yum -q list available "$package" >/dev/null 2>&1
+      ;;
+    pacman)
+      pacman -Si "$package" >/dev/null 2>&1
+      ;;
+    apk)
+      apk search -e "$package" 2>/dev/null | grep -q .
+      ;;
+    zypper)
+      zypper --non-interactive info "$package" >/dev/null 2>&1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+install_native_packages() {
+  [ "$#" -gt 0 ] || return 0
+  case "$NATIVE_PM" in
+    pkg)
+      pkg install -y "$@"
+      ;;
+    apt)
+      run_privileged apt-get install -y --no-install-recommends "$@"
+      ;;
+    dnf)
+      run_privileged dnf install -y "$@"
+      ;;
+    yum)
+      run_privileged yum install -y "$@"
+      ;;
+    pacman)
+      run_privileged pacman -S --needed --noconfirm "$@"
+      ;;
+    apk)
+      run_privileged apk add --no-cache "$@"
+      ;;
+    zypper)
+      run_privileged zypper --non-interactive install -y "$@"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+python_runtime_packages() {
+  case "$NATIVE_PM" in
+    pkg) printf '%s\n' "python" ;;
+    apt) printf '%s\n' "python3 python3-venv" ;;
+    dnf|yum) printf '%s\n' "python3" ;;
+    pacman) printf '%s\n' "python" ;;
+    apk) printf '%s\n' "python3 py3-pip" ;;
+    zypper) printf '%s\n' "python3" ;;
+    *) printf '%s\n' "" ;;
+  esac
+}
+
+native_python_packages() {
+  case "$NATIVE_PM" in
+    pkg)
+      printf '%s\n' "python-cryptography python-pillow python-bcrypt python-pynacl"
+      ;;
+    apt)
+      printf '%s\n' "python3-venv python3-flask python3-bs4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pil python3-bcrypt python3-nacl"
+      ;;
+    dnf|yum)
+      printf '%s\n' "python3-flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-pillow python3-bcrypt python3-pynacl"
+      ;;
+    pacman)
+      printf '%s\n' "python-flask python-beautifulsoup4 python-reportlab python-pypdf python-waitress python-watchdog python-paramiko python-cryptography python-pillow python-bcrypt python-pynacl"
+      ;;
+    apk)
+      printf '%s\n' "py3-flask py3-beautifulsoup4 py3-reportlab py3-pypdf py3-waitress py3-watchdog py3-paramiko py3-cryptography py3-pillow py3-bcrypt py3-pynacl"
+      ;;
+    zypper)
+      printf '%s\n' "python3-Flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-paramiko python3-cryptography python3-Pillow python3-bcrypt python3-PyNaCl"
+      ;;
+    *)
+      printf '%s\n' ""
+      ;;
+  esac
+}
+
+python_is_compatible() {
+  command -v "$PYTHON" >/dev/null 2>&1 || return 1
+  "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+}
+
+ensure_python_runtime() {
+  if python_is_compatible; then
+    return 0
+  fi
+
+  if command -v "$PYTHON" >/dev/null 2>&1; then
+    current_version="$($PYTHON -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || printf 'unbekannt')"
+    echo "Vorhandenes $PYTHON ($current_version) ist zu alt; benötigt wird Python >= 3.10." >&2
+  else
+    echo "Python 3 wurde nicht gefunden; prüfe native Pakete für $DISTRO_NAME ..."
+  fi
+
+  packages="$(python_runtime_packages)"
+  [ -n "$packages" ] || return 1
+
+  available=""
+  for package in $packages; do
+    if native_package_available "$package"; then
+      available="$available $package"
+    fi
+  done
+  [ -n "$available" ] || return 1
+
+  echo "  installiere/aktualisiere Python-Laufzeit über $NATIVE_PM:$available"
+  # shellcheck disable=SC2086
+  install_native_packages $available || return 1
+  python_is_compatible
+}
+
+prepare_native_python_packages() {
+  [ -n "$NATIVE_PM" ] || return 0
+  [ "${SIMPLEOFFICE_NATIVE_PACKAGES:-1}" != "0" ] || {
+    echo "Native Python-Pakete wurden über SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert."
+    return 0
+  }
+
+  echo "$DISTRO_NAME erkannt: prüfe Python-Pakete über $NATIVE_PM vor pip ..."
+  candidates="$(native_python_packages)"
+  [ -n "$candidates" ] || return 0
+
+  missing=""
+  for package in $candidates; do
+    if native_package_installed "$package"; then
+      echo "  nutze Systempaket: $package"
+      NATIVE_PACKAGES_FOUND=1
+    elif native_package_available "$package"; then
+      missing="$missing $package"
     fi
   done
 
-  if [ -n "$missing_packages" ]; then
-    if command -v pkg >/dev/null 2>&1; then
-      echo "  installiere fehlende Termux-Pakete:$missing_packages"
-      # shellcheck disable=SC2086
-      pkg install -y $missing_packages
-    else
-      echo "Termux wurde erkannt, aber 'pkg' ist nicht verfügbar." >&2
+  if [ -n "$missing" ]; then
+    echo "  installiere verfügbare Systempakete:$missing"
+    # Ein fehlendes sudo oder ein Repository-Problem darf den sicheren pip-Fallback
+    # nicht verhindern. Termux bleibt absichtlich strikt, weil native Wheels dort
+    # oft nicht zuverlässig gebaut werden können.
+    # shellcheck disable=SC2086
+    if install_native_packages $missing; then
+      NATIVE_PACKAGES_FOUND=1
+    elif [ "$IS_TERMUX" -eq 1 ]; then
+      echo "Termux-Systempakete konnten nicht installiert werden." >&2
       exit 1
+    else
+      echo "  Systempakete konnten nicht vollständig installiert werden; pip ergänzt später nur Fehlendes." >&2
     fi
+  fi
+
+  if [ "$NATIVE_PACKAGES_FOUND" -eq 1 ]; then
+    USE_SYSTEM_SITE_PACKAGES=1
   fi
 }
 
@@ -133,16 +354,82 @@ venv_uses_system_site_packages() {
   [ -f "$VENV/pyvenv.cfg" ] && grep -Eiq '^include-system-site-packages[[:space:]]*=[[:space:]]*true$' "$VENV/pyvenv.cfg"
 }
 
-"$PYTHON" "$ROOT/tools/system_requirements.py" --missing-only
-termux_prepare_python_packages
+native_dependency_versions_ok() {
+  "$VENV/bin/python" - <<'PY'
+from importlib.metadata import PackageNotFoundError, version
 
-if [ "$IS_TERMUX" -eq 1 ] && [ -x "$VENV/bin/python" ] && ! venv_uses_system_site_packages; then
-  echo "Vorhandene .venv isoliert Termux-Systempakete; erstelle sie kompatibel neu."
+try:
+    from packaging.specifiers import SpecifierSet
+    from packaging.version import Version
+except ImportError:
+    from pip._vendor.packaging.specifiers import SpecifierSet
+    from pip._vendor.packaging.version import Version
+
+requirements = {
+    "Flask": ">=3.0,<4",
+    "beautifulsoup4": ">=4.12,<5",
+    "Pillow": ">=12.3,<13",
+    "reportlab": ">=4.0,<6",
+    "pypdf": ">=5.0,<7",
+    "waitress": ">=3.0,<4",
+    "cryptography": ">=50,<51",
+    "watchdog": ">=6,<7",
+    "paramiko": ">=3.5,<6",
+}
+
+problems = []
+for distribution, specifier in requirements.items():
+    try:
+        installed = version(distribution)
+    except PackageNotFoundError:
+        problems.append(f"{distribution}: fehlt ({specifier})")
+        continue
+    try:
+        compatible = Version(installed) in SpecifierSet(specifier)
+    except Exception:
+        compatible = False
+    if not compatible:
+        problems.append(f"{distribution}: {installed} passt nicht zu {specifier}")
+
+if problems:
+    print("Systempakete decken noch nicht alle Python-Anforderungen ab:")
+    for problem in problems:
+        print(f"  - {problem}")
+    raise SystemExit(1)
+
+print("Native/System-Python-Pakete erfüllen alle SimpleOffice-Anforderungen.")
+PY
+}
+
+detect_linux_distribution
+detect_native_package_manager
+
+if [ "$CHECK_SYSTEM" -eq 1 ]; then
+  if ! python_is_compatible; then
+    echo "--check-system verändert das System nicht. Für die Prüfung wird Python 3.10 oder neuer benötigt." >&2
+    exit 1
+  fi
+  exec "$PYTHON" "$ROOT/tools/system_requirements.py"
+fi
+
+if ! ensure_python_runtime; then
+  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird Python 3.10 oder neuer." >&2
+  if [ -n "$NATIVE_PM" ]; then
+    echo "Erkannter Paketmanager: $NATIVE_PM ($DISTRO_NAME)." >&2
+  fi
+  exit 1
+fi
+
+"$PYTHON" "$ROOT/tools/system_requirements.py" --missing-only
+prepare_native_python_packages
+
+if [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && [ -x "$VENV/bin/python" ] && ! venv_uses_system_site_packages; then
+  echo "Vorhandene .venv isoliert native Systempakete; erstelle sie kompatibel neu."
   rm -rf "$VENV"
 fi
 
 if [ ! -x "$VENV/bin/python" ]; then
-  if [ "$IS_TERMUX" -eq 1 ]; then
+  if [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ]; then
     "$PYTHON" -m venv --system-site-packages "$VENV"
   else
     "$PYTHON" -m venv "$VENV"
@@ -171,10 +458,11 @@ PY
     'reportlab>=4.0,<6' 'pypdf>=5.0,<7' 'waitress>=3.0,<4' \
     'watchdog>=6,<7' 'paramiko>=3.5,<6'
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
+elif [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && native_dependency_versions_ok; then
+  echo "Alle benötigten Python-Abhängigkeiten kommen passend aus der Linux-Umgebung; pip installiert nur SimpleOffice selbst."
+  "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
 else
-  # Keep the project-owned venv complete on every start. This also upgrades an
-  # existing base-only installation by installing the optional SFTP dependencies
-  # (Paramiko) into exactly the interpreter used to launch SimpleOffice.
+  echo "pip ergänzt nur fehlende oder nicht passende Python-Abhängigkeiten in der lokalen .venv."
   "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
 fi
 
