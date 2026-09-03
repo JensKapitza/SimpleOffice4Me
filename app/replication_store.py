@@ -194,8 +194,16 @@ def run_replications_command(actor: str) -> None:
 def init_app(app) -> None:
     app.cli.add_command(run_replications_command)
     # Federation builds on the same document/replication storage layer. Register
-    # protocol, offline catalog exchange and administrator surfaces together.
-    from . import federation_admin, federation_catalog_http, federation_http
+    # protocol, offline catalog, reusable blocks, contact payloads and admin UI.
+    from . import (
+        federation_admin,
+        federation_blocks_http,
+        federation_catalog_http,
+        federation_contacts_http,
+        federation_http,
+    )
     app.register_blueprint(federation_http.bp)
     app.register_blueprint(federation_catalog_http.bp)
+    app.register_blueprint(federation_blocks_http.bp)
+    app.register_blueprint(federation_contacts_http.bp)
     app.register_blueprint(federation_admin.bp)
