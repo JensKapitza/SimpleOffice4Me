@@ -114,7 +114,7 @@ def _blob_path(digest: str) -> Path:
         ).fetchone()
     if row is None:
         raise ValueError("blob unavailable")
-    return _safe_path(store, str(row["relative_path"]))
+    return _safe_path(store, str(row[0]))
 
 
 def _range(value: str, size: int) -> tuple[int, int] | None:
@@ -289,7 +289,9 @@ def prepare_transfer():
             raise ValueError("manifest blob mismatch")
         if int(result_manifest.get("size", -1)) != size:
             raise ValueError("manifest size mismatch")
-        if size < 0 or size > int(current_app.config.get("MAX_CONTENT_LENGTH", 512 * 1024 * 1024)) * 100:
+        request_limit = current_app.config.get("MAX_CONTENT_LENGTH")
+        max_transfer_size = int(request_limit) * 100 if request_limit is not None else 512 * 1024 * 1024 * 100
+        if size < 0 or size > max_transfer_size:
             raise ValueError("invalid size")
         total_chunks = int(result_manifest.get("chunk_count", body.get("chunk_count", 0)))
         if total_chunks < 0 or total_chunks > 1_000_000:
