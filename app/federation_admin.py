@@ -9,7 +9,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 
 from .access_control import is_admin
 from .auth import login_required
-from .document_origin import document_origin_tags
+from .document_origin import document_origin_tags, persist_origin_tags
 from .document_store import DocumentStore, sha256_file
 from .federation_catalog import FederationCatalog
 from .federation_core import build_manifest, transfer_id, validate_operation
@@ -116,6 +116,24 @@ def dashboard():
         catalog_events=catalog.events(100),
         catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in store.list_peers()},
     )
+
+
+@bp.post("/origin-tags/backfill")
+@admin_required
+def backfill_origin_tags():
+    result = persist_origin_tags(
+        current_app.config["DOCUMENT_ROOT"],
+        actor=str(g.user["username"]),
+    )
+    _store().record_event(
+        "origin_tags_backfilled",
+        detail={**result, "actor": str(g.user["username"])},
+    )
+    flash(
+        f"Herkunfts-Tags: {result['scanned']} Dokumente geprüft, "
+        f"{result['changed']} aktualisiert, {result['errors']} Fehler."
+    )
+    return _redirect_dashboard()
 
 
 @bp.get("/documents/<document_id>")
