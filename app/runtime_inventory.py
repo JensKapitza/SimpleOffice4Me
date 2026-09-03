@@ -17,7 +17,7 @@ from .system_identity import application_version, system_info
 
 
 PACKAGE_NAMES = (
-    "Flask", "Werkzeug", "Jinja2", "beautifulsoup4", "Pillow", "html5lib",
+    "Flask", "Werkzeug", "Jinja2", "beautifulsoup4", "Pillow",
     "reportlab", "pypdf", "waitress", "cryptography", "paramiko", "pip-audit",
 )
 

@@ -1,0 +1,129 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h1 class="h2 mb-1">Inventar · Schnellerfassung</h1>
+      <p class="text-secondary mb-0">Barcode/ISBN scannen, NFC lesen, Buchdaten abrufen, Foto erfassen und direkt als Objekt speichern.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1"></i>Alle Objekte</a>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="row g-3 align-items-start">
+    <section class="col-xl-7">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center"><strong>Buch / Gegenstand erfassen</strong><span class="badge text-bg-primary">mobil</span></div>
+        <div class="card-body">
+          <div class="row g-2 mb-3">
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode"><i class="fas fa-barcode me-2"></i>Barcode / ISBN scannen</button></div>
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc"><i class="fas fa-wifi me-2"></i>NFC lesen</button></div>
+          </div>
+          <div class="alert alert-secondary py-2 small" id="scan-status" role="status" aria-live="polite">Kamera-Scan funktioniert auf unterstützten Browsern über BarcodeDetector. Alternativ ISBN/Barcode einfach eintippen.</div>
+          <div class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-3" id="camera-box" hidden><video id="camera-preview" autoplay playsinline muted></video></div>
+
+          <form method="post" action="{{ url_for('inventory.create_book') }}" enctype="multipart/form-data" class="row g-3" id="inventory-form">
+            <div class="col-md-7"><label class="form-label" for="isbn">ISBN</label><div class="input-group"><input class="form-control form-control-lg" id="isbn" name="isbn" inputmode="numeric" autocomplete="off" placeholder="978…"><button class="btn btn-outline-primary" type="button" id="lookup-book">Metadaten</button></div><div class="form-text">Abruf maximal einmal je 5 Sekunden.</div></div>
+            <div class="col-md-5"><label class="form-label" for="barcode">Barcode / EAN</label><input class="form-control form-control-lg" id="barcode" name="barcode" inputmode="numeric" autocomplete="off"></div>
+            <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID / Inhalt</label><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off"><div class="form-text">Web NFC ist insbesondere auf Chromium/Android verfügbar; auf anderen Browsern bleibt das Feld manuell nutzbar.</div></div>
+
+            <div class="col-12"><label class="form-label" for="title">Titel / Objektname</label><input required class="form-control" id="title" name="title" placeholder="Buchtitel"></div>
+            <div class="col-md-7"><label class="form-label" for="authors">Autor(en)</label><input class="form-control" id="authors" name="authors"></div>
+            <div class="col-md-5"><label class="form-label" for="publisher">Verlag</label><input class="form-control" id="publisher" name="publisher"></div>
+            <div class="col-md-4"><label class="form-label" for="published-date">Erscheinung</label><input class="form-control" id="published-date" name="published_date"></div>
+            <div class="col-md-4"><label class="form-label" for="page-count">Seiten</label><input class="form-control" id="page-count" name="page_count" inputmode="numeric"></div>
+            <div class="col-md-4"><label class="form-label" for="language">Sprache</label><input class="form-control" id="language" name="language"></div>
+            <div class="col-12"><label class="form-label" for="categories">Kategorien</label><input class="form-control" id="categories" name="categories"></div>
+            <div class="col-12"><label class="form-label" for="description">Beschreibung</label><textarea class="form-control" id="description" name="description" rows="3"></textarea></div>
+
+            <div class="col-md-4"><label class="form-label" for="market-price">Preis / Richtwert</label><input class="form-control" id="market-price" name="market_price" inputmode="decimal"></div>
+            <div class="col-md-3"><label class="form-label" for="currency">Währung</label><input class="form-control" id="currency" name="currency" maxlength="3" value="EUR"></div>
+            <div class="col-md-5"><label class="form-label" for="price-source">Preisquelle</label><input class="form-control" id="price-source" name="price_source"></div>
+
+            <div class="col-md-6"><label class="form-label" for="location">Standort</label><input class="form-control" id="location" name="location" placeholder="Regal, Raum, Lager …"></div>
+            <div class="col-md-6"><label class="form-label" for="tags">Tags</label><input class="form-control" id="tags" name="tags" placeholder="privat, bibliothek, technik …"></div>
+            <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">Auf dem Handy öffnet „capture“ normalerweise direkt die Rückkamera.</div></div>
+
+            <input type="hidden" id="metadata-source" name="metadata_source">
+            <input type="hidden" id="metadata-checked-at" name="metadata_checked_at">
+            <div class="col-12 d-flex flex-wrap gap-2">
+              <button class="btn btn-success btn-lg flex-grow-1" type="submit"><i class="fas fa-plus me-2"></i>Ins Inventar übernehmen</button>
+              <button class="btn btn-outline-dark" type="button" id="amazon-search"><i class="fab fa-amazon me-2"></i>Bei Amazon suchen</button>
+            </div>
+            <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="allow-duplicate" name="allow_duplicate"><label class="form-check-label" for="allow-duplicate">Trotz gleicher ISBN/Barcode/NFC-ID als weiteres Exemplar anlegen</label></div></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <aside class="col-xl-5">
+      <div class="card shadow-sm">
+        <div class="card-header"><strong>Zuletzt erfasst</strong></div>
+        <div class="list-group list-group-flush">
+          {% for item in inventory_rows[:20] %}
+          <a class="list-group-item list-group-item-action" href="{{ url_for('documents.object_detail', object_id=item.object_id) }}">
+            <div class="d-flex gap-3 align-items-start">
+              {% set photos = item.inventory.photos|default([]) %}
+              {% if photos %}<img src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photos[-1].filename) }}" alt="" loading="lazy" decoding="async" style="width:64px;height:80px;object-fit:cover" class="rounded border">{% endif %}
+              <div class="min-w-0 flex-grow-1"><div class="fw-semibold text-truncate">#{{ item.display_id }} {{ item.name }}</div><div class="small text-secondary">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}</div>{% if item.fields.authors %}<div class="small text-truncate">{{ item.fields.authors }}</div>{% endif %}{% if item.fields.market_price %}<div class="small">{{ item.fields.market_price }} {{ item.fields.currency or 'EUR' }}{% if item.fields.price_source %} · {{ item.fields.price_source }}{% endif %}</div>{% endif %}</div>
+            </div>
+          </a>
+          {% else %}<div class="list-group-item text-secondary">Noch keine Inventarobjekte vorhanden.</div>{% endfor %}
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+<script>
+(()=>{
+  const $=id=>document.getElementById(id);
+  const status=$('scan-status'), isbn=$('isbn'), barcode=$('barcode'), nfc=$('nfc-id');
+  const fieldMap={title:'title',authors:'authors',publisher:'publisher',published_date:'published-date',page_count:'page-count',language:'language',categories:'categories',description:'description',market_price:'market-price',currency:'currency',price_source:'price-source',metadata_source:'metadata-source',metadata_checked_at:'metadata-checked-at'};
+  let stream=null, scanning=false, detector=null;
+  const setStatus=(text,kind='secondary')=>{status.className=`alert alert-${kind} py-2 small`;status.textContent=text;};
+  const stopCamera=()=>{scanning=false;if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;}$('camera-box').hidden=true;};
+  const lookup=async()=>{
+    const value=isbn.value.trim() || barcode.value.trim();
+    if(!value){setStatus('Bitte zuerst ISBN oder EAN erfassen.','warning');return;}
+    $('lookup-book').disabled=true;
+    try{
+      const response=await fetch(`{{ url_for('inventory.book_lookup') }}?isbn=${encodeURIComponent(value)}`,{headers:{Accept:'application/json'}});
+      const data=await response.json();
+      if(!response.ok){setStatus(data.error||'Metadaten konnten nicht geladen werden.','warning');return;}
+      Object.entries(fieldMap).forEach(([key,id])=>{if(data[key]!==undefined && data[key]!==null && String(data[key]).trim()!=='') $(id).value=String(data[key]);});
+      isbn.value=data.isbn||isbn.value;
+      if(!barcode.value) barcode.value=data.isbn||'';
+      setStatus(`Metadaten geladen: ${data.metadata_source||'Buchdatenquelle'}. Bitte vor dem Speichern kurz prüfen.`,'success');
+    }catch(error){setStatus('Metadatenabruf ist fehlgeschlagen.','danger');}
+    finally{setTimeout(()=>{$('lookup-book').disabled=false;},5000);}
+  };
+  $('lookup-book').addEventListener('click',lookup);
+  $('amazon-search').addEventListener('click',()=>{
+    const q=isbn.value.trim()||barcode.value.trim()||$('title').value.trim();
+    if(!q){setStatus('Für die Amazon-Suche zuerst ISBN, Barcode oder Titel erfassen.','warning');return;}
+    window.open(`{{ url_for('inventory.amazon_search') }}?q=${encodeURIComponent(q)}`,'_blank','noopener');
+  });
+  $('start-barcode').addEventListener('click',async()=>{
+    if(!('BarcodeDetector' in window)){setStatus('Dieser Browser unterstützt BarcodeDetector nicht. ISBN kann manuell eingegeben oder über ein Barcode-Tastaturgerät erfasst werden.','warning');return;}
+    if(!navigator.mediaDevices?.getUserMedia){setStatus('Kamera-Zugriff ist in diesem Browser/Verbindungsmodus nicht verfügbar. HTTPS kann erforderlich sein.','warning');return;}
+    try{
+      detector=new BarcodeDetector({formats:['ean_13','ean_8','code_128','qr_code']});
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+      const video=$('camera-preview');video.srcObject=stream;$('camera-box').hidden=false;scanning=true;setStatus('Barcode vor die Kamera halten …','primary');
+      const scan=async()=>{if(!scanning)return;try{const codes=await detector.detect(video);if(codes.length){const value=codes[0].rawValue||'';barcode.value=value;if(/^97[89][0-9]{10}$/.test(value))isbn.value=value;setStatus(`Barcode erkannt: ${value}`,'success');stopCamera();if(isbn.value)lookup();return;}}catch(error){}requestAnimationFrame(scan);};
+      requestAnimationFrame(scan);
+    }catch(error){stopCamera();setStatus('Kamera konnte nicht geöffnet werden. Browserberechtigung und HTTPS prüfen.','danger');}
+  });
+  $('scan-nfc').addEventListener('click',async()=>{
+    if(!('NDEFReader' in window)){setStatus('Web NFC wird von diesem Browser nicht unterstützt. NFC-Wert kann manuell eingetragen werden.','warning');return;}
+    try{
+      const reader=new NDEFReader();await reader.scan();setStatus('NFC-Tag an das Handy halten …','primary');
+      reader.addEventListener('reading',event=>{const parts=[];if(event.serialNumber)parts.push(event.serialNumber);for(const record of event.message.records){try{if(record.data)parts.push(new TextDecoder(record.encoding||'utf-8').decode(record.data));}catch(error){}}nfc.value=parts.filter(Boolean).join(' | ').slice(0,240);setStatus('NFC wurde gelesen.','success');},{once:true});
+    }catch(error){setStatus('NFC konnte nicht gelesen werden. Berechtigung/Browser prüfen.','danger');}
+  });
+  window.addEventListener('pagehide',stopCamera);
+})();
+</script>
+{% endblock %}

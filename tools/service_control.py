@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 
@@ -18,7 +19,16 @@ RUN_DIR = ROOT / "instance" / "run"
 ROLES = ("index", "web", "sftp")
 
 
+def _role(role: str) -> str:
+    value = str(role or "").strip()
+    if value not in ROLES:
+        raise ValueError("unknown SimpleOffice service role")
+    return value
+
+
 def _linux_start_time(pid: int) -> str:
+    if pid <= 0:
+        return ""
     try:
         # The comm field may contain spaces and parentheses; split after its
         # final ')' before selecting proc(5) field 22.
@@ -29,36 +39,75 @@ def _linux_start_time(pid: int) -> str:
 
 
 def _command_line(pid: int) -> str:
+    if pid <= 0:
+        return ""
     try:
         if sys.platform.startswith("linux"):
-            return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+            return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")[:16_384]
         if os.name == "nt":
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-Command", f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
-                capture_output=True, text=True, timeout=5, check=False,
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", timeout=5, check=False,
             )
         else:
-            result = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5, check=False)
-        return result.stdout.strip() if result.returncode == 0 else ""
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="], stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, errors="replace", timeout=5, check=False,
+            )
+        return result.stdout.strip()[:16_384] if result.returncode == 0 else ""
     except (OSError, subprocess.TimeoutExpired):
         return ""
 
 
 def _path(role: str) -> Path:
-    return RUN_DIR / f"{role}.json"
+    return RUN_DIR / f"{_role(role)}.json"
 
 
 def register(role: str, pid: int, marker: str) -> None:
-    RUN_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {"version": 1, "role": role, "pid": pid, "marker": marker, "linux_start_time": _linux_start_time(pid)}
-    temporary = _path(role).with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
-    os.chmod(temporary, 0o600)
-    temporary.replace(_path(role))
+    role = _role(role)
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("service pid must be a positive integer") from exc
+    marker = str(marker or "").strip()
+    if pid <= 0 or not marker or len(marker) > 512 or "\x00" in marker:
+        raise ValueError("invalid service pid or marker")
+    RUN_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = _path(role)
+    if path.is_symlink():
+        raise RuntimeError("service state file must not be a symbolic link")
+    payload = {
+        "version": 1,
+        "role": role,
+        "pid": pid,
+        "marker": marker,
+        "linux_start_time": _linux_start_time(pid),
+    }
+    temporary = path.with_name(path.name + f".{uuid.uuid4().hex}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        if os.name == "posix":
+            os.chmod(path, 0o600)
+    except Exception:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def unregister(role: str, pid: int | None = None) -> None:
     path = _path(role)
+    if path.is_symlink():
+        path.unlink(missing_ok=True)
+        return
     if pid is not None:
         record = read(role)
         if record and record.get("pid") != pid:
@@ -67,16 +116,30 @@ def unregister(role: str, pid: int | None = None) -> None:
 
 
 def read(role: str) -> dict[str, object] | None:
+    path = _path(role)
+    if path.is_symlink():
+        return None
     try:
-        value = json.loads(_path(role).read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else None
-    except (OSError, json.JSONDecodeError):
+        if path.stat().st_size > 64 * 1024:
+            return None
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or value.get("version") != 1 or value.get("role") != _role(role):
+            return None
+        pid = int(value.get("pid", 0))
+        marker = str(value.get("marker", ""))
+        if pid <= 0 or not marker or len(marker) > 512:
+            return None
+        value["pid"] = pid
+        return value
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return None
 
 
 def process_matches(record: dict[str, object]) -> bool:
     try:
         pid = int(record["pid"])
+        if pid <= 0:
+            return False
         os.kill(pid, 0)
     except (KeyError, TypeError, ValueError, ProcessLookupError, PermissionError, OSError):
         return False
@@ -103,7 +166,10 @@ def stop(timeout: float = 20.0) -> bool:
     records = [(role, read(role)) for role in ROLES]
     active = [(role, record) for role, record in records if record and process_matches(record)]
     for role, record in active:
-        os.kill(int(record["pid"]), signal.SIGTERM)
+        try:
+            os.kill(int(record["pid"]), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
         print(f"{role} wird kontrolliert beendet (PID {record['pid']}).")
     deadline = time.monotonic() + timeout
     while active and time.monotonic() < deadline:

@@ -6,6 +6,7 @@ import importlib.metadata
 import os
 import platform
 import socket
+import stat
 import sys
 import uuid
 from functools import lru_cache
@@ -16,26 +17,57 @@ from flask import current_app, g, request
 from .file_lock import exclusive_file_lock
 
 
+def _read_installation_id(path: Path) -> str:
+    if path.is_symlink():
+        raise RuntimeError("installation-id must not be a symbolic link")
+    try:
+        value = str(uuid.UUID(path.read_text(encoding="ascii").strip()))
+    except FileNotFoundError:
+        return ""
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("installation-id is unreadable or invalid") from exc
+    if os.name == "posix" and stat.S_IMODE(path.stat().st_mode) & 0o077:
+        try:
+            os.chmod(path, 0o600)
+        except OSError as exc:
+            raise RuntimeError("installation-id permissions are too broad") from exc
+    return value
+
+
+def _create_installation_id(path: Path) -> str:
+    value = str(uuid.uuid4())
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except FileExistsError:
+        return _read_installation_id(path)
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+            handle.write(value + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except Exception:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        path.unlink(missing_ok=True)
+        raise
+    return value
+
+
 def installation_id() -> str:
-    """Return one persistent UUID for this SimpleOffice installation."""
+    """Return one protected persistent UUID for this SimpleOffice installation."""
     cached = str(current_app.config.get("SIMPLEOFFICE_INSTALLATION_ID", "")).strip()
     if cached:
         return cached
     path = Path(current_app.instance_path) / "installation-id"
     lock = path.with_suffix(".lock")
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with exclusive_file_lock(lock):
-        try:
-            value = str(uuid.UUID(path.read_text(encoding="ascii").strip()))
-        except (OSError, ValueError):
-            value = str(uuid.uuid4())
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(value + "\n", encoding="ascii")
-            try:
-                os.chmod(temporary, 0o600)
-            except OSError:
-                pass
-            temporary.replace(path)
+        value = _read_installation_id(path)
+        if not value:
+            value = _create_installation_id(path)
     current_app.config["SIMPLEOFFICE_INSTALLATION_ID"] = value
     return value
 
