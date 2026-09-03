@@ -100,6 +100,16 @@ class RentalBillingTest(unittest.TestCase):
         self.assertTrue(_peer_allows_rental_send({"documents": {"send": True}}))
         self.assertTrue(_peer_allows_rental_send({"documents": {"send": True}, "rentals": {"send": True}}))
 
+    def test_tenant_document_manifest_redacts_internal_path(self):
+        rows = RentalBillingStore._tenant_document_manifest({
+            "doc-1": {"name": "rechnung.pdf", "path": "intern/kunden/2026/rechnung.pdf", "sha256": "a" * 64, "size": 1234}
+        })
+        self.assertEqual(1, len(rows))
+        self.assertEqual("doc-1", rows[0]["document_id"])
+        self.assertEqual("rechnung.pdf", rows[0]["name"])
+        self.assertNotIn("path", rows[0])
+        self.assertNotIn("intern", str(rows[0]))
+
     def test_tenants_outside_period_are_not_in_statement(self):
         self.store.add_tenancy("o1", "old", "2025-01-01", "2025-12-31", "admin")
         self.store.add_tenancy("o2", "current", "2026-01-01", "", "admin")
