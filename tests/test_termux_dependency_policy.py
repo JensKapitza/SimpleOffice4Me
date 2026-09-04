@@ -23,6 +23,7 @@ def test_optional_sftp_starter_uses_termux_pkg_for_native_crypto_and_is_standalo
     for package in ("python-cryptography", "python-pillow", "python-bcrypt", "python-pynacl"):
         assert package in script
     assert "--system-site-packages" in script
+    assert "--only-binary=:all: 'invoke>=2.0'" in script
     assert "--only-binary=:all: --no-deps 'paramiko>=3.5,<6'" in script
     assert 'for module in ("cryptography", "PIL", "bcrypt", "nacl")' in script
     assert "Flask>=3.0,<4" in script
@@ -30,6 +31,24 @@ def test_optional_sftp_starter_uses_termux_pkg_for_native_crypto_and_is_standalo
     assert "--only-binary=:all:" in script
     assert "pip check" in script
     assert '"$ROOT[sftp]"' in script  # non-Termux explicit SFTP path remains available
+
+
+def test_termux_sftp_fresh_clone_installs_common_runtime_without_native_rebuilds():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "start-sftp.sh").read_text(encoding="utf-8")
+
+    assert "TERMUX_RUNTIME_REQUIREMENTS=" in script
+    for requirement in (
+        "Flask>=3.0,<4",
+        "beautifulsoup4>=4.12,<5",
+        "reportlab>=4.0,<6",
+        "pypdf>=5.0,<7",
+        "waitress>=3.0,<4",
+        "watchdog>=6,<7",
+    ):
+        assert requirement in script
+    assert "pkg install -y clang make pkg-config libffi openssl" in script
+    assert "pip check" in script
 
 
 def test_termux_web_source_fallback_only_builds_web_runtime_packages():
