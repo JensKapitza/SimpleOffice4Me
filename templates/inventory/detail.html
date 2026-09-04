@@ -1,0 +1,77 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <div class="text-secondary small">Inventar #{{ item.display_id }}</div>
+      <h1 class="h2 mb-1">{{ item.name }}</h1>
+      <div class="d-flex flex-wrap gap-2"><span class="badge text-bg-secondary">{{ item.type }}</span><span class="badge {{ 'text-bg-success' if item.status == 'active' else 'text-bg-secondary' }}">{{ item.status }}</span>{% if item.identifier %}<span class="badge text-bg-light border">{{ item.identifier }}</span>{% endif %}</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}">Zur Schnellerfassung</a><a class="btn btn-outline-primary" href="{{ url_for('documents.object_detail', object_id=item.object_id) }}">Objekt bearbeiten</a></div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="row g-3">
+    <section class="col-lg-7">
+      <div class="card shadow-sm mb-3"><div class="card-header"><strong>Stammdaten</strong></div><div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-4">Inventarnummer</dt><dd class="col-sm-8">#{{ item.display_id }}</dd>
+          <dt class="col-sm-4">Barcode / Kennung</dt><dd class="col-sm-8">{{ item.identifier or '—' }}</dd>
+          <dt class="col-sm-4">NFC</dt><dd class="col-sm-8">{{ item.fields.nfc_id or '—' }}</dd>
+          <dt class="col-sm-4">Hersteller / Modell</dt><dd class="col-sm-8">{{ item.fields.manufacturer or '—' }}{% if item.fields.model %} · {{ item.fields.model }}{% endif %}</dd>
+          <dt class="col-sm-4">Seriennummer</dt><dd class="col-sm-8">{{ item.fields.serial_number or '—' }}</dd>
+          <dt class="col-sm-4">Standort</dt><dd class="col-sm-8">{{ item.location or '—' }}</dd>
+          <dt class="col-sm-4">Kaufdatum</dt><dd class="col-sm-8">{{ item.fields.purchase_date or '—' }}</dd>
+          {% if item.fields.isbn %}<dt class="col-sm-4">ISBN</dt><dd class="col-sm-8">{{ item.fields.isbn }}</dd>{% endif %}
+          {% if item.description %}<dt class="col-sm-4">Beschreibung</dt><dd class="col-sm-8" style="white-space:pre-wrap">{{ item.description }}</dd>{% endif %}
+        </dl>
+      </div></div>
+
+      <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center"><strong>Prüfungen und Wiedervorlagen</strong><a class="small" href="{{ url_for('tasks.board', q='Inventar #' ~ item.display_id) }}">Aufgaben anzeigen</a></div><div class="card-body">
+        {% set rules = inventory.inspections|default([]) %}
+        {% for rule in rules %}
+          <article class="border rounded p-3 mb-3 {{ 'border-danger' if rule.active and rule.next_due and rule.next_due < today else '' }}">
+            <div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ rule.name }}</strong>{% if rule.responsible %}<div class="small text-secondary">Verantwortlich: {{ rule.responsible }}</div>{% endif %}</div>{% if rule.active %}<span class="badge {{ 'text-bg-danger' if rule.next_due and rule.next_due < today else 'text-bg-warning' }}">Fällig {{ rule.next_due }}</span>{% else %}<span class="badge text-bg-secondary">abgeschlossen</span>{% endif %}</div>
+            {% if rule.interval %}<div class="small mt-2">Wiederholung: alle {{ rule.interval }} {{ {'days':'Tage','weeks':'Wochen','months':'Monate','years':'Jahre'}.get(rule.unit, rule.unit) }}</div>{% else %}<div class="small mt-2">Einmalige Wiedervorlage</div>{% endif %}
+            {% if rule.note %}<div class="small text-secondary mt-1">{{ rule.note }}</div>{% endif %}
+            {% if rule.last_completed_at %}<div class="small mt-1">Zuletzt erledigt: {{ rule.last_completed_at }}{% if rule.last_result %} · {{ rule.last_result }}{% endif %}</div>{% endif %}
+            {% if rule.active %}<form method="post" action="{{ url_for('inventory.complete_inspection', object_id=item.object_id, rule_id=rule.rule_id) }}" class="row g-2 mt-2">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <div class="col-sm-4"><label class="form-label small">Prüfdatum</label><input type="date" name="completed_at" value="{{ today }}" class="form-control"></div>
+              <div class="col-sm-8"><label class="form-label small">Ergebnis / Notiz</label><input name="result" class="form-control" placeholder="in Ordnung, Mangel festgestellt …"></div>
+              <div class="col-12"><button class="btn btn-success" type="submit">Prüfung dokumentieren</button></div>
+            </form>{% endif %}
+          </article>
+        {% else %}<p class="text-secondary">Für dieses Objekt sind noch keine Prüfungen hinterlegt.</p>{% endfor %}
+
+        <details class="mt-3"><summary class="fw-semibold">Weitere Prüfung / Wiedervorlage anlegen</summary><form method="post" action="{{ url_for('inventory.add_inspection', object_id=item.object_id) }}" class="row g-2 pt-3">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="col-md-6"><label class="form-label">Bezeichnung</label><input required name="inspection_name" class="form-control" placeholder="Elektrische Prüfung"></div>
+          <div class="col-md-6"><label class="form-label">Nächste Fälligkeit</label><input required type="date" name="inspection_due" class="form-control"></div>
+          <div class="col-md-3"><label class="form-label">Alle</label><input type="number" min="0" max="366" name="inspection_interval" class="form-control" placeholder="12"></div>
+          <div class="col-md-3"><label class="form-label">Einheit</label><select name="inspection_unit" class="form-select"><option value="months">Monate</option><option value="years">Jahre</option><option value="weeks">Wochen</option><option value="days">Tage</option></select></div>
+          <div class="col-md-6"><label class="form-label">Verantwortlich</label><input name="inspection_responsible" class="form-control"></div>
+          <div class="col-12"><label class="form-label">Hinweis</label><input name="inspection_note" class="form-control"></div>
+          <div class="col-12"><button class="btn btn-primary" type="submit">Prüfung anlegen</button></div>
+        </form></details>
+      </div></div>
+
+      <div class="card shadow-sm"><div class="card-header"><strong>Prüfhistorie</strong></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Datum</th><th>Prüfung</th><th>Ergebnis</th><th>Nächster Termin</th></tr></thead><tbody>
+        {% for event in inventory.inspection_history|default([])|reverse %}<tr><td>{{ event.completed_at }}</td><td>{{ event.name }}</td><td>{{ event.result or '—' }}</td><td>{{ event.next_due or '—' }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Prüfung dokumentiert.</td></tr>{% endfor %}
+      </tbody></table></div></div>
+    </section>
+
+    <aside class="col-lg-5">
+      <div class="card shadow-sm mb-3"><div class="card-header"><strong>Fotos</strong></div><div class="card-body">
+        <div class="row g-2 mb-3">{% for photo in inventory.photos|default([]) %}<div class="col-6"><a href="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" target="_blank" rel="noopener"><img class="img-fluid rounded border w-100" style="aspect-ratio:1/1;object-fit:cover" src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" alt="Inventarfoto"></a></div>{% else %}<div class="col-12 text-secondary">Noch kein Foto vorhanden.</div>{% endfor %}</div>
+        <form method="post" action="{{ url_for('inventory.add_photo', object_id=item.object_id) }}" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label class="form-label">Foto hinzufügen</label><input required type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment" class="form-control mb-2"><button class="btn btn-outline-primary" type="submit">Foto speichern</button>
+        </form>
+      </div></div>
+      {% if item.fields.market_price %}<div class="card shadow-sm"><div class="card-body"><div class="text-secondary small">Preis / Richtwert</div><div class="h4 mb-0">{{ item.fields.market_price }} {{ item.fields.currency or 'EUR' }}</div>{% if item.fields.price_source %}<div class="small text-secondary">{{ item.fields.price_source }}</div>{% endif %}</div></div>{% endif %}
+    </aside>
+  </div>
+</main>
+{% endblock %}
