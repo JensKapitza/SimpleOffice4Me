@@ -174,7 +174,7 @@ class InventoryBookTests(unittest.TestCase):
 
     def test_inspection_due_handles_month_end_and_leap_year(self):
         self.assertEqual("2027-02-28", _advance_due("2027-01-31", 1, "months"))
-        self.assertEqual("2028-02-29", _advance_due("2027-02-28", 1, "years"))
+        self.assertEqual("2029-02-28", _advance_due("2028-02-29", 1, "years"))
 
     def test_inspection_sidecar_records_history_and_next_due(self):
         with tempfile.TemporaryDirectory() as temp:
