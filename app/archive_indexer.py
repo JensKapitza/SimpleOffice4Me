@@ -211,6 +211,9 @@ def _extract_member_text(store: Any, source: BinaryIO, name: str, size: int, tex
     suffix = _member_suffix(name)
     if suffix in PLAIN_TEXT_SUFFIXES:
         return _decode_text(source, min(size, text_cap)), "plain_text"
+    if suffix == ".pdf":
+        with _private_member_file(store, source, suffix, size) as temporary:
+            return store._pdf_text(temporary)[:text_cap], "pdf"
     if suffix in PATH_EXTRACT_SUFFIXES:
         with _private_member_file(store, source, suffix, size) as temporary:
             text, kind = store._file_text(temporary)
