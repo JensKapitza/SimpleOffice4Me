@@ -484,6 +484,8 @@ class InventoryEnrichmentStore:
             rule = next((row for row in rules if isinstance(row, dict) and row.get("rule_id") == rule_id), None)
             if rule is None:
                 raise ValueError("Unbekannte Prüfregel")
+            if not rule.get("active", True):
+                raise ValueError("Prüfung ist bereits abgeschlossen")
             calculated_next = next_due
             if calculated_next is None:
                 calculated_next = _advance_due(rule.get("next_due", when), rule.get("interval", 0), rule.get("unit", "months"))
@@ -702,7 +704,7 @@ def amazon_search():
 
 
 @bp.post("/items")
-@bp.post("/books")
+@bp.post("/books", endpoint="create_book")
 @login_required
 def create_item():
     actor = str(g.user["username"])
@@ -777,10 +779,6 @@ def create_item():
     return redirect(url_for("inventory.item_detail", object_id=item["object_id"]))
 
 
-# Backwards-compatible endpoint name for integrations that still use url_for.
-create_book = create_item
-
-
 @bp.post("/<object_id>/photo")
 @login_required
 def add_photo(object_id: str):
@@ -827,11 +825,13 @@ def complete_inspection(object_id: str, rule_id: str):
         rule = next((row for row in meta.get("inspections", []) if isinstance(row, dict) and row.get("rule_id") == rule_id), None)
         if rule is None:
             raise ValueError("Unbekannte Prüfregel")
+        if not rule.get("active", True):
+            raise ValueError("Prüfung ist bereits abgeschlossen")
         next_due = _advance_due(str(rule.get("next_due", "")), rule.get("interval", 0), str(rule.get("unit", "months")))
         task_id = str(rule.get("task_id", ""))
         if task_id:
             if next_due:
-                _todos().update(task_id, {"due": next_due, "status": "needs-action", "percent_complete": 0, "completed_at": ""}, actor)
+                _todos().update(task_id, {"due": next_due, "status": "needs-action", "percent_complete": 0, "completed_at": "", "result": ""}, actor)
             else:
                 _todos().update(task_id, {"status": "completed", "percent_complete": 100}, actor)
         store.complete_inspection(
