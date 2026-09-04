@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest.mock import patch
 
 from app.osm_pbf import (
     PbfFormatError,
@@ -191,8 +192,13 @@ class PurePythonPbfTests(unittest.TestCase):
                     interrupted_at = progress["bytes_processed"]
                     raise RuntimeError("intentional interruption")
 
-            with self.assertRaisesRegex(RuntimeError, "intentional interruption"):
-                index.build(source, progress=interrupt)
+            # The public progress callback is deliberately throttled to once
+            # every two seconds. Advance its monotonic clock so this test
+            # interrupts immediately after the first committed OSMData block
+            # instead of accidentally waiting until the tiny fixture is done.
+            with patch("app.osm_pbf.time.monotonic", side_effect=[100.0, 100.0, 103.0]):
+                with self.assertRaisesRegex(RuntimeError, "intentional interruption"):
+                    index.build(source, progress=interrupt)
             self.assertGreater(interrupted_at, 0)
             with index._open_db(index.staging_db_path, staging=True) as db:
                 self.assertEqual(1, db.execute("SELECT COUNT(*) FROM address").fetchone()[0])
