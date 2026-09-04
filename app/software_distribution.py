@@ -15,7 +15,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -24,6 +23,7 @@ from .document_store import CONTROL_DIR, atomic_json_write
 from .federation_core import build_manifest, manifest_valid, normalize_sha256, preallocate, verify_chunk, verify_file, write_chunk
 from .federation_store import FederationStore
 from .federation_worker import _json_request, _request
+from .file_lock import exclusive_file_lock
 
 RELEASE_SCHEMA = 1
 STATE_SCHEMA = 1
@@ -44,6 +44,26 @@ def _run(command: list[str], *, cwd: Path, timeout: int = 300) -> str:
         detail = (result.stderr or result.stdout or "command failed").strip()[-4000:]
         raise ValueError(detail)
     return result.stdout.strip()
+
+
+def _project_version(root: Path) -> str:
+    """Read project.version without requiring tomllib on Python 3.10."""
+    try:
+        lines = (root / "pyproject.toml").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return "0.0.0"
+    in_project = False
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            in_project = line == "[project]"
+            continue
+        if not in_project:
+            continue
+        match = re.match(r'''version\s*=\s*["']([^"']+)["']''', line)
+        if match:
+            return match.group(1).strip() or "0.0.0"
+    return "0.0.0"
 
 
 def _version_tuple(value: str) -> tuple[int, ...]:
@@ -67,18 +87,39 @@ def is_newer_release(candidate: dict[str, Any], current: dict[str, Any]) -> bool
     return False
 
 
+def _wheelhouse_matches(release: dict[str, Any]) -> bool:
+    python_tag = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return (
+        release.get("platform") == sys.platform
+        and release.get("machine") == platform.machine()
+        and release.get("python") == python_tag
+    )
+
+
+def _is_ancestor(root: Path, older: str, newer: str) -> bool:
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", older, newer],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    detail = (result.stderr or result.stdout or "git merge-base failed").strip()[-4000:]
+    raise ValueError(detail)
+
+
 def application_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
 def local_release_info(root: str | Path | None = None) -> dict[str, Any]:
     root_path = Path(root or application_root()).resolve()
-    version = "0.0.0"
-    try:
-        data = tomllib.loads((root_path / "pyproject.toml").read_text(encoding="utf-8"))
-        version = str(data.get("project", {}).get("version") or version)
-    except (OSError, tomllib.TOMLDecodeError):
-        pass
+    version = _project_version(root_path)
     installed_manifest = root_path / ".simpleoffice-release.json"
     try:
         installed = json.loads(installed_manifest.read_text(encoding="utf-8"))
@@ -133,16 +174,16 @@ def main():
     digest = hashlib.sha256((here / "repository.bundle").read_bytes()).hexdigest()
     if digest != manifest["repository"]["sha256"]:
         raise SystemExit("Repository bundle hash mismatch")
-    branch = manifest["release"].get("branch") or "main"
+    release = manifest["release"]
+    branch = release.get("branch") or "main"
     run(["git", "clone", "-b", branch, str(here / "repository.bundle"), str(target)])
-    revision = manifest["release"]["revision"]
+    revision = release["revision"]
     run(["git", "checkout", "--detach", revision], cwd=target)
-    (target / ".simpleoffice-release.json").write_text(json.dumps(manifest["release"], sort_keys=True, indent=2), encoding="utf-8")
     wheels = here / "wheelhouse"
     if args.offline_install:
-        release = manifest["release"]
-        if release.get("platform") != sys.platform or release.get("machine") != platform.machine():
-            raise SystemExit("Bundled wheels target a different platform/architecture")
+        python_tag = f"{sys.version_info.major}.{sys.version_info.minor}"
+        if release.get("platform") != sys.platform or release.get("machine") != platform.machine() or release.get("python") != python_tag:
+            raise SystemExit("Bundled wheels target a different platform/architecture/Python version")
         if not wheels.is_dir() or not any(wheels.glob("*.whl")):
             raise SystemExit("Archive contains no wheelhouse")
         env_dir = target / ".venv"
@@ -150,6 +191,7 @@ def main():
         py = env_dir / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
         run([str(py), "-m", "pip", "install", "--no-index", "--find-links", str(wheels), "--editable", str(target)])
         run([str(py), "-m", "pip", "check"])
+    (target / ".simpleoffice-release.json").write_text(json.dumps(release, sort_keys=True, indent=2), encoding="utf-8")
     print(f"SimpleOffice4Me deployed to {target}")
 
 if __name__ == "__main__":
@@ -228,6 +270,9 @@ def inspect_release_archive(path: str | Path) -> dict[str, Any]:
         manifest = json.loads(archive.read("release.json").decode("utf-8"))
         if int(manifest.get("schema", 0)) != RELEASE_SCHEMA:
             raise ValueError("Unbekanntes Release-Schema")
+        release = manifest.get("release") or {}
+        if not str(release.get("revision") or "") or not str(release.get("branch") or ""):
+            raise ValueError("Release-Metadaten sind unvollständig")
         with tempfile.TemporaryDirectory(prefix="simpleoffice-verify-") as tmp:
             bundle = Path(tmp) / "repository.bundle"
             bundle.write_bytes(archive.read("repository.bundle"))
@@ -263,11 +308,10 @@ def clone_release_archive(path: str | Path, target: str | Path, *, offline_insta
         release = manifest["release"]
         _run(["git", "clone", "-b", str(release.get("branch") or "main"), str(stage / "repository.bundle"), str(target_path)], cwd=stage, timeout=900)
         _run(["git", "checkout", "--detach", str(release["revision"])], cwd=target_path, timeout=120)
-        (target_path / ".simpleoffice-release.json").write_text(json.dumps(release, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
         wheels = stage / "wheelhouse"
         if offline_install:
-            if release.get("platform") != sys.platform or release.get("machine") != platform.machine():
-                raise ValueError("Wheelhouse passt nicht zu Plattform/Architektur des Zielrechners")
+            if not _wheelhouse_matches(release):
+                raise ValueError("Wheelhouse passt nicht zu Plattform/Architektur/Python des Zielrechners")
             if not wheels.is_dir() or not any(wheels.glob("*.whl")):
                 raise ValueError("Release enthält kein Wheelhouse für eine Offline-Installation")
             import venv
@@ -275,6 +319,7 @@ def clone_release_archive(path: str | Path, target: str | Path, *, offline_insta
             py = target_path / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
             _run([str(py), "-m", "pip", "install", "--no-index", "--find-links", str(wheels), "--editable", str(target_path)], cwd=target_path, timeout=1800)
             _run([str(py), "-m", "pip", "check"], cwd=target_path, timeout=300)
+        (target_path / ".simpleoffice-release.json").write_text(json.dumps(release, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
     return {"target": str(target_path), "release": release}
 
 
@@ -285,23 +330,32 @@ def apply_release_archive(path: str | Path, *, root: str | Path | None = None, i
         raise ValueError("Offline-Update benötigt eine Git-Arbeitskopie")
     if _run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=root_path, timeout=30):
         raise ValueError("Update abgebrochen: lokale getrackte Änderungen vorhanden")
+    current = local_release_info(root_path)
     old_revision = _run(["git", "rev-parse", "HEAD"], cwd=root_path, timeout=20)
     with tempfile.TemporaryDirectory(prefix="simpleoffice-apply-") as tmp:
         stage = Path(tmp)
         manifest = _extract_release(archive_path, stage)
         release = manifest["release"]
+        if not is_newer_release(release, current):
+            raise ValueError("Update abgebrochen: Release ist nicht neuer als der lokale Stand")
         revision = str(release.get("revision") or "")
         branch = str(release.get("branch") or "main")
         _run(["git", "bundle", "verify", str(stage / "repository.bundle")], cwd=root_path, timeout=120)
         _run(["git", "fetch", str(stage / "repository.bundle"), f"{branch}:refs/remotes/offline/{branch}"], cwd=root_path, timeout=600)
-        _run(["git", "merge", "--ff-only", revision], cwd=root_path, timeout=600)
-        (root_path / ".simpleoffice-release.json").write_text(json.dumps(release, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
+        _run(["git", "cat-file", "-e", f"{revision}^{{commit}}"], cwd=root_path, timeout=30)
+        if not _is_ancestor(root_path, old_revision, revision):
+            raise ValueError("Update abgebrochen: angebotener Stand ist kein Fast-Forward des lokalen Standes")
         wheels = stage / "wheelhouse"
         if install_dependencies and wheels.is_dir() and any(wheels.glob("*.whl")):
+            if not _wheelhouse_matches(release):
+                raise ValueError("Wheelhouse passt nicht zu Plattform/Architektur/Python dieser Instanz")
             venv_python = root_path / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-            if venv_python.exists():
-                _run([str(venv_python), "-m", "pip", "install", "--no-index", "--find-links", str(wheels), "--editable", str(root_path)], cwd=root_path, timeout=1800)
-                _run([str(venv_python), "-m", "pip", "check"], cwd=root_path, timeout=300)
+            if not venv_python.exists():
+                raise ValueError("Offline-Abhängigkeiten können nicht installiert werden: lokale .venv fehlt")
+            _run([str(venv_python), "-m", "pip", "install", "--no-index", "--find-links", str(wheels), "--editable", str(root_path)], cwd=root_path, timeout=1800)
+            _run([str(venv_python), "-m", "pip", "check"], cwd=root_path, timeout=300)
+        _run(["git", "merge", "--ff-only", revision], cwd=root_path, timeout=600)
+        (root_path / ".simpleoffice-release.json").write_text(json.dumps(release, ensure_ascii=False, sort_keys=True, indent=2), encoding="utf-8")
     return {"old_revision": old_revision, "new_revision": revision, "release": release}
 
 
@@ -313,13 +367,16 @@ class SoftwareDistributionStore:
         self.releases = self.base / "releases"
         self.incoming = self.base / "incoming"
         self.state_path = self.base / "state.json"
+        self.lock_path = self.base / ".state-write.lock"
         self.initialize()
 
     def initialize(self) -> None:
         self.releases.mkdir(parents=True, exist_ok=True)
         self.incoming.mkdir(parents=True, exist_ok=True)
         if not self.state_path.exists():
-            atomic_json_write(self.state_path, {"schema": STATE_SCHEMA, "releases": [], "offers": [], "staged": []})
+            with exclusive_file_lock(self.lock_path):
+                if not self.state_path.exists():
+                    atomic_json_write(self.state_path, {"schema": STATE_SCHEMA, "releases": [], "offers": [], "staged": []})
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -331,7 +388,8 @@ class SoftwareDistributionStore:
         return {"schema": STATE_SCHEMA, "releases": [], "offers": [], "staged": []}
 
     def _save(self, state: dict[str, Any]) -> None:
-        atomic_json_write(self.state_path, state)
+        with exclusive_file_lock(self.lock_path):
+            atomic_json_write(self.state_path, state)
 
     def build(self, *, include_wheels: bool = False) -> dict[str, Any]:
         tmp = self.releases / f"simpleoffice-release-{int(time.time())}.zip.tmp"
@@ -364,7 +422,13 @@ class SoftwareDistributionStore:
         release = payload.get("release") or {}
         bundle = payload.get("bundle") or {}
         digest = normalize_sha256(bundle.get("sha256", ""))
-        entry = {"peer_id": peer_id, "release": release, "bundle": {"sha256": digest, "size": int(bundle.get("size") or 0)}, "offered_at": int(time.time()), "status": "available" if is_newer_release(release, local_release_info()) else "not-newer"}
+        entry = {
+            "peer_id": peer_id,
+            "release": release,
+            "bundle": {"sha256": digest, "size": int(bundle.get("size") or 0)},
+            "offered_at": int(time.time()),
+            "status": "available" if is_newer_release(release, local_release_info()) else "not-newer",
+        }
         state = self._read()
         state["offers"] = [entry] + [item for item in state.get("offers", []) if not (item.get("peer_id") == peer_id and item.get("bundle", {}).get("sha256") == digest)]
         state["offers"] = state["offers"][:100]
