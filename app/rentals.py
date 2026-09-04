@@ -74,10 +74,15 @@ def _back(endpoint: str, **values):
     return redirect(url_for(endpoint, **values))
 
 
-def _enrich_group(group: dict) -> dict:
+def _enrich_group(group: dict, *, store: RentalBillingStore | None = None) -> dict:
+    store = store or _store()
+    if "units" not in group:
+        group_id = str(group.get("group_id", "")).strip()
+        if not group_id:
+            raise ValueError("Mietobjektgruppe ohne ID")
+        group = store.group(group_id)
     objects = {item["object_id"]: item for item in _objects()}
     contacts = {item["contact_id"]: item for item in _contacts()}
-    store = _store()
     units = []
     for unit in group["units"]:
         object_id = unit["object_id"]
@@ -93,9 +98,10 @@ def _enrich_group(group: dict) -> dict:
 @bp.get("")
 @login_required
 def index():
+    store = _store()
     return render_template(
-        "rentals/index.html", groups=[_enrich_group(item) for item in _store().groups()],
-        settlements=_store().settlements(), objects=_objects(), allocation_methods=sorted(ALLOCATION_METHODS),
+        "rentals/index.html", groups=[_enrich_group(item, store=store) for item in store.groups()],
+        settlements=store.settlements(), objects=_objects(), allocation_methods=sorted(ALLOCATION_METHODS),
     )
 
 
@@ -113,8 +119,9 @@ def create_group():
 @bp.get("/groups/<group_id>")
 @login_required
 def group_detail(group_id: str):
+    store = _store()
     try:
-        group = _enrich_group(_store().group(group_id))
+        group = _enrich_group(store.group(group_id), store=store)
     except ValueError:
         abort(404)
     return render_template(
