@@ -1,0 +1,32 @@
+{
+  "id": "/pwa/files",
+  "name": "SimpleOffice Dateien",
+  "short_name": "Dateien",
+  "description": "Direkter Zugriff auf Dokumente und Dateien in SimpleOffice.",
+  "lang": "de",
+  "start_url": "/documents/?pwa=files",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/static/icons/simpleoffice.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dokumente öffnen",
+      "short_name": "Dokumente",
+      "url": "/documents/?pwa=files"
+    },
+    {
+      "name": "Bilder öffnen",
+      "short_name": "Bilder",
+      "url": "/documents/images?pwa=files"
+    }
+  ]
+}
