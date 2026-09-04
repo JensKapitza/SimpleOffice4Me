@@ -11,6 +11,7 @@ from app.inventory import (
     _image_extension,
     _inspection_rrule,
     _money,
+    bp as inventory_blueprint,
     isbn_from_barcode,
     merge_book_metadata,
     normalize_isbn,
@@ -192,6 +193,20 @@ class InventoryBookTests(unittest.TestCase):
             self.assertEqual("2027-10-01", meta["inspections"][0]["next_due"])
             self.assertEqual("in Ordnung", meta["inspections"][0]["last_result"])
 
+    def test_one_time_inspection_cannot_be_completed_twice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = InventoryEnrichmentStore(Path(temp))
+            rule = store.add_inspection(
+                "object-once",
+                {"name": "Einmal prüfen", "next_due": "2026-10-01", "interval": 0, "unit": "months", "responsible": "", "note": ""},
+                "tester",
+                "task-once",
+            )
+            store.complete_inspection("object-once", rule["rule_id"], "tester")
+            with self.assertRaisesRegex(ValueError, "bereits abgeschlossen"):
+                store.complete_inspection("object-once", rule["rule_id"], "tester")
+            self.assertEqual(1, len(store.object_meta("object-once")["inspection_history"]))
+
     def test_task_completion_can_update_inventory_inspection_history(self):
         with tempfile.TemporaryDirectory() as temp:
             store = InventoryEnrichmentStore(Path(temp))
@@ -212,16 +227,28 @@ class InventoryBookTests(unittest.TestCase):
             self.assertEqual("2027-11-01", meta["inspections"][0]["next_due"])
             self.assertEqual("erledigt", meta["inspection_history"][0]["result"])
 
+    def test_inventory_blueprint_preserves_legacy_create_book_endpoint(self):
+        endpoints = {
+            deferred.__closure__[0].cell_contents.get("endpoint")
+            for deferred in inventory_blueprint.deferred_functions
+            if deferred.__closure__ and isinstance(deferred.__closure__[0].cell_contents, dict)
+        }
+        self.assertIn("create_book", endpoints)
+
     def test_inventory_form_contains_universal_fields_and_production_csrf(self):
         template = (Path(__file__).parents[1] / "templates" / "inventory" / "index.html").read_text(encoding="utf-8")
-        for fragment in ('name="_csrf_token"', 'name="item_type"', 'name="manufacturer"', 'name="serial_number"', 'name="inspection_due"'):
+        for fragment in ('name="_csrf_token"', 'name="item_type"', 'name="manufacturer"', 'name="serial_number"', 'name="inspection_due"', 'id="inventory-find"'):
             self.assertIn(fragment, template)
+        self.assertIn("isbn.value=''", template)
 
     def test_inventory_detail_contains_inspection_history(self):
         template = (Path(__file__).parents[1] / "templates" / "inventory" / "detail.html").read_text(encoding="utf-8")
         self.assertIn("Prüfhistorie", template)
         self.assertIn("inventory.complete_inspection", template)
         self.assertIn('name="_csrf_token"', template)
+        self.assertIn('loading="lazy"', template)
+        self.assertIn('rel="noopener noreferrer"', template)
+        self.assertIn('scope="col"', template)
 
     def test_task_board_uses_security_middleware_csrf_field(self):
         template = (Path(__file__).parents[1] / "templates" / "tasks" / "board.html").read_text(encoding="utf-8")
