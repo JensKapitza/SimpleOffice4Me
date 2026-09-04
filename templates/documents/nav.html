@@ -6,12 +6,13 @@
       <div class="navbar-nav navigation-primary me-auto gap-xxl-1">
         <a class="nav-link" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-gauge me-1" aria-hidden="true"></i>{{ tr('overview') }}</a>
         <a class="nav-link" href="{{ url_for('documents.projects') }}"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>Projekte</a>
-        <a class="nav-link" href="{{ url_for('documents.tasks') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
+        <a class="nav-link" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
         <a class="nav-link" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1" aria-hidden="true"></i>Objekte</a>
+        <a class="nav-link" href="{{ url_for('documents.forms') }}"><i class="fas fa-table-list me-1" aria-hidden="true"></i>{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a>
         <a class="nav-link" href="{{ url_for('rentals.index') }}"><i class="fas fa-building me-1" aria-hidden="true"></i>Mietobjekte</a>
         <a class="nav-link" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode me-1" aria-hidden="true"></i>Inventar Scan</a>
         <a class="nav-link" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive me-1" aria-hidden="true"></i>Speicher</a>
-        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a>{% endif %}
+        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a><a class="nav-link" href="{{ url_for('software_admin.index') }}"><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>{{ 'Updates' if g.language == 'en' else 'Updates' }}</a>{% endif %}
         <a class="nav-link" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>{{ tr('documents') }}</a>
         <a class="nav-link" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}"><i class="fas fa-file-invoice-dollar me-1" aria-hidden="true"></i>{{ tr('invoice.nav') }}</a>
         <a class="nav-link" href="{{ url_for('eur.receipts') }}"><i class="fas fa-receipt me-1" aria-hidden="true"></i>EÜR-Belege</a>
