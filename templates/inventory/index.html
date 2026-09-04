@@ -15,7 +15,7 @@
   <div class="card shadow-sm mb-3">
     <div class="card-body">
       <form id="inventory-find-form" class="row g-2 align-items-end" role="search" method="get" aria-label="Inventar durchsuchen">
-        <div class="col-md-9"><label class="form-label" for="inventory-find">Gegenstand wiederfinden</label><input id="inventory-find" class="form-control form-control-lg" autocomplete="off" placeholder="Inventarnummer, Barcode, ISBN oder NFC-ID"></div>
+        <div class="col-md-9"><label class="form-label" for="inventory-find">Gegenstand wiederfinden</label><input id="inventory-find" name="q" type="search" class="form-control form-control-lg" autocomplete="off" placeholder="Inventarnummer, Barcode, ISBN oder NFC-ID"></div>
         <div class="col-md-3 d-grid"><button class="btn btn-outline-primary btn-lg" type="submit"><i class="fas fa-search me-2"></i>Suchen</button></div>
       </form>
       <div class="form-text">Exakte Kennungen werden zuerst gesucht; eine reine Zahl wird danach auch als Inventarnummer geprüft.</div>
