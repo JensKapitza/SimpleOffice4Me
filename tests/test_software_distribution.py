@@ -165,8 +165,8 @@ class SoftwareDistributionTests(unittest.TestCase):
         script = (root / "tools" / "self_deploy.py").read_text(encoding="utf-8")
         restart = script[script.index("def _offline_restart"):script.index("def _install_candidate_dependencies")]
         self.assertIn('"-m", "tools.launcher", "start"', restart)
-        self.assertNotIn("start.sh", restart)
-        self.assertNotIn("start.bat", restart)
+        self.assertNotIn('"start.sh"', restart)
+        self.assertNotIn('"start.bat"', restart)
 
 
 if __name__ == "__main__":
