@@ -30,6 +30,10 @@ bp = Blueprint("fritzbox_contacts", __name__, url_prefix="/contacts/fritzbox")
 SOAP_ENV = "http://schemas.xmlsoap.org/soap/envelope/"
 DEFAULT_SERVICE = "urn:dslforum-org:service:X_AVM-DE_OnTel:1"
 DEFAULT_CONTROL_URL = "/upnp/control/x_contact"
+TR064_DESCRIPTION_PATHS = (
+    ("/tr64desc.xml", ""),
+    ("/tr064/tr64desc.xml", "/tr064"),
+)
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_SYNC_CONTACTS = 1000
 PHONE_FIELDS = (
@@ -152,6 +156,27 @@ class FritzBoxClient:
         self.control_url = DEFAULT_CONTROL_URL
         self._discover()
 
+    @staticmethod
+    def _http_status(exc: BaseException) -> int | None:
+        cause = exc.__cause__
+        return cause.code if isinstance(cause, urllib.error.HTTPError) else None
+
+    @staticmethod
+    def _apply_path_prefix(control_url: str, prefix: str) -> str:
+        if not control_url.startswith("/"):
+            return control_url
+        if prefix and not control_url.startswith(prefix + "/"):
+            return prefix + control_url
+        return control_url
+
+    def _control_candidates(self) -> list[str]:
+        control = self.control_url if self.control_url.startswith("/") else DEFAULT_CONTROL_URL
+        if control.startswith("/tr064/"):
+            candidates = [control, control.removeprefix("/tr064")]
+        else:
+            candidates = [control, "/tr064" + control]
+        return list(dict.fromkeys(candidates))
+
     def _read(self, request_or_url: urllib.request.Request | str) -> bytes:
         try:
             with self.opener.open(request_or_url, timeout=self.timeout) as response:
@@ -167,21 +192,22 @@ class FritzBoxClient:
         return data
 
     def _discover(self) -> None:
-        try:
-            data = self._read(self.base_url + "/tr64desc.xml")
-            root = ET.fromstring(data)
-        except (FritzBoxError, ET.ParseError):
-            return
-        for service in root.iter():
-            if service.tag.rsplit("}", 1)[-1] != "service":
+        for description_path, path_prefix in TR064_DESCRIPTION_PATHS:
+            try:
+                data = self._read(self.base_url + description_path)
+                root = ET.fromstring(data)
+            except (FritzBoxError, ET.ParseError):
                 continue
-            values = {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in service}
-            service_type = values.get("serviceType", "")
-            control = values.get("controlURL", "")
-            if "X_AVM-DE_OnTel" in service_type and control.startswith("/"):
-                self.service_type = service_type
-                self.control_url = control
-                return
+            for service in root.iter():
+                if service.tag.rsplit("}", 1)[-1] != "service":
+                    continue
+                values = {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in service}
+                service_type = values.get("serviceType", "")
+                control = values.get("controlURL", "")
+                if "X_AVM-DE_OnTel" in service_type and control.startswith("/"):
+                    self.service_type = service_type
+                    self.control_url = self._apply_path_prefix(control, path_prefix)
+                    return
 
     def soap(self, action: str, arguments: dict[str, Any] | None = None) -> dict[str, str]:
         arguments = arguments or {}
@@ -191,12 +217,30 @@ class FritzBoxClient:
             f'<s:Envelope xmlns:s="{SOAP_ENV}" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
             f'<s:Body><u:{action} xmlns:u="{self.service_type}">{params}</u:{action}></s:Body></s:Envelope>'
         ).encode("utf-8")
-        url = urllib.parse.urljoin(self.base_url + "/", self.control_url.lstrip("/"))
-        req = urllib.request.Request(url, data=body, method="POST", headers={
-            "Content-Type": 'text/xml; charset="utf-8"',
-            "SOAPAction": f'"{self.service_type}#{action}"',
-        })
-        raw = self._read(req)
+        raw: bytes | None = None
+        last_error: FritzBoxError | None = None
+        for control_url in self._control_candidates():
+            url = urllib.parse.urljoin(self.base_url + "/", control_url.lstrip("/"))
+            req = urllib.request.Request(url, data=body, method="POST", headers={
+                "Content-Type": 'text/xml; charset="utf-8"',
+                "SOAPAction": f'"{self.service_type}#{action}"',
+            })
+            try:
+                raw = self._read(req)
+                self.control_url = control_url
+                break
+            except FritzBoxError as exc:
+                last_error = exc
+                if self._http_status(exc) == 404:
+                    continue
+                raise
+        if raw is None:
+            raise FritzBoxError(
+                "FRITZ!Box-TR-064-Endpunkt nicht gefunden (HTTP 404). "
+                "Im Heimnetz HTTPS-Port 49443 verwenden; bei HTTPS über Web-/Remote-Zugriff "
+                "wird /tr064 automatisch versucht. In der FRITZ!Box außerdem "
+                "'Zugriff für Anwendungen zulassen' aktivieren."
+            ) from last_error
         try:
             root = ET.fromstring(raw)
         except ET.ParseError as exc:
