@@ -9,7 +9,7 @@
         <a class="nav-link" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
         <a class="nav-link" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1" aria-hidden="true"></i>Objekte</a>
         <a class="nav-link" href="{{ url_for('documents.forms') }}"><i class="fas fa-table-list me-1" aria-hidden="true"></i>{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a>
-        <a class="nav-link" href="{{ url_for('rentals.index') }}"><i class="fas fa-building me-1" aria-hidden="true"></i>Mietobjekte</a>
+        <a class="nav-link" href="{{ url_for('rentals.index') }}"><i class="fas fa-building me-1" aria-hidden="true"></i>Vermietung</a>
         <a class="nav-link" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode me-1" aria-hidden="true"></i>Inventar Scan</a>
         <a class="nav-link" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive me-1" aria-hidden="true"></i>Speicher</a>
         {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a><a class="nav-link" href="{{ url_for('software_admin.index') }}"><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>Updates</a>{% endif %}
@@ -48,3 +48,4 @@
     </div>
   </div>
 </nav>
+{% if request.blueprint == 'rentals' %}{% include "rentals/_nav.html" %}{% endif %}

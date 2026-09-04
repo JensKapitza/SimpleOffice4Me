@@ -1,0 +1,11 @@
+<div class="border-top border-secondary-subtle bg-body-tertiary">
+  <div class="container-fluid py-2 d-flex flex-wrap align-items-center gap-2" aria-label="Vermietungsnavigation">
+    <span class="fw-semibold me-1"><i class="fas fa-building me-1" aria-hidden="true"></i>Vermietung</span>
+    <div class="nav nav-pills gap-1">
+      <a class="nav-link py-1 px-2 {% if request.endpoint == 'rentals.index' %}active{% endif %}" href="{{ url_for('rentals.index') }}">Übersicht</a>
+      <a class="nav-link py-1 px-2 {% if request.endpoint and request.endpoint.startswith('rentals.group') %}active{% endif %}" href="{{ url_for('rentals.index') }}#mietobjekte">Mietobjekte &amp; Mieter</a>
+      <a class="nav-link py-1 px-2 {% if request.endpoint and request.endpoint.startswith('rentals.settlement') %}active{% endif %}" href="{{ url_for('rentals.index') }}#abrechnungen">Abrechnungen</a>
+    </div>
+    <a class="btn btn-sm btn-outline-primary ms-lg-auto" href="{{ url_for('rentals.index') }}#neue-abrechnung"><i class="fas fa-file-circle-plus me-1" aria-hidden="true"></i>Neue Abrechnung</a>
+  </div>
+</div>
