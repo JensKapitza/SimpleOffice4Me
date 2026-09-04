@@ -1,8 +1,9 @@
 import os
+import socket
 import unittest
 from unittest.mock import patch
 
-from tools.launcher import waitress_options
+from tools.launcher import endpoint_available, running_web_pid, waitress_options
 
 
 class WsgiServerSettingsTest(unittest.TestCase):
@@ -45,6 +46,31 @@ class WsgiServerSettingsTest(unittest.TestCase):
             with self.subTest(name=name), patch.dict(os.environ, {name: value}, clear=True):
                 with self.assertRaises(RuntimeError):
                     waitress_options({"host": "127.0.0.1", "port": 8080}, 1024)
+
+    def test_endpoint_probe_detects_free_and_occupied_local_port(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            host, port = listener.getsockname()
+            listener.listen(1)
+            self.assertFalse(endpoint_available(host, port))
+
+        self.assertTrue(endpoint_available(host, port))
+
+    def test_running_web_pid_returns_live_registered_service(self):
+        record = {"pid": 1234, "marker": "launcher.py"}
+        with patch("tools.service_control.read", return_value=record), patch(
+            "tools.service_control.process_matches", return_value=True
+        ), patch("tools.service_control.unregister") as unregister:
+            self.assertEqual(1234, running_web_pid())
+            unregister.assert_not_called()
+
+    def test_running_web_pid_removes_stale_record(self):
+        record = {"pid": 1234, "marker": "launcher.py"}
+        with patch("tools.service_control.read", return_value=record), patch(
+            "tools.service_control.process_matches", return_value=False
+        ), patch("tools.service_control.unregister") as unregister:
+            self.assertIsNone(running_web_pid())
+            unregister.assert_called_once_with("web", 1234)
 
 
 if __name__ == "__main__":

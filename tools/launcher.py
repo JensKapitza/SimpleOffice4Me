@@ -9,18 +9,17 @@ configured application is started.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-# Direct execution (``python tools/launcher.py``) otherwise exposes only the
-# tools directory on sys.path. Keep that supported for existing installations
-# while the platform starters use the unambiguous module invocation below.
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 CONFIG_PATH = PROJECT_ROOT / "instance" / "simpleoffice.json"
@@ -40,7 +39,6 @@ def _integer_setting(name: str, default: int, minimum: int, maximum: int) -> int
 
 
 def waitress_options(config: dict[str, object], max_request_body_size: int) -> dict[str, object]:
-    """Build bounded Waitress settings while keeping the local bind default."""
     host = os.environ.get("SIMPLEOFFICE_HOST", str(config["host"])).strip()
     if not host or any(character.isspace() for character in host):
         raise RuntimeError("SIMPLEOFFICE_HOST darf nicht leer sein oder Leerzeichen enthalten.")
@@ -53,26 +51,51 @@ def waitress_options(config: dict[str, object], max_request_body_size: int) -> d
         "expose_tracebacks": False,
         "ident": "SimpleOffice4Me",
     }
-    # ProxyFix remains the single authority for configured proxy chains. In
-    # that explicit mode Waitress must preserve the headers until Flask has
-    # applied the configured hop count. The deployment docs require the app to
-    # be unreachable except through that proxy.
     if _integer_setting("SIMPLEOFFICE_TRUSTED_PROXY_HOPS", 0, 0, 16) > 0:
         options["clear_untrusted_proxy_headers"] = False
     return options
 
 
-def should_report_scan_progress(
-    current_files: int,
-    last_files: int,
-    now: float,
-    last_at: float,
-) -> bool:
-    """Keep the background scan visible without writing status per file."""
-    return (
-        current_files - last_files >= SCAN_STATUS_FILE_INTERVAL
-        or now - last_at >= SCAN_STATUS_TIME_INTERVAL
-    )
+def running_web_pid() -> int | None:
+    from tools import service_control
+
+    record = service_control.read("web")
+    if not record:
+        return None
+    if service_control.process_matches(record):
+        return int(record["pid"])
+    service_control.unregister("web", int(record["pid"]))
+    return None
+
+
+def endpoint_available(host: str, port: int) -> bool:
+    try:
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise RuntimeError(f"Bind-Adresse kann nicht aufgelöst werden: {host}") from exc
+
+    checked = False
+    seen: set[tuple[object, ...]] = set()
+    for family, socktype, proto, _canonname, sockaddr in addresses:
+        key = (family, socktype, proto, sockaddr)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            with socket.socket(family, socktype, proto) as probe:
+                if os.name != "nt":
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                probe.bind(sockaddr)
+            checked = True
+        except OSError as exc:
+            if exc.errno == errno.EADDRINUSE:
+                return False
+            raise
+    return checked
+
+
+def should_report_scan_progress(current_files: int, last_files: int, now: float, last_at: float) -> bool:
+    return current_files - last_files >= SCAN_STATUS_FILE_INTERVAL or now - last_at >= SCAN_STATUS_TIME_INTERVAL
 
 
 def background_index_enabled() -> bool:
@@ -81,22 +104,11 @@ def background_index_enabled() -> bool:
 
 
 def start_index_worker(document_root: str) -> subprocess.Popen[bytes] | None:
-    """Start the rebuildable index in an isolated, low-priority process."""
     if not background_index_enabled():
         return None
-    command = [
-        sys.executable,
-        "-m",
-        "tools.index_worker",
-        "--root",
-        document_root,
-    ]
-    options: dict[str, object] = {
-        "cwd": str(PROJECT_ROOT),
-        "stdin": subprocess.DEVNULL,
-    }
+    command = [sys.executable, "-m", "tools.index_worker", "--root", document_root]
+    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
     if os.name == "nt":
-        # BELOW_NORMAL_PRIORITY_CLASS.  Keep this literal to avoid pywin32.
         options["creationflags"] = 0x00004000
     else:
         options["start_new_session"] = True
@@ -104,7 +116,6 @@ def start_index_worker(document_root: str) -> subprocess.Popen[bytes] | None:
 
 
 def start_osm_index_worker(document_root: str, *, force: bool = False, city: str = "") -> subprocess.Popen[bytes]:
-    """Check the local address index on every start and rebuild it if needed."""
     command = [sys.executable, "-m", "tools.osm_index_worker", "--root", document_root]
     if force:
         command.append("--force")
@@ -124,16 +135,7 @@ def osm_index_enabled() -> bool:
 
 
 def start_osm_download_worker(document_root: str, region: str) -> subprocess.Popen[bytes]:
-    """Download a resumable Geofabrik extract and index it outside WSGI."""
-    command = [
-        sys.executable,
-        "-m",
-        "tools.osm_download_worker",
-        "--root",
-        document_root,
-        "--region",
-        region,
-    ]
+    command = [sys.executable, "-m", "tools.osm_download_worker", "--root", document_root, "--region", region]
     options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
     if os.name == "nt":
         options["creationflags"] = 0x00004000
@@ -147,7 +149,6 @@ def datalogger_enabled() -> bool:
 
 
 def start_datalogger_worker(document_root: str) -> subprocess.Popen[bytes] | None:
-    """Run periodic sensor I/O outside all WSGI request threads."""
     if not datalogger_enabled():
         return None
     options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
@@ -206,12 +207,7 @@ def first_start_configure(interactive: bool = True) -> dict[str, object]:
             except ValueError:
                 print("Ungültiger Port, 8080 wird verwendet.")
 
-    config: dict[str, object] = {
-        "version": 1,
-        "document_root": str(document_root.resolve()),
-        "host": "127.0.0.1",
-        "port": port,
-    }
+    config: dict[str, object] = {"version": 1, "document_root": str(document_root.resolve()), "host": "127.0.0.1", "port": port}
     save_config(config)
     return config
 
@@ -222,14 +218,29 @@ def start(configure_only: bool = False) -> None:
         print(f"Einrichtung gespeichert: {CONFIG_PATH}")
         return
 
+    existing_pid = running_web_pid()
+    if existing_pid is not None:
+        print(f"SimpleOffice4Me läuft bereits (PID {existing_pid}). Kein zweiter Server oder Indexdienst wird gestartet.", flush=True)
+        return
+
     document_root = str(config["document_root"])
     os.environ["SIMPLEOFFICE_DOCUMENT_ROOT"] = document_root
 
-    # Imports happen after the environment and configuration are available.
     from tools.service_control import register, unregister
-    register("web", os.getpid(), "launcher.py")
     from app import app
     options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]))
+    host = str(options["host"])
+    port = int(options["port"])
+    try:
+        available = endpoint_available(host, port)
+    except (OSError, RuntimeError) as exc:
+        print(f"SimpleOffice4Me konnte den HTTP-Endpunkt {host}:{port} nicht prüfen: {exc}", file=sys.stderr, flush=True)
+        return
+    if not available:
+        print(f"SimpleOffice4Me wurde nicht gestartet: http://{host}:{port} ist bereits belegt. Kein zweiter Server oder Hintergrunddienst wurde gestartet.", file=sys.stderr, flush=True)
+        return
+
+    register("web", os.getpid(), "launcher.py")
     try:
         worker = start_index_worker(document_root)
     except OSError as exc:
@@ -239,10 +250,7 @@ def start(configure_only: bool = False) -> None:
         print(f"Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
     if osm_index_enabled():
         try:
-            osm_worker = start_osm_index_worker(
-                document_root,
-                force=os.environ.get("SIMPLEOFFICE_OSM_REINDEX_ON_START", "").strip().casefold() in {"1", "true", "yes", "on"},
-            )
+            osm_worker = start_osm_index_worker(document_root, force=os.environ.get("SIMPLEOFFICE_OSM_REINDEX_ON_START", "").strip().casefold() in {"1", "true", "yes", "on"})
         except OSError as exc:
             osm_worker = None
             print(f"OSM-Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
@@ -253,18 +261,8 @@ def start(configure_only: bool = False) -> None:
     except OSError as exc:
         datalogger_worker = None
         print(f"Datenloggerdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
-    host = str(options["host"])
-    port = int(options["port"])
-    index_message = (
-        f"Indexdienst PID {worker.pid} startet getrennt."
-        if worker is not None else
-        "Automatischer Indexdienst ist deaktiviert oder nicht verfügbar."
-    )
-    print(
-        f"SimpleOffice4Me läuft mit Waitress unter http://{host}:{port} "
-        f"({options['threads']} Threads); {index_message}",
-        flush=True,
-    )
+    index_message = f"Indexdienst PID {worker.pid} startet getrennt." if worker is not None else "Automatischer Indexdienst ist deaktiviert oder nicht verfügbar."
+    print(f"SimpleOffice4Me läuft mit Waitress unter http://{host}:{port} ({options['threads']} Threads); {index_message}", flush=True)
     from waitress import serve
 
     previous_handlers: dict[int, object] = {}
@@ -273,7 +271,12 @@ def start(configure_only: bool = False) -> None:
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous_handlers[signum] = signal.signal(signum, request_stop)
     try:
-        serve(app, **options)
+        try:
+            serve(app, **options)
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise
+            print(f"SimpleOffice4Me wurde nicht gestartet: http://{host}:{port} wurde zwischen Vorprüfung und Serverstart belegt.", file=sys.stderr, flush=True)
     finally:
         stop_worker(worker)
         stop_worker(osm_worker)
