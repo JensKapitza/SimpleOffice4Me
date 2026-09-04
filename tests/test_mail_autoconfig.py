@@ -71,7 +71,7 @@ class MailAutoconfigTests(unittest.TestCase):
         fetch_mx.return_value = [(10, "mx01.mail.provider.net")]
 
         def responses(source):
-            if source.name == "mx-thunderbird-ispdb" and "provider.net" in source.url:
+            if source.name == "mx-thunderbird-ispdb" and source.url.endswith("/provider.net"):
                 return XML.replace(b"example.org", b"provider.net")
             raise OSError("not found")
 
