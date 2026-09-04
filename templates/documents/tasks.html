@@ -2,7 +2,7 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-3">
-  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><div><h1 class="h2 mb-0">{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</h1><p class="text-secondary mb-0">CalDAV VTODO · Thunderbird</p></div><div class="btn-group"><a class="btn btn-outline-secondary {% if view == 'list' %}active{% endif %}" href="{{ url_for('documents.tasks', view='list') }}">{{ 'List' if g.language == 'en' else 'Liste' }}</a><a class="btn btn-outline-secondary {% if view == 'kanban' %}active{% endif %}" href="{{ url_for('documents.tasks', view='kanban') }}">Kanban</a></div></div>
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><div><h1 class="h2 mb-0">{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</h1><p class="text-secondary mb-0">CalDAV VTODO · Thunderbird</p></div><div class="btn-group"><a class="btn btn-outline-primary" href="{{ url_for('tasks.board') }}"><i class="fas fa-table-columns me-1"></i>{{ 'VTODO board' if g.language == 'en' else 'VTODO-Board' }}</a><a class="btn btn-outline-secondary {% if view == 'list' %}active{% endif %}" href="{{ url_for('documents.tasks', view='list') }}">{{ 'List' if g.language == 'en' else 'Liste' }}</a><a class="btn btn-outline-secondary {% if view == 'kanban' %}active{% endif %}" href="{{ url_for('documents.tasks', view='kanban') }}">Kanban</a></div></div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-3">
     <aside class="col-lg-3">
