@@ -5,9 +5,16 @@ from __future__ import annotations
 import argparse
 import importlib.metadata
 import json
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from simpleoffice_version import build_info  # noqa: E402
 
 
 def build_sbom() -> dict:
@@ -19,8 +26,9 @@ def build_sbom() -> dict:
         components.append({"type": "library", "name": name, "version": distribution.version, "purl": f"pkg:pypi/{name}@{distribution.version}"})
     inventory = "\n".join(f"{item['name']}=={item['version']}" for item in components)
     serial = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/JensKapitza/SimpleOffice4Me\n" + inventory)
+    release_version = str(build_info(PROJECT_ROOT).get("release_version") or "1.0.0")
     return {"bomFormat": "CycloneDX", "specVersion": "1.5", "serialNumber": f"urn:uuid:{serial}", "version": 1,
-            "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": "0.1.0"}}, "components": components}
+            "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": release_version}}, "components": components}
 
 
 def main() -> None:

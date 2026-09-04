@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleoffice4me"
-version = "0.1.0"
+version = "1.0.0"
 description = "Self-hosted, file-based document management"
 requires-python = ">=3.10"
 dependencies = [
@@ -31,3 +31,4 @@ simpleoffice-sftp = "app.sftp_server:serve"
 
 [tool.setuptools]
 packages = ["app"]
+py-modules = ["simpleoffice_version"]

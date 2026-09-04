@@ -9,6 +9,8 @@ from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
 
+from simpleoffice_version import build_info
+
 from .access_control import is_admin
 from .auth import login_required
 from .federation_store import FederationStore
@@ -16,6 +18,13 @@ from .federation_worker import _json_request
 from .software_distribution import SoftwareDistributionStore, local_release_info
 
 bp = Blueprint("software_admin", __name__, url_prefix="/admin/software")
+_APP_BUILD = build_info()
+
+
+@bp.app_context_processor
+def application_build_context():
+    """Expose one startup-time build identity to all rendered templates."""
+    return {"app_build": _APP_BUILD}
 
 
 def admin_required(view):
