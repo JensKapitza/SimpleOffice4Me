@@ -1,85 +1,113 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-3 py-md-4">
+<main id="inventory-app" class="container-xl py-3 py-md-4"
+      data-find-url="{{ url_for('inventory.find_item') }}"
+      data-lookup-url="{{ url_for('inventory.book_lookup') }}"
+      data-amazon-url="{{ url_for('inventory.amazon_search') }}"
+      data-objects-url="{{ url_for('documents.objects') }}"
+      data-detail-pattern="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div>
       <h1 class="h2 mb-1">Inventar · Schnellerfassung</h1>
-      <p class="text-secondary mb-0">Beliebige Gegenstände fotografieren, Barcode oder NFC erfassen, Inventarnummer vergeben und optional Prüfungen planen.</p>
+      <p class="text-secondary mb-0">Bücher und beliebige Gegenstände per ISBN, Barcode, NFC, Foto oder manueller Eingabe erfassen und wiederfinden.</p>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1"></i>Alle Objekte</a>
+    <div class="d-flex flex-wrap gap-2">
+      <span id="inventory-network" class="badge text-bg-secondary align-self-center">Status</span>
+      <a class="btn btn-outline-secondary" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1"></i>Alle Objekte</a>
+    </div>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="card shadow-sm mb-3">
     <div class="card-body">
-      <form id="inventory-find-form" class="row g-2 align-items-end" role="search" method="get" aria-label="Inventar durchsuchen">
-        <div class="col-md-9"><label class="form-label" for="inventory-find">Gegenstand wiederfinden</label><input id="inventory-find" name="q" type="search" class="form-control form-control-lg" autocomplete="off" placeholder="Inventarnummer, Barcode, ISBN oder NFC-ID"></div>
+      <form id="inventory-find-form" class="row g-2 align-items-end" role="search" method="get" action="{{ url_for('documents.objects') }}" aria-label="Inventar durchsuchen">
+        <div class="col-md-9">
+          <label class="form-label" for="inventory-find">Gegenstand wiederfinden</label>
+          <input id="inventory-find" name="q" type="search" class="form-control form-control-lg" autocomplete="off" inputmode="search" placeholder="Inventarnummer, Name, Barcode, ISBN, NFC, Seriennummer oder Standort">
+        </div>
         <div class="col-md-3 d-grid"><button class="btn btn-outline-primary btn-lg" type="submit"><i class="fas fa-search me-2"></i>Suchen</button></div>
       </form>
-      <div class="form-text">Exakte Kennungen werden zuerst gesucht; eine reine Zahl wird danach auch als Inventarnummer geprüft.</div>
+      <div class="form-text">Exakte Kennungen werden direkt geöffnet. Für Namen, Standort, Hersteller und andere Felder wird automatisch die vollständige Objektliste verwendet.</div>
+      <div id="inventory-find-results" class="mt-2" hidden></div>
     </div>
   </div>
 
   <div class="row g-3 align-items-start">
     <section class="col-xl-7">
       <div class="card shadow-sm">
-        <div class="card-header d-flex justify-content-between align-items-center"><strong>Gegenstand erfassen</strong><span class="badge text-bg-primary">mobil</span></div>
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <strong>Gegenstand erfassen</strong>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Erfassungsmodus">
+            <button type="button" class="btn btn-outline-secondary" id="object-mode">Gegenstand</button>
+            <button type="button" class="btn btn-outline-primary" id="book-mode">Buch</button>
+          </div>
+        </div>
         <div class="card-body">
           <div class="row g-2 mb-3">
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode"><i class="fas fa-barcode me-2"></i>Barcode / ISBN scannen</button></div>
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc"><i class="fas fa-wifi me-2"></i>NFC lesen</button></div>
           </div>
-          <div class="alert alert-secondary py-2 small" id="scan-status" role="status" aria-live="polite">Barcode scannen oder manuell eingeben. Bei einer ISBN wird automatisch der Buchmodus aktiviert.</div>
+          <div class="alert alert-secondary py-2 small" id="scan-status" role="status" aria-live="polite">ISBN kann jederzeit manuell eingegeben werden. ISBN-10 und ISBN-13 mit oder ohne Bindestriche werden unterstützt.</div>
           <div class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-3" id="camera-box" hidden><video id="camera-preview" autoplay playsinline muted></video></div>
 
           <form method="post" action="{{ url_for('inventory.create_item') }}" enctype="multipart/form-data" class="row g-3" id="inventory-form">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-6"><label class="form-label" for="item-type">Objekttyp</label><input class="form-control form-control-lg" id="item-type" name="item_type" value="object" list="inventory-types"><datalist id="inventory-types"><option value="object"><option value="tool"><option value="electrical-device"><option value="machine"><option value="vehicle"><option value="it-device"><option value="measuring-device"><option value="ladder"><option value="key"><option value="furniture"><option value="book"></datalist></div>
-            <div class="col-md-6"><label class="form-label" for="title">Objektname</label><input required class="form-control form-control-lg" id="title" name="title" placeholder="z. B. Akkuschrauber Werkstatt"></div>
 
-            <div class="col-md-7"><label class="form-label" for="barcode">Barcode / EAN / Kennung</label><input class="form-control form-control-lg" id="barcode" name="barcode" autocomplete="off"></div>
-            <div class="col-md-5 book-only"><label class="form-label" for="isbn">ISBN</label><div class="input-group"><input class="form-control" id="isbn" name="isbn" inputmode="numeric" autocomplete="off" placeholder="978…"><button class="btn btn-outline-primary" type="button" id="lookup-book">Buchdaten</button></div></div>
-            <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID / Inhalt</label><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off"><div class="form-text">Kann auch manuell eingetragen werden.</div></div>
+            <div class="col-md-6"><label class="form-label" for="item-type">Objekttyp</label><input class="form-control form-control-lg" id="item-type" name="item_type" value="object" list="inventory-types"><datalist id="inventory-types"><option value="object"><option value="book"><option value="tool"><option value="electrical-device"><option value="machine"><option value="vehicle"><option value="it-device"><option value="measuring-device"><option value="ladder"><option value="key"><option value="furniture"><option value="document"><option value="spare-part"><option value="consumable"></datalist></div>
+            <div class="col-md-6"><label class="form-label" for="title">Objektname</label><input required class="form-control form-control-lg" id="title" name="title" maxlength="300" placeholder="z. B. Akkuschrauber Werkstatt"></div>
 
-            <div class="col-md-4"><label class="form-label" for="manufacturer">Hersteller</label><input class="form-control" id="manufacturer" name="manufacturer"></div>
-            <div class="col-md-4"><label class="form-label" for="model">Modell</label><input class="form-control" id="model" name="model"></div>
-            <div class="col-md-4"><label class="form-label" for="serial-number">Seriennummer</label><input class="form-control" id="serial-number" name="serial_number"></div>
+            <div class="col-md-7"><label class="form-label" for="barcode">Barcode / EAN / Kennung</label><input class="form-control form-control-lg" id="barcode" name="barcode" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+            <div class="col-md-5"><label class="form-label" for="isbn">ISBN</label><div class="input-group"><input class="form-control form-control-lg" id="isbn" name="isbn" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="978… oder ISBN-10"><button class="btn btn-primary" type="button" id="lookup-book" data-label="Buchdaten laden">Buchdaten laden</button></div><div class="form-text">Immer sichtbar – auch wenn der Objekttyp noch „Gegenstand“ ist.</div></div>
+
+            <div class="col-12 book-only" hidden>
+              <div class="d-flex flex-wrap gap-2 align-items-center">
+                <a id="openlibrary-link" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener noreferrer" hidden>In Open Library öffnen</a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-book-data">Geladene Buchdaten leeren</button>
+                <div class="form-check ms-auto"><input class="form-check-input" type="checkbox" value="1" id="replace-metadata"><label class="form-check-label small" for="replace-metadata">Vorhandene Felder überschreiben</label></div>
+              </div>
+            </div>
+
+            <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID / Inhalt</label><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="240"><div class="form-text">Kann auch manuell eingetragen werden.</div></div>
+
+            <div class="col-md-4"><label class="form-label" for="manufacturer">Hersteller</label><input class="form-control" id="manufacturer" name="manufacturer" maxlength="240"></div>
+            <div class="col-md-4"><label class="form-label" for="model">Modell</label><input class="form-control" id="model" name="model" maxlength="240"></div>
+            <div class="col-md-4"><label class="form-label" for="serial-number">Seriennummer</label><input class="form-control" id="serial-number" name="serial_number" maxlength="240" autocapitalize="off" spellcheck="false"></div>
             <div class="col-md-6"><label class="form-label" for="purchase-date">Kaufdatum</label><input class="form-control" id="purchase-date" name="purchase_date" type="date"></div>
-            <div class="col-md-6"><label class="form-label" for="location">Standort</label><input class="form-control" id="location" name="location" placeholder="Regal, Raum, Fahrzeug …"></div>
-            <div class="col-12"><label class="form-label" for="tags">Tags</label><input class="form-control" id="tags" name="tags" placeholder="werkstatt, elektro, privat …"></div>
-            <div class="col-12"><label class="form-label" for="description">Beschreibung</label><textarea class="form-control" id="description" name="description" rows="3"></textarea></div>
+            <div class="col-md-6"><label class="form-label" for="location">Standort</label><div class="input-group"><input class="form-control" id="location" name="location" maxlength="300" placeholder="Regal, Raum, Fahrzeug …"><button class="btn btn-outline-secondary" type="button" id="restore-location" title="Zuletzt verwendeten Standort einsetzen">↶</button></div></div>
+            <div class="col-12"><label class="form-label" for="tags">Tags</label><input class="form-control" id="tags" name="tags" maxlength="500" placeholder="werkstatt, elektro, privat …"></div>
+            <div class="col-12"><label class="form-label" for="description">Beschreibung</label><textarea class="form-control" id="description" name="description" rows="3" maxlength="8000"></textarea></div>
 
-            <div class="col-12 book-only"><div class="border rounded p-3"><div class="fw-semibold mb-2">Buchdaten</div><div class="row g-2">
-              <div class="col-md-7"><label class="form-label" for="authors">Autor(en)</label><input class="form-control" id="authors" name="authors"></div>
-              <div class="col-md-5"><label class="form-label" for="publisher">Verlag</label><input class="form-control" id="publisher" name="publisher"></div>
-              <div class="col-md-4"><label class="form-label" for="published-date">Erscheinung</label><input class="form-control" id="published-date" name="published_date"></div>
-              <div class="col-md-4"><label class="form-label" for="page-count">Seiten</label><input class="form-control" id="page-count" name="page_count" inputmode="numeric"></div>
-              <div class="col-md-4"><label class="form-label" for="language">Sprache</label><input class="form-control" id="language" name="language"></div>
-              <div class="col-12"><label class="form-label" for="categories">Kategorien</label><input class="form-control" id="categories" name="categories"></div>
-            </div></div></div>
+            <div class="col-12 book-only" hidden><div class="border rounded p-3"><div class="d-flex gap-3 align-items-start"><div id="book-cover-wrap" hidden><img id="book-cover" src="" alt="" class="rounded border" style="width:90px;max-height:135px;object-fit:cover" loading="lazy" decoding="async" referrerpolicy="no-referrer"></div><div class="flex-grow-1"><div class="fw-semibold mb-2">Buchdaten</div><div class="row g-2">
+              <div class="col-md-7"><label class="form-label" for="authors">Autor(en)</label><input class="form-control" id="authors" name="authors" maxlength="600"></div>
+              <div class="col-md-5"><label class="form-label" for="publisher">Verlag</label><input class="form-control" id="publisher" name="publisher" maxlength="300"></div>
+              <div class="col-md-4"><label class="form-label" for="published-date">Erscheinung</label><input class="form-control" id="published-date" name="published_date" maxlength="80"></div>
+              <div class="col-md-4"><label class="form-label" for="page-count">Seiten</label><input class="form-control" id="page-count" name="page_count" inputmode="numeric" maxlength="20"></div>
+              <div class="col-md-4"><label class="form-label" for="language">Sprache</label><input class="form-control" id="language" name="language" maxlength="20"></div>
+              <div class="col-12"><label class="form-label" for="categories">Kategorien</label><input class="form-control" id="categories" name="categories" maxlength="600"></div>
+            </div></div></div></div></div>
 
             <div class="col-md-4"><label class="form-label" for="market-price">Preis / Richtwert</label><input class="form-control" id="market-price" name="market_price" inputmode="decimal"></div>
-            <div class="col-md-3"><label class="form-label" for="currency">Währung</label><input class="form-control" id="currency" name="currency" maxlength="3" value="EUR"></div>
-            <div class="col-md-5"><label class="form-label" for="price-source">Preisquelle</label><input class="form-control" id="price-source" name="price_source"></div>
+            <div class="col-md-3"><label class="form-label" for="currency">Währung</label><input class="form-control text-uppercase" id="currency" name="currency" maxlength="3" value="EUR"></div>
+            <div class="col-md-5"><label class="form-label" for="price-source">Preisquelle</label><input class="form-control" id="price-source" name="price_source" maxlength="120"></div>
 
-            <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">Auf dem Handy kann direkt die Rückkamera verwendet werden.</div></div>
+            <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">JPEG, PNG oder WebP, maximal 12 MiB. Auf dem Handy kann direkt die Rückkamera verwendet werden.</div><img id="photo-preview" hidden alt="Vorschau des ausgewählten Inventarfotos" class="img-fluid rounded border mt-2" style="max-height:220px;object-fit:contain"></div>
 
             <div class="col-12"><div class="border rounded p-3 bg-body-tertiary"><div class="d-flex justify-content-between align-items-center mb-2"><strong>Prüfung / Wiedervorlage (optional)</strong><span class="small text-secondary">erzeugt eine Aufgabe</span></div><div class="row g-2">
-              <div class="col-md-6"><label class="form-label" for="inspection-name">Prüfung</label><input class="form-control" id="inspection-name" name="inspection_name" placeholder="Elektrische Prüfung, Sichtprüfung …"></div>
+              <div class="col-md-6"><label class="form-label" for="inspection-name">Prüfung</label><input class="form-control" id="inspection-name" name="inspection_name" maxlength="240" placeholder="Elektrische Prüfung, Sichtprüfung …"></div>
               <div class="col-md-6"><label class="form-label" for="inspection-due">Nächste Fälligkeit</label><input class="form-control" id="inspection-due" name="inspection_due" type="date"></div>
               <div class="col-md-3"><label class="form-label" for="inspection-interval">Alle</label><input class="form-control" id="inspection-interval" name="inspection_interval" type="number" min="0" max="366" placeholder="12"></div>
               <div class="col-md-3"><label class="form-label" for="inspection-unit">Einheit</label><select class="form-select" id="inspection-unit" name="inspection_unit"><option value="months">Monate</option><option value="years">Jahre</option><option value="weeks">Wochen</option><option value="days">Tage</option></select></div>
-              <div class="col-md-6"><label class="form-label" for="inspection-responsible">Verantwortlich</label><input class="form-control" id="inspection-responsible" name="inspection_responsible" placeholder="Benutzer / Person"></div>
-              <div class="col-12"><label class="form-label" for="inspection-note">Hinweis</label><input class="form-control" id="inspection-note" name="inspection_note" placeholder="z. B. DGUV-Prüfung durchführen und Prüfbericht anhängen"></div>
+              <div class="col-md-6"><label class="form-label" for="inspection-responsible">Verantwortlich</label><input class="form-control" id="inspection-responsible" name="inspection_responsible" maxlength="240" placeholder="Benutzer / Person"></div>
+              <div class="col-12"><label class="form-label" for="inspection-note">Hinweis</label><input class="form-control" id="inspection-note" name="inspection_note" maxlength="1000" placeholder="z. B. DGUV-Prüfung durchführen und Prüfbericht anhängen"></div>
             </div></div></div>
 
             <input type="hidden" id="metadata-source" name="metadata_source">
             <input type="hidden" id="metadata-checked-at" name="metadata_checked_at">
-            <div class="col-12 d-flex flex-wrap gap-2">
-              <button class="btn btn-success btn-lg flex-grow-1" type="submit"><i class="fas fa-plus me-2"></i>Ins Inventar übernehmen</button>
-              <button class="btn btn-outline-dark book-only" type="button" id="amazon-search"><i class="fab fa-amazon me-2"></i>Bei Amazon suchen</button>
+            <div class="col-12 d-flex flex-wrap gap-2 sticky-bottom bg-body py-2 border-top">
+              <button id="inventory-save" class="btn btn-success btn-lg flex-grow-1" type="submit"><i class="fas fa-plus me-2"></i>Ins Inventar übernehmen</button>
+              <button class="btn btn-outline-dark book-only" type="button" id="amazon-search" hidden><i class="fab fa-amazon me-2"></i>Amazon suchen</button>
             </div>
             <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="allow-duplicate" name="allow_duplicate"><label class="form-check-label" for="allow-duplicate">Trotz gleicher Barcode/NFC/ISBN-Kennung als weiteres Exemplar anlegen</label></div></div>
           </form>
@@ -89,14 +117,15 @@
 
     <aside class="col-xl-5">
       <div class="card shadow-sm">
-        <div class="card-header"><strong>Zuletzt erfasst</strong></div>
+        <div class="card-header d-flex justify-content-between align-items-center gap-2"><strong>Zuletzt erfasst</strong><input id="recent-filter" class="form-control form-control-sm" style="max-width:220px" type="search" autocomplete="off" placeholder="Liste filtern"></div>
         <div class="list-group list-group-flush">
-          {% for item in inventory_rows[:20] %}
-          <a class="list-group-item list-group-item-action" href="{{ url_for('inventory.item_detail', object_id=item.object_id) }}">
+          {% for item in inventory_rows[:30] %}
+          {% set searchable = (item.display_id ~ ' ' ~ item.name ~ ' ' ~ item.type ~ ' ' ~ item.identifier ~ ' ' ~ item.location ~ ' ' ~ item.fields.get('isbn','') ~ ' ' ~ item.fields.get('barcode','') ~ ' ' ~ item.fields.get('nfc_id','') ~ ' ' ~ item.fields.get('manufacturer','') ~ ' ' ~ item.fields.get('model','') ~ ' ' ~ item.fields.get('serial_number','')) %}
+          <a class="list-group-item list-group-item-action" data-recent-row data-inventory-search="{{ searchable|e }}" data-url="{{ url_for('inventory.item_detail', object_id=item.object_id) }}" data-label="#{{ item.display_id }} {{ item.name|e }}" href="{{ url_for('inventory.item_detail', object_id=item.object_id) }}">
             <div class="d-flex gap-3 align-items-start">
               {% set photos = item.inventory.photos|default([]) %}
               {% if photos %}<img src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photos[-1].filename) }}" alt="" loading="lazy" decoding="async" style="width:64px;height:64px;object-fit:cover" class="rounded border">{% endif %}
-              <div class="min-w-0 flex-grow-1"><div class="fw-semibold text-truncate">#{{ item.display_id }} {{ item.name }}</div><div class="small text-secondary">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}</div>{% set rules = item.inventory.inspections|default([]) %}{% if rules %}{% set next_rule = rules|selectattr('active')|sort(attribute='next_due')|first %}{% if next_rule %}<div class="small mt-1"><i class="far fa-calendar-check me-1"></i>{{ next_rule.name }} · {{ next_rule.next_due }}</div>{% endif %}{% endif %}</div>
+              <div class="min-w-0 flex-grow-1"><div class="fw-semibold text-truncate">#{{ item.display_id }} {{ item.name }}</div><div class="small text-secondary text-truncate">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}{% if item.location %} · {{ item.location }}{% endif %}</div>{% if item.fields.get('isbn') %}<div class="small text-secondary">ISBN {{ item.fields.isbn }}</div>{% endif %}{% set rules = item.inventory.inspections|default([]) %}{% if rules %}{% set next_rule = rules|selectattr('active')|sort(attribute='next_due')|first %}{% if next_rule %}<div class="small mt-1"><i class="far fa-calendar-check me-1"></i>{{ next_rule.name }} · {{ next_rule.next_due }}</div>{% endif %}{% endif %}</div>
             </div>
           </a>
           {% else %}<div class="list-group-item text-secondary">Noch keine Inventarobjekte vorhanden.</div>{% endfor %}
@@ -105,53 +134,5 @@
     </aside>
   </div>
 </main>
-<script>
-(()=>{
-  const $=id=>document.getElementById(id);
-  const status=$('scan-status'), isbn=$('isbn'), barcode=$('barcode'), nfc=$('nfc-id'), type=$('item-type');
-  const fieldMap={title:'title',authors:'authors',publisher:'publisher',published_date:'published-date',page_count:'page-count',language:'language',categories:'categories',description:'description',market_price:'market-price',currency:'currency',price_source:'price-source',metadata_source:'metadata-source',metadata_checked_at:'metadata-checked-at'};
-  let stream=null, scanning=false, detector=null;
-  const setStatus=(text,kind='secondary')=>{status.className=`alert alert-${kind} py-2 small`;status.textContent=text;};
-  const updateMode=()=>{const book=type.value.trim().toLowerCase()==='book'||isbn.value.trim()!=='';document.querySelectorAll('.book-only').forEach(el=>el.hidden=!book);};
-  const stopCamera=()=>{scanning=false;if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;}$('camera-box').hidden=true;};
-  const lookup=async()=>{
-    const value=isbn.value.trim() || barcode.value.trim();
-    if(!value){setStatus('Bitte zuerst ISBN erfassen.','warning');return;}
-    $('lookup-book').disabled=true;
-    try{
-      const response=await fetch(`{{ url_for('inventory.book_lookup') }}?isbn=${encodeURIComponent(value)}`,{headers:{Accept:'application/json'},cache:'no-store'});
-      const data=await response.json();
-      if(!response.ok){setStatus(data.error||'Buchdaten konnten nicht geladen werden.','warning');return;}
-      Object.entries(fieldMap).forEach(([key,id])=>{if(data[key]!==undefined && data[key]!==null && String(data[key]).trim()!=='') $(id).value=String(data[key]);});
-      isbn.value=data.isbn||isbn.value;type.value='book';if(!barcode.value)barcode.value=data.isbn||'';updateMode();
-      setStatus(`Buchdaten geladen: ${data.metadata_source||'Buchdatenquelle'}. Bitte kurz prüfen.`,'success');
-    }catch(error){setStatus('Buchdatenabruf ist fehlgeschlagen.','danger');}
-    finally{setTimeout(()=>{$('lookup-book').disabled=false;},5000);}
-  };
-  const quickFind=async()=>{
-    const q=$('inventory-find').value.trim();
-    if(!q)return;
-    try{
-      const response=await fetch(`{{ url_for('inventory.find_item') }}?identifier=${encodeURIComponent(q)}&nfc=${encodeURIComponent(q)}`,{headers:{Accept:'application/json'},cache:'no-store'});
-      const data=await response.json();
-      if(data.found){window.location.assign(data.url);return;}
-      if(/^#?[0-9]+$/.test(q)){window.location.assign(`{{ url_for('inventory.index') }}/${encodeURIComponent(q.replace(/^#/,''))}`);return;}
-      setStatus(`Kein Inventarobjekt zu „${q}“ gefunden.`,'warning');
-    }catch(error){setStatus('Inventarsuche ist fehlgeschlagen.','danger');}
-  };
-  $('inventory-find-form').addEventListener('submit',event=>{event.preventDefault();quickFind();});
-  type.addEventListener('input',updateMode);isbn.addEventListener('input',updateMode);$('lookup-book').addEventListener('click',lookup);
-  $('amazon-search').addEventListener('click',()=>{const q=isbn.value.trim()||barcode.value.trim()||$('title').value.trim();if(!q){setStatus('Für die Amazon-Suche zuerst ISBN, Barcode oder Titel erfassen.','warning');return;}window.open(`{{ url_for('inventory.amazon_search') }}?q=${encodeURIComponent(q)}`,'_blank','noopener,noreferrer');});
-  $('start-barcode').addEventListener('click',async()=>{
-    if(!('BarcodeDetector' in window)){setStatus('BarcodeDetector fehlt. Kennung kann manuell eingetragen werden.','warning');return;}
-    if(!navigator.mediaDevices?.getUserMedia){setStatus('Kamera-Zugriff nicht verfügbar; HTTPS kann erforderlich sein.','warning');return;}
-    try{
-      detector=new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code']});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});const video=$('camera-preview');video.srcObject=stream;$('camera-box').hidden=false;scanning=true;setStatus('Barcode vor die Kamera halten …','primary');
-      const scan=async()=>{if(!scanning)return;try{const codes=await detector.detect(video);if(codes.length){const value=codes[0].rawValue||'';barcode.value=value;if(/^97[89][0-9]{10}$/.test(value)){isbn.value=value;type.value='book';updateMode();setStatus(`ISBN erkannt: ${value}. Buchdaten können geladen werden.`,'success');}else{isbn.value='';updateMode();setStatus(`Barcode erkannt: ${value}`,'success');}stopCamera();return;}}catch(error){}requestAnimationFrame(scan);};requestAnimationFrame(scan);
-    }catch(error){stopCamera();setStatus('Kamera konnte nicht geöffnet werden.','danger');}
-  });
-  $('scan-nfc').addEventListener('click',async()=>{if(!('NDEFReader' in window)){setStatus('Web NFC wird nicht unterstützt. NFC-Wert kann manuell eingetragen werden.','warning');return;}try{const reader=new NDEFReader();await reader.scan();setStatus('NFC-Tag an das Handy halten …','primary');reader.addEventListener('reading',event=>{const parts=[];if(event.serialNumber)parts.push(event.serialNumber);for(const record of event.message.records){try{if(record.data)parts.push(new TextDecoder(record.encoding||'utf-8').decode(record.data));}catch(error){}}nfc.value=parts.filter(Boolean).join(' | ').slice(0,240);setStatus('NFC wurde gelesen.','success');},{once:true});}catch(error){setStatus('NFC konnte nicht gelesen werden.','danger');}});
-  updateMode();window.addEventListener('pagehide',stopCamera);
-})();
-</script>
+<script src="{{ url_for('static', filename='js/inventory.js') }}" defer></script>
 {% endblock %}
