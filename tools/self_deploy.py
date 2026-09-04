@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import subprocess
 import sys
+import tempfile
 import time
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +54,50 @@ def _offline_restart(root: Path) -> None:
     subprocess.Popen(command, **kwargs)
 
 
+def _install_candidate_dependencies(archive: Path, root: Path) -> None:
+    manifest = inspect_release_archive(archive)
+    release = manifest["release"]
+    wheelhouse = manifest.get("wheelhouse") or {}
+    if not wheelhouse.get("included"):
+        return
+    expected_python = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if release.get("platform") != sys.platform or release.get("machine") != platform.machine() or release.get("python") != expected_python:
+        raise ValueError("Wheelhouse passt nicht zu Plattform/Architektur/Python dieser Instanz")
+    python = root / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    if not python.exists():
+        raise ValueError("Offline-Abhängigkeiten können nicht installiert werden: lokale .venv fehlt")
+    with tempfile.TemporaryDirectory(prefix="simpleoffice-wheelhouse-") as tmp:
+        directory = Path(tmp)
+        with zipfile.ZipFile(archive, "r") as package:
+            for item in package.infolist():
+                if item.filename.startswith("wheelhouse/") and item.filename.endswith(".whl"):
+                    target = directory / Path(item.filename).name
+                    with package.open(item, "r") as source, target.open("wb") as sink:
+                        sink.write(source.read())
+        if not any(directory.glob("*.whl")):
+            raise ValueError("Release meldet ein Wheelhouse, enthält aber keine Wheels")
+        result = subprocess.run(
+            [
+                str(python), "-m", "pip", "install", "--disable-pip-version-check",
+                "--no-index", "--find-links", str(directory), "--no-build-isolation",
+                "--editable", str(root),
+            ],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise ValueError((result.stderr or result.stdout or "Offline dependency installation failed").strip()[-4000:])
+        check = subprocess.run([str(python), "-m", "pip", "check"], cwd=root, text=True, capture_output=True, check=False)
+        if check.returncode:
+            raise ValueError((check.stderr or check.stdout or "pip check failed").strip()[-4000:])
+
+
+def _rollback(root: Path, revision: str) -> None:
+    subprocess.run(["git", "reset", "--hard", revision], cwd=root, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me self deploy / offline updater")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -85,15 +132,22 @@ def main() -> int:
         result = clone_release_archive(args.archive, args.target, offline_install=args.offline_install)
     else:
         root = Path(args.root).expanduser().resolve()
+        archive = Path(args.archive).expanduser().resolve()
         if args.delay > 0:
             time.sleep(min(args.delay, 30.0))
         was_stopped = False
         if args.stop_running:
             _stop_service(root)
             was_stopped = True
+        old_revision = ""
         try:
-            result = apply_release_archive(args.archive, root=root, install_dependencies=not args.no_dependencies)
+            result = apply_release_archive(archive, root=root, install_dependencies=False)
+            old_revision = result["old_revision"]
+            if not args.no_dependencies:
+                _install_candidate_dependencies(archive, root)
         except Exception:
+            if old_revision:
+                _rollback(root, old_revision)
             if was_stopped and args.restart:
                 try:
                     _offline_restart(root)
