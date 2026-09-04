@@ -259,7 +259,7 @@ python_runtime_packages() {
 native_python_packages() {
   case "$NATIVE_PM" in
     pkg)
-      printf '%s\n' "tzdata python-cryptography python-pillow"
+      printf '%s\n' "python-cryptography python-pillow"
       ;;
     apt)
       printf '%s\n' "python3-venv python3-flask python3-bs4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-pil"
@@ -495,7 +495,8 @@ fi
 if [ "$IS_TERMUX" -eq 1 ]; then
   if ! termux_native_dependencies_ok; then
     echo "Termux-Webpakete und Zeitzonendaten werden erneut installiert/aktualisiert, bevor pip verwendet wird."
-    install_native_packages tzdata python-cryptography python-pillow
+    install_native_packages python-cryptography python-pillow
+    "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'tzdata>=2024.1'
     termux_native_dependencies_ok || {
       echo "Die benötigten nativen Termux-Webpakete oder Zeitzonendaten sind weiterhin nicht verwendbar; cryptography wird absichtlich nicht aus Source gebaut." >&2
       exit 1
@@ -515,6 +516,7 @@ if [ "$IS_TERMUX" -eq 1 ]; then
     'pypdf>=5.0,<7'
     'waitress>=3.0,<4'
     'watchdog>=6,<7'
+    'tzdata>=2024.1'
   )
 
   echo "Termux: versuche zuerst ausschließlich fertige Wheels für Web-Laufzeitpakete ..."
