@@ -23,7 +23,10 @@ except ImportError:  # pragma: no cover - exercised by installation checks
 
 def _require_paramiko():
     if paramiko is None:
-        raise RuntimeError("SFTP requires: pip install '.[sftp]'")
+        raise RuntimeError(
+            "SFTP-Abhängigkeit Paramiko fehlt. Bitte den plattformspezifischen "
+            "SFTP-Starter verwenden: ./start-sftp.sh init (Windows: start-sftp.bat init)."
+        )
     return paramiko
 
 
@@ -214,13 +217,9 @@ if paramiko is not None:
                 atime = getattr(attr, "st_atime", None)
                 mtime = getattr(attr, "st_mtime", None)
                 if atime is None and mtime is None:
-                    # POSIX ownership and mode changes are intentionally not
-                    # projected onto the service account.
                     return paramiko.SFTP_OK
                 try:
-                    self.vfs.set_times(
-                        self.actor, path, atime=atime, mtime=mtime,
-                    )
+                    self.vfs.set_times(self.actor, path, atime=atime, mtime=mtime)
                     return paramiko.SFTP_OK
                 except (OSError, RuntimeError, ValueError) as exc:
                     return _sftp_status(exc)
@@ -296,8 +295,6 @@ if paramiko is not None:
             try:
                 from .rsync_server import RestrictedRsyncSession, parse_rsync_command
                 request = parse_rsync_command(command)
-                # Authorization is checked before accepting the channel and is
-                # checked again for every committed filesystem operation.
                 target = self.vfs.resolve(request.virtual_path)
                 if target.exists():
                     self.vfs.require(f"rsync:{self.username}", target, "read")
