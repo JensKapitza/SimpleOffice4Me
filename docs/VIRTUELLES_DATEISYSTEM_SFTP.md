@@ -46,26 +46,38 @@ Laufzeit sind möglich.
 
 ## SFTP installieren und starten
 
-Die Webanwendung benötigt Paramiko nicht. SFTP wird optional installiert:
-
-```bash
-python -m pip install '.[sftp]'
-ssh-keygen -t ed25519 -f /etc/simpleoffice/sftp_host_ed25519_key -N ''
-chmod 600 /etc/simpleoffice/sftp_host_ed25519_key
-```
-
-Für eine lokale Ersteinrichtung ohne systemweiten Service stehen dieselben
-plattformübergreifenden Prüfungen bereit:
+Die Webanwendung benötigt Paramiko nicht. SFTP wird bewusst getrennt und über
+den plattformspezifischen Starter eingerichtet. Dieser Weg übernimmt auch die
+passenden Abhängigkeiten und verhindert auf Android/Termux lokale Builds der
+nativen Kryptografiepakete:
 
 ```bash
 ./start-sftp.sh status       # nur prüfen
-./start-sftp.sh init         # fehlenden Schlüssel einmalig erzeugen
+./start-sftp.sh init         # Abhängigkeiten prüfen und Hostschlüssel einmalig erzeugen
 ./start-sftp.sh              # getrennten Dienst im Vordergrund starten
 ```
 
 Unter Windows heißen die Befehle `start-sftp.bat status`, `init` und
 `start-sftp.bat`. `init` überschreibt niemals einen vorhandenen Schlüssel.
 Eine vorhandene Einrichtung mit `SIMPLEOFFICE_SFTP_HOST_KEY` bleibt maßgeblich.
+
+**Termux:** Nicht direkt `python -m pip install '.[sftp]'` ausführen. Der
+Termux-Starter installiert `python-pynacl`, `python-bcrypt`, `python-cryptography`
+und `python-pillow` über `pkg`, bindet diese Pakete über
+`--system-site-packages` ein und sperrt einen unbeabsichtigten Source-Build.
+Damit wird insbesondere vermieden, dass pip die mit PyNaCl gebündelte
+libsodium-Kopie auf dem Telefon kompiliert.
+
+Für einen manuell verwalteten Linux-Dauerbetrieb kann der Hostschlüssel auch
+außerhalb des Projektverzeichnisses liegen. Die Abhängigkeiten sollten trotzdem
+zuerst mit `./start-sftp.sh init` geprüft werden. Ein eigener Hostschlüssel kann
+anschließend beispielsweise so erzeugt und geschützt werden:
+
+```bash
+ssh-keygen -t ed25519 -f /etc/simpleoffice/sftp_host_ed25519_key -N ''
+chmod 600 /etc/simpleoffice/sftp_host_ed25519_key
+```
+
 Für Dauerbetrieb ist weiterhin die mitgelieferte systemd-Beispieldatei unter
 `docs/simpleoffice-sftp.service.example` vorgesehen.
 
@@ -207,7 +219,8 @@ liefern `404`, bekannte nicht schreibbare Ressourcen eine DAV-Antwort mit
 
 ## Fehler- und Ausfallverhalten
 
-- Fehlende SFTP-Zusatzabhängigkeit: Startabbruch mit Installationshinweis.
+- Fehlende SFTP-Zusatzabhängigkeit: Startabbruch mit Hinweis auf den sicheren
+  plattformspezifischen SFTP-Starter.
 - Fehlender, verlinkter oder zu offen lesbarer Hostschlüssel: Startabbruch.
 - Fehlendes Recht: `SSH_FX_PERMISSION_DENIED` beziehungsweise WebDAV `403/404`.
 - Sechs oder mehr fehlgeschlagene Anmeldeversuche: Anmeldung bleibt abgewiesen.

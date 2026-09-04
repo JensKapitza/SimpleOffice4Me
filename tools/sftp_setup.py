@@ -22,7 +22,7 @@ def dependency():
         import paramiko
         return paramiko
     except ImportError as exc:
-        raise RuntimeError("Paramiko fehlt. Installieren mit: python -m pip install '.[sftp]'") from exc
+        raise RuntimeError("Paramiko fehlt. Bitte den plattformspezifischen SFTP-Starter verwenden: ./start-sftp.sh init (Windows: start-sftp.bat init). Unter Termux nicht 'pip install .[sftp]' verwenden.") from exc
 
 
 def validate(path: Path) -> None:

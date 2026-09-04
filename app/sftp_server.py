@@ -23,7 +23,10 @@ except ImportError:  # pragma: no cover - exercised by installation checks
 
 def _require_paramiko():
     if paramiko is None:
-        raise RuntimeError("SFTP requires: pip install '.[sftp]'")
+        raise RuntimeError(
+            "SFTP-Abhängigkeit Paramiko fehlt. Bitte den plattformspezifischen "
+            "SFTP-Starter verwenden: ./start-sftp.sh init (Windows: start-sftp.bat init)."
+        )
     return paramiko
 
 
