@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import smtplib
 
-from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .mail_autoconfig import discover_mail_settings
 from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpSubmission
 from .mail_webclient import MailAccountPolicy, MailReadOnlyError
 from .sieve_sync import ManageSieveSyncClient, activate_server_script, server_state, sync_from_server
@@ -93,6 +94,20 @@ def index():
     )
 
 
+@bp.get("/autoconfig")
+@login_required
+def autoconfig():
+    email = request.args.get("email", "")
+    try:
+        result = discover_mail_settings(email)
+        return jsonify({"ok": True, "settings": result})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        current_app.logger.warning("Mail autoconfig failed for %s: %s", _actor(), type(exc).__name__)
+        return jsonify({"ok": False, "error": "Mailserver konnten nicht automatisch ermittelt werden."}), 502
+
+
 @bp.post("/accounts")
 @login_required
 def save_account():
@@ -111,7 +126,6 @@ def save_account():
 def set_readonly(account_id: str):
     store = _store()
     try:
-        # Explicit checkbox/value only. Missing/unknown values fail safe to read-only.
         writable = request.form.get("writable") == "1"
         read_only = MailAccountPolicy(store).set_read_only(_actor(), account_id, not writable)
         if read_only:
