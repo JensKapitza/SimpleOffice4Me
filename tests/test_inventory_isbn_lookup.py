@@ -45,26 +45,60 @@ class InventoryIsbnLookupRegressionTests(unittest.TestCase):
         self.assertEqual({}, parse_openlibrary_search(payload, "9780131103627"))
 
     @patch("app.inventory._http_json")
-    def test_lookup_uses_current_openlibrary_search_when_google_has_no_result(self, http_json):
+    def test_lookup_prefers_openlibrary_and_does_not_call_google_for_valid_title(self, http_json):
+        http_json.return_value = {
+            "docs": [{
+                "title": "The C Programming Language",
+                "isbn": ["9780131103627"],
+                "author_name": ["Brian W. Kernighan", "Dennis M. Ritchie"],
+                "publisher": ["Prentice Hall"],
+                "first_publish_year": 1988,
+            }]
+        }
+
+        result = lookup_book_metadata("9780131103627")
+
+        self.assertEqual("The C Programming Language", result["title"])
+        self.assertIn("Open Library Search", result["metadata_source"])
+        self.assertEqual(1, http_json.call_count)
+        self.assertIn("openlibrary.org/search.json", http_json.call_args.args[0])
+
+    @patch("app.inventory._http_json")
+    def test_google_is_only_last_fallback_when_openlibrary_has_no_title(self, http_json):
         http_json.side_effect = [
-            {"totalItems": 0},
+            {"docs": []},
+            {},
             {
-                "docs": [{
-                    "title": "The C Programming Language",
-                    "isbn": ["9780131103627"],
-                    "author_name": ["Brian W. Kernighan", "Dennis M. Ritchie"],
-                    "publisher": ["Prentice Hall"],
-                    "first_publish_year": 1988,
+                "items": [{
+                    "volumeInfo": {
+                        "title": "Fallback title",
+                        "industryIdentifiers": [{"identifier": "9780131103627"}],
+                    }
                 }]
             },
         ]
 
         result = lookup_book_metadata("9780131103627")
 
-        self.assertEqual("The C Programming Language", result["title"])
-        self.assertIn("Open Library Search", result["metadata_source"])
-        self.assertEqual(2, http_json.call_count)
-        self.assertIn("/search.json?", http_json.call_args_list[1].args[0])
+        self.assertEqual("Fallback title", result["title"])
+        self.assertEqual(3, http_json.call_count)
+        self.assertIn("openlibrary.org/search.json", http_json.call_args_list[0].args[0])
+        self.assertIn("openlibrary.org/api/books", http_json.call_args_list[1].args[0])
+        self.assertIn("www.googleapis.com/books", http_json.call_args_list[2].args[0])
+
+    @patch("app.inventory._http_json")
+    def test_reachable_openlibrary_without_match_is_not_reported_as_total_outage(self, http_json):
+        http_json.side_effect = [
+            {"docs": []},
+            {},
+            OSError("google blocked"),
+        ]
+
+        result = lookup_book_metadata("9780131103627")
+
+        self.assertFalse(result.get("title"))
+        self.assertTrue(result["lookup_reachable"])
+        self.assertIn("google:OSError", result["lookup_errors"])
 
 
 if __name__ == "__main__":
