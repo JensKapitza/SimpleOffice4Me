@@ -72,6 +72,15 @@ def _git(root: Path, *args: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def _timestamp_token(epoch: int) -> str:
+    if epoch <= 0:
+        return ""
+    try:
+        return dt.datetime.fromtimestamp(epoch, tz=dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
 def _iso_utc(epoch: int) -> str:
     if epoch <= 0:
         return ""
@@ -88,9 +97,8 @@ def version_label(info: dict[str, Any]) -> str:
     build_number = _positive_int(info.get("build_number"))
     if build_number:
         return f"{major}-{build_number}"
-    epoch = _positive_int(info.get("build_epoch"))
-    if epoch:
-        stamp = dt.datetime.fromtimestamp(epoch, tz=dt.timezone.utc).strftime("%Y%m%d%H%M%S")
+    stamp = _timestamp_token(_positive_int(info.get("build_epoch")))
+    if stamp:
         return f"{major}-{stamp}"
     return f"{major}-dev"
 
