@@ -80,8 +80,8 @@ class StartScriptTests(unittest.TestCase):
 
         for requirement in (
             '"Flask": ">=3.0,<4"',
-            '"Pillow": ">=12.3,<13"',
-            '"cryptography": ">=50,<51"',
+            '"Pillow": ">=12.2,<13"',
+            '"cryptography": ">=48.0.1,<51"',
         ):
             self.assertIn(requirement, script)
 
