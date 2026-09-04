@@ -85,8 +85,6 @@ def next_recurrence_values(task: dict[str, Any]) -> dict[str, str] | None:
     frequency = rule.get("FREQ", "")
     if frequency not in {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}:
         return None
-    # COUNT needs a durable occurrence counter. Until TodoStore has one, do not
-    # silently violate a finite recurrence rule.
     if "COUNT" in rule:
         return None
     try:
@@ -239,17 +237,30 @@ def complete_occurrence(item_id: str):
     actor = _actor()
     try:
         task = _store().get(item_id, actor)
+        next_due = ""
+        message = "Aufgabe erledigt."
         if not task.get("rrule"):
             _store().update(item_id, {"status": "completed", "percent_complete": 100}, actor)
-            flash("Aufgabe erledigt.")
         else:
             updates = next_recurrence_values(task)
             if updates is None:
                 _store().update(item_id, {"status": "completed", "percent_complete": 100}, actor)
-                flash("Serie beendet oder Regel nicht automatisch fortschaltbar; Aufgabe wurde abgeschlossen.")
+                message = "Serie beendet oder Regel nicht automatisch fortschaltbar; Aufgabe wurde abgeschlossen."
             else:
                 _store().update(item_id, updates, actor)
-                flash("Vorkommen erledigt; Aufgabe auf den nächsten Termin verschoben.")
+                next_due = str(updates.get("due", ""))
+                message = "Vorkommen erledigt; Aufgabe auf den nächsten Termin verschoben."
+        try:
+            from .inventory import record_inventory_task_completion
+
+            linked = record_inventory_task_completion(
+                current_app.config["DOCUMENT_ROOT"], task, actor, next_due
+            )
+            if linked:
+                message += " Inventar-Prüfhistorie aktualisiert."
+        except (OSError, ValueError) as exc:
+            message += f" Warnung: Inventar-Prüfhistorie konnte nicht aktualisiert werden: {exc}"
+        flash(message)
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("tasks.board"))
