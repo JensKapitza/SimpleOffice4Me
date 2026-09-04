@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -20,15 +21,22 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
 
     def test_optional_sftp_starter_uses_termux_pkg_for_native_crypto_and_is_standalone(self):
         script = (ROOT / "start-sftp.sh").read_text(encoding="utf-8")
-        for package in ("python-cryptography", "python-pillow", "python-bcrypt", "python-pynacl"):
+        for package in (
+            "python",
+            "python-pip",
+            "python-cryptography",
+            "python-pillow",
+            "python-bcrypt",
+            "python-pynacl",
+        ):
             self.assertIn(package, script)
         self.assertIn("--system-site-packages", script)
-        self.assertIn('PIP_ONLY_BINARY="PyNaCl,bcrypt,cryptography"', script)
+        self.assertIn('PIP_ONLY_BINARY="pynacl,bcrypt,cryptography"', script)
         self.assertIn("--only-binary=:all: 'invoke>=2.0'", script)
         self.assertIn("--only-binary=:all: --no-deps 'paramiko>=3.5,<6'", script)
-        self.assertIn('for module in ("cryptography", "PIL", "bcrypt", "nacl")', script)
-        self.assertIn("Flask>=3.0,<4", script)
-        self.assertIn("watchdog>=6,<7", script)
+        self.assertIn("termux_venv_has_local_native_packages", script)
+        self.assertIn(".venv-android", script)
+        self.assertIn("distribution(distribution_name).locate_file", script)
         self.assertIn("pip check", script)
         self.assertIn('"$ROOT[sftp]"', script)
 
@@ -51,8 +59,17 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         script = (ROOT / "start.sh").read_text(encoding="utf-8")
         self.assertIn("clang make pkg-config libffi openssl", script)
         self.assertNotIn("libsodium", script)
-        self.assertNotIn("PyNaCl", script)
-        self.assertNotIn("bcrypt", script)
+
+        # Help text may name optional SFTP dependencies. What matters is that the
+        # normal web starter never installs or resolves them.
+        command_lines = "\n".join(
+            line for line in script.splitlines()
+            if re.search(r"(^|[;&|])\s*(pkg|pip|python[^ ]*\s+-m\s+pip|\"\$VENV/bin/python\"\s+-m\s+pip)", line)
+        )
+        self.assertNotIn("PyNaCl", command_lines)
+        self.assertNotIn("pynacl", command_lines)
+        self.assertNotIn("bcrypt", command_lines)
+        self.assertNotIn("paramiko", command_lines.lower())
 
     def test_setup_ui_does_not_recommend_manual_sftp_extra_install(self):
         template = (ROOT / "templates" / "documents" / "setup.html").read_text(encoding="utf-8")
