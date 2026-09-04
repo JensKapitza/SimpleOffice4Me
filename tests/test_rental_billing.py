@@ -5,7 +5,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from app.rental_billing import RentalBillingStore, allocate_money
-from app.rentals import _peer_allows_rental_send
+from app.rentals import _enrich_group, _peer_allows_rental_send
 
 
 class RentalBillingTest(unittest.TestCase):
@@ -23,6 +23,14 @@ class RentalBillingTest(unittest.TestCase):
 
     def settlement(self):
         return self.store.create_settlement("Nebenkosten 2026", 2026, "2026-01-01", "2026-12-31", "admin", group_id=self.group_id)
+
+    def test_overview_enrichment_hydrates_units_from_group_list_row(self):
+        raw_group = next(item for item in self.store.groups() if item["group_id"] == self.group_id)
+        self.assertNotIn("units", raw_group)
+        with patch("app.rentals._objects", return_value=[]), patch("app.rentals._contacts", return_value=[]):
+            enriched = _enrich_group(raw_group, store=self.store)
+        self.assertEqual(self.group_id, enriched["group_id"])
+        self.assertEqual({"o1", "o2"}, {unit["object_id"] for unit in enriched["units"]})
 
     def test_cent_allocation_preserves_total(self):
         result = allocate_money(Decimal("10.00"), {"a": Decimal("1"), "b": Decimal("2")})
