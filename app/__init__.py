@@ -267,6 +267,10 @@ app.register_blueprint(task_management.bp)
 from . import personnel
 app.register_blueprint(personnel.bp)
 
+from . import personnel_time_clock
+app.register_blueprint(personnel_time_clock.bp)
+personnel_time_clock.init_app(app)
+
 from . import eur
 app.register_blueprint(eur.bp)
 
