@@ -7,8 +7,14 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4"><div><h1 class="h3">IMAP, SMTP und E-Mail-Archiv</h1><p class="text-secondary mb-0">Eingang wird nur gelesen. Vor jedem SMTP-Versand wird die vollständige EML im privaten Archiv gesichert; Versandfehler bleiben nachvollziehbar.</p></div></div>
   <div class="row g-4">
     <section class="col-xl-5"><div class="card"><div class="card-header"><strong>Serverkonfiguration</strong></div><div class="card-body">
-      <form method="post" action="{{ url_for('mail_client.save_account') }}" class="row g-3">
+      <form method="post" action="{{ url_for('mail_client.save_account') }}" class="row g-3" id="mail-account-form">
         <input type="hidden" name="id" value="{{ selected.id if selected else '' }}">
+        <div class="col-12">
+          <label class="form-label" for="mail-autoconfig-email">E-Mail-Adresse</label>
+          <div class="input-group"><input class="form-control" id="mail-autoconfig-email" type="email" autocomplete="email" value="{{ selected.smtp_from if selected else '' }}" placeholder="name@example.org"><button class="btn btn-outline-primary" type="button" id="mail-autoconfig-button">Server automatisch ermitteln</button></div>
+          <div class="form-text">Wie bei Thunderbird: Provider-Autokonfiguration und Thunderbird-ISPDB werden geprüft; falls nichts gefunden wird, werden Domain-Vorschläge angezeigt.</div>
+          <div class="small mt-2" id="mail-autoconfig-status" role="status" aria-live="polite"></div>
+        </div>
         <div class="col-md-6"><label class="form-label">Bezeichnung</label><input class="form-control" name="label" value="{{ selected.label if selected else '' }}"></div>
         <div class="col-md-6"><label class="form-label">IMAP-Server</label><input class="form-control" required name="host" value="{{ selected.host if selected else '' }}"></div>
         <div class="col-md-4"><label class="form-label">Port</label><input class="form-control" type="number" min="1" max="65535" name="port" value="{{ selected.port if selected else 993 }}"></div>
@@ -73,4 +79,50 @@
     </section>
   </div>
 </main>
+<script>
+(() => {
+  const form = document.getElementById('mail-account-form');
+  const email = document.getElementById('mail-autoconfig-email');
+  const button = document.getElementById('mail-autoconfig-button');
+  const status = document.getElementById('mail-autoconfig-status');
+  if (!form || !email || !button || !status) return;
+
+  const setValue = (name, value) => {
+    const field = form.elements.namedItem(name);
+    if (field && value !== undefined && value !== null) field.value = String(value);
+  };
+  let timer = null;
+  let lastEmail = '';
+
+  async function discover(force = false) {
+    const value = email.value.trim();
+    if (!value || !email.checkValidity() || value === lastEmail && !force) return;
+    lastEmail = value;
+    button.disabled = true;
+    status.className = 'small mt-2 text-secondary';
+    status.textContent = 'Mailserver werden ermittelt …';
+    try {
+      const response = await fetch(`{{ url_for('mail_client.autoconfig') }}?email=${encodeURIComponent(value)}`, {headers: {'Accept': 'application/json'}});
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Autokonfiguration fehlgeschlagen');
+      const s = data.settings;
+      ['label','host','port','security','auth_method','username','folder','smtp_host','smtp_port','smtp_security','smtp_username','smtp_from','sieve_host','sieve_port'].forEach(name => setValue(name, s[name]));
+      const warning = Array.isArray(s.warnings) && s.warnings.length ? ` ${s.warnings.join(' ')}` : '';
+      status.className = `small mt-2 ${s.confidence === 'guess' ? 'text-warning' : 'text-success'}`;
+      status.textContent = `${s.source_label}: IMAP ${s.host}:${s.port}, SMTP ${s.smtp_host}:${s.smtp_port}.${warning}`;
+    } catch (error) {
+      status.className = 'small mt-2 text-danger';
+      status.textContent = error instanceof Error ? error.message : 'Mailserver konnten nicht ermittelt werden.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  button.addEventListener('click', () => discover(true));
+  email.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => discover(false), 700);
+  });
+})();
+</script>
 {% endblock %}
