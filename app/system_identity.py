@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import os
 import platform
 import socket
@@ -13,6 +12,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from flask import current_app, g, request
+
+from simpleoffice_version import build_info
 
 from .file_lock import exclusive_file_lock
 
@@ -74,10 +75,8 @@ def installation_id() -> str:
 
 @lru_cache(maxsize=1)
 def application_version() -> str:
-    try:
-        return importlib.metadata.version("simpleoffice4me")
-    except importlib.metadata.PackageNotFoundError:
-        return "unknown"
+    """Return the exact build identity used by UI, exports and diagnostics."""
+    return str(build_info().get("version") or "1-dev")
 
 
 @lru_cache(maxsize=8)
