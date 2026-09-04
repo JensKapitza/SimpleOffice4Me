@@ -98,7 +98,7 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertIn("./start-sftp.sh init", server)
         self.assertNotIn("SFTP requires: pip install '.[sftp]'", server)
         self.assertIn("./start-sftp.sh init", docs)
-        self.assertNotIn("Nicht direkt `python -m pip install '.[sftp]'`", docs)
+        self.assertIn("Nicht direkt `python -m pip install '.[sftp]'`", docs)
 
 
 if __name__ == "__main__":
