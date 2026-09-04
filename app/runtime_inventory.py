@@ -37,7 +37,6 @@ EXTERNAL_TOOLS = (
     ("Poppler-Vorschau", "Poppler preview", ("pdftoppm", "-v")),
     ("Tesseract-Texterkennung", "Tesseract OCR", ("tesseract", "--version")),
     ("FFmpeg", "FFmpeg", ("ffmpeg", "-version")),
-    ("OpenStreetMap osmium", "OpenStreetMap osmium", ("osmium", "--version")),
     ("Git-Historie", "Git history", ("git", "--version")),
     ("rsync", "rsync", ("rsync", "--version")),
     ("restic-Sicherung", "restic backup", ("restic", "version")),
