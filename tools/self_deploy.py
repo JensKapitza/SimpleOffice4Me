@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -16,21 +17,38 @@ if str(ROOT) not in sys.path:
 from app.software_distribution import apply_release_archive, build_release_archive, clone_release_archive, inspect_release_archive  # noqa: E402
 
 
-def _service_script(root: Path, action: str) -> list[str]:
+def _stop_script(root: Path) -> list[str]:
     if sys.platform == "win32":
-        name = "stop.bat" if action == "stop" else "start.bat"
-        return ["cmd", "/c", str(root / name)]
-    name = "stop.sh" if action == "stop" else "start.sh"
-    return [str(root / name)]
+        return ["cmd", "/c", str(root / "stop.bat")]
+    return [str(root / "stop.sh")]
 
 
-def _run_service(root: Path, action: str) -> None:
-    script = _service_script(root, action)
+def _stop_service(root: Path) -> None:
+    script = _stop_script(root)
     if not Path(script[-1]).exists():
         raise ValueError(f"Service script missing: {script[-1]}")
     result = subprocess.run(script, cwd=root, check=False)
     if result.returncode:
-        raise ValueError(f"{action} failed with exit code {result.returncode}")
+        raise ValueError(f"stop failed with exit code {result.returncode}")
+
+
+def _offline_restart(root: Path) -> None:
+    """Restart using the already prepared venv; never invoke pip or start.sh."""
+    python = root / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    if not python.exists():
+        raise ValueError("Offline-Neustart nicht möglich: lokale .venv fehlt")
+    command = [str(python), "-m", "tools.launcher", "start"]
+    kwargs = {
+        "cwd": str(root),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(command, **kwargs)
 
 
 def main() -> int:
@@ -71,19 +89,19 @@ def main() -> int:
             time.sleep(min(args.delay, 30.0))
         was_stopped = False
         if args.stop_running:
-            _run_service(root, "stop")
+            _stop_service(root)
             was_stopped = True
         try:
             result = apply_release_archive(args.archive, root=root, install_dependencies=not args.no_dependencies)
         except Exception:
             if was_stopped and args.restart:
                 try:
-                    _run_service(root, "start")
+                    _offline_restart(root)
                 except Exception:
                     pass
             raise
         if args.restart:
-            _run_service(root, "start")
+            _offline_restart(root)
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 
