@@ -9,7 +9,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}SimpleOffice4Me{% endblock %}</title>
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  {% set pwa_variant = request.args.get('pwa', '') %}
+  {% set pwa_manifests = {
+    'clock': 'manifest-clock.webmanifest',
+    'files': 'manifest-files.webmanifest',
+    'slideshow': 'manifest-slideshow.webmanifest'
+  } %}
+  <link rel="manifest" href="{{ url_for('static', filename=pwa_manifests.get(pwa_variant, 'manifest.webmanifest')) }}">
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/simpleoffice.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-5.3.8/css/bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-7.3.1/css/all.min.css') }}">
