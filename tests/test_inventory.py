@@ -5,15 +5,18 @@ from unittest.mock import patch
 
 from app.inventory import (
     InventoryEnrichmentStore,
+    _advance_due,
     _find_exact,
     _http_json,
     _image_extension,
+    _inspection_rrule,
     _money,
     isbn_from_barcode,
     merge_book_metadata,
     normalize_isbn,
     parse_google_books,
     parse_openlibrary,
+    record_inventory_task_completion,
 )
 from app.object_store import ObjectStore
 
@@ -65,18 +68,8 @@ class InventoryBookTests(unittest.TestCase):
     def test_google_books_parser_skips_wrong_edition(self):
         payload = {
             "items": [
-                {
-                    "volumeInfo": {
-                        "title": "Wrong Edition",
-                        "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9783161484100"}],
-                    }
-                },
-                {
-                    "volumeInfo": {
-                        "title": "Exact Edition",
-                        "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9780131103627"}],
-                    }
-                },
+                {"volumeInfo": {"title": "Wrong Edition", "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9783161484100"}]}},
+                {"volumeInfo": {"title": "Exact Edition", "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9780131103627"}]}},
             ]
         }
         self.assertEqual("Exact Edition", parse_google_books(payload, "9780131103627")["title"])
@@ -85,12 +78,7 @@ class InventoryBookTests(unittest.TestCase):
         payload = {
             "items": [
                 {"volumeInfo": {"title": "Unspecified Edition"}},
-                {
-                    "volumeInfo": {
-                        "title": "Exact Edition",
-                        "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9780131103627"}],
-                    }
-                },
+                {"volumeInfo": {"title": "Exact Edition", "industryIdentifiers": [{"type": "ISBN_13", "identifier": "9780131103627"}]}},
             ]
         }
         self.assertEqual("Exact Edition", parse_google_books(payload, "9780131103627")["title"])
@@ -167,12 +155,7 @@ class InventoryBookTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             store = ObjectStore(Path(temp))
             created = store.create(
-                {
-                    "name": "Tagged book",
-                    "type": "book",
-                    "identifier": "9780131103627",
-                    "fields": "nfc_id=TAG-123",
-                },
+                {"name": "Tagged book", "type": "book", "identifier": "9780131103627", "fields": "nfc_id=TAG-123"},
                 "tester",
             )
             with patch("app.inventory._objects", return_value=store):
@@ -184,8 +167,65 @@ class InventoryBookTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Metadatenquelle"):
             _http_json("https://example.com/books")
 
-    def test_inventory_form_contains_production_csrf_field(self):
+    def test_inspection_rrules_cover_supported_intervals(self):
+        self.assertEqual("FREQ=MONTHLY;INTERVAL=12", _inspection_rrule(12, "months"))
+        self.assertEqual("FREQ=YEARLY;INTERVAL=1", _inspection_rrule(1, "years"))
+        self.assertEqual("FREQ=WEEKLY;INTERVAL=2", _inspection_rrule(2, "weeks"))
+
+    def test_inspection_due_handles_month_end_and_leap_year(self):
+        self.assertEqual("2027-02-28", _advance_due("2027-01-31", 1, "months"))
+        self.assertEqual("2028-02-29", _advance_due("2027-02-28", 1, "years"))
+
+    def test_inspection_sidecar_records_history_and_next_due(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = InventoryEnrichmentStore(Path(temp))
+            rule = store.add_inspection(
+                "object-1",
+                {"name": "Elektrische Prüfung", "next_due": "2026-10-01", "interval": 12, "unit": "months", "responsible": "tester", "note": "DGUV"},
+                "tester",
+                "task-1",
+            )
+            event = store.complete_inspection("object-1", rule["rule_id"], "tester", result="in Ordnung")
+            self.assertEqual("2027-10-01", event["next_due"])
+            meta = store.object_meta("object-1")
+            self.assertEqual(1, len(meta["inspection_history"]))
+            self.assertEqual("2027-10-01", meta["inspections"][0]["next_due"])
+            self.assertEqual("in Ordnung", meta["inspections"][0]["last_result"])
+
+    def test_task_completion_can_update_inventory_inspection_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = InventoryEnrichmentStore(Path(temp))
+            store.add_inspection(
+                "object-2",
+                {"name": "Nachsehen", "next_due": "2026-11-01", "interval": 1, "unit": "years", "responsible": "", "note": ""},
+                "tester",
+                "task-2",
+            )
+            linked = record_inventory_task_completion(
+                Path(temp),
+                {"id": "task-2", "related_to": ["urn:simpleoffice:object:object-2"], "result": "erledigt"},
+                "tester",
+                "2027-11-01",
+            )
+            self.assertTrue(linked)
+            meta = store.object_meta("object-2")
+            self.assertEqual("2027-11-01", meta["inspections"][0]["next_due"])
+            self.assertEqual("erledigt", meta["inspection_history"][0]["result"])
+
+    def test_inventory_form_contains_universal_fields_and_production_csrf(self):
         template = (Path(__file__).parents[1] / "templates" / "inventory" / "index.html").read_text(encoding="utf-8")
+        for fragment in ('name="_csrf_token"', 'name="item_type"', 'name="manufacturer"', 'name="serial_number"', 'name="inspection_due"'):
+            self.assertIn(fragment, template)
+
+    def test_inventory_detail_contains_inspection_history(self):
+        template = (Path(__file__).parents[1] / "templates" / "inventory" / "detail.html").read_text(encoding="utf-8")
+        self.assertIn("Prüfhistorie", template)
+        self.assertIn("inventory.complete_inspection", template)
+        self.assertIn('name="_csrf_token"', template)
+
+    def test_task_board_uses_security_middleware_csrf_field(self):
+        template = (Path(__file__).parents[1] / "templates" / "tasks" / "board.html").read_text(encoding="utf-8")
+        self.assertNotIn('name="csrf_token"', template)
         self.assertIn('name="_csrf_token"', template)
 
 
