@@ -55,6 +55,16 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertIn("pkg install -y clang make pkg-config libffi openssl", script)
         self.assertIn("pip check", script)
 
+    def test_android_setup_installs_complete_web_runtime_and_repairs_venv(self):
+        script = (ROOT / "android" / "setup-termux.sh").read_text(encoding="utf-8")
+        self.assertIn("--system-site-packages", script)
+        self.assertIn("venv_uses_system_site_packages", script)
+        self.assertIn('PIP_ONLY_BINARY="cryptography"', script)
+        self.assertIn("watchdog>=6,<7", script)
+        self.assertIn("--only-binary=:all:", script)
+        self.assertIn("--no-deps --editable", script)
+        self.assertIn("pip check", script)
+
     def test_termux_web_source_fallback_only_builds_web_runtime_packages(self):
         script = (ROOT / "start.sh").read_text(encoding="utf-8")
         self.assertIn("clang make pkg-config libffi openssl", script)
@@ -71,12 +81,19 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertNotIn("bcrypt", command_lines)
         self.assertNotIn("paramiko", command_lines.lower())
 
-    def test_setup_ui_does_not_recommend_manual_sftp_extra_install(self):
+    def test_all_user_facing_sftp_guidance_uses_safe_starter(self):
         template = (ROOT / "templates" / "documents" / "setup.html").read_text(encoding="utf-8")
         helper = (ROOT / "tools" / "sftp_setup.py").read_text(encoding="utf-8")
+        server = (ROOT / "app" / "sftp_server.py").read_text(encoding="utf-8")
+        docs = (ROOT / "docs" / "VIRTUELLES_DATEISYSTEM_SFTP.md").read_text(encoding="utf-8")
+
         self.assertIn("./start-sftp.sh init", template)
         self.assertIn("nicht</strong> <code>pip install '.[sftp]'", template)
         self.assertIn("Unter Termux nicht 'pip install .[sftp]' verwenden", helper)
+        self.assertIn("./start-sftp.sh init", server)
+        self.assertNotIn("SFTP requires: pip install '.[sftp]'", server)
+        self.assertIn("./start-sftp.sh init", docs)
+        self.assertIn("Nicht direkt `python -m pip install '.[sftp]'`", docs)
 
 
 if __name__ == "__main__":
