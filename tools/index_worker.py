@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Isolated, low-priority document index worker.
 
-The web process only starts this service.  Scanning, hashing, PDF extraction
-and OCR run outside Waitress and cannot consume its Python thread pool or GIL.
+The web process only starts this service.  Scanning, hashing, PDF extraction,
+archive inspection and OCR run outside Waitress and cannot consume its Python
+thread pool or GIL.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+from app.archive_indexer import cleanup_stale_scratch, index_archive, is_supported_archive
 from app.document_store import DocumentStore
 from app.file_lock import exclusive_file_lock
 from app.preview_service import PreviewService, detect_preview_tools
@@ -41,6 +43,23 @@ def lower_process_priority() -> None:
             pass
 
 
+def _post_processor(store: DocumentStore, previews: PreviewService):
+    def process(path: Path) -> None:
+        if previews.supports(path):
+            metadata = store.get_document(path)
+            current = metadata.get("preview", {})
+            if not (
+                current.get("status") == "ready"
+                and current.get("source_sha256") == metadata.get("sha256")
+                and previews.cached_path(metadata)
+            ):
+                store.set_preview_metadata(metadata["document_id"], previews.generate(path, metadata))
+        if is_supported_archive(path):
+            index_archive(store, path)
+
+    return process
+
+
 def run_index(root: str | Path) -> int:
     store = DocumentStore(root)
     store.initialize()
@@ -53,8 +72,10 @@ def run_index(root: str | Path) -> int:
         delay = _bounded_environment("SIMPLEOFFICE_INDEX_DELAY_SECONDS", 2, 0, 300)
         yield_ms = _bounded_environment("SIMPLEOFFICE_INDEX_YIELD_MS", 1, 0, 100)
         lower_process_priority()
+        cleanup_stale_scratch(store)
         tools = detect_preview_tools()
         previews = PreviewService(root, tools)
+        post_process = _post_processor(store, previews)
         store.set_scan_status({"state": "detecting_tools", "preview_tools": tools["commands"]})
         print("Vorschauwerkzeuge: " + ", ".join(f"{name}={'ja' if available else 'nein'}" for name, available in tools["commands"].items()), flush=True)
         started = time.monotonic()
@@ -105,21 +126,12 @@ def run_index(root: str | Path) -> int:
             if yield_ms:
                 time.sleep(yield_ms / 1000)
 
-        def generate_preview(path: Path) -> None:
-            if not previews.supports(path):
-                return
-            metadata = store.get_document(path)
-            current = metadata.get("preview", {})
-            if current.get("status") == "ready" and current.get("source_sha256") == metadata.get("sha256") and previews.cached_path(metadata):
-                return
-            store.set_preview_metadata(metadata["document_id"], previews.generate(path, metadata))
-
         store.set_scan_status({
             "state": "running", "files": 0, "new_files": 0, "updated_files": 0,
             "duplicates": 0, "errors": 0, "process_id": os.getpid(), "preview_tools": tools["commands"],
         })
         try:
-            report = store.scan(report_progress, yield_to_web, post_file=generate_preview)
+            report = store.scan(report_progress, yield_to_web, post_file=post_process)
             elapsed = round(time.monotonic() - started, 3)
             store.set_scan_status({
                 "state": "completed", "files": report.files,
@@ -141,17 +153,15 @@ def run_index(root: str | Path) -> int:
 
 def run_incremental(root: str | Path, paths: set[Path]) -> int:
     """Apply a debounced filesystem-event batch without walking the whole tree."""
-    store = DocumentStore(root); store.initialize()
+    store = DocumentStore(root)
+    store.initialize()
     with exclusive_file_lock(store.control / ".index-worker.lock", blocking=False) as acquired:
-        if not acquired: return 0
+        if not acquired:
+            return 0
         previews = PreviewService(root, detect_preview_tools())
-        def generate_preview(path: Path) -> None:
-            if not previews.supports(path): return
-            metadata = store.get_document(path); current = metadata.get("preview", {})
-            if current.get("status") == "ready" and current.get("source_sha256") == metadata.get("sha256") and previews.cached_path(metadata): return
-            store.set_preview_metadata(metadata["document_id"], previews.generate(path, metadata))
+        post_process = _post_processor(store, previews)
         try:
-            report = store.scan_changed_paths(paths, post_file=generate_preview)
+            report = store.scan_changed_paths(paths, post_file=post_process)
             store.set_scan_status({"state":"watching", "files":report.files, "new_files":report.new_files,
                                    "updated_files":report.updated_files, "duplicates":report.duplicates,
                                    "errors":report.errors, "process_id":os.getpid(), "mode":"inotify"})
@@ -163,27 +173,34 @@ def run_incremental(root: str | Path, paths: set[Path]) -> int:
 
 class _IndexEventHandler(FileSystemEventHandler):
     def __init__(self, changes: queue.Queue[Path | None], root: Path):
-        self.changes = changes; self.root = root
+        self.changes = changes
+        self.root = root
 
     def _ignored(self, value: str) -> bool:
-        try: first = Path(value).resolve(strict=False).relative_to(self.root).parts[0]
-        except (ValueError, IndexError): return True
+        try:
+            first = Path(value).resolve(strict=False).relative_to(self.root).parts[0]
+        except (ValueError, IndexError):
+            return True
         return first in {".simpleoffice-meta", ".simpleoffice-history", ".webcache"}
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        if event.event_type not in {"created", "modified", "deleted", "moved"}: return
-        if self._ignored(event.src_path): return
+        if event.event_type not in {"created", "modified", "deleted", "moved"}:
+            return
+        if self._ignored(event.src_path):
+            return
         if event.is_directory:
             self.changes.put(None)
             return
         self.changes.put(Path(event.src_path))
         destination = getattr(event, "dest_path", "")
-        if destination and not self._ignored(destination): self.changes.put(Path(destination))
+        if destination and not self._ignored(destination):
+            self.changes.put(Path(destination))
 
 
 def run_service(root: str | Path) -> int:
     """Watch with native filesystem notifications and reconcile every six hours."""
-    store = DocumentStore(root); store.initialize()
+    store = DocumentStore(root)
+    store.initialize()
     with exclusive_file_lock(store.control / ".index-service.lock", blocking=False) as acquired:
         if not acquired:
             print("Indexdienst läuft bereits; zweiter Dienst wird beendet.", flush=True)
@@ -191,37 +208,53 @@ def run_service(root: str | Path) -> int:
         interval = _bounded_environment("SIMPLEOFFICE_INDEX_RECONCILE_SECONDS", 21_600, 60, 86_400)
         changes: queue.Queue[Path | None] = queue.Queue()
         resolved_root = Path(root).resolve()
-        observer = Observer(); observer.schedule(_IndexEventHandler(changes, resolved_root), str(resolved_root), recursive=True); observer.start()
+        observer = Observer()
+        observer.schedule(_IndexEventHandler(changes, resolved_root), str(resolved_root), recursive=True)
+        observer.start()
         if run_index(root):
-            observer.stop(); observer.join(timeout=5)
+            observer.stop()
+            observer.join(timeout=5)
             return 1
         next_reconcile = time.monotonic() + interval
         store.set_scan_status({"state":"watching", "process_id":os.getpid(), "mode":"inotify", "reconcile_seconds":interval})
         try:
             while True:
                 timeout = max(0.1, min(1.0, next_reconcile - time.monotonic()))
-                try: first = changes.get(timeout=timeout)
-                except queue.Empty: first = ...
+                try:
+                    first = changes.get(timeout=timeout)
+                except queue.Empty:
+                    first = ...
                 if time.monotonic() >= next_reconcile:
-                    run_index(root); next_reconcile = time.monotonic() + interval
+                    run_index(root)
+                    next_reconcile = time.monotonic() + interval
                     store.set_scan_status({"state":"watching", "process_id":os.getpid(), "mode":"inotify", "reconcile_seconds":interval})
                     continue
-                if first is ...: continue
-                paths: set[Path] = set(); full_scan = first is None
-                if isinstance(first, Path): paths.add(first)
+                if first is ...:
+                    continue
+                paths: set[Path] = set()
+                full_scan = first is None
+                if isinstance(first, Path):
+                    paths.add(first)
                 debounce_until = time.monotonic() + 0.75
                 while time.monotonic() < debounce_until:
-                    try: item = changes.get(timeout=max(0.01, debounce_until - time.monotonic()))
-                    except queue.Empty: break
-                    if item is None: full_scan = True
-                    else: paths.add(item)
+                    try:
+                        item = changes.get(timeout=max(0.01, debounce_until - time.monotonic()))
+                    except queue.Empty:
+                        break
+                    if item is None:
+                        full_scan = True
+                    else:
+                        paths.add(item)
                     debounce_until = time.monotonic() + 0.25
-                if full_scan: run_index(root)
-                elif paths: run_incremental(root, paths)
+                if full_scan:
+                    run_index(root)
+                elif paths:
+                    run_incremental(root, paths)
         except KeyboardInterrupt:
             return 0
         finally:
-            observer.stop(); observer.join(timeout=5)
+            observer.stop()
+            observer.join(timeout=5)
 
 
 def main() -> None:
