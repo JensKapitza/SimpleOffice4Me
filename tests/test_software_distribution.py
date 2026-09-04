@@ -1,11 +1,13 @@
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from app.software_distribution import (
     SoftwareDistributionStore,
@@ -43,7 +45,17 @@ def _commit(root: Path, value: str) -> str:
     return _git(root, "rev-parse", "HEAD")
 
 
+_GIT_TEST_ENV = {
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "gc.auto",
+    "GIT_CONFIG_VALUE_0": "0",
+    "GIT_CONFIG_KEY_1": "maintenance.auto",
+    "GIT_CONFIG_VALUE_1": "false",
+}
+
+
 @unittest.skipUnless(shutil.which("git"), "git unavailable")
+@mock.patch.dict(os.environ, _GIT_TEST_ENV)
 class SoftwareDistributionTests(unittest.TestCase):
     def test_release_order_prefers_version_then_commit_count(self):
         current = {"version": "1.2.3", "commit_count": 10, "build_epoch": 100, "revision": "a"}
