@@ -22,10 +22,7 @@ if ! command -v "$PYTHON_BOOTSTRAP" >/dev/null 2>&1; then
 fi
 
 if [ "$IS_TERMUX" -eq 1 ]; then
-  echo "Termux erkannt: native Python-/SFTP-Abhängigkeiten werden über pkg bevorzugt."
-  # Pillow gehört bereits zur normalen Web-Laufzeit. Die SFTP-spezifischen
-  # nativen Bibliotheken bcrypt/PyNaCl dürfen unter Android nicht unbemerkt von
-  # pip aus Source gebaut werden.
+  echo "Termux erkannt: native Python-/SFTP-Abhängigkeiten werden über pkg bereitgestellt."
   pkg install -y python-cryptography python-pillow python-bcrypt python-pynacl
 
   if [ -x "$VENV_PYTHON" ] && ! grep -Eiq '^include-system-site-packages[[:space:]]*=[[:space:]]*true$' "$VENV/pyvenv.cfg"; then
@@ -43,6 +40,9 @@ if [ ! -x "$VENV_PYTHON" ]; then
 fi
 
 if [ "$IS_TERMUX" -eq 1 ]; then
+  export PIP_ONLY_BINARY="PyNaCl,bcrypt,cryptography"
+  export PIP_PREFER_BINARY=1
+
   "$VENV_PYTHON" - <<'PY'
 import importlib
 for module in ("cryptography", "PIL", "bcrypt", "nacl"):
@@ -50,11 +50,6 @@ for module in ("cryptography", "PIL", "bcrypt", "nacl"):
 print("Termux-native Python-/SFTP-Abhängigkeiten sind importierbar.")
 PY
 
-  # Ein direkter Aufruf von start-sftp.sh muss auch mit einer frischen .venv
-  # funktionieren. Die reinen Web-Laufzeitpakete werden deshalb wie in
-  # start.sh zuerst als fertige Wheels versucht. Erst danach ist ein
-  # kontrollierter Source-Fallback erlaubt. Kryptografie/Pillow bleiben native
-  # Termux-Pakete und sind absichtlich nicht Teil dieser pip-Liste.
   TERMUX_RUNTIME_REQUIREMENTS="Flask>=3.0,<4 beautifulsoup4>=4.12,<5 reportlab>=4.0,<6 pypdf>=5.0,<7 waitress>=3.0,<4 watchdog>=6,<7"
   echo "Termux: versuche zuerst fertige Wheels für die gemeinsame Laufzeit ..."
   # shellcheck disable=SC2086
@@ -65,18 +60,11 @@ PY
     "$VENV_PYTHON" -m pip install --disable-pip-version-check --prefer-binary $TERMUX_RUNTIME_REQUIREMENTS
   fi
 
-  # Paramiko benötigt neben den nativen Paketen auch invoke>=2.0. Da Paramiko
-  # bewusst mit --no-deps installiert wird, ziehen wir diese reine
-  # Python-Abhängigkeit explizit als Wheel vorab ein. So bleibt ausgeschlossen,
-  # dass pip PyNaCl oder bcrypt aus Source bauen möchte.
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: 'invoke>=2.0'
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps 'paramiko>=3.5,<6'
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
   "$VENV_PYTHON" -m pip check
 else
-  # SFTP must run with the same project-owned virtual environment as SimpleOffice.
-  # Re-installing the editable extra is idempotent and adds Paramiko only when
-  # this explicit SFTP starter is used.
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --editable "$ROOT[sftp]"
 fi
 
