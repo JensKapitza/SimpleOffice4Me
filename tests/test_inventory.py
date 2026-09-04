@@ -237,10 +237,37 @@ class InventoryBookTests(unittest.TestCase):
             self.assertEqual("/inventory/items", url_for("inventory.create_item"))
 
     def test_inventory_form_contains_universal_fields_and_production_csrf(self):
-        template = (Path(__file__).parents[1] / "templates" / "inventory" / "index.html").read_text(encoding="utf-8")
-        for fragment in ('name="_csrf_token"', 'name="item_type"', 'name="manufacturer"', 'name="serial_number"', 'name="inspection_due"', 'id="inventory-find"'):
+        root = Path(__file__).parents[1]
+        template = (root / "templates" / "inventory" / "index.html").read_text(encoding="utf-8")
+        script = (root / "static" / "js" / "inventory.js").read_text(encoding="utf-8")
+        for fragment in (
+            'name="_csrf_token"',
+            'name="item_type"',
+            'name="manufacturer"',
+            'name="serial_number"',
+            'name="inspection_due"',
+            'id="inventory-find"',
+            'id="isbn"',
+            'id="lookup-book"',
+        ):
             self.assertIn(fragment, template)
-        self.assertIn("isbn.value=''", template)
+        self.assertIn("static/js/inventory.js", template)
+        self.assertIn("normalizeIsbn", script)
+        self.assertIn("urls.objects", script)
+
+    def test_manual_isbn_control_is_not_hidden_in_book_only_container(self):
+        template = (Path(__file__).parents[1] / "templates" / "inventory" / "index.html").read_text(encoding="utf-8")
+        visible_fragment = '<div class="col-md-5"><label class="form-label" for="isbn">ISBN</label>'
+        self.assertIn(visible_fragment, template)
+        self.assertNotIn('col-md-5 book-only"><label class="form-label" for="isbn">ISBN</label>', template)
+
+    def test_inventory_javascript_supports_full_search_fallback_and_enter_lookup(self):
+        script = (Path(__file__).parents[1] / "static" / "js" / "inventory.js").read_text(encoding="utf-8")
+        self.assertIn("localFinderMatches", script)
+        self.assertIn("urls.objects", script)
+        self.assertIn("event.key === 'Enter'", script)
+        self.assertIn("normalizeIsbn", script)
+        self.assertIn("setLookupCooldown", script)
 
     def test_inventory_detail_contains_inspection_history(self):
         template = (Path(__file__).parents[1] / "templates" / "inventory" / "detail.html").read_text(encoding="utf-8")
