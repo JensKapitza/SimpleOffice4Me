@@ -58,14 +58,14 @@
         </form></details>
       </div></div>
 
-      <div class="card shadow-sm"><div class="card-header"><strong>Prüfhistorie</strong></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Datum</th><th>Prüfung</th><th>Ergebnis</th><th>Nächster Termin</th></tr></thead><tbody>
+      <div class="card shadow-sm"><div class="card-header"><strong>Prüfhistorie</strong></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datum</th><th scope="col">Prüfung</th><th scope="col">Ergebnis</th><th scope="col">Nächster Termin</th></tr></thead><tbody>
         {% for event in inventory.inspection_history|default([])|reverse %}<tr><td>{{ event.completed_at }}</td><td>{{ event.name }}</td><td>{{ event.result or '—' }}</td><td>{{ event.next_due or '—' }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Prüfung dokumentiert.</td></tr>{% endfor %}
       </tbody></table></div></div>
     </section>
 
     <aside class="col-lg-5">
       <div class="card shadow-sm mb-3"><div class="card-header"><strong>Fotos</strong></div><div class="card-body">
-        <div class="row g-2 mb-3">{% for photo in inventory.photos|default([]) %}<div class="col-6"><a href="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" target="_blank" rel="noopener"><img class="img-fluid rounded border w-100" style="aspect-ratio:1/1;object-fit:cover" src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" alt="Inventarfoto"></a></div>{% else %}<div class="col-12 text-secondary">Noch kein Foto vorhanden.</div>{% endfor %}</div>
+        <div class="row g-2 mb-3">{% for photo in inventory.photos|default([]) %}<div class="col-6"><a href="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" target="_blank" rel="noopener noreferrer"><img class="img-fluid rounded border w-100" style="aspect-ratio:1/1;object-fit:cover" src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" alt="Inventarfoto" loading="lazy" decoding="async"></a></div>{% else %}<div class="col-12 text-secondary">Noch kein Foto vorhanden.</div>{% endfor %}</div>
         <form method="post" action="{{ url_for('inventory.add_photo', object_id=item.object_id) }}" enctype="multipart/form-data">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label class="form-label">Foto hinzufügen</label><input required type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment" class="form-control mb-2"><button class="btn btn-outline-primary" type="submit">Foto speichern</button>
         </form>
