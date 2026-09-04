@@ -44,10 +44,23 @@
         <div class="col-md-6">
           <div class="form-check">
             <input class="form-check-input" type="checkbox" name="verify_tls" value="1" id="fritz-tls" {% if config.verify_tls %}checked{% endif %}>
-            <label class="form-check-label" for="fritz-tls">TLS-Zertifikat prüfen</label>
+            <label class="form-check-label" for="fritz-tls">Zertifikat vollständig prüfen</label>
           </div>
-          <div class="form-text">Nur bei einem selbstsignierten lokalen FRITZ!Box-Zertifikat deaktivieren. Die Verbindung bleibt HTTPS, aber die Identität des Servers wird dann nicht geprüft.</div>
+          <div class="form-text">Bei <strong>self signed certificate / CERTIFICATE_VERIFY_FAILED</strong> dieses Häkchen entfernen und erneut verbinden. HTTPS bleibt aktiv; nur die Zertifikatsprüfung wird für diese FRITZ!Box-Verbindung deaktiviert.</div>
         </div>
+        {% if config.verify_tls %}
+        <div class="col-12">
+          <div class="alert alert-warning py-2 mb-0">
+            <strong>Selbstsigniertes FRITZ!Box-Zertifikat?</strong> Falls der Verbindungstest mit „self signed certificate“ oder „CERTIFICATE_VERIFY_FAILED“ endet, <strong>„Zertifikat vollständig prüfen“ deaktivieren</strong>. Das ist bei lokalen FRITZ!Box-Zertifikaten häufig erforderlich.
+          </div>
+        </div>
+        {% else %}
+        <div class="col-12">
+          <div class="alert alert-warning py-2 mb-0">
+            Die Verbindung nutzt weiterhin <strong>HTTPS</strong>, akzeptiert für diese FRITZ!Box aber auch ein selbstsigniertes Zertifikat. Diese Ausnahme nur für eine vertrauenswürdige Box im eigenen Netz verwenden.
+          </div>
+        </div>
+        {% endif %}
         <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
           <button type="submit" class="btn btn-primary"><i class="fas fa-plug me-1" aria-hidden="true"></i>Verbindung testen &amp; Telefonbücher laden</button>
           {% if config.updated_at %}<span class="small text-secondary">Konfiguration zuletzt geändert: {{ config.updated_at }}</span>{% endif %}
