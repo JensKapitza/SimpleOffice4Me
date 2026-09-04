@@ -283,43 +283,58 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
     openlibrary_search: dict[str, Any] = {}
     openlibrary_legacy: dict[str, Any] = {}
     errors: list[str] = []
+    reachable_sources = 0
     required_fields = ("title", "authors", "publisher", "published_date")
+    fields = "key,title,subtitle,author_name,isbn,publisher,first_publish_year,number_of_pages_median,language,subject"
+
     try:
-        google = parse_google_books(
-            _http_json("https://www.googleapis.com/books/v1/volumes?q=" + quote_plus(f"isbn:{isbn}") + "&maxResults=5"),
-            isbn,
+        payload = _http_json(
+            "https://openlibrary.org/search.json?q="
+            + quote_plus(f"isbn:{isbn}")
+            + "&fields="
+            + quote_plus(fields)
+            + "&limit=5"
         )
+        reachable_sources += 1
+        openlibrary_search = parse_openlibrary_search(payload, isbn)
     except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
-        errors.append(f"google:{type(exc).__name__}")
-    if not google or any(not google.get(key) for key in required_fields):
-        fields = "key,title,subtitle,author_name,isbn,publisher,first_publish_year,number_of_pages_median,language,subject"
-        try:
-            openlibrary_search = parse_openlibrary_search(
-                _http_json(
-                    "https://openlibrary.org/search.json?q="
-                    + quote_plus(f"isbn:{isbn}")
-                    + "&fields="
-                    + quote_plus(fields)
-                    + "&limit=5"
-                ),
-                isbn,
-            )
-        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
-            errors.append(f"openlibrary-search:{type(exc).__name__}")
-    result = merge_book_metadata(google, openlibrary_search)
+        errors.append(f"openlibrary-search:{type(exc).__name__}")
+
+    result = dict(openlibrary_search)
     if not result or any(not result.get(key) for key in required_fields):
         try:
-            openlibrary_legacy = parse_openlibrary(
-                _http_json("https://openlibrary.org/api/books?bibkeys=" + quote_plus(f"ISBN:{isbn}") + "&format=json&jscmd=data"),
-                isbn,
+            payload = _http_json(
+                "https://openlibrary.org/api/books?bibkeys="
+                + quote_plus(f"ISBN:{isbn}")
+                + "&format=json&jscmd=data"
             )
+            reachable_sources += 1
+            openlibrary_legacy = parse_openlibrary(payload, isbn)
         except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
             errors.append(f"openlibrary-legacy:{type(exc).__name__}")
     result = merge_book_metadata(result, openlibrary_legacy)
+
+    # Google Books is intentionally only the final fallback. Some installations
+    # block the Google API; a valid Open Library result must therefore never wait
+    # for or depend on Google merely to enrich optional metadata fields.
+    if not result.get("title"):
+        try:
+            payload = _http_json(
+                "https://www.googleapis.com/books/v1/volumes?q="
+                + quote_plus(f"isbn:{isbn}")
+                + "&maxResults=5"
+            )
+            reachable_sources += 1
+            google = parse_google_books(payload, isbn)
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"google:{type(exc).__name__}")
+        result = merge_book_metadata(result, google)
+
     if result:
         result["metadata_checked_at"] = utc_now()
     if errors:
         result["lookup_errors"] = errors
+    result["lookup_reachable"] = reachable_sources > 0
     return result
 
 
@@ -742,7 +757,7 @@ def book_lookup():
         return response
     metadata = lookup_book_metadata(isbn)
     if not metadata.get("title"):
-        if metadata.get("lookup_errors"):
+        if metadata.get("lookup_errors") and not metadata.get("lookup_reachable"):
             response = jsonify({"ok": False, "error": "Buchdatenquellen sind derzeit nicht erreichbar. Internetverbindung bzw. DNS/HTTPS prüfen und erneut versuchen."})
             response.status_code = 503
         else:
