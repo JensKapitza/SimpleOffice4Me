@@ -380,11 +380,11 @@ except ImportError:
 requirements = {
     "Flask": ">=3.0,<4",
     "beautifulsoup4": ">=4.12,<5",
-    "Pillow": ">=12.3,<13",
+    "Pillow": ">=12.2,<13",
     "reportlab": ">=4.0,<6",
     "pypdf": ">=5.0,<7",
     "waitress": ">=3.0,<4",
-    "cryptography": ">=50,<51",
+    "cryptography": ">=48.0.1,<51",
     "watchdog": ">=6,<7",
 }
 
@@ -425,8 +425,8 @@ except ImportError:
     from pip._vendor.packaging.version import Version
 
 requirements = {
-    "cryptography": (">=50,<51", "cryptography"),
-    "Pillow": (">=12.3,<13", "PIL"),
+    "cryptography": (">=48.0.1,<51", "cryptography"),
+    "Pillow": (">=12.2,<13", "PIL"),
 }
 problems = []
 for distribution, (specifier, module) in requirements.items():
