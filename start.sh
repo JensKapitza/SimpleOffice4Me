@@ -259,7 +259,7 @@ python_runtime_packages() {
 native_python_packages() {
   case "$NATIVE_PM" in
     pkg)
-      printf '%s\n' "python-cryptography python-pillow"
+      printf '%s\n' "tzdata python-cryptography python-pillow"
       ;;
     apt)
       printf '%s\n' "python3-venv python3-flask python3-bs4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-pil"
@@ -416,6 +416,7 @@ termux_native_dependencies_ok() {
   "$VENV/bin/python" - <<'PY'
 import importlib
 from importlib.metadata import PackageNotFoundError, version
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
     from packaging.specifiers import SpecifierSet
@@ -441,13 +442,18 @@ for distribution, (specifier, module) in requirements.items():
     except Exception as exc:
         problems.append(f"{distribution}/{module}: nicht importierbar: {exc}")
 
+try:
+    ZoneInfo("Europe/Berlin")
+except ZoneInfoNotFoundError:
+    problems.append("tzdata: Zeitzone Europe/Berlin fehlt")
+
 if problems:
     print("Termux-native Web-Abhängigkeiten sind nicht verwendbar:")
     for problem in problems:
         print(f"  - {problem}")
     raise SystemExit(1)
 
-print("Termux-native Web-Pakete sind vorhanden und versionskompatibel.")
+print("Termux-native Web-Pakete und Zeitzonendaten sind vorhanden und verwendbar.")
 PY
 }
 
@@ -488,10 +494,10 @@ fi
 
 if [ "$IS_TERMUX" -eq 1 ]; then
   if ! termux_native_dependencies_ok; then
-    echo "Termux-Webpakete werden erneut installiert/aktualisiert, bevor pip verwendet wird."
-    install_native_packages python-cryptography python-pillow
+    echo "Termux-Webpakete und Zeitzonendaten werden erneut installiert/aktualisiert, bevor pip verwendet wird."
+    install_native_packages tzdata python-cryptography python-pillow
     termux_native_dependencies_ok || {
-      echo "Die benötigten nativen Termux-Webpakete sind weiterhin nicht verwendbar; cryptography wird absichtlich nicht aus Source gebaut." >&2
+      echo "Die benötigten nativen Termux-Webpakete oder Zeitzonendaten sind weiterhin nicht verwendbar; cryptography wird absichtlich nicht aus Source gebaut." >&2
       exit 1
     }
   fi

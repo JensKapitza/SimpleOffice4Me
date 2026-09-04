@@ -12,7 +12,7 @@ fi
 
 echo "Installiere Android-Systempakete …"
 pkg update -y
-pkg install -y python python-pip python-pillow python-cryptography git
+pkg install -y python python-pip tzdata python-pillow python-cryptography git
 
 venv_uses_system_site_packages() {
   [ -f "$VENV/pyvenv.cfg" ] \
@@ -37,10 +37,16 @@ echo "Prüfe native Termux-Pakete …"
 "$VENV/bin/python" - <<'PY'
 import importlib
 from importlib.metadata import version
+from zoneinfo import ZoneInfo
 
 for distribution, module in (("cryptography", "cryptography"), ("Pillow", "PIL")):
     importlib.import_module(module)
     print(f"  {distribution} {version(distribution)} importierbar")
+
+# Python's zoneinfo needs the IANA database. Android/Termux does not guarantee
+# that it exists until the native tzdata package is installed.
+ZoneInfo("Europe/Berlin")
+print("  tzdata: Europe/Berlin verfügbar")
 PY
 
 echo "Installiere SimpleOffice-Pythonpakete …"

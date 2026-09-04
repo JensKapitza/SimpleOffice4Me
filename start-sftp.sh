@@ -19,7 +19,7 @@ if [ "$IS_TERMUX" -eq 1 ]; then
   echo "Termux erkannt: Python und native SFTP-Abhängigkeiten werden über pkg bereitgestellt."
   # Python selbst gehört zum Bootstrap: start-sftp.sh muss auf einer frischen
   # Termux-Installation nicht bereits ein manuell eingerichtetes Python voraussetzen.
-  pkg install -y python python-pip python-cryptography python-pillow python-bcrypt python-pynacl
+  pkg install -y python python-pip tzdata python-cryptography python-pillow python-bcrypt python-pynacl
 
   # Wenn der Android-Schnellstarter bereits eingerichtet wurde, dieselbe
   # projektlokale Umgebung weiterverwenden statt eine zweite Termux-venv anzulegen.
@@ -90,6 +90,7 @@ import importlib
 from importlib.metadata import distribution, version
 from pathlib import Path
 import sys
+from zoneinfo import ZoneInfo
 
 venv = Path(sys.argv[1]).resolve()
 packages = (
@@ -106,6 +107,9 @@ for distribution_name, module_name in packages:
             f"{distribution_name} kommt aus der lokalen venv statt aus Termux: {location}"
         )
     print(f"  {distribution_name} {version(distribution_name)}: native Termux-Installation")
+
+ZoneInfo("Europe/Berlin")
+print("  tzdata: Europe/Berlin verfügbar")
 PY
 
   TERMUX_RUNTIME_REQUIREMENTS="Flask>=3.0,<4 beautifulsoup4>=4.12,<5 reportlab>=4.0,<6 pypdf>=5.0,<7 waitress>=3.0,<4 watchdog>=6,<7"
