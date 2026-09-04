@@ -28,6 +28,13 @@ def _actor() -> str:
     return str(g.user["username"])
 
 
+def _task_by_id(item_id: str, actor: str) -> dict[str, Any]:
+    task = next((row for row in _store().items(actor) if str(row.get("id", "")) == str(item_id)), None)
+    if task is None:
+        raise ValueError("Unbekannte Aufgabe")
+    return task
+
+
 def _parse_rrule(value: str) -> dict[str, str]:
     result: dict[str, str] = {}
     for item in str(value or "").upper().split(";"):
@@ -210,7 +217,7 @@ def move_task(item_id: str):
 def create_subtask(item_id: str):
     actor = _actor()
     try:
-        parent = _store().get(item_id, actor)
+        parent = _task_by_id(item_id, actor)
         title = request.form.get("title", "").strip()
         values = {
             "list_id": parent.get("list_id", "personal"),
@@ -236,7 +243,7 @@ def create_subtask(item_id: str):
 def complete_occurrence(item_id: str):
     actor = _actor()
     try:
-        task = _store().get(item_id, actor)
+        task = _task_by_id(item_id, actor)
         next_due = ""
         message = "Aufgabe erledigt."
         if not task.get("rrule"):
