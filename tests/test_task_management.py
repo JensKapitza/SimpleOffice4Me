@@ -34,6 +34,19 @@ class TaskRecurrenceTest(unittest.TestCase):
         values = next_recurrence_values({"rrule": "FREQ=WEEKLY;COUNT=3", "due": "2026-09-03"})
         self.assertIsNone(values)
 
+    def test_next_occurrence_clears_previous_completion_result(self):
+        values = next_recurrence_values(
+            {
+                "rrule": "FREQ=YEARLY",
+                "due": "2026-09-04",
+                "result": "Prüfung 2026 in Ordnung",
+                "completed_at": "2026-09-04",
+            }
+        )
+        self.assertEqual("", values["result"])
+        self.assertEqual("", values["completed_at"])
+        self.assertEqual("2027-09-04", values["due"])
+
 
 class TaskSubtaskPersistenceTest(unittest.TestCase):
     def setUp(self):

@@ -28,6 +28,13 @@ def _actor() -> str:
     return str(g.user["username"])
 
 
+def _task_by_id(item_id: str, actor: str) -> dict[str, Any]:
+    task = next((row for row in _store().items(actor) if str(row.get("id", "")) == str(item_id)), None)
+    if task is None:
+        raise ValueError("Unbekannte Aufgabe")
+    return task
+
+
 def _parse_rrule(value: str) -> dict[str, str]:
     result: dict[str, str] = {}
     for item in str(value or "").upper().split(";"):
@@ -85,8 +92,6 @@ def next_recurrence_values(task: dict[str, Any]) -> dict[str, str] | None:
     frequency = rule.get("FREQ", "")
     if frequency not in {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}:
         return None
-    # COUNT needs a durable occurrence counter. Until TodoStore has one, do not
-    # silently violate a finite recurrence rule.
     if "COUNT" in rule:
         return None
     try:
@@ -115,7 +120,12 @@ def next_recurrence_values(task: dict[str, Any]) -> dict[str, str] | None:
                 return None
         except TypeError:
             return None
-    updates: dict[str, str] = {"status": "needs-action", "percent_complete": "0", "completed": ""}
+    updates: dict[str, str] = {
+        "status": "needs-action",
+        "percent_complete": "0",
+        "completed_at": "",
+        "result": "",
+    }
     due_info = _parse_anchor(str(task.get("due", "")))
     start_info = _parse_anchor(str(task.get("start", "")))
     delta = next_anchor - anchor
@@ -124,6 +134,38 @@ def next_recurrence_values(task: dict[str, Any]) -> dict[str, str] | None:
     if start_info:
         updates["start"] = _format_anchor(start_info[0] + delta, start_info[1])
     return updates
+
+
+def _complete_task_occurrence(item_id: str, actor: str) -> str:
+    task = _task_by_id(item_id, actor)
+    if task.get("status") == "completed" and not task.get("rrule"):
+        raise ValueError("Aufgabe ist bereits erledigt")
+
+    next_due = ""
+    message = "Aufgabe erledigt."
+    if not task.get("rrule"):
+        _store().update(item_id, {"status": "completed", "percent_complete": 100}, actor)
+    else:
+        updates = next_recurrence_values(task)
+        if updates is None:
+            _store().update(item_id, {"status": "completed", "percent_complete": 100}, actor)
+            message = "Serie beendet oder Regel nicht automatisch fortschaltbar; Aufgabe wurde abgeschlossen."
+        else:
+            _store().update(item_id, updates, actor)
+            next_due = str(updates.get("due", ""))
+            message = "Vorkommen erledigt; Aufgabe auf den nächsten Termin verschoben."
+
+    try:
+        from .inventory import record_inventory_task_completion
+
+        linked = record_inventory_task_completion(
+            current_app.config["DOCUMENT_ROOT"], task, actor, next_due
+        )
+        if linked:
+            message += " Inventar-Prüfhistorie aktualisiert."
+    except (OSError, ValueError) as exc:
+        message += f" Warnung: Inventar-Prüfhistorie konnte nicht aktualisiert werden: {exc}"
+    return message
 
 
 def _visible_rows(actor: str) -> list[dict[str, Any]]:
@@ -191,16 +233,18 @@ def create_task():
 @bp.post("/<item_id>/move")
 @login_required
 def move_task(item_id: str):
+    actor = _actor()
     try:
         status = request.form.get("status", "needs-action")
         if status not in {item[0] for item in BOARD_COLUMNS}:
             raise ValueError("Ungültiger Aufgabenstatus")
-        values: dict[str, Any] = {"status": status}
         if status == "completed":
-            values["percent_complete"] = 100
-        elif status == "needs-action":
+            flash(_complete_task_occurrence(item_id, actor))
+            return redirect(url_for("tasks.board"))
+        values: dict[str, Any] = {"status": status}
+        if status == "needs-action":
             values["percent_complete"] = 0
-        _store().update(item_id, values, _actor())
+        _store().update(item_id, values, actor)
         flash("Aufgabenstatus aktualisiert.")
     except ValueError as exc:
         flash(str(exc))
@@ -212,7 +256,7 @@ def move_task(item_id: str):
 def create_subtask(item_id: str):
     actor = _actor()
     try:
-        parent = _store().get(item_id, actor)
+        parent = _task_by_id(item_id, actor)
         title = request.form.get("title", "").strip()
         values = {
             "list_id": parent.get("list_id", "personal"),
@@ -236,20 +280,8 @@ def create_subtask(item_id: str):
 @bp.post("/<item_id>/complete-occurrence")
 @login_required
 def complete_occurrence(item_id: str):
-    actor = _actor()
     try:
-        task = _store().get(item_id, actor)
-        if not task.get("rrule"):
-            _store().update(item_id, {"status": "completed", "percent_complete": 100}, actor)
-            flash("Aufgabe erledigt.")
-        else:
-            updates = next_recurrence_values(task)
-            if updates is None:
-                _store().update(item_id, {"status": "completed", "percent_complete": 100}, actor)
-                flash("Serie beendet oder Regel nicht automatisch fortschaltbar; Aufgabe wurde abgeschlossen.")
-            else:
-                _store().update(item_id, updates, actor)
-                flash("Vorkommen erledigt; Aufgabe auf den nächsten Termin verschoben.")
+        flash(_complete_task_occurrence(item_id, _actor()))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("tasks.board"))
