@@ -12,6 +12,16 @@
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <form id="inventory-find-form" class="row g-2 align-items-end" role="search">
+        <div class="col-md-9"><label class="form-label" for="inventory-find">Gegenstand wiederfinden</label><input id="inventory-find" class="form-control form-control-lg" autocomplete="off" placeholder="Inventarnummer, Barcode, ISBN oder NFC-ID"></div>
+        <div class="col-md-3 d-grid"><button class="btn btn-outline-primary btn-lg" type="submit"><i class="fas fa-search me-2"></i>Suchen</button></div>
+      </form>
+      <div class="form-text">Exakte Kennungen werden zuerst gesucht; eine reine Zahl wird danach auch als Inventarnummer geprüft.</div>
+    </div>
+  </div>
+
   <div class="row g-3 align-items-start">
     <section class="col-xl-7">
       <div class="card shadow-sm">
@@ -118,14 +128,26 @@
     }catch(error){setStatus('Buchdatenabruf ist fehlgeschlagen.','danger');}
     finally{setTimeout(()=>{$('lookup-book').disabled=false;},5000);}
   };
+  const quickFind=async()=>{
+    const q=$('inventory-find').value.trim();
+    if(!q)return;
+    try{
+      const response=await fetch(`{{ url_for('inventory.find_item') }}?identifier=${encodeURIComponent(q)}&nfc=${encodeURIComponent(q)}`,{headers:{Accept:'application/json'},cache:'no-store'});
+      const data=await response.json();
+      if(data.found){window.location.assign(data.url);return;}
+      if(/^#?[0-9]+$/.test(q)){window.location.assign(`{{ url_for('inventory.index') }}/${encodeURIComponent(q.replace(/^#/,''))}`);return;}
+      setStatus(`Kein Inventarobjekt zu „${q}“ gefunden.`,'warning');
+    }catch(error){setStatus('Inventarsuche ist fehlgeschlagen.','danger');}
+  };
+  $('inventory-find-form').addEventListener('submit',event=>{event.preventDefault();quickFind();});
   type.addEventListener('input',updateMode);isbn.addEventListener('input',updateMode);$('lookup-book').addEventListener('click',lookup);
-  $('amazon-search').addEventListener('click',()=>{const q=isbn.value.trim()||barcode.value.trim()||$('title').value.trim();if(!q){setStatus('Für die Amazon-Suche zuerst ISBN, Barcode oder Titel erfassen.','warning');return;}window.open(`{{ url_for('inventory.amazon_search') }}?q=${encodeURIComponent(q)}`,'_blank','noopener');});
+  $('amazon-search').addEventListener('click',()=>{const q=isbn.value.trim()||barcode.value.trim()||$('title').value.trim();if(!q){setStatus('Für die Amazon-Suche zuerst ISBN, Barcode oder Titel erfassen.','warning');return;}window.open(`{{ url_for('inventory.amazon_search') }}?q=${encodeURIComponent(q)}`,'_blank','noopener,noreferrer');});
   $('start-barcode').addEventListener('click',async()=>{
     if(!('BarcodeDetector' in window)){setStatus('BarcodeDetector fehlt. Kennung kann manuell eingetragen werden.','warning');return;}
     if(!navigator.mediaDevices?.getUserMedia){setStatus('Kamera-Zugriff nicht verfügbar; HTTPS kann erforderlich sein.','warning');return;}
     try{
       detector=new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code']});stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});const video=$('camera-preview');video.srcObject=stream;$('camera-box').hidden=false;scanning=true;setStatus('Barcode vor die Kamera halten …','primary');
-      const scan=async()=>{if(!scanning)return;try{const codes=await detector.detect(video);if(codes.length){const value=codes[0].rawValue||'';barcode.value=value;if(/^97[89][0-9]{10}$/.test(value)){isbn.value=value;type.value='book';updateMode();setStatus(`ISBN erkannt: ${value}. Buchdaten können geladen werden.`,'success');}else{setStatus(`Barcode erkannt: ${value}`,'success');}stopCamera();return;}}catch(error){}requestAnimationFrame(scan);};requestAnimationFrame(scan);
+      const scan=async()=>{if(!scanning)return;try{const codes=await detector.detect(video);if(codes.length){const value=codes[0].rawValue||'';barcode.value=value;if(/^97[89][0-9]{10}$/.test(value)){isbn.value=value;type.value='book';updateMode();setStatus(`ISBN erkannt: ${value}. Buchdaten können geladen werden.`,'success');}else{isbn.value='';updateMode();setStatus(`Barcode erkannt: ${value}`,'success');}stopCamera();return;}}catch(error){}requestAnimationFrame(scan);};requestAnimationFrame(scan);
     }catch(error){stopCamera();setStatus('Kamera konnte nicht geöffnet werden.','danger');}
   });
   $('scan-nfc').addEventListener('click',async()=>{if(!('NDEFReader' in window)){setStatus('Web NFC wird nicht unterstützt. NFC-Wert kann manuell eingetragen werden.','warning');return;}try{const reader=new NDEFReader();await reader.scan();setStatus('NFC-Tag an das Handy halten …','primary');reader.addEventListener('reading',event=>{const parts=[];if(event.serialNumber)parts.push(event.serialNumber);for(const record of event.message.records){try{if(record.data)parts.push(new TextDecoder(record.encoding||'utf-8').decode(record.data));}catch(error){}}nfc.value=parts.filter(Boolean).join(' | ').slice(0,240);setStatus('NFC wurde gelesen.','success');},{once:true});}catch(error){setStatus('NFC konnte nicht gelesen werden.','danger');}});
