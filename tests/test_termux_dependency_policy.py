@@ -9,7 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 class TermuxDependencyPolicyTests(unittest.TestCase):
     def test_normal_termux_web_start_excludes_sftp_dependencies(self):
         script = (ROOT / "start.sh").read_text(encoding="utf-8")
-        self.assertIn("tzdata python-cryptography python-pillow", script)
+        self.assertIn('printf \'%s\\n\' "python-cryptography python-pillow"', script)
+        self.assertNotIn('printf \'%s\\n\' "tzdata python-cryptography python-pillow"', script)
+        self.assertIn("'tzdata>=2024.1'", script)
+        self.assertIn("--only-binary=:all: 'tzdata>=2024.1'", script)
         self.assertIn('ZoneInfo("Europe/Berlin")', script)
         self.assertNotIn("python-bcrypt", script)
         self.assertNotIn("python-pynacl", script)
@@ -25,13 +28,14 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         for package in (
             "python",
             "python-pip",
-            "tzdata",
             "python-cryptography",
             "python-pillow",
             "python-bcrypt",
             "python-pynacl",
         ):
             self.assertIn(package, script)
+        self.assertNotIn("pkg install -y python python-pip tzdata", script)
+        self.assertIn("tzdata>=2024.1", script)
         self.assertIn('ZoneInfo("Europe/Berlin")', script)
         self.assertIn("--system-site-packages", script)
         self.assertIn('PIP_ONLY_BINARY="pynacl,bcrypt,cryptography"', script)
@@ -53,6 +57,7 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
             "pypdf>=5.0,<7",
             "waitress>=3.0,<4",
             "watchdog>=6,<7",
+            "tzdata>=2024.1",
         ):
             self.assertIn(requirement, script)
         self.assertIn("pkg install -y clang make pkg-config libffi openssl", script)
@@ -60,7 +65,9 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
 
     def test_android_setup_installs_complete_web_runtime_and_repairs_venv(self):
         script = (ROOT / "android" / "setup-termux.sh").read_text(encoding="utf-8")
-        self.assertIn("pkg install -y python python-pip tzdata", script)
+        self.assertIn("pkg install -y python python-pip python-pillow python-cryptography git", script)
+        self.assertNotIn("pkg install -y python python-pip tzdata", script)
+        self.assertIn("'tzdata>=2024.1'", script)
         self.assertIn('ZoneInfo("Europe/Berlin")', script)
         self.assertIn("--system-site-packages", script)
         self.assertIn("venv_uses_system_site_packages", script)
@@ -69,6 +76,10 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertIn("--only-binary=:all:", script)
         self.assertIn("--no-deps --editable", script)
         self.assertIn("pip check", script)
+
+    def test_project_declares_python_tzdata_fallback(self):
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('"tzdata>=2024.1"', pyproject)
 
     def test_termux_web_source_fallback_only_builds_web_runtime_packages(self):
         script = (ROOT / "start.sh").read_text(encoding="utf-8")
