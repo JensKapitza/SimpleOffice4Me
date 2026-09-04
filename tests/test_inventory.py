@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import Flask, url_for
+
 from app.inventory import (
     InventoryEnrichmentStore,
     _advance_due,
@@ -228,12 +230,11 @@ class InventoryBookTests(unittest.TestCase):
             self.assertEqual("erledigt", meta["inspection_history"][0]["result"])
 
     def test_inventory_blueprint_preserves_legacy_create_book_endpoint(self):
-        endpoints = {
-            deferred.__closure__[0].cell_contents.get("endpoint")
-            for deferred in inventory_blueprint.deferred_functions
-            if deferred.__closure__ and isinstance(deferred.__closure__[0].cell_contents, dict)
-        }
-        self.assertIn("create_book", endpoints)
+        app = Flask("inventory-route-test")
+        app.register_blueprint(inventory_blueprint)
+        with app.test_request_context():
+            self.assertEqual("/inventory/books", url_for("inventory.create_book"))
+            self.assertEqual("/inventory/items", url_for("inventory.create_item"))
 
     def test_inventory_form_contains_universal_fields_and_production_csrf(self):
         template = (Path(__file__).parents[1] / "templates" / "inventory" / "index.html").read_text(encoding="utf-8")
