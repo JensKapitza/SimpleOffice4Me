@@ -65,8 +65,11 @@ PY
     "$VENV_PYTHON" -m pip install --disable-pip-version-check --prefer-binary $TERMUX_RUNTIME_REQUIREMENTS
   fi
 
-  # Paramiko selbst ist Python-Code. Seine nativen Abhängigkeiten kommen oben
-  # aus Termux pkg; --no-deps verhindert einen PyNaCl-/bcrypt-Source-Build.
+  # Paramiko 5 benötigt neben den nativen Paketen auch invoke>=2.0. Da Paramiko
+  # bewusst mit --no-deps installiert wird, ziehen wir diese reine
+  # Python-Abhängigkeit explizit als Wheel vorab ein. So bleibt ausgeschlossen,
+  # dass pip PyNaCl oder bcrypt aus Source bauen möchte.
+  "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: 'invoke>=2.0'
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps 'paramiko>=3.5,<6'
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
   "$VENV_PYTHON" -m pip check
