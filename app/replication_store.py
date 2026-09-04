@@ -202,6 +202,7 @@ def init_app(app) -> None:
         federation_mail_http,
         federation_phase2,
         federation_software_http,
+        fritzbox_contacts,
         mail_index_routes,
         rentals,
         software_admin,
@@ -217,3 +218,4 @@ def init_app(app) -> None:
     app.register_blueprint(software_admin.bp)
     app.register_blueprint(rentals.bp)
     app.register_blueprint(mail_index_routes.bp)
+    app.register_blueprint(fritzbox_contacts.bp)

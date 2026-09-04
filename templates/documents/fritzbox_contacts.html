@@ -1,0 +1,120 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <a class="small text-decoration-none" href="{{ url_for('documents.contacts') }}">← Kontakte</a>
+      <h1 class="h2 mt-2 mb-1">FRITZ!Box-Kontakte</h1>
+      <p class="text-secondary mb-0">Kontakte aus SimpleOffice in ein lokales FRITZ!Box-Telefonbuch speichern und später über die FRITZ!Box-UID aktualisieren.</p>
+    </div>
+    <span class="badge text-bg-secondary fs-6">{{ syncable_count }} mit Telefonnummer</span>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="alert alert-secondary">
+    <strong>Voraussetzung:</strong> Der verwendete FRITZ!Box-Benutzer benötigt die Berechtigung <strong>Telefonie</strong>. Der Sync schreibt nur in lokale FRITZ!Box-Telefonbücher; Online-Telefonbücher sind über TR-064 nicht beschreibbar.
+  </div>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>1. Verbindung &amp; Telefonbuch</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('fritzbox_contacts.discover') }}" class="row g-3">
+        <div class="col-lg-5">
+          <label class="form-label" for="fritz-url">HTTPS-Adresse</label>
+          <input id="fritz-url" required class="form-control font-monospace" name="url" value="{{ config.url }}" placeholder="https://fritz.box:49443" autocomplete="url">
+          <div class="form-text">Nur die Basis-URL angeben, keine Zugangsdaten in die URL schreiben.</div>
+        </div>
+        <div class="col-lg-3">
+          <label class="form-label" for="fritz-user">Benutzername</label>
+          <input id="fritz-user" required class="form-control" name="username" value="{{ config.username }}" autocomplete="username">
+        </div>
+        <div class="col-lg-4">
+          <label class="form-label" for="fritz-password">Passwort</label>
+          <input id="fritz-password" class="form-control" type="password" name="password" autocomplete="current-password" placeholder="{% if config.password_saved %}Gespeichertes Passwort verwenden{% else %}FRITZ!Box-Passwort{% endif %}">
+          {% if config.password_saved %}<div class="form-text">Ein Passwort ist verschlüsselt gespeichert. Leer lassen, um es zu verwenden.</div>{% endif %}
+        </div>
+        <div class="col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="remember" value="1" id="fritz-remember" {% if config.password_saved %}checked{% endif %}>
+            <label class="form-check-label" for="fritz-remember">Passwort verschlüsselt speichern</label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="verify_tls" value="1" id="fritz-tls" {% if config.verify_tls %}checked{% endif %}>
+            <label class="form-check-label" for="fritz-tls">TLS-Zertifikat prüfen</label>
+          </div>
+          <div class="form-text">Nur bei einem selbstsignierten lokalen FRITZ!Box-Zertifikat deaktivieren. Die Verbindung bleibt HTTPS, aber die Identität des Servers wird dann nicht geprüft.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
+          <button type="submit" class="btn btn-primary"><i class="fas fa-plug me-1" aria-hidden="true"></i>Verbindung testen &amp; Telefonbücher laden</button>
+          {% if config.updated_at %}<span class="small text-secondary">Konfiguration zuletzt geändert: {{ config.updated_at }}</span>{% endif %}
+        </div>
+      </form>
+    </div>
+  </section>
+
+  {% if phonebooks %}
+  <section class="card mb-4">
+    <div class="card-header"><strong>2. Ziel auswählen &amp; Kontakte übertragen</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('fritzbox_contacts.sync') }}">
+        <div class="row g-3 align-items-end mb-3">
+          <div class="col-lg-6">
+            <label class="form-label" for="phonebook-id">FRITZ!Box-Telefonbuch</label>
+            <select required class="form-select" id="phonebook-id" name="phonebook_id">
+              <option value="">Telefonbuch wählen</option>
+              {% for book in phonebooks %}<option value="{{ book.id }}" {% if config.phonebook_id|string == book.id|string %}selected{% endif %}>{{ book.name }} (ID {{ book.id }})</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-lg-6">
+            {% if not config.password_saved %}
+            <label class="form-label" for="sync-password">Passwort für diesen Sync</label>
+            <input id="sync-password" required class="form-control" type="password" name="password" autocomplete="current-password">
+            {% else %}
+            <div class="form-text pb-2">Für den Sync wird das verschlüsselt gespeicherte Passwort verwendet.</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-secondary" type="button" id="select-all">Alle mit Telefonnummer</button>
+            <button class="btn btn-outline-secondary" type="button" id="select-none">Keine</button>
+          </div>
+          <button class="btn btn-success" type="submit"><i class="fas fa-address-book me-1" aria-hidden="true"></i>Ausgewählte speichern / aktualisieren</button>
+        </div>
+
+        <div class="table-responsive border rounded">
+          <table class="table table-hover align-middle mb-0">
+            <thead><tr><th scope="col" class="text-center">Sync</th><th scope="col">Kontakt</th><th scope="col">Telefon</th><th scope="col">E-Mail</th></tr></thead>
+            <tbody>
+            {% for contact in contacts %}
+              <tr class="{% if not contact.syncable %}text-secondary{% endif %}">
+                <td class="text-center"><input class="form-check-input fritz-contact" type="checkbox" name="contact_id" value="{{ contact.contact_id }}" {% if not contact.syncable %}disabled{% endif %} aria-label="{{ contact.fields.display_name }} synchronisieren"></td>
+                <td><strong>{{ contact.fields.display_name }}</strong>{% if contact.fields.company %}<div class="small text-secondary">{{ contact.fields.company }}</div>{% endif %}</td>
+                <td>{{ contact.fields.mobile or contact.fields.phone_private or contact.fields.phone_business or contact.fields.phone or '–' }}</td>
+                <td>{{ contact.fields.email or '–' }}</td>
+              </tr>
+            {% else %}<tr><td colspan="4" class="text-secondary">Noch keine Kontakte vorhanden.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="form-text mt-2 mb-0">Beim ersten Export wird ein neuer FRITZ!Box-Eintrag angelegt. Die zurückgelieferte UID wird lokal gespeichert; spätere Exporte desselben Kontakts aktualisieren genau diesen Eintrag. Es werden keine FRITZ!Box-Kontakte automatisch gelöscht.</p>
+      </form>
+    </div>
+  </section>
+  {% else %}
+  <div class="alert alert-light border">Nach einem erfolgreichen Verbindungstest werden hier die von der FRITZ!Box gemeldeten Telefonbücher und die übertragbaren Kontakte angezeigt.</div>
+  {% endif %}
+</main>
+<script>
+(()=>{
+  const boxes=Array.from(document.querySelectorAll('.fritz-contact:not(:disabled)'));
+  document.getElementById('select-all')?.addEventListener('click',()=>boxes.forEach(box=>box.checked=true));
+  document.getElementById('select-none')?.addEventListener('click',()=>boxes.forEach(box=>box.checked=false));
+})();
+</script>
+{% endblock %}
