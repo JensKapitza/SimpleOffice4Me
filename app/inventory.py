@@ -51,6 +51,10 @@ MAX_METADATA_BYTES = 2 * 1024 * 1024
 ALLOWED_METADATA_HOSTS = {"www.googleapis.com", "openlibrary.org"}
 INSPECTION_UNITS = {"days", "weeks", "months", "years"}
 BOOK_TYPE_NAMES = {"book", "buch"}
+FIREFOX_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) "
+    "Gecko/20100101 Firefox/140.0"
+)
 
 
 def _objects() -> ObjectStore:
@@ -106,7 +110,15 @@ def _http_json(url: str) -> dict[str, Any]:
     parsed = urlsplit(url)
     if parsed.scheme != "https" or parsed.hostname not in ALLOWED_METADATA_HOSTS:
         raise ValueError("Nicht erlaubte Metadatenquelle")
-    req = Request(url, headers={"Accept": "application/json", "User-Agent": "SimpleOffice4Me-inventory/1.0"})
+    req = Request(
+        url,
+        headers={
+            "Accept": "application/json,text/plain,*/*",
+            "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.7,en;q=0.5",
+            "Cache-Control": "no-cache",
+            "User-Agent": FIREFOX_USER_AGENT,
+        },
+    )
     with urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as response:  # noqa: S310 - allowlisted HTTPS hosts only
         if int(getattr(response, "status", 200)) != 200:
             raise ValueError("Metadatenquelle antwortet nicht erfolgreich")
