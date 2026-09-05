@@ -54,6 +54,54 @@ class PersonnelTimeClockTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual("clock_in", row["action"])
 
+    def test_self_service_guides_user_through_only_valid_next_punches(self):
+        response = self.client.get("/personnel")
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b"Noch nicht eingestempelt", response.data)
+        self.assertIn(b"/personnel/punch/clock_in", response.data)
+        self.assertNotIn(b"/personnel/punch/break_start", response.data)
+        self.assertNotIn(b"/personnel/punch/break_end", response.data)
+        self.assertNotIn(b"/personnel/punch/clock_out", response.data)
+
+        self.assertEqual(302, self.client.post("/personnel/punch/clock_in").status_code)
+        response = self.client.get("/personnel")
+        self.assertIn(b"Arbeitszeit l\xc3\xa4uft", response.data)
+        self.assertIn(b"/personnel/punch/break_start", response.data)
+        self.assertIn(b"/personnel/punch/clock_out", response.data)
+        self.assertNotIn(b"/personnel/punch/clock_in", response.data)
+        self.assertNotIn(b"/personnel/punch/break_end", response.data)
+        self.assertNotIn(b"Aktueller Status: clock_in", response.data)
+
+        self.assertEqual(302, self.client.post("/personnel/punch/break_start").status_code)
+        response = self.client.get("/personnel")
+        self.assertIn(b"Pause l\xc3\xa4uft", response.data)
+        self.assertIn(b"/personnel/punch/break_end", response.data)
+        self.assertNotIn(b"/personnel/punch/break_start", response.data)
+        self.assertNotIn(b"/personnel/punch/clock_out", response.data)
+
+        self.assertEqual(302, self.client.post("/personnel/punch/break_end").status_code)
+        response = self.client.get("/personnel")
+        self.assertIn(b"Arbeitszeit l\xc3\xa4uft wieder", response.data)
+        self.assertIn(b"/personnel/punch/break_start", response.data)
+        self.assertIn(b"/personnel/punch/clock_out", response.data)
+        self.assertNotIn(b"/personnel/punch/break_end", response.data)
+
+    def test_admin_quick_clock_shows_only_valid_next_actions(self):
+        self.client.get("/personnel")
+        employee_id = self._add_employee("Gefuehrter Mitarbeiter", "guided@example.test")
+        response = self.client.get(f"/personnel/time-admin?employee_id={employee_id}")
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b"Nicht eingestempelt", response.data)
+        self.assertIn(f"/{employee_id}/punch/clock_in".encode(), response.data)
+        self.assertNotIn(f"/{employee_id}/punch/break_start".encode(), response.data)
+
+        self.assertEqual(302, self.client.post(f"/personnel/time-admin/{employee_id}/punch/clock_in").status_code)
+        response = self.client.get(f"/personnel/time-admin?employee_id={employee_id}")
+        self.assertIn(b"Arbeitszeit l\xc3\xa4uft", response.data)
+        self.assertIn(f"/{employee_id}/punch/break_start".encode(), response.data)
+        self.assertIn(f"/{employee_id}/punch/clock_out".encode(), response.data)
+        self.assertNotIn(f"/{employee_id}/punch/break_end".encode(), response.data)
+
     def test_admin_can_clock_employee_now_and_audit_actor_is_preserved(self):
         self.client.get("/personnel")
         employee_id = self._add_employee()
