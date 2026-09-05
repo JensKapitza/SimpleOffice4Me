@@ -1,12 +1,13 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="inventory-app" class="container-xl py-3 py-md-4"
-      data-find-url="{{ url_for('inventory.find_item') }}"
-      data-lookup-url="{{ url_for('inventory.book_lookup') }}"
-      data-amazon-url="{{ url_for('inventory.amazon_search') }}"
-      data-objects-url="{{ url_for('documents.objects') }}"
-      data-detail-pattern="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}">
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div id="inventory-app" class="d-none" aria-hidden="true"
+       data-find-url="{{ url_for('inventory.find_item') }}"
+       data-lookup-url="{{ url_for('inventory.book_lookup') }}"
+       data-amazon-url="{{ url_for('inventory.amazon_search') }}"
+       data-objects-url="{{ url_for('documents.objects') }}"
+       data-detail-pattern="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}"></div>
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div>
       <h1 class="h2 mb-1">Inventar · Schnellerfassung</h1>
@@ -92,7 +93,7 @@
             <div class="col-md-3"><label class="form-label" for="currency">Währung</label><input class="form-control text-uppercase" id="currency" name="currency" maxlength="3" value="EUR"></div>
             <div class="col-md-5"><label class="form-label" for="price-source">Preisquelle</label><input class="form-control" id="price-source" name="price_source" maxlength="120"></div>
 
-            <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">JPEG, PNG oder WebP, maximal 12 MiB. Auf dem Handy kann direkt die Rückkamera verwendet werden.</div><img id="photo-preview" hidden alt="Vorschau des ausgewählten Inventarfotos" class="img-fluid rounded border mt-2" style="max-height:220px;object-fit:contain"></div>
+            <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">JPEG, PNG oder WebP, maximal 12 MiB. Auf dem Handy kann direkt die Rückkamera verwendet werden.</div><img id="photo-preview" hidden alt="Vorschau des ausgewählten Inventarfotos" class="img-fluid rounded border mt-2" style="max-height:220px;object-fit:contain" loading="lazy" decoding="async"></div>
 
             <div class="col-12"><div class="border rounded p-3 bg-body-tertiary"><div class="d-flex justify-content-between align-items-center mb-2"><strong>Prüfung / Wiedervorlage (optional)</strong><span class="small text-secondary">erzeugt eine Aufgabe</span></div><div class="row g-2">
               <div class="col-md-6"><label class="form-label" for="inspection-name">Prüfung</label><input class="form-control" id="inspection-name" name="inspection_name" maxlength="240" placeholder="Elektrische Prüfung, Sichtprüfung …"></div>
@@ -134,5 +135,5 @@
     </aside>
   </div>
 </main>
-<script src="{{ url_for('static', filename='js/inventory.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/inventory.js') }}" data-module="static/js/inventory.js" defer></script>
 {% endblock %}
