@@ -1,0 +1,27 @@
+{
+  "id": "/pwa/clock",
+  "name": "SimpleOffice Stempeluhr",
+  "short_name": "Stempeluhr",
+  "description": "Direkter Zugriff auf die SimpleOffice-Arbeitszeiterfassung.",
+  "lang": "de",
+  "start_url": "/personnel?pwa=clock",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/static/icons/simpleoffice.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Stempeluhr öffnen",
+      "short_name": "Stempeln",
+      "url": "/personnel?pwa=clock"
+    }
+  ]
+}
