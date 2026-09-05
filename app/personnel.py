@@ -20,26 +20,7 @@ from .settings_store import SettingsStore
 bp = Blueprint("personnel", __name__, url_prefix="/personnel")
 WEEKDAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 PUNCH_ACTIONS = {"clock_in", "break_start", "break_end", "clock_out"}
-PUNCH_TRANSITIONS = {
-    "clock_out": ("clock_in",),
-    "clock_in": ("break_start", "clock_out"),
-    "break_start": ("break_end",),
-    "break_end": ("break_start", "clock_out"),
-}
-PUNCH_LABELS = {
-    "clock_in": "Kommen",
-    "break_start": "Pause beginnen",
-    "break_end": "Pause beenden",
-    "clock_out": "Gehen",
-}
 DEFAULT_PERSONNEL_TIMEZONE = ZoneInfo("Europe/Berlin")
-
-
-def allowed_punch_actions(state: str, work_minutes: int = 0) -> tuple[str, ...]:
-    """Return only actions a lay user may sensibly take from the current state."""
-    if int(work_minutes) >= 10 * 60 and state in {"clock_in", "break_end"}:
-        return ("clock_out",)
-    return PUNCH_TRANSITIONS.get(state, ())
 
 
 def _contacts() -> ContactStore:
@@ -397,20 +378,18 @@ def punch(action: str):
     today = _local_now().date()
     if month_is_closed(int(employee["id"]), today.strftime("%Y-%m")):
         abort(409, description="Dieser Arbeitszeitmonat ist festgeschrieben")
+    allowed = {"clock_out": {"clock_in"}, "clock_in": {"break_start", "clock_out"}, "break_start": {"break_end"}, "break_end": {"break_start", "clock_out"}}
     state = _punch_state(int(employee["id"]), today)
     summary = _day_summary(int(employee["id"]), today)
-    allowed = allowed_punch_actions(state, int(summary["work_minutes"]))
-    if action not in allowed:
-        if int(summary["work_minutes"]) >= 10 * 60 and state in {"clock_in", "break_end"}:
-            flash("10 Stunden Arbeitszeit sind erreicht. Bitte jetzt mit Gehen ausstempeln.")
-        else:
-            choices = " oder ".join(PUNCH_LABELS[item] for item in allowed) or "keine weitere Buchung"
-            flash(f"Diese Buchung ist jetzt nicht möglich. Als Nächstes: {choices}.")
+    if summary["work_minutes"] >= 10 * 60 and state == "clock_in" and action != "clock_out":
+        flash("Nach 10 Stunden ist nur noch Gehen zulässig.")
+        return redirect(url_for("personnel.index"))
+    if action not in allowed.get(state, set()):
+        flash("Diese Buchung passt nicht zum aktuellen Stempelstatus.")
         return redirect(url_for("personnel.index"))
     get_db().execute("INSERT INTO employee_punch(employee_id,action,occurred_at,recorded_by) VALUES(?,?,?,?)", (employee["id"], action, utc_now(), g.user["id"]))
     if action == "clock_out": _update_flex_day(int(employee["id"]), today, json.loads(employee["schedule_json"] or "{}"))
     get_db().commit()
-    flash(f"{PUNCH_LABELS[action]} wurde gespeichert.")
     return redirect(url_for("personnel.index"))
 
 
@@ -449,22 +428,8 @@ def request_absence():
     if overlap:
         flash("Für diesen Zeitraum besteht bereits eine Abwesenheit.")
         return redirect(url_for("personnel.index"))
-    get_db().execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at,deputy_employee_id) VALUES(?,?,?,?,?,?,?,?,?)", (employee["id"], kind, starts, ends, json.dumps(tags, ensure_ascii=False), request.form.get("note", "")[:1000], status, utc_now(), int(deputy_id) if deputy_id else None))
-    get_db().commit(); flash("Abwesenheit eingetragen.")
+    get_db().execute("INSERT INTO employee_absence(employee_id,kind,starts_on,ends_on,tags_json,note,status,requested_at,deputy_employee_id) VALUES(?,?,?,?,?,?,?,?,?)", (employee["id"], kind, starts, ends, json.dumps(tags, ensure_ascii=False), request.form.get("note", "")[:1000], status, utc_now(), int(deputy_id) if deputy_id else None)); get_db().commit()
     return redirect(url_for("personnel.index"))
-
-
-@bp.post("/absence/<int:absence_id>/<decision>")
-@login_required
-def decide_absence(absence_id: int, decision: str):
-    actor = _employee_for_user(int(g.user["id"]));
-    if actor is None or not actor["can_approve"]: abort(403)
-    if decision not in {"approved", "rejected"}: abort(404)
-    row = get_db().execute("SELECT * FROM employee_absence WHERE id=?", (absence_id,)).fetchone()
-    if row is None: abort(404)
-    if row["employee_id"] == actor["id"]: abort(403)
-    get_db().execute("UPDATE employee_absence SET status=?,decided_at=?,decided_by_employee_id=? WHERE id=? AND status='requested'", (decision, utc_now(), actor["id"], absence_id)); get_db().commit()
-    return redirect(url_for("personnel.hr"))
 
 
 @bp.post("/absence/<int:absence_id>/cancel")
@@ -472,5 +437,19 @@ def decide_absence(absence_id: int, decision: str):
 def cancel_absence(absence_id: int):
     employee = _employee_for_user(int(g.user["id"]));
     if employee is None: abort(403)
-    get_db().execute("UPDATE employee_absence SET status='cancelled' WHERE id=? AND employee_id=? AND status='requested'", (absence_id, employee["id"])); get_db().commit()
+    cursor = get_db().execute("UPDATE employee_absence SET status='cancelled' WHERE id=? AND employee_id=? AND status='requested'", (absence_id, employee["id"]))
+    get_db().commit()
+    if not cursor.rowcount: abort(409, description="Nur eigene offene Anträge können storniert werden")
+    flash("Abwesenheitsantrag storniert.")
     return redirect(url_for("personnel.index"))
+
+
+@bp.post("/absence/<int:absence_id>/<decision>")
+@login_required
+def decide_absence(absence_id: int, decision: str):
+    approver = _employee_for_user(int(g.user["id"])); row = get_db().execute("SELECT * FROM employee_absence WHERE id=?", (absence_id,)).fetchone()
+    if not approver or not approver["can_approve"] or not row: abort(403)
+    if int(row["employee_id"]) == int(approver["id"]): abort(403)
+    if decision not in {"approved", "rejected"}: abort(404)
+    get_db().execute("UPDATE employee_absence SET status=?,decided_at=?,decided_by_employee_id=? WHERE id=? AND status='requested'", (decision, utc_now(), approver["id"], absence_id)); get_db().commit()
+    return redirect(url_for("personnel.hr" if request.form.get("return_to") == "hr" else "personnel.index"))
