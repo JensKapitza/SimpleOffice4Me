@@ -1,4 +1,24 @@
 {% if logbook is defined %}{% set items = logbook %}{% elif events is defined %}{% set items = events %}{% else %}{% set items = [] %}{% endif %}
-{% if items %}<div class="list-group">{% for event in items %}
-<div class="list-group-item"><div class="d-flex justify-content-between"><strong>{{ event.action or event.type }}</strong><small>{{ event.at }}</small></div><small class="text-muted">{{ event.actor or 'System/Scanner' }} · {{ event.category or event.source }}</small></div>
+{% if items %}<div class="list-group shadow-sm">{% for event in items %}
+{% set event_action = event.action or event.type or 'event' %}{% set outcome = event.outcome or ('error' if event.error else 'success') %}{% set severity = event.severity or ('error' if outcome == 'error' else 'warning' if outcome == 'warning' else 'info') %}
+<article class="list-group-item py-3" id="event-{{ event.event_id or loop.index }}">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <strong>{{ event.action_label or event_action }}</strong>
+      {% if severity == 'error' %}<span class="badge text-bg-danger">Fehler</span>{% elif severity == 'warning' %}<span class="badge text-bg-warning">Warnung</span>{% else %}<span class="badge text-bg-secondary">Info</span>{% endif %}
+      {% if event.source %}<span class="badge text-bg-light border">{{ event.source }}</span>{% endif %}
+    </div>
+    <time class="small text-secondary text-nowrap" datetime="{{ event.at }}">{{ event.at or '—' }}</time>
+  </div>
+  <div class="small text-secondary mt-1">
+    <strong>Benutzer:</strong> {{ event.actor or 'System/Scanner' }}
+    {% if event.category %} · <strong>Bereich:</strong> {{ event.category }}{% endif %}
+    {% if event.key %} · <strong>Objekt:</strong> <code>{{ event.key }}</code>{% endif %}
+  </div>
+  {% if event.correlation_id %}<div class="small mt-1"><strong>Zusammenhang:</strong> <code>{{ event.correlation_id }}</code></div>{% endif %}
+  {% if event.changed_fields %}<div class="mt-2"><span class="small fw-semibold">Geändert:</span> {% for field in event.changed_fields %}<span class="badge text-bg-light border me-1">{{ field }}</span>{% endfor %}{% if event.changes_truncated %}<span class="badge text-bg-warning">weitere</span>{% endif %}</div>{% endif %}
+  {% if event.error %}<div class="alert alert-danger py-2 px-3 mt-2 mb-0" role="alert"><strong>Fehlerdetail:</strong> {{ event.error }}</div>{% endif %}
+  {% if event.details %}<details class="mt-2"><summary class="small fw-semibold">Technische Details anzeigen</summary><dl class="row small mt-2 mb-0">{% for key,value in event.details.items() %}<dt class="col-sm-3 text-secondary">{{ key }}</dt><dd class="col-sm-9 text-break"><code>{{ value }}</code></dd>{% endfor %}</dl></details>{% endif %}
+  {% if event.event_hash %}<details class="mt-2"><summary class="small text-secondary">Audit-Integrität</summary><div class="small text-break mt-1"><strong>Sequenz:</strong> {{ event.sequence or '—' }} · <strong>Event-ID:</strong> <code>{{ event.event_id }}</code><br><strong>Hash:</strong> <code>{{ event.event_hash }}</code>{% if event.previous_event_hash %}<br><strong>Vorheriger Hash:</strong> <code>{{ event.previous_event_hash }}</code>{% endif %}{% if event.snapshot_sha256 %}<br><strong>Snapshot:</strong> <code>{{ event.snapshot_sha256 }}</code>{% endif %}</div></details>{% endif %}
+</article>
 {% endfor %}</div>{% elif document is defined %}<p class="text-muted">Das Logbuch wird getrennt geladen, damit große Audit-Historien die Dokumentansicht nicht verzögern.</p><a class="btn btn-outline-secondary" href="{{ url_for('documents.logbook', q=document.document_id) }}">Logbuch öffnen</a>{% else %}<p class="text-muted">Noch keine Ereignisse.</p>{% endif %}
