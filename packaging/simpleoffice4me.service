@@ -1,0 +1,23 @@
+[Unit]
+Description=SimpleOffice4Me
+After=network.target
+
+[Service]
+Type=simple
+User=simpleoffice
+Group=simpleoffice
+WorkingDirectory=/opt/simpleoffice4me
+EnvironmentFile=-/etc/simpleoffice4me/simpleoffice.env
+ExecStart=/opt/simpleoffice4me/.venv/bin/python -m tools.launcher start
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/simpleoffice4me /opt/simpleoffice4me/instance
+
+[Install]
+WantedBy=multi-user.target
