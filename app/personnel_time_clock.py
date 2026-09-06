@@ -171,12 +171,42 @@ def _auto_provision_admin_time_account() -> None:
     user = getattr(g, "user", None)
     if user is None or not user["is_admin"]:
         return
-    if request.endpoint in {"personnel.index", "personnel.punch"} or request.blueprint == bp.name:
+    if request.endpoint in {"personnel.index", "personnel.punch", "documents.dashboard"} or request.blueprint == bp.name:
         ensure_admin_time_account()
+
+
+def _dashboard_clock_context() -> dict[str, Any]:
+    """Expose a compact self-service clock only to the overview template."""
+    if request.endpoint != "documents.dashboard":
+        return {}
+    user = getattr(g, "user", None)
+    if user is None:
+        return {"dashboard_clock": None}
+    employee = personnel._employee_for_user(int(user["id"]))
+    if employee is None and user["is_admin"]:
+        employee = ensure_admin_time_account()
+    if employee is None:
+        return {"dashboard_clock": None}
+    shown = personnel._local_now().date()
+    state = personnel._punch_state(int(employee["id"]), shown)
+    summary = personnel._day_summary(int(employee["id"]), shown)
+    return {
+        "dashboard_clock": {
+            "employee_id": int(employee["id"]),
+            "state": state,
+            "allowed": sorted(_ALLOWED.get(state, set())),
+            "work_minutes": int(summary["work_minutes"]),
+            "break_minutes": int(summary["break_minutes"]),
+            "required_break": int(summary["required_break"]),
+            "month_closed": personnel.month_is_closed(int(employee["id"]), shown.strftime("%Y-%m")),
+            "is_admin": bool(user["is_admin"]),
+        }
+    }
 
 
 def init_app(app) -> None:
     app.before_request(_auto_provision_admin_time_account)
+    app.context_processor(_dashboard_clock_context)
 
 
 def _employee(employee_id: int):
@@ -268,6 +298,45 @@ def _employees_for_admin() -> list[dict[str, Any]]:
         item["state"] = personnel._punch_state(int(row["id"]), personnel._local_now().date())
         rows.append(item)
     return rows
+
+
+@bp.post("/self/punch/<action>")
+@login_required
+def dashboard_self_punch(action: str):
+    """Punch the logged-in employee from the overview and return to it."""
+    if action not in personnel.PUNCH_ACTIONS:
+        abort(404)
+    user = g.user
+    employee = personnel._employee_for_user(int(user["id"]))
+    if employee is None and user["is_admin"]:
+        employee = ensure_admin_time_account()
+    if employee is None:
+        abort(403)
+    employee_id = int(employee["id"])
+    shown = personnel._local_now().date()
+    try:
+        _ensure_open_month(employee_id, shown)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("documents.dashboard"))
+    state = personnel._punch_state(employee_id, shown)
+    summary = personnel._day_summary(employee_id, shown)
+    if int(summary["work_minutes"]) >= 10 * 60 and state == "clock_in" and action != "clock_out":
+        flash("Nach 10 Stunden ist nur noch Gehen zulässig.")
+        return redirect(url_for("documents.dashboard"))
+    if action not in _ALLOWED.get(state, set()):
+        flash("Diese Buchung passt nicht zum aktuellen Stempelstatus.")
+        return redirect(url_for("documents.dashboard"))
+    db = get_db()
+    db.execute(
+        "INSERT INTO employee_punch(employee_id,action,occurred_at,recorded_by) VALUES(?,?,?,?)",
+        (employee_id, action, utc_now(), int(user["id"])),
+    )
+    if action == "clock_out":
+        _refresh_flex(employee, shown)
+    db.commit()
+    flash(f"{_ACTION_LABELS[action]} gespeichert.")
+    return redirect(url_for("documents.dashboard"))
 
 
 @bp.get("")
