@@ -53,6 +53,75 @@ class RevisionHistoryHardeningTest(unittest.TestCase):
             self.assertEqual(events[0]["event_hash"], events[1]["previous_event_hash"])
             self.assertTrue(history.verify_event_chain()["valid"])
 
+    def test_secret_metadata_identifiers_remain_visible_while_secret_material_is_redacted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            history.record(
+                "credential_rotated",
+                "jens",
+                "webdav",
+                "device-1",
+                {
+                    "credential_id": "cred-123",
+                    "token_id": "token-456",
+                    "credential_fingerprint": "SHA256:abcdef",
+                    "credential_label": "Laptop",
+                    "credential_type": "app-password",
+                    "credential_scope": "documents",
+                    "credential": "plaintext-secret",
+                    "access_token": "top-secret",
+                    "nested": {"password": "also-secret"},
+                },
+            )
+            snapshot = json.loads(
+                (history.root / "snapshots" / "webdav" / "device-1.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("cred-123", snapshot["credential_id"])
+            self.assertEqual("token-456", snapshot["token_id"])
+            self.assertEqual("SHA256:abcdef", snapshot["credential_fingerprint"])
+            self.assertEqual("Laptop", snapshot["credential_label"])
+            self.assertEqual("app-password", snapshot["credential_type"])
+            self.assertEqual("documents", snapshot["credential_scope"])
+            self.assertEqual("[REDACTED]", snapshot["credential"])
+            self.assertEqual("[REDACTED]", snapshot["access_token"])
+            self.assertEqual("[REDACTED]", snapshot["nested"]["password"])
+
+    def test_change_count_keeps_real_total_when_display_paths_are_bounded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            history.record("settings_updated", "jens", "settings", "bulk", {})
+            history.record(
+                "settings_updated",
+                "jens",
+                "settings",
+                "bulk",
+                {f"field_{index}": index for index in range(100)},
+            )
+            events = [json.loads(path.read_text(encoding="utf-8")) for path in sorted((history.root / "events").glob("*.json"))]
+            event = events[-1]
+            self.assertEqual(100, event["change_count"])
+            self.assertEqual(80, len(event["changed_fields"]))
+            self.assertTrue(event["changes_truncated"])
+
+    def test_audit_identity_fields_strip_control_characters(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            history.record(
+                "settings_updated\nforged",
+                "jens\r\nattacker",
+                "settings\tadmin",
+                "key\x00value",
+                {"request_id": "req-1\nforged"},
+            )
+            event_path = next((history.root / "events").glob("*.json"))
+            event = json.loads(event_path.read_text(encoding="utf-8"))
+            self.assertEqual("jens attacker", event["actor"])
+            self.assertEqual("settings_updated forged", event["action"])
+            self.assertEqual("settings admin", event["category"])
+            self.assertEqual("key value", event["key"])
+            self.assertEqual("req-1 forged", event["correlation_id"])
+            self.assertNotIn("\n", event["actor"])
+
     def test_tampered_event_is_detected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -66,6 +135,36 @@ class RevisionHistoryHardeningTest(unittest.TestCase):
             result = history.verify_event_chain()
             self.assertFalse(result["valid"])
             self.assertTrue(any("event hash mismatch" in message for message in result["errors"]))
+
+    def test_invalid_event_json_is_reported_instead_of_being_treated_as_legacy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            history.record("document_created", "jens", "documents", "doc-1", {"document_id": "doc-1"})
+            event_path = next((history.root / "events").glob("*.json"))
+            event_path.write_text("{broken", encoding="utf-8")
+            result = history.verify_event_chain()
+            self.assertFalse(result["valid"])
+            self.assertTrue(any("invalid JSON" in message for message in result["errors"]))
+
+    def test_event_chain_head_sequence_and_hash_are_verified(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            history.record("document_created", "jens", "documents", "doc-1", {"document_id": "doc-1"})
+            chain_path = history.root / "event-chain.json"
+            chain = json.loads(chain_path.read_text(encoding="utf-8"))
+            chain["sequence"] = 99
+            chain_path.write_text(json.dumps(chain), encoding="utf-8")
+            result = history.verify_event_chain()
+            self.assertFalse(result["valid"])
+            self.assertTrue(any("final sequence mismatch" in message for message in result["errors"]))
+
+    def test_corrupt_chain_state_blocks_new_audit_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            history.record("document_created", "jens", "documents", "doc-1", {"document_id": "doc-1"})
+            (history.root / "event-chain.json").write_text("{broken", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                history.record("document_updated", "jens", "documents", "doc-1", {"document_id": "doc-1", "path": "b.txt"})
 
     def test_error_actions_are_classified_for_logbook(self):
         with tempfile.TemporaryDirectory() as temp:
