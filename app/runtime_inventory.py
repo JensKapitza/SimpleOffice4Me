@@ -14,6 +14,14 @@ from pathlib import Path
 from flask import current_app
 
 from .system_identity import application_version, system_info
+from .system_management import (
+    COCKPIT_PARITY,
+    QNAP_PARITY,
+    StorageRoleStore,
+    format_bytes,
+    health_checks,
+    system_snapshot,
+)
 
 
 PACKAGE_NAMES = (
@@ -99,6 +107,26 @@ def _cached_inventory(
     for name, blueprint in sorted(app.blueprints.items()):
         route_count = sum(1 for rule in app.url_map.iter_rules() if rule.endpoint.startswith(name + "."))
         blueprints.append({"name": name, "url_prefix": blueprint.url_prefix or "–", "routes": route_count})
+
+    host = system_snapshot(document_root)
+    storage_roles = StorageRoleStore(document_root).all()
+    host["storage_roles"] = storage_roles
+    host["health_checks"] = health_checks(host, storage_roles)
+    usage = host.get("document_usage", {}) if isinstance(host.get("document_usage"), dict) else {}
+    host["document_usage_display"] = {
+        "total": format_bytes(usage.get("total", 0)),
+        "used": format_bytes(usage.get("used", 0)),
+        "free": format_bytes(usage.get("free", 0)),
+    }
+    host["cockpit_parity"] = [
+        {"key": key, "label": label, "status": status}
+        for key, label, status in COCKPIT_PARITY
+    ]
+    host["qnap_parity"] = [
+        {"key": key, "label": label, "status": status}
+        for key, label, status in QNAP_PARITY
+    ]
+
     return {
         "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "system": system_info(include_request=False),
@@ -116,6 +144,7 @@ def _cached_inventory(
         "modules": blueprints,
         "packages": _package_versions(),
         "tools": [_tool_version(label_de, label_en, command) for label_de, label_en, command in EXTERNAL_TOOLS],
+        "host_management": host,
     }
 
 
