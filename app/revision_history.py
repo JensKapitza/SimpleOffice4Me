@@ -1,4 +1,4 @@
-"""Git-backed revision trail for document metadata and configuration."""
+"""Git-backed, tamper-evident revision trail for metadata and configuration."""
 
 from __future__ import annotations
 
@@ -17,6 +17,60 @@ from .file_lock import exclusive_file_lock
 
 GIT_TIMEOUT_SECONDS = 30
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9._-]{1,180}$")
+_SECRET_KEY = re.compile(
+    r"(?:^|[_-])(?:password|passwd|passphrase|secret|token|credential|authorization|cookie|"
+    r"private[_-]?key|master[_-]?key|api[_-]?key|access[_-]?key|refresh[_-]?token|access[_-]?token)(?:$|[_-])",
+    re.IGNORECASE,
+)
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+_SAFE_SECRET_METADATA_SUFFIXES = (
+    "_id",
+    "-id",
+    "_fingerprint",
+    "-fingerprint",
+    "_label",
+    "-label",
+    "_type",
+    "-type",
+    "_scope",
+    "-scope",
+)
+_ERROR_WORDS = ("failed", "failure", "error", "denied", "rejected", "blocked", "malware", "invalid")
+_WARNING_WORDS = ("warning", "skipped", "expired", "cancelled", "canceled", "rollback", "recovered", "missing")
+_MAX_CHANGED_FIELDS = 80
+_MAX_DETAIL_ITEMS = 40
+_MAX_DETAIL_TEXT = 1000
+_MAX_REDACTION_DEPTH = 32
+_MAX_VERIFY_ERRORS = 100
+
+_ACTION_LABELS = {
+    "settings_updated": "Einstellungen geändert",
+    "document_created": "Dokument erstellt",
+    "document_copied": "Dokument kopiert",
+    "document_restored": "Dokument wiederhergestellt",
+    "document_note_added": "Dokumentnotiz hinzugefügt",
+    "document_state_updated": "Dokumentstatus geändert",
+    "document_tags_updated": "Dokument-Tags geändert",
+    "document_attribute_updated": "Dokumentattribut geändert",
+    "document_version_imported": "Dokumentversion importiert",
+    "ssh_public_key_added": "SSH-Schlüssel hinzugefügt",
+    "ssh_public_key_removed": "SSH-Schlüssel entfernt",
+    "calendar_event_created": "Kalendereintrag erstellt",
+    "calendar_event_updated": "Kalendereintrag geändert",
+    "calendar_event_deleted": "Kalendereintrag gelöscht",
+    "todo_created": "Aufgabe erstellt",
+    "todo_updated": "Aufgabe geändert",
+    "todo_deleted": "Aufgabe gelöscht",
+}
+
+_DETAIL_KEYS = {
+    "document_id", "source_document_id", "destination_document_id", "contact_id", "project_id", "object_id",
+    "invoice_id", "task_id", "event_id", "message_id", "request_id", "transfer_id", "peer_id", "archive_id",
+    "list_id", "path", "last_path", "source", "destination", "state", "status", "outcome", "result", "error",
+    "reason", "count", "counts", "size", "sha256", "previous_sha256", "updated_at", "created_at", "deleted_at",
+    "restored_at", "started_at", "completed_at", "duration_ms", "audit",
+}
 
 
 def _path_component(value: object) -> str:
@@ -32,7 +86,7 @@ def _path_component(value: object) -> str:
 def _write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + f".{uuid.uuid4().hex}.tmp")
-    payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    payload = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     descriptor = os.open(temporary, flags, 0o600)
     try:
@@ -55,35 +109,259 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
         raise
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    """Best-effort reader for legacy callers that deliberately tolerate missing data."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _read_json_strict(path: Path) -> dict[str, Any]:
+    """Read audit state without turning corruption into an apparently empty object."""
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"invalid audit JSON: {path.name}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid audit JSON object: {path.name}")
+    return value
+
+
+def _sanitize_audit_text(value: object, *, max_length: int) -> str:
+    """Keep one-line audit identity fields safe for logs and Git commit metadata."""
+    raw = str(value or "")
+    cleaned = _CONTROL_CHARACTERS.sub(" ", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:max_length]
+
+
+def _is_secret_key(key: object) -> bool:
+    """Distinguish secret material from safe identifiers describing a credential."""
+    normalized = str(key or "").strip().casefold()
+    if not normalized:
+        return False
+    if normalized.endswith(_SAFE_SECRET_METADATA_SUFFIXES):
+        return False
+    return bool(_SECRET_KEY.search(normalized))
+
+
+def _redact_secrets(value: Any, *, key: str = "", depth: int = 0) -> Any:
+    """Redact credential material while preserving non-secret audit metadata."""
+    if key and _is_secret_key(key):
+        return "[REDACTED]"
+    if depth >= _MAX_REDACTION_DEPTH:
+        return "[DEPTH-LIMIT]"
+    if isinstance(value, dict):
+        return {
+            str(item_key): _redact_secrets(item_value, key=str(item_key), depth=depth + 1)
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secrets(item, depth=depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_secrets(item, depth=depth + 1) for item in value]
+    return value
+
+
+def _canonical_digest(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8", "replace")).hexdigest()
+
+
+def _changed_paths(before: Any, after: Any, prefix: str = "", depth: int = 0) -> tuple[list[str], int]:
+    """Return bounded display paths plus the real number of changed leaf paths."""
+    if before == after:
+        return [], 0
+    if depth >= 8:
+        return [prefix or "$"], 1
+    if isinstance(before, dict) and isinstance(after, dict):
+        result: list[str] = []
+        total = 0
+        for key in sorted(set(before) | set(after), key=str.casefold):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            child_paths, child_total = _changed_paths(before.get(key), after.get(key), path, depth + 1)
+            total += child_total
+            if len(result) < _MAX_CHANGED_FIELDS:
+                remaining = _MAX_CHANGED_FIELDS - len(result)
+                result.extend(child_paths[:remaining])
+        return result, total
+    return [prefix or "$"], 1
+
+
+def _compact_detail(value: Any, depth: int = 0) -> Any:
+    """Bound event details so one log record cannot become an accidental data dump."""
+    if depth >= 4:
+        return "…"
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= _MAX_DETAIL_ITEMS:
+                result["…"] = f"{len(value) - _MAX_DETAIL_ITEMS} weitere Einträge"
+                break
+            result[str(key)[:120]] = _compact_detail(item, depth + 1)
+        return result
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+        compact = [_compact_detail(item, depth + 1) for item in items[:_MAX_DETAIL_ITEMS]]
+        if len(items) > _MAX_DETAIL_ITEMS:
+            compact.append(f"… {len(items) - _MAX_DETAIL_ITEMS} weitere Einträge")
+        return compact
+    if isinstance(value, str):
+        cleaned = _CONTROL_CHARACTERS.sub(" ", value)
+        return cleaned if len(cleaned) <= _MAX_DETAIL_TEXT else cleaned[:_MAX_DETAIL_TEXT] + "…"
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:_MAX_DETAIL_TEXT]
+
+
+def _event_details(snapshot: dict[str, Any]) -> dict[str, Any]:
+    details: dict[str, Any] = {}
+    for key in _DETAIL_KEYS:
+        if key in snapshot:
+            details[key] = _compact_detail(snapshot[key])
+    return details
+
+
+def _outcome(action: str, snapshot: dict[str, Any]) -> str:
+    explicit = str(snapshot.get("outcome", "")).casefold().strip()
+    if explicit in {"success", "ok", "completed"}:
+        return "success"
+    if explicit in {"warning", "partial", "skipped"}:
+        return "warning"
+    if explicit in {"error", "failed", "failure", "denied", "rejected"}:
+        return "error"
+    lowered = action.casefold()
+    if any(word in lowered for word in _ERROR_WORDS) or snapshot.get("error"):
+        return "error"
+    if any(word in lowered for word in _WARNING_WORDS):
+        return "warning"
+    return "success"
+
+
+def _action_label(action: str) -> str:
+    if action in _ACTION_LABELS:
+        return _ACTION_LABELS[action]
+    return " ".join(part for part in action.replace("-", "_").split("_") if part).capitalize() or "Ereignis"
+
+
+def _correlation_id(snapshot: dict[str, Any]) -> str:
+    for key in ("correlation_id", "request_id", "transfer_id", "message_id", "document_id", "event_id"):
+        value = _sanitize_audit_text(snapshot.get(key, ""), max_length=200)
+        if value:
+            return value
+    return ""
+
+
+def _chain_state(chain: dict[str, Any]) -> tuple[int, str]:
+    """Validate persisted chain metadata before it is used to create a new event."""
+    try:
+        sequence = int(chain.get("sequence", 0) or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid audit event-chain sequence") from exc
+    if sequence < 0:
+        raise ValueError("invalid audit event-chain sequence")
+    previous_hash = str(chain.get("last_event_hash", "") or "")
+    if previous_hash and not _SHA256_HEX.fullmatch(previous_hash):
+        raise ValueError("invalid audit event-chain hash")
+    if sequence == 0 and previous_hash:
+        raise ValueError("invalid audit event-chain state")
+    if sequence > 0 and not previous_hash:
+        raise ValueError("invalid audit event-chain state")
+    return sequence, previous_hash
+
+
 class RevisionHistory:
-    """A local Git repository with one attributable commit per write action."""
+    """A local Git repository with one attributable, tamper-evident commit per write action."""
 
     def __init__(self, document_root: Path):
         self.root = Path(document_root).expanduser().resolve() / ".simpleoffice-history"
 
     def record(self, action: str, actor: str, category: str, key: str, snapshot: dict[str, Any]) -> str:
-        actor = str(actor or "").strip()
+        actor = _sanitize_audit_text(actor, max_length=300)
+        action = _sanitize_audit_text(action, max_length=301)
+        category = _sanitize_audit_text(category, max_length=301)
+        key = _sanitize_audit_text(key, max_length=1001)
         if not actor:
             raise ValueError("a named actor is required for every write action")
+        if not action or len(action) > 300:
+            raise ValueError("a bounded audit action is required")
+        if not category or len(category) > 300:
+            raise ValueError("a bounded audit category is required")
+        if not key or len(key) > 1000:
+            raise ValueError("a bounded audit key is required")
+        if not isinstance(snapshot, dict):
+            raise ValueError("audit snapshot must be an object")
         if shutil.which("git") is None:
             raise RuntimeError("git is required for the revision history")
+
         category_component = _path_component(category)
         key_component = _path_component(key)
         self.root.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.root / ".simpleoffice-write.lock"):
             self._git("init", "--quiet")
-            _write_json(self.root / "snapshots" / category_component / f"{key_component}.json", snapshot)
-            event = {
-                "event_id": str(uuid.uuid4()),
-                "at": datetime.now(timezone.utc).isoformat(),
-                "actor": actor[:300],
-                "action": str(action)[:300],
-                "category": str(category)[:300],
-                "key": str(key)[:1000],
+            snapshot_path = self.root / "snapshots" / category_component / f"{key_component}.json"
+            chain_path = self.root / "event-chain.json"
+            previous_snapshot = _read_json_strict(snapshot_path)
+            chain = _read_json_strict(chain_path)
+            previous_sequence, previous_event_hash = _chain_state(chain)
+
+            safe_snapshot = _redact_secrets(snapshot)
+            if not isinstance(safe_snapshot, dict):
+                raise ValueError("audit snapshot must remain an object after redaction")
+
+            changes, change_count = _changed_paths(previous_snapshot, safe_snapshot)
+            changes_truncated = change_count > len(changes)
+            at = datetime.now(timezone.utc).isoformat()
+            event_id = str(uuid.uuid4())
+            outcome = _outcome(action, safe_snapshot)
+            severity = "error" if outcome == "error" else "warning" if outcome == "warning" else "info"
+            after_digest = _canonical_digest(safe_snapshot)
+            before_digest = _canonical_digest(previous_snapshot) if previous_snapshot else ""
+            sequence = previous_sequence + 1
+
+            event: dict[str, Any] = {
+                "schema_version": 2,
+                "event_id": event_id,
+                "sequence": sequence,
+                "at": at,
+                "actor": actor,
+                "action": action,
+                "action_label": _action_label(action),
+                "category": category,
+                "key": key,
+                "outcome": outcome,
+                "severity": severity,
+                "correlation_id": _correlation_id(safe_snapshot),
+                "change_count": change_count,
+                "changed_fields": changes,
+                "changes_truncated": changes_truncated,
+                "snapshot_sha256": after_digest,
+                "previous_snapshot_sha256": before_digest,
+                "previous_event_hash": previous_event_hash,
             }
-            event_name = f"{event['at'].replace(':', '-')}-{event['event_id']}.json"
+            details = _event_details(safe_snapshot)
+            if details:
+                event["details"] = details
+            event["event_hash"] = _canonical_digest(event)
+            event_name = f"{at.replace(':', '-')}-{event_id}.json"
+
+            _write_json(snapshot_path, safe_snapshot)
             _write_json(self.root / "events" / event_name, event)
-            self._git("add", "snapshots", "events")
+            _write_json(
+                chain_path,
+                {
+                    "schema_version": 1,
+                    "sequence": sequence,
+                    "last_event_hash": event["event_hash"],
+                    "updated_at": at,
+                },
+            )
+
+            self._git("add", "snapshots", "events", "event-chain.json")
             changed = subprocess.run(
                 ["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "diff", "--cached", "--quiet"],
                 cwd=self.root,
@@ -98,14 +376,101 @@ class RevisionHistory:
             identity = hashlib.sha256(actor.encode("utf-8")).hexdigest()[:12]
             environment = {
                 **os.environ,
-                "GIT_AUTHOR_NAME": actor[:300],
+                "GIT_AUTHOR_NAME": actor,
                 "GIT_AUTHOR_EMAIL": f"{identity}@simpleoffice.local",
-                "GIT_COMMITTER_NAME": actor[:300],
+                "GIT_COMMITTER_NAME": actor,
                 "GIT_COMMITTER_EMAIL": f"{identity}@simpleoffice.local",
                 "GIT_TERMINAL_PROMPT": "0",
             }
-            self._git("commit", "--quiet", "-m", f"{str(action)[:160]}: {category_component}/{key_component}", env=environment)
+            self._git("commit", "--quiet", "-m", f"{action[:160]}: {category_component}/{key_component}", env=environment)
             return self._git("rev-parse", "HEAD").strip()
+
+    def verify_event_chain(self) -> dict[str, Any]:
+        """Verify event content, ordering, links and the persisted chain head without crashing on corruption."""
+        events_dir = self.root / "events"
+        if not events_dir.exists():
+            return {"valid": True, "checked": 0, "legacy": 0, "errors": []}
+
+        expected_previous = ""
+        expected_sequence = 1
+        checked = legacy = 0
+        errors: list[str] = []
+
+        def add_error(message: str) -> None:
+            if len(errors) < _MAX_VERIFY_ERRORS:
+                errors.append(message)
+            elif len(errors) == _MAX_VERIFY_ERRORS:
+                errors.append("verification stopped reporting additional errors")
+
+        for path in sorted(events_dir.glob("*.json")):
+            try:
+                event = _read_json_strict(path)
+            except ValueError:
+                add_error(f"{path.name}: invalid JSON")
+                continue
+
+            try:
+                schema_version = int(event.get("schema_version", 0) or 0)
+            except (TypeError, ValueError):
+                add_error(f"{path.name}: invalid schema version")
+                continue
+            if schema_version < 2:
+                legacy += 1
+                continue
+
+            checked += 1
+            stored_hash = str(event.get("event_hash", "") or "")
+            payload = dict(event)
+            payload.pop("event_hash", None)
+            calculated = _canonical_digest(payload)
+            if not _SHA256_HEX.fullmatch(stored_hash) or stored_hash != calculated:
+                add_error(f"{path.name}: event hash mismatch")
+
+            try:
+                sequence = int(event.get("sequence", 0) or 0)
+            except (TypeError, ValueError):
+                add_error(f"{path.name}: invalid sequence")
+                sequence = 0
+            if sequence != expected_sequence:
+                add_error(f"{path.name}: sequence mismatch")
+
+            previous_hash = str(event.get("previous_event_hash", "") or "")
+            if previous_hash != expected_previous:
+                add_error(f"{path.name}: chain link mismatch")
+
+            expected_previous = stored_hash
+            expected_sequence += 1
+
+        chain_path = self.root / "event-chain.json"
+        try:
+            chain = _read_json_strict(chain_path)
+        except ValueError:
+            chain = {}
+            add_error("event-chain.json: invalid JSON")
+
+        if checked:
+            if not chain:
+                add_error("event-chain.json: missing chain head")
+            else:
+                try:
+                    chain_sequence, chain_hash = _chain_state(chain)
+                except ValueError:
+                    add_error("event-chain.json: invalid chain state")
+                else:
+                    if chain_sequence != checked:
+                        add_error("event-chain.json: final sequence mismatch")
+                    if chain_hash != expected_previous:
+                        add_error("event-chain.json: final hash mismatch")
+        elif chain:
+            try:
+                chain_sequence, chain_hash = _chain_state(chain)
+            except ValueError:
+                add_error("event-chain.json: invalid chain state")
+            else:
+                if chain_sequence or chain_hash:
+                    add_error("event-chain.json: unexpected chain head without v2 events")
+
+        return {"valid": not errors, "checked": checked, "legacy": legacy, "errors": errors}
 
     def _git(self, *arguments: str, env: dict[str, str] | None = None) -> str:
         # These repositories are small application audit trails. Detached auto
