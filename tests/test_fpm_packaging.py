@@ -18,6 +18,30 @@ class FpmPackagingTests(unittest.TestCase):
         self.assertIn("--exclude='./instance'", script)
         self.assertIn("--exclude='./database/*.sqlite'", script)
 
+    def test_build_dep_installs_complete_debian_build_environment(self):
+        script = (ROOT / "build-dep.sh").read_text(encoding="utf-8")
+        self.assertIn("apt-get update", script)
+        self.assertIn("apt-get install", script)
+        for package in (
+            "python3-dev",
+            "python3-pip",
+            "python3-venv",
+            "ruby-dev",
+            "build-essential",
+            "pkg-config",
+            "libffi-dev",
+            "libssl-dev",
+            "libjpeg-dev",
+            "zlib1g-dev",
+            "rustc",
+            "cargo",
+            "dpkg-dev",
+        ):
+            self.assertIn(package, script)
+        self.assertIn("gem install --no-document fpm", script)
+        self.assertIn("python3 -c", script)
+        self.assertIn("Python >= 3.10", script)
+
     def test_postinst_installs_without_pypi_and_preserves_state(self):
         postinst = (ROOT / "packaging" / "postinst.sh").read_text(encoding="utf-8")
         self.assertIn("--no-index", postinst)
