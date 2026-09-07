@@ -130,25 +130,41 @@ def identify_source_peer(
 
     The optional X-SimpleOffice-Peer-ID header is intentionally not used here.
     Policy is selected only after a unique credential verifies the signature.
-    Duplicate credentials among print-enabled peers are rejected because they
-    would destroy the per-peer identity guarantee.
+    Credentials must be unique across *all* configured peers: even a peer that
+    is not allowed to print could impersonate an allowed peer if both shared the
+    same secret.
     """
     candidates: list[tuple[str, str]] = []
     token_to_peers: dict[str, list[str]] = {}
-    for peer in store.list_peers():
-        if not _printing_receive_allowed(peer):
-            continue
+    peers = store.list_peers()
+    peer_tokens: dict[str, str] = {}
+    for peer in peers:
         peer_id = str(peer.get("peer_id") or "")
         if not peer_id:
             continue
-        token = store.peer_token(peer_id)
+        try:
+            token = store.peer_token(peer_id)
+        except Exception:
+            # A broken encrypted credential must not become a partial identity
+            # match. The peer simply cannot authenticate until repaired.
+            continue
         if not token:
             continue
+        peer_tokens[peer_id] = token
         token_to_peers.setdefault(token, []).append(peer_id)
+
+    for peer in peers:
+        if not _printing_receive_allowed(peer):
+            continue
+        peer_id = str(peer.get("peer_id") or "")
+        token = peer_tokens.get(peer_id, "")
+        if not token:
+            continue
         proof = PrintRequestProof(peer_id=peer_id, **proof_values)
         expected = sign_request(proof, token)
         if hmac.compare_digest(signature, expected):
             candidates.append((peer_id, token))
+
     if len(candidates) != 1:
         raise ValueError("Peer-Druckidentität konnte nicht eindeutig authentisiert werden")
     peer_id, token = candidates[0]
