@@ -4,6 +4,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import time
 from typing import Any
 
 import click
@@ -14,7 +15,7 @@ from .auth import login_required
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 from .federation_worker import _request
 from .license_master_store import MasterLicenseStore
-from .license_metering import LicenseStore
+from .license_metering import LicenseStore, feature_for_endpoint
 from .system_identity import installation_id
 
 admin_bp = Blueprint("licensing_admin", __name__, url_prefix="/admin/licensing")
@@ -220,3 +221,52 @@ def init_app(app) -> None:
     app.register_blueprint(admin_bp)
     app.register_blueprint(federation_bp)
     app.cli.add_command(license_report_command)
+
+    @app.before_request
+    def slow_blocked_federation():
+        if request.path.startswith("/federation/") and not request.path.startswith("/federation/v1/licensing/"):
+            if LicenseStore(app.config["DOCUMENT_ROOT"]).state().get("bad_client"):
+                time.sleep(0.75)
+
+    @app.after_request
+    def meter_and_publish_license_state(response):
+        user = getattr(g, "user", None)
+        feature = feature_for_endpoint(request.endpoint or "")
+        if user is not None and feature and response.status_code < 500:
+            try:
+                LicenseStore(app.config["DOCUMENT_ROOT"]).record_usage(int(user["id"]), feature)
+            except (OSError, sqlite3.Error, ValueError, TypeError):
+                app.logger.exception("license usage metering failed")
+        if request.path.startswith("/federation/"):
+            try:
+                response.headers["X-SimpleOffice-Client-State"] = LicenseStore(app.config["DOCUMENT_ROOT"]).state()["state"]
+            except Exception:
+                response.headers["X-SimpleOffice-Client-State"] = "unknown"
+        return response
+
+    @app.context_processor
+    def license_ui_context():
+        if getattr(g, "user", None) is None:
+            return {"license_ui": {"state": {"state": "ok", "bad_client": False}, "open_invoices": []}}
+        try:
+            store = LicenseStore(app.config["DOCUMENT_ROOT"])
+            return {"license_ui": {"state": store.state(), "open_invoices": store.invoices(open_only=True)}}
+        except Exception:
+            return {"license_ui": {"state": {"state": "unknown", "bad_client": False}, "open_invoices": []}}
+
+    capabilities_endpoint = app.view_functions.get("federation_http.capabilities")
+    if capabilities_endpoint is not None:
+        def licensed_capabilities(*args, **kwargs):
+            response = capabilities_endpoint(*args, **kwargs)
+            data = response.get_json(silent=True) or {}
+            state = LicenseStore(app.config["DOCUMENT_ROOT"]).state()
+            data["client_state"] = {
+                "state": state["state"],
+                "bad_client": bool(state.get("bad_client")),
+                "reason": state.get("reason", ""),
+                "federation_quality": "bad" if state.get("bad_client") else "normal",
+                "recommended_delay_ms": 1500 if state.get("bad_client") else 0,
+                "peer_may_refuse": bool(state.get("bad_client")),
+            }
+            return jsonify(data)
+        app.view_functions["federation_http.capabilities"] = licensed_capabilities
