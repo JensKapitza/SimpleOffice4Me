@@ -13,13 +13,11 @@ import hashlib
 import hmac
 import re
 import secrets
-import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .document_store import CONTROL_DIR
 from .federation_store import FederationStore
 
 
@@ -160,26 +158,7 @@ def identify_source_peer(
 
 
 def claim_nonce(root: str | Path, peer_id: str, nonce: str, *, now: int | None = None) -> bool:
-    """Persist a short-lived nonce to reject replayed print requests atomically."""
+    """Use the federation replay store to reject a signed print request twice."""
     current = int(time.time()) if now is None else int(now)
-    control = Path(root).expanduser().resolve() / CONTROL_DIR
-    control.mkdir(parents=True, exist_ok=True)
-    database = control / "printershare-auth.sqlite3"
-    with sqlite3.connect(database, timeout=10) as db:
-        db.execute(
-            """CREATE TABLE IF NOT EXISTS federation_print_nonce(
-                   peer_id TEXT NOT NULL,
-                   nonce TEXT NOT NULL,
-                   expires_at INTEGER NOT NULL,
-                   PRIMARY KEY(peer_id, nonce)
-               )"""
-        )
-        db.execute("DELETE FROM federation_print_nonce WHERE expires_at<=?", (current,))
-        try:
-            db.execute(
-                "INSERT INTO federation_print_nonce(peer_id,nonce,expires_at) VALUES(?,?,?)",
-                (peer_id, nonce, current + NONCE_TTL_SECONDS),
-            )
-        except sqlite3.IntegrityError:
-            return False
-    return True
+    scoped_nonce = f"print:{peer_id}:{nonce}"
+    return FederationStore(root).claim_nonce(scoped_nonce, current + NONCE_TTL_SECONDS)
