@@ -3,12 +3,14 @@ import hmac
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask
 
+from app.federation_print_auth import PrintRequestProof, new_nonce, sign_request
 from app.federation_print_http import bp
 from app.federation_store import FederationStore
 from app.printershare_store import PrinterShareStore
@@ -23,6 +25,9 @@ TEST_PRINTER = {
     "kind": "label",
     "backend": "test",
 }
+RECEIVER_TOKEN = "federation-print-receiver-token"
+SOURCE_TOKEN = "federation-print-source-token"
+BLOCKED_TOKEN = "federation-print-blocked-token"
 
 
 class FederationPrintHttpTest(unittest.TestCase):
@@ -33,7 +38,7 @@ class FederationPrintHttpTest(unittest.TestCase):
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="print-http-test-secret")
         self.app.register_blueprint(bp)
         self.previous_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "federation-print-test-token"
+        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = RECEIVER_TOKEN
         self.discover = patch("app.printershare_store.discover_printers", return_value=[dict(TEST_PRINTER)])
         self.spool = patch("app.printershare_store.spool_payload", return_value="spool-ok")
         self.discover.start()
@@ -42,12 +47,17 @@ class FederationPrintHttpTest(unittest.TestCase):
             store = PrinterShareStore(self.root, self.app.config["SECRET_KEY"])
             store.update_settings({"federation_enabled": True, "federation_default_retention": "permanent"})
             store.set_printer(TEST_PRINTER["printer_id"], kind="label", federation_shared=True, label="Remote Label")
-            FederationStore(self.root).save_peer(
-                "source-a", "Source A", "https://source-a.invalid", "",
+            federation = FederationStore(self.root)
+            federation.save_peer(
+                "source-a", "Source A", "https://source-a.invalid", SOURCE_TOKEN,
                 {"printing": {"receive": True}}, True,
             )
+            federation.save_peer(
+                "source-blocked", "Blocked Source", "https://source-blocked.invalid", BLOCKED_TOKEN,
+                {"printing": {"receive": False}}, True,
+            )
         self.client = self.app.test_client()
-        self.auth = {"Authorization": "Bearer federation-print-test-token"}
+        self.auth = {"Authorization": f"Bearer {RECEIVER_TOKEN}"}
 
     def tearDown(self):
         self.spool.stop()
@@ -63,16 +73,54 @@ class FederationPrintHttpTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return response.json
 
-    def print_headers(self, revision, ceiling="no_store", source="source-a"):
+    def print_headers(
+        self,
+        revision,
+        payload,
+        ceiling="no_store",
+        *,
+        source_peer="source-a",
+        source_token=SOURCE_TOKEN,
+        claimed_peer=None,
+        ttl=0,
+        nonce=None,
+        timestamp=None,
+    ):
+        proof = PrintRequestProof(
+            peer_id=source_peer,
+            timestamp=int(time.time()) if timestamp is None else int(timestamp),
+            nonce=nonce or new_nonce(),
+            printer_id=TEST_PRINTER["printer_id"],
+            policy_revision=revision,
+            retention_ceiling=ceiling,
+            ttl_ceiling_seconds=ttl,
+            content_type="application/pdf",
+            filename="test.pdf",
+            payload_sha256=hashlib.sha256(payload).hexdigest(),
+            payload_size=len(payload),
+        )
         return {
             **self.auth,
-            "X-SimpleOffice-Peer-ID": source,
+            "X-SimpleOffice-Peer-ID": claimed_peer if claimed_peer is not None else source_peer,
             "X-SimpleOffice-Policy-Revision": revision,
             "X-SimpleOffice-Retention-Ceiling": ceiling,
-            "X-SimpleOffice-Content-Type": "application/pdf",
-            "X-SimpleOffice-Filename": "test.pdf",
+            "X-SimpleOffice-TTL-Ceiling": str(ttl),
+            "X-SimpleOffice-Content-Type": proof.content_type,
+            "X-SimpleOffice-Filename": proof.filename,
+            "X-SimpleOffice-Print-Timestamp": str(proof.timestamp),
+            "X-SimpleOffice-Print-Nonce": proof.nonce,
+            "X-SimpleOffice-Payload-SHA256": proof.payload_sha256,
+            "X-SimpleOffice-Payload-Size": str(proof.payload_size),
+            "X-SimpleOffice-Print-Signature": sign_request(proof, source_token),
             "Content-Type": "application/octet-stream",
         }
+
+    def post_job(self, revision, payload=b"payload", ceiling="no_store", **kwargs):
+        return self.client.post(
+            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}",
+            headers=self.print_headers(revision, payload, ceiling, **kwargs),
+            data=payload,
+        )
 
     def test_capabilities_advertise_enforced_no_store_contract(self):
         capabilities = self.capabilities()
@@ -82,21 +130,30 @@ class FederationPrintHttpTest(unittest.TestCase):
         self.assertTrue(capabilities["retention_contract"]["os_spooler_may_cache"])
         self.assertEqual(capabilities["printers"][0]["printer_id"], TEST_PRINTER["printer_id"])
 
-    def test_known_peer_and_explicit_receive_permission_are_required(self):
+    def test_claimed_peer_id_is_not_trusted_without_that_peer_credential(self):
         revision = self.capabilities()["policy_revision"]
-        response = self.client.post(
-            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}",
-            headers=self.print_headers(revision, source="unknown-peer"),
-            data=b"payload",
+        response = self.post_job(
+            revision,
+            source_peer="source-blocked",
+            source_token=BLOCKED_TOKEN,
+            claimed_peer="source-a",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json["error"], "peer_identity_rejected")
+        self.spool_mock.assert_not_called()
+
+    def test_unknown_peer_credential_is_rejected(self):
+        revision = self.capabilities()["policy_revision"]
+        response = self.post_job(
+            revision,
+            source_peer="unknown-peer",
+            source_token="unknown-source-token",
         )
         self.assertEqual(response.status_code, 403)
         self.spool_mock.assert_not_called()
 
     def test_policy_revision_is_required_before_payload_is_spooled(self):
-        headers = {**self.auth, "X-SimpleOffice-Peer-ID": "source-a"}
-        response = self.client.post(
-            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}", headers=headers, data=b"payload"
-        )
+        response = self.post_job("", payload=b"payload")
         self.assertEqual(response.status_code, 428)
         self.spool_mock.assert_not_called()
 
@@ -106,27 +163,69 @@ class FederationPrintHttpTest(unittest.TestCase):
             PrinterShareStore(self.root, self.app.config["SECRET_KEY"]).update_settings(
                 {"federation_default_retention": "ttl"}
             )
-        response = self.client.post(
-            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}",
-            headers=self.print_headers(revision), data=b"payload",
-        )
+        response = self.post_job(revision)
         self.assertEqual(response.status_code, 409)
         self.spool_mock.assert_not_called()
+
+    def test_policy_is_rechecked_after_body_upload(self):
+        revision = self.capabilities()["policy_revision"]
+        with patch(
+            "app.federation_print_http.PrinterShareStore.policy_revision",
+            side_effect=[revision, "0" * 64],
+        ):
+            response = self.post_job(revision, payload=b"slow upload simulation")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json["error"], "policy_changed")
+        self.spool_mock.assert_not_called()
+
+    def test_sub_minute_ttl_ceiling_is_rejected_not_rounded_up(self):
+        revision = self.capabilities()["policy_revision"]
+        response = self.post_job(revision, ceiling="ttl", ttl=1)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json["error"], "ttl_ceiling_below_minimum")
+        self.spool_mock.assert_not_called()
+
+    def test_signed_body_hash_must_match_actual_payload(self):
+        revision = self.capabilities()["policy_revision"]
+        signed_payload = b"signed payload"
+        actual_payload = b"different payload"
+        response = self.client.post(
+            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}",
+            headers=self.print_headers(revision, signed_payload),
+            data=actual_payload,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.spool_mock.assert_not_called()
+
+    def test_replayed_signed_request_is_rejected(self):
+        revision = self.capabilities()["policy_revision"]
+        payload = b"print once"
+        nonce = new_nonce()
+        headers = self.print_headers(revision, payload, nonce=nonce)
+        first = self.client.post(
+            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}", headers=headers, data=payload
+        )
+        second = self.client.post(
+            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}", headers=headers, data=payload
+        )
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.json["error"], "replayed_print_request")
+        self.assertEqual(self.spool_mock.call_count, 1)
 
     def test_no_store_ceiling_overrides_receiver_permanent_default_and_is_signed(self):
         revision = self.capabilities()["policy_revision"]
         payload = b"must never enter app archive"
-        response = self.client.post(
-            f"/federation/v1/print/jobs/{TEST_PRINTER['printer_id']}",
-            headers=self.print_headers(revision, "no_store"), data=payload,
-        )
+        response = self.post_job(revision, payload=payload, ceiling="no_store")
         self.assertEqual(response.status_code, 201)
         receipt = response.json["receipt"]
         self.assertEqual(receipt["retention"], "no_store")
         self.assertFalse(receipt["application_archive"])
+        self.assertEqual(receipt["expires_at"], 0)
         self.assertEqual(receipt["payload_sha256"], hashlib.sha256(payload).hexdigest())
+        self.assertTrue(receipt["request_nonce"])
         expected = hmac.new(
-            b"federation-print-test-token",
+            RECEIVER_TOKEN.encode("utf-8"),
             json.dumps(receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
