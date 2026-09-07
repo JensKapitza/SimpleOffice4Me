@@ -204,6 +204,7 @@ def init_app(app) -> None:
         federation_software_http,
         fritzbox_contacts,
         mail_index_routes,
+        password_protocol_http,
         rentals,
         software_admin,
     )
@@ -219,3 +220,4 @@ def init_app(app) -> None:
     app.register_blueprint(rentals.bp)
     app.register_blueprint(mail_index_routes.bp)
     app.register_blueprint(fritzbox_contacts.bp)
+    password_protocol_http.init_app(app)
