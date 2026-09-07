@@ -112,7 +112,7 @@ class ReplicationStore:
         if not label or not repository: raise ValueError("Name und restic-Repository sind erforderlich")
         data = self.status(); item = {"repository_id": str(uuid.uuid4()), "label": label, "repository": repository,
                 "categories": self._categories(values.get("categories", [])) or list(CATEGORIES), "tags": self._tags(values.get("tags", "")), "last_run": None, "last_error": ""}
-        data["restic"].append(item); self._save(data, actor, "replication_target_created", item["repository_id"]); return item
+        data["restic"].append(item); self._save(data, actor, "restic_repository_created", item["repository_id"]); return item
 
     def run_restic(self, repository_id: str, action: str, password: str, actor: str, restore_path: str = "") -> dict[str, Any]:
         data = self.status(); item = next((value for value in data["restic"] if value["repository_id"] == repository_id), None)
