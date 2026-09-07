@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import socket
+import time
 import urllib.error
 from typing import Any
 
@@ -13,6 +14,7 @@ from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, re
 
 from .access_control import is_admin
 from .auth import login_required
+from .federation_print_auth import PrintRequestProof, new_nonce, sign_request
 from .federation_store import FederationStore
 from .federation_worker import _json_request, _request
 from .printershare_store import (
@@ -40,6 +42,15 @@ def _local_peer_id() -> str:
     return configured or socket.gethostname().strip().casefold().replace(" ", "-")[:128]
 
 
+def _local_identity_token() -> str:
+    token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if not token:
+        raise ValueError(
+            "SIMPLEOFFICE_FEDERATION_TOKEN fehlt; die lokale Instanz kann ihre Peer-Identität nicht kryptographisch nachweisen"
+        )
+    return token
+
+
 def _printing_policy(peer: dict[str, Any]) -> dict[str, Any]:
     policy = peer.get("policy") or {}
     value = policy.get("printing", {}) if isinstance(policy, dict) else {}
@@ -58,6 +69,10 @@ def _peer_retention_ceiling(peer: dict[str, Any]) -> str:
     remote storage therefore always needs an explicit policy choice.
     """
     return normalize_retention(_printing_policy(peer).get("retention_ceiling"), "no_store")
+
+
+def _safe_header_value(value: object, limit: int) -> str:
+    return str(value or "").replace("\r", " ").replace("\n", " ").strip()[:limit]
 
 
 def admin_required(view):
@@ -117,27 +132,65 @@ def _verify_receipt(
     receipt: dict[str, Any],
     signature: str,
     token: str,
+    *,
     ceiling: str,
     expected_policy_revision: str,
+    expected_printer_id: str,
+    expected_payload_sha256: str,
+    expected_payload_size: int,
+    expected_request_nonce: str,
+    ttl_ceiling_seconds: int,
 ) -> None:
     if not isinstance(receipt, dict):
         raise ValueError("Gegenstelle lieferte keine Druckbestätigung")
+
+    expected_hmac = hmac.new(
+        token.encode("utf-8"),
+        json.dumps(receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not signature or not hmac.compare_digest(signature, expected_hmac):
+        raise ValueError("Druckbestätigung der Gegenstelle ist nicht authentisiert")
+
+    if receipt.get("status") != "spooled":
+        raise ValueError("Gegenstelle bestätigt keine erfolgreiche Spooler-Übergabe")
+    if not hmac.compare_digest(str(receipt.get("printer_id") or ""), expected_printer_id):
+        raise ValueError("Druckbestätigung gehört zu einem anderen Drucker")
+    if not hmac.compare_digest(str(receipt.get("payload_sha256") or ""), expected_payload_sha256):
+        raise ValueError("Druckbestätigung gehört zu einer anderen Druckdatei")
+    try:
+        payload_size = int(receipt.get("payload_size"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Druckbestätigung enthält keine gültige Dateigröße") from exc
+    if payload_size != expected_payload_size:
+        raise ValueError("Druckbestätigung enthält eine abweichende Dateigröße")
+    if not hmac.compare_digest(str(receipt.get("request_nonce") or ""), expected_request_nonce):
+        raise ValueError("Druckbestätigung gehört nicht zu diesem konkreten Druckauftrag")
+    if not expected_policy_revision or not hmac.compare_digest(
+        str(receipt.get("policy_revision") or ""), expected_policy_revision
+    ):
+        raise ValueError("Druckbestätigung gehört nicht zur zuvor geprüften Aufbewahrungs-Policy")
+
     retention = normalize_retention(receipt.get("retention"), "permanent")
     if RETENTION_ORDER[retention] > RETENTION_ORDER[ceiling]:
         raise ValueError("Gegenstelle hat eine längere Speicherung bestätigt als erlaubt")
     if ceiling == "no_store" and receipt.get("application_archive") is not False:
         raise ValueError("Gegenstelle bestätigt nicht ausdrücklich 'keine App-Archivierung'")
-    if not expected_policy_revision or not hmac.compare_digest(
-        str(receipt.get("policy_revision") or ""), expected_policy_revision
-    ):
-        raise ValueError("Druckbestätigung gehört nicht zur zuvor geprüften Aufbewahrungs-Policy")
-    expected = hmac.new(
-        token.encode("utf-8"),
-        json.dumps(receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    if not signature or not hmac.compare_digest(signature, expected):
-        raise ValueError("Druckbestätigung der Gegenstelle ist nicht authentisiert")
+
+    try:
+        expires_at = int(receipt.get("expires_at") or 0)
+        completed_at = int(receipt.get("completed_at") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Druckbestätigung enthält ungültige Zeitwerte") from exc
+    if retention == "ttl":
+        if ttl_ceiling_seconds <= 0:
+            raise ValueError("TTL-Druck wurde ohne überprüfbare TTL-Obergrenze bestätigt")
+        if completed_at <= 0 or expires_at <= completed_at:
+            raise ValueError("TTL-Druck enthält keine plausible Ablaufzeit")
+        if expires_at > completed_at + ttl_ceiling_seconds:
+            raise ValueError("Gegenstelle bestätigt eine längere TTL als erlaubt")
+    elif expires_at != 0:
+        raise ValueError("Druckbestätigung enthält unerwartete Aufbewahrungsfrist")
 
 
 def submit_remote_print(
@@ -180,18 +233,58 @@ def submit_remote_print(
     policy_revision = str(capabilities.get("policy_revision") or "")
     if not policy_revision:
         raise ValueError("Gegenstelle liefert keine versionierte Druck-Policy")
+
+    effective_ttl_ceiling = max(0, int(ttl_ceiling_seconds or 0))
+    if retention_ceiling == "ttl":
+        try:
+            advertised_ttl = int(capabilities.get("ttl_seconds") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Gegenstelle liefert keine gültige TTL-Garantie") from exc
+        if advertised_ttl < 60:
+            raise ValueError("Gegenstelle liefert keine unterstützte TTL-Garantie")
+        effective_ttl_ceiling = advertised_ttl if effective_ttl_ceiling <= 0 else min(effective_ttl_ceiling, advertised_ttl)
+        if effective_ttl_ceiling < 60:
+            raise ValueError("TTL-Obergrenzen unter 60 Sekunden werden nicht übertragen")
+    else:
+        effective_ttl_ceiling = 0
+
+    safe_content_type = _safe_header_value(content_type or "application/octet-stream", 200).split(";", 1)[0].strip()
+    safe_filename = _safe_header_value(filename, 240)
+    payload_sha256 = hashlib.sha256(payload).hexdigest()
+    payload_size = len(payload)
+    source_peer_id = _local_peer_id()
+    request_nonce = new_nonce()
+    proof = PrintRequestProof(
+        peer_id=source_peer_id,
+        timestamp=int(time.time()),
+        nonce=request_nonce,
+        printer_id=printer_id,
+        policy_revision=policy_revision,
+        retention_ceiling=retention_ceiling,
+        ttl_ceiling_seconds=effective_ttl_ceiling,
+        content_type=safe_content_type,
+        filename=safe_filename,
+        payload_sha256=payload_sha256,
+        payload_size=payload_size,
+    )
+    proof_signature = sign_request(proof, _local_identity_token())
+
     token = federation.peer_token(peer_id)
     headers = {
         "Content-Type": "application/octet-stream",
         "Accept": "application/json",
-        "X-SimpleOffice-Content-Type": content_type,
-        "X-SimpleOffice-Filename": filename[:240],
+        "X-SimpleOffice-Content-Type": safe_content_type,
+        "X-SimpleOffice-Filename": safe_filename,
         "X-SimpleOffice-Retention-Ceiling": retention_ceiling,
+        "X-SimpleOffice-TTL-Ceiling": str(effective_ttl_ceiling),
         "X-SimpleOffice-Policy-Revision": policy_revision,
-        "X-SimpleOffice-Peer-ID": _local_peer_id(),
+        "X-SimpleOffice-Peer-ID": source_peer_id,
+        "X-SimpleOffice-Print-Timestamp": str(proof.timestamp),
+        "X-SimpleOffice-Print-Nonce": request_nonce,
+        "X-SimpleOffice-Payload-SHA256": payload_sha256,
+        "X-SimpleOffice-Payload-Size": str(payload_size),
+        "X-SimpleOffice-Print-Signature": proof_signature,
     }
-    if ttl_ceiling_seconds > 0:
-        headers["X-SimpleOffice-TTL-Ceiling"] = str(ttl_ceiling_seconds)
     with _request(
         f"{peer['base_url']}/federation/v1/print/jobs/{printer_id}",
         method="POST",
@@ -209,8 +302,13 @@ def submit_remote_print(
         receipt,
         str(result.get("receipt_hmac_sha256") or ""),
         token,
-        retention_ceiling,
-        policy_revision,
+        ceiling=retention_ceiling,
+        expected_policy_revision=policy_revision,
+        expected_printer_id=printer_id,
+        expected_payload_sha256=payload_sha256,
+        expected_payload_size=payload_size,
+        expected_request_nonce=request_nonce,
+        ttl_ceiling_seconds=effective_ttl_ceiling,
     )
     return result
 
