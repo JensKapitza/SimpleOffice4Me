@@ -220,7 +220,7 @@ def init_app(app) -> None:
     federation_phase2.init_app(app)
     app.register_blueprint(federation_admin.bp)
     app.register_blueprint(software_admin.bp)
-    app.register_blueprint(printershare.bp)
+    printershare.init_app(app)
     app.register_blueprint(rentals.bp)
     app.register_blueprint(mail_index_routes.bp)
     app.register_blueprint(fritzbox_contacts.bp)
