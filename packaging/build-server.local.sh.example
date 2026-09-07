@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Kopiere diese Datei nach build-server.local.sh und passe nur lokale Werte an.
+# KEINE Tokens, Passwoerter oder sonstige Geheimnisse hier eintragen.
+
+SIMPLEOFFICE_SERVER_PUBLIC_URL="https://master.example.invalid"
+SIMPLEOFFICE_SERVER_PEER_ID="license-master"
+
+# Optionale, nicht geheime Paketparameter:
+# SIMPLEOFFICE_PACKAGE_NAME="simpleoffice4me-master"
+# SIMPLEOFFICE_PACKAGE_VERSION="1.0.0"
+# SIMPLEOFFICE_PACKAGE_ITERATION="1"

@@ -26,8 +26,25 @@
 <body>
   <a class="skip-link" href="#main-content">{{ 'Skip to content' if g.language|default('de') == 'en' else 'Zum Inhalt springen' }}</a>
   {% block header %}{% endblock %}
+  {% if license_ui.state.bad_client %}
+  <div class="alert alert-danger rounded-0 border-start-0 border-end-0 mb-0 d-flex flex-wrap justify-content-between align-items-center gap-2" role="alert" id="license-blocked-banner">
+    <span><strong>{{ 'Billing warning:' if g.language|default('de') == 'en' else 'Abrechnungshinweis:' }}</strong> {{ license_ui.state.message or ('The license master marked this client as blocked. Local work remains available; federation is degraded.' if g.language|default('de') == 'en' else 'Der Lizenz-Master hat diesen Client gesperrt. Die lokale Arbeit bleibt möglich; Federation ist absichtlich herabgestuft.') }}</span>
+    {% if g.user and g.user['is_admin'] %}<a class="btn btn-sm btn-outline-danger" href="{{ url_for('licensing_admin.index') }}">{{ 'Licensing' if g.language|default('de') == 'en' else 'Lizenzierung' }}</a>{% endif %}
+  </div>
+  {% endif %}
+  {% if license_ui.open_invoices %}
+  <div class="alert alert-warning rounded-0 border-start-0 border-end-0 mb-0 d-flex flex-wrap justify-content-between align-items-center gap-2" role="status">
+    <span><strong>{{ 'Payment due:' if g.language|default('de') == 'en' else 'Zahlung offen:' }}</strong> {{ license_ui.open_invoices|length }} {{ 'invoice(s)' if g.language|default('de') == 'en' else 'Rechnung(en)' }} · {{ 'services:' if g.language|default('de') == 'en' else 'Services:' }} {{ license_ui.open_invoices|map(attribute='service')|unique|join(', ') }}</span>
+    {% if g.user and g.user['is_admin'] %}<a class="btn btn-sm btn-outline-warning" href="{{ url_for('licensing_admin.index') }}">{{ 'Show invoices' if g.language|default('de') == 'en' else 'Rechnungen anzeigen' }}</a>{% endif %}
+  </div>
+  {% endif %}
   {% block body %}{% endblock %}
   {% block footer %}{% endblock %}
+  {% if license_ui.state.bad_client %}
+  <div class="modal fade" id="licenseBlockedModal" tabindex="-1" aria-labelledby="licenseBlockedTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="licenseBlockedTitle">{{ 'Client blocked by license master' if g.language|default('de') == 'en' else 'Client vom Lizenz-Master gesperrt' }}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><p>{{ license_ui.state.message or ('Please contact the administrator or settle the outstanding billing issue.' if g.language|default('de') == 'en' else 'Bitte Abrechnungsstatus prüfen bzw. offene Rechnung klären.') }}</p><p class="small text-secondary mb-0">{{ 'The local application continues to work. Federation traffic is intentionally slower and peers may refuse this client.' if g.language|default('de') == 'en' else 'Die lokale Anwendung funktioniert weiter. Federation-Verkehr wird absichtlich verlangsamt und andere Peers dürfen diesen Client ablehnen.' }}</p></div><div class="modal-footer">{% if g.user and g.user['is_admin'] %}<a class="btn btn-primary" href="{{ url_for('licensing_admin.index') }}">{{ 'Open licensing' if g.language|default('de') == 'en' else 'Lizenzierung öffnen' }}</a>{% endif %}<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">OK</button></div></div></div>
+  </div>
+  {% endif %}
   <script src="{{ url_for('static', filename='vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js') }}"></script>
   <script src="{{ url_for('static', filename='js/security.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
@@ -37,5 +54,6 @@
   <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
   <script src="{{ url_for('static', filename='js/global_ui.js') }}"></script>
   <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
+  {% if license_ui.state.bad_client %}<script>(() => { const key = 'simpleoffice-license-blocked-{{ license_ui.state.updated_at|default(0) }}'; if (!sessionStorage.getItem(key)) { sessionStorage.setItem(key, '1'); const el = document.getElementById('licenseBlockedModal'); if (el && window.bootstrap) new bootstrap.Modal(el).show(); } })();</script>{% endif %}
 </body>
 </html>

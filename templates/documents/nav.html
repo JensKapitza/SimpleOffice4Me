@@ -13,7 +13,7 @@
         <a class="nav-link" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode me-1" aria-hidden="true"></i>Inventar Scan</a>
         <a class="nav-link" href="{{ url_for('library.index') }}"><i class="fas fa-book-open me-1" aria-hidden="true"></i>Bibliothek</a>
         <a class="nav-link" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive me-1" aria-hidden="true"></i>Speicher</a>
-        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a><a class="nav-link" href="{{ url_for('software_admin.index') }}"><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>Updates</a>{% endif %}
+        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a><a class="nav-link" href="{{ url_for('software_admin.index') }}"><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>Updates</a><a class="nav-link" href="{{ url_for('licensing_admin.index') }}"><i class="fas fa-key me-1" aria-hidden="true"></i>{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a>{% endif %}
         <a class="nav-link" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>{{ tr('documents') }}</a>
         <a class="nav-link" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}"><i class="fas fa-file-invoice-dollar me-1" aria-hidden="true"></i>{{ tr('invoice.nav') }}</a>
         <a class="nav-link" href="{{ url_for('eur.receipts') }}"><i class="fas fa-receipt me-1" aria-hidden="true"></i>EÜR-Belege</a>
