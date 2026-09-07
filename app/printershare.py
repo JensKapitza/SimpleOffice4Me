@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
+import socket
 import urllib.error
 from typing import Any
 
@@ -25,6 +27,21 @@ def _store() -> PrinterShareStore:
 
 def _federation() -> FederationStore:
     return FederationStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _local_peer_id() -> str:
+    configured = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+    return configured or socket.gethostname().strip().casefold().replace(" ", "-")[:128]
+
+
+def _printing_policy(peer: dict[str, Any]) -> dict[str, Any]:
+    policy = peer.get("policy") or {}
+    value = policy.get("printing", {}) if isinstance(policy, dict) else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _may_send_print(peer: dict[str, Any]) -> bool:
+    return _printing_policy(peer).get("send") is True
 
 
 def admin_required(view):
@@ -62,10 +79,8 @@ def remote_print_capabilities(root: str, peer_id: str) -> dict[str, Any]:
     peer = federation.get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         raise ValueError("Federation-Peer ist nicht aktiv")
-    policy = peer.get("policy") or {}
-    print_policy = policy.get("printing", {}) if isinstance(policy, dict) else {}
-    if print_policy and print_policy.get("send") is False:
-        raise ValueError("Peer-Policy verbietet Druckaufträge")
+    if not _may_send_print(peer):
+        raise ValueError("Drucken zu diesem Peer ist nicht ausdrücklich freigegeben (printing.send=true erforderlich)")
     try:
         result = _json_request(
             peer["base_url"] + "/federation/v1/print/capabilities",
@@ -78,7 +93,13 @@ def remote_print_capabilities(root: str, peer_id: str) -> dict[str, Any]:
         raise
 
 
-def _verify_receipt(receipt: dict[str, Any], signature: str, token: str, ceiling: str) -> None:
+def _verify_receipt(
+    receipt: dict[str, Any],
+    signature: str,
+    token: str,
+    ceiling: str,
+    expected_policy_revision: str,
+) -> None:
     if not isinstance(receipt, dict):
         raise ValueError("Gegenstelle lieferte keine Druckbestätigung")
     retention = normalize_retention(receipt.get("retention"), "permanent")
@@ -86,6 +107,10 @@ def _verify_receipt(receipt: dict[str, Any], signature: str, token: str, ceiling
         raise ValueError("Gegenstelle hat eine längere Speicherung bestätigt als erlaubt")
     if ceiling == "no_store" and receipt.get("application_archive") is not False:
         raise ValueError("Gegenstelle bestätigt nicht ausdrücklich 'keine App-Archivierung'")
+    if not expected_policy_revision or not hmac.compare_digest(
+        str(receipt.get("policy_revision") or ""), expected_policy_revision
+    ):
+        raise ValueError("Druckbestätigung gehört nicht zur zuvor geprüften Aufbewahrungs-Policy")
     expected = hmac.new(
         token.encode("utf-8"),
         json.dumps(receipt, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"),
@@ -110,10 +135,8 @@ def submit_remote_print(
     peer = federation.get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         raise ValueError("Federation-Peer ist nicht aktiv")
-    policy = peer.get("policy") or {}
-    print_policy = policy.get("printing", {}) if isinstance(policy, dict) else {}
-    if print_policy and print_policy.get("send") is False:
-        raise ValueError("Peer-Policy verbietet Druckaufträge")
+    if not _may_send_print(peer):
+        raise ValueError("Drucken zu diesem Peer ist nicht ausdrücklich freigegeben (printing.send=true erforderlich)")
     capabilities = remote_print_capabilities(root, peer_id)
     if not capabilities.get("enabled"):
         raise ValueError("Gegenstelle bietet PrinterShare nicht über Federation an")
@@ -125,6 +148,9 @@ def submit_remote_print(
         raise ValueError("Gegenstelle garantiert keine Aufbewahrungsobergrenze")
     if retention_ceiling == "no_store" and not contract.get("no_store_means_no_application_archive"):
         raise ValueError("Gegenstelle garantiert keinen No-Store-Druck")
+    policy_revision = str(capabilities.get("policy_revision") or "")
+    if not policy_revision:
+        raise ValueError("Gegenstelle liefert keine versionierte Druck-Policy")
     token = federation.peer_token(peer_id)
     headers = {
         "Content-Type": "application/octet-stream",
@@ -132,8 +158,8 @@ def submit_remote_print(
         "X-SimpleOffice-Content-Type": content_type,
         "X-SimpleOffice-Filename": filename[:240],
         "X-SimpleOffice-Retention-Ceiling": retention_ceiling,
-        "X-SimpleOffice-Policy-Revision": str(capabilities.get("policy_revision") or ""),
-        "X-SimpleOffice-Peer-ID": "local",
+        "X-SimpleOffice-Policy-Revision": policy_revision,
+        "X-SimpleOffice-Peer-ID": _local_peer_id(),
     }
     if ttl_ceiling_seconds > 0:
         headers["X-SimpleOffice-TTL-Ceiling"] = str(ttl_ceiling_seconds)
@@ -150,7 +176,13 @@ def submit_remote_print(
     if not isinstance(result, dict):
         raise ValueError("Ungültige Antwort der Druck-Gegenstelle")
     receipt = result.get("receipt")
-    _verify_receipt(receipt, str(result.get("receipt_hmac_sha256") or ""), token, retention_ceiling)
+    _verify_receipt(
+        receipt,
+        str(result.get("receipt_hmac_sha256") or ""),
+        token,
+        retention_ceiling,
+        policy_revision,
+    )
     return result
 
 
@@ -159,13 +191,17 @@ def submit_remote_print(
 def index():
     store = _store()
     settings = store.settings()
+    peers = [
+        peer for peer in _federation().list_peers()
+        if peer.get("enabled") and _may_send_print(peer)
+    ]
     return render_template(
         "printershare/index.html",
         printers=store.printers(),
         settings=settings,
         jobs=store.jobs(100),
         retention_labels=RETENTION_LABELS,
-        peers=[peer for peer in _federation().list_peers() if peer.get("enabled")],
+        peers=peers,
     )
 
 
