@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import time
+import urllib.error
 from functools import wraps
 from typing import Any
 
@@ -15,13 +16,14 @@ from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, re
 from .access_control import FEATURES, is_admin
 from .auth import login_required
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
-from .federation_worker import _request
+from . import federation_worker
 from .license_master_store import MasterLicenseStore
 from .license_metering import LicenseStore, feature_for_endpoint
 from .system_identity import installation_id
 
 admin_bp = Blueprint("licensing_admin", __name__, url_prefix="/admin/licensing")
 federation_bp = Blueprint("licensing_federation", __name__, url_prefix="/federation/v1/licensing")
+BAD_CLIENT_DELAY_SECONDS = 0.75
 
 
 def _store() -> LicenseStore:
@@ -44,6 +46,10 @@ def _admin_required(view):
 
 def _master_secret() -> str:
     return os.environ.get("SIMPLEOFFICE_LICENSE_MASTER_TOKEN", "").strip()
+
+
+def _refuse_bad_client() -> bool:
+    return os.environ.get("SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT", "0").strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def _master_authorized() -> bool:
@@ -73,7 +79,13 @@ def _post_master(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     token = _master_secret()
     if token:
         headers["X-SimpleOffice-License-Token"] = token
-    with _request(LICENSE_MASTER_URL.rstrip("/") + path, method="POST", body=body, headers=headers, timeout=30) as response:
+    with federation_worker._request(
+        LICENSE_MASTER_URL.rstrip("/") + path,
+        method="POST",
+        body=body,
+        headers=headers,
+        timeout=30,
+    ) as response:
         raw = response.read()
     value = json.loads(raw.decode("utf-8") or "{}")
     if not isinstance(value, dict):
@@ -94,7 +106,12 @@ def send_pending_reports(store: LicenseStore) -> dict[str, Any]:
                 store.set_prices(reply["prices_cents"])
             state = reply.get("client_state")
             if isinstance(state, dict):
-                store.set_state(str(state.get("state") or "ok"), reason=str(state.get("reason") or ""), message=str(state.get("message") or ""), source="master")
+                store.set_state(
+                    str(state.get("state") or "ok"),
+                    reason=str(state.get("reason") or ""),
+                    message=str(state.get("message") or ""),
+                    source="master",
+                )
             store.mark_report(month["month"], success=True)
             sent += 1
         except Exception as exc:
@@ -139,7 +156,12 @@ def master_set_client_state(installation: str):
     if not LICENSE_MASTER_MODE:
         abort(404)
     try:
-        _master_store().set_client_state(installation, request.form.get("state", ""), request.form.get("reason", ""), request.form.get("message", ""))
+        _master_store().set_client_state(
+            installation,
+            request.form.get("state", ""),
+            request.form.get("reason", ""),
+            request.form.get("message", ""),
+        )
         flash("Clientstatus wurde aktualisiert.")
     except ValueError as exc:
         flash(str(exc))
@@ -180,7 +202,12 @@ def receive_state():
     if not isinstance(payload, dict):
         return jsonify({"error": "invalid_json"}), 400
     try:
-        state = _store().set_state(str(payload.get("state") or ""), reason=str(payload.get("reason") or ""), message=str(payload.get("message") or ""), source="master")
+        state = _store().set_state(
+            str(payload.get("state") or ""),
+            reason=str(payload.get("reason") or ""),
+            message=str(payload.get("message") or ""),
+            source="master",
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"accepted": True, "state": state})
@@ -208,16 +235,50 @@ def license_report_command() -> None:
         raise click.ClickException("one or more license reports failed")
 
 
+class _LicenseAwareOpener:
+    """Wrap the SOFP opener so peers can degrade or refuse BAD clients."""
+
+    def __init__(self, wrapped, app):
+        self.wrapped = wrapped
+        self.app = app
+
+    def open(self, req, timeout=30):
+        url = str(getattr(req, "full_url", ""))
+        licensing = "/federation/v1/licensing/" in url
+        if not licensing:
+            with self.app.app_context():
+                local_state = LicenseStore(self.app.config["DOCUMENT_ROOT"]).state()
+            req.add_header("X-SimpleOffice-Client-State", str(local_state.get("state") or "unknown"))
+            if local_state.get("bad_client"):
+                time.sleep(BAD_CLIENT_DELAY_SECONDS)
+        response = self.wrapped.open(req, timeout=timeout)
+        if not licensing and str(response.headers.get("X-SimpleOffice-Client-State", "")).casefold() == "blocked":
+            time.sleep(BAD_CLIENT_DELAY_SECONDS)
+            if _refuse_bad_client():
+                response.close()
+                raise urllib.error.HTTPError(url, 503, "BAD federation client refused", {}, None)
+        return response
+
+
 def init_app(app) -> None:
     app.register_blueprint(admin_bp)
     app.register_blueprint(federation_bp)
     app.cli.add_command(license_report_command)
 
+    if not isinstance(federation_worker._OPENER, _LicenseAwareOpener):
+        federation_worker._OPENER = _LicenseAwareOpener(federation_worker._OPENER, app)
+
     @app.before_request
-    def slow_blocked_federation():
-        if request.path.startswith("/federation/") and not request.path.startswith("/federation/v1/licensing/"):
-            if LicenseStore(app.config["DOCUMENT_ROOT"]).state().get("bad_client"):
-                time.sleep(0.75)
+    def slow_or_refuse_bad_federation():
+        if not request.path.startswith("/federation/") or request.path.startswith("/federation/v1/licensing/"):
+            return None
+        remote_bad = request.headers.get("X-SimpleOffice-Client-State", "").strip().casefold() == "blocked"
+        local_bad = LicenseStore(app.config["DOCUMENT_ROOT"]).state().get("bad_client")
+        if remote_bad or local_bad:
+            time.sleep(BAD_CLIENT_DELAY_SECONDS)
+        if remote_bad and _refuse_bad_client():
+            return jsonify({"error": "bad_client_refused", "retryable": True}), 503
+        return None
 
     @app.after_request
     def meter_and_publish_license_state(response):
