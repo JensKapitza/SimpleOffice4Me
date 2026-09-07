@@ -9,6 +9,7 @@ import os
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .federation_http import _authorized
+from .federation_print_auth import claim_nonce, identify_source_peer, parse_proof_headers
 from .federation_store import FederationStore
 from .printershare_store import PrinterShareStore, RETENTION_ORDER, normalize_retention
 
@@ -35,17 +36,6 @@ def authenticate():
     return None
 
 
-def _source_allowed(source_peer: str) -> bool:
-    if not source_peer:
-        return False
-    peer = _federation().get_peer(source_peer)
-    if not peer or not peer.get("enabled"):
-        return False
-    policy = peer.get("policy") or {}
-    printing = policy.get("printing", {}) if isinstance(policy, dict) else {}
-    return isinstance(printing, dict) and printing.get("receive") is True
-
-
 def _receipt_hmac(receipt: dict) -> str:
     token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     if not token and current_app.testing:
@@ -69,41 +59,70 @@ def submit_job(printer_id: str):
     settings = store.settings()
     if not settings["enabled"] or not settings["federation_enabled"]:
         return jsonify({"error": "printing_disabled"}), 403
-    source_peer = request.headers.get("X-SimpleOffice-Peer-ID", "").strip()[:128]
-    if not _source_allowed(source_peer):
-        return jsonify({"error": "peer_policy_rejects_printing", "detail": "known enabled peer with printing.receive=true required"}), 403
 
+    # The normal federation bearer authenticates this receiving server. The
+    # additional print proof binds the request to one unique peer credential;
+    # the caller-supplied peer-id header is never used to select permissions.
+    try:
+        proof_values, proof_signature = parse_proof_headers(request.headers, printer_id)
+        source_peer, proof = identify_source_peer(_federation(), proof_values, proof_signature)
+    except ValueError as exc:
+        return jsonify({"error": "peer_identity_rejected", "detail": str(exc)}), 403
+
+    claimed_peer = request.headers.get("X-SimpleOffice-Peer-ID", "").strip()[:128]
+    if claimed_peer and not hmac.compare_digest(claimed_peer, source_peer):
+        return jsonify({"error": "peer_identity_mismatch"}), 403
+
+    expected_revision = proof.policy_revision
     revision = store.policy_revision()
-    expected_revision = request.headers.get("X-SimpleOffice-Policy-Revision", "").strip()
     if not expected_revision:
         return jsonify({"error": "policy_revision_required", "policy_revision": revision}), 428
     if not hmac.compare_digest(expected_revision, revision):
         return jsonify({"error": "policy_changed", "policy_revision": revision}), 409
 
-    raw_ceiling = request.headers.get("X-SimpleOffice-Retention-Ceiling", "no_store").strip().casefold()
+    raw_ceiling = proof.retention_ceiling
     if raw_ceiling not in RETENTION_ORDER:
         return jsonify({"error": "invalid_retention_ceiling"}), 400
     retention_ceiling = normalize_retention(raw_ceiling)
-    try:
-        ttl_ceiling = max(0, int(request.headers.get("X-SimpleOffice-TTL-Ceiling", "0") or 0))
-    except ValueError:
-        return jsonify({"error": "invalid_ttl_ceiling"}), 400
+    ttl_ceiling = proof.ttl_ceiling_seconds
+    # Admin-configured backlog TTLs have a one-minute minimum. A stricter
+    # sub-minute sender ceiling therefore cannot be represented safely and is
+    # rejected instead of being silently rounded up beyond the promise.
+    if 0 < ttl_ceiling < 60:
+        return jsonify({"error": "ttl_ceiling_below_minimum", "minimum_seconds": 60}), 400
 
     declared = request.content_length
+    if proof.payload_size > settings["max_job_bytes"]:
+        return jsonify({"error": "job_too_large", "max_job_bytes": settings["max_job_bytes"]}), 413
     if declared is not None and declared > settings["max_job_bytes"]:
         return jsonify({"error": "job_too_large", "max_job_bytes": settings["max_job_bytes"]}), 413
+
     payload = request.get_data(cache=False, as_text=False)
     if len(payload) > settings["max_job_bytes"]:
         return jsonify({"error": "job_too_large", "max_job_bytes": settings["max_job_bytes"]}), 413
-    content_type = request.headers.get("X-SimpleOffice-Content-Type", "application/octet-stream").split(";", 1)[0].strip()[:200]
-    filename = request.headers.get("X-SimpleOffice-Filename", "").strip()[:240]
+    if len(payload) != proof.payload_size:
+        return jsonify({"error": "signed_payload_size_mismatch"}), 400
+    payload_sha256 = hashlib.sha256(payload).hexdigest()
+    if not hmac.compare_digest(payload_sha256, proof.payload_sha256):
+        return jsonify({"error": "signed_payload_hash_mismatch"}), 400
+
+    # Revalidate after the complete upload has arrived. This closes the window
+    # in which an administrator could change retention/printer sharing while a
+    # slow body was still being read.
+    revision_after_upload = store.policy_revision()
+    if not hmac.compare_digest(expected_revision, revision_after_upload):
+        return jsonify({"error": "policy_changed", "policy_revision": revision_after_upload}), 409
+    revision = revision_after_upload
+
+    if not claim_nonce(current_app.config["DOCUMENT_ROOT"], source_peer, proof.nonce):
+        return jsonify({"error": "replayed_print_request"}), 409
 
     try:
         result = store.submit(
             printer_id,
             payload,
-            content_type=content_type,
-            filename=filename,
+            content_type=proof.content_type,
+            filename=proof.filename,
             source="federation",
             source_peer=source_peer,
             retention_ceiling=retention_ceiling,
@@ -114,6 +133,7 @@ def submit_job(printer_id: str):
         receipt = {
             "schema": 1,
             "job_id": result["job_id"],
+            "request_nonce": proof.nonce,
             "printer_id": result["printer_id"],
             "status": result["status"],
             "retention": result["retention"],
@@ -130,6 +150,7 @@ def submit_job(printer_id: str):
             peer_id=source_peer,
             detail={
                 "job_id": result["job_id"],
+                "request_nonce": proof.nonce,
                 "printer_id": printer_id,
                 "retention": result["retention"],
                 "payload_sha256": result["payload_sha256"],
@@ -145,6 +166,11 @@ def submit_job(printer_id: str):
         _federation().record_event(
             "print_job_failed",
             peer_id=source_peer,
-            detail={"printer_id": printer_id, "error_type": type(exc).__name__, "policy_revision": revision},
+            detail={
+                "printer_id": printer_id,
+                "request_nonce": proof.nonce,
+                "error_type": type(exc).__name__,
+                "policy_revision": revision,
+            },
         )
         return jsonify({"error": str(exc), "policy_revision": revision}), 400
