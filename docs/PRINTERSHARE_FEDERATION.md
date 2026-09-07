@@ -1,0 +1,122 @@
+# PrinterShare und Federation-Druck
+
+SimpleOffice4Me kann lokal eingerichtete Drucker als PrinterShare verwenden. Linux/macOS nutzt vorhandene CUPS-Drucker (`lpstat`, `lp`/`lpr`), Windows die installierten Windows-Drucker. Normale Drucker und Labeldrucker werden unterschieden; fuer ZPL/EPL bzw. explizit als `raw` konfigurierte Drucker werden RAW-Druckdaten direkt an den Spooler uebergeben.
+
+## Aufbewahrungsmodi
+
+Der Administrator konfiguriert einen Standardmodus. Ein Benutzer bzw. Federation-Sender darf fuer einen einzelnen Auftrag immer eine strengere Obergrenze verlangen. Die Empfaengerseite darf diese Obergrenze niemals lockern.
+
+- `no_store`: SimpleOffice legt keine dauerhafte Kopie des Druckinhalts an. Nach der Uebergabe an den System-Spooler bleibt nur Auftragsmetadaten wie Hash, Groesse, Drucker und Status zurueck.
+- `ttl`: Die Druckdatei wird verschluesselt im PrinterShare-Backlog gehalten und nach Ablauf der konfigurierten Frist geloescht. Sie kann bis dahin erneut gedruckt werden.
+- `permanent`: Die Druckdatei wird verschluesselt aufbewahrt, bis sie administrativ geloescht wird.
+
+Wichtig: `no_store` ist eine Zusage ueber die SimpleOffice-Anwendungsspeicherung. Betriebssystem, Druckertreiber, CUPS/Windows-Spooler, Reverse-Proxy oder der Drucker selbst koennen fuer die technische Durchfuehrung temporaer puffern. SimpleOffice behauptet deshalb bewusst keine physikalische Null-Speicherung ausserhalb der Anwendung.
+
+## Peer-Policy: Default-Deny
+
+Federation-Druck ist opt-in. Der sendende Server muss fuer den Ziel-Peer `printing.send=true` gesetzt haben. Der empfangende Server muss den Quell-Peer kennen, aktiviert haben und fuer ihn `printing.receive=true` gesetzt haben.
+
+Beispiel auf dem Sender fuer den Ziel-Peer:
+
+```json
+{
+  "printing": {
+    "send": true,
+    "receive": false
+  }
+}
+```
+
+Die Druckerfreigabe selbst erfolgt zusaetzlich pro lokalem Drucker. Ein eingerichteter Systemdrucker wird nicht automatisch in der Federation angeboten.
+
+## Retention-Handshake
+
+Vor der Dateiuebertragung fragt der Sender ab:
+
+```text
+GET /federation/v1/print/capabilities
+Authorization: Bearer <federation-token>
+```
+
+Die Antwort enthaelt unter anderem:
+
+```json
+{
+  "schema": 1,
+  "enabled": true,
+  "policy_revision": "<sha256>",
+  "retention_contract": {
+    "ceiling_enforced": true,
+    "no_store_means_no_application_archive": true,
+    "payload_metadata_only_after_spool": true,
+    "os_spooler_may_cache": true
+  },
+  "configured_retention": "no_store",
+  "ttl_seconds": 86400,
+  "max_job_bytes": 67108864,
+  "printers": [
+    {"printer_id": "...", "label": "Etiketten", "kind": "label"}
+  ]
+}
+```
+
+Der Sender uebertraegt nur, wenn die verlangte Zusicherung in den Capabilities vorhanden ist. Fuer einen No-Store-Auftrag muss insbesondere `ceiling_enforced=true` und `no_store_means_no_application_archive=true` gelten.
+
+Der Auftrag wird als Rohdatenkoerper gesendet:
+
+```text
+POST /federation/v1/print/jobs/<printer_id>
+Authorization: Bearer <federation-token>
+X-SimpleOffice-Peer-ID: <source-peer-id>
+X-SimpleOffice-Policy-Revision: <zuvor-gelesene-policy-revision>
+X-SimpleOffice-Retention-Ceiling: no_store | ttl | permanent
+X-SimpleOffice-TTL-Ceiling: <sekunden, optional>
+X-SimpleOffice-Content-Type: application/pdf
+X-SimpleOffice-Filename: label.pdf
+Content-Type: application/octet-stream
+```
+
+Die Empfaengerseite prueft die `policy_revision` **vor** der Verarbeitung des Druckauftrags. Hat sich die Policy seit der Capability-Abfrage geaendert, wird mit HTTP `409 policy_changed` abgebrochen. Fehlt die Revision, folgt HTTP `428 policy_revision_required`. Damit kann eine zwischen Abfrage und Upload geaenderte Speicherregel nicht unbemerkt angewandt werden.
+
+Die effektive Aufbewahrung ist immer die strengere Variante aus Empfaenger-Standard und Sender-Obergrenze. Beispiel: Empfaenger steht auf `permanent`, Sender fordert `no_store` -> effektiver Auftrag ist `no_store`.
+
+## Authentisierte Druckbestaetigung
+
+Nach erfolgreicher Uebergabe an den System-Spooler liefert die Gegenstelle einen Receipt mit der **tatsaechlich angewandten** Aufbewahrung:
+
+```json
+{
+  "receipt": {
+    "schema": 1,
+    "job_id": "...",
+    "printer_id": "...",
+    "status": "spooled",
+    "retention": "no_store",
+    "expires_at": 0,
+    "payload_sha256": "...",
+    "payload_size": 12345,
+    "policy_revision": "...",
+    "completed_at": 1780000000,
+    "application_archive": false,
+    "os_spooler_may_cache": true
+  },
+  "receipt_hmac_sha256": "..."
+}
+```
+
+`receipt_hmac_sha256` ist HMAC-SHA256 ueber das kanonische JSON des Receipts mit dem fuer diese Federation-Verbindung verwendeten gemeinsamen Secret. Der Sender akzeptiert die Bestaetigung nur, wenn:
+
+1. die HMAC-Pruefung erfolgreich ist,
+2. die `policy_revision` exakt zur vorher abgefragten Policy passt,
+3. die bestaetigte Aufbewahrung die geforderte Obergrenze nicht ueberschreitet,
+4. bei `no_store` `application_archive=false` bestaetigt wird.
+
+Diese Bestaetigung ist eine technische, authentisierte Zusage innerhalb der vertrauenswuerdigen Federation. Sie ist keine kryptographische Moeglichkeit, einen absichtlich manipulierten Remote-Server daran zu hindern, ausserhalb des Protokolls dennoch Daten mitzuschneiden. Deshalb bleibt die Federation auf bekannte, administrativ gekoppelte Instanzen beschraenkt.
+
+## Backlog-Schutz
+
+Zeitlich oder dauerhaft gespeicherte Druckinhalte werden nicht im normalen Dokumentarchiv abgelegt. PrinterShare speichert sie separat unter `.simpleoffice-meta/printershare-retained/` mit AES-GCM. Die Auftragsdatenbank enthaelt nur Metadaten und den Pfad auf eine ggf. vorhandene verschluesselte Kopie. Bei Ablauf eines TTL-Auftrags wird die verschluesselte Datei entfernt; die Audit-Metadaten duerfen bestehen bleiben.
+
+## Statusbegriff
+
+`spooled` bedeutet: SimpleOffice hat den Auftrag erfolgreich an den lokalen Betriebssystem-Spooler uebergeben. Es bedeutet nicht, dass Papier bereits physisch ausgegeben wurde. Ein spaeterer Papierstau, Offline-Drucker oder Druckerfehler liegt ausserhalb dieser ersten PrinterShare-Version.
