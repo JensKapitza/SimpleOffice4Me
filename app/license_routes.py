@@ -13,7 +13,9 @@ from .access_control import is_admin
 from .auth import login_required
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 from .federation_worker import _request
+from .license_master_store import MasterLicenseStore
 from .license_metering import LicenseStore
+from .system_identity import installation_id
 
 admin_bp = Blueprint("licensing_admin", __name__, url_prefix="/admin/licensing")
 federation_bp = Blueprint("licensing_federation", __name__, url_prefix="/federation/v1/licensing")
@@ -21,6 +23,10 @@ federation_bp = Blueprint("licensing_federation", __name__, url_prefix="/federat
 
 def _store() -> LicenseStore:
     return LicenseStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _master_store() -> MasterLicenseStore:
+    return MasterLicenseStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _admin_required(view):
@@ -48,7 +54,7 @@ def _master_authorized() -> bool:
 def _client_payload(month: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema": 1,
-        "installation_id": str(month.get("installation_id") or ""),
+        "installation_id": installation_id(),
         "month": month["month"],
         "user_count": month["user_count"],
         "usage": month["usage"],
@@ -109,7 +115,9 @@ def send_pending_reports(store: LicenseStore) -> dict[str, Any]:
 @admin_bp.get("")
 @_admin_required
 def index():
-    return render_template("admin/licensing.html", licensing=_store().overview())
+    licensing = _store().overview()
+    master_reports = _master_store().reports() if LICENSE_MASTER_MODE else []
+    return render_template("admin/licensing.html", licensing=licensing, master_reports=master_reports)
 
 
 @admin_bp.post("/report")
@@ -120,6 +128,24 @@ def report_now():
         flash("Lizenzberichte konnten nicht vollständig übertragen werden: " + "; ".join(result["errors"]))
     else:
         flash(f"{result['sent']} Monatsbericht(e) an den Lizenz-Master übertragen.")
+    return redirect(url_for("licensing_admin.index"))
+
+
+@admin_bp.post("/master/client/<installation>/state")
+@_admin_required
+def master_set_client_state(installation: str):
+    if not LICENSE_MASTER_MODE:
+        abort(404)
+    try:
+        _master_store().set_client_state(
+            installation,
+            request.form.get("state", ""),
+            request.form.get("reason", ""),
+            request.form.get("message", ""),
+        )
+        flash("Clientstatus wurde aktualisiert.")
+    except ValueError as exc:
+        flash(str(exc))
     return redirect(url_for("licensing_admin.index"))
 
 
@@ -138,14 +164,14 @@ def receive_report():
     if not isinstance(payload, dict):
         return jsonify({"error": "invalid_json"}), 400
     try:
-        result = _store().save_master_report(payload)
+        result = _master_store().save_report(payload)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({
         "accepted": True,
         "report_hash": result["report_hash"],
         "prices_cents": _store().prices(),
-        "client_state": _store().master_client_state(result["installation_id"]),
+        "client_state": _master_store().client_state(result["installation_id"]),
     })
 
 
