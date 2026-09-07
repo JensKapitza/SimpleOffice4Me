@@ -4,7 +4,6 @@ from __future__ import annotations
 import hmac
 import json
 import os
-import urllib.error
 from typing import Any
 
 import click
@@ -13,7 +12,7 @@ from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, re
 from .access_control import is_admin
 from .auth import login_required
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
-from .federation_worker import _json_request
+from .federation_worker import _request
 from .license_metering import LicenseStore
 
 admin_bp = Blueprint("licensing_admin", __name__, url_prefix="/admin/licensing")
@@ -59,22 +58,34 @@ def _client_payload(month: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _post_master(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    token = _master_secret()
+    if token:
+        headers["X-SimpleOffice-License-Token"] = token
+    with _request(
+        LICENSE_MASTER_URL.rstrip("/") + path,
+        method="POST",
+        body=body,
+        headers=headers,
+        timeout=30,
+    ) as response:
+        raw = response.read()
+    value = json.loads(raw.decode("utf-8") or "{}")
+    if not isinstance(value, dict):
+        raise ValueError("Lizenz-Master lieferte keine JSON-Antwort")
+    return value
+
+
 def send_pending_reports(store: LicenseStore) -> dict[str, Any]:
     if not LICENSE_MASTER_URL:
         return {"sent": 0, "errors": ["Kein Lizenz-Master wurde beim Build festgelegt."]}
-    token = _master_secret()
     sent = 0
     errors: list[str] = []
     for month in store.pending_reports():
-        payload = _client_payload(month)
         try:
-            response = _json_request(
-                LICENSE_MASTER_URL.rstrip("/") + "/federation/v1/licensing/reports",
-                method="POST",
-                payload=payload,
-                timeout=30,
-                extra_headers={"X-SimpleOffice-License-Token": token} if token else {},
-            )
+            response = _post_master("/federation/v1/licensing/reports", _client_payload(month))
             if not response.get("accepted"):
                 raise ValueError("Master hat Nutzungsbericht nicht bestätigt")
             if isinstance(response.get("prices_cents"), dict):
