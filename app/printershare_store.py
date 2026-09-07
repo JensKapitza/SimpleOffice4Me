@@ -524,7 +524,7 @@ class PrinterShareStore:
             db.execute(
                 """INSERT INTO print_job(job_id,source,source_peer,printer_id,printer_name,status,retention,
                        expires_at,payload_path,content_type,payload_size,payload_sha256,policy_revision,created_at)
-                   VALUES(?,?,?,?,?,'queued',?,?,?,?,?,?,?,?,?)""",
+                   VALUES(?,?,?,?,?,'queued',?,?,?,?,?,?,?,?)""",
                 (
                     job_id, source[:32], source_peer[:160], target_id, printer["name"], retention,
                     expires_at, payload_path, str(content_type or "application/octet-stream")[:200], len(payload),
