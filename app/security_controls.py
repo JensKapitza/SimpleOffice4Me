@@ -22,6 +22,12 @@ UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 LOGIN_WINDOW_SECONDS = 15 * 60
 LOGIN_BLOCK_SECONDS = 15 * 60
 LOGIN_LIMITS = {"account": 5, "network": 25}
+PASSWORD_PROTOCOL_MUTATIONS = {
+    "/identity/accounts/prelogin",
+    "/identity/connect/token",
+    "/server/authentication/login",
+    "/server/authentication/login/",
+}
 
 
 def csrf_token() -> str:
@@ -65,8 +71,14 @@ def protect_browser_mutation() -> None:
     if current_app.testing and not current_app.config.get("TEST_CSRF_PROTECTION", False):
         return
     # Credentialed protocol resources are exempt. Their browser settings pages
-    # live under /admin and remain CSRF protected.
-    if request.path.startswith(("/caldav/", "/carddav/", "/webdav/", "/federation/v1/")) or request.path == "/mcp":
+    # live under /admin and remain CSRF protected. Password-manager protocol
+    # routes are intentionally enumerated instead of exempting broad /identity
+    # or /server prefixes, so future browser routes do not silently lose CSRF.
+    if (
+        request.path.startswith(("/caldav/", "/carddav/", "/webdav/", "/federation/v1/"))
+        or request.path == "/mcp"
+        or request.path in PASSWORD_PROTOCOL_MUTATIONS
+    ):
         return
     expected = session.get("_csrf_token")
     supplied = request.form.get("_csrf_token", "") or request.headers.get("X-CSRF-Token", "")
