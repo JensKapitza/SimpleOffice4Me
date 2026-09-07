@@ -1,0 +1,184 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h1 class="h2 mb-1">Bibliothek</h1>
+      <p class="text-secondary mb-0">Regale beschriften, viele Bücher nacheinander einscannen und jedes Buch später mit einem Scan wiederfinden.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode me-1" aria-hidden="true"></i>Inventar-Schnellerfassung</a>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="card shadow-sm mb-3" id="find-book">
+    <div class="card-header"><strong>1 · Buch wiederfinden</strong></div>
+    <div class="card-body">
+      <form id="library-find-form" class="row g-2 align-items-end" role="search">
+        <div class="col-md-9"><label class="form-label" for="library-find">ISBN, Barcode, Inventarnummer oder Titel</label><input class="form-control form-control-lg" id="library-find" autocomplete="off" placeholder="Buch scannen oder Suchtext eingeben"></div>
+        <div class="col-md-3 d-grid"><button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-magnifying-glass me-2" aria-hidden="true"></i>Finden</button></div>
+      </form>
+      <div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-outline-primary" data-scan-target="library-find"><i class="fas fa-camera me-1" aria-hidden="true"></i>Barcode scannen</button></div>
+      <div id="library-find-result" class="mt-3" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section class="card shadow-sm mb-3" id="locations">
+    <div class="card-header"><strong>2 · Regal / Lagerort anlegen und beschriften</strong></div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-lg-5">
+          <form method="post" action="{{ url_for('library.create_location') }}" class="row g-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-12"><label class="form-label" for="location-name">Name</label><input required class="form-control" id="location-name" name="name" placeholder="z. B. Wohnzimmer · Regal 2 · Fach B"></div>
+            <div class="col-12"><label class="form-label" for="location-parent">Übergeordnet</label><select class="form-select" id="location-parent" name="parent_id"><option value="">– oberste Ebene –</option>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="location-code">Eigener Barcode-Code (optional)</label><input class="form-control" id="location-code" name="code" maxlength="80" placeholder="leer = automatisch LIB-L0001"><div class="form-text">Der Code bleibt dauerhaft bestehen und kann als Barcode auf das Regal geklebt werden.</div></div>
+            <div class="col-12 d-grid"><button class="btn btn-success" type="submit"><i class="fas fa-plus me-1" aria-hidden="true"></i>Standort anlegen</button></div>
+          </form>
+        </div>
+        <div class="col-lg-7">
+          <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">Standort</th><th scope="col">Code</th><th scope="col">Aktion</th></tr></thead><tbody>
+            {% for location in locations %}<tr><td>{{ location.name }}</td><td><code>{{ location.code }}</code></td><td><form method="post" action="{{ url_for('library.print_location', location_id=location.location_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-print me-1" aria-hidden="true"></i>Barcode drucken</button></form></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Noch kein Bibliotheksstandort angelegt.</td></tr>{% endfor %}
+          </tbody></table></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card shadow-sm mb-3" id="bulk-scan">
+    <div class="card-header"><strong>3 · Ein Regal voller Bücher erfassen</strong></div>
+    <div class="card-body">
+      <div class="alert alert-secondary py-2">Einmal das Regal wählen oder dessen Etikett scannen. Danach nur noch Buch für Buch den ISBN-/Barcode scannen. Der Standort bleibt aktiv, bis du ihn wechselst.</div>
+      <div class="row g-2 align-items-end">
+        <div class="col-md-6"><label class="form-label" for="bulk-location">Aktives Regal</label><select class="form-select form-select-lg" id="bulk-location"><option value="">– Regal auswählen –</option>{% for location in locations %}<option value="{{ location.location_id }}" data-code="{{ location.code }}" {% if selected_location == location.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+        <div class="col-md-4"><label class="form-label" for="location-scan-code">Regalcode scannen</label><input class="form-control form-control-lg" id="location-scan-code" autocomplete="off" placeholder="LIB-L…"></div>
+        <div class="col-md-2 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" data-scan-target="location-scan-code"><i class="fas fa-camera" aria-hidden="true"></i><span class="visually-hidden">Regalcode scannen</span></button></div>
+        <div class="col-md-9"><label class="form-label" for="bulk-book-code">Nächstes Buch</label><input class="form-control form-control-lg" id="bulk-book-code" autocomplete="off" inputmode="text" placeholder="ISBN/Barcode scannen"></div>
+        <div class="col-md-3 d-grid"><button type="button" class="btn btn-primary btn-lg" id="bulk-scan-book"><i class="fas fa-barcode me-2" aria-hidden="true"></i>Scannen</button></div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2"><button type="button" class="btn btn-outline-primary" data-scan-target="bulk-book-code"><i class="fas fa-camera me-1" aria-hidden="true"></i>Kamera starten</button><span class="small text-secondary align-self-center">USB-/Bluetooth-Barcodescanner können einfach in das Feld schreiben und Enter senden.</span></div>
+      <div id="bulk-status" class="mt-3" aria-live="polite"></div>
+      <div id="bulk-history" class="list-group list-group-flush mt-2"></div>
+    </div>
+  </section>
+
+  <section class="card shadow-sm mb-3" id="printer">
+    <div class="card-header"><strong>4 · Brother Etikettendrucker</strong></div>
+    <div class="card-body">
+      <p class="text-secondary">Schrift, Größe, Farbe und Schnitt werden einmal gespeichert und gelten weiter, bis du sie änderst. Danach reicht Text, Barcode oder Bild + Drucken.</p>
+      <form method="post" action="{{ url_for('library.printer_settings') }}" class="row g-2 mb-4" id="printer-settings-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-5"><label class="form-label" for="printer-uri">Verbindung</label><div class="input-group"><input class="form-control" id="printer-uri" name="uri" value="{{ printer.uri }}" placeholder="tcp://192.168.1.50:9100"><button class="btn btn-outline-secondary" type="button" id="discover-printers">Erkennen</button></div><div class="form-text">WLAN/LAN: tcp://IP:9100 · USB: usb:///dev/usb/lp0 · Bluetooth: bluetooth://AA:BB:CC:DD:EE:FF/1 · auto://</div><div id="printer-discovery" class="mt-1"></div></div>
+        <div class="col-md-3"><label class="form-label" for="printer-model">Modell</label><select class="form-select" id="printer-model" name="model">{% for model in models %}<option value="{{ model }}" {% if printer.model == model %}selected{% endif %}>{{ model }}</option>{% endfor %}</select></div>
+        <div class="col-md-2"><label class="form-label" for="printer-label">Etikett</label><select class="form-select" id="printer-label" name="label">{% for label in labels %}<option value="{{ label }}" {% if printer.label == label %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="col-md-2"><label class="form-label" for="printer-size">Schriftgröße</label><input class="form-control" id="printer-size" name="font_size" type="number" min="8" max="300" value="{{ printer.font_size }}"></div>
+        <div class="col-md-4"><label class="form-label" for="printer-font">Schrift</label><input class="form-control" id="printer-font" name="font_name" value="{{ printer.font_name }}"></div>
+        <div class="col-md-3"><label class="form-label" for="printer-color">Farbe</label><select class="form-select" id="printer-color" name="color"><option value="black" {% if printer.color == 'black' %}selected{% endif %}>Schwarz</option><option value="red" {% if printer.color == 'red' %}selected{% endif %}>Rot (QL-8xx + 62red)</option></select></div>
+        <div class="col-md-3"><label class="form-label" for="printer-align">Ausrichtung</label><select class="form-select" id="printer-align" name="align"><option value="left" {% if printer.align == 'left' %}selected{% endif %}>Links</option><option value="center" {% if printer.align == 'center' %}selected{% endif %}>Mitte</option><option value="right" {% if printer.align == 'right' %}selected{% endif %}>Rechts</option></select></div>
+        <div class="col-md-2 d-flex align-items-end gap-3 pb-2"><div class="form-check"><input class="form-check-input" type="checkbox" name="bold" value="1" id="printer-bold" {% if printer.bold %}checked{% endif %}><label class="form-check-label" for="printer-bold">Fett</label></div><div class="form-check"><input class="form-check-input" type="checkbox" name="cut" value="1" id="printer-cut" {% if printer.cut %}checked{% endif %}><label class="form-check-label" for="printer-cut">Schneiden</label></div></div>
+        <div class="col-12"><button class="btn btn-outline-primary" type="submit"><i class="fas fa-floppy-disk me-1" aria-hidden="true"></i>Einstellungen speichern</button></div>
+      </form>
+
+      <div class="row g-3">
+        <div class="col-lg-4"><div class="border rounded p-3 h-100"><h2 class="h5">Textzeile</h2><form method="post" action="{{ url_for('library.printer_print', kind='text') }}" data-preview-url="{{ url_for('library.printer_preview', kind='text') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label class="form-label" for="label-text">Text</label><input required class="form-control form-control-lg mb-2" id="label-text" name="text" placeholder="Regal A · Krimis"><div class="d-flex gap-2"><button class="btn btn-primary flex-grow-1" type="submit">Text drucken</button><button class="btn btn-outline-secondary preview-label" type="button">Vorschau</button></div></form></div></div>
+        <div class="col-lg-4"><div class="border rounded p-3 h-100"><h2 class="h5">Barcode</h2><form method="post" action="{{ url_for('library.printer_print', kind='barcode') }}" data-preview-url="{{ url_for('library.printer_preview', kind='barcode') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label class="form-label" for="label-barcode">Wert</label><input required class="form-control mb-2" id="label-barcode" name="value" placeholder="LIB-L0001"><label class="form-label" for="label-caption">Text darunter</label><input class="form-control mb-2" id="label-caption" name="caption" placeholder="Regal 1"><div class="d-flex gap-2"><button class="btn btn-primary flex-grow-1" type="submit">Barcode drucken</button><button class="btn btn-outline-secondary preview-label" type="button">Vorschau</button></div></form></div></div>
+        <div class="col-lg-4"><div class="border rounded p-3 h-100"><h2 class="h5">Bild</h2><form method="post" action="{{ url_for('library.printer_print', kind='image') }}" enctype="multipart/form-data" data-preview-url="{{ url_for('library.printer_preview', kind='image') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label class="form-label" for="label-image">Bild auswählen</label><input required class="form-control mb-2" id="label-image" name="image" type="file" accept="image/png,image/jpeg,image/webp"><div class="d-flex gap-2"><button class="btn btn-primary flex-grow-1" type="submit">Bild drucken</button><button class="btn btn-outline-secondary preview-label" type="button">Vorschau</button></div></form></div></div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-3"><form method="post" action="{{ url_for('library.printer_cut') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit"><i class="fas fa-scissors me-1" aria-hidden="true"></i>Vorschub + abschneiden</button></form></div>
+      <div id="label-preview-wrap" class="mt-3" hidden><div class="small text-secondary mb-1">Vorschau</div><img id="label-preview" alt="Etikettenvorschau" class="img-fluid border rounded bg-white" style="max-height:280px" loading="lazy" decoding="async"></div>
+    </div>
+  </section>
+
+  <section class="row g-3">
+    <div class="col-lg-8"><div class="card shadow-sm h-100"><div class="card-header"><strong>Bücher &amp; Standorte</strong></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Nr.</th><th scope="col">Buch</th><th scope="col">Standort</th></tr></thead><tbody>{% for book in books %}<tr><td><a href="{{ url_for('inventory.item_detail', object_id=book.object_id) }}">#{{ book.display_id }}</a></td><td>{{ book.name }}<div class="small text-secondary">{{ book.fields.get('authors','') }} · {{ book.identifier }}</div></td><td>{{ book.library_location_path or 'nicht zugeordnet' }}{% if book.library_location.code %}<br><code>{{ book.library_location.code }}</code>{% endif %}</td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Noch keine Bücher gefunden.</td></tr>{% endfor %}</tbody></table></div></div></div>
+    <div class="col-lg-4"><div class="card shadow-sm h-100"><div class="card-header"><strong>Letzte Bibliotheksaktionen</strong></div><div class="list-group list-group-flush">{% for event in events %}<div class="list-group-item"><div class="small"><strong>{{ event.kind }}</strong> · {{ event.actor }}</div><div class="small text-secondary">{{ event.at }}</div><div class="small text-break">{{ event.detail }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Aktionen.</div>{% endfor %}</div></div></div>
+  </section>
+
+  <div class="modal fade" id="scanner-modal" tabindex="-1" aria-labelledby="scanner-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="scanner-title">Barcode scannen</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body"><div class="ratio ratio-4x3 bg-dark rounded overflow-hidden"><video id="library-camera" autoplay playsinline muted></video></div><div id="scanner-status" class="small text-secondary mt-2" aria-live="polite">Kamera wird gestartet…</div></div></div></div></div>
+</main>
+<script>
+(() => {
+  const csrf = {{ csrf_token()|tojson }};
+  const selected = document.getElementById('bulk-location');
+  const stored = localStorage.getItem('simpleoffice-library-location');
+  if (selected && !selected.value && stored && [...selected.options].some(option => option.value === stored)) selected.value = stored;
+  if (selected) selected.addEventListener('change', () => { if (selected.value) localStorage.setItem('simpleoffice-library-location', selected.value); });
+
+  const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+  const findForm = document.getElementById('library-find-form');
+  findForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const q = document.getElementById('library-find').value.trim();
+    if (!q) return;
+    const target = document.getElementById('library-find-result');
+    target.innerHTML = '<div class="text-secondary">Suche…</div>';
+    const response = await fetch({{ url_for('library.find_book')|tojson }} + '?q=' + encodeURIComponent(q), {headers:{'Accept':'application/json'}});
+    const data = await response.json();
+    if (!data.found) { target.innerHTML = '<div class="alert alert-warning mb-0">Kein Buch gefunden.</div>'; return; }
+    const rows = data.item ? [{...data.item, location_path:data.location_path, detail_url:data.detail_url}] : data.results;
+    target.innerHTML = rows.map(row => `<a class="list-group-item list-group-item-action" href="${escapeHtml(row.detail_url)}"><strong>#${escapeHtml(row.display_id)} ${escapeHtml(row.name)}</strong><div>Standort: ${escapeHtml(row.location_path || 'nicht zugeordnet')} ${row.location_code ? '· '+escapeHtml(row.location_code) : ''}</div></a>`).join('');
+    target.className = 'list-group mt-3';
+  });
+
+  const locationCode = document.getElementById('location-scan-code');
+  const resolveLocation = async () => {
+    const code = locationCode.value.trim(); if (!code) return;
+    const response = await fetch({{ url_for('library.resolve_location')|tojson }} + '?code=' + encodeURIComponent(code), {headers:{'Accept':'application/json'}});
+    const data = await response.json();
+    if (data.found) { selected.value = data.location.location_id; localStorage.setItem('simpleoffice-library-location', selected.value); document.getElementById('bulk-status').innerHTML = `<div class="alert alert-success py-2">Aktives Regal: ${escapeHtml(data.path)} · ${escapeHtml(data.location.code)}</div>`; }
+    else document.getElementById('bulk-status').innerHTML = '<div class="alert alert-warning py-2">Regalcode nicht gefunden.</div>';
+  };
+  locationCode?.addEventListener('change', resolveLocation);
+  locationCode?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); resolveLocation(); } });
+
+  const bookInput = document.getElementById('bulk-book-code');
+  const assignBook = async () => {
+    const code = bookInput.value.trim(); const locationId = selected.value;
+    if (!locationId) { document.getElementById('bulk-status').innerHTML = '<div class="alert alert-warning py-2">Bitte zuerst ein Regal auswählen oder scannen.</div>'; return; }
+    if (!code) return;
+    const form = new FormData(); form.append('_csrf_token', csrf); form.append('book_code', code); form.append('location_id', locationId);
+    const response = await fetch({{ url_for('library.assign_book')|tojson }}, {method:'POST', body:form, headers:{'Accept':'application/json'}});
+    const data = await response.json(); const status = document.getElementById('bulk-status');
+    if (data.ok) {
+      status.innerHTML = `<div class="alert alert-success py-2 mb-1">#${escapeHtml(data.display_id)} ${escapeHtml(data.name)} → ${escapeHtml(data.location_path)}</div>`;
+      document.getElementById('bulk-history').insertAdjacentHTML('afterbegin', `<a class="list-group-item list-group-item-action py-2" href="${escapeHtml(data.detail_url)}">✓ #${escapeHtml(data.display_id)} ${escapeHtml(data.name)} <span class="float-end small">${escapeHtml(data.location.code)}</span></a>`);
+      bookInput.value = ''; bookInput.focus();
+    } else if (data.not_found) {
+      status.innerHTML = `<div class="alert alert-warning py-2">Noch nicht im Inventar. <a class="alert-link" href="${escapeHtml(data.capture_url)}">Jetzt Buch erfassen und danach hier weitermachen</a>.</div>`;
+    } else status.innerHTML = `<div class="alert alert-danger py-2">${escapeHtml(data.error || 'Zuordnung fehlgeschlagen')}</div>`;
+  };
+  document.getElementById('bulk-scan-book')?.addEventListener('click', assignBook);
+  bookInput?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); assignBook(); } });
+
+  let stream = null, scanTimer = null, scanTarget = null;
+  const modalElement = document.getElementById('scanner-modal');
+  const modal = modalElement ? new bootstrap.Modal(modalElement) : null;
+  const stopCamera = () => { if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; };
+  modalElement?.addEventListener('hidden.bs.modal', stopCamera);
+  document.querySelectorAll('[data-scan-target]').forEach(button => button.addEventListener('click', async () => {
+    scanTarget = document.getElementById(button.dataset.scanTarget); if (!scanTarget) return;
+    modal?.show(); const status = document.getElementById('scanner-status');
+    if (!('BarcodeDetector' in window)) { status.textContent = 'Dieser Browser unterstützt BarcodeDetector nicht. Externen Scanner oder manuelle Eingabe verwenden.'; return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false}); document.getElementById('library-camera').srcObject = stream;
+      const detector = new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code']}); status.textContent = 'Barcode vor die Kamera halten.';
+      scanTimer = setInterval(async () => { try { const found = await detector.detect(document.getElementById('library-camera')); if (!found.length) return; scanTarget.value = found[0].rawValue || ''; stopCamera(); modal?.hide(); scanTarget.dispatchEvent(new Event('change')); if (scanTarget.id === 'bulk-book-code') assignBook(); if (scanTarget.id === 'library-find') findForm.requestSubmit(); } catch (_) {} }, 350);
+    } catch (error) { status.textContent = 'Kamera konnte nicht geöffnet werden: ' + error; }
+  }));
+
+  document.getElementById('discover-printers')?.addEventListener('click', async () => {
+    const box = document.getElementById('printer-discovery'); box.textContent = 'Suche…';
+    const response = await fetch({{ url_for('library.printer_discover')|tojson }}, {headers:{'Accept':'application/json'}}); const data = await response.json();
+    if (!data.printers?.length) { box.innerHTML = '<span class="small text-secondary">Kein USB/CUPS/Bluetooth-Drucker automatisch gefunden. Netzwerk-IP kann direkt eingetragen werden.</span>'; return; }
+    box.innerHTML = data.printers.map(row => `<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1 printer-choice" data-uri="${escapeHtml(row.uri)}">${escapeHtml(row.name)} · ${escapeHtml(row.kind)}</button>`).join('');
+    box.querySelectorAll('.printer-choice').forEach(button => button.addEventListener('click', () => { document.getElementById('printer-uri').value = button.dataset.uri; }));
+  });
+
+  document.querySelectorAll('.preview-label').forEach(button => button.addEventListener('click', async () => {
+    const form = button.closest('form'); const formData = new FormData(form); const preview = document.getElementById('label-preview'); const wrap = document.getElementById('label-preview-wrap'); button.disabled = true;
+    try { const response = await fetch(form.dataset.previewUrl, {method:'POST', body:formData}); if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Vorschau fehlgeschlagen'); } const blob = await response.blob(); if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl); const objectUrl = URL.createObjectURL(blob); preview.src = objectUrl; preview.dataset.objectUrl = objectUrl; wrap.hidden = false; wrap.scrollIntoView({behavior:'smooth', block:'nearest'}); } catch (error) { alert(error.message); } finally { button.disabled = false; }
+  }));
+})();
+</script>
+{% endblock %}
