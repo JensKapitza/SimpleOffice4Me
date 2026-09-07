@@ -159,7 +159,6 @@ class SchemeAwareSessionInterface(SecureCookieSessionInterface):
         return request.is_secure
 
 
-# ensure the environment uses UTF-8 encoding
 if str(locale.getpreferredencoding()).lower() not in ["utf-8", "utf8"]:
     raise BaseException("Wrong encoding use utf8")
 
@@ -180,9 +179,6 @@ for p in [database_dir, filebase_dir]:
         x.mkdir()
 
 initlogging()
-
-#see here 4mail logging
-#https://flask.palletsprojects.com/en/1.1.x/logging/
 app = Flask(__name__,template_folder=template_dir,static_folder=static_dir)
 app.jinja_env.globals["now"] = datetime.datetime.now
 app.session_interface = SchemeAwareSessionInterface()
@@ -222,9 +218,6 @@ def request_too_large(_error):
         {"Content-Type": "text/plain; charset=utf-8"},
     )
 
-# Trust forwarded headers only when an administrator explicitly configures the
-# number of reverse proxies. This keeps externally generated CardDAV/share URLs
-# correct without accepting spoofed headers in the default local installation.
 try:
     trusted_proxy_hops = int(os.environ.get('SIMPLEOFFICE_TRUSTED_PROXY_HOPS', '0'))
 except ValueError:
@@ -232,8 +225,6 @@ except ValueError:
 if trusted_proxy_hops > 0:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_proxy_hops, x_proto=trusted_proxy_hops, x_host=trusted_proxy_hops, x_prefix=trusted_proxy_hops)
 
-
-# blueprints
 
 from . import auth
 app.register_blueprint(auth.bp)
@@ -301,6 +292,8 @@ from . import datalogger
 app.register_blueprint(datalogger.bp)
 from . import inventory
 app.register_blueprint(inventory.bp)
+from . import library
+app.register_blueprint(library.bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
@@ -440,7 +433,6 @@ def add_header(response):
     """Add caching headers for static assets when not in debug mode."""
     app.logger.debug(f"debugging ist {app.debug}")
     if request.endpoint == "service_worker":
-        # Browsers must revalidate the worker itself to discover new cache versions.
         response.headers["Cache-Control"] = "no-cache"
         response.headers.pop("Expires", None)
     elif not app.debug and (
@@ -453,17 +445,14 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    camera_policy = "camera=(self)" if request.blueprint == "inventory" else "camera=()"
+    camera_policy = "camera=(self)" if request.blueprint in {"inventory", "library"} else "camera=()"
     response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=()")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.is_secure:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    # The application serves all assets itself. Inline Bootstrap/Jinja helpers
-    # still require unsafe-inline; removing that needs a dedicated nonce pass.
     response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
     return response
-
 
 
 @app.route('/favicon.ico')
@@ -486,7 +475,6 @@ def service_worker():
 def index(myFile="index.html",lang=None):
     if lang is not None:
         g.current_lang = lang
-
     try:
         return renderwithbs4(myFile)
     except TemplateNotFound:
@@ -501,7 +489,5 @@ def home():
     return redirect(url_for("documents.dashboard"))
 
 
-
 if __name__ == '__main__':
     print("startup using flask internal or gunicorn3 -b :80 app ")
-    #app.run(host="0.0.0.0", debug=True)
