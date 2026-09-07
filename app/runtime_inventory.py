@@ -13,15 +13,23 @@ from pathlib import Path
 
 from flask import current_app
 
+from .host_automation import HostAutomationStore, recommended_idle_rule
+from .host_services import host_services_snapshot
 from .system_identity import application_version, system_info
-
+from .system_management import (
+    COCKPIT_PARITY,
+    QNAP_PARITY,
+    StorageRoleStore,
+    format_bytes,
+    health_checks,
+    system_snapshot,
+)
 
 PACKAGE_NAMES = (
     "Flask", "Werkzeug", "Jinja2", "beautifulsoup4", "Pillow",
     "reportlab", "pypdf", "waitress", "cryptography", "paramiko", "pip-audit",
 )
 
-# Commands and arguments are code-owned and never taken from the request.
 EXTERNAL_TOOLS = (
     ("ClamAV-Daemonprüfung", "ClamAV daemon scan", ("clamdscan", "--version")),
     ("ClamAV-Dateiprüfung", "ClamAV file scan", ("clamscan", "--version")),
@@ -55,12 +63,7 @@ def _tool_version(label_de: str, label_en: str, command: tuple[str, ...]) -> dic
     executable = shutil.which(command[0])
     if executable is None:
         return {"label_de": label_de, "label_en": label_en, "command": command[0], "status": "missing", "version": ""}
-    safe_environment = {
-        "PATH": os.environ.get("PATH", ""),
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-        "NO_COLOR": "1",
-    }
+    safe_environment = {"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "NO_COLOR": "1"}
     try:
         result = subprocess.run(
             (executable, *command[1:]), stdin=subprocess.DEVNULL,
@@ -91,14 +94,29 @@ def _package_versions() -> list[dict[str, str]]:
 
 
 @lru_cache(maxsize=4)
-def _cached_inventory(
-    process_id: int, five_minute_bucket: int, document_root: str, database_path: str,
-) -> dict[str, object]:
+def _cached_inventory(process_id: int, five_minute_bucket: int, document_root: str, database_path: str) -> dict[str, object]:
     app = current_app._get_current_object()
     blueprints = []
     for name, blueprint in sorted(app.blueprints.items()):
         route_count = sum(1 for rule in app.url_map.iter_rules() if rule.endpoint.startswith(name + "."))
         blueprints.append({"name": name, "url_prefix": blueprint.url_prefix or "–", "routes": route_count})
+
+    host = system_snapshot(document_root)
+    storage_roles = StorageRoleStore(document_root).all()
+    host["storage_roles"] = storage_roles
+    host["health_checks"] = health_checks(host, storage_roles)
+    usage = host.get("document_usage", {}) if isinstance(host.get("document_usage"), dict) else {}
+    host["document_usage_display"] = {
+        "total": format_bytes(usage.get("total", 0)),
+        "used": format_bytes(usage.get("used", 0)),
+        "free": format_bytes(usage.get("free", 0)),
+    }
+    host["cockpit_parity"] = [{"key": key, "label": label, "status": status} for key, label, status in COCKPIT_PARITY]
+    host["qnap_parity"] = [{"key": key, "label": label, "status": status} for key, label, status in QNAP_PARITY]
+    host["services"] = host_services_snapshot()
+    host["automations"] = HostAutomationStore(document_root).all()
+    host["recommended_idle_rule"] = recommended_idle_rule()
+
     return {
         "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "system": system_info(include_request=False),
@@ -116,6 +134,7 @@ def _cached_inventory(
         "modules": blueprints,
         "packages": _package_versions(),
         "tools": [_tool_version(label_de, label_en, command) for label_de, label_en, command in EXTERNAL_TOOLS],
+        "host_management": host,
     }
 
 
