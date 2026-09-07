@@ -22,12 +22,19 @@ Beispiel auf dem Sender fuer den Ziel-Peer:
 {
   "printing": {
     "send": true,
-    "receive": false
+    "receive": false,
+    "retention_ceiling": "no_store"
   }
 }
 ```
 
+`printing.retention_ceiling` ist die **administrative Obergrenze fuer die Speicherung auf diesem Ziel-Peer**. `no_store` bedeutet: Druckauftraege werden nur gesendet, wenn die Gegenstelle den No-Store-Vertrag anbietet und anschliessend No-Store authentisiert bestaetigt. `ttl` erlaubt hoechstens einen zeitlichen Backlog; `permanent` erlaubt auch dauerhafte Speicherung. Fehlt das Feld oder ist sein Wert ungueltig, gilt fail-safe `no_store`.
+
+Die Auswahl eines Anwenders fuer einen einzelnen Druckauftrag kann diese Peer-Policy nur strenger machen, niemals lockern. Beispiel: Peer-Policy `no_store` + Anwender waehlt `permanent` ergibt weiterhin `no_store`. Peer-Policy `permanent` + Anwender waehlt `no_store` ergibt ebenfalls `no_store`.
+
 Die Druckerfreigabe selbst erfolgt zusaetzlich pro lokalem Drucker. Ein eingerichteter Systemdrucker wird nicht automatisch in der Federation angeboten.
+
+Damit der Empfaenger die Quell-Policy dem richtigen bekannten Peer zuordnen kann, sollte jede Instanz eine stabile ID ueber `SIMPLEOFFICE_FEDERATION_PEER_ID` erhalten. Ohne diese Variable wird der Hostname verwendet. Die ID muss auf der Gegenstelle als `peer_id` konfiguriert sein.
 
 ## Retention-Handshake
 
@@ -78,7 +85,7 @@ Content-Type: application/octet-stream
 
 Die Empfaengerseite prueft die `policy_revision` **vor** der Verarbeitung des Druckauftrags. Hat sich die Policy seit der Capability-Abfrage geaendert, wird mit HTTP `409 policy_changed` abgebrochen. Fehlt die Revision, folgt HTTP `428 policy_revision_required`. Damit kann eine zwischen Abfrage und Upload geaenderte Speicherregel nicht unbemerkt angewandt werden.
 
-Die effektive Aufbewahrung ist immer die strengere Variante aus Empfaenger-Standard und Sender-Obergrenze. Beispiel: Empfaenger steht auf `permanent`, Sender fordert `no_store` -> effektiver Auftrag ist `no_store`.
+Die effektive Aufbewahrung ist immer die strengste Variante aus lokaler Peer-Policy des Senders, Auswahl des Anwenders und Empfaenger-Standard. Beispiel: Empfaenger steht auf `permanent`, Sender fordert aufgrund seiner Peer-Policy `no_store` -> effektiver Auftrag ist `no_store`.
 
 ## Authentisierte Druckbestaetigung
 
@@ -112,6 +119,8 @@ Nach erfolgreicher Uebergabe an den System-Spooler liefert die Gegenstelle einen
 4. bei `no_store` `application_archive=false` bestaetigt wird.
 
 Diese Bestaetigung ist eine technische, authentisierte Zusage innerhalb der vertrauenswuerdigen Federation. Sie ist keine kryptographische Moeglichkeit, einen absichtlich manipulierten Remote-Server daran zu hindern, ausserhalb des Protokolls dennoch Daten mitzuschneiden. Deshalb bleibt die Federation auf bekannte, administrativ gekoppelte Instanzen beschraenkt.
+
+Das gemeinsame Bearer-/HMAC-Secret schuetzt die Zusage nur, solange es nicht auf dem Transportweg offengelegt wird. Ueber nicht vertrauenswuerdige Netze ist deshalb HTTPS oder ein geschuetzter VPN-Tunnel erforderlich. Unverschluesseltes HTTP sollte nur in einem entsprechend geschuetzten lokalen/VPN-Netz verwendet werden.
 
 ## Backlog-Schutz
 
