@@ -4,13 +4,15 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import sqlite3
 import time
+from functools import wraps
 from typing import Any
 
 import click
 from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
-from .access_control import is_admin
+from .access_control import FEATURES, is_admin
 from .auth import login_required
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 from .federation_worker import _request
@@ -31,12 +33,12 @@ def _master_store() -> MasterLicenseStore:
 
 
 def _admin_required(view):
+    @wraps(view)
     @login_required
     def wrapped_view(**kwargs):
         if not is_admin(g.user):
             abort(403)
         return view(**kwargs)
-    wrapped_view.__name__ = view.__name__
     return wrapped_view
 
 
@@ -71,13 +73,7 @@ def _post_master(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     token = _master_secret()
     if token:
         headers["X-SimpleOffice-License-Token"] = token
-    with _request(
-        LICENSE_MASTER_URL.rstrip("/") + path,
-        method="POST",
-        body=body,
-        headers=headers,
-        timeout=30,
-    ) as response:
+    with _request(LICENSE_MASTER_URL.rstrip("/") + path, method="POST", body=body, headers=headers, timeout=30) as response:
         raw = response.read()
     value = json.loads(raw.decode("utf-8") or "{}")
     if not isinstance(value, dict):
@@ -88,23 +84,17 @@ def _post_master(path: str, payload: dict[str, Any]) -> dict[str, Any]:
 def send_pending_reports(store: LicenseStore) -> dict[str, Any]:
     if not LICENSE_MASTER_URL:
         return {"sent": 0, "errors": ["Kein Lizenz-Master wurde beim Build festgelegt."]}
-    sent = 0
-    errors: list[str] = []
+    sent, errors = 0, []
     for month in store.pending_reports():
         try:
-            response = _post_master("/federation/v1/licensing/reports", _client_payload(month))
-            if not response.get("accepted"):
+            reply = _post_master("/federation/v1/licensing/reports", _client_payload(month))
+            if not reply.get("accepted"):
                 raise ValueError("Master hat Nutzungsbericht nicht bestätigt")
-            if isinstance(response.get("prices_cents"), dict):
-                store.set_prices(response["prices_cents"])
-            if isinstance(response.get("client_state"), dict):
-                state = response["client_state"]
-                store.set_state(
-                    str(state.get("state") or "ok"),
-                    reason=str(state.get("reason") or ""),
-                    message=str(state.get("message") or ""),
-                    source="master",
-                )
+            if isinstance(reply.get("prices_cents"), dict):
+                store.set_prices(reply["prices_cents"])
+            state = reply.get("client_state")
+            if isinstance(state, dict):
+                store.set_state(str(state.get("state") or "ok"), reason=str(state.get("reason") or ""), message=str(state.get("message") or ""), source="master")
             store.mark_report(month["month"], success=True)
             sent += 1
         except Exception as exc:
@@ -116,19 +106,30 @@ def send_pending_reports(store: LicenseStore) -> dict[str, Any]:
 @admin_bp.get("")
 @_admin_required
 def index():
-    licensing = _store().overview()
-    master_reports = _master_store().reports() if LICENSE_MASTER_MODE else []
-    return render_template("admin/licensing.html", licensing=licensing, master_reports=master_reports)
+    return render_template(
+        "admin/licensing.html",
+        licensing=_store().overview(),
+        master_reports=_master_store().reports() if LICENSE_MASTER_MODE else [],
+    )
 
 
 @admin_bp.post("/report")
 @_admin_required
 def report_now():
     result = send_pending_reports(_store())
-    if result["errors"]:
-        flash("Lizenzberichte konnten nicht vollständig übertragen werden: " + "; ".join(result["errors"]))
-    else:
-        flash(f"{result['sent']} Monatsbericht(e) an den Lizenz-Master übertragen.")
+    flash("; ".join(result["errors"]) if result["errors"] else f"{result['sent']} Monatsbericht(e) an den Lizenz-Master übertragen.")
+    return redirect(url_for("licensing_admin.index"))
+
+
+@admin_bp.post("/master/prices")
+@_admin_required
+def master_prices():
+    if not LICENSE_MASTER_MODE:
+        abort(404)
+    values = {"user": request.form.get("price_user_cents", "0")}
+    values.update({feature: request.form.get(f"price_{feature}_cents", "0") for feature in FEATURES})
+    _store().set_prices(values)
+    flash("Preiskatalog des Masters wurde aktualisiert.")
     return redirect(url_for("licensing_admin.index"))
 
 
@@ -138,12 +139,7 @@ def master_set_client_state(installation: str):
     if not LICENSE_MASTER_MODE:
         abort(404)
     try:
-        _master_store().set_client_state(
-            installation,
-            request.form.get("state", ""),
-            request.form.get("reason", ""),
-            request.form.get("message", ""),
-        )
+        _master_store().set_client_state(installation, request.form.get("state", ""), request.form.get("reason", ""), request.form.get("message", ""))
         flash("Clientstatus wurde aktualisiert.")
     except ValueError as exc:
         flash(str(exc))
@@ -184,12 +180,7 @@ def receive_state():
     if not isinstance(payload, dict):
         return jsonify({"error": "invalid_json"}), 400
     try:
-        state = _store().set_state(
-            str(payload.get("state") or ""),
-            reason=str(payload.get("reason") or ""),
-            message=str(payload.get("message") or ""),
-            source="master",
-        )
+        state = _store().set_state(str(payload.get("state") or ""), reason=str(payload.get("reason") or ""), message=str(payload.get("message") or ""), source="master")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"accepted": True, "state": state})
@@ -251,13 +242,13 @@ def init_app(app) -> None:
         try:
             store = LicenseStore(app.config["DOCUMENT_ROOT"])
             return {"license_ui": {"state": store.state(), "open_invoices": store.invoices(open_only=True)}}
-        except Exception:
+        except (OSError, sqlite3.Error):
             return {"license_ui": {"state": {"state": "unknown", "bad_client": False}, "open_invoices": []}}
 
-    capabilities_endpoint = app.view_functions.get("federation_http.capabilities")
-    if capabilities_endpoint is not None:
+    original = app.view_functions.get("federation_http.capabilities")
+    if original is not None:
         def licensed_capabilities(*args, **kwargs):
-            response = capabilities_endpoint(*args, **kwargs)
+            response = original(*args, **kwargs)
             data = response.get_json(silent=True) or {}
             state = LicenseStore(app.config["DOCUMENT_ROOT"]).state()
             data["client_state"] = {
