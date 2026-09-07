@@ -93,6 +93,16 @@ class AdminSecurityTest(unittest.TestCase):
             "modules": [{"name": "documents", "url_prefix": "–", "routes": 20}],
             "packages": [{"name": "Flask", "version": "3.1.3", "status": "available"}],
             "tools": [{"label_de": "Ghostscript / PDF-A", "label_en": "Ghostscript / PDF-A", "command": "gs", "status": "available", "version": "10.05"}],
+            "host_management": {
+                "platform": {"kind": "unknown", "system": "Linux", "release": "test", "machine": "x86_64"},
+                "document_usage_display": {"used": "1 GiB", "total": "2 GiB", "free": "1 GiB"},
+                "document_usage": {"used_percent": 50},
+                "health_checks": [],
+                "blocks": [],
+                "network": {"devices": []},
+                "cockpit_parity": [],
+                "qnap_parity": [],
+            },
         }
         with patch("app.admin.runtime_inventory", return_value=sample):
             page = self.admin.get("/admin/inventory")
@@ -101,6 +111,7 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("System- und Laufzeitinventar", body)
         self.assertIn("Ghostscript / PDF-A", body)
         self.assertIn("3.1.3", body)
+        self.assertIn("Host- und Speicherverwaltung", body)
         with patch("app.admin.clear_runtime_inventory") as clear:
             refreshed = self.admin.post("/admin/inventory/refresh")
         self.assertEqual(302, refreshed.status_code)
