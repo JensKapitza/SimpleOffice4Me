@@ -23,7 +23,7 @@
         <div class="card-header"><strong>Lokal drucken</strong></div>
         <div class="card-body">
           {% if printers %}
-          <form id="local-print-form">
+          <form id="local-print-form" method="post">
             <div class="mb-3"><label class="form-label" for="local-file">Druckdatei</label><input class="form-control" id="local-file" type="file" required></div>
             <div class="mb-3"><label class="form-label" for="local-printer">Drucker</label><select class="form-select" id="local-printer" required>{% for printer in printers %}<option value="{{ printer.printer_id }}">{{ printer.label }} · {{ 'Label' if printer.kind in ['label','raw'] else 'Normal' }}{% if printer.is_default %} · Standard{% endif %}</option>{% endfor %}</select></div>
             <div class="mb-3"><label class="form-label" for="local-retention">Maximal erlaubte Aufbewahrung</label><select class="form-select" id="local-retention"><option value="no_store">Nur drucken – nicht archivieren</option><option value="ttl">Zeitlicher Backlog erlaubt</option><option value="permanent">Dauerspeicherung erlaubt</option></select><div class="form-text">Der Server darf immer kürzer speichern, niemals länger als hier ausgewählt.</div></div>
@@ -40,7 +40,7 @@
         <div class="card-header"><strong>Über Federation drucken</strong></div>
         <div class="card-body">
           {% if peers %}
-          <form id="remote-print-form">
+          <form id="remote-print-form" method="post">
             <div class="mb-3"><label class="form-label" for="remote-peer">Gegenstelle</label><select class="form-select" id="remote-peer"><option value="">Bitte wählen</option>{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select></div>
             <div class="mb-3"><button class="btn btn-outline-secondary btn-sm" type="button" id="load-remote-printers">Freigegebene Drucker laden</button></div>
             <div class="mb-3"><label class="form-label" for="remote-printer">Remote-Drucker</label><select class="form-select" id="remote-printer" disabled><option value="">Noch nicht geladen</option></select></div>
