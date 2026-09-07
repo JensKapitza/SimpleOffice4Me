@@ -15,8 +15,8 @@
   <section class="card shadow-sm mb-3" id="find-book">
     <div class="card-header"><strong>1 · Buch wiederfinden</strong></div>
     <div class="card-body">
-      <form id="library-find-form" class="row g-2 align-items-end" role="search">
-        <div class="col-md-9"><label class="form-label" for="library-find">ISBN, Barcode, Inventarnummer oder Titel</label><input class="form-control form-control-lg" id="library-find" autocomplete="off" placeholder="Buch scannen oder Suchtext eingeben"></div>
+      <form id="library-find-form" class="row g-2 align-items-end" role="search" method="get" aria-label="Buchsuche">
+        <div class="col-md-9"><label class="form-label" for="library-find">ISBN, Barcode, Inventarnummer oder Titel</label><input class="form-control form-control-lg" id="library-find" name="q" type="search" autocomplete="off" placeholder="Buch scannen oder Suchtext eingeben"></div>
         <div class="col-md-3 d-grid"><button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-magnifying-glass me-2" aria-hidden="true"></i>Finden</button></div>
       </form>
       <div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-outline-primary" data-scan-target="library-find"><i class="fas fa-camera me-1" aria-hidden="true"></i>Barcode scannen</button></div>
