@@ -12,6 +12,8 @@ class PasswordProtocolAdapterTests(unittest.TestCase):
     def setUp(self):
         self.previous_bw = os.environ.get("SIMPLEOFFICE_PASSWORD_PROTOCOL_BITWARDEN")
         self.previous_psono = os.environ.get("SIMPLEOFFICE_PASSWORD_PROTOCOL_PSONO")
+        self.previous_testing = simpleoffice_app.config.get("TESTING")
+        self.previous_csrf = simpleoffice_app.config.get("TEST_CSRF_PROTECTION")
         self.app = Flask(__name__)
         self.app.testing = True
         self.app.register_blueprint(bp)
@@ -26,6 +28,11 @@ class PasswordProtocolAdapterTests(unittest.TestCase):
             os.environ.pop("SIMPLEOFFICE_PASSWORD_PROTOCOL_PSONO", None)
         else:
             os.environ["SIMPLEOFFICE_PASSWORD_PROTOCOL_PSONO"] = self.previous_psono
+        simpleoffice_app.config["TESTING"] = self.previous_testing
+        if self.previous_csrf is None:
+            simpleoffice_app.config.pop("TEST_CSRF_PROTECTION", None)
+        else:
+            simpleoffice_app.config["TEST_CSRF_PROTECTION"] = self.previous_csrf
 
     def test_registry_never_claims_experimental_as_compatible(self):
         self.assertEqual("experimental", adapter_capabilities("bitwarden")["status"])
@@ -40,6 +47,16 @@ class PasswordProtocolAdapterTests(unittest.TestCase):
         self.assertIn("/api/config", rules)
         self.assertIn("/identity/accounts/prelogin", rules)
         self.assertIn("/server/info/", rules)
+
+    def test_real_app_protocol_posts_are_not_treated_as_browser_csrf(self):
+        os.environ["SIMPLEOFFICE_PASSWORD_PROTOCOL_BITWARDEN"] = "1"
+        os.environ["SIMPLEOFFICE_PASSWORD_PROTOCOL_PSONO"] = "1"
+        simpleoffice_app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True)
+        client = simpleoffice_app.test_client()
+        prelogin = client.post("/identity/accounts/prelogin", json={"email": "person@example.test"})
+        self.assertEqual(200, prelogin.status_code)
+        self.assertEqual(501, client.post("/identity/connect/token", data={"grant_type": "password"}).status_code)
+        self.assertEqual(501, client.post("/server/authentication/login/", json={}).status_code)
 
     def test_adapters_are_disabled_by_default(self):
         os.environ.pop("SIMPLEOFFICE_PASSWORD_PROTOCOL_BITWARDEN", None)
