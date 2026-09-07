@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">{{ 'Licensing and usage' if g.language == 'en' else 'Lizenzierung und Nutzung' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Monthly active users, used functions, prices, invoices and federation billing state.' if g.language == 'en' else 'Monatlich aktive Benutzer, genutzte Funktionen, Preise, Rechnungen und Federation-Abrechnungsstatus.' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</a>
+      {% if licensing.master.url and not licensing.master.is_master %}<form method="post" action="{{ url_for('licensing_admin.report_now') }}"><button class="btn btn-primary" type="submit">{{ 'Send pending reports' if g.language == 'en' else 'Offene Berichte senden' }}</button></form>{% endif %}
+    </div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+
+  {% if licensing.state.bad_client %}
+  <div class="alert alert-danger"><strong>BAD Client.</strong> {{ licensing.state.message or ('The license master marked this installation as blocked.' if g.language == 'en' else 'Der Lizenz-Master hat diese Installation als gesperrt markiert.') }} <span class="small">{{ licensing.state.reason }}</span></div>
+  {% elif licensing.state.state == 'warning' %}
+  <div class="alert alert-warning">{{ licensing.state.message or licensing.state.reason }}</div>
+  {% endif %}
+
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Current month' if g.language == 'en' else 'Aktueller Monat' }}</div><div class="fs-4 fw-semibold">{{ licensing.current_month }}</div></div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Active users' if g.language == 'en' else 'Aktive Benutzer' }}</div><div class="fs-3 fw-semibold">{{ licensing.active_users }}</div></div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Open invoices' if g.language == 'en' else 'Offene Rechnungen' }}</div><div class="fs-3 fw-semibold {% if licensing.open_invoices %}text-danger{% endif %}">{{ licensing.open_invoices|length }}</div></div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Build role' if g.language == 'en' else 'Build-Rolle' }}</div><div class="fs-5 fw-semibold">{{ 'Master' if licensing.master.is_master else 'Client' }}</div><div class="small text-secondary text-truncate" title="{{ licensing.master.url }}">{{ licensing.master.url or ('self-built / no master' if g.language == 'en' else 'Self-Build / kein Master') }}</div></div></div></div>
+  </div>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>{{ 'Current usage and prices' if g.language == 'en' else 'Aktuelle Nutzung und Preise' }}</strong></div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">{{ 'Function' if g.language == 'en' else 'Funktion' }}</th><th scope="col" class="text-end">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</th><th scope="col" class="text-end">Requests</th><th scope="col" class="text-end">{{ 'Price / active user' if g.language == 'en' else 'Preis / aktiver Benutzer' }}</th></tr></thead><tbody>
+      <tr><td><strong>{{ 'Base user' if g.language == 'en' else 'Basis-Benutzer' }}</strong></td><td class="text-end">{{ licensing.active_users }}</td><td class="text-end">—</td><td class="text-end">{{ '%.2f'|format(licensing.prices_cents.user / 100) }} €</td></tr>
+      {% for feature, stats in licensing.usage.items() %}<tr><td>{{ feature }}</td><td class="text-end">{{ stats.users }}</td><td class="text-end">{{ stats.requests }}</td><td class="text-end">{{ '%.2f'|format(licensing.prices_cents[feature] / 100) }} €</td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="card-footer small text-secondary">{{ 'Prices are supplied by the accounting master. Zero means no price has been configured yet.' if g.language == 'en' else 'Preise werden vom Abrechnungs-Master geliefert. 0,00 € bedeutet, dass noch kein Preis hinterlegt wurde.' }}</div>
+  </section>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>{{ 'Monthly accounting log' if g.language == 'en' else 'Monatliches Abrechnungslog' }}</strong></div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">{{ 'Month' if g.language == 'en' else 'Monat' }}</th><th scope="col" class="text-end">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</th><th scope="col" class="text-end">{{ 'Calculated' if g.language == 'en' else 'Berechnet' }}</th><th scope="col">{{ 'Master report' if g.language == 'en' else 'Master-Bericht' }}</th><th scope="col">Hash</th></tr></thead><tbody>
+      {% for month in licensing.months %}<tr><td>{{ month.month }}</td><td class="text-end">{{ month.user_count }}</td><td class="text-end">{{ '%.2f'|format(month.total_cents / 100) }} €</td><td>{% if month.report_state == 'reported' %}<span class="badge text-bg-success">{{ 'sent' if g.language == 'en' else 'gesendet' }}</span>{% elif month.report_state == 'failed' %}<span class="badge text-bg-danger">{{ 'failed' if g.language == 'en' else 'Fehler' }}</span> <span class="small text-secondary">{{ month.last_error }}</span>{% else %}<span class="badge text-bg-warning">{{ 'pending' if g.language == 'en' else 'offen' }}</span>{% endif %}</td><td><code>{{ month.report_hash[:12] }}…</code></td></tr>
+      {% else %}<tr><td colspan="5" class="text-secondary">{{ 'No finalized month yet.' if g.language == 'en' else 'Noch kein abgeschlossener Monat vorhanden.' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>{{ 'Invoices for this service' if g.language == 'en' else 'Rechnungen für diesen Service' }}</strong></div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">ID</th><th scope="col">Service</th><th scope="col">{{ 'Month' if g.language == 'en' else 'Monat' }}</th><th scope="col" class="text-end">{{ 'Amount' if g.language == 'en' else 'Betrag' }}</th><th scope="col">{{ 'Due' if g.language == 'en' else 'Fällig' }}</th><th scope="col">Status</th><th scope="col"></th></tr></thead><tbody>
+      {% for invoice in licensing.invoices %}<tr><td><code>{{ invoice.invoice_id }}</code></td><td>{{ invoice.service }}</td><td>{{ invoice.month }}</td><td class="text-end">{{ '%.2f'|format(invoice.amount_cents / 100) }} {{ invoice.currency }}</td><td>{{ invoice.due_date or '—' }}</td><td>{% if invoice.status == 'open' %}<span class="badge text-bg-danger">{{ 'open' if g.language == 'en' else 'offen' }}</span>{% elif invoice.status == 'paid' %}<span class="badge text-bg-success">{{ 'paid' if g.language == 'en' else 'bezahlt' }}</span>{% else %}<span class="badge text-bg-secondary">{{ invoice.status }}</span>{% endif %}</td><td>{% if invoice.document_url %}<a class="btn btn-sm btn-outline-primary" href="{{ invoice.document_url }}" rel="noreferrer">{{ 'Open' if g.language == 'en' else 'Öffnen' }}</a>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="7" class="text-secondary">{{ 'No invoices received.' if g.language == 'en' else 'Keine Rechnungen empfangen.' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  {% if licensing.master.is_master %}
+  <section class="card border-primary mb-4">
+    <div class="card-header"><strong>{{ 'Master: received client reports' if g.language == 'en' else 'Master: empfangene Client-Berichte' }}</strong></div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Client</th><th scope="col">{{ 'Month' if g.language == 'en' else 'Monat' }}</th><th scope="col" class="text-end">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</th><th scope="col">Status</th><th scope="col">{{ 'Master control' if g.language == 'en' else 'Master-Steuerung' }}</th></tr></thead><tbody>
+      {% for report in master_reports %}<tr><td><code>{{ report.installation_id }}</code></td><td>{{ report.month }}</td><td class="text-end">{{ report.user_count }}</td><td><span class="badge {% if report.state.state == 'blocked' %}text-bg-danger{% elif report.state.state == 'warning' %}text-bg-warning{% else %}text-bg-success{% endif %}">{{ report.state.state }}</span></td><td><form method="post" action="{{ url_for('licensing_admin.master_set_client_state', installation=report.installation_id) }}" class="row g-1"><div class="col-md-3"><select name="state" class="form-select form-select-sm"><option value="ok">ok</option><option value="warning">warning</option><option value="blocked">blocked</option></select></div><div class="col-md-3"><input name="reason" class="form-control form-control-sm" maxlength="240" placeholder="Grund"></div><div class="col-md-4"><input name="message" class="form-control form-control-sm" maxlength="1000" placeholder="Hinweis für Client"></div><div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Setzen</button></div></form></td></tr>
+      {% else %}<tr><td colspan="5" class="text-secondary">{{ 'No client reports received yet.' if g.language == 'en' else 'Noch keine Client-Berichte empfangen.' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}
