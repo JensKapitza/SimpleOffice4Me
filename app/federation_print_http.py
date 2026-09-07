@@ -37,13 +37,13 @@ def authenticate():
 
 def _source_allowed(source_peer: str) -> bool:
     if not source_peer:
-        return True
+        return False
     peer = _federation().get_peer(source_peer)
-    if not peer:
-        return True
+    if not peer or not peer.get("enabled"):
+        return False
     policy = peer.get("policy") or {}
     printing = policy.get("printing", {}) if isinstance(policy, dict) else {}
-    return printing.get("receive") is not False
+    return isinstance(printing, dict) and printing.get("receive") is True
 
 
 def _receipt_hmac(receipt: dict) -> str:
@@ -71,7 +71,7 @@ def submit_job(printer_id: str):
         return jsonify({"error": "printing_disabled"}), 403
     source_peer = request.headers.get("X-SimpleOffice-Peer-ID", "").strip()[:128]
     if not _source_allowed(source_peer):
-        return jsonify({"error": "peer_policy_rejects_printing"}), 403
+        return jsonify({"error": "peer_policy_rejects_printing", "detail": "known enabled peer with printing.receive=true required"}), 403
 
     revision = store.policy_revision()
     expected_revision = request.headers.get("X-SimpleOffice-Policy-Revision", "").strip()
