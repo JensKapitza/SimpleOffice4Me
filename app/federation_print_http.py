@@ -60,9 +60,6 @@ def submit_job(printer_id: str):
     if not settings["enabled"] or not settings["federation_enabled"]:
         return jsonify({"error": "printing_disabled"}), 403
 
-    # The normal federation bearer authenticates this receiving server. The
-    # additional print proof binds the request to one unique peer credential;
-    # the caller-supplied peer-id header is never used to select permissions.
     try:
         proof_values, proof_signature = parse_proof_headers(request.headers, printer_id)
         source_peer, proof = identify_source_peer(_federation(), proof_values, proof_signature)
@@ -85,9 +82,6 @@ def submit_job(printer_id: str):
         return jsonify({"error": "invalid_retention_ceiling"}), 400
     retention_ceiling = normalize_retention(raw_ceiling)
     ttl_ceiling = proof.ttl_ceiling_seconds
-    # Admin-configured backlog TTLs have a one-minute minimum. A stricter
-    # sub-minute sender ceiling therefore cannot be represented safely and is
-    # rejected instead of being silently rounded up beyond the promise.
     if 0 < ttl_ceiling < 60:
         return jsonify({"error": "ttl_ceiling_below_minimum", "minimum_seconds": 60}), 400
 
@@ -106,13 +100,23 @@ def submit_job(printer_id: str):
     if not hmac.compare_digest(payload_sha256, proof.payload_sha256):
         return jsonify({"error": "signed_payload_hash_mismatch"}), 400
 
-    # Revalidate after the complete upload has arrived. This closes the window
-    # in which an administrator could change retention/printer sharing while a
-    # slow body was still being read.
     revision_after_upload = store.policy_revision()
     if not hmac.compare_digest(expected_revision, revision_after_upload):
         return jsonify({"error": "policy_changed", "policy_revision": revision_after_upload}), 409
     revision = revision_after_upload
+
+    # Re-authenticate the peer after the complete upload. This re-reads the
+    # current peer record and therefore catches disabled peers, revoked
+    # printing.receive permissions and changed peer credentials before spooling.
+    try:
+        source_peer_after, proof_after = identify_source_peer(
+            _federation(), proof_values, proof_signature
+        )
+    except ValueError as exc:
+        return jsonify({"error": "peer_permission_changed", "detail": str(exc)}), 403
+    if not hmac.compare_digest(source_peer_after, source_peer):
+        return jsonify({"error": "peer_identity_changed"}), 403
+    proof = proof_after
 
     if not claim_nonce(current_app.config["DOCUMENT_ROOT"], source_peer, proof.nonce):
         return jsonify({"error": "replayed_print_request"}), 409
