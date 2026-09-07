@@ -15,7 +15,13 @@ from .access_control import is_admin
 from .auth import login_required
 from .federation_store import FederationStore
 from .federation_worker import _json_request, _request
-from .printershare_store import PrinterShareStore, RETENTION_LABELS, RETENTION_ORDER, normalize_retention
+from .printershare_store import (
+    PrinterShareStore,
+    RETENTION_LABELS,
+    RETENTION_ORDER,
+    effective_retention,
+    normalize_retention,
+)
 
 
 bp = Blueprint("printershare", __name__, url_prefix="/printershare")
@@ -42,6 +48,16 @@ def _printing_policy(peer: dict[str, Any]) -> dict[str, Any]:
 
 def _may_send_print(peer: dict[str, Any]) -> bool:
     return _printing_policy(peer).get("send") is True
+
+
+def _peer_retention_ceiling(peer: dict[str, Any]) -> str:
+    """Return the local admin's maximum remote retention for this peer.
+
+    A peer that is explicitly allowed to receive print jobs but has no ceiling
+    configured is deliberately no-store by default. Allowing TTL/permanent
+    remote storage therefore always needs an explicit policy choice.
+    """
+    return normalize_retention(_printing_policy(peer).get("retention_ceiling"), "no_store")
 
 
 def admin_required(view):
@@ -86,6 +102,10 @@ def remote_print_capabilities(root: str, peer_id: str) -> dict[str, Any]:
             peer["base_url"] + "/federation/v1/print/capabilities",
             token=federation.peer_token(peer_id),
         )
+        if not isinstance(result, dict):
+            raise ValueError("Gegenstelle liefert ungültige PrinterShare-Capabilities")
+        result = dict(result)
+        result["sender_retention_ceiling"] = _peer_retention_ceiling(peer)
         federation.set_peer_health(peer_id, seen=True)
         return result
     except Exception as exc:
@@ -137,6 +157,15 @@ def submit_remote_print(
         raise ValueError("Federation-Peer ist nicht aktiv")
     if not _may_send_print(peer):
         raise ValueError("Drucken zu diesem Peer ist nicht ausdrücklich freigegeben (printing.send=true erforderlich)")
+
+    # A user's per-job choice may only make the administrator's peer policy
+    # stricter. It can never grant the remote server more storage than the
+    # peer policy permits.
+    retention_ceiling = effective_retention(
+        normalize_retention(retention_ceiling, "no_store"),
+        _peer_retention_ceiling(peer),
+    )
+
     capabilities = remote_print_capabilities(root, peer_id)
     if not capabilities.get("enabled"):
         raise ValueError("Gegenstelle bietet PrinterShare nicht über Federation an")
