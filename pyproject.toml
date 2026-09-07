@@ -31,5 +31,5 @@ sftp = [
 simpleoffice-sftp = "app.sftp_server:serve"
 
 [tool.setuptools]
-packages = ["app"]
+packages = ["app", "app.library"]
 py-modules = ["simpleoffice_version"]
