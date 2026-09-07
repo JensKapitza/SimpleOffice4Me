@@ -4,8 +4,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import socket
+import threading
 import time
 import urllib.error
 from typing import Any
@@ -27,6 +29,7 @@ from .printershare_store import (
 
 
 bp = Blueprint("printershare", __name__, url_prefix="/printershare")
+logger = logging.getLogger(__name__)
 
 
 def _store() -> PrinterShareStore:
@@ -211,10 +214,8 @@ def submit_remote_print(
     if not _may_send_print(peer):
         raise ValueError("Drucken zu diesem Peer ist nicht ausdrücklich freigegeben (printing.send=true erforderlich)")
 
-    retention_ceiling = effective_retention(
-        normalize_retention(retention_ceiling, "no_store"),
-        _peer_retention_ceiling(peer),
-    )
+    requested_retention = normalize_retention(retention_ceiling, "no_store")
+    retention_ceiling = effective_retention(requested_retention, _peer_retention_ceiling(peer))
 
     capabilities = remote_print_capabilities(root, peer_id)
     if not capabilities.get("enabled"):
@@ -225,11 +226,19 @@ def submit_remote_print(
     contract = capabilities.get("retention_contract") or {}
     if not contract.get("ceiling_enforced"):
         raise ValueError("Gegenstelle garantiert keine Aufbewahrungsobergrenze")
-    if retention_ceiling == "no_store" and not contract.get("no_store_means_no_application_archive"):
-        raise ValueError("Gegenstelle garantiert keinen No-Store-Druck")
     policy_revision = str(capabilities.get("policy_revision") or "")
     if not policy_revision:
         raise ValueError("Gegenstelle liefert keine versionierte Druck-Policy")
+
+    # Re-read the local peer immediately before constructing and sending the
+    # request. An administrator may have disabled printing or tightened the
+    # storage ceiling while the remote capability request was in flight.
+    peer = federation.get_peer(peer_id)
+    if not peer or not peer.get("enabled") or not _may_send_print(peer):
+        raise ValueError("Drucken zu diesem Peer wurde während der Vorbereitung deaktiviert")
+    retention_ceiling = effective_retention(requested_retention, _peer_retention_ceiling(peer))
+    if retention_ceiling == "no_store" and not contract.get("no_store_means_no_application_archive"):
+        raise ValueError("Gegenstelle garantiert keinen No-Store-Druck")
 
     effective_ttl_ceiling = max(0, int(ttl_ceiling_seconds or 0))
     if retention_ceiling == "ttl":
@@ -448,3 +457,32 @@ def update_printer(printer_id: str):
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("printershare.index"))
+
+
+def init_app(app) -> None:
+    """Register routes and start an application-lifetime TTL cleanup worker."""
+    app.register_blueprint(bp)
+    if app.testing or app.extensions.get("printershare_ttl_purger"):
+        return
+    app.extensions["printershare_ttl_purger"] = True
+    root = str(app.config["DOCUMENT_ROOT"])
+    secret_key = app.config["SECRET_KEY"]
+    try:
+        interval = int(os.environ.get("SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL", "60"))
+    except ValueError:
+        interval = 60
+    interval = max(30, min(interval, 3600))
+
+    def purge_loop() -> None:
+        while True:
+            try:
+                PrinterShareStore(root, secret_key).purge_expired()
+            except Exception:
+                logger.exception("printershare TTL purge failed")
+            time.sleep(interval)
+
+    threading.Thread(
+        target=purge_loop,
+        name="simpleoffice-printershare-ttl-purge",
+        daemon=True,
+    ).start()
