@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
-from app.federation_print_auth import PrintRequestProof, new_nonce, sign_request
+from app.federation_print_auth import PrintRequestProof, identify_source_peer as real_identify_source_peer, new_nonce, sign_request
 from app.federation_print_http import bp
 from app.federation_store import FederationStore
 from app.printershare_store import PrinterShareStore
@@ -176,6 +176,30 @@ class FederationPrintHttpTest(unittest.TestCase):
             response = self.post_job(revision, payload=b"slow upload simulation")
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json["error"], "policy_changed")
+        self.spool_mock.assert_not_called()
+
+    def test_receive_permission_is_rechecked_after_body_upload(self):
+        revision = self.capabilities()["policy_revision"]
+        calls = 0
+
+        def identify_then_revoke(store, proof_values, signature):
+            nonlocal calls
+            result = real_identify_source_peer(store, proof_values, signature)
+            calls += 1
+            if calls == 1:
+                FederationStore(self.root).save_peer(
+                    "source-a", "Source A", "https://source-a.invalid", SOURCE_TOKEN,
+                    {"printing": {"receive": False}}, True,
+                )
+            return result
+
+        with patch(
+            "app.federation_print_http.identify_source_peer",
+            side_effect=identify_then_revoke,
+        ):
+            response = self.post_job(revision, payload=b"slow upload with revoked peer")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json["error"], "peer_permission_changed")
         self.spool_mock.assert_not_called()
 
     def test_sub_minute_ttl_ceiling_is_rejected_not_rounded_up(self):
