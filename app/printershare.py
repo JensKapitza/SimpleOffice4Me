@@ -211,9 +211,6 @@ def submit_remote_print(
     if not _may_send_print(peer):
         raise ValueError("Drucken zu diesem Peer ist nicht ausdrücklich freigegeben (printing.send=true erforderlich)")
 
-    # A user's per-job choice may only make the administrator's peer policy
-    # stricter. It can never grant the remote server more storage than the
-    # peer policy permits.
     retention_ceiling = effective_retention(
         normalize_retention(retention_ceiling, "no_store"),
         _peer_retention_ceiling(peer),
@@ -322,13 +319,22 @@ def index():
         peer for peer in _federation().list_peers()
         if peer.get("enabled") and _may_send_print(peer)
     ]
+    job_admin = is_admin(g.user)
+    jobs = store.jobs(100)
+    if not job_admin:
+        username = str(g.user["username"])
+        jobs = [
+            job for job in jobs
+            if job.get("source") == "web" and str(job.get("source_peer") or "") == username
+        ]
     return render_template(
         "printershare/index.html",
         printers=store.printers(),
         settings=settings,
-        jobs=store.jobs(100),
+        jobs=jobs,
         retention_labels=RETENTION_LABELS,
         peers=peers,
+        job_admin=job_admin,
     )
 
 
@@ -356,7 +362,7 @@ def submit_local_job():
 
 
 @bp.post("/jobs/<job_id>/retry")
-@login_required
+@admin_required
 def retry_job(job_id: str):
     try:
         result = _store().retry(job_id)
@@ -367,7 +373,7 @@ def retry_job(job_id: str):
 
 
 @bp.post("/jobs/<job_id>/delete-copy")
-@login_required
+@admin_required
 def delete_copy(job_id: str):
     try:
         _store().delete_retained(job_id)
