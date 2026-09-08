@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -35,10 +36,13 @@ def run_osm_download(root: str | Path, region: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me OSM download worker")
-    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--root", type=Path)
     parser.add_argument("--region", required=True, choices=tuple(GEOFABRIK_REGIONS))
     args = parser.parse_args()
-    raise SystemExit(run_osm_download(args.root, args.region))
+    root = args.root or os.environ.get("SIMPLEOFFICE_WORKER_ROOT")
+    if not root:
+        parser.error("--root oder SIMPLEOFFICE_WORKER_ROOT ist erforderlich")
+    raise SystemExit(run_osm_download(root, args.region))
 
 
 if __name__ == "__main__":
