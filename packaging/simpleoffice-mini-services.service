@@ -1,5 +1,5 @@
 [Unit]
-Description=SimpleOffice4Me Mini Services (DHCP/DNS)
+Description=SimpleOffice4Me Mini Services (DHCP/DNS/TFTP/Routing)
 Documentation=https://github.com/JensKapitza/SimpleOffice4Me
 After=network-online.target
 Wants=network-online.target
@@ -16,18 +16,20 @@ RestartSec=3
 TimeoutStopSec=15
 UMask=0077
 
-# Only this worker may bind privileged DNS/DHCP ports and bind to a LAN device.
-AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW
+# Only this worker may bind privileged DNS/DHCP/TFTP ports, inspect/bind LAN
+# devices and own the dedicated SimpleOffice nftables routing/NAT tables.
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=true
 
-# The network daemon needs only its persistent SimpleOffice state directory.
+# State is writable only below /var/lib/simpleoffice4me. Kernel tunables must
+# remain writable for net.ipv4.ip_forward when routing/NAT is explicitly enabled.
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/simpleoffice4me
 PrivateTmp=true
 PrivateDevices=true
-ProtectKernelTunables=true
+ProtectKernelTunables=false
 ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
@@ -37,7 +39,7 @@ LockPersonality=true
 RestrictRealtime=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
