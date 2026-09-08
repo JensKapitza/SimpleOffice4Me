@@ -32,6 +32,11 @@ class SafePathsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_under(root, r"\\server\share\secret.txt")
 
+    def test_windows_drive_relative_path_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaises(ValueError):
+                resolve_under(Path(temp), r"C:relative\secret.txt")
+
     def test_nul_path_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
