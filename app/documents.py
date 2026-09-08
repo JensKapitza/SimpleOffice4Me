@@ -2332,7 +2332,7 @@ def calendar_reminders_json():
         rows = _calendar().due_alarms(str(g.user["username"]), lower, upper, request.args.get("calendar_id", ""))
         return Response(json.dumps({"generated_at": now.isoformat(timespec="seconds"), "reminders": rows}, ensure_ascii=False), mimetype="application/json")
     except ValueError as exc:
-        return Response(json.dumps({"error": "invalid_reminder_range"}, ensure_ascii=False), 400, mimetype="application/json")
+        return Response(json.dumps({"error": str(exc)}, ensure_ascii=False), 400, mimetype="application/json")
 
 
 @bp.post("/calendar/<event_id>/delete")
