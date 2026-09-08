@@ -20,6 +20,8 @@ class SafePathsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_under(root, "../../etc/passwd")
             with self.assertRaises(ValueError):
+                resolve_under(root, "a/../../outside.txt")
+            with self.assertRaises(ValueError):
                 resolve_under(root, r"..\..\etc\passwd")
 
     def test_absolute_path_is_rejected(self):
@@ -36,6 +38,24 @@ class SafePathsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
                 resolve_under(Path(temp), r"C:relative\secret.txt")
+
+    def test_sibling_prefix_escape_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            root = parent / "root"
+            sibling = parent / "root-other"
+            root.mkdir()
+            sibling.mkdir()
+            with self.assertRaises(ValueError):
+                resolve_under(root, "../root-other/secret.txt")
+
+    def test_relative_path_requires_resource_name_when_requested(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with self.assertRaises(ValueError):
+                relative_under(root, "", require_name=True)
+            with self.assertRaises(ValueError):
+                relative_under(root, ".", require_name=True)
 
     def test_nul_path_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
