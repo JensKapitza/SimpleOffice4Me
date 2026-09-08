@@ -22,6 +22,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      # Only needed by entrypoint to initialize a fresh named volume and then
+      # switch to uid/gid 10001. The Flask/Waitress process itself runs there.
+      - CHOWN
+      - SETUID
+      - SETGID
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=256m
 
