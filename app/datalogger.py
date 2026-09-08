@@ -142,7 +142,8 @@ def add_source(channel_id):
 def toggle_source(source_id):
     try: _store().set_source_enabled(source_id, g.user["username"], request.form.get("enabled") == "1", is_admin())
     except PermissionError: abort(403)
-    return redirect(request.referrer or url_for("datalogger.index"))
+    # Never trust Referer as a redirect target; it is an attacker-controlled HTTP header.
+    return redirect(url_for("datalogger.index"))
 
 
 @bp.get("/channels/<channel_id>/data.json")
