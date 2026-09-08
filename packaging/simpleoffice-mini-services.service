@@ -1,0 +1,43 @@
+[Unit]
+Description=SimpleOffice4Me Mini Services (DHCP/DNS)
+Documentation=https://github.com/JensKapitza/SimpleOffice4Me
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=simpleoffice
+Group=simpleoffice
+WorkingDirectory=/opt/simpleoffice4me
+Environment=PYTHONPATH=/opt/simpleoffice4me
+ExecStart=/opt/simpleoffice4me/.venv/bin/python -m tools.mini_services --config /var/lib/simpleoffice4me/instance/mini-services.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+
+# Only this worker may bind privileged DNS/DHCP ports and bind to a LAN device.
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=true
+
+# The network daemon needs only its persistent SimpleOffice state directory.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/simpleoffice4me
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
