@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -21,6 +22,7 @@ from .network_boot import (
 
 bp = Blueprint("network_boot_http", __name__, url_prefix="/network-boot")
 federation_bp = Blueprint("federation_network_boot_http", __name__, url_prefix="/federation/v1/network-boot")
+logger = logging.getLogger(__name__)
 MAX_FEDERATED_ASSET = 16 * 1024 * 1024 * 1024
 
 
@@ -34,8 +36,9 @@ def ipxe_script():
     profile = request.args.get("profile", "").strip()[:80]
     try:
         text = render_ipxe(profile, _config_path(), request_base=request.host_url.rstrip("/"))
-    except ValueError as exc:
-        return Response(str(exc) + "\n", 404, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
+    except ValueError:
+        logger.info("Network boot profile was not available", exc_info=True)
+        return Response("profile not found\n", 404, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
     return Response(text, 200, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
 
 
@@ -147,8 +150,9 @@ def store_network_boot_settings():
         # Machine-local serving state stays untouched. Storing federation data
         # must never turn TFTP/Networkboot on by itself.
         clean = save_boot_settings(merged, _config_path())
-    except ValueError as exc:
-        return jsonify({"error": "invalid_settings", "detail": str(exc)}), 400
+    except ValueError:
+        logger.warning("Rejected federated network boot settings", exc_info=True)
+        return jsonify({"error": "invalid_settings"}), 400
     FederationStore(current_app.config["DOCUMENT_ROOT"]).record_event(
         "network_boot_settings_stored_for_peer", peer_id=peer_id, detail={"profiles": len(clean["profiles"])}
     )
