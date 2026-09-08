@@ -185,7 +185,7 @@ def receive_report():
     try:
         result = _master_store().save_report(payload)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "invalid_license_payload"}), 400
     return jsonify({
         "accepted": True,
         "report_hash": result["report_hash"],
@@ -209,7 +209,7 @@ def receive_state():
             source="master",
         )
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "invalid_license_payload"}), 400
     return jsonify({"accepted": True, "state": state})
 
 
@@ -223,7 +223,7 @@ def receive_invoice():
     try:
         invoice = _store().save_invoice(payload)
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "invalid_license_payload"}), 400
     return jsonify({"accepted": True, "invoice_id": invoice["invoice_id"]})
 
 

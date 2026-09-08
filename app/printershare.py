@@ -367,7 +367,7 @@ def submit_local_job():
         )
         return jsonify(result), 201
     except (OSError, RuntimeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "print_job_rejected"}), 400
 
 
 @bp.post("/jobs/<job_id>/retry")
@@ -398,7 +398,7 @@ def federation_printers(peer_id: str):
     try:
         return jsonify(remote_print_capabilities(current_app.config["DOCUMENT_ROOT"], peer_id))
     except (OSError, RuntimeError, ValueError, urllib.error.URLError) as exc:
-        return jsonify({"error": str(exc)}), 502
+        return jsonify({"error": "remote_printer_unavailable"}), 502
 
 
 @bp.post("/federation/<peer_id>/jobs/<printer_id>")
@@ -420,7 +420,7 @@ def federation_job(peer_id: str, printer_id: str):
         )
         return jsonify(result), 201
     except (OSError, RuntimeError, ValueError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "print_job_rejected"}), 400
 
 
 @bp.post("/admin/settings")

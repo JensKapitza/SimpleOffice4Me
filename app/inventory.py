@@ -747,7 +747,7 @@ def book_lookup():
     try:
         isbn = normalize_isbn(request.args.get("isbn", ""))
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": False, "error": "Ungültige ISBN."}), 400
     allowed, retry_after = _inventory().consume_rate_limit(str(g.user["username"]), "book-metadata")
     if not allowed:
         response = jsonify({"ok": False, "error": "Metadatenabruf ist auf einen Klick je 5 Sekunden begrenzt.", "retry_after": retry_after})

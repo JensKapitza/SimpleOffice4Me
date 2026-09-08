@@ -526,7 +526,7 @@ def upload_photo():
             run_ocr=request.form.get("run_ocr") == "1",
         )
     except (OSError, RuntimeError, ValueError) as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": False, "error": "Foto konnte nicht verarbeitet werden."}), 400
     return jsonify({
         "ok": True,
         "document_id": metadata["document_id"],

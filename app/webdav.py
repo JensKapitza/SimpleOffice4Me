@@ -862,9 +862,9 @@ def _http_precondition_error(username: str, resource: Path, document: dict | Non
         try:
             wildcard, tags = _parse_http_etag_list(if_match)
         except OverflowError as exc:
-            return reject("If-Match", str(exc), 413)
+            return reject("If-Match", "If-Match header is too large", 413)
         except ValueError as exc:
-            return reject("If-Match", str(exc), 400)
+            return reject("If-Match", "invalid If-Match header", 400)
         matches = exists and (
             wildcard or bool(current_etag) and any(
                 not weak and hmac.compare_digest(tag, current_etag) for weak, tag in tags
@@ -883,9 +883,9 @@ def _http_precondition_error(username: str, resource: Path, document: dict | Non
         try:
             wildcard, tags = _parse_http_etag_list(if_none_match)
         except OverflowError as exc:
-            return reject("If-None-Match", str(exc), 413)
+            return reject("If-None-Match", "If-None-Match header is too large", 413)
         except ValueError as exc:
-            return reject("If-None-Match", str(exc), 400)
+            return reject("If-None-Match", "invalid If-None-Match header", 400)
         matches = exists and (
             wildcard or bool(current_etag) and any(
                 hmac.compare_digest(tag, current_etag) for _weak, tag in tags
@@ -969,7 +969,7 @@ def _verify_content_digest(content: bytes, username: str, resource: Path) -> Res
         parsed = _parse_digest_field(supplied)
     except ValueError as exc:
         _digest_audit(username, resource, "webdav_content_digest_rejected", [], len(content))
-        return Response(str(exc), 400, {"Want-Content-Digest": DIGEST_PREFERENCE})
+        return Response("invalid Content-Digest header", 400, {"Want-Content-Digest": DIGEST_PREFERENCE})
     algorithms = list(parsed)
     mismatched = any(
         not hmac.compare_digest(factory(content).digest(), parsed[name])
@@ -1755,7 +1755,7 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
         return Response(error, 400, mimetype="application/xml")
     except ValueError as exc:
-        return Response(str(exc), 400)
+        return Response("invalid WebDAV request", 400)
     effective_depth = depth if resource.is_dir() else "0"
     if _conflicting_locks(resource, document, effective_depth):
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-conflicting-lock/></d:error>'
@@ -1783,7 +1783,7 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
             )
         except (FileExistsError, ValueError) as exc:
             _release_lock(provisional_key)
-            return Response(str(exc), 409)
+            return Response("WebDAV resource conflict", 409)
         _release_lock(provisional_key)
         key = _lock_key(resource, document)
         _record_sync_changes(username, _store().relative(resource))
@@ -2960,7 +2960,7 @@ def _apply_proppatch(username: str, resource: Path, document: dict | None, href:
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
         return Response(error, 400, mimetype="application/xml"), False
     except ValueError as exc:
-        return Response(str(exc), 400), False
+        return Response("invalid WebDAV request", 400), False
 
     protected = {
         index for index, (_, tag, _) in enumerate(operations)
@@ -3487,7 +3487,7 @@ def _sync_report(username: str, collection: Path) -> Response:
     try:
         page_limit = _sync_limit(root)
     except ValueError as exc:
-        return Response(str(exc), 400)
+        return Response("invalid WebDAV request", 400)
 
     supplied_token = (token_node.text or "").strip()
     state = _sync_state(username, collection)
@@ -3782,7 +3782,7 @@ def file_tree(username: str, relative_path: str):
             error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
             return Response(error, 400, mimetype="application/xml")
         except ValueError as exc:
-            return Response(str(exc), 400)
+            return Response("invalid WebDAV request", 400)
 
         # Keep a complete tree response consistent with the same lock used by
         # PUT, COPY, MOVE, DELETE and property mutations. The XML is fully
@@ -3958,7 +3958,7 @@ def file_tree(username: str, relative_path: str):
         except FileExistsError:
             return Response("resource already exists", 412)
         except ValueError as exc:
-            return Response(str(exc), 409)
+            return Response("WebDAV resource conflict", 409)
         old_lock = _lock_for(key)
         if old_lock:
             _release_lock(key)
@@ -4039,7 +4039,7 @@ def file_tree(username: str, relative_path: str):
         except PermissionError:
             return Response("destination is outside the authenticated WebDAV tree", 502)
         except ValueError as exc:
-            return Response(str(exc), 400)
+            return Response("invalid WebDAV request", 400)
         if not _vfs().allows(username, destination.parent, "write"):
             return _need_privileges_response(
                 request.path, _missing_method_privilege(request.method), allow,
@@ -4218,7 +4218,7 @@ def principal_resource(username: str, principal_id: str):
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
         return Response(error, 400, mimetype="application/xml")
     except ValueError as exc:
-        return Response(str(exc), 400)
+        return Response("invalid WebDAV request", 400)
     collection = principal_id == ""
     href = _principal_url(username, collection=collection)
     responses = [
@@ -4294,7 +4294,7 @@ def endpoint(path: str):
             error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
             return Response(error, 400, mimetype="application/xml")
         except ValueError as exc:
-            return Response(str(exc), 400)
+            return Response("invalid WebDAV request", 400)
         responses: list[str] = []
         if not parts:
             responses.append(_prop_response(request.path, "SimpleOffice4Me", collection=True, query=query))
