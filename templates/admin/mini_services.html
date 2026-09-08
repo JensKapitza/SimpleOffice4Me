@@ -1,0 +1,117 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Mini Services</h1>
+      <p class="text-secondary mb-0">DHCP- und DNS-Dienste für kleine lokale Netze. Konfiguration, Leases, DNS-Anfragen, lokale Namen und Ad-Blocking an einer Stelle.</p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzer</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Inventar</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Fehler/Audit</a>
+    </div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+
+  <div class="alert alert-warning">
+    <strong>Netzwerkhinweis:</strong> DHCP darf in einem Segment normalerweise nur von dem bewusst gewählten Server angeboten werden. Vor Aktivierung den DHCP-Server der Fritzbox bzw. des bisherigen Routers deaktivieren. DNS kann Hostnamen umleiten; HTTP-Pfade wie <code>/ziel</code> sind keine DNS-Funktion.
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Worker</div><div class="fs-5 fw-semibold">{{ status.state or 'unbekannt' }}</div><div class="small text-secondary">{% if status.pid %}PID {{ status.pid }} · {{ status.uptime_seconds or 0 }} s{% endif %}</div></div></div></div>
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">DHCP</div><div class="fs-5 fw-semibold">{{ 'läuft' if status.dhcp_running else ('konfiguriert' if config.dhcp.enabled else 'aus') }}</div><div class="small text-secondary">{{ config.dhcp.network }} · {{ leases|length }} Lease(s)</div></div></div></div>
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">DNS</div><div class="fs-5 fw-semibold">{{ 'läuft' if status.dns_running else ('konfiguriert' if config.dns.enabled else 'aus') }}</div><div class="small text-secondary">Port {{ config.dns.port }} · {{ config.dns.upstreams|length }} Upstream(s)</div></div></div></div>
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ad-Blockliste</div><div class="fs-5 fw-semibold">{{ blocklist.domains or 0 }} Domains</div><div class="small text-secondary">{{ blocklist.updated_at or 'noch nicht geladen' }}</div></div></div></div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-2 mb-4">
+    {% for action, label, style in [('start','Starten','success'),('restart','Neu starten','primary'),('stop','Stoppen','danger')] %}
+    <form method="post" action="{{ url_for('mini_services_admin.service_action', action=action) }}"><button class="btn btn-outline-{{ style }}" type="submit">{{ label }}</button></form>
+    {% endfor %}
+    <code class="align-self-center ms-auto small">{{ config_path }}</code>
+  </div>
+
+  <form method="post" action="{{ url_for('mini_services_admin.save') }}">
+    <div class="accordion mb-4" id="mini-services-config">
+      <section class="accordion-item">
+        <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dhcp-config">DHCPv4</button></h2>
+        <div id="dhcp-config" class="accordion-collapse collapse show"><div class="accordion-body">
+          <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="dhcp_enabled" value="1" id="dhcp-enabled" {% if config.dhcp.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="dhcp-enabled">DHCP-Server aktivieren</label></div>
+          <div class="row g-3">
+            <div class="col-md-3"><label class="form-label">Interface</label><input class="form-control" name="dhcp_interface" value="{{ config.dhcp.interface }}" placeholder="z.B. eth0"></div>
+            <div class="col-md-3"><label class="form-label">Bind-Adresse</label><input class="form-control" name="dhcp_bind" value="{{ config.dhcp.bind }}"></div>
+            <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" type="number" name="dhcp_port" value="{{ config.dhcp.port }}" min="1" max="65535"></div>
+            <div class="col-md-4"><label class="form-label">Server-IP</label><input class="form-control" name="server_ip" value="{{ config.dhcp.server_ip }}" required></div>
+            <div class="col-md-4"><label class="form-label">Netz</label><input class="form-control" name="network" value="{{ config.dhcp.network }}" placeholder="192.168.178.0/24" required></div>
+            <div class="col-md-4"><label class="form-label">Pool von</label><input class="form-control" name="pool_start" value="{{ config.dhcp.pool_start }}" required></div>
+            <div class="col-md-4"><label class="form-label">Pool bis</label><input class="form-control" name="pool_end" value="{{ config.dhcp.pool_end }}" required></div>
+            <div class="col-md-4"><label class="form-label">Router/Gateway</label><input class="form-control" name="routers" value="{{ config.dhcp.routers|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label">DNS-Server für Clients</label><input class="form-control" name="dns_servers" value="{{ config.dhcp.dns_servers|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label">Lokale Domain</label><input class="form-control" name="domain" value="{{ config.dhcp.domain }}" placeholder="home.arpa"></div>
+            <div class="col-md-4"><label class="form-label">Domain Search</label><input class="form-control" name="domain_search" value="{{ config.dhcp.domain_search|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label">NTP-Server</label><input class="form-control" name="ntp_servers" value="{{ config.dhcp.ntp_servers|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label">Ausgeschlossene IPs</label><input class="form-control" name="exclusions" value="{{ config.dhcp.exclusions|join(', ') }}"></div>
+            <div class="col-md-3"><label class="form-label">Lease (s)</label><input class="form-control" type="number" name="lease_time" value="{{ config.dhcp.lease_time }}"></div>
+            <div class="col-md-3"><label class="form-label">T1/Renew (s)</label><input class="form-control" type="number" name="renewal_time" value="{{ config.dhcp.renewal_time }}"></div>
+            <div class="col-md-3"><label class="form-label">T2/Rebind (s)</label><input class="form-control" type="number" name="rebinding_time" value="{{ config.dhcp.rebinding_time }}"></div>
+            <div class="col-md-3"><label class="form-label">Decline-Sperre (s)</label><input class="form-control" type="number" name="decline_hold_seconds" value="{{ config.dhcp.decline_hold_seconds }}"></div>
+            <div class="col-md-3"><label class="form-label">MTU</label><input class="form-control" type="number" name="mtu" value="{{ config.dhcp.mtu }}"></div>
+            <div class="col-md-3"><label class="form-label">PXE next-server</label><input class="form-control" name="next_server" value="{{ config.dhcp.next_server }}"></div>
+            <div class="col-md-3"><label class="form-label">TFTP-Server</label><input class="form-control" name="tftp_server" value="{{ config.dhcp.tftp_server }}"></div>
+            <div class="col-md-3"><label class="form-label">Boot-Datei</label><input class="form-control" name="boot_file" value="{{ config.dhcp.boot_file }}"></div>
+            <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="authoritative" value="1" id="authoritative" {% if config.dhcp.authoritative %}checked{% endif %}><label class="form-check-label" for="authoritative">Authoritativ</label></div></div>
+            <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="ping_check" value="1" id="ping-check" {% if config.dhcp.ping_check %}checked{% endif %}><label class="form-check-label" for="ping-check">IP vor Vergabe anpingen</label></div></div>
+          </div>
+          <hr>
+          <div class="row g-3">
+            <div class="col-lg-6"><label class="form-label">Reservierungen (JSON)</label><textarea class="form-control font-monospace" rows="7" name="reservations">{{ config.dhcp.reservations|tojson(indent=2) }}</textarea><div class="form-text">Beispiel: <code>[{"mac":"aa:bb:cc:dd:ee:ff","ip":"192.168.178.10","hostname":"drucker"}]</code></div></div>
+            <div class="col-lg-6"><label class="form-label">Classless Static Routes (Option 121, JSON)</label><textarea class="form-control font-monospace" rows="7" name="static_routes">{{ config.dhcp.static_routes|tojson(indent=2) }}</textarea><div class="form-text">Beispiel: <code>[{"network":"10.0.0.0/8","gateway":"192.168.178.2"}]</code></div></div>
+            <div class="col-lg-12"><label class="form-label">Weitere DHCP-Optionen (JSON)</label><textarea class="form-control font-monospace" rows="4" name="custom_options">{{ config.dhcp.custom_options|tojson(indent=2) }}</textarea><div class="form-text">Werte standardmäßig Text; alternativ <code>hex:</code>, <code>base64:</code>, <code>ip:</code> oder <code>u32:</code>.</div></div>
+          </div>
+        </div></div>
+      </section>
+
+      <section class="accordion-item">
+        <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dns-config">DNS / DNSMasq-Ersatz</button></h2>
+        <div id="dns-config" class="accordion-collapse collapse show"><div class="accordion-body">
+          <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="dns_enabled" value="1" id="dns-enabled" {% if config.dns.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="dns-enabled">DNS-Server aktivieren</label></div>
+          <div class="row g-3">
+            <div class="col-md-4"><label class="form-label">Bind-Adressen</label><input class="form-control" name="dns_bind" value="{{ config.dns.bind|join(', ') }}"></div>
+            <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" type="number" name="dns_port" value="{{ config.dns.port }}"></div>
+            <div class="col-md-6"><label class="form-label">Upstream DNS</label><input class="form-control" name="upstreams" value="{{ config.dns.upstreams|join(', ') }}" placeholder="1.1.1.1, 9.9.9.9"></div>
+            <div class="col-md-3"><label class="form-label">Timeout (s)</label><input class="form-control" name="dns_timeout" value="{{ config.dns.timeout }}"></div>
+            <div class="col-md-3"><label class="form-label">Cache-Einträge</label><input class="form-control" type="number" name="cache_max_entries" value="{{ config.dns.cache_max_entries }}"></div>
+            <div class="col-md-3"><label class="form-label">Querylog max. Bytes</label><input class="form-control" type="number" name="query_log_max_bytes" value="{{ config.dns.query_log_max_bytes }}"></div>
+            <div class="col-md-3"><label class="form-label">Blockmodus</label><select class="form-select" name="block_mode"><option value="zero" {% if config.dns.block_mode == 'zero' %}selected{% endif %}>0.0.0.0 / ::</option><option value="nxdomain" {% if config.dns.block_mode == 'nxdomain' %}selected{% endif %}>NXDOMAIN</option><option value="refused" {% if config.dns.block_mode == 'refused' %}selected{% endif %}>REFUSED</option></select></div>
+            <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="cache_enabled" value="1" id="cache-enabled" {% if config.dns.cache_enabled %}checked{% endif %}><label class="form-check-label" for="cache-enabled">Cache aktiv</label></div></div>
+            <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="query_log" value="1" id="query-log" {% if config.dns.query_log %}checked{% endif %}><label class="form-check-label" for="query-log">DNS-Anfragen protokollieren</label></div></div>
+          </div>
+          <hr>
+          <div class="row g-3">
+            <div class="col-lg-12"><label class="form-label">Lokale DNS-Regeln / Umleitungen (JSON)</label><textarea class="form-control font-monospace" rows="8" name="dns_records">{{ config.dns.records|tojson(indent=2) }}</textarea><div class="form-text">A, AAAA, CNAME, TXT, PTR, MX und SRV. Beispiel: <code>[{"name":"nas.home.arpa","type":"A","value":"192.168.178.5","ttl":300}]</code>. Wildcards wie <code>*.intern.example</code> sind möglich.</div></div>
+            <div class="col-lg-6"><label class="form-label">Manuell blockieren</label><textarea class="form-control" rows="5" name="manual_blocks">{{ config.dns.manual_blocks|join('\n') }}</textarea></div>
+            <div class="col-lg-6"><label class="form-label">Allowlist</label><textarea class="form-control" rows="5" name="allowlist">{{ config.dns.allowlist|join('\n') }}</textarea></div>
+            <div class="col-lg-9"><label class="form-label">Blocklisten-URLs (eine HTTPS-URL je Zeile)</label><textarea class="form-control" rows="5" name="blocklist_urls">{{ config.dns.blocklist_urls|join('\n') }}</textarea></div>
+            <div class="col-lg-3"><label class="form-label">Aktualisierung (h)</label><input class="form-control" type="number" name="blocklist_refresh_hours" min="1" max="720" value="{{ config.dns.blocklist_refresh_hours }}"></div>
+          </div>
+        </div></div>
+      </section>
+    </div>
+    <button class="btn btn-primary btn-lg" type="submit">Konfiguration speichern und Dienst neu starten</button>
+  </form>
+
+  <div class="row g-4 mt-1">
+    <section class="col-xl-6">
+      <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>DHCP-Leases</strong><form method="post" action="{{ url_for('mini_services_admin.clear_dhcp_leases') }}"><button class="btn btn-sm btn-outline-danger" type="submit">Leases leeren</button></form></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>IP</th><th>MAC</th><th>Hostname</th><th>Status</th><th>Ablauf</th></tr></thead><tbody>{% for lease in leases %}<tr><td><code>{{ lease.ip }}</code></td><td><code>{{ lease.mac }}</code></td><td>{{ lease.hostname or '—' }}</td><td>{{ lease.state }}</td><td>{{ lease.expires|int }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Leases.</td></tr>{% endfor %}</tbody></table></div></div>
+    </section>
+    <section class="col-xl-6">
+      <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>DNS-Anfragen</strong><form method="post" action="{{ url_for('mini_services_admin.clear_query_log') }}"><button class="btn btn-sm btn-outline-danger" type="submit">Log leeren</button></form></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Client</th><th>Name</th><th>Typ</th><th>Aktion</th></tr></thead><tbody>{% for row in dns_queries %}<tr><td class="small">{{ row.at }}</td><td><code>{{ row.client }}</code></td><td class="text-break">{{ row.name }}</td><td>{{ row.type }}</td><td><span class="badge text-bg-{{ 'danger' if row.action == 'blocked' else 'secondary' }}">{{ row.action }}</span></td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine DNS-Anfragen.</td></tr>{% endfor %}</tbody></table></div></div>
+    </section>
+  </div>
+
+  <section class="card mt-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>Ad-/Tracking-Blocklisten</strong><form method="post" action="{{ url_for('mini_services_admin.refresh_lists') }}"><button class="btn btn-sm btn-outline-primary" type="submit">Jetzt aktualisieren</button></form></div><div class="card-body"><p class="mb-2">Geladen: <strong>{{ blocklist.domains or 0 }}</strong> Domains · Stand {{ blocklist.updated_at or '—' }}</p>{% if blocklist.sources %}<ul class="small mb-0">{% for source in blocklist.sources %}<li><code>{{ source.url }}</code> — {% if source.ok %}{{ source.domains }} Domains{% else %}<span class="text-danger">{{ source.error }}: {{ source.message }}</span>{% endif %}</li>{% endfor %}</ul>{% endif %}</div></section>
+</main>
+{% endblock %}
