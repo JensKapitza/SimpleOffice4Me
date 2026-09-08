@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -15,6 +16,7 @@ from .printershare_store import PrinterShareStore, RETENTION_ORDER, normalize_re
 
 
 bp = Blueprint("federation_print_http", __name__, url_prefix="/federation/v1/print")
+logger = logging.getLogger(__name__)
 
 
 def _store() -> PrinterShareStore:
@@ -63,8 +65,9 @@ def submit_job(printer_id: str):
     try:
         proof_values, proof_signature = parse_proof_headers(request.headers, printer_id)
         source_peer, proof = identify_source_peer(_federation(), proof_values, proof_signature)
-    except ValueError as exc:
-        return jsonify({"error": "peer_identity_rejected", "detail": str(exc)}), 403
+    except ValueError:
+        logger.warning("Federation print peer identity rejected", exc_info=True)
+        return jsonify({"error": "peer_identity_rejected"}), 403
 
     claimed_peer = request.headers.get("X-SimpleOffice-Peer-ID", "").strip()[:128]
     if claimed_peer and not hmac.compare_digest(claimed_peer, source_peer):
@@ -112,8 +115,9 @@ def submit_job(printer_id: str):
         source_peer_after, proof_after = identify_source_peer(
             _federation(), proof_values, proof_signature
         )
-    except ValueError as exc:
-        return jsonify({"error": "peer_permission_changed", "detail": str(exc)}), 403
+    except ValueError:
+        logger.warning("Federation print peer permission changed during upload", exc_info=True)
+        return jsonify({"error": "peer_permission_changed"}), 403
     if not hmac.compare_digest(source_peer_after, source_peer):
         return jsonify({"error": "peer_identity_changed"}), 403
     proof = proof_after
@@ -177,4 +181,5 @@ def submit_job(printer_id: str):
                 "policy_revision": revision,
             },
         )
-        return jsonify({"error": str(exc), "policy_revision": revision}), 400
+        logger.exception("Federation print job failed for printer %s", printer_id)
+        return jsonify({"error": "print_job_failed", "policy_revision": revision}), 400
