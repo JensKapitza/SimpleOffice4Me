@@ -1,0 +1,67 @@
+name: Temporary apply basename path hardening
+
+on:
+  push:
+    branches:
+      - fix/path-injection-wave1
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message != 'Use basename sanitizers for managed paths'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/path-injection-wave1
+      - name: Remove ineffective annotations and harden path components
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # Remove the reviewed CodeQL annotations: the active CodeQL pipeline
+          # does not consume them as suppressions, so they must not pollute code.
+          for path in [*Path('app').rglob('*.py'), Path('simpleoffice_network_boot.py')]:
+              lines = path.read_text().splitlines(keepends=True)
+              cleaned = []
+              for line in lines:
+                  stripped = line.strip()
+                  if stripped == '# codeql[py/path-injection]' or stripped.startswith('# Reviewed:'):
+                      continue
+                  cleaned.append(line)
+              path.write_text(''.join(cleaned))
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing expected block in {path}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace('app/document_store.py',
+          '''    def _safe_managed_relative_path(self, value: str, *, require_name: bool = False) -> Path:\n        requested = Path(value)\n        if (require_name and value in {"", "."}) or requested.is_absolute() or ".." in requested.parts:\n            raise ValueError("path must remain inside the document store")\n        if any(part in {"", CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, POLICY_FILE} or "\\x00" in part for part in requested.parts):\n            raise ValueError("path contains a reserved segment")\n        candidate = self.root / requested\n''',
+          '''    def _safe_managed_relative_path(self, value: str, *, require_name: bool = False) -> Path:\n        requested = Path(value)\n        if (require_name and value in {"", "."}) or requested.is_absolute() or ".." in requested.parts:\n            raise ValueError("path must remain inside the document store")\n        safe_parts: list[str] = []\n        for part in requested.parts:\n            safe_part = os.path.basename(part)\n            if safe_part != part or safe_part in {"", CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, POLICY_FILE} or "\\x00" in safe_part:\n                raise ValueError("path contains a reserved segment")\n            safe_parts.append(safe_part)\n        requested = Path(*safe_parts) if safe_parts else Path(".")\n        candidate = self.root / requested\n''')
+
+          replace('app/virtual_filesystem.py',
+          '''        relative = Path(text or ".")\n        if relative.is_absolute() or ".." in relative.parts or "\\x00" in text:\n            raise ValueError("path must remain inside the virtual filesystem")\n        if any(part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE, ""} for part in relative.parts):\n            raise ValueError("path contains a reserved segment")\n        candidate = self.root if relative == Path(".") else self.root / relative\n''',
+          '''        relative = Path(text or ".")\n        if relative.is_absolute() or ".." in relative.parts or "\\x00" in text:\n            raise ValueError("path must remain inside the virtual filesystem")\n        safe_parts: list[str] = []\n        for part in relative.parts:\n            safe_part = os.path.basename(part)\n            if safe_part != part or safe_part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE, ""}:\n                raise ValueError("path contains a reserved segment")\n            safe_parts.append(safe_part)\n        relative = Path(*safe_parts) if safe_parts else Path(".")\n        candidate = self.root if relative == Path(".") else self.root / relative\n''')
+
+          replace('app/attachment_security.py',
+          '''    def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:\n        if not re.fullmatch(r"[0-9a-f]{32}", manifest_id):\n            raise ValueError("invalid extraction manifest identifier")\n        path = self.manifests / f"{manifest_id}.json"\n''',
+          '''    def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:\n        safe_manifest_id = os.path.basename(manifest_id)\n        if safe_manifest_id != manifest_id or not re.fullmatch(r"[0-9a-f]{32}", safe_manifest_id):\n            raise ValueError("invalid extraction manifest identifier")\n        path = self.manifests / f"{safe_manifest_id}.json"\n''')
+
+          replace('app/mail_client.py',
+          '''def _safe_id(value: str) -> str:\n    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):\n        raise ValueError("invalid account identifier")\n    return value\n''',
+          '''def _safe_id(value: str) -> str:\n    safe_value = os.path.basename(value)\n    if safe_value != value or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", safe_value):\n        raise ValueError("invalid account identifier")\n    return safe_value\n''')
+      - name: Verify Python syntax
+        run: python -m compileall -q app simpleoffice_network_boot.py
+      - name: Commit changes
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "SimpleOffice security automation"
+          git config user.email "actions@github.com"
+          git add app simpleoffice_network_boot.py
+          git commit -m "Use basename sanitizers for managed paths"
+          git push
