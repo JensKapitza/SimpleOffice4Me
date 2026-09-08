@@ -1,9 +1,7 @@
-"""Small, low-risk PrinterShare improvements layered on the core implementation.
+"""Operational and UX helpers for PrinterShare.
 
-This module intentionally keeps operational helpers separate from the print
-transport.  It adds read-only status/job APIs, maintenance actions and response
-hardening without weakening the retention contract implemented by
-:mod:`app.printershare_store`.
+The core print transport remains in printershare.py/printershare_store.py. This
+module adds safe read-only APIs, maintenance helpers and response hardening.
 """
 from __future__ import annotations
 
@@ -11,6 +9,7 @@ import csv
 import io
 import os
 import platform
+import re
 import shutil
 import sqlite3
 import time
@@ -35,6 +34,7 @@ MAX_API_JOBS = 200
 MAX_API_OFFSET = 5000
 ORPHAN_GRACE_SECONDS = 24 * 60 * 60
 TEMP_GRACE_SECONDS = 60 * 60
+REQUEST_ID_RE = re.compile(r"[^A-Za-z0-9._:-]+")
 
 
 def _store() -> PrinterShareStore:
@@ -163,9 +163,7 @@ def _where_clause(*, admin: bool, username: str) -> tuple[list[str], list[Any]]:
     query = " ".join(str(request.args.get("q") or "").split())[:MAX_QUERY_LENGTH]
     if query:
         like = f"%{query}%"
-        clauses.append(
-            "(job_id LIKE ? OR printer_name LIKE ? OR source_peer LIKE ? OR payload_sha256 LIKE ? OR content_type LIKE ?)"
-        )
+        clauses.append("(job_id LIKE ? OR printer_name LIKE ? OR source_peer LIKE ? OR payload_sha256 LIKE ? OR content_type LIKE ?)")
         params.extend([like, like, like, like, like])
     return clauses, params
 
@@ -189,16 +187,16 @@ def _retained_inventory(store: PrinterShareStore) -> tuple[set[str], int, int]:
     with _db(store) as db:
         for row in db.execute("SELECT payload_path FROM print_job WHERE payload_path<>''"):
             referenced.add(str(row[0]))
-    count = 0
-    total_bytes = 0
+    count = total_bytes = 0
     if store.retained.is_dir():
         for path in store.retained.glob("*.printenc"):
-            if path.is_file():
-                count += 1
-                try:
-                    total_bytes += path.stat().st_size
-                except OSError:
-                    pass
+            if not path.is_file():
+                continue
+            count += 1
+            try:
+                total_bytes += path.stat().st_size
+            except OSError:
+                pass
     return referenced, count, total_bytes
 
 
@@ -258,19 +256,20 @@ def run_maintenance(store: PrinterShareStore, *, apply: bool) -> dict[str, int]:
             except OSError:
                 continue
             relative = str(Path("printershare-retained") / path.name)
-            if path.suffix == ".tmp" and age >= TEMP_GRACE_SECONDS:
+            stale_temp = path.suffix == ".tmp" and age >= TEMP_GRACE_SECONDS
+            stale_orphan = path.suffix == ".printenc" and relative not in referenced and age >= ORPHAN_GRACE_SECONDS
+            if stale_temp:
                 if apply:
                     path.unlink(missing_ok=True)
                 result["temporary_files_removed"] += 1
-            elif path.suffix == ".printenc" and relative not in referenced and age >= ORPHAN_GRACE_SECONDS:
+            elif stale_orphan:
                 if apply:
                     path.unlink(missing_ok=True)
                 result["orphan_files_removed"] += 1
 
     missing: list[str] = []
     with _db(store) as db:
-        rows = db.execute("SELECT job_id,payload_path FROM print_job WHERE payload_path<>''").fetchall()
-        for row in rows:
+        for row in db.execute("SELECT job_id,payload_path FROM print_job WHERE payload_path<>''"):
             relative = str(row["payload_path"] or "")
             path = (store.control / relative).resolve()
             if store.control not in path.parents or not path.is_file():
@@ -280,11 +279,7 @@ def run_maintenance(store: PrinterShareStore, *, apply: bool) -> dict[str, int]:
     result["missing_references_cleared"] = len(missing)
 
     if apply:
-        for path, mode in (
-            (store.retained, 0o700),
-            (store.settings_path, 0o600),
-            (store.jobs_path, 0o600),
-        ):
+        for path, mode in ((store.retained, 0o700), (store.settings_path, 0o600), (store.jobs_path, 0o600)):
             try:
                 os.chmod(path, mode)
                 result["permissions_fixed"] += 1
@@ -302,8 +297,10 @@ def run_maintenance(store: PrinterShareStore, *, apply: bool) -> dict[str, int]:
 
 @bp.before_app_request
 def printershare_request_context() -> None:
-    if request.path.startswith(("/printershare", "/federation/v1/print")):
-        g.printershare_request_id = request.headers.get("X-Request-ID", "").strip()[:64] or uuid.uuid4().hex[:16]
+    if not request.path.startswith(("/printershare", "/federation/v1/print")):
+        return
+    supplied = REQUEST_ID_RE.sub("-", request.headers.get("X-Request-ID", "").strip())[:64].strip("-._:")
+    g.printershare_request_id = supplied or uuid.uuid4().hex[:16]
 
 
 @bp.after_app_request
@@ -316,7 +313,6 @@ def harden_printershare_response(response: Response) -> Response:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
-    response.headers["Permissions-Policy"] = "browsing-topics=(), interest-cohort=()"
     response.headers["X-PrinterShare-Retention-Contract"] = "no-store-aware"
     request_id = getattr(g, "printershare_request_id", "")
     if request_id:
@@ -334,7 +330,6 @@ def api_status():
     settings = store.settings()
     printers = store.printers()
     peers = [peer for peer in _federation().list_peers() if peer.get("enabled") and _may_send(peer)]
-    stats = maintenance_snapshot(store)
     return jsonify({
         "schema": 2,
         "server_time": int(time.time()),
@@ -349,7 +344,7 @@ def api_status():
         "shared_printer_count": sum(1 for item in printers if item.get("federation_shared")),
         "send_peer_count": len(peers),
         "platform": platform.system() or "unknown",
-        "stats": stats,
+        "stats": maintenance_snapshot(store),
         "admin": bool(is_admin(g.user)),
     })
 
@@ -359,12 +354,11 @@ def api_status():
 def api_health():
     store = _store()
     system = platform.system()
-    printers = store.printers()
     checks = {
         "storage_directory": store.control.is_dir(),
         "storage_writable": os.access(store.control, os.W_OK),
         "database_exists": store.jobs_path.is_file(),
-        "printer_detected": bool(printers),
+        "printer_detected": bool(store.printers()),
         "cups_lp": bool(shutil.which("lp")) if system in {"Linux", "Darwin"} else None,
         "cups_lpr": bool(shutil.which("lpr")) if system in {"Linux", "Darwin"} else None,
         "powershell": bool(shutil.which("powershell.exe") or shutil.which("pwsh")) if system == "Windows" else None,
@@ -392,18 +386,11 @@ def api_settings():
 @bp.get("/api/printers")
 @login_required
 def api_printers():
-    printers = [
-        {
-            "printer_id": item["printer_id"],
-            "label": item["label"],
-            "name": item["name"],
-            "kind": item["kind"],
-            "backend": item["backend"],
-            "is_default": bool(item["is_default"]),
-            "federation_shared": bool(item["federation_shared"]),
-        }
-        for item in _store().printers()
-    ]
+    printers = [{
+        "printer_id": item["printer_id"], "label": item["label"], "name": item["name"],
+        "kind": item["kind"], "backend": item["backend"], "is_default": bool(item["is_default"]),
+        "federation_shared": bool(item["federation_shared"]),
+    } for item in _store().printers()]
     return jsonify({"schema": 1, "count": len(printers), "printers": printers})
 
 
@@ -431,13 +418,7 @@ def api_jobs():
     store.purge_expired()
     admin = bool(is_admin(g.user))
     jobs, total = _query_jobs(store, admin=admin, username=_username())
-    return jsonify({
-        "schema": 2,
-        "total": total,
-        "count": len(jobs),
-        "jobs": jobs,
-        "server_time": int(time.time()),
-    })
+    return jsonify({"schema": 2, "total": total, "count": len(jobs), "jobs": jobs, "server_time": int(time.time())})
 
 
 @bp.get("/api/jobs/<job_id>")
@@ -461,8 +442,7 @@ def api_job(job_id: str):
 @login_required
 def api_jobs_csv():
     store = _store()
-    admin = bool(is_admin(g.user))
-    jobs, _ = _query_jobs(store, admin=admin, username=_username())
+    jobs, _ = _query_jobs(store, admin=bool(is_admin(g.user)), username=_username())
     output = io.StringIO(newline="")
     writer = csv.writer(output)
     writer.writerow(["job_id", "created_at", "printer", "source", "source_peer", "status", "retention", "retained", "size", "sha256"])
@@ -482,12 +462,7 @@ def admin_maintenance():
     apply = str(request.form.get("apply") or request.args.get("apply") or "").strip() == "1"
     store = _store()
     result = run_maintenance(store, apply=apply)
-    return jsonify({
-        "schema": 1,
-        "applied": apply,
-        "result": result,
-        "stats": maintenance_snapshot(store),
-    })
+    return jsonify({"schema": 1, "applied": apply, "result": result, "stats": maintenance_snapshot(store)})
 
 
 def init_app(app) -> None:
