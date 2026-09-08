@@ -1,14 +1,17 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4">
+<main id="main-content" class="container-xl py-4" data-max-job-bytes="{{ settings.max_job_bytes }}">
   <input type="hidden" id="printershare-csrf" value="{{ csrf_token() }}">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
       <h1 class="h2 mb-1">PrinterShare</h1>
       <p class="text-secondary mb-0">Lokale und freigegebene Federation-Drucker direkt aus dem Browser verwenden.</p>
     </div>
-    <span class="badge {{ 'text-bg-success' if settings.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if settings.enabled else 'deaktiviert' }}</span>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <span class="badge {{ 'text-bg-success' if settings.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if settings.enabled else 'deaktiviert' }}</span>
+      <button class="btn btn-sm btn-outline-secondary" type="button" id="refresh-printershare-status">Status aktualisieren</button>
+    </div>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
@@ -17,17 +20,31 @@
     <strong>No-Store bedeutet:</strong> SimpleOffice archiviert die Druckdatei nicht dauerhaft. Das Betriebssystem, der Druckertreiber oder der Drucker selbst kann für den eigentlichen Druckvorgang trotzdem temporär spoolen. Federation-No-Store wird vor dem Upload als Richtlinienvertrag geprüft und nach dem Spoolen mit einer authentisierten Bestätigung quittiert.
   </div>
 
+  <section class="card mb-4" aria-labelledby="printershare-status-heading">
+    <div class="card-body py-3">
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <strong id="printershare-status-heading">Systemstatus</strong>
+        <span id="ps-stat-printers" class="badge text-bg-light">Drucker: {{ printers|length }}</span>
+        <span id="ps-stat-peers" class="badge text-bg-light">Sende-Peers: {{ peers|length }}</span>
+        <span id="ps-stat-jobs" class="badge text-bg-light">Aufträge: {{ jobs|length }}+</span>
+        <span id="ps-stat-failed" class="badge text-bg-light">Fehler: –</span>
+        <span id="ps-stat-retained" class="badge text-bg-light">Backlog: –</span>
+        <span id="ps-status-message" class="small text-secondary" role="status" aria-live="polite"></span>
+      </div>
+    </div>
+  </section>
+
   <div class="row g-4 mb-4">
     <section class="col-lg-6">
       <div class="card h-100">
         <div class="card-header"><strong>Lokal drucken</strong></div>
         <div class="card-body">
           {% if printers %}
-          <form id="local-print-form" method="post">
-            <div class="mb-3"><label class="form-label" for="local-file">Druckdatei</label><input class="form-control" id="local-file" type="file" required></div>
+          <form id="local-print-form" method="post" novalidate>
+            <div class="mb-3"><label class="form-label" for="local-file">Druckdatei</label><input class="form-control" id="local-file" type="file" required><div class="form-text">Maximal {{ (settings.max_job_bytes / 1048576)|round(1) }} MiB.</div></div>
             <div class="mb-3"><label class="form-label" for="local-printer">Drucker</label><select class="form-select" id="local-printer" required>{% for printer in printers %}<option value="{{ printer.printer_id }}">{{ printer.label }} · {{ 'Label' if printer.kind in ['label','raw'] else 'Normal' }}{% if printer.is_default %} · Standard{% endif %}</option>{% endfor %}</select></div>
             <div class="mb-3"><label class="form-label" for="local-retention">Maximal erlaubte Aufbewahrung</label><select class="form-select" id="local-retention"><option value="no_store">Nur drucken – nicht archivieren</option><option value="ttl">Zeitlicher Backlog erlaubt</option><option value="permanent">Dauerspeicherung erlaubt</option></select><div class="form-text">Der Server darf immer kürzer speichern, niemals länger als hier ausgewählt.</div></div>
-            <button class="btn btn-primary" type="submit">Jetzt drucken</button>
+            <button class="btn btn-primary" id="local-submit" type="submit">Jetzt drucken</button>
           </form>
           <div id="local-result" class="small mt-3" role="status" aria-live="polite"></div>
           {% else %}<p class="text-secondary mb-0">Kein eingerichteter Drucker gefunden. Unter Linux werden CUPS-Drucker über <code>lpstat</code>, unter Windows die eingerichteten Windows-Drucker verwendet.</p>{% endif %}
@@ -40,14 +57,14 @@
         <div class="card-header"><strong>Über Federation drucken</strong></div>
         <div class="card-body">
           {% if peers %}
-          <form id="remote-print-form" method="post">
-            <div class="mb-3"><label class="form-label" for="remote-peer">Gegenstelle</label><select class="form-select" id="remote-peer"><option value="">Bitte wählen</option>{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select></div>
+          <form id="remote-print-form" method="post" novalidate>
+            <div class="mb-3"><label class="form-label" for="remote-peer">Gegenstelle</label><select class="form-select" id="remote-peer" required><option value="">Bitte wählen</option>{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select></div>
             <div class="mb-3"><button class="btn btn-outline-secondary btn-sm" type="button" id="load-remote-printers">Freigegebene Drucker laden</button></div>
-            <div class="mb-3"><label class="form-label" for="remote-printer">Remote-Drucker</label><select class="form-select" id="remote-printer" disabled><option value="">Noch nicht geladen</option></select></div>
-            <div id="remote-contract" class="small text-secondary mb-3"></div>
-            <div class="mb-3"><label class="form-label" for="remote-file">Druckdatei</label><input class="form-control" id="remote-file" type="file" required></div>
+            <div class="mb-3"><label class="form-label" for="remote-printer">Remote-Drucker</label><select class="form-select" id="remote-printer" required disabled><option value="">Noch nicht geladen</option></select></div>
+            <div id="remote-contract" class="small text-secondary mb-3" role="status" aria-live="polite"></div>
+            <div class="mb-3"><label class="form-label" for="remote-file">Druckdatei</label><input class="form-control" id="remote-file" type="file" required><div class="form-text">Die lokale Größenobergrenze wird bereits vor der Übertragung geprüft.</div></div>
             <div class="mb-3"><label class="form-label" for="remote-retention">Maximal erlaubte Aufbewahrung</label><select class="form-select" id="remote-retention"><option value="no_store">Nur drucken – Gegenstelle darf nicht archivieren</option><option value="ttl">Zeitlichen Backlog erlauben</option><option value="permanent">Dauerspeicherung erlauben</option></select></div>
-            <button class="btn btn-primary" type="submit">Über Federation drucken</button>
+            <button class="btn btn-primary" id="remote-submit" type="submit">Über Federation drucken</button>
           </form>
           <div id="remote-result" class="small mt-3" role="status" aria-live="polite"></div>
           {% else %}<p class="text-secondary mb-0">Kein aktiver Federation-Peer mit ausdrücklicher <code>printing.send=true</code>-Freigabe eingerichtet.</p>{% endif %}
@@ -57,21 +74,37 @@
   </div>
 
   <section class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center"><strong>Druckverlauf / Backlog</strong><span class="small text-secondary">Dateiinhalte sind bei No-Store nicht vorhanden.</span></div>
-    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Zeit</th><th scope="col">Drucker</th><th scope="col">Quelle</th><th scope="col">Status</th><th scope="col">Aufbewahrung</th><th scope="col">Größe / Hash</th><th scope="col">Aktion</th></tr></thead><tbody>
-      {% for job in jobs %}<tr>
-        <td class="text-nowrap">{{ job.created_at }}</td>
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><strong>Druckverlauf / Backlog</strong><div class="d-flex gap-2"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('printershare_quickwins.api_jobs_csv') }}">CSV exportieren</a><span class="small text-secondary align-self-center">No-Store enthält keine Dateikopie.</span></div></div>
+    <div class="card-body border-bottom py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-sm-6 col-md-4"><label class="form-label small mb-1" for="job-filter">Verlauf filtern</label><input class="form-control form-control-sm" id="job-filter" type="search" placeholder="Drucker, Peer, Status, Hash …" autocomplete="off"></div>
+        <div class="col-sm-6 col-md-3"><label class="form-label small mb-1" for="job-status-filter">Status</label><select class="form-select form-select-sm" id="job-status-filter"><option value="">Alle</option><option value="spooled">Übergeben</option><option value="failed">Fehler</option><option value="queued">Wartend</option></select></div>
+        <div class="col-md-5"><span id="job-filter-count" class="small text-secondary" aria-live="polite"></span></div>
+      </div>
+    </div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Zeit</th><th scope="col">Drucker</th><th scope="col">Quelle</th><th scope="col">Status</th><th scope="col">Aufbewahrung</th><th scope="col">Größe / Hash</th><th scope="col">Aktion</th></tr></thead><tbody id="printershare-job-body">
+      {% for job in jobs %}<tr class="printershare-job-row" data-status="{{ job.status }}" data-search="{{ (job.printer_name ~ ' ' ~ job.source ~ ' ' ~ job.source_peer ~ ' ' ~ job.status ~ ' ' ~ job.retention ~ ' ' ~ job.payload_sha256)|lower }}">
+        <td class="text-nowrap"><time class="ps-unix-time" datetime="{{ job.created_at }}">{{ job.created_at }}</time></td>
         <td>{{ job.printer_name }}</td>
         <td>{{ job.source }}{% if job.source_peer %}<br><small class="text-secondary">{{ job.source_peer }}</small>{% endif %}</td>
         <td><span class="badge {{ 'text-bg-success' if job.status == 'spooled' else 'text-bg-danger' if job.status == 'failed' else 'text-bg-secondary' }}">{{ job.status }}</span>{% if job.error %}<br><small class="text-danger">{{ job.error }}</small>{% endif %}</td>
-        <td>{{ retention_labels.get(job.retention, job.retention) }}{% if job.expires_at %}<br><small class="text-secondary">Ablauf: {{ job.expires_at }}</small>{% endif %}{% if job.payload_path %}<br><span class="badge text-bg-warning">verschlüsselte Kopie vorhanden</span>{% endif %}</td>
-        <td>{{ job.payload_size }} B<br><code class="small">{{ job.payload_sha256[:12] }}…</code></td>
-        <td class="text-nowrap">{% if job_admin and job.payload_path %}<form class="d-inline" method="post" action="{{ url_for('printershare.retry_job', job_id=job.job_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Erneut drucken</button></form> <form class="d-inline" method="post" action="{{ url_for('printershare.delete_copy', job_id=job.job_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Kopie löschen</button></form>{% elif job.payload_path %}<span class="text-secondary small">Verwaltung nur durch Admin</span>{% else %}<span class="text-secondary small">keine Datei gespeichert</span>{% endif %}</td>
+        <td>{{ retention_labels.get(job.retention, job.retention) }}{% if job.expires_at %}<br><small class="text-secondary">Ablauf: <time class="ps-unix-time" datetime="{{ job.expires_at }}">{{ job.expires_at }}</time></small>{% endif %}{% if job.payload_path %}<br><span class="badge text-bg-warning">verschlüsselte Kopie vorhanden</span>{% endif %}</td>
+        <td><span class="ps-bytes" data-bytes="{{ job.payload_size }}">{{ job.payload_size }} B</span><br><button class="btn btn-link btn-sm p-0 font-monospace copy-hash" type="button" data-copy="{{ job.payload_sha256 }}" title="SHA-256 kopieren">{{ job.payload_sha256[:12] }}…</button></td>
+        <td class="text-nowrap">{% if job_admin and job.payload_path %}<form class="d-inline" method="post" action="{{ url_for('printershare.retry_job', job_id=job.job_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Erneut drucken</button></form> <form class="d-inline delete-retained-form" method="post" action="{{ url_for('printershare.delete_copy', job_id=job.job_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Kopie löschen</button></form>{% elif job.payload_path %}<span class="text-secondary small">Verwaltung nur durch Admin</span>{% else %}<span class="text-secondary small">keine Datei gespeichert</span>{% endif %}</td>
       </tr>{% else %}<tr><td colspan="7" class="text-secondary">Noch keine Druckaufträge.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 
   {% if g.user['is_admin'] %}
+  <section class="card mb-4">
+    <div class="card-header"><strong>Administration: Diagnose & Wartung</strong></div>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-2"><button class="btn btn-outline-secondary btn-sm" type="button" id="maintenance-preview">Wartung prüfen</button><button class="btn btn-outline-danger btn-sm" type="button" id="maintenance-apply">Sichere Bereinigung ausführen</button></div>
+      <div class="form-text mt-2">Bereinigt abgelaufene TTL-Dateien, alte verwaiste Backlog-Dateien und fehlende Dateiverweise. Ein Dry-Run verändert nichts.</div>
+      <pre id="maintenance-result" class="small bg-body-tertiary rounded p-2 mt-3 mb-0 d-none" role="status" aria-live="polite"></pre>
+    </div>
+  </section>
+
   <section class="card mb-4">
     <div class="card-header"><strong>Administration: Speicherung und Federation</strong></div>
     <div class="card-body">
@@ -92,7 +125,7 @@
     <div class="card-header"><strong>Administration: Druckerfreigaben</strong></div>
     <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th scope="col">Drucker</th><th scope="col">Typ</th><th scope="col">Federation</th><th scope="col">Speichern</th></tr></thead><tbody>
       {% for printer in printers %}{% set form_id = 'printer-settings-' ~ printer.printer_id %}<tr>
-        <td><input class="form-control form-control-sm" form="{{ form_id }}" name="label" value="{{ printer.label }}"><small class="text-secondary">{{ printer.name }} · {{ printer.driver }}{% if printer.port %} · {{ printer.port }}{% endif %}</small></td>
+        <td><input class="form-control form-control-sm" form="{{ form_id }}" name="label" value="{{ printer.label }}" maxlength="160"><small class="text-secondary">{{ printer.name }} · {{ printer.driver }}{% if printer.port %} · {{ printer.port }}{% endif %}</small></td>
         <td><select class="form-select form-select-sm" form="{{ form_id }}" name="kind"><option value="auto" {% if printer.configured_kind == 'auto' %}selected{% endif %}>Automatisch</option><option value="normal" {% if printer.configured_kind == 'normal' %}selected{% endif %}>Normal</option><option value="label" {% if printer.configured_kind == 'label' %}selected{% endif %}>Label</option><option value="raw" {% if printer.configured_kind == 'raw' %}selected{% endif %}>RAW/Label-Sprache</option></select></td>
         <td><div class="form-check"><input class="form-check-input" form="{{ form_id }}" type="checkbox" name="federation_shared" value="1" id="share-{{ printer.printer_id }}" {% if printer.federation_shared %}checked{% endif %}><label class="form-check-label" for="share-{{ printer.printer_id }}">für Peers freigeben</label></div></td>
         <td><form id="{{ form_id }}" method="post" action="{{ url_for('printershare.update_printer', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Speichern</button></form></td>
@@ -105,9 +138,22 @@
 <script>
 (() => {
   const csrf = document.getElementById('printershare-csrf')?.value || '';
+  const main = document.getElementById('main-content');
+  const maxBytes = Number(main?.dataset.maxJobBytes || 0);
   const asciiName = (name) => String(name || '').replace(/[^\x20-\x7E]/g, '_').slice(0, 200);
+  const humanBytes = (value) => { const n = Number(value || 0); if (n < 1024) return `${n} B`; if (n < 1048576) return `${(n / 1024).toFixed(1)} KiB`; return `${(n / 1048576).toFixed(1)} MiB`; };
+  const validFile = (file, result) => { if (!file) { result.textContent = 'Bitte eine Druckdatei auswählen.'; return false; } if (maxBytes && file.size > maxBytes) { result.textContent = `Datei zu groß: ${humanBytes(file.size)}; erlaubt sind ${humanBytes(maxBytes)}.`; return false; } return true; };
+  const setBusy = (button, busy, text) => { if (!button) return; if (!button.dataset.label) button.dataset.label = button.textContent; button.disabled = busy; button.setAttribute('aria-busy', busy ? 'true' : 'false'); button.textContent = busy ? text : button.dataset.label; };
+
+  async function jsonFetch(url, options = {}) {
+    const response = await fetch(url, {credentials: 'same-origin', ...options});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || data.detail || `HTTP ${response.status}`);
+    return data;
+  }
+
   async function sendFile(url, file, printer, retention) {
-    const response = await fetch(url, {
+    return jsonFetch(url, {
       method: 'POST',
       headers: {
         'X-CSRF-Token': csrf,
@@ -116,63 +162,111 @@
         'X-SimpleOffice-Filename': asciiName(file.name),
         'X-SimpleOffice-Retention-Ceiling': retention
       },
-      body: file,
-      credentials: 'same-origin'
+      body: file
     });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    return data;
   }
+
+  async function refreshStatus() {
+    const message = document.getElementById('ps-status-message');
+    try {
+      const data = await jsonFetch('{{ url_for("printershare_quickwins.api_status") }}');
+      document.getElementById('ps-stat-printers').textContent = `Drucker: ${data.printer_count}`;
+      document.getElementById('ps-stat-peers').textContent = `Sende-Peers: ${data.send_peer_count}`;
+      document.getElementById('ps-stat-jobs').textContent = `Aufträge: ${data.stats.total}`;
+      document.getElementById('ps-stat-failed').textContent = `Fehler: ${data.stats.failed}`;
+      document.getElementById('ps-stat-retained').textContent = `Backlog: ${data.stats.retained}`;
+      message.textContent = `Stand ${new Date(data.server_time * 1000).toLocaleTimeString()}`;
+    } catch (error) { message.textContent = `Statusfehler: ${error.message}`; }
+  }
+  document.getElementById('refresh-printershare-status')?.addEventListener('click', refreshStatus);
+  refreshStatus();
 
   document.getElementById('local-print-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const result = document.getElementById('local-result');
     const file = document.getElementById('local-file').files[0];
-    if (!file) return;
-    result.textContent = 'Druckauftrag wird übergeben …';
+    const button = document.getElementById('local-submit');
+    if (!validFile(file, result)) return;
+    result.textContent = `Übertrage ${humanBytes(file.size)} …`;
+    setBusy(button, true, 'Wird gedruckt …');
     try {
       const data = await sendFile('{{ url_for("printershare.submit_local_job") }}', file, document.getElementById('local-printer').value, document.getElementById('local-retention').value);
       result.textContent = `Übergeben: ${data.job_id} · Aufbewahrung: ${data.retention}.`;
+      event.target.reset();
+      await refreshStatus();
     } catch (error) { result.textContent = `Fehler: ${error.message}`; }
+    finally { setBusy(button, false, ''); }
   });
+
+  const peerSelect = document.getElementById('remote-peer');
+  const remotePrinter = document.getElementById('remote-printer');
+  peerSelect?.addEventListener('change', () => { remotePrinter.disabled = true; remotePrinter.innerHTML = '<option value="">Noch nicht geladen</option>'; document.getElementById('remote-contract').textContent = ''; });
 
   const loadButton = document.getElementById('load-remote-printers');
   loadButton?.addEventListener('click', async () => {
-    const peer = document.getElementById('remote-peer').value;
-    const select = document.getElementById('remote-printer');
+    const peer = peerSelect.value;
+    const select = remotePrinter;
     const contract = document.getElementById('remote-contract');
-    if (!peer) { contract.textContent = 'Bitte zuerst eine Gegenstelle wählen.'; return; }
+    if (!peer) { contract.textContent = 'Bitte zuerst eine Gegenstelle wählen.'; peerSelect.focus(); return; }
     select.disabled = true; select.innerHTML = '<option>Lade …</option>'; contract.textContent = '';
+    setBusy(loadButton, true, 'Lade …');
     try {
-      const response = await fetch(`/printershare/federation/${encodeURIComponent(peer)}/printers`, {credentials: 'same-origin'});
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      const data = await jsonFetch(`/printershare/federation/${encodeURIComponent(peer)}/printers`);
       if (!data.enabled) throw new Error('PrinterShare ist auf der Gegenstelle nicht freigegeben.');
       select.innerHTML = '';
-      (data.printers || []).forEach((printer) => {
-        const option = document.createElement('option'); option.value = printer.printer_id; option.textContent = `${printer.label} · ${printer.kind}`; select.appendChild(option);
-      });
+      (data.printers || []).forEach((printer) => { const option = document.createElement('option'); option.value = printer.printer_id; option.textContent = `${printer.label} · ${printer.kind}${printer.is_default ? ' · Standard' : ''}`; select.appendChild(option); });
       select.disabled = !(data.printers || []).length;
       contract.textContent = data.retention_contract?.no_store_means_no_application_archive
         ? `Policy ${String(data.policy_revision || '').slice(0, 12)}…: Aufbewahrungsobergrenze wird erzwungen; No-Store wird zugesichert. OS-Spooling kann temporär speichern.`
         : 'Die Gegenstelle liefert keine ausreichende No-Store-Zusicherung.';
+      if (!select.disabled) select.focus();
     } catch (error) { select.innerHTML = '<option>nicht verfügbar</option>'; contract.textContent = `Fehler: ${error.message}`; }
+    finally { setBusy(loadButton, false, ''); }
   });
 
   document.getElementById('remote-print-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const peer = document.getElementById('remote-peer').value;
-    const printer = document.getElementById('remote-printer').value;
+    const peer = peerSelect.value;
+    const printer = remotePrinter.value;
     const file = document.getElementById('remote-file').files[0];
     const result = document.getElementById('remote-result');
-    if (!peer || !printer || !file) { result.textContent = 'Gegenstelle, Drucker und Datei sind erforderlich.'; return; }
-    result.textContent = 'Policy wird geprüft und Druckauftrag übertragen …';
+    const button = document.getElementById('remote-submit');
+    if (!peer || !printer) { result.textContent = 'Gegenstelle und Drucker sind erforderlich.'; return; }
+    if (!validFile(file, result)) return;
+    result.textContent = `Policy wird geprüft und ${humanBytes(file.size)} werden übertragen …`;
+    setBusy(button, true, 'Wird übertragen …');
     try {
       const data = await sendFile(`/printershare/federation/${encodeURIComponent(peer)}/jobs/${encodeURIComponent(printer)}`, file, '', document.getElementById('remote-retention').value);
       const receipt = data.receipt || {};
       result.textContent = `Remote bestätigt: ${receipt.job_id} · Aufbewahrung ${receipt.retention} · Policy ${String(receipt.policy_revision || '').slice(0, 12)}…`;
+      document.getElementById('remote-file').value = '';
+      await refreshStatus();
     } catch (error) { result.textContent = `Fehler: ${error.message}`; }
+    finally { setBusy(button, false, ''); }
   });
+
+  document.querySelectorAll('.ps-unix-time').forEach((node) => { const value = Number(node.getAttribute('datetime') || 0); if (value) { const date = new Date(value * 1000); node.textContent = date.toLocaleString(); node.title = date.toISOString(); } });
+  document.querySelectorAll('.ps-bytes').forEach((node) => { node.textContent = humanBytes(node.dataset.bytes); });
+  document.querySelectorAll('.copy-hash').forEach((button) => button.addEventListener('click', async () => { try { await navigator.clipboard.writeText(button.dataset.copy || ''); const old = button.textContent; button.textContent = 'kopiert'; setTimeout(() => { button.textContent = old; }, 1200); } catch (_) {} }));
+  document.querySelectorAll('.delete-retained-form').forEach((form) => form.addEventListener('submit', (event) => { if (!window.confirm('Aufbewahrte Druckdatei wirklich löschen? Die Metadaten bleiben erhalten.')) event.preventDefault(); }));
+
+  const jobFilter = document.getElementById('job-filter');
+  const statusFilter = document.getElementById('job-status-filter');
+  const applyJobFilter = () => { const q = String(jobFilter?.value || '').trim().toLowerCase(); const status = statusFilter?.value || ''; let visible = 0; document.querySelectorAll('.printershare-job-row').forEach((row) => { const show = (!q || row.dataset.search.includes(q)) && (!status || row.dataset.status === status); row.classList.toggle('d-none', !show); if (show) visible += 1; }); const count = document.getElementById('job-filter-count'); if (count) count.textContent = `${visible} sichtbare Aufträge`; };
+  jobFilter?.addEventListener('input', applyJobFilter);
+  statusFilter?.addEventListener('change', applyJobFilter);
+  applyJobFilter();
+
+  async function maintenance(apply) {
+    const output = document.getElementById('maintenance-result');
+    if (!output) return;
+    if (apply && !window.confirm('Sichere PrinterShare-Bereinigung jetzt ausführen?')) return;
+    output.classList.remove('d-none'); output.textContent = apply ? 'Bereinigung läuft …' : 'Prüfung läuft …';
+    try { const data = await jsonFetch(`/printershare/admin/maintenance?apply=${apply ? '1' : '0'}`, {method: 'POST', headers: {'X-CSRF-Token': csrf}}); output.textContent = JSON.stringify(data, null, 2); await refreshStatus(); }
+    catch (error) { output.textContent = `Fehler: ${error.message}`; }
+  }
+  document.getElementById('maintenance-preview')?.addEventListener('click', () => maintenance(false));
+  document.getElementById('maintenance-apply')?.addEventListener('click', () => maintenance(true));
 })();
 </script>
 {% endblock %}
