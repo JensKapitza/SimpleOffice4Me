@@ -13,6 +13,8 @@ from defusedxml import ElementTree as DefusedET
 from defusedxml.common import DefusedXmlException
 from defusedxml import ElementTree as DefusedET
 from defusedxml.common import DefusedXmlException
+from defusedxml import ElementTree as DefusedET
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 
 from flask import Blueprint, Response, current_app, request, url_for

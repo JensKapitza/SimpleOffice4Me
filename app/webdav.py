@@ -29,6 +29,8 @@ from defusedxml import ElementTree as DefusedElementTree
 from defusedxml.common import DefusedXmlException
 from defusedxml import ElementTree as DefusedElementTree
 from defusedxml.common import DefusedXmlException
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
@@ -1160,6 +1162,8 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
                     "Content-Digest": _digest_value("sha-256", content_digest.digest()),
                     "Content-Type": f"multipart/byteranges; boundary={boundary}",
                     "Content-Length": str(total_length),
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "sandbox",
                     "X-Content-Type-Options": "nosniff",
                     "Content-Security-Policy": "sandbox",
                     "X-Content-Type-Options": "nosniff",
