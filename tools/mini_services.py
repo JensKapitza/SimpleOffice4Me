@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import signal
 import threading
 import time
@@ -29,52 +29,90 @@ class Worker:
         self.dns: DnsService | None = None
         self.events: list[dict[str, object]] = []
         self.started_at = time.time()
+        self.config: dict[str, object] = {}
+        self.config_mtime_ns = -1
+        self.next_blocklist_refresh = time.monotonic() + 5
 
     def event(self, row: dict[str, object]) -> None:
-        self.events.append(row)
+        self.events.append({"at": time.time(), **row})
         self.events = self.events[-50:]
 
-    def start(self) -> None:
+    def _mtime(self) -> int:
+        try:
+            return self.config_path.stat().st_mtime_ns
+        except OSError:
+            return -1
+
+    def _stop_network_services(self) -> None:
+        if self.dhcp is not None:
+            self.dhcp.stop()
+            self.dhcp = None
+        if self.dns is not None:
+            self.dns.stop()
+            self.dns = None
+
+    def _load_network_services(self) -> None:
+        self._stop_network_services()
         config = load_config(self.config_path)
         dhcp = config["dhcp"]
         dns = config["dns"]
-        if dns.get("enabled"):
-            self.dns = DnsService(dns, self.config_path, self.event)
-            self.dns.start()
-        if dhcp.get("enabled"):
-            self.dhcp = DhcpService(dhcp, self.config_path, self.event)
-            self.dhcp.start()
+        try:
+            if dns.get("enabled"):
+                self.dns = DnsService(dns, self.config_path, self.event)
+                self.dns.start()
+            if dhcp.get("enabled"):
+                self.dhcp = DhcpService(dhcp, self.config_path, self.event)
+                self.dhcp.start()
+        except Exception:
+            self._stop_network_services()
+            raise
+        self.config = config
+        self.config_mtime_ns = self._mtime()
+        self.next_blocklist_refresh = time.monotonic() + 5
+        self.event({"service": "worker", "action": "configuration_loaded"})
+
+    def start(self) -> None:
+        try:
+            self._load_network_services()
+        except Exception as exc:
+            self.event({"service": "worker", "action": "configuration_failed", "error": type(exc).__name__, "message": str(exc)[:300]})
         self.write_status("running")
-        refresh_interval = max(3600, int(dns.get("blocklist_refresh_hours", 24)) * 3600)
-        next_refresh = time.monotonic() + 5
         while not self.stop_event.wait(2):
-            if dns.get("enabled") and dns.get("blocklist_urls") and time.monotonic() >= next_refresh:
+            current_mtime = self._mtime()
+            if current_mtime != self.config_mtime_ns:
                 try:
-                    refresh_blocklists(config, self.config_path)
+                    self._load_network_services()
+                except Exception as exc:
+                    self.config_mtime_ns = current_mtime
+                    self.event({"service": "worker", "action": "reload_failed", "error": type(exc).__name__, "message": str(exc)[:300]})
+            dns = self.config.get("dns", {}) if isinstance(self.config, dict) else {}
+            if isinstance(dns, dict) and dns.get("enabled") and dns.get("blocklist_urls") and time.monotonic() >= self.next_blocklist_refresh:
+                try:
+                    refresh_blocklists(self.config, self.config_path)
                     if self.dns is not None:
                         self.dns.blocked = self.dns._load_blocked()
+                    self.event({"service": "dns", "action": "blocklists_refreshed"})
                 except Exception as exc:
-                    self.event({"service": "dns", "action": "blocklist_refresh_failed", "error": type(exc).__name__})
-                next_refresh = time.monotonic() + refresh_interval
+                    self.event({"service": "dns", "action": "blocklist_refresh_failed", "error": type(exc).__name__, "message": str(exc)[:300]})
+                interval = max(3600, int(dns.get("blocklist_refresh_hours", 24)) * 3600)
+                self.next_blocklist_refresh = time.monotonic() + interval
             self.write_status("running")
 
     def stop(self) -> None:
         self.stop_event.set()
-        if self.dhcp is not None:
-            self.dhcp.stop()
-        if self.dns is not None:
-            self.dns.stop()
+        self._stop_network_services()
         self.write_status("stopped")
 
     def write_status(self, state: str) -> None:
         write_status(
             {
                 "state": state,
-                "pid": __import__("os").getpid(),
+                "pid": os.getpid(),
                 "started_at": self.started_at,
                 "uptime_seconds": max(0, int(time.time() - self.started_at)),
                 "dhcp_running": self.dhcp is not None,
                 "dns_running": self.dns is not None,
+                "config_mtime_ns": self.config_mtime_ns,
                 "blocklist": read_blocklist_meta(self.config_path),
                 "events": self.events[-20:],
             },
