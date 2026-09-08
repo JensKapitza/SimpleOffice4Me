@@ -1,0 +1,58 @@
+name: Temporary apply security wave 2 extra 2
+
+on:
+  push:
+    branches:
+      - fix/codeql-security-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/codeql-security-wave2
+      - name: Apply final obvious stack disclosure fixes
+        shell: python
+        run: |
+          from pathlib import Path
+          replacements = {
+            'app/caldav.py': [
+              ('return Response(str(exc), 404)', 'return Response("CalDAV resource not found", 404)'),
+              ('return Response(str(exc), 405 if "already exists" in str(exc) else 400)', 'return Response("CalDAV collection rejected", 405 if "already exists" in str(exc) else 400)'),
+              ('return Response(str(exc), 409 if "empty" in str(exc) or "default" in str(exc) else 403)', 'return Response("CalDAV collection cannot be deleted", 409 if "empty" in str(exc) or "default" in str(exc) else 403)'),
+            ],
+            'app/documents.py': [
+              ('return Response(json.dumps({"error": str(exc)}, ensure_ascii=False), 400, mimetype="application/json")', 'return Response(json.dumps({"error": "invalid_reminder_range"}, ensure_ascii=False), 400, mimetype="application/json")'),
+            ],
+            'app/federation_phase2.py': [
+              ('{"error": "invalid_calendar_payload", "detail": str(exc)[:500]}', '{"error": "invalid_calendar_payload"}'),
+            ],
+            'app/federation_print_http.py': [
+              ('{"error": "peer_permission_changed", "detail": str(exc)}', '{"error": "peer_permission_changed"}'),
+              ('{"error": str(exc), "policy_revision": revision}', '{"error": "print_job_rejected", "policy_revision": revision}'),
+            ],
+            'app/library/routes.py': [
+              ('return jsonify({"ok": False, "error": str(exc)}), 400', 'return jsonify({"ok": False, "error": "library_request_rejected"}), 400'),
+            ],
+          }
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8')
+      - name: Compile
+        run: python -m compileall -q app
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app
+          git diff --cached --quiet && exit 0
+          git commit -m "Hide remaining obvious exception details"
+          git push origin HEAD:fix/codeql-security-wave2
