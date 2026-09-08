@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
 
+# Temporary scanner used only while reducing the current CodeQL backlog.
 jobs:
   analyze:
     name: Export SARIF (${{ matrix.language }})
