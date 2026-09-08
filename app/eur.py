@@ -12,6 +12,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .auth import login_required
 from .document_store import DocumentStore
 from .eur_store import EurReceiptStore
+from .safe_paths import resolve_under, safe_filename
 
 
 bp = Blueprint("eur", __name__, url_prefix="/documents/accounting")
@@ -97,13 +98,14 @@ def export_zip():
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(f"EÜR-Belege-{year}.csv", store.csv_bytes(rows))
         for row in rows:
-            try: document = store.documents.get_document(row["document_id"])
-            except ValueError: continue
-            path = root / str(document.get("last_path", ""))
-            try: safe = path.resolve().is_relative_to(root)
-            except AttributeError: safe = root == path.resolve() or root in path.resolve().parents
-            if safe and path.is_file() and not path.is_symlink():
-                archive.write(path, f"Belege/{row['receipt_date']}_{row['receipt_id'][:8]}_{row['document_name']}")
+            try:
+                document = store.documents.get_document(row["document_id"])
+                path = resolve_under(root, str(document.get("last_path", "")), strict=True)
+            except (OSError, ValueError):
+                continue
+            if path.is_file() and not path.is_symlink():
+                archive_name = safe_filename(str(row.get("document_name", "")), fallback="Beleg")
+                archive.write(path, f"Belege/{row['receipt_date']}_{row['receipt_id'][:8]}_{archive_name}")
     target.seek(0)
     store.documents.history.record("eur_export_created", _actor(), "eur-export", str(year), {"year": year, "receipt_count": len(rows), "format": "zip"})
     return send_file(target, as_attachment=True, download_name=f"EÜR-Steuerberater-{year}.zip", mimetype="application/zip")
@@ -113,8 +115,11 @@ def export_zip():
 @login_required
 def receipt_document(receipt_id: str):
     store = EurReceiptStore(_root())
-    try: row = store.get(receipt_id, _actor(), is_admin=_is_admin()); document = store.documents.get_document(row["document_id"])
-    except ValueError: abort(404)
-    path = _root() / str(document.get("last_path", ""))
+    try:
+        row = store.get(receipt_id, _actor(), is_admin=_is_admin())
+        document = store.documents.get_document(row["document_id"])
+        path = resolve_under(_root(), str(document.get("last_path", "")), strict=True)
+    except (OSError, ValueError):
+        abort(404)
     if not path.is_file() or path.is_symlink(): abort(404)
-    return send_file(path, as_attachment=True, download_name=row["document_name"])
+    return send_file(path, as_attachment=True, download_name=safe_filename(str(row.get("document_name", "")), fallback=path.name))
