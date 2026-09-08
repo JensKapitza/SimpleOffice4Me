@@ -1,0 +1,38 @@
+services:
+  simpleoffice:
+    environment:
+      SIMPLEOFFICE_TRUSTED_PROXY_HOPS: ${SIMPLEOFFICE_TRUSTED_PROXY_HOPS:-0}
+
+  mini-services:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: simpleoffice4me:local
+    restart: unless-stopped
+    network_mode: host
+    user: "0:0"
+    environment:
+      SIMPLEOFFICE_CONTAINER_ROLE: mini-services
+      SIMPLEOFFICE_MINI_SERVICES_CONFIG: /var/lib/simpleoffice4me/instance/mini-services.json
+    command:
+      - python
+      - -m
+      - tools.mini_services
+      - --config
+      - /var/lib/simpleoffice4me/instance/mini-services.json
+    volumes:
+      - simpleoffice-data:/var/lib/simpleoffice4me
+    cap_drop:
+      - ALL
+    cap_add:
+      # DAC_OVERRIDE is limited to the shared state volume: the image rootfs is
+      # read-only. Network privileges match the native systemd worker.
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
