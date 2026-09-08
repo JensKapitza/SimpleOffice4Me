@@ -97,27 +97,29 @@
 
   <div class="modal fade" id="scanner-modal" tabindex="-1" aria-labelledby="scanner-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="scanner-title">Barcode scannen</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body"><div class="ratio ratio-4x3 bg-dark rounded overflow-hidden"><video id="library-camera" autoplay playsinline muted></video></div><div id="scanner-status" class="small text-secondary mt-2" aria-live="polite">Kamera wird gestartet…</div></div></div></div></div>
 </main>
+<script src="{{ url_for('static', filename='js/library_safe_dom.js') }}"></script>
 <script>
 (() => {
   const csrf = {{ csrf_token()|tojson }};
+  const safeDom = window.SimpleOfficeLibrarySafeDom;
+  if (!safeDom) return;
   const selected = document.getElementById('bulk-location');
   const stored = localStorage.getItem('simpleoffice-library-location');
   if (selected && !selected.value && stored && [...selected.options].some(option => option.value === stored)) selected.value = stored;
   if (selected) selected.addEventListener('change', () => { if (selected.value) localStorage.setItem('simpleoffice-library-location', selected.value); });
 
-  const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
   const findForm = document.getElementById('library-find-form');
   findForm?.addEventListener('submit', async event => {
     event.preventDefault();
     const q = document.getElementById('library-find').value.trim();
     if (!q) return;
     const target = document.getElementById('library-find-result');
-    target.innerHTML = '<div class="text-secondary">Suche…</div>';
+    target.replaceChildren(safeDom.alertNode('Suche…', 'text-secondary'));
     const response = await fetch({{ url_for('library.find_book')|tojson }} + '?q=' + encodeURIComponent(q), {headers:{'Accept':'application/json'}});
     const data = await response.json();
-    if (!data.found) { target.innerHTML = '<div class="alert alert-warning mb-0">Kein Buch gefunden.</div>'; return; }
+    if (!data.found) { target.replaceChildren(safeDom.alertNode('Kein Buch gefunden.', 'alert alert-warning mb-0')); return; }
     const rows = data.item ? [{...data.item, location_path:data.location_path, detail_url:data.detail_url}] : data.results;
-    target.innerHTML = rows.map(row => `<a class="list-group-item list-group-item-action" href="${escapeHtml(row.detail_url)}"><strong>#${escapeHtml(row.display_id)} ${escapeHtml(row.name)}</strong><div>Standort: ${escapeHtml(row.location_path || 'nicht zugeordnet')} ${row.location_code ? '· '+escapeHtml(row.location_code) : ''}</div></a>`).join('');
+    safeDom.renderFindRows(target, rows);
     target.className = 'list-group mt-3';
   });
 
@@ -126,8 +128,12 @@
     const code = locationCode.value.trim(); if (!code) return;
     const response = await fetch({{ url_for('library.resolve_location')|tojson }} + '?code=' + encodeURIComponent(code), {headers:{'Accept':'application/json'}});
     const data = await response.json();
-    if (data.found) { selected.value = data.location.location_id; localStorage.setItem('simpleoffice-library-location', selected.value); document.getElementById('bulk-status').innerHTML = `<div class="alert alert-success py-2">Aktives Regal: ${escapeHtml(data.path)} · ${escapeHtml(data.location.code)}</div>`; }
-    else document.getElementById('bulk-status').innerHTML = '<div class="alert alert-warning py-2">Regalcode nicht gefunden.</div>';
+    const status = document.getElementById('bulk-status');
+    if (data.found) {
+      selected.value = data.location.location_id;
+      localStorage.setItem('simpleoffice-library-location', selected.value);
+      status.replaceChildren(safeDom.alertNode(`Aktives Regal: ${data.path ?? ''} · ${data.location?.code ?? ''}`, 'alert alert-success py-2'));
+    } else status.replaceChildren(safeDom.alertNode('Regalcode nicht gefunden.'));
   };
   locationCode?.addEventListener('change', resolveLocation);
   locationCode?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); resolveLocation(); } });
@@ -135,18 +141,18 @@
   const bookInput = document.getElementById('bulk-book-code');
   const assignBook = async () => {
     const code = bookInput.value.trim(); const locationId = selected.value;
-    if (!locationId) { document.getElementById('bulk-status').innerHTML = '<div class="alert alert-warning py-2">Bitte zuerst ein Regal auswählen oder scannen.</div>'; return; }
+    const status = document.getElementById('bulk-status');
+    if (!locationId) { status.replaceChildren(safeDom.alertNode('Bitte zuerst ein Regal auswählen oder scannen.')); return; }
     if (!code) return;
     const form = new FormData(); form.append('_csrf_token', csrf); form.append('book_code', code); form.append('location_id', locationId);
     const response = await fetch({{ url_for('library.assign_book')|tojson }}, {method:'POST', body:form, headers:{'Accept':'application/json'}});
-    const data = await response.json(); const status = document.getElementById('bulk-status');
+    const data = await response.json();
     if (data.ok) {
-      status.innerHTML = `<div class="alert alert-success py-2 mb-1">#${escapeHtml(data.display_id)} ${escapeHtml(data.name)} → ${escapeHtml(data.location_path)}</div>`;
-      document.getElementById('bulk-history').insertAdjacentHTML('afterbegin', `<a class="list-group-item list-group-item-action py-2" href="${escapeHtml(data.detail_url)}">✓ #${escapeHtml(data.display_id)} ${escapeHtml(data.name)} <span class="float-end small">${escapeHtml(data.location.code)}</span></a>`);
+      safeDom.renderAssignedBook(status, document.getElementById('bulk-history'), data);
       bookInput.value = ''; bookInput.focus();
     } else if (data.not_found) {
-      status.innerHTML = `<div class="alert alert-warning py-2">Noch nicht im Inventar. <a class="alert-link" href="${escapeHtml(data.capture_url)}">Jetzt Buch erfassen und danach hier weitermachen</a>.</div>`;
-    } else status.innerHTML = `<div class="alert alert-danger py-2">${escapeHtml(data.error || 'Zuordnung fehlgeschlagen')}</div>`;
+      safeDom.renderCaptureLink(status, data);
+    } else status.replaceChildren(safeDom.alertNode(data.error || 'Zuordnung fehlgeschlagen', 'alert alert-danger py-2'));
   };
   document.getElementById('bulk-scan-book')?.addEventListener('click', assignBook);
   bookInput?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); assignBook(); } });
@@ -170,9 +176,10 @@
   document.getElementById('discover-printers')?.addEventListener('click', async () => {
     const box = document.getElementById('printer-discovery'); box.textContent = 'Suche…';
     const response = await fetch({{ url_for('library.printer_discover')|tojson }}, {headers:{'Accept':'application/json'}}); const data = await response.json();
-    if (!data.printers?.length) { box.innerHTML = '<span class="small text-secondary">Kein USB/CUPS/Bluetooth-Drucker automatisch gefunden. Netzwerk-IP kann direkt eingetragen werden.</span>'; return; }
-    box.innerHTML = data.printers.map(row => `<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1 printer-choice" data-uri="${escapeHtml(row.uri)}">${escapeHtml(row.name)} · ${escapeHtml(row.kind)}</button>`).join('');
-    box.querySelectorAll('.printer-choice').forEach(button => button.addEventListener('click', () => { document.getElementById('printer-uri').value = button.dataset.uri; }));
+    if (!data.printers?.length) {
+      const empty = document.createElement('span'); empty.className = 'small text-secondary'; empty.textContent = 'Kein USB/CUPS/Bluetooth-Drucker automatisch gefunden. Netzwerk-IP kann direkt eingetragen werden.'; box.replaceChildren(empty); return;
+    }
+    safeDom.renderPrinters(box, data.printers, uri => { document.getElementById('printer-uri').value = uri; });
   });
 
   document.querySelectorAll('.preview-label').forEach(button => button.addEventListener('click', async () => {
