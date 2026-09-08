@@ -148,3 +148,13 @@ def runtime_inventory() -> dict[str, object]:
 
 def clear_runtime_inventory() -> None:
     _cached_inventory.cache_clear()
+
+
+# ``runtime_inventory`` is imported by app.admin during application bootstrap.
+# Register the administrator-only Mini Services blueprint here to keep the
+# feature isolated from the large central application module while preserving
+# the existing bootstrap order.
+from . import app as _flask_app
+from .mini_services_admin import bp as _mini_services_admin_bp
+if "mini_services_admin" not in _flask_app.blueprints:
+    _flask_app.register_blueprint(_mini_services_admin_bp)

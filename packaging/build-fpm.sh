@@ -61,7 +61,7 @@ command -v fpm >/dev/null 2>&1 || {
 command -v python3 >/dev/null 2>&1 || { echo "python3 fehlt." >&2; exit 2; }
 command -v tar >/dev/null 2>&1 || { echo "tar fehlt." >&2; exit 2; }
 python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' || {
-  echo "Python >= 3.10 wird zum Bauen benoetigt." >&2
+  echo "Python >= 3.10 wird zum Bauen benötigt." >&2
   exit 2
 }
 
@@ -131,6 +131,7 @@ python3 -m pip wheel \
 
 install -D -m 0755 "$ROOT/packaging/simpleoffice4me-wrapper.sh" "$STAGE/usr/bin/simpleoffice4me"
 install -D -m 0644 "$ROOT/packaging/simpleoffice4me.service" "$STAGE/lib/systemd/system/simpleoffice4me.service"
+install -D -m 0644 "$ROOT/packaging/simpleoffice-mini-services.service" "$STAGE/lib/systemd/system/simpleoffice-mini-services.service"
 install -D -m 0644 "$ROOT/packaging/simpleoffice.env" "$STAGE/etc/simpleoffice4me/simpleoffice.env"
 install -D -m 0644 "$ROOT/packaging/README-system-package.md" "$STAGE/usr/share/doc/simpleoffice4me/README.system-package.md"
 
