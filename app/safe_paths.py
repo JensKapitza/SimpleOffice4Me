@@ -20,7 +20,8 @@ def safe_filename(value: str, *, fallback: str = "file", max_length: int = 180) 
 def _portable_relative(value: str | Path) -> Path:
     """Interpret both POSIX and Windows separators before filesystem access."""
     raw = str(value or "")
-    if "\x00" in raw or Path(raw).is_absolute() or PureWindowsPath(raw).is_absolute():
+    windows_path = PureWindowsPath(raw)
+    if "\x00" in raw or Path(raw).is_absolute() or windows_path.is_absolute() or windows_path.drive:
         raise ValueError("absolute or invalid paths are not allowed")
     return Path(os.path.normpath(raw.replace("\\", "/") or "."))
 
