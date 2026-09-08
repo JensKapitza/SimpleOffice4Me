@@ -562,4 +562,4 @@ def refresh_metadata(document_id: str):
         flash("Foto-Metadaten vollständig neu eingelesen.")
     except (OSError, RuntimeError, ValueError) as exc:
         flash(f"Foto-Metadaten konnten nicht aktualisiert werden: {exc}")
-    return redirect(request.referrer or url_for("documents.images"))
+    return redirect(url_for("documents.images"))

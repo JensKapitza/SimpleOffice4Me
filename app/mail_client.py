@@ -584,7 +584,9 @@ class ManageSieveClient:
         self._response()
         self._command("STARTTLS")
         self.file.close()
-        self.sock = ssl.create_default_context().wrap_socket(raw, server_hostname=self.host)
+        context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        self.sock = context.wrap_socket(raw, server_hostname=self.host)
         self.file = self.sock.makefile("rwb")
         # RFC 5804 requires capabilities to be refreshed after TLS negotiation.
         self._command("CAPABILITY")
