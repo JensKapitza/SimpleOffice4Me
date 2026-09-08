@@ -380,7 +380,7 @@ def import_tasks(owner: str):
                     by_uid[uid] = created
         return jsonify({"resource": "tasks", "owner": owner, "imported": imported, "updated": updated})
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-        return jsonify({"error": "invalid_task_payload", "detail": str(exc)[:500]}), 400
+        return jsonify({"error": "invalid_task_payload"}), 400
 
 
 @bp.get("/calendars/<owner>/export.ics")

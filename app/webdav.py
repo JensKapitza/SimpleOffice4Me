@@ -21,6 +21,8 @@ from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin, urlsplit
 from xml.etree import ElementTree
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
@@ -1152,6 +1154,8 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
                     "Content-Digest": _digest_value("sha-256", content_digest.digest()),
                     "Content-Type": f"multipart/byteranges; boundary={boundary}",
                     "Content-Length": str(total_length),
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "sandbox",
                 },
             )
 
@@ -1794,8 +1798,8 @@ def _safe_xml_root(body: bytes, expected_tag: str) -> ElementTree.Element:
     if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
         raise PermissionError("external and declared XML entities are not allowed")
     try:
-        root = ElementTree.fromstring(body)
-    except ElementTree.ParseError as exc:
+        root = DefusedElementTree.fromstring(body)
+    except (ElementTree.ParseError, DefusedXmlException) as exc:
         raise ValueError("invalid WebDAV XML") from exc
     if root.tag != expected_tag:
         raise ValueError("unexpected WebDAV XML root")

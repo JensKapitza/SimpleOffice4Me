@@ -167,5 +167,5 @@ def import_contacts():
         else:
             return jsonify({"error": "unsupported_media_type", "accepted": ["text/vcard", "text/plain", "application/zip"]}), 415
     except ValueError as exc:
-        return jsonify({"error": "invalid_contact_payload", "detail": str(exc)}), 400
+        return jsonify({"error": "invalid_contact_payload"}), 400
     return jsonify({"resource": "contacts", "format": format_name, "imported": count})

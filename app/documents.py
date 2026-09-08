@@ -2069,7 +2069,7 @@ def export_itip_message(event_id: str):
     try:
         payload = _itip().export(event_id, str(g.user["username"]), method, request.args.get("attendee", ""), request.args.get("partstat", ""), str(g.user["email"] or ""))
     except ValueError as exc:
-        return Response(str(exc), 403, {"Content-Type": "text/plain; charset=utf-8"})
+        return Response("calendar export is not permitted", 403, {"Content-Type": "text/plain; charset=utf-8"})
     return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name=f"termin-{method.casefold()}-{event_id}.ics", mimetype=f"text/calendar; method={method.upper()}; charset=utf-8")
 
 
