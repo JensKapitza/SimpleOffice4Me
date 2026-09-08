@@ -171,9 +171,11 @@ def clear_dhcp_leases():
 
 
 # This module is imported while the main Flask app is already being built.
-# Register the dedicated Networkboot peer-role UI alongside Mini Services so
-# peer policy stays separate from DHCP/DNS configuration.
+# Register the Networkboot UI and its HTTP/federation delivery routes here so
+# the large central application module stays untouched.
 from . import app as _flask_app
 from .network_boot_admin import bp as _network_boot_admin_bp
-if "network_boot_admin" not in _flask_app.blueprints:
-    _flask_app.register_blueprint(_network_boot_admin_bp)
+from .network_boot_http import bp as _network_boot_http_bp, federation_bp as _network_boot_federation_bp
+for _network_bp in (_network_boot_admin_bp, _network_boot_http_bp, _network_boot_federation_bp):
+    if _network_bp.name not in _flask_app.blueprints:
+        _flask_app.register_blueprint(_network_bp)
