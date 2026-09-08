@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 from defusedxml import ElementTree as DefusedET
 from defusedxml.common import DefusedXmlException
+from defusedxml import ElementTree as DefusedET
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 
 from flask import Blueprint, Response, current_app, request, url_for
@@ -183,7 +185,7 @@ def endpoint(path: str):
             elif request.headers.get("If-Match"): return _precondition_failed()
             try: contact=store.conditional_upsert_vcard(request.get_data(as_text=True),f"carddav:{username}",cid,expected_updated_at=expected,create_only=create_only)
             except ContactConflict as exc: return _precondition_failed(_etag(exc.contact) if exc.contact else "")
-            except ValueError as exc: return Response(str(exc),400)
+            except ValueError: return Response("invalid CardDAV resource",400)
             return Response("",201 if created else 204,{"ETag":_etag(contact),"Location":base+contact["contact_id"]+".vcf"})
         if request.method == "DELETE":
             try: existing=store.get(cid,username)

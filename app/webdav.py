@@ -23,6 +23,8 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 from xml.etree import ElementTree
 from defusedxml import ElementTree as DefusedElementTree
 from defusedxml.common import DefusedXmlException
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
@@ -1156,6 +1158,8 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
                     "Content-Length": str(total_length),
                     "X-Content-Type-Options": "nosniff",
                     "Content-Security-Policy": "sandbox",
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "sandbox",
                 },
             )
 
@@ -1593,7 +1597,7 @@ def _if_header_error(username: str, identity: dict) -> Response | None:
             if etags:
                 g._webdav_if_etags.setdefault(state["key"], set()).update(etags)
     except OverflowError as exc:
-        return Response(str(exc), 413)
+        return Response("WebDAV request is too large", 413)
     except PermissionError:
         return Response("WebDAV If precondition targets an inaccessible resource", 412)
     except ValueError:
@@ -1738,7 +1742,7 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
     try:
         owner = _parse_lock_body(body)
     except OverflowError as exc:
-        return Response(str(exc), 413)
+        return Response("WebDAV request is too large", 413)
     except PermissionError:
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
         return Response(error, 400, mimetype="application/xml")
@@ -1752,7 +1756,7 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
         try:
             _store()._require_document_editable(document)
         except ValueError as exc:
-            return Response(str(exc), 423)
+            return Response("WebDAV resource is locked", 423)
 
     token = f"opaquelocktoken:{uuid.uuid4()}"
     status = 200
@@ -2943,7 +2947,7 @@ def _apply_proppatch(username: str, resource: Path, document: dict | None, href:
     try:
         operations = _parse_proppatch(body)
     except OverflowError as exc:
-        return Response(str(exc), 413), False
+        return Response("WebDAV request is too large", 413), False
     except PermissionError:
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
         return Response(error, 400, mimetype="application/xml"), False
@@ -3456,7 +3460,7 @@ def _sync_report(username: str, collection: Path) -> Response:
     try:
         root = _safe_xml_root(body, f"{{{DAV}}}sync-collection")
     except OverflowError as exc:
-        return Response(str(exc), 413)
+        return Response("WebDAV request is too large", 413)
     except PermissionError:
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
         return Response(error, 400, mimetype="application/xml")
@@ -3765,7 +3769,7 @@ def file_tree(username: str, relative_path: str):
         try:
             query = _parse_propfind(body)
         except OverflowError as exc:
-            return Response(str(exc), 413)
+            return Response("WebDAV request is too large", 413)
         except PermissionError:
             error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
             return Response(error, 400, mimetype="application/xml")
@@ -3854,7 +3858,7 @@ def file_tree(username: str, relative_path: str):
             try:
                 _store()._require_document_editable(document)
             except ValueError as exc:
-                return Response(str(exc), 423)
+                return Response("WebDAV resource is locked", 423)
         href = _tree_url(username, _store().relative(resource), collection=is_collection)
         response, changed = _apply_proppatch(username, resource, document, href)
         if changed:
@@ -3966,7 +3970,7 @@ def file_tree(username: str, relative_path: str):
             try:
                 _store().soft_delete_document(document["document_id"], f"webdav:{username}")
             except ValueError as exc:
-                return Response(str(exc), 423)
+                return Response("WebDAV resource is locked", 423)
             _release_lock(key)
             _record_sync_changes(username, _store().relative(resource))
             return Response("", 204)
@@ -4201,7 +4205,7 @@ def principal_resource(username: str, principal_id: str):
     try:
         query = _parse_propfind(request.get_data(cache=True))
     except OverflowError as exc:
-        return Response(str(exc), 413)
+        return Response("WebDAV request is too large", 413)
     except PermissionError:
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
         return Response(error, 400, mimetype="application/xml")
@@ -4277,7 +4281,7 @@ def endpoint(path: str):
         try:
             query = _parse_propfind(request.get_data(cache=True))
         except OverflowError as exc:
-            return Response(str(exc), 413)
+            return Response("WebDAV request is too large", 413)
         except PermissionError:
             error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
             return Response(error, 400, mimetype="application/xml")
@@ -4326,7 +4330,7 @@ def endpoint(path: str):
         try:
             _store()._require_document_editable(document)
         except ValueError as exc:
-            return Response(str(exc), 423)
+            return Response("WebDAV resource is locked", 423)
         response, changed = _apply_proppatch(username, document_path, document, request.path)
         if changed:
             _record_sync_changes(username, _store().relative(document_path))

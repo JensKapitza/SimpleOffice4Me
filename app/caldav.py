@@ -12,6 +12,8 @@ from typing import Any
 from xml.etree import ElementTree
 from defusedxml import ElementTree as DefusedElementTree
 from defusedxml.common import DefusedXmlException
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -316,7 +318,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
             try:
                 root = _xml_root()
             except ValueError as exc:
-                return Response(str(exc), 400)
+                return Response("invalid CalDAV request", 400)
             if root.tag == f"{{{DAV}}}sync-collection":
                 token = (root.findtext(f"{{{DAV}}}sync-token") or "").strip()
                 try:
@@ -408,7 +410,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
         except TodoConflict as exc:
             return Response("CalDAV task precondition failed", 412, {"ETag": store.etag(exc.item)} if exc.item else {})
         except ValueError as exc:
-            return Response(str(exc), 409 if "UID already" in str(exc) else 400)
+            return Response("CalDAV resource rejected", 409 if "UID already" in str(exc) else 400)
         return Response("", 201 if created else 204, {"ETag": store.etag(saved), "Location": request.path})
     if request.method == "DELETE":
         if item is None:
@@ -816,7 +818,7 @@ def endpoint(path: str):
             try:
                 root = _xml_root()
             except ValueError as exc:
-                return Response(str(exc), 400)
+                return Response("invalid CalDAV request", 400)
             if root.tag not in {f"{{{CAL}}}calendar-query", f"{{{CAL}}}calendar-multiget"}:
                 return Response("unsupported scheduling inbox report", 403)
             messages = _itip().inbox_messages(actor)
@@ -911,7 +913,7 @@ def endpoint(path: str):
         return Response("", 204)
     if request.method == "REPORT":
         try: root = _xml_root(); store.get(calendar_id, actor)
-        except ValueError as exc: return Response(str(exc), 400)
+        except ValueError as exc: return Response("invalid CalDAV request", 400)
         if root.tag == f"{{{DAV}}}sync-collection":
             token = (root.findtext(f"{{{DAV}}}sync-token") or "").strip()
             try: changes, new_token = store.sync_changes(calendar_id, actor, token)
@@ -936,7 +938,7 @@ def endpoint(path: str):
                     if lower >= upper: raise ValueError
                 except ValueError: return Response("invalid CalDAV time-range", 400)
                 try: events = [event for event in events if event_overlaps(event, lower, upper)]
-                except RecurrenceError as exc: return Response(str(exc), 400)
+                except RecurrenceError as exc: return Response("invalid CalDAV request", 400)
         items = []
         for event in events:
             resource = event.get("caldav_resource") or event["event_id"] + ".ics"
@@ -959,7 +961,7 @@ def endpoint(path: str):
             saved, created = store.put_event(calendar_id, resource, values, actor, current if if_match else None, request.headers.get("If-None-Match") == "*")
         except CalendarConflict as exc: return Response("CalDAV precondition failed", 412, {"ETag": store.etag(exc.event)} if exc.event else {})
         except PermissionError: return _scheduling_error("allowed-attendee-scheduling-object-change")
-        except ValueError as exc: return Response(str(exc), 409 if "UID already" in str(exc) else 400)
+        except ValueError as exc: return Response("CalDAV resource rejected", 409 if "UID already" in str(exc) else 400)
         _deliver_scheduling(actor, event, saved)
         return Response("", 201 if created else 204, {"ETag": store.etag(saved), "Schedule-Tag": _schedule_tag(saved), "Location": request.path})
     if request.method == "DELETE":
