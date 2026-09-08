@@ -5,12 +5,12 @@ import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore, sha256_file
+from .safe_paths import resolve_under
 
 bp = Blueprint("federation_catalog_http", __name__, url_prefix="/federation/v1/catalog")
 MAX_PAGE_SIZE = 1000
@@ -52,8 +52,11 @@ def _catalog_rows() -> list[dict]:
     store = _store()
     rows = []
     for item in store.list_documents():
-        path = (store.root / str(item.get("last_path", ""))).resolve()
-        if store.root not in (path, *path.parents) or not path.is_file() or path.is_symlink():
+        try:
+            path = resolve_under(store.root, str(item.get("last_path", "")), strict=True)
+        except (OSError, ValueError):
+            continue
+        if not path.is_file() or path.is_symlink():
             continue
         digest = str(item.get("sha256") or "").casefold()
         if len(digest) != 64:
