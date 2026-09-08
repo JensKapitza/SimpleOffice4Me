@@ -7,11 +7,12 @@ import os
 import tempfile
 from pathlib import Path
 
-from flask import Blueprint, Response, current_app, jsonify, request, send_file
+from flask import Blueprint, Response, current_app, jsonify, request, send_from_directory
 
 from .federation_http import _authorized
 from .federation_store import FederationStore
 from .network_boot import (
+    assets_root,
     federation_manifest,
     load_boot_settings,
     render_ipxe,
@@ -31,6 +32,16 @@ def _config_path() -> Path:
     return Path(configured).expanduser() if configured else Path(current_app.instance_path) / "mini-services.json"
 
 
+def _asset_response(relative: str, *, max_age: int):
+    """Validate boot assets and serve them through Werkzeug's safe path join."""
+    config_path = _config_path()
+    safe_asset_path(relative, config_path)
+    return send_from_directory(
+        assets_root(config_path), relative,
+        conditional=True, etag=True, max_age=max_age,
+    )
+
+
 @bp.get("/ipxe")
 def ipxe_script():
     profile = request.args.get("profile", "").strip()[:80]
@@ -45,10 +56,9 @@ def ipxe_script():
 @bp.route("/files/<path:relative>", methods=["GET", "HEAD"])
 def boot_file(relative: str):
     try:
-        path = safe_asset_path(relative, _config_path())
-    except ValueError:
+        response = _asset_response(relative, max_age=300)
+    except (ValueError, FileNotFoundError):
         return Response("not found\n", 404, {"Content-Type": "text/plain; charset=utf-8"})
-    response = send_file(path, conditional=True, etag=True, max_age=300)
     response.headers["Accept-Ranges"] = "bytes"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
@@ -96,10 +106,9 @@ def network_boot_asset(relative: str):
     if peer_id and not _known_enabled_peer(peer_id):
         return jsonify({"error": "unknown_or_disabled_peer"}), 403
     try:
-        path = safe_asset_path(relative, _config_path())
-    except ValueError:
+        return _asset_response(relative, max_age=0)
+    except (ValueError, FileNotFoundError):
         return jsonify({"error": "not_found"}), 404
-    return send_file(path, conditional=True, etag=True, max_age=0)
 
 
 # Storage endpoints are deliberately named /storage/... to make PUT semantics
