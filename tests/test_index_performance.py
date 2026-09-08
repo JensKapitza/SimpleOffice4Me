@@ -151,19 +151,24 @@ class IndexProcessIsolationTest(unittest.TestCase):
         with patch("tools.launcher.subprocess.Popen", return_value=process) as popen:
             self.assertIs(process, launcher.start_osm_index_worker("/srv/documents", force=True))
         command = popen.call_args.args[0]
-        self.assertEqual("tools.osm_index_worker", command[2])
-        self.assertIn("--force", command)
+        environment = popen.call_args.kwargs["env"]
+        self.assertEqual([os.sys.executable, "-m", "tools.osm_index_worker"], command)
+        self.assertEqual("/srv/documents", environment["SIMPLEOFFICE_WORKER_ROOT"])
+        self.assertEqual("1", environment["SIMPLEOFFICE_OSM_FORCE"])
+        self.assertEqual("", environment["SIMPLEOFFICE_OSM_CITY"])
 
         with patch("tools.launcher.subprocess.Popen", return_value=process) as popen:
             launcher.start_osm_index_worker("/srv/documents", force=True, city="Duisburg")
-        command = popen.call_args.args[0]
-        self.assertEqual("Duisburg", command[command.index("--city") + 1])
+        environment = popen.call_args.kwargs["env"]
+        self.assertEqual("Duisburg", environment["SIMPLEOFFICE_OSM_CITY"])
 
         with patch("tools.launcher.subprocess.Popen", return_value=process) as popen:
             self.assertIs(process, launcher.start_osm_download_worker("/srv/documents", "germany"))
         command = popen.call_args.args[0]
-        self.assertEqual("tools.osm_download_worker", command[2])
-        self.assertEqual("germany", command[-1])
+        environment = popen.call_args.kwargs["env"]
+        self.assertEqual([os.sys.executable, "-m", "tools.osm_download_worker"], command)
+        self.assertEqual("/srv/documents", environment["SIMPLEOFFICE_WORKER_ROOT"])
+        self.assertEqual("germany", environment["SIMPLEOFFICE_OSM_REGION"])
 
     def test_launcher_rejects_untrusted_worker_arguments_before_popen(self):
         with patch("tools.launcher.subprocess.Popen") as popen:
