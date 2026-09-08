@@ -1,0 +1,57 @@
+name: Temporary apply path hardening
+
+on:
+  push:
+    branches:
+      - fix/path-injection-wave1
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message != 'Apply path injection hardening wave'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/path-injection-wave1
+      - name: Apply hardening edits
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing expected block in {path}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace('app/attachment_security.py',
+          '''    def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:\n        path = self.manifests / f"{manifest_id}.json"\n''',
+          '''    def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:\n        if not re.fullmatch(r"[0-9a-f]{32}", manifest_id):\n            raise ValueError("invalid extraction manifest identifier")\n        path = self.manifests / f"{manifest_id}.json"\n''')
+
+          replace('app/document_store.py',
+          '''    def get_document(self, reference: str | Path) -> dict[str, Any]:\n        """Return metadata by document ID or by a path inside the managed tree."""\n        self.initialize()\n        reference_text = str(reference)\n        candidate = Path(reference).expanduser()\n        if not candidate.is_absolute():\n            candidate = self.root / candidate\n        if candidate.exists() and candidate.is_file() and not candidate.is_symlink():\n            self._scan_file(candidate.resolve())\n            with self._db() as db:\n                row = db.execute(\n                    "SELECT document_id FROM scan_file WHERE relative_path = ?",\n                    (self.relative(candidate),),\n                ).fetchone()\n            if row:\n                reference_text = str(row[0])\n        metadata = self._read_json(self.documents / f"{reference_text}.json", {})\n''',
+          '''    def get_document(self, reference: str | Path) -> dict[str, Any]:\n        """Return metadata by canonical document ID or by a path inside the managed tree."""\n        self.initialize()\n        reference_text = str(reference)\n        candidate = Path(reference_text).expanduser()\n        if not candidate.is_absolute():\n            candidate = self.root / candidate\n        candidate = candidate.resolve()\n        try:\n            candidate.relative_to(self.root)\n        except ValueError:\n            candidate = self.root / "__invalid_document_reference__"\n        if candidate.exists() and candidate.is_file() and not candidate.is_symlink():\n            self._scan_file(candidate)\n            with self._db() as db:\n                row = db.execute(\n                    "SELECT document_id FROM scan_file WHERE relative_path = ?",\n                    (self.relative(candidate),),\n                ).fetchone()\n            if row:\n                reference_text = str(row[0])\n        try:\n            reference_text = str(uuid.UUID(reference_text))\n        except (ValueError, AttributeError):\n            raise ValueError(f"unknown document: {reference}") from None\n        metadata = self._read_json(self.documents / f"{reference_text}.json", {})\n''')
+
+          replace('app/business_documents.py',
+          '''    with tempfile.TemporaryDirectory(prefix="simpleoffice-template-") as temp:\n        work = Path(temp); source = work / (Path(filename).name or f"template{suffix}"); source.write_bytes(raw)\n''',
+          '''    with tempfile.TemporaryDirectory(prefix="simpleoffice-template-") as temp:\n        work = Path(temp)\n        source_name = Path(filename).name\n        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}", source_name or "") or source_name in {".", ".."}:\n            source_name = f"template{suffix}"\n        source = work / source_name\n        source.write_bytes(raw)\n''')
+
+          replace('app/business_documents.py',
+          '''def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, actor: str, kind: str, template_id: str, *, metadata: dict[str,Any]|None=None) -> dict[str,Any]:\n    now=datetime.now(timezone.utc); directory=root/"generated"/kind/now.strftime("%Y")/contact_id; directory.mkdir(parents=True,exist_ok=True); path=directory/f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"; path.write_bytes(pdf)\n''',
+          '''def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, actor: str, kind: str, template_id: str, *, metadata: dict[str,Any]|None=None) -> dict[str,Any]:\n    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", kind):\n        raise ValueError("invalid business document kind")\n    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", contact_id):\n        raise ValueError("invalid contact identifier")\n    now=datetime.now(timezone.utc); directory=root/"generated"/kind/now.strftime("%Y")/contact_id; directory.mkdir(parents=True,exist_ok=True); path=directory/f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"; path.write_bytes(pdf)\n''')
+
+          replace('app/mail_client.py',
+          '''    def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:\n        _safe_id(account_id)\n''',
+          '''    def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:\n        account_id = _safe_id(account_id)\n''')
+      - name: Commit changes
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "SimpleOffice security automation"
+          git config user.email "actions@github.com"
+          git add app/attachment_security.py app/document_store.py app/business_documents.py app/mail_client.py
+          git commit -m "Apply path injection hardening wave"
+          git push
