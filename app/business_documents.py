@@ -137,7 +137,12 @@ def _office_to_pdf(raw: bytes, filename: str) -> bytes:
     libreoffice = shutil.which("libreoffice") or shutil.which("soffice")
     if not libreoffice: raise ValueError("Office template conversion requires LibreOffice/soffice")
     with tempfile.TemporaryDirectory(prefix="simpleoffice-template-") as temp:
-        work = Path(temp); source = work / (Path(filename).name or f"template{suffix}"); source.write_bytes(raw)
+        work = Path(temp)
+        source_name = Path(filename).name
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}", source_name or "") or source_name in {".", ".."}:
+            source_name = f"template{suffix}"
+        source = work / source_name
+        source.write_bytes(raw)
         result = subprocess.run([libreoffice, "--headless", "--convert-to", "pdf", "--outdir", str(work), str(source)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False)
         target = work / f"{source.stem}.pdf"
         if result.returncode != 0 or not target.is_file(): raise ValueError("LibreOffice could not convert the corporate template to PDF")
@@ -1077,6 +1082,10 @@ def inspect_zugferd_pdf(path: Path) -> dict[str,Any]:
 
 
 def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, actor: str, kind: str, template_id: str, *, metadata: dict[str,Any]|None=None) -> dict[str,Any]:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", kind):
+        raise ValueError("invalid business document kind")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", contact_id):
+        raise ValueError("invalid contact identifier")
     now=datetime.now(timezone.utc); directory=root/"generated"/kind/now.strftime("%Y")/contact_id; directory.mkdir(parents=True,exist_ok=True); path=directory/f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"; path.write_bytes(pdf)
     store=DocumentStore(root); document=store.get_document(path); document_id=document["document_id"]
     store.update_metadata(

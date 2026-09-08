@@ -218,6 +218,8 @@ class AttachmentSecurity:
         return manifest
 
     def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:
+        if not re.fullmatch(r"[0-9a-f]{32}", manifest_id):
+            raise ValueError("invalid extraction manifest identifier")
         path = self.manifests / f"{manifest_id}.json"
         with exclusive_file_lock(path.with_suffix(".lock")):
             try:

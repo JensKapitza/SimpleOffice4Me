@@ -656,14 +656,19 @@ class DocumentStore:
         return updated
 
     def get_document(self, reference: str | Path) -> dict[str, Any]:
-        """Return metadata by document ID or by a path inside the managed tree."""
+        """Return metadata by canonical document ID or by a path inside the managed tree."""
         self.initialize()
         reference_text = str(reference)
-        candidate = Path(reference).expanduser()
+        candidate = Path(reference_text).expanduser()
         if not candidate.is_absolute():
             candidate = self.root / candidate
+        candidate = candidate.resolve()
+        try:
+            candidate.relative_to(self.root)
+        except ValueError:
+            candidate = self.root / "__invalid_document_reference__"
         if candidate.exists() and candidate.is_file() and not candidate.is_symlink():
-            self._scan_file(candidate.resolve())
+            self._scan_file(candidate)
             with self._db() as db:
                 row = db.execute(
                     "SELECT document_id FROM scan_file WHERE relative_path = ?",
@@ -671,6 +676,10 @@ class DocumentStore:
                 ).fetchone()
             if row:
                 reference_text = str(row[0])
+        try:
+            reference_text = str(uuid.UUID(reference_text))
+        except (ValueError, AttributeError):
+            raise ValueError(f"unknown document: {reference}") from None
         metadata = self._read_json(self.documents / f"{reference_text}.json", {})
         if not metadata.get("document_id"):
             raise ValueError(f"unknown document: {reference}")

@@ -218,7 +218,7 @@ class MailStore:
         return safe
 
     def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:
-        _safe_id(account_id)
+        account_id = _safe_id(account_id)
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name) or name in {".", ".."}:
             raise ValueError("invalid Sieve script name")
         encoded = content.encode("utf-8")
