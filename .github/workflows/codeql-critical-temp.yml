@@ -1,0 +1,39 @@
+name: Temporary CodeQL critical rescan
+
+on:
+  push:
+    branches:
+      - fix/codeql-critical-commandline
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Export SARIF (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript, actions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - name: Analyze without upload
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: sarif-results
+          upload: false
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-critical-rescan-${{ matrix.language }}
+          path: sarif-results
+          if-no-files-found: error
+          retention-days: 1
