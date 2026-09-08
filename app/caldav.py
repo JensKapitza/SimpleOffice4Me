@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -742,8 +744,8 @@ def _parse_ics(content: str) -> dict:
 def _xml_root() -> ElementTree.Element:
     body = request.get_data(cache=True)
     if len(body) > MAX_XML: raise ValueError("DAV XML request exceeds 1 MiB")
-    try: return ElementTree.fromstring(body or b"<empty/>")
-    except ElementTree.ParseError as exc: raise ValueError("invalid DAV XML") from exc
+    try: return DefusedElementTree.fromstring(body or b"<empty/>")
+    except (ElementTree.ParseError, DefusedXmlException) as exc: raise ValueError("invalid DAV XML") from exc
 
 
 @bp.route("/.well-known/caldav", methods=["OPTIONS", "PROPFIND", "GET"])
