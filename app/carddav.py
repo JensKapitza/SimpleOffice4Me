@@ -4,11 +4,11 @@ from __future__ import annotations
 import hashlib
 import json
 from urllib.parse import urlparse
-from xml.etree.ElementTree import ParseError
+from xml.etree import ElementTree as ET
+from defusedxml import ElementTree as DefusedET
+from defusedxml.common import DefusedXmlException
 from xml.sax.saxutils import escape
 
-from defusedxml import ElementTree as DefusedElementTree
-from defusedxml.common import DefusedXmlException
 from flask import Blueprint, Response, current_app, request, url_for
 
 from .contact_store import ContactConflict, ContactStore
@@ -105,8 +105,8 @@ def _report_contacts(store: ContactStore, username: str) -> list[dict]:
     if not raw:
         return contacts
     try:
-        root = DefusedElementTree.fromstring(raw)
-    except (ParseError, DefusedXmlException):
+        root = DefusedET.fromstring(raw)
+    except (ET.ParseError, DefusedXmlException):
         return contacts
     if root.tag != f"{{{CARD}}}addressbook-multiget":
         return contacts
@@ -166,7 +166,7 @@ def endpoint(path: str):
         if request.method == "GET":
             try: card=store.vcard(cid,username); contact=store.get(cid,username)
             except ValueError: return Response("not found",404)
-            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact)})
+            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact),"X-Content-Type-Options":"nosniff","Content-Security-Policy":"sandbox"})
         if request.method == "PUT":
             try: existing=store.get(cid,username); created=False
             except ValueError:
