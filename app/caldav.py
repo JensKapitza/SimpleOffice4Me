@@ -430,7 +430,7 @@ def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:
         except TodoConflict as exc:
             return Response("CalDAV task precondition failed", 412, {"ETag": store.etag(exc.item)} if exc.item else {})
         except ValueError as exc:
-            return Response(str(exc), 404)
+            return Response("CalDAV resource not found", 404)
         return Response("", 204)
     return Response("method not allowed on task resource", 405)
 
@@ -901,7 +901,7 @@ def endpoint(path: str):
                 root = _xml_root(); name = root.findtext(f".//{{{DAV}}}displayname") or calendar_id.removeprefix("tasks-")
                 description = root.findtext(f".//{{{CAL}}}calendar-description") or ""
                 _todos().create_list({"name": name, "description": description}, actor, calendar_id.removeprefix("tasks-"))
-            except ValueError as exc: return Response(str(exc), 405 if "already exists" in str(exc) else 400)
+            except ValueError as exc: return Response("CalDAV collection rejected", 405 if "already exists" in str(exc) else 400)
             return Response("", 201, {"Location": request.path.rstrip("/") + "/"})
         return _task_endpoint(actor, parts, home)
     if request.method == "MKCALENDAR":
@@ -911,11 +911,11 @@ def endpoint(path: str):
             description = root.findtext(f".//{{{CAL}}}calendar-description") or ""
             timezone_id = root.findtext(f".//{{{CAL}}}calendar-timezone-id") or "UTC"
             store.create(name, actor, "#2563eb", timezone_id, description, calendar_id)
-        except ValueError as exc: return Response(str(exc), 405 if "already exists" in str(exc) else 400)
+        except ValueError as exc: return Response("CalDAV collection rejected", 405 if "already exists" in str(exc) else 400)
         return Response("", 201, {"Location": request.path.rstrip("/") + "/"})
     if request.method == "DELETE" and len(parts) == 3:
         try: store.delete(calendar_id, actor)
-        except ValueError as exc: return Response(str(exc), 409 if "empty" in str(exc) or "default" in str(exc) else 403)
+        except ValueError as exc: return Response("CalDAV collection cannot be deleted", 409 if "empty" in str(exc) or "default" in str(exc) else 403)
         return Response("", 204)
     if request.method == "REPORT":
         try: root = _xml_root(); store.get(calendar_id, actor)

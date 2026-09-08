@@ -399,7 +399,7 @@ def import_calendar(owner: str):
     try:
         imported = CalendarStore(current_app.config["DOCUMENT_ROOT"]).import_ics(data.decode("utf-8"), owner)
     except (UnicodeDecodeError, ValueError) as exc:
-        return jsonify({"error": "invalid_calendar_payload", "detail": str(exc)[:500]}), 400
+        return jsonify({"error": "invalid_calendar_payload"}), 400
     return jsonify({"resource": "calendars", "owner": owner, "imported": imported})
 
 

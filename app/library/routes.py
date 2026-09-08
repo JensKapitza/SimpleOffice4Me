@@ -214,7 +214,7 @@ def assign_book():
     try:
         result = assign_object_to_location(item["object_id"], location_id, _actor(), scanned=code)
     except (OSError, ValueError) as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": False, "error": "library_request_rejected"}), 400
     updated = result["item"]
     return jsonify({
         "ok": True,
@@ -326,7 +326,7 @@ def printer_preview(kind: str):
     try:
         data = preview_png(_render_requested(kind))
     except (OSError, PrinterError, ValueError) as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": False, "error": "library_request_rejected"}), 400
     return Response(data, mimetype="image/png", headers={"Cache-Control": "no-store"})
 
 

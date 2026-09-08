@@ -113,7 +113,7 @@ def submit_job(printer_id: str):
             _federation(), proof_values, proof_signature
         )
     except ValueError as exc:
-        return jsonify({"error": "peer_permission_changed", "detail": str(exc)}), 403
+        return jsonify({"error": "peer_permission_changed"}), 403
     if not hmac.compare_digest(source_peer_after, source_peer):
         return jsonify({"error": "peer_identity_changed"}), 403
     proof = proof_after
@@ -177,4 +177,4 @@ def submit_job(printer_id: str):
                 "policy_revision": revision,
             },
         )
-        return jsonify({"error": str(exc), "policy_revision": revision}), 400
+        return jsonify({"error": "print_job_rejected", "policy_revision": revision}), 400
