@@ -1,9 +1,12 @@
 import copy
 import ipaddress
+import subprocess
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from app.mini_services import (
     DEFAULT_CONFIG,
@@ -14,9 +17,11 @@ from app.mini_services import (
     DNS_TYPES,
     DhcpService,
     DnsService,
+    blocklist_path,
     parse_blocklist_text,
     parse_dhcp_options,
     parse_dns_query,
+    refresh_blocklists,
     validate_config,
 )
 
@@ -78,6 +83,44 @@ class MiniServicesConfigTests(unittest.TestCase):
             "# comment\n0.0.0.0 ads.example\n127.0.0.1 tracker.example\n||banner.example^\n"
         )
         self.assertEqual({"ads.example", "tracker.example", "banner.example"}, domains)
+
+    def test_rejects_malformed_or_oversized_custom_dhcp_options(self):
+        invalid_values = ("hex:zz", "base64:***", "ip:not-an-ip", "u32:-1", "text:" + "x" * 256)
+        for value in invalid_values:
+            with self.subTest(value=value[:20]):
+                config = copy.deepcopy(DEFAULT_CONFIG)
+                config["dhcp"]["custom_options"] = {"123": value}
+                with self.assertRaisesRegex(ValueError, r"DHCP-Option 123"):
+                    validate_config(config)
+
+    def test_failed_refresh_preserves_last_active_blocklist(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def geturl(self):
+                return "https://lists.example/block.txt"
+
+            def read(self, _limit):
+                return b"0.0.0.0 ads.example\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mini-services.json"
+            config = copy.deepcopy(DEFAULT_CONFIG)
+            config["dns"]["blocklist_urls"] = ["https://lists.example/block.txt"]
+            with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", return_value=Response()):
+                first = refresh_blocklists(config, path)
+            self.assertEqual(1, first["domains"])
+
+            with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", side_effect=OSError("offline")):
+                second = refresh_blocklists(config, path)
+
+            self.assertTrue(second["preserved_previous"])
+            self.assertEqual(1, second["domains"])
+            self.assertEqual("ads.example\n", blocklist_path(path).read_text(encoding="utf-8"))
 
 
 class MiniDnsTests(unittest.TestCase):
@@ -165,6 +208,22 @@ class MiniDhcpTests(unittest.TestCase):
 
 
 class MiniServicesPackagingTests(unittest.TestCase):
+    def test_worker_import_does_not_initialize_flask_package(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; import tools.mini_services; "
+                "raise SystemExit(1 if 'app' in sys.modules else 0)",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def test_systemd_worker_has_only_network_capabilities(self):
         root = Path(__file__).resolve().parents[1]
         unit = (root / "packaging" / "simpleoffice-mini-services.service").read_text(encoding="utf-8")

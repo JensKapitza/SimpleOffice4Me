@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from app.mini_services import (
+from simpleoffice_mini_services import (
     DhcpService,
     DnsService,
     default_config_path,

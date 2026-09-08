@@ -14,7 +14,7 @@
     </div>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="alert alert-warning">
     <strong>Netzwerkhinweis:</strong> DHCP darf in einem Segment normalerweise nur von dem bewusst gewählten Server angeboten werden. Vor Aktivierung den DHCP-Server der Fritzbox bzw. des bisherigen Routers deaktivieren. DNS kann Hostnamen umleiten; HTTP-Pfade wie <code>/ziel</code> sind keine DNS-Funktion.
@@ -36,7 +36,7 @@
   <form method="post" action="{{ url_for('mini_services_admin.save') }}">
     <div class="accordion mb-4" id="mini-services-config">
       <section class="accordion-item">
-        <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dhcp-config">DHCPv4</button></h2>
+        <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dhcp-config" aria-expanded="true" aria-controls="dhcp-config">DHCPv4</button></h2>
         <div id="dhcp-config" class="accordion-collapse collapse show"><div class="accordion-body">
           <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="dhcp_enabled" value="1" id="dhcp-enabled" {% if config.dhcp.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="dhcp-enabled">DHCP-Server aktivieren</label></div>
           <div class="row g-3">
@@ -74,7 +74,7 @@
       </section>
 
       <section class="accordion-item">
-        <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dns-config">DNS / DNSMasq-Ersatz</button></h2>
+        <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dns-config" aria-expanded="true" aria-controls="dns-config">DNS / DNSMasq-Ersatz</button></h2>
         <div id="dns-config" class="accordion-collapse collapse show"><div class="accordion-body">
           <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="dns_enabled" value="1" id="dns-enabled" {% if config.dns.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="dns-enabled">DNS-Server aktivieren</label></div>
           <div class="row g-3">
@@ -104,10 +104,10 @@
 
   <div class="row g-4 mt-1">
     <section class="col-xl-6">
-      <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>DHCP-Leases</strong><form method="post" action="{{ url_for('mini_services_admin.clear_dhcp_leases') }}"><button class="btn btn-sm btn-outline-danger" type="submit">Leases leeren</button></form></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>IP</th><th>MAC</th><th>Hostname</th><th>Status</th><th>Ablauf</th></tr></thead><tbody>{% for lease in leases %}<tr><td><code>{{ lease.ip }}</code></td><td><code>{{ lease.mac }}</code></td><td>{{ lease.hostname or '—' }}</td><td>{{ lease.state }}</td><td>{{ lease.expires|int }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Leases.</td></tr>{% endfor %}</tbody></table></div></div>
+      <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>DHCP-Leases</strong><form method="post" action="{{ url_for('mini_services_admin.clear_dhcp_leases') }}"><button class="btn btn-sm btn-outline-danger" type="submit">Leases leeren</button></form></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Hostname</th><th scope="col">Status</th><th scope="col">Ablauf</th></tr></thead><tbody>{% for lease in leases %}<tr><td><code>{{ lease.ip }}</code></td><td><code>{{ lease.mac }}</code></td><td>{{ lease.hostname or '—' }}</td><td>{{ lease.state }}</td><td>{{ lease.expires|int }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Leases.</td></tr>{% endfor %}</tbody></table></div></div>
     </section>
     <section class="col-xl-6">
-      <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>DNS-Anfragen</strong><form method="post" action="{{ url_for('mini_services_admin.clear_query_log') }}"><button class="btn btn-sm btn-outline-danger" type="submit">Log leeren</button></form></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Client</th><th>Name</th><th>Typ</th><th>Aktion</th></tr></thead><tbody>{% for row in dns_queries %}<tr><td class="small">{{ row.at }}</td><td><code>{{ row.client }}</code></td><td class="text-break">{{ row.name }}</td><td>{{ row.type }}</td><td><span class="badge text-bg-{{ 'danger' if row.action == 'blocked' else 'secondary' }}">{{ row.action }}</span></td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine DNS-Anfragen.</td></tr>{% endfor %}</tbody></table></div></div>
+      <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>DNS-Anfragen</strong><form method="post" action="{{ url_for('mini_services_admin.clear_query_log') }}"><button class="btn btn-sm btn-outline-danger" type="submit">Log leeren</button></form></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Zeit</th><th scope="col">Client</th><th scope="col">Name</th><th scope="col">Typ</th><th scope="col">Aktion</th></tr></thead><tbody>{% for row in dns_queries %}<tr><td class="small">{{ row.at }}</td><td><code>{{ row.client }}</code></td><td class="text-break">{{ row.name }}</td><td>{{ row.type }}</td><td><span class="badge text-bg-{{ 'danger' if row.action == 'blocked' else 'secondary' }}">{{ row.action }}</span></td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine DNS-Anfragen.</td></tr>{% endfor %}</tbody></table></div></div>
     </section>
   </div>
 
