@@ -1,0 +1,86 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Networkboot · Federation</h1>
+      <p class="text-secondary mb-0">Boot-Angebot und Datenhaltung sind getrennte Rollen. Die Bezeichnungen gelten immer aus Sicht des jeweiligen Peers.</p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Federation</a>
+    </div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+
+  <div class="alert alert-secondary">
+    <strong>Beispiel:</strong> Ein Server kann <em>Networkboot anbieten</em>, ohne fremde Boot-Dateien zu speichern. Ein Backup-Server kann dagegen nur <em>Networkboot-Daten vorhalten</em>, ohne selbst als Boot-Quelle genutzt zu werden. Beide Optionen können auch gleichzeitig aktiv sein.
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Lokale Bootprofile</div><div class="fs-3">{{ boot.profiles|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Lokale Boot-Dateien</div><div class="fs-3">{{ assets|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Standardprofil</div><div class="fs-5">{{ boot.default_profile or 'nicht gesetzt' }}</div></div></div></div>
+  </div>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>Federation-Peers</strong></div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>Peer</th><th>Rollen aus Sicht des Peers</th><th>Aktionen</th></tr></thead>
+        <tbody>
+        {% for peer in peers %}
+          {% set nb = peer.policy.get('network_boot', {}) if peer.policy else {} %}
+          <tr>
+            <td>
+              <strong>{{ peer.label }}</strong><br>
+              <code>{{ peer.peer_id }}</code><br>
+              <small class="text-secondary text-break">{{ peer.base_url }}</small>
+            </td>
+            <td style="min-width: 20rem">
+              <form method="post" action="{{ url_for('network_boot_admin.set_peer_roles', peer_id=peer.peer_id) }}" class="d-grid gap-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="offers_network_boot" value="1" id="offers-{{ loop.index }}" {% if nb.get('offers_network_boot') %}checked{% endif %}>
+                  <label class="form-check-label" for="offers-{{ loop.index }}"><strong>Networkboot anbieten</strong><br><span class="small text-secondary">Dieser Peer stellt Bootprofile und Boot-Dateien bereit; wir dürfen sie von ihm holen.</span></label>
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="stores_network_boot" value="1" id="stores-{{ loop.index }}" {% if nb.get('stores_network_boot') %}checked{% endif %}>
+                  <label class="form-check-label" for="stores-{{ loop.index }}"><strong>Networkboot-Daten vorhalten</strong><br><span class="small text-secondary">Dieser Peer speichert/spiegelt unsere Bootprofile und Boot-Dateien.</span></label>
+                </div>
+                <div><button class="btn btn-sm btn-outline-primary" type="submit">Rollen speichern</button></div>
+              </form>
+            </td>
+            <td class="text-nowrap">
+              {% if nb.get('offers_network_boot') %}
+              <form method="post" action="{{ url_for('network_boot_admin.fetch_peer', peer_id=peer.peer_id) }}" class="mb-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-success" type="submit">Von diesem Peer holen</button>
+              </form>
+              {% endif %}
+              {% if nb.get('stores_network_boot') %}
+              <form method="post" action="{{ url_for('network_boot_admin.replicate_peer', peer_id=peer.peer_id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-success" type="submit">Zu diesem Peer spiegeln</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="text-secondary">Noch keine Federation-Peers eingerichtet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><strong>Lokale Networkboot-Dateien</strong></div>
+    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Datei</th><th>Größe</th><th>SHA-256</th></tr></thead><tbody>
+      {% for asset in assets %}<tr><td class="text-break">{{ asset.path }}</td><td>{{ asset.size }} Byte</td><td><code class="small">{{ asset.sha256 }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Noch keine Boot-Dateien vorhanden.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</main>
+{% endblock %}
