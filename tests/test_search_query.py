@@ -37,6 +37,13 @@ class SearchQueryTest(unittest.TestCase):
         query = compile_query('text: "Übergabe nächste Woche"')
         self.assertIn("Übergabe nächste Woche", query.fts)
 
+    def test_escaped_quoted_input_is_bounded_and_rejected_cleanly(self):
+        # Regression for CodeQL py/polynomial-redos: tokenization must remain
+        # linear even for long runs of escaped quote characters.
+        malicious = '"' + ('\\"' * 900)
+        with self.assertRaisesRegex(ValueError, "Anführungszeichen"):
+            compile_query(malicious)
+
     def test_unknown_field_and_missing_term_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unbekanntes Suchfeld"):
             compile_query("kunde:muster")

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 
 
@@ -15,7 +14,6 @@ FIELDS = {
     "state": "state", "status": "state",
     "attr": "attributes", "attribut": "attributes", "attributes": "attributes",
 }
-TOKEN = re.compile(r'''\s*(?:(?P<lpar>\()|(?P<rpar>\))|(?P<tilde>~)|(?P<bang>!)|(?P<quoted>"(?:[^"\\]|\\.)*")|(?P<word>[^\s()~]+))''')
 
 
 @dataclass(frozen=True)
@@ -43,14 +41,49 @@ class SearchQuery:
 
     @staticmethod
     def _tokens(source: str) -> list[tuple[str, str]]:
+        """Tokenize in one linear pass without a backtracking regular expression."""
         if len(source) > 2_000:
             raise ValueError("Die Suchanfrage ist auf 2.000 Zeichen begrenzt.")
-        result, end = [], 0
-        for match in TOKEN.finditer(source):
-            if source[end:match.start()].strip():
-                raise ValueError("Die Suchanfrage enthält ein ungültiges Zeichen.")
-            kind = next(name for name, value in match.groupdict().items() if value is not None)
-            value = match.group(kind)
+        result: list[tuple[str, str]] = []
+        index = 0
+        length = len(source)
+        single = {"(": "lpar", ")": "rpar", "~": "tilde", "!": "bang"}
+        while index < length:
+            while index < length and source[index].isspace():
+                index += 1
+            if index >= length:
+                break
+            char = source[index]
+            if char in single:
+                kind, value = single[char], char
+                index += 1
+            elif char == '"':
+                start = index
+                index += 1
+                escaped = False
+                while index < length:
+                    current = source[index]
+                    index += 1
+                    if escaped:
+                        escaped = False
+                        continue
+                    if current == "\\":
+                        escaped = True
+                        continue
+                    if current == '"':
+                        break
+                else:
+                    raise ValueError("Ungültige Zeichenfolge in Anführungszeichen.")
+                kind, value = "quoted", source[start:index]
+            else:
+                start = index
+                while index < length and not source[index].isspace() and source[index] not in "()~":
+                    index += 1
+                value = source[start:index]
+                if not value:
+                    raise ValueError("Die Suchanfrage enthält ein ungültiges Zeichen.")
+                kind = "word"
+
             upper = value.upper()
             if kind == "word" and upper in {"AND", "UND"}: kind, value = "and", "AND"
             elif kind == "word" and upper in {"OR", "ODER"}: kind, value = "or", "OR"
@@ -59,11 +92,9 @@ class SearchQuery:
             elif kind == "word" and upper == "XOR": kind, value = "xor", "XOR"
             elif kind == "word" and upper == "NOR": kind, value = "nor", "NOR"
             elif kind == "word" and upper == "CONTAINS": kind, value = "tilde", "~"
-            result.append((kind, value)); end = match.end()
-        if source[end:].strip():
-            raise ValueError("Die Suchanfrage ist unvollständig.")
-        if len(result) > 100:
-            raise ValueError("Die Suchanfrage enthält zu viele Teile.")
+            result.append((kind, value))
+            if len(result) > 100:
+                raise ValueError("Die Suchanfrage enthält zu viele Teile.")
         return result
 
     def _or_expression(self) -> tuple[str, str]:

@@ -371,7 +371,7 @@
     }
   };
 
-  const previewPhoto = () => {
+  const previewPhoto = async () => {
     if (!photoPreview || !photo?.files?.length) return;
     const file = photo.files[0];
     if (file.size > 12 * 1024 * 1024) {
@@ -386,12 +386,24 @@
       setStatus('Nur JPEG, PNG oder WebP sind erlaubt.', 'warning');
       return;
     }
-    const old = photoPreview.dataset.objectUrl;
-    if (old) URL.revokeObjectURL(old);
-    const objectUrl = URL.createObjectURL(file);
-    photoPreview.dataset.objectUrl = objectUrl;
-    photoPreview.src = objectUrl;
-    photoPreview.hidden = false;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const maxSide = 1600;
+      const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('canvas unavailable');
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      photoPreview.src = canvas.toDataURL('image/jpeg', 0.85);
+      photoPreview.hidden = false;
+    } catch (_error) {
+      photoPreview.removeAttribute('src');
+      photoPreview.hidden = true;
+      setStatus('Das Bild konnte nicht sicher als Vorschau dekodiert werden.', 'warning');
+    }
   };
 
   const rememberLocation = () => {

@@ -825,7 +825,7 @@ def set_language():
     if language in {"de", "en"}:
         from flask import session
         session["simpleoffice_language"] = language
-    return redirect(request.referrer or url_for("documents.settings"))
+    return redirect(url_for("documents.settings"))
 
 
 @bp.post("/todo")
@@ -1062,7 +1062,7 @@ def document_collage(document_id: str):
 def set_document_tags(document_id: str):
     try: _store().set_tags(document_id, request.form.get("tags", "").split(","), str(g.user["username"]))
     except ValueError as exc: flash(str(exc))
-    return redirect(request.referrer or url_for("documents.images"))
+    return redirect(url_for("documents.images"))
 
 
 @bp.post("/<document_id>/portable-metadata")
@@ -1092,7 +1092,7 @@ def analyze_image(document_id: str):
         flash("Bild analysiert: EXIF, OCR und Tags wurden aktualisiert.")
     except (OSError, RuntimeError, ValueError) as exc:
         flash(f"Bildanalyse fehlgeschlagen: {exc}")
-    return redirect(request.referrer or url_for("documents.images"))
+    return redirect(url_for("documents.images"))
 
 
 @bp.post("/upload")
