@@ -9,6 +9,7 @@ permissions:
   contents: read
 
 # Temporary scanner used only while reducing the current CodeQL backlog.
+# Rescan marker: public exception hardening complete.
 jobs:
   analyze:
     name: Export SARIF (${{ matrix.language }})
