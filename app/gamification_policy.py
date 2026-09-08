@@ -5,18 +5,30 @@ read/write access separately; this module only narrows that access further.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
 SCOPES = frozenset({"local", "federation", "organization"})
 PROVIDERS = frozenset({"images", "documents", "contacts"})
 
-# These classes cannot enter the normal game, even when a broad collection is
-# selected. A future dedicated business workflow must opt into them elsewhere.
+# Exact values plus token matching below. German labels are included because
+# repository categories and imported metadata are not guaranteed to be English.
 HARD_EXCLUDED_CLASSES = frozenset({
     "invoice", "invoices", "billing", "accounting", "receipt", "receipts",
     "payment", "payments", "banking", "crm_internal", "credential",
     "credentials", "secret", "security", "private_note", "private_notes",
+    "rechnung", "rechnungen", "buchhaltung", "beleg", "belege", "zahlung",
+    "zahlungen", "bank", "crm", "zugangsdaten", "passwort", "passwoerter",
+    "privatnotiz", "private_notiz", "steuer", "tax",
+})
+
+HARD_EXCLUDED_TOKENS = frozenset({
+    "invoice", "billing", "accounting", "receipt", "payment", "banking",
+    "credential", "credentials", "secret", "security", "crm",
+    "rechnung", "rechnungen", "buchhaltung", "beleg", "belege", "zahlung",
+    "zahlungen", "bank", "zugangsdaten", "passwort", "passwoerter", "steuer",
+    "tax", "iban", "bic",
 })
 
 # Contact fields that may be offered by the first contact provider. Sensitive
@@ -52,16 +64,33 @@ class GamePolicy:
             raise ValueError("min_votes must be positive")
         if not 0.5 <= self.consensus_ratio <= 1.0:
             raise ValueError("consensus_ratio must be between 0.5 and 1.0")
-        # Remote originals require an explicit policy; the default is preview
-        # only. Keeping the flag legal allows tightly controlled future modes.
 
 
 def normalize_classification(value: str | None) -> str:
-    return (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = (value or "").strip().casefold()
+    normalized = re.sub(r"[^a-z0-9äöüß]+", "_", normalized)
+    return normalized.strip("_")
 
 
 def is_hard_excluded(*classifications: str | None) -> bool:
-    return any(normalize_classification(value) in HARD_EXCLUDED_CLASSES for value in classifications if value)
+    for value in classifications:
+        if not value:
+            continue
+        normalized = normalize_classification(value)
+        if normalized in HARD_EXCLUDED_CLASSES:
+            return True
+        tokens = {token for token in normalized.split("_") if token}
+        if tokens & HARD_EXCLUDED_TOKENS:
+            return True
+        # Compound German/English category names such as
+        # "kundenrechnung_2026" or "crm-contact" must also fail closed.
+        if any(token in normalized for token in (
+            "rechnung", "buchhaltung", "payment", "billing", "credential",
+            "passwort", "zugangsdaten", "crm_", "_crm", "bank_", "_bank",
+            "private_note", "private_notiz",
+        )):
+            return True
+    return False
 
 
 def can_expose(
@@ -79,7 +108,7 @@ def can_expose(
     """Return True only when every required permission layer allows exposure."""
     if not normal_read_allowed or provider not in policy.providers:
         return False
-    if is_hard_excluded(resource_class):
+    if is_hard_excluded(resource_class, collection):
         return False
     if policy.participants and actor not in policy.participants:
         return False
