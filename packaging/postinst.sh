@@ -52,6 +52,11 @@ fi
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     systemctl enable simpleoffice4me.service >/dev/null 2>&1 || true
+    systemctl enable simpleoffice-mini-services.service >/dev/null 2>&1 || true
+    # The worker itself is safe to run immediately because DHCP and DNS are
+    # disabled in the default configuration. It then watches the admin-managed
+    # config file and activates services without granting sudo to the web app.
+    systemctl restart simpleoffice-mini-services.service >/dev/null 2>&1 || true
 fi
 
 cat <<'EOF'
@@ -59,6 +64,8 @@ SimpleOffice4Me wurde installiert.
 Start:   sudo systemctl start simpleoffice4me
 Status:  systemctl status simpleoffice4me
 Log:     journalctl -u simpleoffice4me -f
+Mini:    systemctl status simpleoffice-mini-services
+MiniLog: journalctl -u simpleoffice-mini-services -f
 Direkt:  simpleoffice4me
 Konfig:  /etc/simpleoffice4me/simpleoffice.env
 Daten:   /var/lib/simpleoffice4me
