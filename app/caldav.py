@@ -869,11 +869,11 @@ def endpoint(path: str):
             return _freebusy_response(actor, request.get_data(as_text=True))
         return Response("method not allowed on scheduling collection", 405)
     if request.method == "PROPFIND":
-        if not normalized: return _multistatus([(request.path, f"<d:resourcetype><d:collection/></d:resourcetype><d:current-user-principal><d:href>{principal}</d:href></d:current-user-principal>", "HTTP/1.1 200 OK")])
+        if not normalized: return _multistatus([(request.path, f"<d:resourcetype><d:collection/></d:resourcetype><d:current-user-principal><d:href>{escape(principal)}</d:href></d:current-user-principal>", "HTTP/1.1 200 OK")])
         if normalized == f"principals/{actor}":
             address_properties = "".join(f"<d:href>mailto:{escape(value)}</d:href>" for value in _calendar_users().get(actor, [local_calendar_address(actor)]))
-            scheduling_properties = f"<cal:schedule-inbox-URL><d:href>{inbox}</d:href></cal:schedule-inbox-URL><cal:schedule-outbox-URL><d:href>{outbox}</d:href></cal:schedule-outbox-URL>" if scheduling_enabled else ""
-            return _multistatus([(principal, f"<d:resourcetype><d:principal/></d:resourcetype><d:displayname>{escape(actor)}</d:displayname><cal:calendar-home-set><d:href>{home}</d:href></cal:calendar-home-set><cal:calendar-user-address-set>{address_properties}</cal:calendar-user-address-set>{scheduling_properties}", "HTTP/1.1 200 OK")])
+            scheduling_properties = f"<cal:schedule-inbox-URL><d:href>{escape(inbox)}</d:href></cal:schedule-inbox-URL><cal:schedule-outbox-URL><d:href>{escape(outbox)}</d:href></cal:schedule-outbox-URL>" if scheduling_enabled else ""
+            return _multistatus([(principal, f"<d:resourcetype><d:principal/></d:resourcetype><d:displayname>{escape(actor)}</d:displayname><cal:calendar-home-set><d:href>{escape(home)}</d:href></cal:calendar-home-set><cal:calendar-user-address-set>{address_properties}</cal:calendar-user-address-set>{scheduling_properties}", "HTTP/1.1 200 OK")])
         if normalized == f"calendars/{actor}":
             items = [(home, "<d:resourcetype><d:collection/></d:resourcetype><d:displayname>SimpleOffice Kalender</d:displayname>", "HTTP/1.1 200 OK")]
             if request.headers.get("Depth", "0") != "0":
