@@ -1,0 +1,69 @@
+name: Temporary apply security wave 2 extra
+
+on:
+  push:
+    branches:
+      - fix/codeql-security-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/codeql-security-wave2
+      - name: Remove remaining obvious public exception disclosures
+        shell: python
+        run: |
+          from pathlib import Path
+
+          replacements = {
+            'app/admin.py': [
+              ('return jsonify({"error": str(exc)}), 400', 'return jsonify({"error": "invalid_region"}), 400'),
+            ],
+            'app/inventory.py': [
+              ('return jsonify({"ok": False, "error": str(exc)}), 400', 'return jsonify({"ok": False, "error": "Ungültige ISBN."}), 400'),
+            ],
+            'app/license_routes.py': [
+              ('return jsonify({"error": str(exc)}), 400', 'return jsonify({"error": "invalid_license_payload"}), 400'),
+            ],
+            'app/mcp.py': [
+              ('data={"content":[{"type":"text","text":str(exc)}],"isError":True}', 'data={"content":[{"type":"text","text":"Tool request rejected"}],"isError":True}'),
+            ],
+            'app/photo_upload.py': [
+              ('return jsonify({"ok": False, "error": str(exc)}), 400', 'return jsonify({"ok": False, "error": "Foto konnte nicht verarbeitet werden."}), 400'),
+            ],
+            'app/printershare.py': [
+              ('return jsonify({"error": str(exc)}), 400', 'return jsonify({"error": "print_job_rejected"}), 400'),
+              ('return jsonify({"error": str(exc)}), 502', 'return jsonify({"error": "remote_printer_unavailable"}), 502'),
+            ],
+            'app/webdav.py': [
+              ('return reject("If-Match", str(exc), 413)', 'return reject("If-Match", "If-Match header is too large", 413)'),
+              ('return reject("If-Match", str(exc), 400)', 'return reject("If-Match", "invalid If-Match header", 400)'),
+              ('return reject("If-None-Match", str(exc), 413)', 'return reject("If-None-Match", "If-None-Match header is too large", 413)'),
+              ('return reject("If-None-Match", str(exc), 400)', 'return reject("If-None-Match", "invalid If-None-Match header", 400)'),
+              ('return Response(str(exc), 400, {"Want-Content-Digest": DIGEST_PREFERENCE})', 'return Response("invalid Content-Digest header", 400, {"Want-Content-Digest": DIGEST_PREFERENCE})'),
+              ('return Response(str(exc), 400)', 'return Response("invalid WebDAV request", 400)'),
+              ('return Response(str(exc), 409)', 'return Response("WebDAV resource conflict", 409)'),
+            ],
+          }
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  text = text.replace(old, new)
+              path.write_text(text, encoding='utf-8')
+      - name: Compile
+        run: python -m compileall -q app
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app
+          git diff --cached --quiet && exit 0
+          git commit -m "Remove remaining obvious public exception disclosures"
+          git push origin HEAD:fix/codeql-security-wave2
