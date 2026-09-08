@@ -119,14 +119,16 @@ def start_index_worker(document_root: str) -> subprocess.Popen[bytes] | None:
 
 
 def start_osm_index_worker(document_root: str, *, force: bool = False, city: str = "") -> subprocess.Popen[bytes]:
-    command = [sys.executable, "-m", "tools.osm_index_worker", "--root", document_root]
+    command = [sys.executable, "-m", "tools.osm_index_worker"]
     if force:
         command.append("--force")
     if city:
         if not _SAFE_CITY.fullmatch(city):
             raise ValueError("Ungültiger Ortsname für OSM-Indexworker")
         command.extend(["--city", city])
-    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
+    environment = os.environ.copy()
+    environment["SIMPLEOFFICE_WORKER_ROOT"] = document_root
+    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL, "env": environment}
     if os.name == "nt":
         options["creationflags"] = 0x00004000
     else:
@@ -142,8 +144,10 @@ def osm_index_enabled() -> bool:
 def start_osm_download_worker(document_root: str, region: str) -> subprocess.Popen[bytes]:
     if not _SAFE_REGION.fullmatch(region):
         raise ValueError("Ungültige OSM-Region")
-    command = [sys.executable, "-m", "tools.osm_download_worker", "--root", document_root, "--region", region]
-    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
+    command = [sys.executable, "-m", "tools.osm_download_worker", "--region", region]
+    environment = os.environ.copy()
+    environment["SIMPLEOFFICE_WORKER_ROOT"] = document_root
+    options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL, "env": environment}
     if os.name == "nt":
         options["creationflags"] = 0x00004000
     else:
