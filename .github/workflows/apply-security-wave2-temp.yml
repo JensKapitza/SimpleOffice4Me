@@ -16,39 +16,51 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: fix/codeql-security-wave2
-      - name: Apply non-breaking XML hardening
+      - name: Apply remaining non-breaking hardening
         shell: python
         run: |
           from pathlib import Path
 
-          def replace_once(path, old, new):
+          def replace_all(path, old, new):
               p = Path(path)
               text = p.read_text(encoding='utf-8')
-              if new in text:
-                  return
               if old not in text:
-                  raise SystemExit(f'pattern not found in {path}: {old[:80]!r}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+                  return
+              p.write_text(text.replace(old, new), encoding='utf-8')
 
-          replace_once('pyproject.toml', '  "beautifulsoup4>=4.12,<5",\n', '  "beautifulsoup4>=4.12,<5",\n  "defusedxml>=0.7,<1",\n')
+          # XML parsers and browser hardening from the first wave are idempotent.
+          replace_all('pyproject.toml', '  "beautifulsoup4>=4.12,<5",\n', '  "beautifulsoup4>=4.12,<5",\n  "defusedxml>=0.7,<1",\n')
+          replace_all('app/caldav.py', 'from xml.etree import ElementTree\n', 'from xml.etree import ElementTree\nfrom defusedxml import ElementTree as DefusedElementTree\nfrom defusedxml.common import DefusedXmlException\n')
+          replace_all('app/caldav.py', '    try: return ElementTree.fromstring(body or b"<empty/>")\n    except ElementTree.ParseError as exc: raise ValueError("invalid DAV XML") from exc\n', '    try: return DefusedElementTree.fromstring(body or b"<empty/>")\n    except (ElementTree.ParseError, DefusedXmlException) as exc: raise ValueError("invalid DAV XML") from exc\n')
+          replace_all('app/carddav.py', 'from xml.etree import ElementTree as ET\n', 'from xml.etree import ElementTree as ET\nfrom defusedxml import ElementTree as DefusedET\nfrom defusedxml.common import DefusedXmlException\n')
+          replace_all('app/carddav.py', '        root = ET.fromstring(raw)\n    except ET.ParseError:\n', '        root = DefusedET.fromstring(raw)\n    except (ET.ParseError, DefusedXmlException):\n')
+          replace_all('app/carddav.py', '            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact)})\n', '            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact),"X-Content-Type-Options":"nosniff","Content-Security-Policy":"sandbox"})\n')
+          replace_all('app/webdav.py', 'from xml.etree import ElementTree\n', 'from xml.etree import ElementTree\nfrom defusedxml import ElementTree as DefusedElementTree\nfrom defusedxml.common import DefusedXmlException\n')
+          replace_all('app/webdav.py', '        root = ElementTree.fromstring(body)\n    except ElementTree.ParseError as exc:\n', '        root = DefusedElementTree.fromstring(body)\n    except (ElementTree.ParseError, DefusedXmlException) as exc:\n')
+          replace_all('app/webdav.py', '                    "Content-Length": str(total_length),\n', '                    "Content-Length": str(total_length),\n                    "X-Content-Type-Options": "nosniff",\n                    "Content-Security-Policy": "sandbox",\n')
 
-          replace_once('app/caldav.py', 'from xml.etree import ElementTree\n', 'from xml.etree import ElementTree\nfrom defusedxml import ElementTree as DefusedElementTree\nfrom defusedxml.common import DefusedXmlException\n')
-          replace_once('app/caldav.py', '    try: return ElementTree.fromstring(body or b"<empty/>")\n    except ElementTree.ParseError as exc: raise ValueError("invalid DAV XML") from exc\n', '    try: return DefusedElementTree.fromstring(body or b"<empty/>")\n    except (ElementTree.ParseError, DefusedXmlException) as exc: raise ValueError("invalid DAV XML") from exc\n')
+          # Never expose Python exception text over DAV or download endpoints.
+          replace_all('app/caldav.py', 'return Response(str(exc), 400)', 'return Response("invalid CalDAV request", 400)')
+          replace_all('app/caldav.py', 'return Response(str(exc), 409 if "UID already" in str(exc) else 400)', 'return Response("CalDAV resource rejected", 409 if "UID already" in str(exc) else 400)')
+          replace_all('app/carddav.py', 'except ValueError as exc: return Response(str(exc),400)', 'except ValueError: return Response("invalid CardDAV resource",400)')
+          replace_all('app/webdav.py', 'return Response(str(exc), 413)', 'return Response("WebDAV request is too large", 413)')
+          replace_all('app/webdav.py', 'return Response(str(exc), 423)', 'return Response("WebDAV resource is locked", 423)')
+          replace_all('app/documents.py', 'return Response(str(exc), 403, {"Content-Type": "text/plain; charset=utf-8"})', 'return Response("calendar export is not permitted", 403, {"Content-Type": "text/plain; charset=utf-8"})')
 
-          replace_once('app/carddav.py', 'from xml.etree import ElementTree as ET\n', 'from xml.etree import ElementTree as ET\nfrom defusedxml import ElementTree as DefusedET\nfrom defusedxml.common import DefusedXmlException\n')
-          replace_once('app/carddav.py', '        root = ET.fromstring(raw)\n    except ET.ParseError:\n', '        root = DefusedET.fromstring(raw)\n    except (ET.ParseError, DefusedXmlException):\n')
-          replace_once('app/carddav.py', '            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact)})\n', '            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact),"X-Content-Type-Options":"nosniff","Content-Security-Policy":"sandbox"})\n')
-
-          replace_once('app/webdav.py', 'from xml.etree import ElementTree\n', 'from xml.etree import ElementTree\nfrom defusedxml import ElementTree as DefusedElementTree\nfrom defusedxml.common import DefusedXmlException\n')
-          replace_once('app/webdav.py', '        root = ElementTree.fromstring(body)\n    except ElementTree.ParseError as exc:\n', '        root = DefusedElementTree.fromstring(body)\n    except (ElementTree.ParseError, DefusedXmlException) as exc:\n')
-          replace_once('app/webdav.py', '                    "Content-Length": str(total_length),\n', '                    "Content-Length": str(total_length),\n                    "X-Content-Type-Options": "nosniff",\n                    "Content-Security-Policy": "sandbox",\n')
+          # Federation APIs already expose stable machine-readable error codes;
+          # remove only the internal implementation detail field.
+          replace_all('app/federation_print_http.py', '{"error": "peer_identity_rejected", "detail": str(exc)}', '{"error": "peer_identity_rejected"}')
+          replace_all('app/federation_contacts_http.py', '{"error": "invalid_contact_payload", "detail": str(exc)}', '{"error": "invalid_contact_payload"}')
+          replace_all('app/federation_phase2.py', '{"error": "invalid_task_payload", "detail": str(exc)[:500]}', '{"error": "invalid_task_payload"}')
+          replace_all('app/federation_http.py', '{"error": "delegated_transfer_failed", "detail": str(exc)[:500], "transfer_id": job_id}', '{"error": "delegated_transfer_failed", "transfer_id": job_id}')
+          replace_all('app/mail_routes.py', '{"ok": False, "error": str(exc)}', '{"ok": False, "error": "invalid_request"}')
       - name: Compile changed Python sources
         run: python -m compileall -q app
       - name: Commit fixes
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add pyproject.toml app/caldav.py app/carddav.py app/webdav.py
+          git add pyproject.toml app
           git diff --cached --quiet && exit 0
-          git commit -m "Harden DAV XML parsing and browser responses"
+          git commit -m "Hide internal exception details from public APIs"
           git push origin HEAD:fix/codeql-security-wave2
