@@ -15,11 +15,7 @@ def exclusive_file_lock(path: Path, *, blocking: bool = True):
     ``blocking=False`` to avoid queueing duplicate work after another process
     has already claimed the same job.
     """
-    # Reviewed: lock paths are internal paths supplied by validated storage components; this helper does not accept request paths directly.
-    # codeql[py/path-injection]
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Reviewed: lock paths are internal paths supplied by validated storage components; this helper does not accept request paths directly.
-    # codeql[py/path-injection]
     handle = path.open("a+b")
     acquired = False
     try:

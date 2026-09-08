@@ -409,8 +409,6 @@ class PhotoBulkImporter:
             destination_dir.mkdir(parents=True, exist_ok=True)
             self.store.ensure_folder_policy(destination_dir, actor)
             target = destination_dir / safe_name
-            # Reviewed: upload names are sanitized to a basename and destination roots are server-selected; archive paths use content hashes.
-            # codeql[py/path-injection]
             while target.exists():
                 target = destination_dir / f"{Path(safe_name).stem}-{uuid.uuid4().hex[:8]}{Path(safe_name).suffix}"
             staging.replace(target)
@@ -424,8 +422,6 @@ class PhotoBulkImporter:
             restore_ocr = self.store._image_ocr
             self.store._image_ocr = lambda _path: ""  # type: ignore[method-assign]
         try:
-            # Reviewed: upload names are sanitized to a basename and destination roots are server-selected; archive paths use content hashes.
-            # codeql[py/path-injection]
             self.store._scan_file(target.resolve(), force_hash=True)
         finally:
             if restore_ocr is not None:

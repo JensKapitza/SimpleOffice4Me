@@ -218,13 +218,12 @@ class AttachmentSecurity:
         return manifest
 
     def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:
-        if not re.fullmatch(r"[0-9a-f]{32}", manifest_id):
+        safe_manifest_id = os.path.basename(manifest_id)
+        if safe_manifest_id != manifest_id or not re.fullmatch(r"[0-9a-f]{32}", safe_manifest_id):
             raise ValueError("invalid extraction manifest identifier")
-        path = self.manifests / f"{manifest_id}.json"
+        path = self.manifests / f"{safe_manifest_id}.json"
         with exclusive_file_lock(path.with_suffix(".lock")):
             try:
-                # Reviewed: manifest IDs are strict 32-character lowercase hex values generated server-side.
-                # codeql[py/path-injection]
                 manifest = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise ValueError("extraction preview does not exist") from exc

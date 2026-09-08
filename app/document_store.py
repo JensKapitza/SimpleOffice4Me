@@ -61,8 +61,6 @@ def utc_now() -> str:
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
-    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-    # codeql[py/path-injection]
     with path.open("rb") as source:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
@@ -70,15 +68,9 @@ def sha256_file(path: Path) -> str:
 
 
 def atomic_json_write(path: Path, value: dict[str, Any]) -> None:
-    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-    # codeql[py/path-injection]
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-    # codeql[py/path-injection]
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-    # codeql[py/path-injection]
     temporary.replace(path)
 
 
@@ -266,18 +258,12 @@ class DocumentStore:
                     atomic_json_write(manifest_path, manifest)
 
     def ensure_folder_policy(self, folder: str | Path, actor: str = "system") -> Path:
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         folder_path = Path(folder).resolve()
         if self.root not in (folder_path, *folder_path.parents):
             raise ValueError("folder is outside the document root")
         policy = folder_path / POLICY_FILE
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if policy.exists():
             try:
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 loaded = json.loads(policy.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict) and loaded.get("folder_id"):
                     return policy
@@ -634,8 +620,6 @@ class DocumentStore:
     def register_external_archive(self, root: str | Path, label: str, tags: list[str], actor: str) -> dict[str, Any]:
         """Mark a mounted archive volume so it remains identifiable while absent."""
         self._require_actor(actor)
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         path = Path(root).expanduser().resolve()
         if not path.is_dir():
             raise ValueError("archive root must be an existing mounted directory")
@@ -675,8 +659,6 @@ class DocumentStore:
         """Return metadata by canonical document ID or by a path inside the managed tree."""
         self.initialize()
         reference_text = str(reference)
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         candidate = Path(reference_text).expanduser()
         if not candidate.is_absolute():
             candidate = self.root / candidate
@@ -1716,8 +1698,6 @@ class DocumentStore:
             raise ValueError("choose a relative destination folder inside the document store")
         if any(part in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, POLICY_FILE} for part in requested.parts):
             raise ValueError("the destination folder is reserved for system metadata")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         destination_directory = (self.root / requested).resolve()
         try:
             destination_directory.relative_to(self.root)
@@ -1931,8 +1911,6 @@ class DocumentStore:
             raise ValueError("document exceeds the configured upload size limit")
         relative = self._safe_managed_relative_path(relative_path, require_name=True)
         destination = self.root / relative
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if not destination.parent.is_dir() or destination.parent.is_symlink():
             raise ValueError("destination collection does not exist")
         self.ensure_folder_policy(destination.parent)
@@ -1940,24 +1918,16 @@ class DocumentStore:
         from .file_lock import exclusive_file_lock
 
         with exclusive_file_lock(self.control / ".document-content.lock"):
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             if destination.exists():
                 raise FileExistsError("destination resource already exists")
             temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
             try:
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 with temporary.open("xb") as handle:
                     handle.write(content)
                     handle.flush()
                     os.fsync(handle.fileno())
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 temporary.replace(destination)
             finally:
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 temporary.unlink(missing_ok=True)
             self._scan_file(destination, force_hash=True)
             metadata = self.get_document(destination)
@@ -1988,31 +1958,21 @@ class DocumentStore:
             raise ValueError("only an available regular document file can be copied")
         relative = self._safe_managed_relative_path(destination_path, require_name=True)
         destination = self.root / relative
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if not destination.parent.is_dir() or destination.parent.is_symlink():
             raise ValueError("destination collection does not exist")
         self.ensure_folder_policy(destination.parent)
         from .file_lock import exclusive_file_lock
 
         with exclusive_file_lock(self.control / ".document-content.lock"):
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             if destination.exists():
                 raise FileExistsError("destination resource already exists")
             temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
             try:
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 shutil.copyfile(source, temporary)
                 if sha256_file(temporary) != sha256_file(source):
                     raise RuntimeError("copied document could not be verified")
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 temporary.replace(destination)
             finally:
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 temporary.unlink(missing_ok=True)
             self._scan_file(destination, force_hash=True)
             copied = self.get_document(destination)
@@ -2044,8 +2004,6 @@ class DocumentStore:
         self._require_actor(actor)
         relative = self._safe_managed_relative_path(relative_path, require_name=True)
         source = self.root / relative
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if not source.is_dir() or source.is_symlink():
             raise ValueError("source collection does not exist")
         if depth == "0":
@@ -2059,8 +2017,6 @@ class DocumentStore:
         files: list[dict[str, Any]] = []
         total_bytes = 0
         member_count = 0
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         for current, names, filenames in os.walk(source, topdown=True, followlinks=False):
             parent = Path(current)
             nested_parent = parent.relative_to(source)
@@ -2072,8 +2028,6 @@ class DocumentStore:
                 if name == PREVIEW_CACHE_DIR:
                     continue
                 if name == CONTROL_DIR:
-                    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                    # codeql[py/path-injection]
                     if child.is_symlink() or not child.is_dir():
                         raise ValueError("collection contains unsafe internal metadata")
                     for sidecar in child.iterdir():
@@ -2088,8 +2042,6 @@ class DocumentStore:
                             raise ValueError("collection contains unknown internal metadata")
                         portable_path = self.root / str(portable.get("last_path", ""))
                         try:
-                            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                            # codeql[py/path-injection]
                             portable_path.resolve().relative_to(source.resolve())
                         except (OSError, ValueError):
                             raise ValueError("collection contains out-of-scope internal metadata") from None
@@ -2108,8 +2060,6 @@ class DocumentStore:
                     continue
                 if name == HISTORY_DIR:
                     raise ValueError("collection contains a reserved history directory")
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 if child.is_symlink() or not child.is_dir():
                     raise ValueError("collection contains a symbolic link or special directory")
                 nested = child.relative_to(source)
@@ -2122,8 +2072,6 @@ class DocumentStore:
             for name in sorted(filenames, key=str.casefold):
                 if name == POLICY_FILE:
                     policy = parent / name
-                    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                    # codeql[py/path-injection]
                     if policy.is_symlink() or not policy.is_file():
                         raise ValueError("collection contains an unsafe folder policy")
                     loaded_policy = self._read_json(policy, {})
@@ -2131,8 +2079,6 @@ class DocumentStore:
                         raise ValueError("collection contains an invalid folder policy")
                     continue
                 child = parent / name
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 if child.is_symlink() or not child.is_file():
                     raise ValueError("collection contains a symbolic link or special file")
                 nested = child.relative_to(source)
@@ -2140,8 +2086,6 @@ class DocumentStore:
                     raise ValueError("collection exceeds the supported nesting depth")
                 document = self.get_document(child)
                 self._require_document_editable(document)
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 size = child.stat().st_size
                 files.append({"nested": nested, "document": document, "size": size})
                 total_bytes += size
@@ -2174,12 +2118,8 @@ class DocumentStore:
         source = manifest["source"]
         if source == destination or source in destination.parents:
             raise ValueError("a collection cannot be copied into itself")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if destination.exists():
             raise FileExistsError("destination resource already exists")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if not destination.parent.is_dir() or destination.parent.is_symlink():
             raise ValueError("destination parent collection does not exist")
         directories = manifest["directories"] if depth == "infinity" else [Path(".")]
@@ -2244,12 +2184,8 @@ class DocumentStore:
             raise ValueError("the document root cannot be moved")
         if source == destination or source in destination.parents:
             raise ValueError("a collection cannot be moved into itself")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if destination.exists():
             raise FileExistsError("destination resource already exists")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if not destination.parent.is_dir() or destination.parent.is_symlink():
             raise ValueError("destination parent collection does not exist")
         snapshots = {
@@ -2260,8 +2196,6 @@ class DocumentStore:
         from .file_lock import exclusive_file_lock
 
         with exclusive_file_lock(self.control / ".document-content.lock"):
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             source.replace(destination)
             try:
                 changed_at = utc_now()
@@ -2294,11 +2228,7 @@ class DocumentStore:
                         fingerprint["last_seen_at"] = changed_at
                         atomic_json_write(fingerprint_path, fingerprint)
             except Exception:
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 if destination.exists() and not source.exists():
-                    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                    # codeql[py/path-injection]
                     destination.replace(source)
                 for document_id, snapshot in snapshots.items():
                     self._save_document(snapshot)
@@ -2373,8 +2303,6 @@ class DocumentStore:
             deleted_documents: list[dict[str, Any]] = []
             try:
                 atomic_json_write(manifest_path, operation_manifest)
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 source.replace(staged)
                 operation_manifest["state"] = "staged"
                 operation_manifest["staged_at"] = utc_now()
@@ -2417,8 +2345,6 @@ class DocumentStore:
                 operation_manifest.pop("document_snapshots", None)
                 atomic_json_write(manifest_path, operation_manifest)
             except Exception:
-                # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                # codeql[py/path-injection]
                 if staged.exists() and not source.exists():
                     staged.replace(source)
                 for snapshot in snapshots.values():
@@ -2602,12 +2528,8 @@ class DocumentStore:
                 raise ValueError("recovery payload failed integrity verification")
             relative = self._safe_managed_relative_path(destination_path or str(metadata.get("deleted_from", "")), require_name=True)
             destination = self.root / relative
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             if not destination.parent.is_dir() or destination.parent.is_symlink():
                 raise ValueError("destination collection does not exist")
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             if destination.exists():
                 raise FileExistsError("destination already exists; recovery never overwrites a file")
             self.ensure_folder_policy(destination.parent)
@@ -2635,8 +2557,6 @@ class DocumentStore:
             self._write_xattrs(destination, metadata["document_id"], actual_sha256, metadata.get("tags", []))
             self._save_document(metadata)
             self._refresh_search_index(metadata)
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             stat = destination.stat()
             with self._db() as db:
                 db.execute(
@@ -2665,16 +2585,10 @@ class DocumentStore:
         self._require_actor(actor)
         relative = self._safe_managed_relative_path(relative_path, require_name=True)
         destination = self.root / relative
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if not destination.parent.is_dir() or destination.parent.is_symlink():
             raise ValueError("parent collection does not exist")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if destination.exists():
             raise FileExistsError("destination collection already exists")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         destination.mkdir()
         self.ensure_folder_policy(destination, actor)
         details = {"path": self.relative(destination), "actor": actor, "at": utc_now()}
@@ -2687,19 +2601,13 @@ class DocumentStore:
         self._require_actor(actor)
         relative = self._safe_managed_relative_path(relative_path, require_name=True)
         collection = self.root / relative
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if not collection.is_dir() or collection.is_symlink():
             raise ValueError("collection does not exist")
         visible = [item for item in collection.iterdir() if item.name not in {POLICY_FILE, CONTROL_DIR, PREVIEW_CACHE_DIR}]
         if visible:
             raise ValueError("collection is not empty")
         sidecars = collection / CONTROL_DIR
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if sidecars.exists():
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             if not sidecars.is_dir() or sidecars.is_symlink():
                 raise ValueError("collection contains unknown internal metadata")
             verified: list[Path] = []
@@ -2714,14 +2622,8 @@ class DocumentStore:
                 verified.append(item)
             for item in verified:
                 item.unlink()
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             sidecars.rmdir()
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         (collection / POLICY_FILE).unlink(missing_ok=True)
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         collection.rmdir()
         details = {"path": str(relative), "actor": actor, "at": utc_now()}
         self._event("webdav_collection_deleted", details)
@@ -2731,15 +2633,16 @@ class DocumentStore:
         requested = Path(value)
         if (require_name and value in {"", "."}) or requested.is_absolute() or ".." in requested.parts:
             raise ValueError("path must remain inside the document store")
-        if any(part in {"", CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, POLICY_FILE} or "\x00" in part for part in requested.parts):
-            raise ValueError("path contains a reserved segment")
+        safe_parts: list[str] = []
+        for part in requested.parts:
+            safe_part = os.path.basename(part)
+            if safe_part != part or safe_part in {"", CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, POLICY_FILE} or "\x00" in safe_part:
+                raise ValueError("path contains a reserved segment")
+            safe_parts.append(safe_part)
+        requested = Path(*safe_parts) if safe_parts else Path(".")
         candidate = self.root / requested
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         if candidate.is_symlink():
             raise ValueError("symbolic links are not available over WebDAV")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         resolved_parent = candidate.parent.resolve()
         try:
             resolved_parent.relative_to(self.root)
@@ -2791,8 +2694,6 @@ class DocumentStore:
         versions = self.versions(reference)
         if len(versions) < 2:
             raise ValueError("the document has no older versions to offload")
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         target_root = Path(archive_root).expanduser().resolve()
         if not target_root.is_dir() or target_root == self.root or self.root in target_root.parents:
             raise ValueError("choose a mounted archive directory outside the document store")
@@ -3052,8 +2953,6 @@ class DocumentStore:
         self._save_document(metadata)
 
     def relative(self, path: Path) -> str:
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         resolved = path.resolve()
         if resolved == self.root:
             return "."
@@ -3081,8 +2980,6 @@ class DocumentStore:
         }
 
     def _scan_file(self, path: Path, force_hash: bool = False) -> tuple[bool, bool, bool]:
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         stat = path.stat()
         relative_path = self.relative(path)
         now = utc_now()
@@ -3246,8 +3143,6 @@ class DocumentStore:
 
     @staticmethod
     def _is_image(path: Path) -> bool:
-        # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-        # codeql[py/path-injection]
         return path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
 
     def _apply_document_text_extraction(self, path: Path, metadata: dict[str, Any], force: bool = False) -> bool:
@@ -3326,8 +3221,6 @@ class DocumentStore:
     def _file_text(path: Path) -> tuple[str, str]:
         suffix = path.suffix.lower()
         if suffix in {".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".log", ".eml", ".ics", ".vcf", ".py", ".java", ".js", ".css", ".sql", ".yml", ".yaml"}:
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             return path.read_text(encoding="utf-8", errors="replace"), "plain_text"
         if suffix in {".docx", ".odt", ".xlsx", ".ods"}:
             try:
@@ -3670,8 +3563,6 @@ class DocumentStore:
     @staticmethod
     def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
         try:
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             loaded = json.loads(path.read_text(encoding="utf-8"))
             return loaded if isinstance(loaded, dict) else default
         except (OSError, json.JSONDecodeError):
@@ -3685,8 +3576,6 @@ class DocumentStore:
             result: dict[str, Any] = {}
             for key, name in (("document_id", "user.simpleoffice.id"), ("sha256", "user.simpleoffice.sha256"), ("tags", "user.simpleoffice.tags")):
                 try:
-                    # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-                    # codeql[py/path-injection]
                     value = os.getxattr(path, name).decode("utf-8")
                     result[key] = json.loads(value) if key == "tags" else value
                 except OSError:
@@ -3700,14 +3589,8 @@ class DocumentStore:
         if not hasattr(os, "setxattr"):
             return
         try:
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             os.setxattr(path, "user.simpleoffice.id", document_id.encode("utf-8"))
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             os.setxattr(path, "user.simpleoffice.sha256", digest.encode("utf-8"))
-            # Reviewed: filesystem access is constrained by canonical document IDs, managed-root validation, explicit archive/staging contracts, and symlink checks.
-            # codeql[py/path-injection]
             os.setxattr(path, "user.simpleoffice.tags", json.dumps(tags).encode("utf-8"))
         except OSError:
             # FAT, SMB and backup media often do not support xattrs. Sidecars are enough.

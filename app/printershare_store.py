@@ -234,8 +234,6 @@ def _spool_windows(printer: dict[str, Any], payload: bytes, content_type: str, f
     executable = shutil.which("powershell.exe") or shutil.which("pwsh")
     if not executable:
         raise RuntimeError("PowerShell ist für den Windows-Druck nicht verfügbar")
-    # Reviewed: only a validated short suffix reaches an OS-created NamedTemporaryFile path.
-    # codeql[py/path-injection]
     temporary = tempfile.NamedTemporaryFile(prefix="simpleoffice-print-", suffix=_suffix_for(content_type, filename), delete=False)
     path = Path(temporary.name)
     try:

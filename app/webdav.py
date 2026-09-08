@@ -130,8 +130,6 @@ def _properties_path() -> Path:
 
 def _read_json(path: Path, fallback: dict) -> dict:
     try:
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         value = json.loads(path.read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else fallback
     except (OSError, json.JSONDecodeError):
@@ -493,8 +491,6 @@ def _normalize_credential_prefix(value: str) -> str:
         raise ValueError("WebDAV-Ordner darf höchstens 500 druckbare Zeichen enthalten.")
     relative = _store()._safe_managed_relative_path(raw.rstrip("/"), require_name=True)
     collection = _store().root / relative
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if not collection.is_dir() or collection.is_symlink():
         raise ValueError("WebDAV-Ordner muss vorhanden und eine reguläre Sammlung sein.")
     return str(relative)
@@ -836,11 +832,7 @@ def _record_http_precondition_failure(
 
 def _http_precondition_error(username: str, resource: Path, document: dict | None) -> Response | None:
     """Evaluate unsafe-request HTTP preconditions in RFC 9110 precedence order."""
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     exists = (document is not None and resource.is_file() and not resource.is_symlink()) or (
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         resource.is_dir() and not resource.is_symlink()
     )
     current_etag = _etag(document) if document is not None and exists else ""
@@ -848,8 +840,6 @@ def _http_precondition_error(username: str, resource: Path, document: dict | Non
     headers = {"Cache-Control": "private, no-cache"}
     if exists:
         try:
-            # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-            # codeql[py/path-injection]
             modified_at = int(resource.stat().st_mtime)
             headers["Last-Modified"] = formatdate(modified_at, usegmt=True)
         except OSError:
@@ -1047,8 +1037,6 @@ def _iter_file_range(handle, start: int, end: int):
 def _download_response(path: Path, username: str, document: dict, media_type: str) -> Response:
     """Return a conditional, range-capable response from one stable open-file snapshot."""
     try:
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         handle = path.open("rb")
     except OSError:
         return Response("not found", 404)
@@ -1216,8 +1204,6 @@ def _tree_path(relative_path: str) -> Path:
         return store.root
     relative = store._safe_managed_relative_path(unquote(relative_path), require_name=True)
     candidate = store.root / relative
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if candidate.is_symlink():
         raise ValueError("symbolic links are not available over WebDAV")
     return candidate
@@ -1262,14 +1248,10 @@ def _portable_name_error(
 ) -> Response | None:
     """Reject ambiguous new names while leaving existing legacy resources operable."""
     siblings: list[Path] = []
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if resource.parent.is_dir() and not resource.parent.is_symlink():
         siblings = list(resource.parent.iterdir())
         if any(sibling != exclude and sibling.name == resource.name for sibling in siblings):
             return None
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     elif resource.exists():
         return None
     reason = _portable_name_reason(resource.name)
@@ -1320,8 +1302,6 @@ def _portable_name_error(
 
 
 def _tree_document(path: Path) -> dict:
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if not path.is_file() or path.is_symlink():
         raise ValueError("document unavailable")
     return _store().get_document(path)
@@ -1386,8 +1366,6 @@ def _locks_for(resource: Path, document: dict | None = None, locks: dict | None 
 def _conflicting_locks(resource: Path, document: dict | None, depth: str) -> list[tuple[str, dict]]:
     active = _active_locks().get("locks", {})
     conflicts = _locks_for(resource, document, active)
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if depth == "infinity" and resource.is_dir() and not resource.is_symlink():
         relative = _store().relative(resource)
         known = {stored_key for stored_key, _lock in conflicts}
@@ -1551,12 +1529,8 @@ def _if_resource(tag: str | None, username: str, identity: dict) -> dict:
     if not _vfs().allows(username, resource, "read"):
         raise PermissionError("WebDAV If resource is outside this user's folder rights")
     document = None
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if resource.is_file() and not resource.is_symlink():
         document = _tree_document(resource)
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     collection = resource.is_dir() and not resource.is_symlink()
     return {
         "resource": resource,
@@ -1770,8 +1744,6 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
         return Response(error, 400, mimetype="application/xml")
     except ValueError as exc:
         return Response(str(exc), 400)
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     effective_depth = depth if resource.is_dir() else "0"
     if _conflicting_locks(resource, document, effective_depth):
         error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-conflicting-lock/></d:error>'
@@ -1784,11 +1756,7 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
 
     token = f"opaquelocktoken:{uuid.uuid4()}"
     status = 200
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if not resource.exists():
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         if not resource.parent.is_dir() or resource.parent.is_symlink():
             return Response("parent collection does not exist", 409)
         provisional_key = key
@@ -2029,8 +1997,6 @@ def _live_properties(
             values[f"{{{DAV}}}creationdate"] = _xml_element(
                 f"{{{DAV}}}creationdate", created_at,
             )
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         stat = path.stat()
         values[f"{{{DAV}}}getlastmodified"] = _xml_element(
             f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
@@ -2568,12 +2534,8 @@ def _resolve_search_scope(
         raise _SearchError(409, "search-scope-outside-credential", "search-scope-valid")
     if resource != arbiter and arbiter not in resource.parents:
         raise _SearchError(409, "search-scope-outside-arbiter", "search-scope-valid")
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     collection = resource.is_dir() and not resource.is_symlink()
     document = None
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if resource.is_file() and not resource.is_symlink():
         try:
             document = _tree_document(resource)
@@ -2769,8 +2731,6 @@ def _search_limit_response(
         scanned=scanned, matched=matched, operators=operators,
         client_limit=client_limit, reason=reason,
     )
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     href = _tree_url(username, _store().relative(scope), collection=scope.is_dir())
     response = (
         f'<d:response><d:href>{escape(href)}</d:href>'
@@ -2812,11 +2772,7 @@ def _search_response(
     mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
     mutation_lock.__enter__()
     g._webdav_mutation_lock = mutation_lock
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     scope_collection = scope.is_dir() and not scope.is_symlink()
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if scope.is_file() and not scope.is_symlink():
         try:
             scope_document = _tree_document(scope)
@@ -3169,14 +3125,10 @@ def _visible_snapshot(collection: Path) -> dict[str, dict]:
     """Return the visible regular-file tree without following unsafe nodes."""
     store = _store()
     snapshot: dict[str, dict] = {}
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     for current, directories, files in os.walk(collection, followlinks=False):
         parent = Path(current)
         directories[:] = sorted(
             name for name in directories
-            # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-            # codeql[py/path-injection]
             if name not in {CONTROL_DIR, HISTORY_DIR} and not (parent / name).is_symlink()
         )
         for name in directories:
@@ -3186,12 +3138,8 @@ def _visible_snapshot(collection: Path) -> dict[str, dict]:
             if name == POLICY_FILE:
                 continue
             path = parent / name
-            # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-            # codeql[py/path-injection]
             if path.is_symlink() or not path.is_file():
                 continue
-            # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-            # codeql[py/path-injection]
             stat = path.stat()
             snapshot[store.relative(path)] = {
                 "collection": False,
@@ -3760,8 +3708,6 @@ def file_tree(username: str, relative_path: str):
             "DASL": "<DAV:basicsearch>", "Want-Content-Digest": DIGEST_PREFERENCE,
             "Cache-Control": "private, no-store", "Vary": "Authorization",
         })
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     acl_target = resource if resource.exists() else resource.parent
     if not _vfs().allows(username, acl_target, "read"):
         # Hidden resources are indistinguishable from absent resources.
@@ -3771,8 +3717,6 @@ def file_tree(username: str, relative_path: str):
             request.path, _missing_method_privilege(request.method), allow,
         )
     if request.method in WRITE_METHODS:
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         write_target = resource.parent if request.method in {"MKCOL"} or (request.method in {"PUT", "LOCK"} and not resource.exists()) else resource
         if not _vfs().allows(username, write_target, "write"):
             return _need_privileges_response(
@@ -3782,12 +3726,8 @@ def file_tree(username: str, relative_path: str):
             return _need_privileges_response(
                 request.path, _missing_method_privilege(request.method), allow,
             )
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
-    # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-    # codeql[py/path-injection]
     if resource.is_file() and not resource.is_symlink():
         try:
             document = _tree_document(resource)
@@ -3839,12 +3779,8 @@ def file_tree(username: str, relative_path: str):
         mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
         mutation_lock.__enter__()
         g._webdav_mutation_lock = mutation_lock
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         is_collection = resource.is_dir() and not resource.is_symlink()
         document = None
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         if resource.is_file() and not resource.is_symlink():
             try:
                 document = _tree_document(resource)
@@ -3926,8 +3862,6 @@ def file_tree(username: str, relative_path: str):
         return response
 
     if request.method == "MKCOL":
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         if resource.exists():
             return Response("resource already exists", 405)
         if request.get_data():
@@ -3975,8 +3909,6 @@ def file_tree(username: str, relative_path: str):
             digest_error = _verify_content_digest(content, username, resource)
             if digest_error is not None:
                 return digest_error
-            # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-            # codeql[py/path-injection]
             quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
             if quota_error is not None:
                 return quota_error
@@ -4100,8 +4032,6 @@ def file_tree(username: str, relative_path: str):
             return _need_privileges_response(
                 request.path, _missing_method_privilege(request.method), allow,
             )
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         if destination.exists() and not _vfs().allows(username, destination, "write"):
             return _need_privileges_response(
                 request.path, _missing_method_privilege(request.method), allow,
@@ -4117,13 +4047,9 @@ def file_tree(username: str, relative_path: str):
         if destination == resource:
             status = 403 if request.method == "MOVE" else 412
             return Response("source and destination are the same resource", status)
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         if destination.exists():
             if overwrite == "F":
                 return Response("destination exists and Overwrite is F", 412)
-            # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-            # codeql[py/path-injection]
             if is_collection or destination.is_symlink() or not destination.is_file():
                 return Response("only an existing regular file can be replaced by COPY or MOVE", 412)
             try:
@@ -4141,8 +4067,6 @@ def file_tree(username: str, relative_path: str):
             if destination_lock is not None:
                 destination_lock.headers.update({"ETag": destination_etag, "Cache-Control": "private, no-cache"})
                 return destination_lock
-        # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-        # codeql[py/path-injection]
         if not destination.parent.is_dir():
             return Response("destination parent does not exist", 409)
         if replacing_document is None:
@@ -4169,8 +4093,6 @@ def file_tree(username: str, relative_path: str):
             elif manifest is not None and depth == "infinity":
                 growth = int(manifest["total_bytes"])
             else:
-                # Reviewed: request paths pass the WebDAV managed-root validator plus ACL, reserved-segment, traversal, and symlink checks before filesystem access.
-                # codeql[py/path-injection]
                 growth = resource.stat().st_size if document else 0
             quota_error = _check_quota(username, "COPY", destination, growth)
             if quota_error is not None:

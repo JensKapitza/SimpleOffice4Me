@@ -48,9 +48,10 @@ class ImapAuthenticationError(RuntimeError):
 
 
 def _safe_id(value: str) -> str:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
+    safe_value = os.path.basename(value)
+    if safe_value != value or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", safe_value):
         raise ValueError("invalid account identifier")
-    return value
+    return safe_value
 
 
 def _owner_key(actor: str) -> str:
@@ -89,8 +90,6 @@ class MailStore:
 
     def _read(self, path: Path, default: dict[str, Any]) -> dict[str, Any]:
         try:
-            # Reviewed: account/script identifiers are allow-listed and storage is beneath the per-user mail control directory.
-            # codeql[py/path-injection]
             value = json.loads(path.read_text(encoding="utf-8"))
             return value if isinstance(value, dict) else default
         except (OSError, json.JSONDecodeError):
@@ -229,15 +228,9 @@ class MailStore:
         # Ownership check; never let another application user write below an account.
         self.account(actor, account_id, password="ownership-check")
         path = self.scripts / _owner_key(actor) / account_id / f"{name}.sieve"
-        # Reviewed: account/script identifiers are allow-listed and storage is beneath the per-user mail control directory.
-        # codeql[py/path-injection]
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
-        # Reviewed: account/script identifiers are allow-listed and storage is beneath the per-user mail control directory.
-        # codeql[py/path-injection]
         temporary.write_bytes(encoded)
-        # Reviewed: account/script identifiers are allow-listed and storage is beneath the per-user mail control directory.
-        # codeql[py/path-injection]
         temporary.replace(path)
         digest = hashlib.sha512(encoded).hexdigest()
         snapshot = {"account_id": account_id, "name": name, "sha512": digest, "size": len(encoded), "updated_at": utc_now()}
@@ -248,8 +241,6 @@ class MailStore:
         self.account(actor, account_id, password="ownership-check")
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name):
             raise ValueError("invalid Sieve script name")
-        # Reviewed: account/script identifiers are allow-listed and storage is beneath the per-user mail control directory.
-        # codeql[py/path-injection]
         return (self.scripts / _owner_key(actor) / _safe_id(account_id) / f"{name}.sieve").read_text(encoding="utf-8")
 
     def scripts_for(self, actor: str, account_id: str) -> list[dict[str, Any]]:

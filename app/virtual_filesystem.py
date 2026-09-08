@@ -69,8 +69,13 @@ class VirtualFileSystem:
         relative = Path(text or ".")
         if relative.is_absolute() or ".." in relative.parts or "\x00" in text:
             raise ValueError("path must remain inside the virtual filesystem")
-        if any(part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE, ""} for part in relative.parts):
-            raise ValueError("path contains a reserved segment")
+        safe_parts: list[str] = []
+        for part in relative.parts:
+            safe_part = os.path.basename(part)
+            if safe_part != part or safe_part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE, ""}:
+                raise ValueError("path contains a reserved segment")
+            safe_parts.append(safe_part)
+        relative = Path(*safe_parts) if safe_parts else Path(".")
         candidate = self.root if relative == Path(".") else self.root / relative
         current = self.root
         for part in (() if relative == Path(".") else relative.parts):
@@ -82,13 +87,9 @@ class VirtualFileSystem:
         # allowing the conventional "." spelling for the root collection.
         boundary = candidate if candidate == self.root else candidate.parent
         try:
-            # Reviewed: VirtualFileSystem.resolve enforces traversal, reserved-segment, root-boundary, and symlink confinement.
-            # codeql[py/path-injection]
             boundary.resolve().relative_to(self.root)
         except ValueError as exc:
             raise ValueError("path must remain inside the virtual filesystem") from exc
-        # Reviewed: VirtualFileSystem.resolve enforces traversal, reserved-segment, root-boundary, and symlink confinement.
-        # codeql[py/path-injection]
         if not allow_missing and not candidate.exists():
             raise FileNotFoundError(text)
         return candidate
@@ -98,16 +99,10 @@ class VirtualFileSystem:
         return "." if resolved == self.root else resolved.relative_to(self.root).as_posix()
 
     def _policy_directories(self, path: Path) -> list[Path]:
-        # Reviewed: VirtualFileSystem.resolve enforces traversal, reserved-segment, root-boundary, and symlink confinement.
-        # codeql[py/path-injection]
         target = path if path.is_dir() else path.parent
-        # Reviewed: VirtualFileSystem.resolve enforces traversal, reserved-segment, root-boundary, and symlink confinement.
-        # codeql[py/path-injection]
         if not target.exists():
             target = target.parent if target != self.root else target
         try:
-            # Reviewed: VirtualFileSystem.resolve enforces traversal, reserved-segment, root-boundary, and symlink confinement.
-            # codeql[py/path-injection]
             relative = target.resolve().relative_to(self.root)
         except ValueError as exc:
             raise ValueError("path must remain inside the virtual filesystem") from exc
@@ -287,8 +282,6 @@ class VirtualFileSystem:
         inherit: bool = True,
     ) -> dict[str, Any]:
         target = self.resolve(folder, allow_missing=False)
-        # Reviewed: VirtualFileSystem.resolve enforces traversal, reserved-segment, root-boundary, and symlink confinement.
-        # codeql[py/path-injection]
         if not target.is_dir() or target.is_symlink():
             raise ValueError("folder does not exist")
         if self.username(actor) not in self.administrators and not self.allows(actor, target, "manage"):

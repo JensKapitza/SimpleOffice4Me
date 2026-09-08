@@ -193,8 +193,6 @@ class ReplicationStore:
             source_root = self._restic_staging(item)
             command += ["backup", "--tag", "simpleoffice", *sum((["--tag", tag] for tag in item["tags"]), []), str(source_root)]
         elif action == "restore":
-            # Reviewed: restore target is an explicit existing administrator-selected directory; arbitrary restore destination is intended functionality.
-            # codeql[py/path-injection]
             destination = Path(restore_path).expanduser()
             if not destination.is_dir():
                 raise ValueError("Vorhandener Wiederherstellungsordner erforderlich")

@@ -49,13 +49,9 @@ def _target_by_id(store: MailStore, actor: str, account_id: str, archive_id: str
 
 
 def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
-    # Reviewed: archive IDs/account IDs are bounded and resolved targets must remain beneath the authenticated user archive.
-    # codeql[py/path-injection]
     if not target.is_file() or target.is_symlink():
         raise FileNotFoundError("archive message does not exist")
 
-    # Reviewed: archive IDs/account IDs are bounded and resolved targets must remain beneath the authenticated user archive.
-    # codeql[py/path-injection]
     raw = target.read_bytes()
     if len(raw) > MAX_MESSAGE_BYTES:
         raise ValueError("message exceeds 100 MiB preview limit")
@@ -94,8 +90,6 @@ def load_local_eml(store: MailStore, actor: str, account_id: str, relative_path:
     if requested.is_absolute() or ".." in requested.parts or requested.suffix.lower() != ".eml":
         raise ValueError("invalid archive path")
 
-    # Reviewed: archive IDs/account IDs are bounded and resolved targets must remain beneath the authenticated user archive.
-    # codeql[py/path-injection]
     target = (store.root / requested).resolve()
     try:
         target.relative_to(base)
