@@ -1,0 +1,103 @@
+--- a/app/mail_client.py
++++ b/app/mail_client.py
+@@ -584,7 +584,9 @@
+         self._response()
+         self._command("STARTTLS")
+         self.file.close()
+-        self.sock = ssl.create_default_context().wrap_socket(raw, server_hostname=self.host)
++        context = ssl.create_default_context()
++        context.minimum_version = ssl.TLSVersion.TLSv1_2
++        self.sock = context.wrap_socket(raw, server_hostname=self.host)
+         self.file = self.sock.makefile("rwb")
+         # RFC 5804 requires capabilities to be refreshed after TLS negotiation.
+         self._command("CAPABILITY")
+--- a/app/documents.py
++++ b/app/documents.py
+@@ -825,7 +825,7 @@
+     if language in {"de", "en"}:
+         from flask import session
+         session["simpleoffice_language"] = language
+-    return redirect(request.referrer or url_for("documents.settings"))
++    return redirect(url_for("documents.settings"))
+ 
+ 
+ @bp.post("/todo")
+@@ -1062,7 +1062,7 @@
+ def set_document_tags(document_id: str):
+     try: _store().set_tags(document_id, request.form.get("tags", "").split(","), str(g.user["username"]))
+     except ValueError as exc: flash(str(exc))
+-    return redirect(request.referrer or url_for("documents.images"))
++    return redirect(url_for("documents.images"))
+ 
+ 
+ @bp.post("/<document_id>/portable-metadata")
+@@ -1092,7 +1092,7 @@
+         flash("Bild analysiert: EXIF, OCR und Tags wurden aktualisiert.")
+     except (OSError, RuntimeError, ValueError) as exc:
+         flash(f"Bildanalyse fehlgeschlagen: {exc}")
+-    return redirect(request.referrer or url_for("documents.images"))
++    return redirect(url_for("documents.images"))
+ 
+ 
+ @bp.post("/upload")
+--- a/app/photo_upload.py
++++ b/app/photo_upload.py
+@@ -562,4 +562,4 @@
+         flash("Foto-Metadaten vollständig neu eingelesen.")
+     except (OSError, RuntimeError, ValueError) as exc:
+         flash(f"Foto-Metadaten konnten nicht aktualisiert werden: {exc}")
+-    return redirect(request.referrer or url_for("documents.images"))
++    return redirect(url_for("documents.images"))
+--- a/static/js/inventory.js
++++ b/static/js/inventory.js
+@@ -371,7 +371,7 @@
+     }
+   };
+ 
+-  const previewPhoto = () => {
++  const previewPhoto = async () => {
+     if (!photoPreview || !photo?.files?.length) return;
+     const file = photo.files[0];
+     if (file.size > 12 * 1024 * 1024) {
+@@ -386,12 +386,24 @@
+       setStatus('Nur JPEG, PNG oder WebP sind erlaubt.', 'warning');
+       return;
+     }
+-    const old = photoPreview.dataset.objectUrl;
+-    if (old) URL.revokeObjectURL(old);
+-    const objectUrl = URL.createObjectURL(file);
+-    photoPreview.dataset.objectUrl = objectUrl;
+-    photoPreview.src = objectUrl;
+-    photoPreview.hidden = false;
++    try {
++      const bitmap = await createImageBitmap(file);
++      const maxSide = 1600;
++      const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
++      const canvas = document.createElement('canvas');
++      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
++      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
++      const context = canvas.getContext('2d');
++      if (!context) throw new Error('canvas unavailable');
++      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
++      bitmap.close();
++      photoPreview.src = canvas.toDataURL('image/jpeg', 0.85);
++      photoPreview.hidden = false;
++    } catch (_error) {
++      photoPreview.removeAttribute('src');
++      photoPreview.hidden = true;
++      setStatus('Das Bild konnte nicht sicher als Vorschau dekodiert werden.', 'warning');
++    }
+   };
+ 
+   const rememberLocation = () => {
+--- a/templates/documents/mail_client.html
++++ b/templates/documents/mail_client.html
+@@ -71,7 +71,7 @@
+           </form>
+         </div>
+         <div class="row g-3 align-items-end mb-3">
+-          <div class="col-md-8"><label class="form-label">Lokales / heruntergeladenes Skript</label><select class="form-select" onchange="if(this.value){window.location=this.value}"><option value="">Skript auswählen…</option>{% for row in scripts %}<option value="{{ url_for('mail_client.index', account=selected.id, script=row.name) }}" {% if row.name == script_name %}selected{% endif %}>{{ row.name }}{% if row.active %} — aktiv{% elif row.on_server %} — Server{% else %} — nur lokal{% endif %}</option>{% endfor %}</select></div>
++          <form class="col-md-8" method="get" action="{{ url_for('mail_client.index') }}"><label class="form-label">Lokales / heruntergeladenes Skript</label><input type="hidden" name="account" value="{{ selected.id }}"><div class="input-group"><select class="form-select" name="script"><option value="">Skript auswählen…</option>{% for row in scripts %}<option value="{{ row.name }}" {% if row.name == script_name %}selected{% endif %}>{{ row.name }}{% if row.active %} — aktiv{% elif row.on_server %} — Server{% else %} — nur lokal{% endif %}</option>{% endfor %}</select><button class="btn btn-outline-primary" type="submit">Öffnen</button></div></form>
+           <div class="col-md-4"><a class="btn btn-outline-secondary w-100" href="{{ url_for('mail_client.index', account=selected.id) }}#sieve-editor">Neues Skript anlegen</a></div>
+         </div>
+         <form id="sieve-editor" method="post" action="{{ url_for('mail_client.save_sieve', account_id=selected.id) }}" class="row g-3"><div class="col-md-6"><label class="form-label">Skriptname</label><input class="form-control" required pattern="[A-Za-z0-9._\-]{1,128}" name="name" value="{{ script_name or 'main' }}"></div><div class="col-md-6"><label class="form-label">Passwort für Serveraktion</label><input class="form-control" type="password" name="password" placeholder="falls nicht gespeichert"></div><div class="col-12"><label class="form-label">Sieve</label><textarea class="form-control font-monospace" rows="16" name="content" spellcheck="false" required>{{ script_content }}</textarea></div><div class="col-12 d-flex flex-wrap gap-3"><button type="submit" class="btn btn-outline-primary">Nur lokal versioniert speichern</button><button type="submit" class="btn btn-primary" name="upload" value="1">Serverbestand sichern und hochladen</button><button type="submit" class="btn btn-warning" name="upload" value="1" onclick="this.form.querySelector('[name=activate]').value='1'">Sichern, hochladen und aktivieren</button><input type="hidden" name="activate" value="0"></div></form>
