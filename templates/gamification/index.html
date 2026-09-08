@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Daten-Roulette{% endblock %}
+{% block content %}
+<section class="container py-3" style="max-width: 760px">
+  <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h1 class="h3 mb-1">Daten-Roulette</h1>
+      <p class="text-muted mb-0">Daten verbessern, ohne Zugriffsrechte zu erweitern.</p>
+    </div>
+    <span class="badge text-bg-secondary">Lokal</span>
+  </div>
+
+  {% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+
+  {% if challenge %}
+  <article class="card shadow-sm">
+    <div class="card-body">
+      <div class="small text-muted mb-2">{{ challenge.provider }} · {{ challenge.kind }}</div>
+      {% if challenge.payload.preview_url %}
+        <img src="{{ challenge.payload.preview_url }}" class="img-fluid rounded mb-3" alt="Spielvorschau" loading="lazy">
+      {% endif %}
+      {% if challenge.payload.display_name %}
+        <div class="fw-semibold mb-2">{{ challenge.payload.display_name }}</div>
+      {% endif %}
+      <h2 class="h5">{{ challenge.prompt }}</h2>
+      <form method="post" action="{{ url_for('gamification.answer') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="form-label" for="game-answer">Deine Antwort</label>
+        <input class="form-control form-control-lg" id="game-answer" name="answer" maxlength="500" autocomplete="off">
+        <div class="d-grid gap-2 d-sm-flex mt-3">
+          <button class="btn btn-primary flex-fill" type="submit">Antworten</button>
+          <a class="btn btn-outline-secondary flex-fill" href="{{ url_for('gamification.index') }}">Weiß ich nicht / weiter</a>
+        </div>
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <div class="card shadow-sm"><div class="card-body text-center py-5">
+    <h2 class="h5">Noch keine sicheren Spielobjekte</h2>
+    <p class="text-muted mb-0">Die Oberfläche ist aktiv. Daten erscheinen erst, wenn der jeweilige Adapter die normalen Leserechte und die Spiel-Policy bestätigt.</p>
+  </div></div>
+  {% endif %}
+
+  <div class="alert alert-light border mt-3 small mb-0">
+    Rechnungen, Buchhaltung, Zahlungsdaten, CRM-interne Daten, Zugangsdaten und private Notizen sind im normalen Daten-Roulette ausgeschlossen.
+  </div>
+</section>
+{% endblock %}
