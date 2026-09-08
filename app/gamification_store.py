@@ -40,6 +40,13 @@ class GamificationStore:
                     provider TEXT NOT NULL, object_ref TEXT NOT NULL, resource_class TEXT NOT NULL DEFAULT '',
                     UNIQUE(session_id, provider, object_ref)
                 );
+                CREATE TABLE IF NOT EXISTS game_challenge (
+                    id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES game_item(id) ON DELETE CASCADE,
+                    kind TEXT NOT NULL, answer_type TEXT NOT NULL, prompt TEXT NOT NULL,
+                    payload_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'open',
+                    created_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT,
+                    UNIQUE(item_id, kind)
+                );
                 CREATE TABLE IF NOT EXISTS annotation_proposal (
                     id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES game_item(id) ON DELETE CASCADE,
                     field_name TEXT NOT NULL, value_json TEXT NOT NULL, proposed_by TEXT NOT NULL,
@@ -75,6 +82,49 @@ class GamificationStore:
             db.execute("INSERT INTO game_item(id,session_id,provider,object_ref,resource_class) VALUES(?,?,?,?,?)",
                        (item_id, session_id, provider, object_ref, resource_class))
         return item_id
+
+    def add_challenge(self, item_id: str, kind: str, answer_type: str, prompt: str,
+                      payload: dict[str, Any] | None = None) -> str:
+        challenge_id = str(uuid.uuid4())
+        with self._db() as db:
+            db.execute(
+                "INSERT INTO game_challenge(id,item_id,kind,answer_type,prompt,payload_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                (challenge_id, item_id, kind, answer_type, prompt,
+                 json.dumps(payload or {}, sort_keys=True, ensure_ascii=False), _now()),
+            )
+        return challenge_id
+
+    def get_challenge_for_actor(self, challenge_id: str, actor: str) -> dict[str, Any] | None:
+        """Return an open challenge only when it belongs to an active local session of actor."""
+        with self._db() as db:
+            row = db.execute(
+                "SELECT c.*, i.session_id, i.provider, i.object_ref, i.resource_class, s.scope, s.created_by "
+                "FROM game_challenge c JOIN game_item i ON i.id=c.item_id "
+                "JOIN game_session s ON s.id=i.session_id "
+                "WHERE c.id=? AND c.status='open' AND s.status='active' AND s.created_by=?",
+                (challenge_id, actor),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["payload"] = json.loads(result.pop("payload_json") or "{}")
+        return result
+
+    def answer_challenge(self, challenge_id: str, actor: str, value: Any, *, source: str = "human") -> str:
+        challenge = self.get_challenge_for_actor(challenge_id, actor)
+        if challenge is None:
+            raise ValueError("challenge is not available for this actor")
+        proposal_id = self.propose(challenge["item_id"], challenge["kind"], value, actor, source=source)
+        with self._db() as db:
+            changed = db.execute(
+                "UPDATE game_challenge SET status='answered', answered_by=?, answered_at=? WHERE id=? AND status='open'",
+                (actor, _now(), challenge_id),
+            ).rowcount
+            if changed != 1:
+                raise ValueError("challenge was already answered")
+            self._audit(db, challenge["session_id"], actor, "challenge.answered",
+                        {"challenge_id": challenge_id, "proposal_id": proposal_id})
+        return proposal_id
 
     def propose(self, item_id: str, field_name: str, value: Any, actor: str, source: str = "human") -> str:
         proposal_id = str(uuid.uuid4())
