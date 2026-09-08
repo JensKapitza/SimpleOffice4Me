@@ -79,59 +79,120 @@ class GamificationStore:
     def add_item(self, session_id: str, provider: str, object_ref: str, resource_class: str = "") -> str:
         item_id = str(uuid.uuid4())
         with self._db() as db:
-            db.execute("INSERT INTO game_item(id,session_id,provider,object_ref,resource_class) VALUES(?,?,?,?,?)",
-                       (item_id, session_id, provider, object_ref, resource_class))
+            try:
+                db.execute("INSERT INTO game_item(id,session_id,provider,object_ref,resource_class) VALUES(?,?,?,?,?)",
+                           (item_id, session_id, provider, object_ref, resource_class))
+            except sqlite3.IntegrityError:
+                row = db.execute(
+                    "SELECT id FROM game_item WHERE session_id=? AND provider=? AND object_ref=?",
+                    (session_id, provider, object_ref),
+                ).fetchone()
+                if row is None:
+                    raise
+                item_id = str(row["id"])
         return item_id
 
     def add_challenge(self, item_id: str, kind: str, answer_type: str, prompt: str,
                       payload: dict[str, Any] | None = None) -> str:
         challenge_id = str(uuid.uuid4())
         with self._db() as db:
-            db.execute(
-                "INSERT INTO game_challenge(id,item_id,kind,answer_type,prompt,payload_json,created_at) VALUES(?,?,?,?,?,?,?)",
-                (challenge_id, item_id, kind, answer_type, prompt,
-                 json.dumps(payload or {}, sort_keys=True, ensure_ascii=False), _now()),
-            )
+            try:
+                db.execute(
+                    "INSERT INTO game_challenge(id,item_id,kind,answer_type,prompt,payload_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                    (challenge_id, item_id, kind, answer_type, prompt,
+                     json.dumps(payload or {}, sort_keys=True, ensure_ascii=False), _now()),
+                )
+            except sqlite3.IntegrityError:
+                row = db.execute(
+                    "SELECT id FROM game_challenge WHERE item_id=? AND kind=? AND status='open'",
+                    (item_id, kind),
+                ).fetchone()
+                if row is None:
+                    raise
+                challenge_id = str(row["id"])
         return challenge_id
 
     def get_challenge_for_actor(self, challenge_id: str, actor: str) -> dict[str, Any] | None:
         """Return an open challenge only when it belongs to an active local session of actor."""
         with self._db() as db:
-            row = db.execute(
-                "SELECT c.*, i.session_id, i.provider, i.object_ref, i.resource_class, s.scope, s.created_by "
-                "FROM game_challenge c JOIN game_item i ON i.id=c.item_id "
-                "JOIN game_session s ON s.id=i.session_id "
-                "WHERE c.id=? AND c.status='open' AND s.status='active' AND s.created_by=?",
-                (challenge_id, actor),
-            ).fetchone()
+            row = self._challenge_row(db, challenge_id, actor)
         if row is None:
             return None
         result = dict(row)
         result["payload"] = json.loads(result.pop("payload_json") or "{}")
         return result
 
+    @staticmethod
+    def _challenge_row(db: sqlite3.Connection, challenge_id: str, actor: str) -> sqlite3.Row | None:
+        return db.execute(
+            "SELECT c.*, i.session_id, i.provider, i.object_ref, i.resource_class, s.scope, s.created_by "
+            "FROM game_challenge c JOIN game_item i ON i.id=c.item_id "
+            "JOIN game_session s ON s.id=i.session_id "
+            "WHERE c.id=? AND c.status='open' AND s.status='active' AND s.created_by=?",
+            (challenge_id, actor),
+        ).fetchone()
+
+    @staticmethod
+    def _proposal_in_db(db: sqlite3.Connection, item_id: str, field_name: str, value: Any,
+                        actor: str, source: str = "human") -> str:
+        value_json = json.dumps(value, sort_keys=True, ensure_ascii=False)
+        row = db.execute(
+            "SELECT id FROM annotation_proposal WHERE item_id=? AND field_name=? AND value_json=? AND proposed_by=?",
+            (item_id, field_name, value_json, actor),
+        ).fetchone()
+        if row is not None:
+            return str(row["id"])
+        proposal_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO annotation_proposal(id,item_id,field_name,value_json,proposed_by,source,created_at) VALUES(?,?,?,?,?,?,?)",
+            (proposal_id, item_id, field_name, value_json, actor, source, _now()),
+        )
+        return proposal_id
+
     def answer_challenge(self, challenge_id: str, actor: str, value: Any, *, source: str = "human") -> str:
-        challenge = self.get_challenge_for_actor(challenge_id, actor)
-        if challenge is None:
-            raise ValueError("challenge is not available for this actor")
-        proposal_id = self.propose(challenge["item_id"], challenge["kind"], value, actor, source=source)
+        """Atomically consume an actor-bound challenge and create its proposal."""
         with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            challenge = self._challenge_row(db, challenge_id, actor)
+            if challenge is None:
+                raise ValueError("challenge is not available for this actor")
             changed = db.execute(
                 "UPDATE game_challenge SET status='answered', answered_by=?, answered_at=? WHERE id=? AND status='open'",
                 (actor, _now(), challenge_id),
             ).rowcount
             if changed != 1:
                 raise ValueError("challenge was already answered")
-            self._audit(db, challenge["session_id"], actor, "challenge.answered",
+            proposal_id = self._proposal_in_db(
+                db, str(challenge["item_id"]), str(challenge["kind"]), value, actor, source,
+            )
+            self._audit(db, str(challenge["session_id"]), actor, "challenge.answered",
                         {"challenge_id": challenge_id, "proposal_id": proposal_id})
         return proposal_id
 
-    def propose(self, item_id: str, field_name: str, value: Any, actor: str, source: str = "human") -> str:
-        proposal_id = str(uuid.uuid4())
-        value_json = json.dumps(value, sort_keys=True, ensure_ascii=False)
+    def skip_challenge(self, challenge_id: str, actor: str, *, disposition: str = "unknown") -> None:
+        """Consume a challenge without creating a proposal for unknown/skip answers."""
+        if disposition not in {"unknown", "skip"}:
+            raise ValueError("invalid challenge disposition")
         with self._db() as db:
-            db.execute("INSERT INTO annotation_proposal(id,item_id,field_name,value_json,proposed_by,source,created_at) VALUES(?,?,?,?,?,?,?)",
-                       (proposal_id, item_id, field_name, value_json, actor, source, _now()))
+            db.execute("BEGIN IMMEDIATE")
+            challenge = self._challenge_row(db, challenge_id, actor)
+            if challenge is None:
+                raise ValueError("challenge is not available for this actor")
+            changed = db.execute(
+                "UPDATE game_challenge SET status=?, answered_by=?, answered_at=? WHERE id=? AND status='open'",
+                (disposition, actor, _now(), challenge_id),
+            ).rowcount
+            if changed != 1:
+                raise ValueError("challenge was already completed")
+            self._audit(db, str(challenge["session_id"]), actor, f"challenge.{disposition}",
+                        {"challenge_id": challenge_id})
+
+    def propose(self, item_id: str, field_name: str, value: Any, actor: str, source: str = "human") -> str:
+        with self._db() as db:
+            proposal_id = self._proposal_in_db(db, item_id, field_name, value, actor, source)
+            row = db.execute("SELECT session_id FROM game_item WHERE id=?", (item_id,)).fetchone()
+            self._audit(db, str(row["session_id"]) if row else None, actor, "proposal.created",
+                        {"proposal_id": proposal_id, "field_name": field_name, "source": source})
         return proposal_id
 
     def vote(self, proposal_id: str, voter: str, approve: bool) -> None:
@@ -139,6 +200,12 @@ class GamificationStore:
             db.execute("INSERT INTO annotation_vote(proposal_id,voter,approve,created_at) VALUES(?,?,?,?) "
                        "ON CONFLICT(proposal_id,voter) DO UPDATE SET approve=excluded.approve, created_at=excluded.created_at",
                        (proposal_id, voter, int(approve), _now()))
+            row = db.execute(
+                "SELECT i.session_id FROM annotation_proposal p JOIN game_item i ON i.id=p.item_id WHERE p.id=?",
+                (proposal_id,),
+            ).fetchone()
+            self._audit(db, str(row["session_id"]) if row else None, voter, "proposal.voted",
+                        {"proposal_id": proposal_id, "approve": bool(approve)})
 
     def consensus(self, proposal_id: str, min_votes: int = 3, ratio: float = 0.75) -> dict[str, Any]:
         with self._db() as db:
@@ -154,6 +221,12 @@ class GamificationStore:
         with self._db() as db:
             db.execute("INSERT INTO annotation_acceptance(proposal_id,accepted_by,mode,accepted_at) VALUES(?,?,?,?) "
                        "ON CONFLICT(proposal_id) DO NOTHING", (proposal_id, actor, mode, _now()))
+            row = db.execute(
+                "SELECT i.session_id FROM annotation_proposal p JOIN game_item i ON i.id=p.item_id WHERE p.id=?",
+                (proposal_id,),
+            ).fetchone()
+            self._audit(db, str(row["session_id"]) if row else None, actor, "proposal.accepted",
+                        {"proposal_id": proposal_id, "mode": mode})
 
     def audit(self, session_id: str | None, actor: str, action: str, detail: dict[str, Any] | None = None) -> None:
         with self._db() as db:
