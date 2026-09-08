@@ -20,6 +20,7 @@ from .federation_blocks import (
     sha512_bytes,
 )
 from .federation_core import normalize_sha256
+from .safe_paths import resolve_under
 
 
 bp = Blueprint("federation_blocks_http", __name__, url_prefix="/federation/v1/blocks")
@@ -61,11 +62,11 @@ def _blob_path(digest: str):
         ).fetchone()
     if row is None:
         raise ValueError("blob unavailable")
-    unresolved = documents.root / str(row["relative_path"])
-    if unresolved.is_symlink():
-        raise ValueError("blob unavailable")
-    path = unresolved.resolve()
-    if documents.root not in (path, *path.parents) or not path.is_file():
+    try:
+        path = resolve_under(documents.root, str(row["relative_path"]), strict=True)
+    except (OSError, ValueError) as exc:
+        raise ValueError("blob unavailable") from exc
+    if not path.is_file() or path.is_symlink():
         raise ValueError("blob unavailable")
     return path
 
