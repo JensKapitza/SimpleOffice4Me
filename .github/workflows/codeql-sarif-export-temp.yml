@@ -9,6 +9,26 @@ permissions:
   contents: read
 
 jobs:
+  source:
+    name: Export source snapshot
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-source-snapshot
+          path: |
+            app
+            tools
+            tests
+            static
+            templates
+            pyproject.toml
+          include-hidden-files: true
+          retention-days: 1
+
   analyze:
     name: Export SARIF (${{ matrix.language }})
     runs-on: ubuntu-24.04
