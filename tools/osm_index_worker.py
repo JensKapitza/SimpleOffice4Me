@@ -88,7 +88,9 @@ def main() -> None:
     root = args.root or os.environ.get("SIMPLEOFFICE_WORKER_ROOT")
     if not root:
         parser.error("--root oder SIMPLEOFFICE_WORKER_ROOT ist erforderlich")
-    raise SystemExit(run_osm_index(root, force=args.force, city=args.city))
+    force = args.force or os.environ.get("SIMPLEOFFICE_OSM_FORCE", "").strip().casefold() in {"1", "true", "yes", "on"}
+    city = args.city or os.environ.get("SIMPLEOFFICE_OSM_CITY", "")
+    raise SystemExit(run_osm_index(root, force=force, city=city))
 
 
 if __name__ == "__main__":
