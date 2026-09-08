@@ -25,24 +25,26 @@
       <h2 class="h5">{{ challenge.prompt }}</h2>
       <form method="post" action="{{ url_for('gamification.answer') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="challenge_id" value="{{ challenge.id }}">
         <label class="form-label" for="game-answer">Deine Antwort</label>
-        <input class="form-control form-control-lg" id="game-answer" name="answer" maxlength="500" autocomplete="off">
+        <input class="form-control form-control-lg" id="game-answer" name="answer" maxlength="500" autocomplete="off" required>
         <div class="d-grid gap-2 d-sm-flex mt-3">
-          <button class="btn btn-primary flex-fill" type="submit">Antworten</button>
-          <a class="btn btn-outline-secondary flex-fill" href="{{ url_for('gamification.index') }}">Weiß ich nicht / weiter</a>
+          <button class="btn btn-primary flex-fill" type="submit" name="action" value="answer">Antworten</button>
+          <button class="btn btn-outline-secondary flex-fill" type="submit" name="action" value="unknown" formnovalidate>Weiß ich nicht</button>
+          <button class="btn btn-outline-secondary flex-fill" type="submit" name="action" value="skip" formnovalidate>Weiter</button>
         </div>
       </form>
     </div>
   </article>
   {% else %}
   <div class="card shadow-sm"><div class="card-body text-center py-5">
-    <h2 class="h5">Noch keine sicheren Spielobjekte</h2>
-    <p class="text-muted mb-0">Die Oberfläche ist aktiv. Daten erscheinen erst, wenn der jeweilige Adapter die normalen Leserechte und die Spiel-Policy bestätigt.</p>
+    <h2 class="h5">Keine passende sichere Aufgabe</h2>
+    <p class="text-muted mb-0">Aktuell werden nur bereits freigegebene Kontakte mit fehlenden, für das Spiel erlaubten Feldern berücksichtigt.</p>
   </div></div>
   {% endif %}
 
   <div class="alert alert-light border mt-3 small mb-0">
-    Rechnungen, Buchhaltung, Zahlungsdaten, CRM-interne Daten, Zugangsdaten und private Notizen sind im normalen Daten-Roulette ausgeschlossen.
+    Rechnungen, Buchhaltung, Zahlungsdaten, CRM-interne Daten, Zugangsdaten und private Notizen sind im normalen Daten-Roulette ausgeschlossen. Vorschläge ändern Originaldaten nicht automatisch.
   </div>
 </section>
 {% endblock %}
