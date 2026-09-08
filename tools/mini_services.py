@@ -18,9 +18,9 @@ from simpleoffice_mini_services import (
     refresh_blocklists,
     write_status,
 )
-from app.network_boot import TftpService, boot_settings_path, load_boot_settings
-from app.network_boot_dhcp import BootAwareDhcpService
-from app.network_gateway_runtime import (
+from simpleoffice_network_boot import TftpService, boot_settings_path, load_boot_settings
+from simpleoffice_network_boot_dhcp import BootAwareDhcpService
+from simpleoffice_network_gateway_runtime import (
     apply_gateway,
     disable_gateway,
     gateway_settings_path,
