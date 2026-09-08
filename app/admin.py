@@ -165,7 +165,7 @@ def osm_region_info():
     try:
         return jsonify({"region": index.region_info(region), "status": index.status()})
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": "invalid_region"}), 400
 
 
 @bp.get("/osm-addresses/status.json")
