@@ -102,7 +102,7 @@ def autoconfig():
         result = discover_mail_settings(email)
         return jsonify({"ok": True, "settings": result})
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": False, "error": "invalid_request"}), 400
     except Exception as exc:
         current_app.logger.warning("Mail autoconfig failed for %s: %s", _actor(), type(exc).__name__)
         return jsonify({"ok": False, "error": "Mailserver konnten nicht automatisch ermittelt werden."}), 502

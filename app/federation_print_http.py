@@ -64,7 +64,7 @@ def submit_job(printer_id: str):
         proof_values, proof_signature = parse_proof_headers(request.headers, printer_id)
         source_peer, proof = identify_source_peer(_federation(), proof_values, proof_signature)
     except ValueError as exc:
-        return jsonify({"error": "peer_identity_rejected", "detail": str(exc)}), 403
+        return jsonify({"error": "peer_identity_rejected"}), 403
 
     claimed_peer = request.headers.get("X-SimpleOffice-Peer-ID", "").strip()[:128]
     if claimed_peer and not hmac.compare_digest(claimed_peer, source_peer):

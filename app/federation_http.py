@@ -380,7 +380,7 @@ def delegated_push():
     try:
         result = push_blob_to_transient_target(current_app.config["DOCUMENT_ROOT"], job_id)
     except Exception as exc:
-        return jsonify({"error": "delegated_transfer_failed", "detail": str(exc)[:500], "transfer_id": job_id}), 502
+        return jsonify({"error": "delegated_transfer_failed", "transfer_id": job_id}), 502
     result.pop("capability_enc", None)
     result.pop("final_path", None)
     return jsonify(result)
