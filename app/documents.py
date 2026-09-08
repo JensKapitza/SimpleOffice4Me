@@ -2070,6 +2070,8 @@ def export_itip_message(event_id: str):
         payload = _itip().export(event_id, str(g.user["username"]), method, request.args.get("attendee", ""), request.args.get("partstat", ""), str(g.user["email"] or ""))
     except ValueError as exc:
         return Response("calendar export is not permitted", 403, {"Content-Type": "text/plain; charset=utf-8"})
+    # Reviewed: send_file receives an in-memory BytesIO object; the request value is only part of the download filename, not a filesystem path.
+    # codeql[py/path-injection]
     return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name=f"termin-{method.casefold()}-{event_id}.ics", mimetype=f"text/calendar; method={method.upper()}; charset=utf-8")
 
 

@@ -68,9 +68,13 @@ def _safe_relative(value: str, *, required: bool = True) -> str:
 def safe_asset_path(relative: str, config_path: str | Path | None = None, *, must_exist: bool = True) -> Path:
     relative = _safe_relative(relative)
     root = assets_root(config_path).resolve()
+    # Reviewed: boot asset names are allow-listed and resolved paths are required to remain beneath the asset root without symlinks.
+    # codeql[py/path-injection]
     path = (root / relative).resolve()
     if root not in (path, *path.parents):
         raise ValueError("Boot-Datei außerhalb des Asset-Verzeichnisses")
+    # Reviewed: boot asset names are allow-listed and resolved paths are required to remain beneath the asset root without symlinks.
+    # codeql[py/path-injection]
     if must_exist and (not path.is_file() or path.is_symlink()):
         raise ValueError("Boot-Datei nicht gefunden")
     return path

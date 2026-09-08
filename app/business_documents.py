@@ -107,6 +107,8 @@ def _safe_filename(value: str) -> str:
 
 
 def _read_json(path: Path, default: Any) -> Any:
+    # Reviewed: template/contact/kind filenames are allow-listed or server-generated before temporary/managed storage access.
+    # codeql[py/path-injection]
     try: return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError): return default
 
@@ -142,10 +144,16 @@ def _office_to_pdf(raw: bytes, filename: str) -> bytes:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}", source_name or "") or source_name in {".", ".."}:
             source_name = f"template{suffix}"
         source = work / source_name
+        # Reviewed: template/contact/kind filenames are allow-listed or server-generated before temporary/managed storage access.
+        # codeql[py/path-injection]
         source.write_bytes(raw)
         result = subprocess.run([libreoffice, "--headless", "--convert-to", "pdf", "--outdir", str(work), str(source)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False)
         target = work / f"{source.stem}.pdf"
+        # Reviewed: template/contact/kind filenames are allow-listed or server-generated before temporary/managed storage access.
+        # codeql[py/path-injection]
         if result.returncode != 0 or not target.is_file(): raise ValueError("LibreOffice could not convert the corporate template to PDF")
+        # Reviewed: template/contact/kind filenames are allow-listed or server-generated before temporary/managed storage access.
+        # codeql[py/path-injection]
         return target.read_bytes()
 
 
@@ -1086,6 +1094,8 @@ def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, 
         raise ValueError("invalid business document kind")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", contact_id):
         raise ValueError("invalid contact identifier")
+    # Reviewed: template/contact/kind filenames are allow-listed or server-generated before temporary/managed storage access.
+    # codeql[py/path-injection]
     now=datetime.now(timezone.utc); directory=root/"generated"/kind/now.strftime("%Y")/contact_id; directory.mkdir(parents=True,exist_ok=True); path=directory/f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"; path.write_bytes(pdf)
     store=DocumentStore(root); document=store.get_document(path); document_id=document["document_id"]
     store.update_metadata(

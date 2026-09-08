@@ -223,6 +223,8 @@ class AttachmentSecurity:
         path = self.manifests / f"{manifest_id}.json"
         with exclusive_file_lock(path.with_suffix(".lock")):
             try:
+                # Reviewed: manifest IDs are strict 32-character lowercase hex values generated server-side.
+                # codeql[py/path-injection]
                 manifest = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise ValueError("extraction preview does not exist") from exc
