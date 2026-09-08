@@ -83,22 +83,32 @@ class ContactProvider(Provider):
 
     def build_challenges(self, object_ref: str, data: Mapping[str, Any]) -> list[Challenge]:
         policy = data.get("policy")
-        requested = ("street", "house_number", "postal_code", "city", "phone", "mobile", "email", "company")
+        requested = ("street", "house_number", "postal_code", "city", "country", "phone", "mobile", "email", "company")
         fields = allowed_contact_fields(policy, requested) if isinstance(policy, GamePolicy) else ()
+        existing = {str(value) for value in data.get("existing_fields", ())}
         display = str(data.get("display_name", ""))[:200]
         result: list[Challenge] = []
         prompts = {
-            "street": "Welche Strasse ist fuer diesen Kontakt aktuell?",
-            "house_number": "Welche Hausnummer ist aktuell?",
-            "postal_code": "Welche PLZ ist aktuell?",
-            "city": "Welcher Ort ist aktuell?",
-            "phone": "Welche Telefonnummer ist aktuell?",
-            "mobile": "Welche Mobilnummer ist aktuell?",
-            "email": "Welche E-Mail-Adresse ist aktuell?",
-            "company": "Zu welcher Firma gehoert der Kontakt?",
+            "street": f"Welche Strasse fehlt bei {display}?",
+            "house_number": f"Welche Hausnummer fehlt bei {display}?",
+            "postal_code": f"Welche PLZ fehlt bei {display}?",
+            "city": f"Welcher Ort fehlt bei {display}?",
+            "country": f"Welches Land fehlt bei {display}?",
+            "phone": f"Welche Telefonnummer fehlt bei {display}?",
+            "mobile": f"Welche Mobilnummer fehlt bei {display}?",
+            "email": f"Welche E-Mail-Adresse fehlt bei {display}?",
+            "company": f"Welche Firma fehlt bei {display}?",
         }
+        # Initial rollout asks only for genuinely missing values.  Verification
+        # of existing phone/address/email data is a separate mode because it
+        # discloses current values and needs field-level policy decisions.
         for field in fields:
-            result.append(Challenge(self.name, object_ref, field, prompts[field], "text", {"display_name": display, "field": field}))
+            if field in existing:
+                continue
+            result.append(Challenge(
+                self.name, object_ref, field, prompts[field], "text",
+                {"display_name": display, "field": field},
+            ))
         return result
 
 
