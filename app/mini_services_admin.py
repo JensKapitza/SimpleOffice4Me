@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 
 from .access_control import audit, is_admin
 from .auth import login_required
 from .mini_services import (
-    DEFAULT_CONFIG,
     clear_dns_log,
     clear_leases,
     default_config_path,
@@ -49,23 +47,6 @@ def _json_rows(name: str) -> list[dict]:
     if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
         raise ValueError(f"{name} muss eine JSON-Liste aus Objekten sein")
     return value
-
-
-def _systemctl(action: str) -> tuple[bool, str]:
-    if action not in {"start", "stop", "restart"}:
-        raise ValueError("Unbekannte Dienstaktion")
-    try:
-        result = subprocess.run(
-            ["systemctl", action, "simpleoffice-mini-services.service"],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"{type(exc).__name__}: {exc}"
-    message = (result.stderr or result.stdout or "").strip()[:500]
-    return result.returncode == 0, message
 
 
 @bp.get("")
@@ -152,25 +133,7 @@ def save():
         "dhcp-dns",
         detail={"dhcp_enabled": clean["dhcp"]["enabled"], "dns_enabled": clean["dns"]["enabled"]},
     )
-    ok, message = _systemctl("restart")
-    flash("Mini Services gespeichert und neu gestartet." if ok else f"Konfiguration gespeichert. Dienst konnte nicht automatisch neu gestartet werden: {message or 'systemctl fehlgeschlagen'}")
-    return redirect(url_for("mini_services_admin.index"))
-
-
-@bp.post("/service/<action>")
-@admin_required
-def service_action(action: str):
-    if action not in {"start", "stop", "restart"}:
-        abort(404)
-    ok, message = _systemctl(action)
-    audit(
-        "mini_services_service_action",
-        "service",
-        "dhcp-dns",
-        outcome="success" if ok else "failure",
-        detail={"action": action, "message": message},
-    )
-    flash(f"Mini Services: {action} ausgeführt." if ok else f"Dienstaktion fehlgeschlagen: {message or 'systemctl fehlgeschlagen'}")
+    flash("Mini Services gespeichert. Der Netzwerk-Worker übernimmt die Änderung automatisch.")
     return redirect(url_for("mini_services_admin.index"))
 
 
