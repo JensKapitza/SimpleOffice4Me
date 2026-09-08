@@ -76,6 +76,7 @@ class CardDavTest(unittest.TestCase):
 
     def test_report_rejects_xml_entity_expansion(self):
         self.store.upsert({"display_name": "Amy Beispiel"}, "admin", "amy")
+        self.store.upsert({"display_name": "Ruby Beispiel"}, "admin", "ruby")
         malicious = b'''<?xml version="1.0"?>
 <!DOCTYPE card:addressbook-multiget [<!ENTITY xxe "amy">]>
 <card:addressbook-multiget xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:d="DAV:">
@@ -87,8 +88,10 @@ class CardDavTest(unittest.TestCase):
             data=malicious,
             headers={**self.auth, "Content-Type": "application/xml"},
         )
+        body = response.get_data(as_text=True)
         self.assertEqual(207, response.status_code)
-        self.assertIn("amy.vcf", response.get_data(as_text=True))
+        self.assertIn("amy.vcf", body)
+        self.assertIn("ruby.vcf", body)
 
     def test_diagnostics_distinguishes_visible_and_hidden_contacts(self):
         self.store.upsert({"display_name": "Admin Kontakt"}, "admin", "admin-contact")
