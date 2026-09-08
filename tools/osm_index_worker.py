@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import sys
 from pathlib import Path
@@ -80,11 +81,14 @@ def run_osm_index(root: str | Path, *, force: bool = False, city: str = "") -> i
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me OSM address index worker")
-    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--root", type=Path)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--city", default="", help="Replace only this exact addr:city value")
     args = parser.parse_args()
-    raise SystemExit(run_osm_index(args.root, force=args.force, city=args.city))
+    root = args.root or os.environ.get("SIMPLEOFFICE_WORKER_ROOT")
+    if not root:
+        parser.error("--root oder SIMPLEOFFICE_WORKER_ROOT ist erforderlich")
+    raise SystemExit(run_osm_index(root, force=args.force, city=args.city))
 
 
 if __name__ == "__main__":
