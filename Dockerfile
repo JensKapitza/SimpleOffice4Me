@@ -16,6 +16,7 @@ RUN apt-get update \
         ca-certificates \
         cups-client \
         git \
+        gosu \
         iproute2 \
         nftables \
         procps \
@@ -40,8 +41,7 @@ RUN python -m venv /opt/simpleoffice4me/.venv \
     && chown -R root:root /opt/simpleoffice4me \
     && chown -R simpleoffice:simpleoffice /var/lib/simpleoffice4me
 
-USER simpleoffice
-
+VOLUME ["/var/lib/simpleoffice4me"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
