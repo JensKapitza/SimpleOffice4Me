@@ -35,12 +35,15 @@ class ScanResult:
 
 
 class QuarantineCapacityError(RuntimeError):
-    """Raised when the fail-closed upload quarantine cannot accept more data."""
+    """The private upload quarantine cannot safely accept another payload."""
 
 
 class ClamAV:
-    def __init__(self, timeout: int = 120):
-        self.timeout = timeout
+    """Execute fixed ClamAV programs without a shell or network listener."""
+
+    def __init__(self, timeout: int | None = None):
+        configured = timeout if timeout is not None else int(os.environ.get("SIMPLEOFFICE_CLAMAV_TIMEOUT", "120"))
+        self.timeout = max(5, min(configured, 900))
 
     def executable(self) -> str:
         requested = os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip()
@@ -98,11 +101,8 @@ class ClamAV:
     def update(self) -> str:
         executable = shutil.which("freshclam")
         if not executable:
-            raise RuntimeError("freshclam is not installed")
-        try:
-            result = subprocess.run([executable], capture_output=True, text=True, timeout=300, check=False)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("freshclam timed out") from exc
+            raise RuntimeError("freshclam is not installed or not in PATH")
+        result = subprocess.run([executable, "--stdout"], capture_output=True, text=True, timeout=300, check=False)
         output = (result.stdout or result.stderr).strip()[-3000:]
         if result.returncode:
             raise RuntimeError(f"freshclam failed (exit {result.returncode}): {output}")
@@ -145,22 +145,24 @@ class AttachmentSecurity:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        base = {"scan_id": scan_id, "event_type": "file_scan", "scanned_at": utc_now(), "actor": actor, "source_type": source_type, "target_path": target_path, "filename": Path(target_path).name[:180], "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+        digest = hashlib.sha256(payload).hexdigest()
+        base = {"scan_id": scan_id, "scanned_at": utc_now(), "actor": actor, "source_type": source_type, "target_path": target_path, "filename": Path(target_path).name, "size": len(payload), "sha256": digest}
         try:
             verdict = self.scanner.scan(pending)
+            if verdict.verdict not in {"clean", "infected"}:
+                raise RuntimeError("ClamAV returned an unsupported verdict")
             record = {**base, **asdict(verdict)}
             if verdict.verdict == "infected":
                 retained = self.webdav_quarantine / f"{scan_id}.infected"
                 pending.replace(retained)
-                record.update({"action": "blocked_quarantined", "quarantine_id": retained.name})
+                record["quarantine_id"] = retained.name
+                record["action"] = "blocked_quarantined"
                 self._record_scan(record)
                 self._record_webdav_scan_audit("webdav_upload_malware_blocked", record)
                 return record
-            if verdict.verdict != "clean":
-                raise RuntimeError("ClamAV returned an unsupported verdict")
-            record["action"] = "allowed_write"
+            record["action"] = "allowed"
             self._record_scan(record)
-            self._record_webdav_scan_audit("webdav_upload_malware_clean", record)
+            self._record_webdav_scan_audit("webdav_upload_malware_scanned", record)
             pending.unlink()
             return record
         except (OSError, RuntimeError) as exc:
@@ -294,39 +296,44 @@ class AttachmentSecurity:
             except (OSError, json.JSONDecodeError):
                 pass
             data.setdefault("scans", []).append(record)
-            data["scans"] = data["scans"][-1000:]
+            data["scans"] = data["scans"][-5000:]
             atomic_json_write(self.registry, data)
 
     @staticmethod
-    def safe_error_code(exc: BaseException) -> str:
-        if isinstance(exc, subprocess.TimeoutExpired):
+    def safe_error_code(exc: Exception) -> str:
+        message = str(exc).casefold()
+        if "not installed" in message or "not in path" in message or "unavailable" in message:
+            return "scanner_unavailable"
+        if "timed out" in message:
             return "scanner_timeout"
-        if isinstance(exc, OSError):
-            return "scanner_io_error"
         return "scanner_error"
 
-    def record_event(self, action: str, actor: str, status: str, **details: Any) -> dict[str, Any]:
-        event = {"event_type": "server_action", "action": action, "actor": actor, "status": status, "at": utc_now(), **details}
-        self._record_scan(event)
-        return event
+    def record_event(self, action: str, actor: str, outcome: str, *, detail: str = "", counts: dict[str, int] | None = None, duration_ms: int | None = None) -> None:
+        record: dict[str, Any] = {"event_id": uuid.uuid4().hex, "event_type": "server_action", "action": action, "occurred_at": utc_now(), "actor": actor, "outcome": outcome, "detail": str(detail)[:160]}
+        if counts is not None:
+            record["counts"] = {key: int(value) for key, value in counts.items()}
+        if duration_ms is not None:
+            record["duration_ms"] = max(0, int(duration_ms))
+        self._record_scan(record)
 
-    def scan_all_documents(self, actor: str) -> dict[str, int]:
-        """Scan every current regular document and persist each verdict."""
+    def scan_documents(self, actor: str, max_files: int = 10000) -> dict[str, int]:
         started = time.monotonic()
-        result = {"scanned": 0, "clean": 0, "infected": 0, "errors": 0, "skipped": 0}
-        documents = DocumentStore(self.root).list_documents()
-        self.record_event("server_scan", actor, "started", counts={"documents": len(documents)})
-        for document in documents:
-            path = self.root / str(document.get("last_path", ""))
-            if not path.is_file() or path.is_symlink():
+        self.record_event("server_scan", actor, "started", detail="Bestandsprüfung gestartet")
+        result = {"clean": 0, "infected": 0, "errors": 0, "skipped": 0}
+        for count, document in enumerate(DocumentStore(self.root)._all_documents()):
+            if count >= max_files:
                 result["skipped"] += 1
                 continue
-            base = {"scan_id": uuid.uuid4().hex, "event_type": "file_scan", "scanned_at": utc_now(), "actor": actor, "source_type": "server-scan", "document_id": document["document_id"], "target_path": document.get("last_path", ""), "filename": path.name, "size": path.stat().st_size}
+            try:
+                path = self._managed_document_path(str(document.get("last_path", "")))
+            except (OSError, ValueError):
+                result["skipped"] += 1
+                continue
+            base = {"scan_id": uuid.uuid4().hex, "event_type": "file_scan", "scanned_at": utc_now(), "actor": actor, "source_type": "managed-document", "document_id": document.get("document_id", ""), "target_path": document.get("last_path", ""), "filename": path.name, "size": path.stat().st_size}
             try:
                 verdict = self.scanner.scan(path)
-                record = {**base, "sha256": sha256_file(path), **asdict(verdict), "action": "reported" if verdict.verdict == "infected" else "none"}
-                result["scanned"] += 1
                 result[verdict.verdict] += 1
+                record = {**base, "sha256": sha256_file(path), "action": "reported" if verdict.verdict == "infected" else "none", **asdict(verdict)}
                 self._record_scan(record)
                 DocumentStore(self.root).set_malware_scan(str(document["document_id"]), record, actor)
             except (OSError, RuntimeError) as exc:
@@ -338,19 +345,15 @@ class AttachmentSecurity:
         DocumentStore(self.root).history.record("managed_documents_malware_scanned", actor, "security", "clamav", result)
         return result
 
+    def scan_all_documents(self, actor: str) -> dict[str, int]:
+        """Compatibility alias for callers using the newer method name."""
+        result = self.scan_documents(actor)
+        return {"scanned": result["clean"] + result["infected"], **result}
+
     def scan_document(self, document_id: str, actor: str) -> dict[str, Any]:
         """Scan one managed document and retain an auditable verdict."""
         document = DocumentStore(self.root).get_document(document_id)
-        candidate = self.root / str(document.get("last_path", ""))
-        if candidate.is_symlink():
-            raise ValueError("managed document file is unavailable")
-        path = candidate.resolve()
-        try:
-            path.relative_to(self.root)
-        except ValueError as exc:
-            raise ValueError("document path is outside the managed root") from exc
-        if not path.is_file() or path.is_symlink():
-            raise ValueError("managed document file is unavailable")
+        path = self._managed_document_path(str(document.get("last_path", "")))
         base = {
             "scan_id": uuid.uuid4().hex, "event_type": "file_scan",
             "scanned_at": utc_now(), "actor": actor,
@@ -370,8 +373,6 @@ class AttachmentSecurity:
         except (OSError, RuntimeError) as exc:
             record = {**base, "verdict": "error", "engine": "", "action": "scan_failed", "detail": str(exc)[:1000]}
         self._record_scan(record)
-        # Keep the latest verdict with the document as well.  This makes the
-        # state visible without relying on the size-limited global scan log.
         DocumentStore(self.root).set_malware_scan(document_id, record, actor)
         DocumentStore(self.root).history.record(
             "managed_document_malware_scanned", actor, "document", document["document_id"],
