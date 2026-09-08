@@ -1,0 +1,55 @@
+name: Temporary apply security wave 2
+
+on:
+  push:
+    branches:
+      - fix/codeql-security-wave2
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/codeql-security-wave2
+      - name: Apply non-breaking XML hardening
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'pattern not found in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace('pyproject.toml', '  "beautifulsoup4>=4.12,<5",\n', '  "beautifulsoup4>=4.12,<5",\n  "defusedxml>=0.7,<1",\n')
+
+          replace('app/caldav.py', 'from xml.etree import ElementTree\n', 'from xml.etree import ElementTree\nfrom defusedxml import ElementTree as DefusedElementTree\nfrom defusedxml.common import DefusedXmlException\n')
+          replace('app/caldav.py', '    try: return ElementTree.fromstring(body or b"<empty/>")\n    except ElementTree.ParseError as exc: raise ValueError("invalid DAV XML") from exc\n', '    try: return DefusedElementTree.fromstring(body or b"<empty/>")\n    except (ElementTree.ParseError, DefusedXmlException) as exc: raise ValueError("invalid DAV XML") from exc\n')
+          replace('app/caldav.py', 'f"<d:current-user-principal><d:href>{principal}</d:href></d:current-user-principal>"', 'f"<d:current-user-principal><d:href>{escape(principal)}</d:href></d:current-user-principal>"')
+          replace('app/caldav.py', 'f"<cal:schedule-inbox-URL><d:href>{inbox}</d:href></cal:schedule-inbox-URL><cal:schedule-outbox-URL><d:href>{outbox}</d:href></cal:schedule-outbox-URL>"', 'f"<cal:schedule-inbox-URL><d:href>{escape(inbox)}</d:href></cal:schedule-inbox-URL><cal:schedule-outbox-URL><d:href>{escape(outbox)}</d:href></cal:schedule-outbox-URL>"')
+          replace('app/caldav.py', '<cal:calendar-home-set><d:href>{home}</d:href></cal:calendar-home-set>', '<cal:calendar-home-set><d:href>{escape(home)}</d:href></cal:calendar-home-set>')
+
+          replace('app/carddav.py', 'from xml.etree import ElementTree as ET\n', 'from xml.etree import ElementTree as ET\nfrom defusedxml import ElementTree as DefusedET\nfrom defusedxml.common import DefusedXmlException\n')
+          replace('app/carddav.py', '        root = ET.fromstring(raw)\n    except ET.ParseError:\n', '        root = DefusedET.fromstring(raw)\n    except (ET.ParseError, DefusedXmlException):\n')
+          replace('app/carddav.py', '            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact)})\n', '            return Response(card,200,{"Content-Type":"text/vcard; charset=utf-8","ETag":_etag(contact),"X-Content-Type-Options":"nosniff","Content-Security-Policy":"sandbox"})\n')
+
+          replace('app/webdav.py', 'from xml.etree import ElementTree\n', 'from xml.etree import ElementTree\nfrom defusedxml import ElementTree as DefusedElementTree\nfrom defusedxml.common import DefusedXmlException\n')
+          replace('app/webdav.py', '        root = ElementTree.fromstring(body)\n    except ElementTree.ParseError as exc:\n', '        root = DefusedElementTree.fromstring(body)\n    except (ElementTree.ParseError, DefusedXmlException) as exc:\n')
+          replace('app/webdav.py', '                    "Content-Length": str(total_length),\n', '                    "Content-Length": str(total_length),\n                    "X-Content-Type-Options": "nosniff",\n                    "Content-Security-Policy": "sandbox",\n')
+      - name: Compile changed Python sources
+        run: python -m compileall -q app
+      - name: Commit fixes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add pyproject.toml app/caldav.py app/carddav.py app/webdav.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Harden DAV XML parsing and browser responses"
+          git push origin HEAD:fix/codeql-security-wave2
