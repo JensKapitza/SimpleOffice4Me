@@ -15,14 +15,12 @@ SPEC.loader.exec_module(installer)
 
 
 class InvoiceValidatorInstallerTests(unittest.TestCase):
-    def test_missing_sha256_sidecar_falls_back_to_published_sha1(self):
+    def test_missing_sha256_sidecar_fails_closed(self):
         payload = b"executable validator jar"
 
         def download(url):
             if url.endswith(".sha256"):
                 raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
-            if url.endswith(".sha1"):
-                return hashlib.sha1(payload).hexdigest().encode("ascii")
             return payload
 
         with tempfile.TemporaryDirectory() as temp:
@@ -31,6 +29,23 @@ class InvoiceValidatorInstallerTests(unittest.TestCase):
             with mock.patch.object(installer, "TARGET", target), \
                  mock.patch.object(installer, "CHECKSUM_FILE", checksum_file), \
                  mock.patch.object(installer, "_download", side_effect=download), \
+                 mock.patch.object(installer.shutil, "which", return_value="/usr/bin/java"):
+                with self.assertRaisesRegex(RuntimeError, "SHA-256 checksum"):
+                    installer.install()
+
+            self.assertFalse(target.exists())
+            self.assertFalse(checksum_file.exists())
+
+    def test_valid_sha256_installs_jar(self):
+        payload = b"executable validator jar"
+        checksum = hashlib.sha256(payload).hexdigest().encode("ascii")
+
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / installer.FILENAME
+            checksum_file = target.with_suffix(".jar.sha256")
+            with mock.patch.object(installer, "TARGET", target), \
+                 mock.patch.object(installer, "CHECKSUM_FILE", checksum_file), \
+                 mock.patch.object(installer, "_download", side_effect=[checksum, payload]), \
                  mock.patch.object(installer.shutil, "which", return_value="/usr/bin/java"):
                 installed = installer.install()
 
