@@ -168,3 +168,12 @@ def clear_dhcp_leases():
     audit("mini_dhcp_leases_cleared", "service", "dhcp")
     flash("DHCP-Leases wurden geleert. Aktive Clients können anschließend neue Leases anfordern.")
     return redirect(url_for("mini_services_admin.index"))
+
+
+# This module is imported while the main Flask app is already being built.
+# Register the dedicated Networkboot peer-role UI alongside Mini Services so
+# peer policy stays separate from DHCP/DNS configuration.
+from . import app as _flask_app
+from .network_boot_admin import bp as _network_boot_admin_bp
+if "network_boot_admin" not in _flask_app.blueprints:
+    _flask_app.register_blueprint(_network_boot_admin_bp)
