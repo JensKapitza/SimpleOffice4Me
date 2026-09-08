@@ -10,10 +10,10 @@ ROLE=${SIMPLEOFFICE_CONTAINER_ROLE:-web}
 
 mkdir -p "$INSTANCE_DIR" "$DATABASE_DIR" "$DOCUMENT_DIR"
 
-# Named volumes are created as root. Only the dedicated network worker remains
-# root inside its capability-restricted container; the normal web process drops
-# privileges before importing the Flask application.
-if [ "$(id -u)" = "0" ]; then
+# The web role initializes named-volume ownership and then drops to the
+# unprivileged application account. The network role deliberately does not
+# change ownership and receives only its explicit capabilities from Compose.
+if [ "$ROLE" = "web" ] && [ "$(id -u)" = "0" ]; then
     chown -R simpleoffice:simpleoffice "$STATE_DIR"
 fi
 
@@ -29,7 +29,9 @@ if [ ! -f "$CONFIG" ]; then
   "port": $PORT
 }
 EOF
-    chown simpleoffice:simpleoffice "$CONFIG" 2>/dev/null || true
+    if [ "$ROLE" = "web" ]; then
+        chown simpleoffice:simpleoffice "$CONFIG" 2>/dev/null || true
+    fi
 fi
 
 case "$ROLE" in
@@ -41,9 +43,9 @@ case "$ROLE" in
         exec "$@"
         ;;
     mini-services)
-        # Docker Compose grants only NET_BIND_SERVICE, NET_RAW and NET_ADMIN to
-        # this container. Keeping uid 0 here avoids relying on ambient-capability
-        # propagation through an extra privilege-drop helper.
+        # The process remains uid 0 only inside this capability-restricted
+        # container. It is not Docker-privileged and cannot gain capabilities
+        # beyond those listed in compose.lan.yaml.
         if [ "$(id -u)" != "0" ]; then
             echo "mini-services role must start as root with restricted container capabilities" >&2
             exit 70
