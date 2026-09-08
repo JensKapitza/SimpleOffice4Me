@@ -19,12 +19,23 @@ class SafePathsTest(unittest.TestCase):
             root = Path(temp)
             with self.assertRaises(ValueError):
                 resolve_under(root, "../../etc/passwd")
+            with self.assertRaises(ValueError):
+                resolve_under(root, r"..\..\etc\passwd")
 
     def test_absolute_path_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with self.assertRaises(ValueError):
                 resolve_under(root, Path(temp).parent / "outside.txt")
+            with self.assertRaises(ValueError):
+                resolve_under(root, r"C:\Windows\win.ini")
+            with self.assertRaises(ValueError):
+                resolve_under(root, r"\\server\share\secret.txt")
+
+    def test_nul_path_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaises(ValueError):
+                resolve_under(Path(temp), "safe\x00outside")
 
     def test_symlink_escape_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as outside:
@@ -39,7 +50,7 @@ class SafePathsTest(unittest.TestCase):
 
     def test_filename_is_reduced_to_one_safe_component(self):
         self.assertEqual("passwd", safe_filename("../../etc/passwd"))
-        self.assertEqual("evil.txt", safe_filename(r"..\\..\\evil.txt"))
+        self.assertEqual("evil.txt", safe_filename(r"..\..\evil.txt"))
         self.assertNotIn("/", safe_filename("customer/report 2026.pdf"))
         self.assertNotIn("\\", safe_filename("customer/report 2026.pdf"))
 
