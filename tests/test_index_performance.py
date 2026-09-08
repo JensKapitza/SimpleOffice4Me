@@ -165,6 +165,14 @@ class IndexProcessIsolationTest(unittest.TestCase):
         self.assertEqual("tools.osm_download_worker", command[2])
         self.assertEqual("germany", command[-1])
 
+    def test_launcher_rejects_untrusted_worker_arguments_before_popen(self):
+        with patch("tools.launcher.subprocess.Popen") as popen:
+            with self.assertRaises(ValueError):
+                launcher.start_osm_index_worker("/srv/documents", city="Duisburg\n--force")
+            with self.assertRaises(ValueError):
+                launcher.start_osm_download_worker("/srv/documents", "germany;touch-pwned")
+        popen.assert_not_called()
+
 
 class LoginDashboardPerformanceTest(unittest.TestCase):
     def setUp(self):
