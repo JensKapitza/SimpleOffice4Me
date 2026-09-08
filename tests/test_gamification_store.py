@@ -71,3 +71,47 @@ def test_challenge_cannot_be_answered_by_other_actor(tmp_path):
 
     with pytest.raises(ValueError):
         store.answer_challenge(challenge, "stranger", "Vertrag")
+
+
+def test_unknown_consumes_challenge_without_proposal_and_is_audited(tmp_path):
+    store = GamificationStore(tmp_path)
+    session = store.create_session("Lokale Runde", "local", "owner", {})
+    item = store.add_item(session, "contacts", "contact:1")
+    challenge = store.add_challenge(item, "phone", "text", "Telefon?")
+
+    store.skip_challenge(challenge, "owner", disposition="unknown")
+
+    assert store.get_challenge_for_actor(challenge, "owner") is None
+    with sqlite3.connect(store.path) as db:
+        status = db.execute("SELECT status, answered_by FROM game_challenge WHERE id=?", (challenge,)).fetchone()
+        proposals = db.execute("SELECT COUNT(*) FROM annotation_proposal WHERE item_id=?", (item,)).fetchone()[0]
+        audit = db.execute(
+            "SELECT action FROM game_audit WHERE session_id=? ORDER BY id DESC LIMIT 1", (session,)
+        ).fetchone()
+    assert status == ("unknown", "owner")
+    assert proposals == 0
+    assert audit == ("challenge.unknown",)
+
+
+def test_unknown_cannot_be_submitted_by_other_actor(tmp_path):
+    store = GamificationStore(tmp_path)
+    session = store.create_session("Lokale Runde", "local", "owner", {})
+    item = store.add_item(session, "contacts", "contact:1")
+    challenge = store.add_challenge(item, "email", "text", "E-Mail?")
+
+    with pytest.raises(ValueError):
+        store.skip_challenge(challenge, "stranger", disposition="unknown")
+
+
+def test_same_proposal_is_idempotent(tmp_path):
+    store = GamificationStore(tmp_path)
+    session = store.create_session("Lokale Runde", "local", "owner", {})
+    item = store.add_item(session, "contacts", "contact:1")
+
+    first = store.propose(item, "city", "Duisburg", "owner")
+    second = store.propose(item, "city", "Duisburg", "owner")
+
+    assert first == second
+    with sqlite3.connect(store.path) as db:
+        count = db.execute("SELECT COUNT(*) FROM annotation_proposal WHERE item_id=?", (item,)).fetchone()[0]
+    assert count == 1
