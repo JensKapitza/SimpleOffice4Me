@@ -1,0 +1,57 @@
+name: Temporary current CodeQL scan
+
+on:
+  push:
+    branches:
+      - fix/codeql-current-alerts
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Scan ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript, c-cpp, actions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - name: Analyze without upload
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: sarif-results
+          upload: false
+      - name: Print findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r -d '' sarif; do
+            count=$(jq '[.runs[].results[]?] | length' "$sarif")
+            echo "SARIF_FILE=$sarif RESULTS=$count"
+            if [ "$count" -gt 0 ]; then
+              found=1
+              jq -r '
+                .runs[] as $run
+                | $run.results[]?
+                | . as $result
+                | ($run.tool.driver.rules // []) as $rules
+                | ($rules | map({key:.id, value:(.shortDescription.text // .fullDescription.text // .name // "")}) | from_entries) as $rulemap
+                | ($result.locations[0].physicalLocation.artifactLocation.uri // "<no-file>") as $file
+                | ($result.locations[0].physicalLocation.region.startLine // 0) as $line
+                | "CODEQL_FINDING\t\($result.ruleId)\t\($file)\t\($line)\t\($result.message.text | gsub("[\\r\\n\\t]+"; " "))\t\($rulemap[$result.ruleId] // "")"
+              ' "$sarif"
+            fi
+          done < <(find sarif-results -type f -name '*.sarif' -print0)
+          if [ "$found" -eq 0 ]; then
+            echo "CODEQL_FINDING_NONE"
+          fi
