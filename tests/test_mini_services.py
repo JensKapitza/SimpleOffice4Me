@@ -1,0 +1,188 @@
+import copy
+import ipaddress
+import struct
+import tempfile
+import unittest
+from pathlib import Path
+
+from app.mini_services import (
+    DEFAULT_CONFIG,
+    DHCP_DISCOVER,
+    DHCP_HEADER,
+    DHCP_MAGIC,
+    DHCP_OFFER,
+    DNS_TYPES,
+    DhcpService,
+    DnsService,
+    parse_blocklist_text,
+    parse_dhcp_options,
+    parse_dns_query,
+    validate_config,
+)
+
+
+def dns_name(name: str) -> bytes:
+    result = bytearray()
+    for label in name.split("."):
+        raw = label.encode("ascii")
+        result.extend((len(raw),))
+        result.extend(raw)
+    result.append(0)
+    return bytes(result)
+
+
+def dns_query(name: str, qtype: int = 1, ident: int = 0x1234) -> bytes:
+    return struct.pack("!HHHHHH", ident, 0x0100, 1, 0, 0, 0) + dns_name(name) + struct.pack("!HH", qtype, 1)
+
+
+def dhcp_discover(mac: bytes, xid: int = 0x12345678) -> bytes:
+    chaddr = mac + b"\0" * (16 - len(mac))
+    header = DHCP_HEADER.pack(
+        1, 1, len(mac), 0, xid, 0, 0x8000,
+        b"\0" * 4, b"\0" * 4, b"\0" * 4, b"\0" * 4,
+        chaddr, b"", b"",
+    )
+    return header + DHCP_MAGIC + bytes((53, 1, DHCP_DISCOVER, 12, 4)) + b"test" + bytes((255,))
+
+
+class MiniServicesConfigTests(unittest.TestCase):
+    def test_default_config_is_valid(self):
+        config = validate_config(copy.deepcopy(DEFAULT_CONFIG))
+        self.assertEqual("192.168.178.0/24", config["dhcp"]["network"])
+        self.assertEqual(["1.1.1.1", "9.9.9.9"], config["dns"]["upstreams"])
+
+    def test_rejects_invalid_dhcp_timer_order(self):
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["dhcp"]["renewal_time"] = 80000
+        config["dhcp"]["rebinding_time"] = 70000
+        with self.assertRaisesRegex(ValueError, "T1 < T2 < Lease"):
+            validate_config(config)
+
+    def test_rejects_pool_outside_network(self):
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["dhcp"]["pool_end"] = "192.168.179.20"
+        with self.assertRaisesRegex(ValueError, "Pool"):
+            validate_config(config)
+
+    def test_reservations_require_unique_ips(self):
+        config = copy.deepcopy(DEFAULT_CONFIG)
+        config["dhcp"]["reservations"] = [
+            {"mac": "00:11:22:33:44:55", "ip": "192.168.178.10"},
+            {"mac": "00:11:22:33:44:66", "ip": "192.168.178.10"},
+        ]
+        with self.assertRaisesRegex(ValueError, "mehrfach reserviert"):
+            validate_config(config)
+
+    def test_blocklist_parser_accepts_hosts_and_adblock_syntax(self):
+        domains = parse_blocklist_text(
+            "# comment\n0.0.0.0 ads.example\n127.0.0.1 tracker.example\n||banner.example^\n"
+        )
+        self.assertEqual({"ads.example", "tracker.example", "banner.example"}, domains)
+
+
+class MiniDnsTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.temp.name) / "mini-services.json"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_local_a_record_redirects_without_upstream(self):
+        config = copy.deepcopy(DEFAULT_CONFIG["dns"])
+        config["records"] = [
+            {"name": "service.home.arpa", "type": "A", "value": "192.168.178.7", "ttl": 120}
+        ]
+        service = DnsService(validate_config({"dhcp": DEFAULT_CONFIG["dhcp"], "dns": config})["dns"], self.config_path)
+        query = dns_query("service.home.arpa")
+        response = service.resolve(query, "192.168.178.20", tcp_client=False)
+        self.assertIsNotNone(response)
+        self.assertEqual(query[:2], response[:2])
+        self.assertEqual(1, struct.unpack_from("!H", response, 6)[0])
+        self.assertIn(ipaddress.ip_address("192.168.178.7").packed, response)
+
+    def test_manual_block_zeroes_a_record(self):
+        config = copy.deepcopy(DEFAULT_CONFIG["dns"])
+        config["manual_blocks"] = ["ads.example"]
+        service = DnsService(validate_config({"dhcp": DEFAULT_CONFIG["dhcp"], "dns": config})["dns"], self.config_path)
+        response = service.resolve(dns_query("ads.example"), "192.168.178.20", tcp_client=False)
+        self.assertIsNotNone(response)
+        self.assertEqual(1, struct.unpack_from("!H", response, 6)[0])
+        self.assertTrue(response.endswith(b"\x00\x00\x00\x00"))
+
+    def test_allowlist_wins_over_manual_block(self):
+        config = copy.deepcopy(DEFAULT_CONFIG["dns"])
+        config["manual_blocks"] = ["*.example"]
+        config["allowlist"] = ["good.example"]
+        config["records"] = [{"name": "good.example", "type": "A", "value": "10.0.0.5", "ttl": 60}]
+        service = DnsService(validate_config({"dhcp": DEFAULT_CONFIG["dhcp"], "dns": config})["dns"], self.config_path)
+        response = service.resolve(dns_query("good.example"), "10.0.0.2", tcp_client=False)
+        self.assertIn(ipaddress.ip_address("10.0.0.5").packed, response)
+
+    def test_dns_query_parser_detects_question(self):
+        parsed = parse_dns_query(dns_query("host.home.arpa", DNS_TYPES["AAAA"]))
+        self.assertEqual("host.home.arpa", parsed["name"])
+        self.assertEqual(DNS_TYPES["AAAA"], parsed["qtype"])
+
+
+class MiniDhcpTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.temp.name) / "mini-services.json"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_discover_receives_offer_with_rfc_options(self):
+        config = validate_config(copy.deepcopy(DEFAULT_CONFIG))["dhcp"]
+        service = DhcpService(config, self.config_path)
+        result = service.handle_packet(dhcp_discover(bytes.fromhex("001122334455")), ("0.0.0.0", 68))
+        self.assertIsNotNone(result)
+        response, destination = result
+        values = DHCP_HEADER.unpack_from(response)
+        offered = str(ipaddress.ip_address(values[8]))
+        self.assertTrue(ipaddress.ip_address(offered) in ipaddress.ip_network(config["network"]))
+        options = parse_dhcp_options(response[DHCP_HEADER.size :])
+        self.assertEqual(bytes((DHCP_OFFER,)), options[53])
+        self.assertEqual(ipaddress.ip_address(config["server_ip"]).packed, options[54])
+        self.assertIn(1, options)   # subnet mask
+        self.assertIn(3, options)   # router
+        self.assertIn(6, options)   # DNS
+        self.assertIn(51, options)  # lease time
+        self.assertEqual(("255.255.255.255", 68), destination)
+
+    def test_reserved_mac_gets_reserved_ip(self):
+        full = copy.deepcopy(DEFAULT_CONFIG)
+        full["dhcp"]["reservations"] = [
+            {"mac": "00:11:22:33:44:55", "ip": "192.168.178.10", "hostname": "printer"}
+        ]
+        service = DhcpService(validate_config(full)["dhcp"], self.config_path)
+        response, _destination = service.handle_packet(
+            dhcp_discover(bytes.fromhex("001122334455")), ("0.0.0.0", 68)
+        )
+        values = DHCP_HEADER.unpack_from(response)
+        self.assertEqual("192.168.178.10", str(ipaddress.ip_address(values[8])))
+
+
+class MiniServicesPackagingTests(unittest.TestCase):
+    def test_systemd_worker_has_only_network_capabilities(self):
+        root = Path(__file__).resolve().parents[1]
+        unit = (root / "packaging" / "simpleoffice-mini-services.service").read_text(encoding="utf-8")
+        self.assertIn("User=simpleoffice", unit)
+        self.assertIn("AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW", unit)
+        self.assertIn("CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_NET_RAW", unit)
+        self.assertIn("NoNewPrivileges=true", unit)
+        self.assertIn("ProtectSystem=strict", unit)
+        self.assertNotIn("CAP_NET_ADMIN", unit)
+
+    def test_package_installs_and_enables_worker_unit(self):
+        root = Path(__file__).resolve().parents[1]
+        builder = (root / "packaging" / "build-fpm.sh").read_text(encoding="utf-8")
+        postinst = (root / "packaging" / "postinst.sh").read_text(encoding="utf-8")
+        self.assertIn("simpleoffice-mini-services.service", builder)
+        self.assertIn("enable simpleoffice-mini-services.service", postinst)
+        self.assertIn("restart simpleoffice-mini-services.service", postinst)
+
+
+if __name__ == "__main__":
+    unittest.main()
