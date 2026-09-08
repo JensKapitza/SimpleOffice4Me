@@ -12,6 +12,7 @@ import argparse
 import errno
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -25,6 +26,8 @@ if str(PROJECT_ROOT) not in sys.path:
 CONFIG_PATH = PROJECT_ROOT / "instance" / "simpleoffice.json"
 SCAN_STATUS_FILE_INTERVAL = 250
 SCAN_STATUS_TIME_INTERVAL = 2.0
+_SAFE_CITY = re.compile(r"[\w .,'()/-]{1,120}\Z", re.UNICODE)
+_SAFE_REGION = re.compile(r"[a-z0-9_-]{1,80}\Z")
 
 
 def _integer_setting(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -120,6 +123,8 @@ def start_osm_index_worker(document_root: str, *, force: bool = False, city: str
     if force:
         command.append("--force")
     if city:
+        if not _SAFE_CITY.fullmatch(city):
+            raise ValueError("Ungültiger Ortsname für OSM-Indexworker")
         command.extend(["--city", city])
     options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
     if os.name == "nt":
@@ -135,6 +140,8 @@ def osm_index_enabled() -> bool:
 
 
 def start_osm_download_worker(document_root: str, region: str) -> subprocess.Popen[bytes]:
+    if not _SAFE_REGION.fullmatch(region):
+        raise ValueError("Ungültige OSM-Region")
     command = [sys.executable, "-m", "tools.osm_download_worker", "--root", document_root, "--region", region]
     options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
     if os.name == "nt":
@@ -154,6 +161,8 @@ def start_datalogger_worker(document_root: str) -> subprocess.Popen[bytes] | Non
     options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
     if os.name == "nt":
         options["creationflags"] = 0x00004000
+    else:
+        options["start_new_session"] = True
     return subprocess.Popen([sys.executable, "-m", "tools.datalogger_worker", "--root", document_root], **options)
 
 
