@@ -4,9 +4,11 @@ from __future__ import annotations
 import hashlib
 import json
 from urllib.parse import urlparse
-from xml.etree import ElementTree as ET
+from xml.etree.ElementTree import ParseError
 from xml.sax.saxutils import escape
 
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from flask import Blueprint, Response, current_app, request, url_for
 
 from .contact_store import ContactConflict, ContactStore
@@ -103,8 +105,8 @@ def _report_contacts(store: ContactStore, username: str) -> list[dict]:
     if not raw:
         return contacts
     try:
-        root = ET.fromstring(raw)
-    except ET.ParseError:
+        root = DefusedElementTree.fromstring(raw)
+    except (ParseError, DefusedXmlException):
         return contacts
     if root.tag != f"{{{CARD}}}addressbook-multiget":
         return contacts
