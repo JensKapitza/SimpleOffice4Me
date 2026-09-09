@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from .contact_store import ContactStore
+from .document_store import DocumentStore
 from .gamification_engine import Candidate
+from .gamification_policy import is_hard_excluded
+from .preview_service import IMAGE_SUFFIXES, PreviewService
 
 
 # These fields are business/financial/CRM metadata and make a contact unsuitable
@@ -21,6 +24,10 @@ CONTACT_GAME_FIELDS = (
     "street", "house_number", "postal_code", "city", "country",
     "phone", "mobile", "email", "company",
 )
+
+PHOTO_GAME_BLOCKING_MARKERS = frozenset({
+    "private", "privat", "vertraulich", "intern", "confidential",
+})
 
 
 def _has_blocking_contact_data(contact: dict[str, Any]) -> bool:
@@ -82,6 +89,86 @@ def contact_candidates(root: str | Path, actor: str) -> list[Candidate]:
             collection="contacts",
         ))
     return result
+
+
+def _photo_is_blocked(document: dict[str, Any]) -> bool:
+    values: list[str] = []
+    for key in ("resource_class", "classification", "category", "document_type", "doctype"):
+        value = document.get(key)
+        if value not in (None, ""):
+            values.append(str(value))
+    tags = document.get("tags", [])
+    if not isinstance(tags, list):
+        return True
+    values.extend(str(value) for value in tags if str(value).strip())
+    if is_hard_excluded(*values):
+        return True
+    normalized = {str(value).strip().casefold() for value in values if str(value).strip()}
+    return bool(normalized & PHOTO_GAME_BLOCKING_MARKERS)
+
+
+def _safe_photo_document(root: str | Path, document: dict[str, Any]) -> Path | None:
+    """Return the cached thumbnail for one explicitly uploaded safe photo.
+
+    The original is deliberately never returned.  Missing or stale preview
+    caches make a photo ineligible until the normal preview worker created one.
+    """
+    document_id = str(document.get("document_id", "")).strip()
+    last_path = str(document.get("last_path", "")).strip()
+    attributes = document.get("attributes", {})
+    if not document_id or not last_path or not isinstance(attributes, dict):
+        return None
+    upload = attributes.get("photo_upload")
+    if not isinstance(upload, dict) or str(upload.get("source", "")).strip() != "mobile-web-bulk":
+        return None
+    if Path(last_path).suffix.casefold() not in IMAGE_SUFFIXES or _photo_is_blocked(document):
+        return None
+    return PreviewService(root).cached_path(document, "thumbnail")
+
+
+def image_candidates(root: str | Path, actor: str) -> list[Candidate]:
+    """Expose only explicit photo uploads with an already generated safe preview.
+
+    SimpleOffice's current document catalogue is authenticated application-wide,
+    so this adapter does not invent narrower rights.  It only narrows that normal
+    visibility further: explicit photo uploads, no sensitive markers, and a
+    cached thumbnail are all mandatory.  No path, document id, EXIF, tag value or
+    original URL is copied into the challenge payload.
+    """
+    if not str(actor).strip():
+        return []
+    store = DocumentStore(root)
+    result: list[Candidate] = []
+    for document in store.list_documents():
+        if _safe_photo_document(root, document) is None:
+            continue
+        document_id = str(document.get("document_id", "")).strip()
+        if not document_id:
+            continue
+        result.append(Candidate(
+            provider="images",
+            object_ref=f"document:{document_id}",
+            data={"preview": True},
+            normal_read_allowed=True,
+            resource_class="photo",
+            collection="images",
+        ))
+    return result
+
+
+def image_preview_path(root: str | Path, actor: str, object_ref: str) -> Path | None:
+    """Resolve a game image to its cached thumbnail after re-checking eligibility."""
+    if not str(actor).strip() or not str(object_ref).startswith("document:"):
+        return None
+    document_id = str(object_ref).removeprefix("document:").strip()
+    if not document_id or len(document_id) > 200:
+        return None
+    store = DocumentStore(root)
+    try:
+        document = store.get_document(document_id)
+    except ValueError:
+        return None
+    return _safe_photo_document(root, document)
 
 
 def contact_proposal_can_apply(root: str | Path, actor: str, proposal: dict[str, Any]) -> bool:
