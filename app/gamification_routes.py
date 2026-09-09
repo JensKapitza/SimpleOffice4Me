@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from flask import Blueprint, abort, current_app, g, redirect, render_template, request, send_file, url_for
 
+from .access_control import has_feature
 from .auth import login_required
 from .db import get_db
 from .federation_store import FederationStore
@@ -29,6 +30,7 @@ bp = Blueprint("gamification", __name__, url_prefix="/gamification")
 PROVIDER_SET = frozenset({"contacts", "images", "documents"})
 RESOURCE_CLASSES = {"contacts": "contact", "images": "photo", "documents": "released_file"}
 COLLECTIONS = {"contacts": "contacts", "images": "images", "documents": "files"}
+FEATURE_BY_PROVIDER = {"contacts": "contacts", "images": "documents", "documents": "documents"}
 
 
 def _policy() -> GamePolicy:
@@ -43,9 +45,62 @@ def _store() -> GamificationStore:
     return GamificationStore(current_app.config["DOCUMENT_ROOT"])
 
 
+def _user(username: str):
+    if getattr(g, "user", None) is not None and str(g.user["username"]) == str(username):
+        return g.user
+    return get_db().execute("SELECT * FROM user WHERE username=?", (str(username),)).fetchone()
+
+
+def _provider_feature_allowed(actor: str, provider: str) -> bool:
+    feature = FEATURE_BY_PROVIDER.get(provider)
+    return bool(feature and has_feature(_user(actor), feature))
+
+
 def _local_candidates(actor: str):
     root = current_app.config["DOCUMENT_ROOT"]
-    return [*contact_candidates(root, actor), *image_candidates(root, actor), *document_candidates(root, actor)]
+    result = []
+    if _provider_feature_allowed(actor, "contacts"):
+        result.extend(contact_candidates(root, actor))
+    if _provider_feature_allowed(actor, "images"):
+        result.extend(image_candidates(root, actor))
+    if _provider_feature_allowed(actor, "documents"):
+        result.extend(document_candidates(root, actor))
+    return result
+
+
+def _candidate_access(actor: str, provider: str, object_ref: str) -> bool:
+    if not _provider_feature_allowed(actor, provider):
+        return False
+    return any(item.provider == provider and item.object_ref == object_ref for item in _local_candidates(actor))
+
+
+def _session_policy(session_id: str) -> dict[str, object]:
+    with _store()._db() as db:
+        row = db.execute("SELECT policy_json FROM game_session WHERE id=? AND status='active'", (session_id,)).fetchone()
+    if row is None:
+        return {}
+    try:
+        value = json.loads(str(row["policy_json"] or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _session_access(actor: str, *, session_id: str, scope: str, provider: str, object_ref: str) -> bool:
+    if not _candidate_access(actor, provider, object_ref):
+        return False
+    if scope == "organization":
+        org_id = str(_session_policy(session_id).get("org_id", ""))
+        if not org_id or not any(item["org_id"] == org_id for item in organizations_for_user(get_db(), actor)):
+            return False
+    return scope in {"local", "organization"}
+
+
+def _challenge_access(actor: str, challenge: dict) -> bool:
+    return _session_access(
+        actor, session_id=str(challenge.get("session_id", "")), scope=str(challenge.get("scope", "")),
+        provider=str(challenge.get("provider", "")), object_ref=str(challenge.get("object_ref", "")),
+    )
 
 
 def _policy_snapshot(policy: GamePolicy, **extra) -> dict[str, object]:
@@ -64,7 +119,14 @@ def _proposal_any_scope(proposal_id: str, actor: str):
     store = _store()
     for scope in ("local", "organization", "federation"):
         proposal = store.get_proposal_for_actor(proposal_id, actor, scope=scope)
-        if proposal is not None:
+        if proposal is None:
+            continue
+        if scope == "federation" and str(proposal.get("created_by")) == actor:
+            return proposal
+        if _session_access(
+            actor, session_id=str(proposal.get("session_id", "")), scope=scope,
+            provider=str(proposal.get("provider", "")), object_ref=str(proposal.get("object_ref", "")),
+        ):
             return proposal
     return None
 
@@ -89,7 +151,15 @@ def _pending_proposal(actor: str) -> dict[str, object] | None:
 def _populate_session(store: GamificationStore, session_id: str, actor: str, policy: GamePolicy, *, organization: bool = False) -> int:
     candidates = _local_candidates(actor)
     if organization:
-        candidates = [replace(candidate, organization_member=True) for candidate in candidates]
+        with store._db() as db:
+            participants = [str(row["participant"]) for row in db.execute(
+                "SELECT participant FROM game_participant WHERE session_id=? AND role IN ('answer','owner')",
+                (session_id,),
+            ).fetchall() if not str(row["participant"]).startswith("peer:")]
+        allowed = {(item.provider, item.object_ref) for item in candidates}
+        for participant in participants:
+            allowed &= {(item.provider, item.object_ref) for item in _local_candidates(participant)}
+        candidates = [replace(item, organization_member=True) for item in candidates if (item.provider, item.object_ref) in allowed]
     challenges = eligible_challenges(policy, actor, candidates)[:100]
     for generated in challenges:
         item_id = store.add_item(session_id, generated.provider, generated.object_ref, RESOURCE_CLASSES[generated.provider])
@@ -101,8 +171,9 @@ def _sessions(actor: str):
     store = _store()
     with store._db() as db:
         rows = db.execute(
-            "SELECT id,scope,title,status,policy_json,created_at FROM game_session WHERE created_by=? ORDER BY created_at DESC LIMIT 50",
-            (actor,),
+            "SELECT id,scope,title,status,policy_json,created_at FROM game_session WHERE created_by=? OR EXISTS(" 
+            "SELECT 1 FROM game_participant gp WHERE gp.session_id=game_session.id AND gp.participant=?) "
+            "ORDER BY created_at DESC LIMIT 50", (actor, actor),
         ).fetchall()
         result = []
         for row in rows:
@@ -123,17 +194,21 @@ def _review_proposals(actor: str):
     store = _store()
     with store._db() as db:
         rows = db.execute(
-            "SELECT p.id,p.field_name,p.value_json,p.proposed_by,p.source,i.provider,s.scope,s.created_by "
+            "SELECT p.id,p.field_name,p.value_json,p.proposed_by,p.source,i.provider,i.object_ref,i.session_id,s.scope,s.created_by "
             "FROM annotation_proposal p JOIN game_item i ON i.id=p.item_id JOIN game_session s ON s.id=i.session_id "
             "LEFT JOIN annotation_acceptance a ON a.proposal_id=p.id "
             "WHERE a.proposal_id IS NULL AND s.status='active' AND (s.created_by=? OR EXISTS(" 
             "SELECT 1 FROM game_participant gp WHERE gp.session_id=s.id AND gp.participant=?)) "
-            "ORDER BY p.created_at DESC LIMIT 50",
-            (actor, actor),
+            "ORDER BY p.created_at DESC LIMIT 50", (actor, actor),
         ).fetchall()
     result = []
     for row in rows:
         item = dict(row)
+        if item["scope"] != "federation" and not _session_access(
+            actor, session_id=str(item["session_id"]), scope=str(item["scope"]),
+            provider=str(item["provider"]), object_ref=str(item["object_ref"]),
+        ):
+            continue
         try:
             item["value"] = json.loads(item.pop("value_json"))
         except json.JSONDecodeError:
@@ -141,6 +216,30 @@ def _review_proposals(actor: str):
         item["consensus"] = store.consensus(item["id"])
         result.append(item)
     return result
+
+
+def _open_session_challenge(session_id: str, actor: str):
+    store = _store()
+    with store._db() as db:
+        row = db.execute(
+            "SELECT c.id FROM game_challenge c JOIN game_item i ON i.id=c.item_id JOIN game_session s ON s.id=i.session_id "
+            "WHERE s.id=? AND s.status='active' AND s.scope IN ('local','organization') AND c.status='open' AND "
+            "(s.created_by=? OR EXISTS(SELECT 1 FROM game_participant gp WHERE gp.session_id=s.id AND gp.participant=? AND gp.role IN ('answer','owner'))) "
+            "ORDER BY c.created_at,c.id LIMIT 1", (session_id, actor, actor),
+        ).fetchone()
+    challenge = store.get_challenge_for_actor(str(row["id"]), actor) if row else None
+    return challenge if challenge is not None and _challenge_access(actor, challenge) else None
+
+
+def _render_challenge(challenge: dict | None, actor: str, message: str = ""):
+    display = None if challenge is None else {
+        "id": str(challenge["id"]), "provider": str(challenge["provider"]), "kind": str(challenge["kind"]),
+        "prompt": str(challenge["prompt"]), "answer_type": str(challenge["answer_type"]), "payload": dict(challenge.get("payload", {})),
+    }
+    return render_template(
+        "gamification/index.html", challenge=display, pending_proposal=None,
+        reward_profile=profile(_store(), actor), message=message,
+    )
 
 
 @bp.get("/")
@@ -162,6 +261,16 @@ def index():
     )
 
 
+@bp.get("/sessions/<session_id>/play")
+@login_required
+def play_session(session_id: str):
+    actor = str(g.user["username"])
+    challenge = _open_session_challenge(session_id, actor)
+    if challenge is None:
+        return _render_challenge(None, actor, "Keine aktuell zugängliche offene Aufgabe in dieser Runde.")
+    return _render_challenge(challenge, actor)
+
+
 @bp.get("/manage")
 @login_required
 def manage():
@@ -180,9 +289,9 @@ def create_session():
     actor = str(g.user["username"])
     scope = str(request.form.get("scope", "local")).strip().casefold()
     title = str(request.form.get("title", "")).strip()[:160] or "Daten-Roulette"
-    providers = frozenset(value for value in request.form.getlist("providers") if value in PROVIDER_SET)
+    providers = frozenset(value for value in request.form.getlist("providers") if value in PROVIDER_SET and _provider_feature_allowed(actor, value))
     if scope not in {"local", "federation", "organization"} or not providers:
-        return redirect(url_for("gamification.manage", message="Ungültige Runde oder keine Provider gewählt."))
+        return redirect(url_for("gamification.manage", message="Ungültige Runde, Provider gesperrt oder keine Provider gewählt."))
     policy = GamePolicy(
         scope=scope, providers=providers, collections=frozenset(COLLECTIONS[value] for value in providers),
         preview_allowed="images" in providers, original_allowed=False, submit_proposals=True,
@@ -277,7 +386,7 @@ def preview(challenge_id: str):
     if not challenge_id or len(challenge_id) > 80:
         abort(404)
     persisted = _store().get_challenge_for_actor(challenge_id, actor)
-    if persisted is None or persisted.get("provider") != "images" or persisted.get("resource_class") != "photo":
+    if persisted is None or persisted.get("provider") != "images" or persisted.get("resource_class") != "photo" or not _challenge_access(actor, persisted):
         abort(404)
     path = image_preview_path(current_app.config["DOCUMENT_ROOT"], actor, str(persisted.get("object_ref", "")))
     if path is None:
@@ -293,21 +402,21 @@ def answer():
     actor = str(g.user["username"])
     challenge_id = str(request.form.get("challenge_id", "")).strip()
     if not challenge_id or len(challenge_id) > 80:
-        return render_template("gamification/index.html", challenge=None, pending_proposal=None, reward_profile=profile(_store(), actor), message="Ungültige Spielrunde."), 400
+        return _render_challenge(None, actor, "Ungültige Spielrunde."), 400
     store = _store()
     persisted = store.get_challenge_for_actor(challenge_id, actor)
-    if persisted is None:
-        return render_template("gamification/index.html", challenge=None, pending_proposal=None, reward_profile=profile(store, actor), message="Diese Spielrunde ist nicht mehr verfügbar."), 409
+    if persisted is None or not _challenge_access(actor, persisted):
+        return _render_challenge(None, actor, "Diese Spielrunde ist nicht mehr verfügbar oder die Berechtigung wurde entzogen."), 409
     action = str(request.form.get("action", "answer")).strip().casefold()
     if action in {"unknown", "skip"}:
         store.skip_challenge(challenge_id, actor, disposition=action)
         return redirect(url_for("gamification.index", message="Übersprungen – dafür gibt es keine Ratepunkte."))
     if action != "answer":
-        return render_template("gamification/index.html", challenge=None, pending_proposal=None, reward_profile=profile(store, actor), message="Ungültige Spielaktion."), 400
+        return _render_challenge(None, actor, "Ungültige Spielaktion."), 400
     value = str(request.form.get("answer", "")).strip()
     challenge = Challenge(provider=str(persisted["provider"]), object_ref=str(persisted["object_ref"]), kind=str(persisted["kind"]), prompt=str(persisted["prompt"]), answer_type=str(persisted["answer_type"]), payload=dict(persisted.get("payload", {})))
     if not get_provider(challenge.provider).validate_answer(challenge, value):
-        return render_template("gamification/index.html", challenge={"id": challenge_id, "provider": challenge.provider, "kind": challenge.kind, "prompt": challenge.prompt, "answer_type": challenge.answer_type, "payload": challenge.payload}, pending_proposal=None, reward_profile=profile(store, actor), message="Bitte eine gültige Antwort eingeben oder ‚Weiß ich nicht‘ wählen."), 400
+        return _render_challenge(persisted, actor, "Bitte eine gültige Antwort eingeben oder ‚Weiß ich nicht‘ wählen."), 400
     proposal_id = store.answer_challenge(challenge_id, actor, value)
     return redirect(url_for("gamification.index", proposal=proposal_id, message="Vorschlag gespeichert. Originaldaten wurden nicht automatisch geändert."))
 
@@ -319,7 +428,7 @@ def accept():
     proposal_id = str(request.form.get("proposal_id", "")).strip()
     proposal = _proposal_any_scope(proposal_id, actor)
     if proposal is None:
-        return redirect(url_for("gamification.index", message="Vorschlag ist nicht verfügbar."))
+        return redirect(url_for("gamification.index", message="Vorschlag ist nicht verfügbar oder die Berechtigung wurde entzogen."))
     if str(proposal.get("created_by")) != actor:
         abort(403)
     if proposal.get("accepted_by"):
