@@ -245,7 +245,7 @@ class ReplicationStore:
     def _hash(path: Path) -> str:
         digest = hashlib.sha256()
         with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
+            for block in iter(lambda: handle.read(1024 * 1024, b""), b""):
                 digest.update(block)
         return digest.hexdigest()
 
@@ -293,6 +293,7 @@ def init_app(app) -> None:
         federation_contacts_http,
         federation_http,
         gamification_federation_http,
+        gamification_leaderboard_routes,
         federation_mail_http,
         federation_phase2,
         federation_print_http,
@@ -307,6 +308,7 @@ def init_app(app) -> None:
     )
     app.register_blueprint(federation_http.bp)
     app.register_blueprint(gamification_federation_http.bp)
+    app.register_blueprint(gamification_leaderboard_routes.bp)
     app.register_blueprint(federation_catalog_http.bp)
     app.register_blueprint(federation_blocks_http.bp)
     app.register_blueprint(federation_contacts_http.bp)
