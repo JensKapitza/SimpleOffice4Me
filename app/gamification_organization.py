@@ -79,8 +79,18 @@ def add_member(db, org_id: str, username: str, role: str, actor: str) -> None:
         "SELECT role FROM game_organization_member WHERE org_id=? AND user_id=?",
         (org_id, int(operator["id"])),
     ).fetchone()
-    if not operator["is_admin"] and (authorization is None or authorization["role"] not in {"owner", "manager"}):
+    operator_role = str(authorization["role"]) if authorization is not None else ""
+    if not operator["is_admin"] and operator_role not in {"owner", "manager"}:
         raise ValueError("organization manager required")
+    current_target = db.execute(
+        "SELECT role FROM game_organization_member WHERE org_id=? AND user_id=?",
+        (org_id, int(target["id"])),
+    ).fetchone()
+    target_role = str(current_target["role"]) if current_target is not None else ""
+    # Managers may maintain ordinary membership, but ownership is a stronger
+    # administrative boundary and can only be changed by an admin or owner.
+    if not operator["is_admin"] and operator_role != "owner" and (role == "owner" or target_role == "owner"):
+        raise ValueError("organization owner required")
     if db.execute("SELECT 1 FROM game_organization WHERE org_id=?", (org_id,)).fetchone() is None:
         raise ValueError("unknown organization")
     db.execute(
