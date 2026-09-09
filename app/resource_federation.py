@@ -68,6 +68,14 @@ class FederationResourceProvider:
         with self._request("GET", f"/resource-commander/api/download?{query}") as response:
             return io.BytesIO(response.read())
 
+    def read_range(self, resource_id: str, offset: int, length: int) -> bytes:
+        query = urllib.parse.urlencode({
+            "provider": "self", "id": resource_id,
+            "offset": max(0, int(offset)), "length": max(0, min(int(length), 1024 * 1024)),
+        })
+        with self._request("GET", f"/resource-commander/api/range?{query}") as response:
+            return response.read(1024 * 1024)
+
     def upload(self, path: str, source: BinaryIO, *, name: str, metadata=None) -> ResourceEntry:
         query = urllib.parse.urlencode({"provider": "self", "path": path, "name": name})
         body = source.read()
