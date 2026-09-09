@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import socket
+import ssl
 import urllib.error
 import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
@@ -17,6 +18,7 @@ from defusedxml.ElementTree import fromstring as safe_xml_fromstring
 MAX_CONFIG_BYTES = 512 * 1024
 MAX_DNS_BYTES = 128 * 1024
 REQUEST_TIMEOUT = 5.0
+MAX_REDIRECTS = 3
 THUNDERBIRD_ISPDB = "https://autoconfig.thunderbird.net/v1.1/{domain}"
 GOOGLE_DNS_MX = "https://dns.google/resolve?name={domain}&type=MX"
 
@@ -63,54 +65,76 @@ def _host_is_public(host: str) -> bool:
     return found
 
 
+def _https_get(url: str, *, max_bytes: int, provider_owned: bool, fixed_host: str = "", headers: dict[str, str] | None = None) -> bytes:
+    current = url
+    for redirect_count in range(MAX_REDIRECTS + 1):
+        parsed = urllib.parse.urlsplit(current)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        if parsed.scheme != "https" or not host or parsed.username or parsed.password or parsed.port not in {None, 443}:
+            raise ValueError("Autokonfiguration darf nur über HTTPS geladen werden.")
+        if fixed_host and host != fixed_host:
+            raise ValueError("Unsichere Weiterleitung bei der Mail-Autokonfiguration.")
+        if provider_owned and not _host_is_public(host):
+            raise ValueError("Provider-Autokonfiguration verweist nicht auf eine öffentliche Adresse.")
+        target = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+        connection = http.client.HTTPSConnection(host, 443, timeout=REQUEST_TIMEOUT, context=ssl.create_default_context())
+        try:
+            connection.request("GET", target, headers=headers or {})
+            response = connection.getresponse()
+            if response.status in {301, 302, 303, 307, 308}:
+                location = response.getheader("Location", "").strip()
+                response.read(min(max_bytes + 1, 64 * 1024))
+                if not location or redirect_count >= MAX_REDIRECTS:
+                    raise ValueError("Zu viele oder ungültige Weiterleitungen bei der Mail-Autokonfiguration.")
+                current = urllib.parse.urljoin(current, location)
+                continue
+            if response.status < 200 or response.status >= 300:
+                response.read(min(max_bytes + 1, 64 * 1024))
+                raise urllib.error.HTTPError(current, response.status, response.reason, response.headers, None)
+            declared = response.getheader("Content-Length")
+            if declared:
+                try:
+                    if int(declared) > max_bytes:
+                        raise ValueError("Netzwerkantwort ist unerwartet groß.")
+                except ValueError as exc:
+                    if str(exc) == "Netzwerkantwort ist unerwartet groß.":
+                        raise
+            data = response.read(max_bytes + 1)
+        finally:
+            connection.close()
+        if len(data) > max_bytes:
+            raise ValueError("Netzwerkantwort ist unerwartet groß.")
+        return data
+    raise ValueError("Zu viele Weiterleitungen bei der Mail-Autokonfiguration.")
+
+
 def _fetch(source: DiscoverySource) -> bytes:
-    parsed = urllib.parse.urlparse(source.url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        raise ValueError("Autokonfiguration darf nur über HTTPS geladen werden.")
-    if source.provider_owned and not _host_is_public(parsed.hostname):
-        raise ValueError("Provider-Autokonfiguration verweist nicht auf eine öffentliche Adresse.")
-    request = urllib.request.Request(
+    return _https_get(
         source.url,
+        max_bytes=MAX_CONFIG_BYTES,
+        provider_owned=source.provider_owned,
+        fixed_host="" if source.provider_owned else "autoconfig.thunderbird.net",
         headers={
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
             "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.1",
             "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.7,en;q=0.5",
         },
-        method="GET",
     )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        final = urllib.parse.urlparse(response.geturl())
-        if final.scheme != "https" or not final.hostname:
-            raise ValueError("Unsichere Weiterleitung bei der Mail-Autokonfiguration.")
-        if source.provider_owned and not _host_is_public(final.hostname):
-            raise ValueError("Provider-Autokonfiguration wurde auf eine interne Adresse umgeleitet.")
-        declared = response.headers.get("Content-Length")
-        if declared and int(declared) > MAX_CONFIG_BYTES:
-            raise ValueError("Mail-Autokonfiguration ist unerwartet groß.")
-        data = response.read(MAX_CONFIG_BYTES + 1)
-    if len(data) > MAX_CONFIG_BYTES:
-        raise ValueError("Mail-Autokonfiguration ist unerwartet groß.")
-    return data
 
 
 def _fetch_mx(domain: str) -> list[tuple[int, str]]:
     """Resolve MX via a fixed HTTPS DNS endpoint; only the mail domain is disclosed."""
     url = GOOGLE_DNS_MX.format(domain=urllib.parse.quote(domain, safe=""))
-    request = urllib.request.Request(
+    data = _https_get(
         url,
+        max_bytes=MAX_DNS_BYTES,
+        provider_owned=False,
+        fixed_host="dns.google",
         headers={
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
             "Accept": "application/dns-json,application/json;q=0.9,*/*;q=0.1",
         },
-        method="GET",
     )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        final = urllib.parse.urlparse(response.geturl())
-        if final.scheme != "https" or final.hostname != "dns.google":
-            raise ValueError("Unsichere Weiterleitung bei der MX-Abfrage.")
-        data = response.read(MAX_DNS_BYTES + 1)
-    if len(data) > MAX_DNS_BYTES:
-        raise ValueError("DNS-Antwort ist unerwartet groß.")
     payload = json.loads(data.decode("utf-8"))
     if not isinstance(payload, dict) or int(payload.get("Status", 1)) != 0:
         return []
