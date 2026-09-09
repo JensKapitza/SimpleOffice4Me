@@ -110,6 +110,25 @@ class GamificationStoreTests(unittest.TestCase):
             count = db.execute("SELECT COUNT(*) FROM annotation_proposal WHERE item_id=?", (item,)).fetchone()[0]
         self.assertEqual(count, 1)
 
+    def test_proposal_review_is_bound_to_local_session_creator(self):
+        store = self.store()
+        session = store.create_session("Lokale Runde", "local", "owner", {})
+        item = store.add_item(session, "contacts", "contact:1")
+        proposal = store.propose(item, "city", "Duisburg", "owner")
+        visible = store.get_proposal_for_actor(proposal, "owner")
+        self.assertIsNotNone(visible)
+        self.assertEqual(visible["provider"], "contacts")
+        self.assertEqual(visible["object_ref"], "contact:1")
+        self.assertEqual(visible["value"], "Duisburg")
+        self.assertIsNone(store.get_proposal_for_actor(proposal, "stranger"))
+
+    def test_non_local_proposal_is_not_available_to_local_review(self):
+        store = self.store()
+        session = store.create_session("Organisation", "organization", "owner", {})
+        item = store.add_item(session, "contacts", "contact:1")
+        proposal = store.propose(item, "city", "Duisburg", "owner")
+        self.assertIsNone(store.get_proposal_for_actor(proposal, "owner"))
+
 
 if __name__ == "__main__":
     unittest.main()
