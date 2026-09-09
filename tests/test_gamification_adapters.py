@@ -9,6 +9,7 @@ from app.gamification_adapters import (
     apply_contact_proposal,
     contact_candidates,
     contact_proposal_can_apply,
+    document_candidates,
     image_candidates,
     image_preview_path,
 )
@@ -58,6 +59,16 @@ def _photo(document_id="photo-1", *, tags=None, source="mobile-web-bulk"):
             "source_sha256": "a" * 64,
             "thumbnail": f".webcache/{document_id}/{'a' * 64}/thumbnail.webp",
         },
+    }
+
+
+def _file(document_id="file-1", *, tags=None, name="notes.txt"):
+    return {
+        "document_id": document_id,
+        "last_path": f"archive/folder/{name}",
+        "tags": tags or [],
+        "attributes": {},
+        "state": "active",
     }
 
 
@@ -186,6 +197,30 @@ class GamificationAdapterTests(unittest.TestCase):
     def test_photo_preview_resolver_rejects_client_style_arbitrary_reference(self):
         self.assertIsNone(image_preview_path(self.root, "owner", "../../etc/passwd"))
         self.assertIsNone(image_preview_path(self.root, "", "document:one"))
+
+    def test_file_adapter_requires_explicit_release_tag(self):
+        released = _file("released", tags=["gamification-freigegeben"], name="urlaub-plan.txt")
+        hidden = _file("hidden", tags=["normal"], name="hidden.txt")
+        with patch("app.gamification_adapters.DocumentStore.list_documents", return_value=[released, hidden]):
+            candidates = document_candidates(self.root, "owner")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].object_ref, "document:released")
+        self.assertEqual(candidates[0].data, {"display_name": "urlaub-plan.txt"})
+        self.assertNotIn("archive/folder", str(candidates[0].data))
+
+    def test_file_adapter_blocks_sensitive_even_when_released(self):
+        documents = [
+            _file("invoice", tags=["gamification-freigegeben", "rechnung"], name="x.pdf"),
+            _file("private", tags=["daten-roulette", "privat"], name="y.txt"),
+            _file("crm", tags=["spiel-freigabe", "crm"], name="z.docx"),
+        ]
+        with patch("app.gamification_adapters.DocumentStore.list_documents", return_value=documents):
+            self.assertEqual(document_candidates(self.root, "owner"), [])
+
+    def test_file_adapter_does_not_duplicate_images(self):
+        document = _file("image", tags=["gamification"], name="picture.jpg")
+        with patch("app.gamification_adapters.DocumentStore.list_documents", return_value=[document]):
+            self.assertEqual(document_candidates(self.root, "owner"), [])
 
 
 if __name__ == "__main__":
