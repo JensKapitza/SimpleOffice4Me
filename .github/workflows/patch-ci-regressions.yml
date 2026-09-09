@@ -22,29 +22,27 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text(encoding='utf-8')
+          document_store = Path('app/document_store.py')
+          text = document_store.read_text(encoding='utf-8')
+          old = "if re.search(r\"[^\\s()?'=0-9\\\\]\", stripped):"
+          new = "if re.search(r\"[^\\s()?'=+0-9\\\\]\", stripped):"
+          if old not in text:
+              raise SystemExit('document search SQL whitelist pattern not found')
+          document_store.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          tests = Path('tests/test_mini_services.py')
+          text = tests.read_text(encoding='utf-8')
+          replacements = {
+              'mock.patch("simpleoffice_mini_services.urllib.request.urlopen", return_value=Response())':
+                  'mock.patch("simpleoffice_mini_services._https_open", return_value=Response())',
+              'mock.patch("simpleoffice_mini_services.urllib.request.urlopen", side_effect=OSError("offline"))':
+                  'mock.patch("simpleoffice_mini_services._https_open", side_effect=OSError("offline"))',
+          }
+          for old, new in replacements.items():
               if old not in text:
-                  raise SystemExit(f'expected text not found in {path}: {old!r}')
-              p.write_text(text.replace(old, new, 1), encoding='utf-8')
-
-          replace_once(
-              'app/document_store.py',
-              'if re.search(r"[^\\s()?\'\'=0-9\\\\]", stripped):',
-              'if re.search(r"[^\\s()?\'\'=+0-9\\\\]", stripped):',
-          )
-
-          replace_once(
-              'tests/test_mini_services.py',
-              'with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", return_value=Response()):\n                first = refresh_blocklists(config, path)',
-              'with mock.patch("simpleoffice_mini_services._https_open", return_value=Response()):\n                first = refresh_blocklists(config, path)',
-          )
-          replace_once(
-              'tests/test_mini_services.py',
-              'with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", side_effect=OSError("offline")):\n                second = refresh_blocklists(config, path)',
-              'with mock.patch("simpleoffice_mini_services._https_open", side_effect=OSError("offline")):\n                second = refresh_blocklists(config, path)',
-          )
+                  raise SystemExit(f'mini services test mock pattern not found: {old}')
+              text = text.replace(old, new, 1)
+          tests.write_text(text, encoding='utf-8')
           PY
           git add app/document_store.py tests/test_mini_services.py
       - name: Run focused tests
@@ -52,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m unittest \
-            tests.test_document_store.DocumentStoreTests.test_advanced_retrieval_not_xor_nor_and_contains_use_only_index \
+            tests.test_document_store.DocumentStoreTest.test_advanced_retrieval_not_xor_nor_and_contains_use_only_index \
             tests.test_mini_services.MiniServicesConfigTests.test_failed_refresh_preserves_last_active_blocklist -v
           python -m unittest tests.test_invoice_validator_installer tests.test_termux_runtime_dependencies -v
           python -m compileall -q app tools *.py
