@@ -124,12 +124,20 @@ def leaderboard(store: GamificationStore, limit: int = 20,
     visible = sorted({str(value).strip() for value in (participants or ()) if str(value).strip() and not str(value).startswith("peer:")})
     if not visible:
         return []
-    placeholders = ",".join("?" for _ in visible)
     with store._db() as db:
+        db.execute("CREATE TEMP TABLE IF NOT EXISTS game_visible_participant(participant TEXT PRIMARY KEY)")
+        db.execute("DELETE FROM game_visible_participant")
+        db.executemany(
+            "INSERT INTO game_visible_participant(participant) VALUES(?)",
+            ((participant,) for participant in visible),
+        )
         rows = db.execute(
-            f"SELECT participant,SUM(xp) xp,COUNT(*) accepted_fixes FROM game_reward "
-            f"WHERE participant IN ({placeholders}) GROUP BY participant "
-            "ORDER BY xp DESC,accepted_fixes DESC,participant LIMIT ?",
-            (*visible, limit),
+            """SELECT r.participant,SUM(r.xp) xp,COUNT(*) accepted_fixes
+               FROM game_reward r
+               JOIN game_visible_participant v ON v.participant=r.participant
+               GROUP BY r.participant
+               ORDER BY xp DESC,accepted_fixes DESC,r.participant
+               LIMIT ?""",
+            (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
