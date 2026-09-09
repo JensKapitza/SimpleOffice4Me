@@ -138,6 +138,23 @@ def parse_request_proof(headers: Mapping[str, Any], *, method: str, path: str,
     return proof, signature
 
 
+def _token_is_unique(store: FederationStore, peer_id: str, token: str) -> bool:
+    matches = 0
+    for candidate in store.list_peers():
+        candidate_id = str(candidate.get("peer_id") or "")
+        if not candidate_id:
+            continue
+        try:
+            candidate_token = store.peer_token(candidate_id)
+        except Exception:
+            continue
+        if candidate_token and hmac.compare_digest(candidate_token, token):
+            matches += 1
+            if matches > 1:
+                return False
+    return matches == 1
+
+
 def authenticate_peer(store: FederationStore, headers: Mapping[str, Any], *, method: str,
                       path: str, body: bytes, required_permission: str,
                       provider: str = "", claim_replay: bool = True) -> tuple[dict[str, Any], GameRequestProof]:
@@ -146,6 +163,8 @@ def authenticate_peer(store: FederationStore, headers: Mapping[str, Any], *, met
     if peer is None or not peer_allows(peer, required_permission, provider=provider):
         raise ValueError("gamification federation policy denied")
     token = store.peer_token(proof.peer_id)
+    if not _token_is_unique(store, proof.peer_id, token):
+        raise ValueError("gamification peer credential is ambiguous")
     expected = sign_request(proof, token)
     if not hmac.compare_digest(signature, expected):
         raise ValueError("gamification peer authentication failed")
