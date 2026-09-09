@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "layout.html" %}
 {% block title %}Daten-Roulette{% endblock %}
 {% block content %}
 <section class="container py-3" style="max-width: 760px">
@@ -10,14 +10,14 @@
     <span class="badge text-bg-secondary">Lokal</span>
   </div>
 
-  {% if message %}<div class="alert alert-info">{{ message }}</div>{% endif %}
+  {% if message %}<div class="alert alert-info" role="status">{{ message }}</div>{% endif %}
 
   {% if challenge %}
   <article class="card shadow-sm">
     <div class="card-body">
       <div class="small text-muted mb-2">{{ challenge.provider }} · {{ challenge.kind }}</div>
       {% if challenge.payload.preview_url %}
-        <img src="{{ challenge.payload.preview_url }}" class="img-fluid rounded mb-3" alt="Spielvorschau" loading="lazy">
+        <img src="{{ challenge.payload.preview_url }}" class="img-fluid rounded mb-3" alt="Spielvorschau" loading="lazy" decoding="async">
       {% endif %}
       {% if challenge.payload.display_name %}
         <div class="fw-semibold mb-2">{{ challenge.payload.display_name }}</div>
