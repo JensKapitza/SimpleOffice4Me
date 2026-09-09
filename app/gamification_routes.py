@@ -6,10 +6,16 @@ current actor through GamificationStore.
 """
 from __future__ import annotations
 
-from flask import Blueprint, current_app, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, g, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
-from .gamification_adapters import apply_contact_proposal, contact_candidates, contact_proposal_can_apply
+from .gamification_adapters import (
+    apply_contact_proposal,
+    contact_candidates,
+    contact_proposal_can_apply,
+    image_candidates,
+    image_preview_path,
+)
 from .gamification_engine import roulette
 from .gamification_policy import GamePolicy
 from .gamification_providers import Challenge, get_provider
@@ -19,13 +25,14 @@ bp = Blueprint("gamification", __name__, url_prefix="/gamification")
 
 
 def _policy() -> GamePolicy:
-    # First live rollout: local contact cleanup only. Documents and images stay
-    # fail-closed until classification/preview adapters are connected.
+    # Local rollout: contact cleanup plus images that already have a safe cached
+    # thumbnail. Documents remain fail-closed until a positive classification
+    # allowlist is connected.
     return GamePolicy(
         scope="local",
-        providers=frozenset({"contacts"}),
-        collections=frozenset({"contacts"}),
-        preview_allowed=False,
+        providers=frozenset({"contacts", "images"}),
+        collections=frozenset({"contacts", "images"}),
+        preview_allowed=True,
         original_allowed=False,
         submit_proposals=True,
         auto_accept_consensus=False,
@@ -37,7 +44,8 @@ def _store() -> GamificationStore:
 
 
 def _local_candidates(actor: str):
-    return contact_candidates(current_app.config["DOCUMENT_ROOT"], actor)
+    root = current_app.config["DOCUMENT_ROOT"]
+    return [*contact_candidates(root, actor), *image_candidates(root, actor)]
 
 
 def _policy_snapshot(policy: GamePolicy) -> dict[str, object]:
@@ -62,13 +70,15 @@ def _pending_proposal(actor: str) -> dict[str, object] | None:
     proposal = _store().get_proposal_for_actor(proposal_id, actor)
     if proposal is None:
         return None
+    manual_apply_supported = proposal.get("provider") == "contacts"
     return {
         "id": proposal_id,
         "field_name": str(proposal["field_name"]),
         "value": str(proposal["value"])[:500],
-        "can_apply": contact_proposal_can_apply(
+        "manual_apply_supported": manual_apply_supported,
+        "can_apply": bool(manual_apply_supported and contact_proposal_can_apply(
             current_app.config["DOCUMENT_ROOT"], actor, proposal,
-        ),
+        )),
         "accepted": bool(proposal.get("accepted_by")),
     }
 
@@ -86,7 +96,10 @@ def index():
         # long-lived browser state and gives every displayed question a clear
         # audit/session boundary.
         session_id = store.create_session("Lokale Daten-Roulette-Runde", "local", actor, _policy_snapshot(policy))
-        item_id = store.add_item(session_id, generated.provider, generated.object_ref, "contact")
+        resource_class = {"contacts": "contact", "images": "photo"}.get(generated.provider)
+        if resource_class is None:
+            abort(404)
+        item_id = store.add_item(session_id, generated.provider, generated.object_ref, resource_class)
         challenge_id = store.add_challenge(
             item_id, generated.kind, generated.answer_type, generated.prompt, generated.payload,
         )
@@ -104,6 +117,26 @@ def index():
         pending_proposal=_pending_proposal(actor),
         message=request.args.get("message", "")[:200],
     )
+
+
+@bp.get("/preview/<challenge_id>")
+@login_required
+def preview(challenge_id: str):
+    """Serve only the cached thumbnail belonging to an actor-bound open challenge."""
+    actor = str(g.user["username"])
+    if not challenge_id or len(challenge_id) > 80:
+        abort(404)
+    persisted = _store().get_challenge_for_actor(challenge_id, actor)
+    if persisted is None or persisted.get("provider") != "images" or persisted.get("resource_class") != "photo":
+        abort(404)
+    path = image_preview_path(
+        current_app.config["DOCUMENT_ROOT"], actor, str(persisted.get("object_ref", "")),
+    )
+    if path is None:
+        abort(404)
+    response = send_file(path, conditional=True, etag=True, max_age=300)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    return response
 
 
 @bp.post("/answer")
@@ -155,7 +188,7 @@ def answer():
     return redirect(url_for(
         "gamification.index",
         proposal=proposal_id,
-        message="Vorschlag gespeichert. Eine Übernahme ist nur mit normalem Schreibrecht möglich.",
+        message="Vorschlag gespeichert. Originaldaten wurden nicht automatisch geändert.",
     ))
 
 
@@ -174,6 +207,11 @@ def accept():
         return redirect(url_for("gamification.index", message="Vorschlag ist nicht verfügbar."))
     if proposal.get("accepted_by"):
         return redirect(url_for("gamification.index", message="Vorschlag wurde bereits übernommen."))
+    if proposal.get("provider") != "contacts":
+        return redirect(url_for(
+            "gamification.index", proposal=proposal_id,
+            message="Dieser Vorschlag kann derzeit nur bestätigt, aber nicht automatisch übernommen werden.",
+        ))
 
     try:
         apply_contact_proposal(current_app.config["DOCUMENT_ROOT"], actor, proposal)
