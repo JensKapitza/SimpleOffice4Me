@@ -132,6 +132,24 @@ class GamificationStore:
             (challenge_id, actor),
         ).fetchone()
 
+    def get_proposal_for_actor(self, proposal_id: str, actor: str) -> dict[str, Any] | None:
+        """Resolve an opaque proposal only inside the actor's own active local session."""
+        with self._db() as db:
+            row = db.execute(
+                "SELECT p.*, i.session_id, i.provider, i.object_ref, i.resource_class, "
+                "s.scope, s.created_by, a.accepted_by, a.mode accepted_mode, a.accepted_at "
+                "FROM annotation_proposal p JOIN game_item i ON i.id=p.item_id "
+                "JOIN game_session s ON s.id=i.session_id "
+                "LEFT JOIN annotation_acceptance a ON a.proposal_id=p.id "
+                "WHERE p.id=? AND s.status='active' AND s.scope='local' AND s.created_by=?",
+                (proposal_id, actor),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        result["value"] = json.loads(result.pop("value_json"))
+        return result
+
     @staticmethod
     def _proposal_in_db(db: sqlite3.Connection, item_id: str, field_name: str, value: Any,
                         actor: str, source: str = "human") -> str:
