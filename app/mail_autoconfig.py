@@ -11,6 +11,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
+from defusedxml.ElementTree import fromstring as safe_xml_fromstring
+
 
 MAX_CONFIG_BYTES = 512 * 1024
 MAX_DNS_BYTES = 128 * 1024
@@ -177,7 +179,7 @@ def _security(socket_type: str, default_port: int) -> tuple[str, int] | None:
 def parse_thunderbird_config(data: bytes, email: str, source: str) -> dict[str, object]:
     full_email, local, domain = _email_parts(email)
     try:
-        root = ET.fromstring(data)
+        root = safe_xml_fromstring(data)
     except ET.ParseError as exc:
         raise ValueError("Ungültige Thunderbird-Autokonfiguration.") from exc
     provider = root.find(".//emailProvider")
