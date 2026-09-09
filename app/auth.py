@@ -7,11 +7,11 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, session, url_for, current_app
-from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
 from .google_sync import sync_google_account
 from .access_control import audit, has_feature
+from .password_security import hash_password, password_needs_rehash, verify_password
 from .security_controls import (
     clear_login_failures,
     login_retry_after,
@@ -26,7 +26,7 @@ bp = Blueprint('auth', __name__, url_prefix='/auth')
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
+DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 
 def _registration_enabled() -> bool:
@@ -103,7 +103,7 @@ def register():
             first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
             db.execute(
                 'INSERT INTO user (username, password, is_admin, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-                (username, generate_password_hash(password), int(first_user))
+                (username, hash_password(password), int(first_user))
             )
             db.commit()
             return redirect(url_for('auth.login'))
@@ -132,7 +132,8 @@ def login():
         user = db.execute(
             'SELECT * FROM user WHERE username = ?', (username,)
         ).fetchone()
-        password_valid = check_password_hash(user['password'] if user is not None else DUMMY_PASSWORD_HASH, password)
+        stored_hash = user['password'] if user is not None else DUMMY_PASSWORD_HASH
+        password_valid = verify_password(stored_hash, password)
 
         if user is None or not password_valid:
             error = 'Benutzername oder Passwort ist falsch.'
@@ -140,6 +141,15 @@ def login():
             error = 'Dieses Konto ist gesperrt. Bitte einen Administrator kontaktieren.'
 
         if error is None:
+            # Upgrade legacy scrypt/PBKDF2 or outdated Argon2id parameters only
+            # after the password has been successfully authenticated.
+            if password_needs_rehash(user['password']):
+                db.execute(
+                    'UPDATE user SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (hash_password(password), user['id']),
+                )
+                db.commit()
+                user = db.execute('SELECT * FROM user WHERE id = ?', (user['id'],)).fetchone()
             clear_login_failures(db, username, client_ip)
             _login_user(user)
             audit("login", "session", outcome="success", actor=user)
@@ -221,7 +231,7 @@ def google_callback():
         # added later from an authenticated account page.
         username = _google_username(db, email)
         first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
-        db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', (username, generate_password_hash(secrets.token_urlsafe(32)), str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', int(first_user)))
+        db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', (username, hash_password(secrets.token_urlsafe(32)), str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', int(first_user)))
         identity = db.execute('SELECT * FROM user WHERE username = ?', (username,)).fetchone()
         created = True
         db.execute('INSERT INTO oauth_identity (provider, subject, user_id, email) VALUES (?, ?, ?, ?)', ('google', subject, identity['id'], email))
