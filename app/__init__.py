@@ -453,7 +453,10 @@ def add_header(response):
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.is_secure:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
+    if request.endpoint in {"webdav.file_tree", "webdav.endpoint"} and request.method in {"GET", "HEAD"}:
+        response.headers["Content-Security-Policy"] = "sandbox"
+    else:
+        response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
     return response
 
 
