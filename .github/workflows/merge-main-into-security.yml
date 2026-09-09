@@ -34,9 +34,6 @@ jobs:
           git merge --no-ff -X theirs origin/main -m 'Merge current main into security quick wins'
           python - <<'PY'
           from pathlib import Path
-
-          # Keep the branch's hardened MX resolver. The main-side conflict hunk
-          # otherwise combines urllib.request.Request with _https_get-only kwargs.
           mail = Path('app/mail_autoconfig.py')
           text = mail.read_text(encoding='utf-8')
           start = text.index('def _fetch_mx(')
@@ -44,8 +41,6 @@ jobs:
           hardened = Path('/tmp/hardened_fetch_mx.txt').read_text(encoding='utf-8')
           mail.write_text(text[:start] + hardened + text[end:], encoding='utf-8')
 
-          # Preserve rejection of the IPv4 unspecified address without leaving
-          # a hard-coded all-interface listener literal for Bandit to misclassify.
           path = Path('simpleoffice_network_boot.py')
           text = path.read_text(encoding='utf-8')
           marker = 'from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir\n'
@@ -82,6 +77,22 @@ jobs:
           print('Bandit medium/high findings: 0')
           PY
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then exit "$rc"; fi
+      - name: Verify MX resolver behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from unittest.mock import patch
+          import app.mail_autoconfig as module
+          payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'
+          with patch.object(module, '_https_get', return_value=payload) as mocked:
+              records = module._fetch_mx('example.org')
+          print('MX records:', records, 'https_get calls:', mocked.call_count)
+          if records != [(10, 'mx1.provider.net'), (20, 'mx2.provider.net')]:
+              import inspect
+              print(inspect.getsource(module._fetch_mx))
+              raise SystemExit('merged MX resolver behavior is incorrect')
+          PY
       - name: Run security regression tests
         shell: bash
         run: |
