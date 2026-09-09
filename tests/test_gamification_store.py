@@ -32,6 +32,51 @@ class GamificationStoreTests(unittest.TestCase):
         self.assertEqual(result["ratio"], 0.75)
         self.assertTrue(result["reached"])
 
+    def test_ai_votes_do_not_count_toward_default_consensus(self):
+        store = self.store()
+        session = store.create_session("Familienrunde", "local", "owner", {})
+        item = store.add_item(session, "images", "image:123")
+        proposal = store.propose(item, "tag", "Wald", "owner")
+        store.vote(proposal, "human-a", True)
+        store.vote(proposal, "human-b", True)
+        store.vote(proposal, "model-a", True, source="ai")
+        store.vote(proposal, "model-b", True, source="ai")
+        human = store.consensus(proposal, min_votes=3)
+        all_votes = store.consensus(proposal, min_votes=3, include_nonhuman=True)
+        self.assertEqual(human, {"total": 2, "approvals": 2, "ratio": 1.0, "reached": False})
+        self.assertEqual(all_votes, {"total": 4, "approvals": 4, "ratio": 1.0, "reached": True})
+
+    def test_vote_source_is_audited_and_invalid_source_rejected(self):
+        store = self.store()
+        session = store.create_session("Runde", "local", "owner", {})
+        item = store.add_item(session, "contacts", "contact:1")
+        proposal = store.propose(item, "city", "Koeln", "owner")
+        store.vote(proposal, "model", True, source="ai")
+        with sqlite3.connect(store.path) as db:
+            row = db.execute("SELECT source FROM annotation_vote WHERE proposal_id=?", (proposal,)).fetchone()
+            audit = db.execute("SELECT detail_json FROM game_audit WHERE action='proposal.voted' ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual(row, ("ai",))
+        self.assertIn('"source": "ai"', audit[0])
+        with self.assertRaises(ValueError):
+            store.vote(proposal, "bad", True, source="unknown")
+
+    def test_legacy_vote_table_gets_human_source_column(self):
+        control = self.root / ".simpleoffice"
+        control.mkdir(parents=True, exist_ok=True)
+        path = control / "gamification.sqlite3"
+        with sqlite3.connect(path) as db:
+            db.execute(
+                "CREATE TABLE annotation_vote (proposal_id TEXT NOT NULL, voter TEXT NOT NULL, "
+                "approve INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(proposal_id, voter))"
+            )
+            db.execute("INSERT INTO annotation_vote VALUES('p','legacy',1,'now')")
+        store = self.store()
+        with sqlite3.connect(store.path) as db:
+            columns = {row[1] for row in db.execute("PRAGMA table_info(annotation_vote)").fetchall()}
+            source = db.execute("SELECT source FROM annotation_vote WHERE voter='legacy'").fetchone()
+        self.assertIn("source", columns)
+        self.assertEqual(source, ("human",))
+
     def test_second_vote_replaces_first_instead_of_counting_twice(self):
         store = self.store()
         session = store.create_session("Runde", "local", "owner", {})
