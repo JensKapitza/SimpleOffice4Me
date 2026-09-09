@@ -35,6 +35,18 @@ class DiscoverySource:
     provider_owned: bool = False
 
 
+def _declared_length(headers, limit: int, label: str) -> None:
+    value = headers.get("Content-Length")
+    if not value:
+        return
+    try:
+        length = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} meldet eine ungültige Größe.") from exc
+    if length < 0 or length > limit:
+        raise ValueError(f"{label} ist unerwartet groß.")
+
+
 def _email_parts(email: str) -> tuple[str, str, str]:
     value = str(email or "").strip()
     if len(value) > 320 or value.count("@") != 1 or any(ch.isspace() for ch in value):
@@ -89,15 +101,7 @@ def _fetch(source: DiscoverySource) -> bytes:
         method="GET",
     )
     with _OPENER.open(request, timeout=REQUEST_TIMEOUT) as response:
-        declared = response.headers.get("Content-Length")
-        if declared:
-            try:
-                if int(declared) > MAX_CONFIG_BYTES:
-                    raise ValueError("Mail-Autokonfiguration ist unerwartet groß.")
-            except ValueError as exc:
-                if str(exc) == "Mail-Autokonfiguration ist unerwartet groß.":
-                    raise
-                raise ValueError("Mail-Autokonfiguration meldet eine ungültige Größe.") from exc
+        _declared_length(response.headers, MAX_CONFIG_BYTES, "Mail-Autokonfiguration")
         data = response.read(MAX_CONFIG_BYTES + 1)
     if len(data) > MAX_CONFIG_BYTES:
         raise ValueError("Mail-Autokonfiguration ist unerwartet groß.")
@@ -119,15 +123,7 @@ def _fetch_mx(domain: str) -> list[tuple[int, str]]:
         method="GET",
     )
     with _OPENER.open(request, timeout=REQUEST_TIMEOUT) as response:
-        declared = response.headers.get("Content-Length")
-        if declared:
-            try:
-                if int(declared) > MAX_DNS_BYTES:
-                    raise ValueError("DNS-Antwort ist unerwartet groß.")
-            except ValueError as exc:
-                if str(exc) == "DNS-Antwort ist unerwartet groß.":
-                    raise
-                raise ValueError("DNS-Antwort meldet eine ungültige Größe.") from exc
+        _declared_length(response.headers, MAX_DNS_BYTES, "DNS-Antwort")
         data = response.read(MAX_DNS_BYTES + 1)
     if len(data) > MAX_DNS_BYTES:
         raise ValueError("DNS-Antwort ist unerwartet groß.")
