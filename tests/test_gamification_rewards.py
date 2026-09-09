@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.gamification_rewards import award_accepted_proposal, profile
+from app.gamification_rewards import award_accepted_proposal, leaderboard, profile
 from app.gamification_store import GamificationStore
 
 
@@ -14,10 +14,10 @@ class GamificationRewardTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def proposal(self, source="human"):
+    def proposal(self, source="human", participant="player"):
         session = self.store.create_session("Runde", "local", "owner", {})
-        item = self.store.add_item(session, "documents", "document:1")
-        return self.store.propose(item, "tags", "Wald", "player", source=source)
+        item = self.store.add_item(session, "documents", f"document:{participant}")
+        return self.store.propose(item, "tags", "Wald", participant, source=source)
 
     def test_unaccepted_proposal_gets_no_xp(self):
         proposal = self.proposal()
@@ -39,6 +39,15 @@ class GamificationRewardTests(unittest.TestCase):
         self.store.accept(proposal, "owner")
         self.assertFalse(award_accepted_proposal(self.store, proposal))
         self.assertEqual(profile(self.store, "player")["xp"], 0)
+
+    def test_leaderboard_requires_explicit_visibility_set(self):
+        for participant in ("visible", "hidden"):
+            proposal = self.proposal(participant=participant)
+            self.store.accept(proposal, "owner")
+            self.assertTrue(award_accepted_proposal(self.store, proposal))
+        self.assertEqual(leaderboard(self.store), [])
+        rows = leaderboard(self.store, participants={"visible", "peer:remote"})
+        self.assertEqual([row["participant"] for row in rows], ["visible"])
 
 
 if __name__ == "__main__":
