@@ -17,6 +17,7 @@ from .federation_download_worker import process_queue, sync_peer_catalog
 from .federation_orchestrator import orchestrate_third_party
 from .federation_store import FederationStore
 from .federation_worker import _find_blob, peer_capabilities, push_blob_to_peer, remote_availability
+from .safe_paths import resolve_under
 
 bp = Blueprint("federation_admin", __name__, url_prefix="/admin/federation")
 
@@ -46,8 +47,11 @@ def _documents() -> DocumentStore:
 def _document_blob(document_id: str) -> tuple[dict, Path, str]:
     documents = _documents()
     document = documents.get_document(document_id)
-    path = (documents.root / str(document.get("last_path", ""))).resolve()
-    if documents.root not in (path, *path.parents) or not path.is_file() or path.is_symlink():
+    try:
+        path = resolve_under(documents.root, str(document.get("last_path", "")), strict=True)
+    except (OSError, ValueError) as exc:
+        raise ValueError("Dokumentdatei ist nicht verfügbar") from exc
+    if not path.is_file() or path.is_symlink():
         raise ValueError("Dokumentdatei ist nicht verfügbar")
     digest = str(document.get("sha256") or "").casefold()
     if not re.fullmatch(r"[0-9a-f]{64}", digest):

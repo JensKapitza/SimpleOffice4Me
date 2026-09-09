@@ -19,6 +19,7 @@ from typing import Any
 
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
+from .safe_paths import resolve_under
 
 MAX_PARTS = 100
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
@@ -191,10 +192,16 @@ class AttachmentSecurity:
             raise ValueError("source must be a regular .eml document")
         return BytesParser(policy=policy.default).parsebytes(source.read_bytes())
 
+    def _managed_document_path(self, relative_path: str) -> Path:
+        path = resolve_under(self.root, str(relative_path or ""), strict=True)
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("managed document file is unavailable")
+        return path
+
     def preview_eml(self, document_id: str, actor: str) -> dict[str, Any]:
         store = DocumentStore(self.root)
         document = store.get_document(document_id)
-        source = self.root / document.get("last_path", "")
+        source = self._managed_document_path(str(document.get("last_path", "")))
         message = self._message(source)
         rows, total = [], 0
         for index, part in enumerate(message.walk()):
@@ -228,7 +235,7 @@ class AttachmentSecurity:
                 raise PermissionError("extraction preview belongs to another user")
             if datetime.fromisoformat(manifest["expires_at"]) < datetime.now(timezone.utc):
                 raise ValueError("extraction preview has expired")
-            source = self.root / manifest["source_path"]
+            source = self._managed_document_path(str(manifest.get("source_path", "")))
             if sha256_file(source) != manifest["source_sha256"]:
                 raise ValueError("source changed after preview; create a new preview")
             allowed = {row["part"]: row for row in manifest["attachments"]}
@@ -317,8 +324,9 @@ class AttachmentSecurity:
             if count >= max_files:
                 result["skipped"] += 1
                 continue
-            path = self.root / document.get("last_path", "")
-            if not path.is_file() or path.is_symlink():
+            try:
+                path = self._managed_document_path(str(document.get("last_path", "")))
+            except (OSError, ValueError):
                 result["skipped"] += 1
                 continue
             base = {"scan_id": uuid.uuid4().hex, "event_type": "file_scan", "scanned_at": utc_now(), "actor": actor, "source_type": "managed-document", "document_id": document.get("document_id", ""), "target_path": document.get("last_path", ""), "filename": path.name, "size": path.stat().st_size}
@@ -337,19 +345,15 @@ class AttachmentSecurity:
         DocumentStore(self.root).history.record("managed_documents_malware_scanned", actor, "security", "clamav", result)
         return result
 
+    def scan_all_documents(self, actor: str) -> dict[str, int]:
+        """Compatibility alias for callers using the newer method name."""
+        result = self.scan_documents(actor)
+        return {"scanned": result["clean"] + result["infected"], **result}
+
     def scan_document(self, document_id: str, actor: str) -> dict[str, Any]:
         """Scan one managed document and retain an auditable verdict."""
         document = DocumentStore(self.root).get_document(document_id)
-        candidate = self.root / str(document.get("last_path", ""))
-        if candidate.is_symlink():
-            raise ValueError("managed document file is unavailable")
-        path = candidate.resolve()
-        try:
-            path.relative_to(self.root)
-        except ValueError as exc:
-            raise ValueError("document path is outside the managed root") from exc
-        if not path.is_file() or path.is_symlink():
-            raise ValueError("managed document file is unavailable")
+        path = self._managed_document_path(str(document.get("last_path", "")))
         base = {
             "scan_id": uuid.uuid4().hex, "event_type": "file_scan",
             "scanned_at": utc_now(), "actor": actor,
@@ -369,8 +373,6 @@ class AttachmentSecurity:
         except (OSError, RuntimeError) as exc:
             record = {**base, "verdict": "error", "engine": "", "action": "scan_failed", "detail": str(exc)[:1000]}
         self._record_scan(record)
-        # Keep the latest verdict with the document as well.  This makes the
-        # state visible without relying on the size-limited global scan log.
         DocumentStore(self.root).set_malware_scan(document_id, record, actor)
         DocumentStore(self.root).history.record(
             "managed_document_malware_scanned", actor, "document", document["document_id"],
