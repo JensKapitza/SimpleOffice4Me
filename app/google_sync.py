@@ -6,7 +6,8 @@ import http.client
 import json
 import ssl
 from datetime import datetime
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import urlencode, quote, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from flask import current_app
 
@@ -17,33 +18,39 @@ from .contact_store import ContactStore
 PEOPLE_URL = "https://people.googleapis.com/v1/people/me/connections"
 CALENDAR_LIST_URL = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
 CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
-GOOGLE_API_HOSTS = {"people.googleapis.com", "www.googleapis.com"}
-MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+GOOGLE_API_HOSTS = frozenset({"people.googleapis.com", "www.googleapis.com"})
+MAX_GOOGLE_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_GOOGLE_OPENER = build_opener(_NoRedirectHandler())
+
+
+def _validated_google_url(url: str) -> str:
+    parsed = urlsplit(str(url or ""))
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in GOOGLE_API_HOSTS
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+        or parsed.port not in {None, 443}
+    ):
+        raise ValueError("Google API URL is not allowed")
+    return parsed.geturl()
 
 
 def _get_json(url: str, access_token: str) -> dict:
-    parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname not in GOOGLE_API_HOSTS or parsed.username or parsed.password:
-        raise ValueError("Google API URL is not allowed")
-    if parsed.port not in {None, 443}:
-        raise ValueError("Google API URL uses an unexpected port")
-    target = parsed.path or "/"
-    if parsed.query:
-        target += "?" + parsed.query
-    connection = http.client.HTTPSConnection(parsed.hostname, 443, timeout=20, context=ssl.create_default_context())
-    try:
-        connection.request("GET", target, headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"})
-        response = connection.getresponse()
-        if response.status != 200:
-            raise ValueError(f"Google API returned HTTP {response.status}")
-        declared = response.getheader("Content-Length")
-        if declared and int(declared) > MAX_RESPONSE_BYTES:
-            raise ValueError("Google API response is unexpectedly large")
-        raw = response.read(MAX_RESPONSE_BYTES + 1)
-    finally:
-        connection.close()
-    if len(raw) > MAX_RESPONSE_BYTES:
-        raise ValueError("Google API response is unexpectedly large")
+    safe_url = _validated_google_url(url)
+    request = Request(safe_url, headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"})
+    with _GOOGLE_OPENER.open(request, timeout=20) as response:
+        raw = response.read(MAX_GOOGLE_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_GOOGLE_RESPONSE_BYTES:
+        raise ValueError("Google API response is too large")
     payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("Google API returned invalid JSON")

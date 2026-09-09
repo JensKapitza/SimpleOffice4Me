@@ -10,6 +10,9 @@ import shutil
 import ssl
 import sys
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,34 +24,44 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / ".runtime-tools" / FILENAME
 CHECKSUM_FILE = TARGET.with_suffix(".jar.sha256")
 MAVEN_HOST = "repo1.maven.org"
-MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024
+MAX_JAR_BYTES = 128 * 1024 * 1024
+MAX_CHECKSUM_BYTES = 4096
 
 
-def _download(url: str) -> bytes:
-    parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != MAVEN_HOST or parsed.port not in {None, 443}:
-        raise RuntimeError("validator download URL is not an approved Maven Central HTTPS endpoint")
-    if parsed.username or parsed.password or parsed.fragment:
-        raise RuntimeError("validator download URL contains unsupported components")
-    target = parsed.path or "/"
-    if parsed.query:
-        target += "?" + parsed.query
-    connection = http.client.HTTPSConnection(MAVEN_HOST, 443, timeout=90, context=ssl.create_default_context())
-    try:
-        connection.request("GET", target, headers={"User-Agent": "SimpleOffice4Me validator bootstrap"})
-        response = connection.getresponse()
-        if response.status == 404:
-            raise FileNotFoundError(url)
-        if response.status != 200:
-            raise RuntimeError(f"Maven Central returned HTTP {response.status}")
-        declared = response.getheader("Content-Length")
-        if declared and int(declared) > MAX_DOWNLOAD_BYTES:
-            raise RuntimeError("validator download is unexpectedly large")
-        payload = response.read(MAX_DOWNLOAD_BYTES + 1)
-    finally:
-        connection.close()
-    if len(payload) > MAX_DOWNLOAD_BYTES:
-        raise RuntimeError("validator download is unexpectedly large")
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
+def _download(url: str, *, max_bytes: int) -> bytes:
+    parsed = urllib.parse.urlsplit(str(url or ""))
+    expected_prefix = f"/maven2/org/mustangproject/Mustang-CLI/{VERSION}/"
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != MAVEN_HOST
+        or parsed.port not in {None, 443}
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or not parsed.path.startswith(expected_prefix)
+    ):
+        raise RuntimeError("validator download URL is not allowed")
+    request = urllib.request.Request(parsed.geturl(), headers={"User-Agent": "SimpleOffice4Me validator bootstrap"})
+    with _OPENER.open(request, timeout=90) as response:
+        declared = response.headers.get("Content-Length")
+        if declared:
+            try:
+                if int(declared) > max_bytes:
+                    raise RuntimeError("validator download exceeds size limit")
+            except ValueError as exc:
+                raise RuntimeError("validator download returned invalid Content-Length") from exc
+        payload = response.read(max_bytes + 1)
+    if len(payload) > max_bytes:
+        raise RuntimeError("validator download exceeds size limit")
     return payload
 
 
@@ -59,9 +72,11 @@ def _published_checksum() -> str:
     sidecar. Weak digest algorithms are not accepted for executable artifacts.
     """
     try:
-        value = _download(f"{BASE_URL}/{FILENAME}.sha256").decode("ascii").split()[0].lower()
-    except FileNotFoundError as exc:
-        raise RuntimeError("Maven Central did not publish a SHA-256 checksum for the validator") from exc
+        value = _download(f"{BASE_URL}/{FILENAME}.sha256", max_bytes=MAX_CHECKSUM_BYTES).decode("ascii").split()[0].lower()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise RuntimeError("Maven Central did not publish a SHA-256 checksum for the validator") from exc
+        raise
     if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
         raise RuntimeError("Maven Central returned an invalid SHA-256 checksum")
     return value
@@ -80,7 +95,7 @@ def install() -> Path | None:
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     print(f"Installiere EN16931-Standardvalidator Mustang {VERSION} …")
     checksum = _published_checksum()
-    payload = _download(f"{BASE_URL}/{FILENAME}")
+    payload = _download(f"{BASE_URL}/{FILENAME}", max_bytes=MAX_JAR_BYTES)
     if hashlib.sha256(payload).hexdigest() != checksum:
         raise RuntimeError("downloaded EN16931 validator SHA-256 checksum does not match")
     local_sha256 = hashlib.sha256(payload).hexdigest()

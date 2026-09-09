@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -43,6 +44,18 @@ def _commit(root: Path, value: str) -> str:
     _git(root, "add", "app.txt")
     _git(root, "commit", "-m", value)
     return _git(root, "rev-parse", "HEAD")
+
+
+def _minimal_release(package: zipfile.ZipFile, *, bundle: bytes = b"not-a-real-bundle") -> None:
+    manifest = {
+        "schema": 1,
+        "release": {"revision": "a" * 40, "branch": "main"},
+        "repository": {"sha256": hashlib.sha256(bundle).hexdigest(), "size": len(bundle)},
+        "wheelhouse": {"included": False, "files": []},
+    }
+    package.writestr("release.json", json.dumps(manifest))
+    package.writestr("repository.bundle", bundle)
+    package.writestr("INSTALL.py", "pass\n")
 
 
 _GIT_TEST_ENV = {
@@ -141,21 +154,41 @@ class SoftwareDistributionTests(unittest.TestCase):
 
     def test_archive_rejects_unexpected_paths(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            archive = root / "bad.zip"
-            bundle = b"not-a-real-bundle"
-            manifest = {
-                "schema": 1,
-                "release": {"revision": "a" * 40, "branch": "main"},
-                "repository": {"sha256": hashlib.sha256(bundle).hexdigest(), "size": len(bundle)},
-                "wheelhouse": {"included": False, "files": []},
-            }
+            archive = Path(temp) / "bad.zip"
             with zipfile.ZipFile(archive, "w") as package:
-                package.writestr("release.json", json.dumps(manifest))
-                package.writestr("repository.bundle", bundle)
-                package.writestr("INSTALL.py", "pass\n")
+                _minimal_release(package)
                 package.writestr("../escape", "bad")
             with self.assertRaisesRegex(ValueError, "unsicheren Pfad|unerwarteten Eintrag"):
+                inspect_release_archive(archive)
+
+    def test_archive_rejects_windows_traversal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "bad-windows.zip"
+            with zipfile.ZipFile(archive, "w") as package:
+                _minimal_release(package)
+                package.writestr("wheelhouse\\..\\escape.whl", "bad")
+            with self.assertRaisesRegex(ValueError, "unsicheren Pfad"):
+                inspect_release_archive(archive)
+
+    def test_archive_rejects_duplicate_entries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "duplicate.zip"
+            with zipfile.ZipFile(archive, "w") as package:
+                _minimal_release(package)
+                package.writestr("INSTALL.py", "second\n")
+            with self.assertRaisesRegex(ValueError, "doppelte Einträge"):
+                inspect_release_archive(archive)
+
+    def test_archive_rejects_symlink_entries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "symlink.zip"
+            with zipfile.ZipFile(archive, "w") as package:
+                _minimal_release(package)
+                link = zipfile.ZipInfo("wheelhouse/link.whl")
+                link.create_system = 3
+                link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                package.writestr(link, "../../outside")
+            with self.assertRaisesRegex(ValueError, "symbolischen Link"):
                 inspect_release_archive(archive)
 
     def test_offer_state_marks_obviously_new_version_available(self):

@@ -88,7 +88,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "dns": {
         "enabled": False,
-        "bind": [LOOPBACK_IPV4],
+        "bind": ["127.0.0.1"],
         "port": 53,
         "upstreams": ["1.1.1.1", "9.9.9.9"],
         "timeout": 2.0,
@@ -361,10 +361,18 @@ def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     dns["port"] = int(dns.get("port", 53))
     if not 1 <= dns["port"] <= 65535:
         raise ValueError("DNS-Port muss zwischen 1 und 65535 liegen")
-    binds = dns.get("bind", [LOOPBACK_IPV4])
+    binds = dns.get("bind", ["127.0.0.1"])
     if isinstance(binds, str):
         binds = [binds]
-    dns["bind"] = [str(_ip(value)) for value in binds if str(value).strip()]
+    clean_binds: list[str] = []
+    for value in binds:
+        if not str(value).strip():
+            continue
+        address = _ip(value)
+        if address.is_unspecified:
+            raise ValueError("DNS-Bind-Adresse darf nicht alle Netzwerkinterfaces umfassen")
+        clean_binds.append(str(address))
+    dns["bind"] = clean_binds
     if not dns["bind"]:
         raise ValueError("Mindestens eine DNS-Bind-Adresse ist erforderlich")
     dns["upstreams"] = [str(value).strip() for value in dns.get("upstreams", []) if str(value).strip()]
@@ -1122,7 +1130,11 @@ class DnsService:
 
     def start(self) -> None:
         for bind in self.config["bind"]:
-            family = socket.AF_INET6 if ":" in bind else socket.AF_INET
+            bind_address = _ip(bind)
+            if bind_address.is_unspecified:
+                raise ValueError("DNS-Bind-Adresse darf nicht alle Netzwerkinterfaces umfassen")
+            bind = str(bind_address)
+            family = socket.AF_INET6 if bind_address.version == 6 else socket.AF_INET
             udp = socket.socket(family, socket.SOCK_DGRAM)
             udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             udp.bind((bind, int(self.config["port"])))

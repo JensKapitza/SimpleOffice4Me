@@ -21,6 +21,15 @@ REQUEST_TIMEOUT = 5.0
 MAX_REDIRECTS = 3
 THUNDERBIRD_ISPDB = "https://autoconfig.thunderbird.net/v1.1/{domain}"
 GOOGLE_DNS_MX = "https://dns.google/resolve?name={domain}&type=MX"
+FIXED_DISCOVERY_HOSTS = frozenset({"autoconfig.thunderbird.net", "dns.google"})
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirectHandler())
 
 
 @dataclass(frozen=True)
@@ -28,6 +37,18 @@ class DiscoverySource:
     name: str
     url: str
     provider_owned: bool = False
+
+
+def _declared_length(headers, limit: int, label: str) -> None:
+    value = headers.get("Content-Length")
+    if not value:
+        return
+    try:
+        length = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} meldet eine ungültige Größe.") from exc
+    if length < 0 or length > limit:
+        raise ValueError(f"{label} ist unerwartet groß.")
 
 
 def _email_parts(email: str) -> tuple[str, str, str]:
@@ -109,7 +130,15 @@ def _https_get(url: str, *, max_bytes: int, provider_owned: bool, fixed_host: st
 
 
 def _fetch(source: DiscoverySource) -> bytes:
-    return _https_get(
+    parsed = urllib.parse.urlparse(source.url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ValueError("Autokonfiguration darf nur über HTTPS geladen werden.")
+    if source.provider_owned:
+        if not _host_is_public(parsed.hostname):
+            raise ValueError("Provider-Autokonfiguration verweist nicht auf eine öffentliche Adresse.")
+    elif parsed.hostname not in FIXED_DISCOVERY_HOSTS:
+        raise ValueError("Unbekannter Autokonfigurationsdienst.")
+    request = urllib.request.Request(
         source.url,
         max_bytes=MAX_CONFIG_BYTES,
         provider_owned=source.provider_owned,
@@ -120,6 +149,12 @@ def _fetch(source: DiscoverySource) -> bytes:
             "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.7,en;q=0.5",
         },
     )
+    with _OPENER.open(request, timeout=REQUEST_TIMEOUT) as response:
+        _declared_length(response.headers, MAX_CONFIG_BYTES, "Mail-Autokonfiguration")
+        data = response.read(MAX_CONFIG_BYTES + 1)
+    if len(data) > MAX_CONFIG_BYTES:
+        raise ValueError("Mail-Autokonfiguration ist unerwartet groß.")
+    return data
 
 
 def _fetch_mx(domain: str) -> list[tuple[int, str]]:

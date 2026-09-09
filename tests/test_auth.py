@@ -168,11 +168,11 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(302, start.status_code)
         with self.client.session_transaction() as session:
             state = session["google_oauth_state"]
-        responses = [
+        responses = iter([
             {"access_token": "access"},
             {"sub": "google-subject", "email": "jens@example.test", "name": "Jens Google", "email_verified": True},
-        ]
-        with patch.object(auth, "_google_json", side_effect=responses), patch.object(auth, "sync_google_account", return_value={"contacts": 0, "events": 0, "calendars": 0}):
+        ])
+        with patch.object(auth, "_google_json_request", side_effect=lambda *args, **kwargs: next(responses)), patch.object(auth, "sync_google_account", return_value={"contacts": 0, "events": 0, "calendars": 0}):
             callback = self.client.get(f"/auth/google/callback?code=code&state={state}")
         self.assertEqual(302, callback.status_code)
         with app.app_context():

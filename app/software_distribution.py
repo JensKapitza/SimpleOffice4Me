@@ -11,12 +11,13 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write
@@ -24,10 +25,13 @@ from .federation_core import build_manifest, manifest_valid, normalize_sha256, p
 from .federation_store import FederationStore
 from .federation_worker import _json_request, _request
 from .file_lock import exclusive_file_lock
+from .safe_paths import resolve_under
 
 RELEASE_SCHEMA = 1
 STATE_SCHEMA = 1
 MAX_RELEASE_BYTES = 4 * 1024 * 1024 * 1024
+MAX_RELEASE_ENTRIES = 10000
+MAX_RELEASE_UNCOMPRESSED_BYTES = 8 * 1024 * 1024 * 1024
 
 
 def _sha256(path: Path) -> str:
@@ -250,23 +254,42 @@ def build_release_archive(destination: str | Path, *, root: str | Path | None = 
     return {**manifest, "archive_sha256": _sha256(destination_path), "archive_size": destination_path.stat().st_size, "path": str(destination_path)}
 
 
+def _validated_release_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+    entries = archive.infolist()
+    if len(entries) > MAX_RELEASE_ENTRIES:
+        raise ValueError("Release enthält zu viele Einträge")
+    seen: set[str] = set()
+    total_size = 0
+    for item in entries:
+        name = item.filename.replace("\\", "/")
+        candidate = PurePosixPath(name)
+        if not name or candidate.is_absolute() or ".." in candidate.parts or ":" in candidate.parts[0]:
+            raise ValueError("Release enthält unsicheren Pfad")
+        if name in seen:
+            raise ValueError("Release enthält doppelte Einträge")
+        seen.add(name)
+        mode = (item.external_attr >> 16) & 0o170000
+        if mode == stat.S_IFLNK:
+            raise ValueError("Release enthält symbolischen Link")
+        allowed = name in {"release.json", "repository.bundle", "INSTALL.py"} or (name.startswith("wheelhouse/") and name.endswith(".whl") and len(candidate.parts) == 2)
+        if not allowed:
+            raise ValueError("Release enthält unerwarteten Eintrag")
+        if item.file_size < 0 or item.file_size > MAX_RELEASE_BYTES:
+            raise ValueError("Release-Eintrag ist zu groß")
+        total_size += item.file_size
+        if total_size > MAX_RELEASE_UNCOMPRESSED_BYTES:
+            raise ValueError("Release überschreitet die maximale entpackte Größe")
+    if any(required not in seen for required in ("release.json", "repository.bundle", "INSTALL.py")):
+        raise ValueError("Release-Paket ist unvollständig")
+    return entries
+
+
 def inspect_release_archive(path: str | Path) -> dict[str, Any]:
     archive_path = Path(path).resolve()
-    if not archive_path.is_file() or archive_path.stat().st_size > MAX_RELEASE_BYTES:
+    if not archive_path.is_file() or archive_path.is_symlink() or archive_path.stat().st_size > MAX_RELEASE_BYTES:
         raise ValueError("Ungültiges oder zu großes Release-Paket")
     with zipfile.ZipFile(archive_path, "r") as archive:
-        names = archive.namelist()
-        if any(required not in names for required in ("release.json", "repository.bundle", "INSTALL.py")):
-            raise ValueError("Release-Paket ist unvollständig")
-        for item in archive.infolist():
-            candidate = Path(item.filename)
-            if candidate.is_absolute() or ".." in candidate.parts:
-                raise ValueError("Release enthält unsicheren Pfad")
-            allowed = item.filename in {"release.json", "repository.bundle", "INSTALL.py"} or (item.filename.startswith("wheelhouse/") and item.filename.endswith(".whl") and len(candidate.parts) == 2)
-            if not allowed:
-                raise ValueError("Release enthält unerwarteten Eintrag")
-            if item.file_size > MAX_RELEASE_BYTES:
-                raise ValueError("Release-Eintrag ist zu groß")
+        _validated_release_entries(archive)
         manifest = json.loads(archive.read("release.json").decode("utf-8"))
         if int(manifest.get("schema", 0)) != RELEASE_SCHEMA:
             raise ValueError("Unbekanntes Release-Schema")
@@ -286,12 +309,13 @@ def inspect_release_archive(path: str | Path) -> dict[str, Any]:
 
 def _extract_release(path: Path, destination: Path) -> dict[str, Any]:
     manifest = inspect_release_archive(path)
+    destination = destination.resolve(strict=True)
     with zipfile.ZipFile(path, "r") as archive:
-        for item in archive.infolist():
-            target = destination / item.filename
+        for item in _validated_release_entries(archive):
+            target = resolve_under(destination, item.filename)
             target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(item, "r") as source, target.open("wb") as sink:
-                shutil.copyfileobj(source, sink)
+            with archive.open(item, "r") as source, target.open("xb") as sink:
+                shutil.copyfileobj(source, sink, length=1024 * 1024)
     return manifest
 
 

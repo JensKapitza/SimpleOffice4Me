@@ -39,6 +39,10 @@ def _linux_start_time(pid: int) -> str:
 
 
 def _command_line(pid: int) -> str:
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return ""
     if pid <= 0:
         return ""
     try:
@@ -46,7 +50,11 @@ def _command_line(pid: int) -> str:
             return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")[:16_384]
         if os.name == "nt":
             result = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+                [
+                    "powershell", "-NoProfile", "-Command",
+                    "$p=[int]$args[0]; (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $p)).CommandLine",
+                    str(pid),
+                ],
                 stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", timeout=5, check=False,
             )
         else:

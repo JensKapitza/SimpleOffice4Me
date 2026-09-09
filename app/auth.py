@@ -5,7 +5,8 @@ import re
 import secrets
 import ssl
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, session, url_for, current_app
 
@@ -27,33 +28,49 @@ bp = Blueprint('auth', __name__, url_prefix='/auth')
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-GOOGLE_RESPONSE_LIMIT = 2 * 1024 * 1024
+GOOGLE_HTTP_URLS = frozenset({GOOGLE_TOKEN_URL, GOOGLE_USERINFO_URL})
+MAX_GOOGLE_OAUTH_RESPONSE_BYTES = 2 * 1024 * 1024
 DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 
-def _google_json(host: str, path: str, *, method: str = "GET", headers: dict[str, str] | None = None, body: bytes | None = None) -> dict:
-    allowed = {
-        ("oauth2.googleapis.com", "/token"),
-        ("openidconnect.googleapis.com", "/v1/userinfo"),
-    }
-    if (host, path) not in allowed:
+class _NoGoogleRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_GOOGLE_OPENER = build_opener(_NoGoogleRedirectHandler())
+
+
+def _google_json_request(url: str, *, data: bytes | None = None, headers: dict[str, str] | None = None) -> dict:
+    parsed = urlsplit(str(url or ""))
+    if (
+        url not in GOOGLE_HTTP_URLS
+        or parsed.scheme != "https"
+        or parsed.hostname not in {"oauth2.googleapis.com", "openidconnect.googleapis.com"}
+        or parsed.port not in {None, 443}
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError("Google OAuth endpoint is not allowed")
-    connection = http.client.HTTPSConnection(host, 443, timeout=15, context=ssl.create_default_context())
-    try:
-        connection.request(method, path, body=body, headers=headers or {})
-        response = connection.getresponse()
-        if response.status < 200 or response.status >= 300:
-            response.read(GOOGLE_RESPONSE_LIMIT + 1)
-            raise ValueError(f"Google OAuth returned HTTP {response.status}")
-        payload = response.read(GOOGLE_RESPONSE_LIMIT + 1)
-    finally:
-        connection.close()
-    if len(payload) > GOOGLE_RESPONSE_LIMIT:
+    google_request = Request(url, data=data, headers={"Accept": "application/json", **(headers or {})})
+    with _GOOGLE_OPENER.open(google_request, timeout=15) as response:
+        declared = response.headers.get("Content-Length")
+        if declared:
+            try:
+                length = int(declared)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Google OAuth returned invalid Content-Length") from exc
+            if length < 0 or length > MAX_GOOGLE_OAUTH_RESPONSE_BYTES:
+                raise ValueError("Google OAuth response is too large")
+        raw = response.read(MAX_GOOGLE_OAUTH_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_GOOGLE_OAUTH_RESPONSE_BYTES:
         raise ValueError("Google OAuth response is too large")
-    value = json.loads(payload.decode("utf-8"))
-    if not isinstance(value, dict):
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
         raise ValueError("Google OAuth returned invalid JSON")
-    return value
+    return payload
 
 
 def _registration_enabled() -> bool:
@@ -184,7 +201,6 @@ def login():
         audit("login", "session", outcome="denied")
         flash(error)
 
-
     return render_template(
         'auth/login.html', google_enabled=_google_config() is not None,
         registration_enabled=_registration_enabled(),
@@ -224,15 +240,16 @@ def google_callback():
             'code': code, 'client_id': config['client_id'], 'client_secret': config['client_secret'],
             'redirect_uri': config['redirect_uri'], 'grant_type': 'authorization_code',
         }).encode('utf-8')
-        token = _google_json(
-            "oauth2.googleapis.com", "/token", method="POST",
-            headers={'Content-Type': 'application/x-www-form-urlencoded'}, body=body,
+        token = _google_json_request(
+            GOOGLE_TOKEN_URL,
+            data=body,
+            headers={'Content-Type': 'application/x-www-form-urlencoded'},
         )
         access_token = str(token.get('access_token', ''))
         if not access_token:
             raise ValueError('Google did not return an access token')
-        profile = _google_json(
-            "openidconnect.googleapis.com", "/v1/userinfo",
+        profile = _google_json_request(
+            GOOGLE_USERINFO_URL,
             headers={'Authorization': f'Bearer {access_token}'},
         )
         subject = str(profile.get('sub', '')).strip()

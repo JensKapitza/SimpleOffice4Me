@@ -14,6 +14,8 @@ from typing import Any, Callable
 
 from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir
 
+UNSPECIFIED_IPV4 = socket.inet_ntoa(bytes(4))
+
 TFTP_RRQ = 1
 TFTP_WRQ = 2
 TFTP_DATA = 3
@@ -117,11 +119,14 @@ def validate_boot_settings(candidate: dict[str, Any]) -> dict[str, Any]:
     data = dict(DEFAULT_BOOT_SETTINGS); data.update(candidate); data["version"] = 1
     for key in ("enabled", "tftp_enabled"):
         data[key] = bool(data.get(key))
+    tftp_bind = str(data.get("tftp_bind") or "127.0.0.1").strip()
     try:
-        socket.inet_aton(str(data.get("tftp_bind") or "127.0.0.1"))
+        socket.inet_pton(socket.AF_INET, tftp_bind)
     except OSError as exc:
         raise ValueError("TFTP-Bind-Adresse muss IPv4 sein") from exc
-    data["tftp_bind"] = str(data.get("tftp_bind") or "127.0.0.1")
+    if tftp_bind == UNSPECIFIED_IPV4:
+        raise ValueError("TFTP-Bind-Adresse darf nicht alle Netzwerkinterfaces umfassen")
+    data["tftp_bind"] = tftp_bind
     data["tftp_port"] = int(data.get("tftp_port", 69))
     data["tftp_timeout"] = int(data.get("tftp_timeout", 3))
     data["tftp_retries"] = int(data.get("tftp_retries", 5))
@@ -271,8 +276,11 @@ class TftpService:
         self.stop_event = threading.Event(); self.socket: socket.socket | None = None; self.thread: threading.Thread | None = None
 
     def start(self) -> None:
+        bind = str(self.settings["tftp_bind"])
+        if bind == UNSPECIFIED_IPV4:
+            raise ValueError("TFTP-Bind-Adresse darf nicht alle Netzwerkinterfaces umfassen")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self.settings["tftp_bind"], self.settings["tftp_port"])); sock.settimeout(1); self.socket = sock
+        sock.bind((bind, self.settings["tftp_port"])); sock.settimeout(1); self.socket = sock
         self.thread = threading.Thread(target=self._loop, name="simpleoffice-tftp", daemon=True); self.thread.start()
 
     def stop(self) -> None:
