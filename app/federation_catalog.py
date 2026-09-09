@@ -226,23 +226,32 @@ class FederationCatalog:
 
     def remote_files(self, peer_id: str = "", query: str = "", limit: int = 500) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 5000))
-        clauses, values = [], []
-        if peer_id:
-            clauses.append("f.peer_id=?")
-            values.append(sanitize_peer_id(peer_id))
-        if query:
-            clauses.append("(f.path LIKE ? OR f.remote_document_id LIKE ? OR f.tags_json LIKE ?)")
-            needle = f"%{query[:200]}%"
-            values.extend([needle, needle, needle])
-        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        safe_peer = sanitize_peer_id(peer_id) if peer_id else ""
+        needle = f"%{query[:200]}%" if query else ""
+        base = """SELECT f.*,COALESCE(p.server_priority,0) AS server_priority
+                  FROM federation_remote_file f
+                  LEFT JOIN federation_catalog_peer p ON p.peer_id=f.peer_id"""
         with self._db() as db:
-            rows = db.execute(
-                """SELECT f.*,COALESCE(p.server_priority,0) AS server_priority
-                   FROM federation_remote_file f
-                   LEFT JOIN federation_catalog_peer p ON p.peer_id=f.peer_id"""
-                + where + " ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
-                (*values, limit),
-            ).fetchall()
+            if safe_peer and needle:
+                rows = db.execute(
+                    base + " WHERE f.peer_id=? AND (f.path LIKE ? OR f.remote_document_id LIKE ? OR f.tags_json LIKE ?) ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (safe_peer, needle, needle, needle, limit),
+                ).fetchall()
+            elif safe_peer:
+                rows = db.execute(
+                    base + " WHERE f.peer_id=? ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (safe_peer, limit),
+                ).fetchall()
+            elif needle:
+                rows = db.execute(
+                    base + " WHERE f.path LIKE ? OR f.remote_document_id LIKE ? OR f.tags_json LIKE ? ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (needle, needle, needle, limit),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    base + " ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (limit,),
+                ).fetchall()
         return [self._remote(row) for row in rows]
 
     def get_remote(self, peer_id: str, remote_document_id: str) -> dict[str, Any] | None:
@@ -330,11 +339,24 @@ class FederationCatalog:
         updates = {key: value for key, value in changes.items() if key in allowed}
         if not updates:
             return self.get_request(request_id) or {}
-        updates["updated_at"] = _now()
+        current = self.get_request(request_id)
+        if not current:
+            raise ValueError("Download-Anforderung ist unbekannt")
+        updated_at = _now()
         with self._db() as db:
             cursor = db.execute(
-                "UPDATE federation_download_request SET " + ",".join(f"{key}=?" for key in updates) + " WHERE request_id=?",
-                (*updates.values(), request_id),
+                """UPDATE federation_download_request
+                   SET status=?,attempts=?,next_attempt_at=?,last_error=?,local_document_id=?,updated_at=?
+                   WHERE request_id=?""",
+                (
+                    updates.get("status", current["status"]),
+                    updates.get("attempts", current["attempts"]),
+                    updates.get("next_attempt_at", current["next_attempt_at"]),
+                    updates.get("last_error", current["last_error"]),
+                    updates.get("local_document_id", current["local_document_id"]),
+                    updated_at,
+                    request_id,
+                ),
             )
             if cursor.rowcount != 1:
                 raise ValueError("Download-Anforderung ist unbekannt")
