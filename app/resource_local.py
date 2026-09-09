@@ -28,9 +28,9 @@ class LocalResourceProvider:
         try:
             candidate.relative_to(self.root)
         except ValueError as exc:
-            raise ProviderError("Pfad liegt außerhalb des verwalteten Bereichs") from exc
+            raise ProviderError("Pfad liegt ausserhalb des verwalteten Bereichs") from exc
         if candidate == self.root and raw:
-            raise ProviderError("Ungültiger Pfad")
+            raise ProviderError("Ungueltiger Pfad")
         if require_exists and not candidate.exists():
             raise ProviderError("Ressource nicht gefunden")
         return candidate
@@ -62,8 +62,16 @@ class LocalResourceProvider:
     def open(self, resource_id: str) -> BinaryIO:
         path = self._resolve(resource_id, require_exists=True)
         if not path.is_file() or path.is_symlink():
-            raise ProviderError("Ressource ist keine reguläre Datei")
+            raise ProviderError("Ressource ist keine regulaere Datei")
         return path.open("rb")
+
+    def read_range(self, resource_id: str, offset: int, length: int) -> bytes:
+        path = self._resolve(resource_id, require_exists=True)
+        if not path.is_file() or path.is_symlink():
+            raise ProviderError("Ressource ist keine regulaere Datei")
+        with path.open("rb") as source:
+            source.seek(max(0, int(offset)))
+            return source.read(max(0, min(int(length), 1024 * 1024)))
 
     def upload(self, path: str, source: BinaryIO, *, name: str, metadata=None) -> ResourceEntry:
         folder = self._resolve(path, require_exists=True) if path else self.root
@@ -71,7 +79,7 @@ class LocalResourceProvider:
             raise ProviderError("Ziel ist kein Verzeichnis")
         safe_name = Path(str(name or "")).name
         if not safe_name or safe_name in {".", ".."}:
-            raise ProviderError("Ungültiger Dateiname")
+            raise ProviderError("Ungueltiger Dateiname")
         target = self._resolve((folder.relative_to(self.root) / safe_name).as_posix())
         with target.open("wb") as output:
             shutil.copyfileobj(source, output, length=1024 * 1024)
