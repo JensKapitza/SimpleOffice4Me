@@ -156,36 +156,55 @@ class DataLoggerStore:
             db.execute("INSERT OR IGNORE INTO metric_sample(channel_id,source_id,measured_at,value,metadata) VALUES(?,?,?,?,?)", (channel_id, source_id, when, number, json.dumps(metadata or {}, ensure_ascii=False)))
             self._event(db, actor, "sample_recorded", "channel", channel_id, detail={"source_id": source_id or "manual"})
 
-    def sample_count(self, channel_id, start=None, end=None):
-        clauses, args = ["channel_id=?"], [channel_id]
+    @staticmethod
+    def _sample_range_clause(start, end) -> tuple[str, tuple]:
+        if start and end:
+            return "channel_id=? AND measured_at>=? AND measured_at<=?", (start, end)
         if start:
-            clauses.append("measured_at>=?")
-            args.append(start)
+            return "channel_id=? AND measured_at>=?", (start,)
         if end:
-            clauses.append("measured_at<=?")
-            args.append(end)
+            return "channel_id=? AND measured_at<=?", (end,)
+        return "channel_id=?", ()
+
+    def sample_count(self, channel_id, start=None, end=None):
+        if start and end:
+            query = "SELECT COUNT(*) FROM metric_sample WHERE channel_id=? AND measured_at>=? AND measured_at<=?"
+            args = (channel_id, start, end)
+        elif start:
+            query = "SELECT COUNT(*) FROM metric_sample WHERE channel_id=? AND measured_at>=?"
+            args = (channel_id, start)
+        elif end:
+            query = "SELECT COUNT(*) FROM metric_sample WHERE channel_id=? AND measured_at<=?"
+            args = (channel_id, end)
+        else:
+            query = "SELECT COUNT(*) FROM metric_sample WHERE channel_id=?"
+            args = (channel_id,)
         with self.connect() as db:
-            return int(db.execute(f"SELECT COUNT(*) FROM metric_sample WHERE {' AND '.join(clauses)}", args).fetchone()[0])
+            return int(db.execute(query, args).fetchone()[0])
 
     def samples(self, channel_id, limit=1000, start=None, end=None, offset=0):
         limit = max(1, min(int(limit), 10000))
         offset = max(0, int(offset))
-        clauses, args = ["channel_id=?"], [channel_id]
-        if start:
-            clauses.append("measured_at>=?")
-            args.append(start)
-        if end:
-            clauses.append("measured_at<=?")
-            args.append(end)
-        args.extend((limit, offset))
-        with self.connect() as db:
-            rows = db.execute(f"""SELECT sample.measured_at,sample.value,sample.quality,sample.source_id,
+        base = """SELECT sample.measured_at,sample.value,sample.quality,sample.source_id,
                        sample.metadata,source.name AS source_name,source.kind AS source_kind,
                        source.config AS source_config
                   FROM metric_sample AS sample
                   LEFT JOIN metric_source AS source ON source.source_id=sample.source_id
-                 WHERE {' AND '.join('sample.' + clause for clause in clauses)}
-                 ORDER BY sample.measured_at DESC LIMIT ? OFFSET ?""", args).fetchall()
+        """
+        if start and end:
+            query = base + " WHERE sample.channel_id=? AND sample.measured_at>=? AND sample.measured_at<=? ORDER BY sample.measured_at DESC LIMIT ? OFFSET ?"
+            args = (channel_id, start, end, limit, offset)
+        elif start:
+            query = base + " WHERE sample.channel_id=? AND sample.measured_at>=? ORDER BY sample.measured_at DESC LIMIT ? OFFSET ?"
+            args = (channel_id, start, limit, offset)
+        elif end:
+            query = base + " WHERE sample.channel_id=? AND sample.measured_at<=? ORDER BY sample.measured_at DESC LIMIT ? OFFSET ?"
+            args = (channel_id, end, limit, offset)
+        else:
+            query = base + " WHERE sample.channel_id=? ORDER BY sample.measured_at DESC LIMIT ? OFFSET ?"
+            args = (channel_id, limit, offset)
+        with self.connect() as db:
+            rows = db.execute(query, args).fetchall()
         result = []
         for row in reversed(rows):
             item = dict(row)
