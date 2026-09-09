@@ -292,6 +292,7 @@ def init_app(app) -> None:
         federation_catalog_http,
         federation_contacts_http,
         federation_http,
+        gamification_federation_http,
         federation_mail_http,
         federation_phase2,
         federation_print_http,
@@ -305,6 +306,7 @@ def init_app(app) -> None:
         software_admin,
     )
     app.register_blueprint(federation_http.bp)
+    app.register_blueprint(gamification_federation_http.bp)
     app.register_blueprint(federation_catalog_http.bp)
     app.register_blueprint(federation_blocks_http.bp)
     app.register_blueprint(federation_contacts_http.bp)
