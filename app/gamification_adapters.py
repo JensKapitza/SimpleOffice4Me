@@ -12,7 +12,7 @@ from .preview_service import IMAGE_SUFFIXES, PreviewService
 
 
 # These fields are business/financial/CRM metadata and make a contact unsuitable
-# for the generic data-quality game.  The game is deliberately stricter than the
+# for the generic data-quality game. The game is deliberately stricter than the
 # normal contact UI: a readable contact is not automatically a playable contact.
 CONTACT_GAME_BLOCKING_FIELDS = frozenset({
     "customer_number", "supplier_number", "discount", "payment_terms",
@@ -29,6 +29,11 @@ PHOTO_GAME_BLOCKING_MARKERS = frozenset({
     "private", "privat", "vertraulich", "intern", "confidential",
 })
 
+DOCUMENT_GAME_RELEASE_TAGS = frozenset({
+    "gamification", "gamification-freigegeben", "daten-roulette", "spiel-freigabe",
+})
+DOCUMENT_GAME_BLOCKING_MARKERS = PHOTO_GAME_BLOCKING_MARKERS
+
 
 def _has_blocking_contact_data(contact: dict[str, Any]) -> bool:
     fields = contact.get("fields", {})
@@ -37,7 +42,6 @@ def _has_blocking_contact_data(contact: dict[str, Any]) -> bool:
     for key in CONTACT_GAME_BLOCKING_FIELDS:
         if str(fields.get(key, "")).strip():
             return True
-    # Explicit CRM/finance/security tagging also excludes the whole object.
     markers = {
         str(value).strip().casefold()
         for value in [*contact.get("tags", []), *contact.get("groups", [])]
@@ -51,13 +55,7 @@ def _has_blocking_contact_data(contact: dict[str, Any]) -> bool:
 
 
 def contact_candidates(root: str | Path, actor: str) -> list[Candidate]:
-    """Return only contacts already readable by actor and safe for the game.
-
-    Payloads are minimized: no notes, addresses collection, history, sharing
-    metadata, CRM fields or current field values are copied into the challenge
-    engine.  Existing field names are passed only so the provider can prefer
-    genuinely missing data-quality tasks.
-    """
+    """Return only contacts already readable by actor and safe for the game."""
     if not str(actor).strip():
         return []
     store = ContactStore(root)
@@ -78,12 +76,7 @@ def contact_candidates(root: str | Path, actor: str) -> list[Candidate]:
         result.append(Candidate(
             provider="contacts",
             object_ref=f"contact:{contact_id}",
-            data={
-                "display_name": display_name[:200],
-                "existing_fields": existing_fields,
-            },
-            # ContactStore.contacts(actor) has already applied owner/manager/
-            # reader ACL filtering.  Do not construct candidates from contacts().
+            data={"display_name": display_name[:200], "existing_fields": existing_fields},
             normal_read_allowed=True,
             resource_class="contact",
             collection="contacts",
@@ -91,26 +84,30 @@ def contact_candidates(root: str | Path, actor: str) -> list[Candidate]:
     return result
 
 
-def _photo_is_blocked(document: dict[str, Any]) -> bool:
-    values: list[str] = []
-    for key in ("resource_class", "classification", "category", "document_type", "doctype"):
+def _document_markers(document: dict[str, Any]) -> list[str] | None:
+    tags = document.get("tags", [])
+    if not isinstance(tags, list):
+        return None
+    values: list[str] = [str(value) for value in tags if str(value).strip()]
+    for key in ("resource_class", "classification", "category", "document_type", "doctype", "state"):
         value = document.get(key)
         if value not in (None, ""):
             values.append(str(value))
-    tags = document.get("tags", [])
-    if not isinstance(tags, list):
-        return True
-    values.extend(str(value) for value in tags if str(value).strip())
-    if is_hard_excluded(*values):
+    return values
+
+
+def _document_is_blocked(document: dict[str, Any], extra_blocked: frozenset[str]) -> bool:
+    values = _document_markers(document)
+    if values is None or is_hard_excluded(*values):
         return True
     normalized = {str(value).strip().casefold() for value in values if str(value).strip()}
-    return bool(normalized & PHOTO_GAME_BLOCKING_MARKERS)
+    return bool(normalized & extra_blocked)
 
 
 def _safe_photo_document(root: str | Path, document: dict[str, Any]) -> Path | None:
     """Return the cached thumbnail for one explicitly uploaded safe photo.
 
-    The original is deliberately never returned.  Missing or stale preview
+    The original is deliberately never returned. Missing or stale preview
     caches make a photo ineligible until the normal preview worker created one.
     """
     document_id = str(document.get("document_id", "")).strip()
@@ -121,20 +118,13 @@ def _safe_photo_document(root: str | Path, document: dict[str, Any]) -> Path | N
     upload = attributes.get("photo_upload")
     if not isinstance(upload, dict) or str(upload.get("source", "")).strip() != "mobile-web-bulk":
         return None
-    if Path(last_path).suffix.casefold() not in IMAGE_SUFFIXES or _photo_is_blocked(document):
+    if Path(last_path).suffix.casefold() not in IMAGE_SUFFIXES or _document_is_blocked(document, PHOTO_GAME_BLOCKING_MARKERS):
         return None
     return PreviewService(root).cached_path(document, "thumbnail")
 
 
 def image_candidates(root: str | Path, actor: str) -> list[Candidate]:
-    """Expose only explicit photo uploads with an already generated safe preview.
-
-    SimpleOffice's current document catalogue is authenticated application-wide,
-    so this adapter does not invent narrower rights.  It only narrows that normal
-    visibility further: explicit photo uploads, no sensitive markers, and a
-    cached thumbnail are all mandatory.  No path, document id, EXIF, tag value or
-    original URL is copied into the challenge payload.
-    """
+    """Expose only explicit photo uploads with an already generated safe preview."""
     if not str(actor).strip():
         return []
     store = DocumentStore(root)
@@ -171,6 +161,45 @@ def image_preview_path(root: str | Path, actor: str, object_ref: str) -> Path | 
     return _safe_photo_document(root, document)
 
 
+def document_candidates(root: str | Path, actor: str) -> list[Candidate]:
+    """Return explicitly released, non-sensitive files for metadata guessing.
+
+    Release is positive, not inferred: one of DOCUMENT_GAME_RELEASE_TAGS must be
+    present. Full paths, contents, OCR text, notes, attributes and current tags
+    are never copied into the challenge. Images use their stricter photo adapter.
+    """
+    if not str(actor).strip():
+        return []
+    store = DocumentStore(root)
+    result: list[Candidate] = []
+    for document in store.list_documents():
+        document_id = str(document.get("document_id", "")).strip()
+        last_path = str(document.get("last_path", "")).strip()
+        tags = document.get("tags", [])
+        attributes = document.get("attributes", {})
+        if not document_id or not last_path or not isinstance(tags, list) or not isinstance(attributes, dict):
+            continue
+        normalized_tags = {str(value).strip().casefold() for value in tags if str(value).strip()}
+        if not (normalized_tags & DOCUMENT_GAME_RELEASE_TAGS):
+            continue
+        if _document_is_blocked(document, DOCUMENT_GAME_BLOCKING_MARKERS):
+            continue
+        if Path(last_path).suffix.casefold() in IMAGE_SUFFIXES or isinstance(attributes.get("photo_upload"), dict):
+            continue
+        display_name = Path(last_path).name.strip()
+        if not display_name:
+            continue
+        result.append(Candidate(
+            provider="documents",
+            object_ref=f"document:{document_id}",
+            data={"display_name": display_name[:200]},
+            normal_read_allowed=True,
+            resource_class="released_file",
+            collection="files",
+        ))
+    return result
+
+
 def contact_proposal_can_apply(root: str | Path, actor: str, proposal: dict[str, Any]) -> bool:
     """Return whether a proposal is still eligible for explicit manual adoption."""
     if proposal.get("provider") != "contacts" or proposal.get("accepted_by"):
@@ -197,13 +226,7 @@ def contact_proposal_can_apply(root: str | Path, actor: str, proposal: dict[str,
 
 
 def apply_contact_proposal(root: str | Path, actor: str, proposal: dict[str, Any]) -> dict[str, Any]:
-    """Apply a reviewed contact proposal without extending normal write rights.
-
-    The first live game only fills missing fields. If another workflow populated
-    the field after the challenge was shown, the proposal becomes stale and is
-    refused rather than overwriting the newer value. ContactStore.patch_fields
-    performs the authoritative manager/owner ACL check again while writing.
-    """
+    """Apply a reviewed contact proposal without extending normal write rights."""
     if proposal.get("provider") != "contacts":
         raise ValueError("proposal provider is not supported")
     if proposal.get("accepted_by"):
@@ -233,6 +256,4 @@ def apply_contact_proposal(root: str | Path, actor: str, proposal: dict[str, Any
     if current:
         raise ValueError("contact field changed after proposal creation")
 
-    # patch_fields re-loads the contact under its normal write lock and performs
-    # the authoritative owner/manager ACL check again before persisting.
     return store.patch_fields(contact_id, {field_name: normalized}, actor)
