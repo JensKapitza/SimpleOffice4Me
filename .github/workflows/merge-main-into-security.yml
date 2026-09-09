@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m compileall -q app tools *.py
-          python -m pip install --disable-pip-version-check pip-audit bandit
+          python -m pip install --disable-pip-version-check -e . pip-audit bandit
           python -m pip_audit .
           set +e
           bandit -r app tools *.py -x tests,libs -ll -ii -f json -o /tmp/bandit.json
