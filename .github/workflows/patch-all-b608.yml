@@ -5,6 +5,7 @@ on:
     branches: [security/quick-wins-round4]
     paths:
       - .github/patch_remaining_b608.py
+      - .github/patch_b608_tail.py
       - .github/workflows/patch-all-b608.yml
 
 permissions:
@@ -21,9 +22,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply SQL hardening
-        run: python .github/patch_remaining_b608.py
+        run: |
+          python .github/patch_remaining_b608.py
+          python .github/patch_b608_tail.py
       - name: Verify syntax
-        run: python -m py_compile app/osm_address.py app/admin.py app/federation_mail.py app/mail_index.py app/document_store.py
+        run: python -m py_compile app/osm_address.py app/admin.py app/federation_mail.py app/mail_index.py app/document_store.py app/federation_catalog.py app/license_metering.py app/password_vault.py
       - name: Verify all B608 findings are gone
         shell: bash
         run: |
@@ -46,7 +49,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/patch_remaining_b608.py .github/workflows/patch-all-b608.yml
-          git add app/osm_address.py app/admin.py app/federation_mail.py app/mail_index.py app/document_store.py
+          git rm .github/patch_remaining_b608.py .github/patch_b608_tail.py .github/workflows/patch-all-b608.yml
+          git add app/osm_address.py app/admin.py app/federation_mail.py app/mail_index.py app/document_store.py app/federation_catalog.py app/license_metering.py app/password_vault.py
           git commit -m "Eliminate dynamic SQL construction findings"
           git push origin HEAD:security/quick-wins-round4
