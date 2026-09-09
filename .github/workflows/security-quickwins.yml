@@ -28,6 +28,7 @@ jobs:
       - name: Scan first-party Python code
         run: bandit -r app tools *.py -x tests,libs -ll -ii
       - name: Reject Python shell execution quick wins
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
