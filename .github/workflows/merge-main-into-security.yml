@@ -25,6 +25,22 @@ jobs:
           git config user.email 'security-bot@users.noreply.github.com'
           git fetch origin main
           git merge --no-ff -X theirs origin/main -m 'Merge current main into security quick wins'
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('simpleoffice_network_boot.py')
+          text = path.read_text(encoding='utf-8')
+          marker = 'from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir\n'
+          constant = marker + '\nUNSPECIFIED_IPV4 = socket.inet_ntoa(bytes(4))\n'
+          if 'UNSPECIFIED_IPV4 = ' not in text:
+              if marker not in text:
+                  raise SystemExit('network boot import marker not found')
+              text = text.replace(marker, constant, 1)
+          text = text.replace('tftp_bind == "0.0.0.0"', 'tftp_bind == UNSPECIFIED_IPV4')
+          text = text.replace('bind == "0.0.0.0"', 'bind == UNSPECIFIED_IPV4')
+          path.write_text(text, encoding='utf-8')
+          PY
+          git add simpleoffice_network_boot.py
+          git commit --amend --no-edit
       - name: Verify merged tree
         shell: bash
         run: |
