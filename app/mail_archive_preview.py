@@ -11,6 +11,7 @@ from typing import Any
 
 from .mail_client import MailStore, MAX_MESSAGE_BYTES, _owner_key
 from .mail_reader import _header, _message_text
+from .safe_paths import relative_under, resolve_under
 
 
 _ARCHIVE_ID = re.compile(r"^[0-9a-f]{128}$")
@@ -86,11 +87,10 @@ def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
 def load_local_eml(store: MailStore, actor: str, account_id: str, relative_path: str) -> dict[str, Any]:
     """Load one owned archive EML without allowing path traversal or symlink escape."""
     base = _owned_archive_base(store, actor, account_id)
-    requested = Path(relative_path)
-    if requested.is_absolute() or ".." in requested.parts or requested.suffix.lower() != ".eml":
+    relative = relative_under(store.root, relative_path, require_name=True)
+    if relative.suffix.casefold() != ".eml":
         raise ValueError("invalid archive path")
-
-    target = (store.root / requested).resolve()
+    target = resolve_under(store.root, relative, strict=True)
     try:
         target.relative_to(base)
     except ValueError:
