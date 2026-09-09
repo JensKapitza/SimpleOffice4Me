@@ -82,3 +82,70 @@ def contact_candidates(root: str | Path, actor: str) -> list[Candidate]:
             collection="contacts",
         ))
     return result
+
+
+def contact_proposal_can_apply(root: str | Path, actor: str, proposal: dict[str, Any]) -> bool:
+    """Return whether a proposal is still eligible for explicit manual adoption."""
+    if proposal.get("provider") != "contacts" or proposal.get("accepted_by"):
+        return False
+    object_ref = str(proposal.get("object_ref", ""))
+    field_name = str(proposal.get("field_name", ""))
+    value = proposal.get("value")
+    if not object_ref.startswith("contact:") or field_name not in CONTACT_GAME_FIELDS:
+        return False
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 500:
+        return False
+    contact_id = object_ref.removeprefix("contact:").strip()
+    if not contact_id:
+        return False
+    store = ContactStore(root)
+    try:
+        contact = store.get(contact_id, actor)
+    except ValueError:
+        return False
+    if _has_blocking_contact_data(contact) or not store.can_manage_contact(contact, actor):
+        return False
+    current = str(contact.get("fields", {}).get(field_name, "")).strip()
+    return not current or current == value.strip()
+
+
+def apply_contact_proposal(root: str | Path, actor: str, proposal: dict[str, Any]) -> dict[str, Any]:
+    """Apply a reviewed contact proposal without extending normal write rights.
+
+    The first live game only fills missing fields. If another workflow populated
+    the field after the challenge was shown, the proposal becomes stale and is
+    refused rather than overwriting the newer value. ContactStore.patch_fields
+    performs the authoritative manager/owner ACL check again while writing.
+    """
+    if proposal.get("provider") != "contacts":
+        raise ValueError("proposal provider is not supported")
+    if proposal.get("accepted_by"):
+        raise ValueError("proposal was already accepted")
+    object_ref = str(proposal.get("object_ref", ""))
+    field_name = str(proposal.get("field_name", ""))
+    value = proposal.get("value")
+    if not object_ref.startswith("contact:") or field_name not in CONTACT_GAME_FIELDS:
+        raise ValueError("proposal target is not allowed")
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 500:
+        raise ValueError("proposal value is invalid")
+    contact_id = object_ref.removeprefix("contact:").strip()
+    if not contact_id:
+        raise ValueError("proposal contact is invalid")
+
+    store = ContactStore(root)
+    contact = store.get(contact_id, actor)
+    if _has_blocking_contact_data(contact):
+        raise ValueError("contact is excluded from gamification")
+    if not store.can_manage_contact(contact, actor):
+        raise ValueError("contact write permission is required")
+
+    current = str(contact.get("fields", {}).get(field_name, "")).strip()
+    normalized = value.strip()
+    if current == normalized:
+        return contact
+    if current:
+        raise ValueError("contact field changed after proposal creation")
+
+    # patch_fields re-loads the contact under its normal write lock and performs
+    # the authoritative owner/manager ACL check again before persisting.
+    return store.patch_fields(contact_id, {field_name: normalized}, actor)
