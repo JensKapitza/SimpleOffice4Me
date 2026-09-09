@@ -229,10 +229,11 @@ class FederationBlockStore:
             except ValueError: continue
         result:set[str]=set()
         with self._db() as db:
-            for start in range(0,len(requested),400):
-                batch=requested[start:start+400]
-                if not batch: continue
-                placeholders=",".join("?" for _ in batch); rows=db.execute(f"SELECT DISTINCT sha512 FROM block_source WHERE sha512 IN ({placeholders})",batch).fetchall(); result.update(str(row[0]) for row in rows)
+            db.execute("CREATE TEMP TABLE IF NOT EXISTS requested_block_hash(sha512 TEXT PRIMARY KEY)")
+            db.execute("DELETE FROM requested_block_hash")
+            db.executemany("INSERT OR IGNORE INTO requested_block_hash(sha512) VALUES(?)", ((digest,) for digest in requested))
+            rows=db.execute("SELECT DISTINCT b.sha512 FROM block_source b JOIN requested_block_hash r ON r.sha512=b.sha512").fetchall()
+            result.update(str(row[0]) for row in rows)
         for digest in requested:
             if self.cache_path(digest).is_file(): result.add(digest)
         return result
