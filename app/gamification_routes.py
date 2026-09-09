@@ -19,12 +19,7 @@ from .gamification_adapters import (
 )
 from .gamification_engine import eligible_challenges, roulette
 from .gamification_federation import peer_allows
-from .gamification_organization import (
-    add_member,
-    bind_participant,
-    create_organization,
-    organizations_for_user,
-)
+from .gamification_organization import add_member, bind_participant, create_organization, organizations_for_user
 from .gamification_policy import GamePolicy
 from .gamification_providers import Challenge, get_provider
 from .gamification_rewards import award_accepted_proposal, profile
@@ -38,13 +33,9 @@ COLLECTIONS = {"contacts": "contacts", "images": "images", "documents": "files"}
 
 def _policy() -> GamePolicy:
     return GamePolicy(
-        scope="local",
-        providers=PROVIDER_SET,
-        collections=frozenset(COLLECTIONS.values()),
-        preview_allowed=True,
-        original_allowed=False,
-        submit_proposals=True,
-        auto_accept_consensus=False,
+        scope="local", providers=PROVIDER_SET,
+        collections=frozenset(COLLECTIONS.values()), preview_allowed=True,
+        original_allowed=False, submit_proposals=True, auto_accept_consensus=False,
     )
 
 
@@ -59,19 +50,23 @@ def _local_candidates(actor: str):
 
 def _policy_snapshot(policy: GamePolicy, **extra) -> dict[str, object]:
     result = {
-        "scope": policy.scope,
-        "providers": sorted(policy.providers),
-        "collections": sorted(policy.collections),
-        "fields": sorted(policy.fields),
-        "preview_allowed": policy.preview_allowed,
-        "original_allowed": policy.original_allowed,
-        "submit_proposals": policy.submit_proposals,
-        "auto_accept_consensus": policy.auto_accept_consensus,
-        "min_votes": policy.min_votes,
-        "consensus_ratio": policy.consensus_ratio,
+        "scope": policy.scope, "providers": sorted(policy.providers),
+        "collections": sorted(policy.collections), "fields": sorted(policy.fields),
+        "preview_allowed": policy.preview_allowed, "original_allowed": policy.original_allowed,
+        "submit_proposals": policy.submit_proposals, "auto_accept_consensus": policy.auto_accept_consensus,
+        "min_votes": policy.min_votes, "consensus_ratio": policy.consensus_ratio,
     }
     result.update(extra)
     return result
+
+
+def _proposal_any_scope(proposal_id: str, actor: str):
+    store = _store()
+    for scope in ("local", "organization", "federation"):
+        proposal = store.get_proposal_for_actor(proposal_id, actor, scope=scope)
+        if proposal is not None:
+            return proposal
+    return None
 
 
 def _pending_proposal(actor: str) -> dict[str, object] | None:
@@ -83,23 +78,12 @@ def _pending_proposal(actor: str) -> dict[str, object] | None:
         return None
     contact_apply = proposal.get("provider") == "contacts"
     return {
-        "id": proposal_id,
-        "field_name": str(proposal["field_name"]),
-        "value": str(proposal["value"])[:500],
-        "manual_apply_supported": contact_apply,
-        "can_apply": bool(contact_apply and contact_proposal_can_apply(current_app.config["DOCUMENT_ROOT"], actor, proposal)),
-        "can_confirm": not bool(proposal.get("accepted_by")),
+        "id": proposal_id, "field_name": str(proposal["field_name"]),
+        "value": str(proposal["value"])[:500], "manual_apply_supported": contact_apply,
+        "can_apply": bool(contact_apply and str(proposal.get("created_by")) == actor and contact_proposal_can_apply(current_app.config["DOCUMENT_ROOT"], actor, proposal)),
+        "can_confirm": str(proposal.get("created_by")) == actor and not bool(proposal.get("accepted_by")),
         "accepted": bool(proposal.get("accepted_by")),
     }
-
-
-def _proposal_any_scope(proposal_id: str, actor: str):
-    store = _store()
-    for scope in ("local", "organization", "federation"):
-        proposal = store.get_proposal_for_actor(proposal_id, actor, scope=scope)
-        if proposal is not None:
-            return proposal
-    return None
 
 
 def _populate_session(store: GamificationStore, session_id: str, actor: str, policy: GamePolicy, *, organization: bool = False) -> int:
@@ -200,8 +184,7 @@ def create_session():
     if scope not in {"local", "federation", "organization"} or not providers:
         return redirect(url_for("gamification.manage", message="Ungültige Runde oder keine Provider gewählt."))
     policy = GamePolicy(
-        scope=scope, providers=providers,
-        collections=frozenset(COLLECTIONS[value] for value in providers),
+        scope=scope, providers=providers, collections=frozenset(COLLECTIONS[value] for value in providers),
         preview_allowed="images" in providers, original_allowed=False, submit_proposals=True,
     )
     store = _store()
@@ -337,6 +320,8 @@ def accept():
     proposal = _proposal_any_scope(proposal_id, actor)
     if proposal is None:
         return redirect(url_for("gamification.index", message="Vorschlag ist nicht verfügbar."))
+    if str(proposal.get("created_by")) != actor:
+        abort(403)
     if proposal.get("accepted_by"):
         return redirect(url_for("gamification.index", message="Vorschlag wurde bereits bestätigt."))
     store = _store()
