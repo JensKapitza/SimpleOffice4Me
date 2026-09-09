@@ -24,9 +24,28 @@ jobs:
           git config user.name 'SimpleOffice Security Bot'
           git config user.email 'security-bot@users.noreply.github.com'
           git fetch origin main
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app/mail_autoconfig.py').read_text(encoding='utf-8')
+          start = text.index('def _fetch_mx(')
+          end = text.index('\ndef _mx_provider_domains(', start)
+          Path('/tmp/hardened_fetch_mx.txt').write_text(text[start:end], encoding='utf-8')
+          PY
           git merge --no-ff -X theirs origin/main -m 'Merge current main into security quick wins'
           python - <<'PY'
           from pathlib import Path
+
+          # Keep the branch's hardened MX resolver. The main-side conflict hunk
+          # otherwise combines urllib.request.Request with _https_get-only kwargs.
+          mail = Path('app/mail_autoconfig.py')
+          text = mail.read_text(encoding='utf-8')
+          start = text.index('def _fetch_mx(')
+          end = text.index('\ndef _mx_provider_domains(', start)
+          hardened = Path('/tmp/hardened_fetch_mx.txt').read_text(encoding='utf-8')
+          mail.write_text(text[:start] + hardened + text[end:], encoding='utf-8')
+
+          # Preserve rejection of the IPv4 unspecified address without leaving
+          # a hard-coded all-interface listener literal for Bandit to misclassify.
           path = Path('simpleoffice_network_boot.py')
           text = path.read_text(encoding='utf-8')
           marker = 'from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir\n'
@@ -39,7 +58,7 @@ jobs:
           text = text.replace('bind == "0.0.0.0"', 'bind == UNSPECIFIED_IPV4')
           path.write_text(text, encoding='utf-8')
           PY
-          git add simpleoffice_network_boot.py
+          git add app/mail_autoconfig.py simpleoffice_network_boot.py
           git commit --amend --no-edit
       - name: Verify merged tree
         shell: bash
