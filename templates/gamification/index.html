@@ -1,0 +1,83 @@
+{% extends "layout.html" %}
+{% block title %}Daten-Roulette{% endblock %}
+{% block content %}
+<section class="container py-3" style="max-width: 760px">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h1 class="h3 mb-1">Daten-Roulette</h1>
+      <p class="text-muted mb-0">Daten verbessern, ohne Zugriffsrechte zu erweitern.</p>
+    </div>
+    <div class="d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('gamification.manage') }}">Runden &amp; Auswertung</a><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('gamification_leaderboard.index') }}">Rangliste</a></div>
+  </div>
+
+  <div class="row g-2 mb-3">
+    <div class="col-4"><div class="card h-100"><div class="card-body py-2 text-center"><div class="small text-muted">XP</div><strong>{{ reward_profile.xp }}</strong></div></div></div>
+    <div class="col-4"><div class="card h-100"><div class="card-body py-2 text-center"><div class="small text-muted">Bestätigt</div><strong>{{ reward_profile.accepted_fixes }}</strong></div></div></div>
+    <div class="col-4"><div class="card h-100"><div class="card-body py-2 text-center"><div class="small text-muted">Serie</div><strong>{{ reward_profile.streak }} Tage</strong></div></div></div>
+  </div>
+  {% if reward_profile.achievements %}<div class="mb-3">{% for achievement in reward_profile.achievements %}<span class="badge text-bg-success me-1 mb-1">{{ achievement.title }}</span>{% endfor %}</div>{% endif %}
+
+  {% if message %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endif %}
+
+  {% if pending_proposal %}
+  <article class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="small text-muted mb-2">Gespeicherter Vorschlag</div>
+      <div class="mb-1"><strong>Feld:</strong> {{ pending_proposal.field_name }}</div>
+      <div class="mb-3"><strong>Vorschlag:</strong> {{ pending_proposal.value }}</div>
+      {% if pending_proposal.accepted %}
+        <div class="text-success">Bereits bestätigt.</div>
+      {% elif pending_proposal.manual_apply_supported and pending_proposal.can_apply %}
+        <form method="post" action="{{ url_for('gamification.accept') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="proposal_id" value="{{ pending_proposal.id }}">
+          <button class="btn btn-success" type="submit">Vorschlag übernehmen</button>
+        </form>
+      {% elif pending_proposal.manual_apply_supported %}
+        <div class="text-muted">Übernahme nicht möglich: Es fehlt Schreibrecht oder der Datenstand hat sich geändert.</div>
+      {% elif pending_proposal.can_confirm %}
+        <form method="post" action="{{ url_for('gamification.accept') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="proposal_id" value="{{ pending_proposal.id }}">
+          <button class="btn btn-outline-success" type="submit">Metadaten-Vorschlag bestätigen</button>
+          <div class="form-text">Die Originaldatei bleibt unverändert; die bestätigte Annotation wird protokolliert.</div>
+        </form>
+      {% endif %}
+    </div>
+  </article>
+  {% endif %}
+
+  {% if challenge %}
+  <article class="card shadow-sm">
+    <div class="card-body">
+      <div class="small text-muted mb-2">{{ challenge.provider }} · {{ challenge.kind }}</div>
+      {% if challenge.provider == "images" and challenge.payload.preview %}
+        <img src="{{ url_for('gamification.preview', challenge_id=challenge.id) }}" class="img-fluid rounded mb-3" alt="Spielvorschau" loading="lazy" decoding="async">
+      {% endif %}
+      {% if challenge.payload.display_name %}<div class="fw-semibold mb-2">{{ challenge.payload.display_name }}</div>{% endif %}
+      <h2 class="h5">{{ challenge.prompt }}</h2>
+      <form method="post" action="{{ url_for('gamification.answer') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="challenge_id" value="{{ challenge.id }}">
+        <label class="form-label" for="game-answer">Deine Antwort</label>
+        <input class="form-control form-control-lg" id="game-answer" name="answer" maxlength="500" autocomplete="off" required>
+        <div class="d-grid gap-2 d-sm-flex mt-3">
+          <button class="btn btn-primary flex-fill" type="submit" name="action" value="answer">Antworten</button>
+          <button class="btn btn-outline-secondary flex-fill" type="submit" name="action" value="unknown" formnovalidate>Weiß ich nicht</button>
+          <button class="btn btn-outline-secondary flex-fill" type="submit" name="action" value="skip" formnovalidate>Weiter</button>
+        </div>
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <div class="card shadow-sm"><div class="card-body text-center py-5">
+    <h2 class="h5">Keine passende sichere Aufgabe</h2>
+    <p class="text-muted mb-0">Berücksichtigt werden freigegebene Kontakte, sichere Foto-Vorschauen und ausdrücklich für das Daten-Roulette freigegebene Dateien.</p>
+  </div></div>
+  {% endif %}
+
+  <div class="alert alert-light border mt-3 small mb-0">
+    Rechnungen, Buchhaltung, Zahlungsdaten, CRM-interne Daten, Zugangsdaten und private Notizen sind ausgeschlossen. XP gibt es nur für tatsächlich bestätigte Verbesserungen, nicht fürs Raten.
+  </div>
+</section>
+{% endblock %}

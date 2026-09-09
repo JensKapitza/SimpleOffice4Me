@@ -189,6 +189,8 @@ class AuthTest(unittest.TestCase):
             self.assertIsNone(database.get_db().execute("SELECT id FROM user WHERE username='short'").fetchone())
 
     def test_startup_migrates_legacy_plaintext_database_secrets(self):
+        # TEST ONLY: the plaintext password and OAuth values below deliberately
+        # model legacy insecure storage. They must never be used in a live system.
         with app.app_context():
             db = database.get_db()
             db.execute("INSERT INTO user(username,password,created_at,updated_at) VALUES(?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", ("legacy", "legacy-password"))
@@ -198,7 +200,7 @@ class AuthTest(unittest.TestCase):
             database.ensure_auth_database()
             user = db.execute("SELECT password FROM user WHERE id=?", (user_id,)).fetchone()
             oauth = db.execute("SELECT access_token,refresh_token FROM oauth_token WHERE user_id=?", (user_id,)).fetchone()
-            self.assertTrue(user["password"].startswith(("scrypt:", "pbkdf2:")))
+            self.assertTrue(user["password"].startswith("$argon2id$"))
             self.assertNotIn("legacy-password", user["password"])
             self.assertTrue(oauth["access_token"].startswith("enc:v1:"))
             self.assertTrue(oauth["refresh_token"].startswith("enc:v1:"))
