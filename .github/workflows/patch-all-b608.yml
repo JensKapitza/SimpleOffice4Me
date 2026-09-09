@@ -1,0 +1,52 @@
+name: Patch all B608 findings
+
+on:
+  push:
+    branches: [security/quick-wins-round4]
+    paths:
+      - .github/patch_remaining_b608.py
+      - .github/workflows/patch-all-b608.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/quick-wins-round4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply SQL hardening
+        run: python .github/patch_remaining_b608.py
+      - name: Verify syntax
+        run: python -m py_compile app/osm_address.py app/admin.py app/federation_mail.py app/mail_index.py app/document_store.py
+      - name: Verify all B608 findings are gone
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check bandit
+          bandit -r app tools *.py -x tests,libs -f json -o /tmp/bandit.json || true
+          python - <<'PY'
+          import json
+          data = json.load(open('/tmp/bandit.json', encoding='utf-8'))
+          findings = [item for item in data.get('results', []) if item.get('test_id') == 'B608']
+          if findings:
+              for item in findings:
+                  print(item.get('filename'), item.get('line_number'), item.get('code'))
+              raise SystemExit(f'{len(findings)} B608 finding(s) remain')
+          print('B608 findings: 0')
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/patch_remaining_b608.py .github/workflows/patch-all-b608.yml
+          git add app/osm_address.py app/admin.py app/federation_mail.py app/mail_index.py app/document_store.py
+          git commit -m "Eliminate dynamic SQL construction findings"
+          git push origin HEAD:security/quick-wins-round4
