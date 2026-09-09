@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
-import os
 import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 from typing import Any
 
+from .caldav_credentials import CalDAVCredentials
 from .calendar_store import CalendarStore
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
@@ -124,21 +123,11 @@ class CalendarCollections:
         self.history.record("calendar_collection_deleted", actor, "calendar-collections", calendar_id, {**item, "deleted_at": utc_now()})
 
     def activate(self, username: str, password: str, actor: str) -> None:
-        if actor != username or len(password) < 12:
-            raise ValueError("CalDAV app password must contain at least 12 characters")
-        salt = os.urandom(16); now = utc_now()
-        account = {"username": username, "enabled": True, "created_at": now, "password_salt": salt.hex(), "password_hash": hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1).hex()}
-        with exclusive_file_lock(self.lock):
-            data = self._read_auth(); data["accounts"] = [a for a in data["accounts"] if a.get("username") != username] + [account]
-            atomic_json_write(self.auth_path, data)
-        self.history.record("caldav_activated", actor, "calendar-collections", f"caldav-{username}", {"username": username, "enabled": True, "created_at": now})
+        account = CalDAVCredentials(self.auth_path, self.lock).activate(username, password, actor)
+        self.history.record("caldav_activated", actor, "calendar-collections", f"caldav-{username}", {"username": username, "enabled": True, "created_at": account["created_at"]})
 
     def authenticate(self, username: str, password: str) -> bool:
-        account = next((a for a in self._read_auth()["accounts"] if a.get("username") == username and a.get("enabled") is True), None)
-        if not account:
-            return False
-        actual = hashlib.scrypt(password.encode(), salt=bytes.fromhex(account["password_salt"]), n=2**14, r=8, p=1)
-        return hmac.compare_digest(actual, bytes.fromhex(account["password_hash"]))
+        return CalDAVCredentials(self.auth_path, self.lock).authenticate(username, password)
 
     def resource_events(self, calendar_id: str, actor: str, include_deleted: bool = False) -> list[dict[str, Any]]:
         calendar = self.get(calendar_id, actor)
