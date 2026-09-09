@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Iterable
 
 from .gamification_store import GamificationStore
 
@@ -64,8 +64,6 @@ def _streak(days: list[date], today: date | None = None) -> int:
     if not unique:
         return 0
     current = today or datetime.now(timezone.utc).date()
-    # A user keeps a streak through the following day; missing both today and
-    # yesterday ends it. This avoids penalizing someone before the day is over.
     if unique[0] not in {current, current - timedelta(days=1)}:
         return 0
     expected = unique[0]
@@ -113,14 +111,25 @@ def profile(store: GamificationStore, participant: str) -> dict[str, Any]:
     }
 
 
-def leaderboard(store: GamificationStore, limit: int = 20) -> list[dict[str, Any]]:
+def leaderboard(store: GamificationStore, limit: int = 20,
+                participants: Iterable[str] | None = None) -> list[dict[str, Any]]:
+    """Return a ranking only for an explicitly supplied visibility set.
+
+    ``None`` is deliberately not interpreted as all users. Callers must decide
+    whose identity may be shown; this prevents a reward view becoming a user
+    directory by accident.
+    """
     _ensure(store)
     limit = max(1, min(int(limit), 100))
+    visible = sorted({str(value).strip() for value in (participants or ()) if str(value).strip() and not str(value).startswith("peer:")})
+    if not visible:
+        return []
+    placeholders = ",".join("?" for _ in visible)
     with store._db() as db:
         rows = db.execute(
-            "SELECT participant,SUM(xp) xp,COUNT(*) accepted_fixes "
-            "FROM game_reward GROUP BY participant "
+            f"SELECT participant,SUM(xp) xp,COUNT(*) accepted_fixes FROM game_reward "
+            f"WHERE participant IN ({placeholders}) GROUP BY participant "
             "ORDER BY xp DESC,accepted_fixes DESC,participant LIMIT ?",
-            (limit,),
+            (*visible, limit),
         ).fetchall()
     return [dict(row) for row in rows]
