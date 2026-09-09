@@ -109,13 +109,10 @@ class MailAutoconfigTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return False
 
-            def geturl(self):
-                return "https://dns.google/resolve?name=example.org&type=MX"
-
             def read(self, _size):
                 return b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'
 
-        with patch("app.mail_autoconfig.urllib.request.urlopen", return_value=Response()):
+        with patch("app.mail_autoconfig._OPENER.open", return_value=Response()):
             records = _fetch_mx("example.org")
         self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)
 
@@ -132,11 +129,18 @@ class MailAutoconfigTests(unittest.TestCase):
     def test_provider_fetch_rejects_private_destination_before_http(self):
         source = DiscoverySource("provider-autoconfig", "https://autoconfig.example.org/mail/config-v1.1.xml", provider_owned=True)
         with patch("app.mail_autoconfig._host_is_public", return_value=False), patch(
-            "app.mail_autoconfig.urllib.request.urlopen"
-        ) as urlopen:
+            "app.mail_autoconfig._OPENER.open"
+        ) as opener:
             with self.assertRaises(ValueError):
                 _fetch(source)
-            urlopen.assert_not_called()
+            opener.assert_not_called()
+
+    def test_fixed_discovery_source_rejects_unexpected_host_before_http(self):
+        source = DiscoverySource("thunderbird-ispdb", "https://autoconfig.thunderbird.net.evil.invalid/v1.1/example.org")
+        with patch("app.mail_autoconfig._OPENER.open") as opener:
+            with self.assertRaisesRegex(ValueError, "Unbekannter Autokonfigurationsdienst"):
+                _fetch(source)
+            opener.assert_not_called()
 
     def test_plaintext_and_pop_only_configs_are_not_accepted(self):
         insecure = XML.replace(b"<socketType>SSL</socketType>", b"<socketType>plain</socketType>")

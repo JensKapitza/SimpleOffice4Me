@@ -17,6 +17,15 @@ MAX_DNS_BYTES = 128 * 1024
 REQUEST_TIMEOUT = 5.0
 THUNDERBIRD_ISPDB = "https://autoconfig.thunderbird.net/v1.1/{domain}"
 GOOGLE_DNS_MX = "https://dns.google/resolve?name={domain}&type=MX"
+FIXED_DISCOVERY_HOSTS = frozenset({"autoconfig.thunderbird.net", "dns.google"})
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirectHandler())
 
 
 @dataclass(frozen=True)
@@ -24,6 +33,18 @@ class DiscoverySource:
     name: str
     url: str
     provider_owned: bool = False
+
+
+def _declared_length(headers, limit: int, label: str) -> None:
+    value = headers.get("Content-Length")
+    if not value:
+        return
+    try:
+        length = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} meldet eine ungültige Größe.") from exc
+    if length < 0 or length > limit:
+        raise ValueError(f"{label} ist unerwartet groß.")
 
 
 def _email_parts(email: str) -> tuple[str, str, str]:
@@ -63,10 +84,13 @@ def _host_is_public(host: str) -> bool:
 
 def _fetch(source: DiscoverySource) -> bytes:
     parsed = urllib.parse.urlparse(source.url)
-    if parsed.scheme != "https" or not parsed.hostname:
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise ValueError("Autokonfiguration darf nur über HTTPS geladen werden.")
-    if source.provider_owned and not _host_is_public(parsed.hostname):
-        raise ValueError("Provider-Autokonfiguration verweist nicht auf eine öffentliche Adresse.")
+    if source.provider_owned:
+        if not _host_is_public(parsed.hostname):
+            raise ValueError("Provider-Autokonfiguration verweist nicht auf eine öffentliche Adresse.")
+    elif parsed.hostname not in FIXED_DISCOVERY_HOSTS:
+        raise ValueError("Unbekannter Autokonfigurationsdienst.")
     request = urllib.request.Request(
         source.url,
         headers={
@@ -76,15 +100,8 @@ def _fetch(source: DiscoverySource) -> bytes:
         },
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        final = urllib.parse.urlparse(response.geturl())
-        if final.scheme != "https" or not final.hostname:
-            raise ValueError("Unsichere Weiterleitung bei der Mail-Autokonfiguration.")
-        if source.provider_owned and not _host_is_public(final.hostname):
-            raise ValueError("Provider-Autokonfiguration wurde auf eine interne Adresse umgeleitet.")
-        declared = response.headers.get("Content-Length")
-        if declared and int(declared) > MAX_CONFIG_BYTES:
-            raise ValueError("Mail-Autokonfiguration ist unerwartet groß.")
+    with _OPENER.open(request, timeout=REQUEST_TIMEOUT) as response:
+        _declared_length(response.headers, MAX_CONFIG_BYTES, "Mail-Autokonfiguration")
         data = response.read(MAX_CONFIG_BYTES + 1)
     if len(data) > MAX_CONFIG_BYTES:
         raise ValueError("Mail-Autokonfiguration ist unerwartet groß.")
@@ -94,6 +111,9 @@ def _fetch(source: DiscoverySource) -> bytes:
 def _fetch_mx(domain: str) -> list[tuple[int, str]]:
     """Resolve MX via a fixed HTTPS DNS endpoint; only the mail domain is disclosed."""
     url = GOOGLE_DNS_MX.format(domain=urllib.parse.quote(domain, safe=""))
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "dns.google" or parsed.port not in {None, 443}:
+        raise ValueError("Ungültiger DNS-Endpunkt.")
     request = urllib.request.Request(
         url,
         headers={
@@ -102,10 +122,8 @@ def _fetch_mx(domain: str) -> list[tuple[int, str]]:
         },
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-        final = urllib.parse.urlparse(response.geturl())
-        if final.scheme != "https" or final.hostname != "dns.google":
-            raise ValueError("Unsichere Weiterleitung bei der MX-Abfrage.")
+    with _OPENER.open(request, timeout=REQUEST_TIMEOUT) as response:
+        _declared_length(response.headers, MAX_DNS_BYTES, "DNS-Antwort")
         data = response.read(MAX_DNS_BYTES + 1)
     if len(data) > MAX_DNS_BYTES:
         raise ValueError("DNS-Antwort ist unerwartet groß.")

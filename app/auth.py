@@ -3,8 +3,8 @@ import json
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, session, url_for, current_app
 
@@ -26,7 +26,49 @@ bp = Blueprint('auth', __name__, url_prefix='/auth')
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+GOOGLE_HTTP_URLS = frozenset({GOOGLE_TOKEN_URL, GOOGLE_USERINFO_URL})
+MAX_GOOGLE_OAUTH_RESPONSE_BYTES = 2 * 1024 * 1024
 DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
+
+
+class _NoGoogleRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_GOOGLE_OPENER = build_opener(_NoGoogleRedirectHandler())
+
+
+def _google_json_request(url: str, *, data: bytes | None = None, headers: dict[str, str] | None = None) -> dict:
+    parsed = urlsplit(str(url or ""))
+    if (
+        url not in GOOGLE_HTTP_URLS
+        or parsed.scheme != "https"
+        or parsed.hostname not in {"oauth2.googleapis.com", "openidconnect.googleapis.com"}
+        or parsed.port not in {None, 443}
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Google OAuth endpoint is not allowed")
+    google_request = Request(url, data=data, headers={"Accept": "application/json", **(headers or {})})
+    with _GOOGLE_OPENER.open(google_request, timeout=15) as response:
+        declared = response.headers.get("Content-Length")
+        if declared:
+            try:
+                length = int(declared)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Google OAuth returned invalid Content-Length") from exc
+            if length < 0 or length > MAX_GOOGLE_OAUTH_RESPONSE_BYTES:
+                raise ValueError("Google OAuth response is too large")
+        raw = response.read(MAX_GOOGLE_OAUTH_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_GOOGLE_OAUTH_RESPONSE_BYTES:
+        raise ValueError("Google OAuth response is too large")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Google OAuth returned invalid JSON")
+    return payload
 
 
 def _registration_enabled() -> bool:
@@ -141,8 +183,6 @@ def login():
             error = 'Dieses Konto ist gesperrt. Bitte einen Administrator kontaktieren.'
 
         if error is None:
-            # Upgrade legacy scrypt/PBKDF2 or outdated Argon2id parameters only
-            # after the password has been successfully authenticated.
             if password_needs_rehash(user['password']):
                 db.execute(
                     'UPDATE user SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -158,7 +198,6 @@ def login():
         record_login_failure(db, username, client_ip)
         audit("login", "session", outcome="denied")
         flash(error)
-
 
     return render_template(
         'auth/login.html', google_enabled=_google_config() is not None,
@@ -199,15 +238,18 @@ def google_callback():
             'code': code, 'client_id': config['client_id'], 'client_secret': config['client_secret'],
             'redirect_uri': config['redirect_uri'], 'grant_type': 'authorization_code',
         }).encode('utf-8')
-        token_request = Request(GOOGLE_TOKEN_URL, data=body, headers={'Content-Type': 'application/x-www-form-urlencoded'})
-        with urlopen(token_request, timeout=15) as response:
-            token = json.loads(response.read().decode('utf-8'))
+        token = _google_json_request(
+            GOOGLE_TOKEN_URL,
+            data=body,
+            headers={'Content-Type': 'application/x-www-form-urlencoded'},
+        )
         access_token = str(token.get('access_token', ''))
         if not access_token:
             raise ValueError('Google did not return an access token')
-        profile_request = Request(GOOGLE_USERINFO_URL, headers={'Authorization': f'Bearer {access_token}'})
-        with urlopen(profile_request, timeout=15) as response:
-            profile = json.loads(response.read().decode('utf-8'))
+        profile = _google_json_request(
+            GOOGLE_USERINFO_URL,
+            headers={'Authorization': f'Bearer {access_token}'},
+        )
         subject = str(profile.get('sub', '')).strip()
         email = str(profile.get('email', '')).strip().casefold()
         if not subject or not email or profile.get('email_verified') is not True:
@@ -226,9 +268,6 @@ def google_callback():
             audit("google_login", "session", outcome="denied")
             flash("Dieses Google-Konto ist noch nicht freigegeben. Bitte einen Administrator kontaktieren.")
             return redirect(url_for('auth.login'))
-        # Never bind an OAuth identity to a local account merely because a
-        # user selected the same text as a username. Explicit linking can be
-        # added later from an authenticated account page.
         username = _google_username(db, email)
         first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
         db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', (username, hash_password(secrets.token_urlsafe(32)), str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', int(first_user)))
@@ -270,8 +309,6 @@ def load_logged_in_user():
             'SELECT * FROM user WHERE id = ?', (user_id,)
         ).fetchone()
         if user is not None and session.get('auth_version') is None:
-            # One-time compatibility for sessions created before this additive
-            # migration. All subsequent permission changes are version checked.
             session['auth_version'] = user['auth_version']
         if user is None or user['is_disabled'] or session.get('auth_version') != user['auth_version']:
             session.clear()

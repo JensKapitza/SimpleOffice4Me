@@ -18,7 +18,8 @@ class InvoiceValidatorInstallerTests(unittest.TestCase):
     def test_missing_sha256_sidecar_fails_closed(self):
         payload = b"executable validator jar"
 
-        def download(url):
+        def download(url, *, max_bytes):
+            self.assertGreater(max_bytes, 0)
             if url.endswith(".sha256"):
                 raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
             return payload
@@ -63,6 +64,20 @@ class InvoiceValidatorInstallerTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "checksum does not match"):
                     installer.install()
             self.assertFalse(target.exists())
+
+    def test_download_rejects_non_maven_or_credentialed_urls_before_network(self):
+        bad_urls = (
+            "http://repo1.maven.org/maven2/org/mustangproject/Mustang-CLI/2.25.0/x.jar",
+            "https://repo1.maven.org.evil.invalid/maven2/org/mustangproject/Mustang-CLI/2.25.0/x.jar",
+            "https://user:secret@repo1.maven.org/maven2/org/mustangproject/Mustang-CLI/2.25.0/x.jar",
+            "https://repo1.maven.org:444/maven2/org/mustangproject/Mustang-CLI/2.25.0/x.jar",
+            "https://repo1.maven.org/maven2/other/package.jar",
+        )
+        with mock.patch.object(installer._OPENER, "open") as opener:
+            for url in bad_urls:
+                with self.subTest(url=url), self.assertRaises(RuntimeError):
+                    installer._download(url, max_bytes=1024)
+            opener.assert_not_called()
 
 
 if __name__ == "__main__":

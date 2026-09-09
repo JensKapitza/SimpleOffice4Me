@@ -6,7 +6,7 @@ from unittest.mock import patch
 from app import app
 from app.calendar_store import CalendarStore
 from app.contact_store import ContactStore
-from app.google_sync import sync_google_account
+from app.google_sync import _validated_google_url, sync_google_account
 
 
 class GoogleSyncTest(unittest.TestCase):
@@ -34,6 +34,22 @@ class GoogleSyncTest(unittest.TestCase):
                 self.assertEqual("google_calendar", events[0]["source"]["provider"])
             finally:
                 app.config["DOCUMENT_ROOT"] = previous
+
+    def test_google_api_url_is_exactly_allowlisted(self):
+        self.assertEqual(
+            "https://people.googleapis.com/v1/people/me/connections?pageSize=1",
+            _validated_google_url("https://people.googleapis.com/v1/people/me/connections?pageSize=1"),
+        )
+        for malicious in (
+            "http://people.googleapis.com/v1/people/me/connections",
+            "https://people.googleapis.com.evil.example/v1/people/me/connections",
+            "https://user:secret@people.googleapis.com/v1/people/me/connections",
+            "https://people.googleapis.com:444/v1/people/me/connections",
+            "https://127.0.0.1/internal",
+            "https://www.googleapis.com@evil.example/calendar/v3/users/me/calendarList",
+        ):
+            with self.assertRaises(ValueError):
+                _validated_google_url(malicious)
 
 
 if __name__ == "__main__":

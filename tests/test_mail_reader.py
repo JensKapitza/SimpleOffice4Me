@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.mail_archive_preview import load_local_eml_by_id
+from app.mail_archive_preview import load_local_eml, load_local_eml_by_id
 from app.mail_client import ImapArchive, MailStore
 from app.mail_reader import MailReader, _html_to_text
 
@@ -123,6 +123,30 @@ class MailReaderTests(unittest.TestCase):
             load_local_eml_by_id(self.store, "alice", self.saved["id"], "../../secret")
         with self.assertRaises(ValueError):
             load_local_eml_by_id(self.store, "alice", self.saved["id"], "not-a-message-id")
+
+    def test_legacy_archive_path_rejects_posix_windows_and_symlink_escape(self):
+        reader = MailReader(self.store)
+        with patch.object(ImapArchive, "_connect", return_value=FakeReaderImap()):
+            archived = reader.archive_uid("alice", self.account, "INBOX", "8")
+
+        preview = load_local_eml(self.store, "alice", self.saved["id"], archived["path"])
+        self.assertEqual("Reader Test", preview["subject"])
+        for malicious in ("../secret.eml", "..\\secret.eml", "/tmp/secret.eml", "C:\\temp\\secret.eml"):
+            with self.assertRaises((ValueError, PermissionError, FileNotFoundError)):
+                load_local_eml(self.store, "alice", self.saved["id"], malicious)
+
+        outside = Path(self.temp.name) / "outside.eml"
+        outside.write_bytes(MAIL)
+        base = self.root / "email"
+        links = list(base.glob(f"*/{self.saved['id']}"))
+        if links:
+            link = links[0] / "escape.eml"
+            try:
+                link.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                return
+            with self.assertRaises((ValueError, PermissionError, FileNotFoundError)):
+                load_local_eml(self.store, "alice", self.saved["id"], str(link.relative_to(self.root)))
 
     def test_html_fallback_removes_markup_and_script_content(self):
         text = _html_to_text("<p>Hallo <b>Welt</b></p><script>alert('x')</script><br>Ende")
