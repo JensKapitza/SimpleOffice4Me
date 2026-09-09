@@ -55,6 +55,23 @@ class GamificationOrganizationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_organization(self.db, "firma-a", "Firma A", "anna")
 
+    def test_manager_cannot_promote_owner_or_demote_existing_owner(self):
+        create_organization(self.db, "firma-a", "Firma A", "admin")
+        add_member(self.db, "firma-a", "anna", "manager", "admin")
+        add_member(self.db, "firma-a", "max", "member", "admin")
+        with self.assertRaises(ValueError):
+            add_member(self.db, "firma-a", "max", "owner", "anna")
+        with self.assertRaises(ValueError):
+            add_member(self.db, "firma-a", "admin", "member", "anna")
+        roles = {
+            row["username"]: row["role"]
+            for row in self.db.execute(
+                "SELECT u.username,m.role FROM game_organization_member m JOIN user u ON u.id=m.user_id WHERE m.org_id='firma-a'"
+            ).fetchall()
+        }
+        self.assertEqual(roles["admin"], "owner")
+        self.assertEqual(roles["max"], "member")
+
 
 if __name__ == "__main__":
     unittest.main()
