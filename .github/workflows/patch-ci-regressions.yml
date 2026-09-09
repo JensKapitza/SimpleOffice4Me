@@ -1,0 +1,67 @@
+name: Patch CI regressions
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-ci-regressions.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/termux-runtime-dependencies
+          fetch-depth: 0
+      - name: Patch regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'SimpleOffice CI Fix Bot'
+          git config user.email 'ci-fix-bot@users.noreply.github.com'
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'expected text not found in {path}: {old!r}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'app/document_store.py',
+              'if re.search(r"[^\\s()?\'\'=0-9\\\\]", stripped):',
+              'if re.search(r"[^\\s()?\'\'=+0-9\\\\]", stripped):',
+          )
+
+          replace_once(
+              'tests/test_mini_services.py',
+              'with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", return_value=Response()):\n                first = refresh_blocklists(config, path)',
+              'with mock.patch("simpleoffice_mini_services._https_open", return_value=Response()):\n                first = refresh_blocklists(config, path)',
+          )
+          replace_once(
+              'tests/test_mini_services.py',
+              'with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", side_effect=OSError("offline")):\n                second = refresh_blocklists(config, path)',
+              'with mock.patch("simpleoffice_mini_services._https_open", side_effect=OSError("offline")):\n                second = refresh_blocklists(config, path)',
+          )
+          PY
+          git add app/document_store.py tests/test_mini_services.py
+      - name: Run focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_document_store.DocumentStoreTests.test_advanced_retrieval_not_xor_nor_and_contains_use_only_index \
+            tests.test_mini_services.MiniServicesConfigTests.test_failed_refresh_preserves_last_active_blocklist -v
+          python -m unittest tests.test_invoice_validator_installer tests.test_termux_runtime_dependencies -v
+          python -m compileall -q app tools *.py
+      - name: Commit and remove helper workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add app/document_store.py tests/test_mini_services.py
+          git commit -m 'Fix search and blocklist CI regressions'
+          git rm .github/workflows/patch-ci-regressions.yml
+          git commit --amend --no-edit
+          git push origin HEAD:fix/termux-runtime-dependencies
