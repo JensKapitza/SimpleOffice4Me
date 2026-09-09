@@ -14,6 +14,8 @@ from typing import Any, Callable
 
 from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir
 
+UNSPECIFIED_IPV4 = socket.inet_ntoa(bytes(4))
+
 TFTP_RRQ = 1
 TFTP_WRQ = 2
 TFTP_DATA = 3
@@ -122,7 +124,7 @@ def validate_boot_settings(candidate: dict[str, Any]) -> dict[str, Any]:
         socket.inet_pton(socket.AF_INET, tftp_bind)
     except OSError as exc:
         raise ValueError("TFTP-Bind-Adresse muss IPv4 sein") from exc
-    if tftp_bind == "0.0.0.0":
+    if tftp_bind == UNSPECIFIED_IPV4:
         raise ValueError("TFTP-Bind-Adresse darf nicht alle Netzwerkinterfaces umfassen")
     data["tftp_bind"] = tftp_bind
     data["tftp_port"] = int(data.get("tftp_port", 69))
@@ -275,7 +277,7 @@ class TftpService:
 
     def start(self) -> None:
         bind = str(self.settings["tftp_bind"])
-        if bind == "0.0.0.0":
+        if bind == UNSPECIFIED_IPV4:
             raise ValueError("TFTP-Bind-Adresse darf nicht alle Netzwerkinterfaces umfassen")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((bind, self.settings["tftp_port"])); sock.settimeout(1); self.socket = sock

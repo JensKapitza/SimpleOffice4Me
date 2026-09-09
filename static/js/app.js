@@ -30,7 +30,6 @@
       return { card, status, title, resources, minutes };
     });
 
-    // 1) Projektcockpit: Fortschritt und Kennzahlen aus vorhandenen Aufgaben.
     const relevantTasks = taskData.filter((task) => task.status !== "cancelled");
     const completedTasks = relevantTasks.filter((task) => task.status === "completed").length;
     const activeTasks = relevantTasks.filter((task) => task.status === "in_progress").length;
@@ -41,27 +40,54 @@
     const cockpit = document.createElement("section");
     cockpit.className = "card mb-4";
     cockpit.id = "project-cockpit";
-    cockpit.innerHTML = `
-      <div class="card-header d-flex justify-content-between align-items-center gap-2">
-        <strong>Projektcockpit</strong>
-        <span class="badge text-bg-light border">${progress} % erledigt</span>
-      </div>
-      <div class="card-body">
-        <div class="progress mb-3" role="progressbar" aria-label="Projektfortschritt" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
-          <div class="progress-bar" style="width: ${progress}%">${progress} %</div>
-        </div>
-        <div class="row g-2 text-center">
-          <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${relevantTasks.length}</div><div class="small text-secondary">Aufgaben</div></div></div>
-          <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${activeTasks}</div><div class="small text-secondary">In Arbeit</div></div></div>
-          <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${waitingTasks}</div><div class="small text-secondary">Wartend</div></div></div>
-          <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, "0")}</div><div class="small text-secondary">Gebuchte Stunden</div></div></div>
-        </div>
-      </div>`;
+    const header = document.createElement("div");
+    header.className = "card-header d-flex justify-content-between align-items-center gap-2";
+    const heading = document.createElement("strong");
+    heading.textContent = "Projektcockpit";
+    const progressBadge = document.createElement("span");
+    progressBadge.className = "badge text-bg-light border";
+    progressBadge.textContent = `${progress} % erledigt`;
+    header.append(heading, progressBadge);
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+    const progressOuter = document.createElement("div");
+    progressOuter.className = "progress mb-3";
+    progressOuter.setAttribute("role", "progressbar");
+    progressOuter.setAttribute("aria-label", "Projektfortschritt");
+    progressOuter.setAttribute("aria-valuenow", String(progress));
+    progressOuter.setAttribute("aria-valuemin", "0");
+    progressOuter.setAttribute("aria-valuemax", "100");
+    const progressBar = document.createElement("div");
+    progressBar.className = "progress-bar";
+    progressBar.style.width = `${progress}%`;
+    progressBar.textContent = `${progress} %`;
+    progressOuter.append(progressBar);
+
+    const metrics = document.createElement("div");
+    metrics.className = "row g-2 text-center";
+    const totalTime = `${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, "0")}`;
+    [[relevantTasks.length, "Aufgaben"], [activeTasks, "In Arbeit"], [waitingTasks, "Wartend"], [totalTime, "Gebuchte Stunden"]].forEach(([value, label]) => {
+      const column = document.createElement("div");
+      column.className = "col-6 col-md-3";
+      const box = document.createElement("div");
+      box.className = "border rounded p-2";
+      const metric = document.createElement("div");
+      metric.className = "fs-5 fw-semibold";
+      metric.textContent = String(value);
+      const caption = document.createElement("div");
+      caption.className = "small text-secondary";
+      caption.textContent = label;
+      box.append(metric, caption);
+      column.append(box);
+      metrics.append(column);
+    });
+    body.append(progressOuter, metrics);
+    cockpit.append(header, body);
 
     const firstProjectCard = main.querySelector("section.card");
     if (firstProjectCard) firstProjectCard.before(cockpit);
 
-    // 2) Terminampel: Projektende aus dem bereits vorhandenen Feld auswerten.
     const projectEndInput = main.querySelector('input[name="planned_end"]');
     const projectStatus = main.querySelector('.d-flex.justify-content-between .badge')?.textContent.trim() || "";
     if (projectEndInput?.value && !["completed", "cancelled"].includes(projectStatus)) {
@@ -83,27 +109,67 @@
       cockpit.after(alert);
     }
 
-    // 3) Aufgabenfilter: Volltext + Status ohne Serveranfrage.
     if (taskCards.length) {
       const controls = document.createElement("div");
       controls.className = "card my-3";
-      controls.innerHTML = `
-        <div class="card-body py-2">
-          <div class="row g-2 align-items-center">
-            <div class="col-md-6"><input type="search" class="form-control form-control-sm" id="project-task-filter" placeholder="Aufgaben, Beschreibung oder Ressource filtern …"></div>
-            <div class="col-md-3"><select class="form-select form-select-sm" id="project-task-status"><option value="">Alle Status</option>${Object.entries(statusLabels).map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></div>
-            <div class="col-md-3"><div class="btn-group btn-group-sm w-100"><button type="button" class="btn btn-outline-secondary" id="project-expand-all">Alle öffnen</button><button type="button" class="btn btn-outline-secondary" id="project-collapse-all">Alle zuklappen</button></div></div>
-          </div>
-          <div class="small text-secondary mt-2" id="project-task-filter-count"></div>
-        </div>`;
+      const controlsBody = document.createElement("div");
+      controlsBody.className = "card-body py-2";
+      const controlsRow = document.createElement("div");
+      controlsRow.className = "row g-2 align-items-center";
+
+      const searchColumn = document.createElement("div");
+      searchColumn.className = "col-md-6";
+      const filterInput = document.createElement("input");
+      filterInput.type = "search";
+      filterInput.className = "form-control form-control-sm";
+      filterInput.id = "project-task-filter";
+      filterInput.placeholder = "Aufgaben, Beschreibung oder Ressource filtern …";
+      searchColumn.append(filterInput);
+
+      const statusColumn = document.createElement("div");
+      statusColumn.className = "col-md-3";
+      const statusSelect = document.createElement("select");
+      statusSelect.className = "form-select form-select-sm";
+      statusSelect.id = "project-task-status";
+      const allOption = document.createElement("option");
+      allOption.value = "";
+      allOption.textContent = "Alle Status";
+      statusSelect.append(allOption);
+      Object.entries(statusLabels).forEach(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        statusSelect.append(option);
+      });
+      statusColumn.append(statusSelect);
+
+      const buttonColumn = document.createElement("div");
+      buttonColumn.className = "col-md-3";
+      const buttonGroup = document.createElement("div");
+      buttonGroup.className = "btn-group btn-group-sm w-100";
+      const expandButton = document.createElement("button");
+      expandButton.type = "button";
+      expandButton.className = "btn btn-outline-secondary";
+      expandButton.id = "project-expand-all";
+      expandButton.textContent = "Alle öffnen";
+      const collapseButton = document.createElement("button");
+      collapseButton.type = "button";
+      collapseButton.className = "btn btn-outline-secondary";
+      collapseButton.id = "project-collapse-all";
+      collapseButton.textContent = "Alle zuklappen";
+      buttonGroup.append(expandButton, collapseButton);
+      buttonColumn.append(buttonGroup);
+
+      controlsRow.append(searchColumn, statusColumn, buttonColumn);
+      const count = document.createElement("div");
+      count.className = "small text-secondary mt-2";
+      count.id = "project-task-filter-count";
+      controlsBody.append(controlsRow, count);
+      controls.append(controlsBody);
 
       const newTask = document.getElementById("new-task");
       if (newTask) newTask.after(controls);
       else taskSection.prepend(controls);
-
-      const filterInput = controls.querySelector("#project-task-filter");
-      const statusSelect = controls.querySelector("#project-task-status");
-      const count = controls.querySelector("#project-task-filter-count");
 
       const applyFilter = () => {
         const query = filterInput.value.trim().toLowerCase();
@@ -121,21 +187,22 @@
       statusSelect.addEventListener("change", applyFilter);
       applyFilter();
 
-      // 4) Schnellansicht: Aufgabeninhalte gesammelt ein- oder ausblenden.
-      controls.querySelector("#project-expand-all").addEventListener("click", () => {
+      expandButton.addEventListener("click", () => {
         taskData.forEach((task) => task.card.querySelector(".card-body")?.classList.remove("d-none"));
       });
-      controls.querySelector("#project-collapse-all").addEventListener("click", () => {
+      collapseButton.addEventListener("click", () => {
         taskData.forEach((task) => task.card.querySelector(".card-body")?.classList.add("d-none"));
       });
     }
 
-    // 5) Projektzusammenfassung: kompakte Statusübersicht in die Zwischenablage kopieren.
     const title = main.querySelector("h1")?.textContent.trim() || "Projekt";
     const summaryButton = document.createElement("button");
     summaryButton.type = "button";
     summaryButton.className = "btn btn-sm btn-outline-secondary ms-2";
-    summaryButton.innerHTML = '<i class="fas fa-copy me-1" aria-hidden="true"></i>Zusammenfassung kopieren';
+    const copyIcon = document.createElement("i");
+    copyIcon.className = "fas fa-copy me-1";
+    copyIcon.setAttribute("aria-hidden", "true");
+    summaryButton.append(copyIcon, document.createTextNode("Zusammenfassung kopieren"));
     cockpit.querySelector(".card-header")?.append(summaryButton);
 
     summaryButton.addEventListener("click", async () => {
@@ -143,7 +210,7 @@
         title,
         `Fortschritt: ${progress} % (${completedTasks}/${relevantTasks.length} Aufgaben erledigt)`,
         `In Arbeit: ${activeTasks} · Wartend: ${waitingTasks}`,
-        `Gebuchte Zeit: ${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, "0")} h`,
+        `Gebuchte Zeit: ${totalTime} h`,
         projectEndInput?.value ? `Geplantes Ende: ${projectEndInput.value}` : "Geplantes Ende: nicht gesetzt",
         "",
         ...taskData.map((task) => `- [${statusLabels[task.status] || task.status}] ${task.title}`)
@@ -162,9 +229,13 @@
           document.execCommand("copy");
           area.remove();
         }
-        const original = summaryButton.innerHTML;
         summaryButton.textContent = "Kopiert";
-        setTimeout(() => { summaryButton.innerHTML = original; }, 1500);
+        setTimeout(() => {
+          const iconElement = document.createElement("i");
+          iconElement.className = "fas fa-copy me-1";
+          iconElement.setAttribute("aria-hidden", "true");
+          summaryButton.replaceChildren(iconElement, document.createTextNode("Zusammenfassung kopieren"));
+        }, 1500);
       } catch (error) {
         console.warn("Projektzusammenfassung konnte nicht kopiert werden", error);
       }

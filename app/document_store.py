@@ -29,6 +29,8 @@ from typing import Any, Callable, Iterable
 from xml.etree import ElementTree
 
 import click
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from flask import current_app
 from flask.cli import with_appcontext
 
@@ -53,6 +55,22 @@ _STORE_INITIALIZATION_LOCK = threading.Lock()
 _INITIALIZED_INDEXES: set[Path] = set()
 _WAL_CONFIGURATION_LOCK = threading.Lock()
 _WAL_CONFIGURED_INDEXES: set[Path] = set()
+
+_SEARCH_SQL_WORDS = {
+    "path", "state", "tags", "notes", "attributes", "content",
+    "LIKE", "ESCAPE", "AND", "OR", "NOT", "CASE", "WHEN", "THEN",
+    "ELSE", "END",
+}
+
+def _validated_search_where(fragment: str) -> str:
+    words = set(re.findall(r"[A-Za-z_]+", fragment))
+    if not words.issubset(_SEARCH_SQL_WORDS):
+        raise ValueError("compiled document search contains an unsupported SQL token")
+    stripped = re.sub(r"[A-Za-z_]+", "", fragment)
+    if re.search(r"[^\s()?'=0-9\\]", stripped):
+        raise ValueError("compiled document search contains unsupported SQL syntax")
+    return fragment
+
 
 
 def utc_now() -> str:
@@ -1262,8 +1280,14 @@ class DocumentStore:
                     (compiled.fts, limit, offset),
                 ).fetchall()
             except sqlite3.OperationalError:
+                where_fragment = _validated_search_where(compiled.where)
+                statement = "".join((
+                    "SELECT document_id, path, state FROM document_search WHERE ",
+                    where_fragment,
+                    " LIMIT ? OFFSET ?",
+                ))
                 rows = db.execute(
-                    f"SELECT document_id, path, state FROM document_search WHERE {compiled.where} LIMIT ? OFFSET ?",
+                    statement,
                     (*compiled.parameters, limit, offset),
                 ).fetchall()
         results = [{"document_id": row[0], "path": row[1], "state": row[2]} for row in rows]
@@ -1646,12 +1670,15 @@ class DocumentStore:
         self.initialize()
         page = max(1, page)
         page_size = max(1, min(500, page_size))
-        where = "state = 'new' AND has_notes = 0 AND has_relationships = 0"
         with self._db() as db:
-            total = int(db.execute(f"SELECT COUNT(*) FROM document_listing WHERE {where}").fetchone()[0])
+            total = int(db.execute(
+                """SELECT COUNT(*) FROM document_listing
+                   WHERE state='new' AND has_notes=0 AND has_relationships=0"""
+            ).fetchone()[0])
             rows = db.execute(
-                f"""SELECT document_id FROM document_listing WHERE {where}
-                    ORDER BY last_seen_at DESC, path LIMIT ? OFFSET ?""",
+                """SELECT document_id FROM document_listing
+                   WHERE state='new' AND has_notes=0 AND has_relationships=0
+                   ORDER BY last_seen_at DESC, path LIMIT ? OFFSET ?""",
                 (page_size, (page - 1) * page_size),
             ).fetchall()
         documents = []
@@ -3216,9 +3243,9 @@ class DocumentStore:
                         if not name.endswith(".xml") or name.startswith("docProps/"):
                             continue
                         try:
-                            root = ElementTree.fromstring(archive.read(name))
+                            root = DefusedElementTree.fromstring(archive.read(name))
                             text_parts.extend(value.strip() for value in root.itertext() if value.strip())
-                        except ElementTree.ParseError:
+                        except (ElementTree.ParseError, DefusedXmlException):
                             continue
                 return "\n".join(text_parts), "office_zip"
             except (OSError, zipfile.BadZipFile) as exc:

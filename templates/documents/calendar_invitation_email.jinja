@@ -51,7 +51,10 @@
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'btn btn-primary';
-        button.innerHTML = '<i class="fas fa-envelope me-1" aria-hidden="true"></i>' + {{ ('Send this appointment by email' if g.language == 'en' else 'Diesen Termin per E-Mail versenden')|tojson }};
+        const icon = document.createElement('i');
+        icon.className = 'fas fa-envelope me-1';
+        icon.setAttribute('aria-hidden', 'true');
+        button.append(icon, document.createTextNode({{ ('Send this appointment by email' if g.language == 'en' else 'Diesen Termin per E-Mail versenden')|tojson }}));
         button.addEventListener('click', () => {
           selectEvent(event.id);
           if (window.bootstrap) window.bootstrap.Modal.getInstance(modal)?.hide();

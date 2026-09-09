@@ -6,13 +6,13 @@ selected local calendar, but never pushes local data to Google.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
+import ssl
 from pathlib import Path
 from typing import Any, Callable
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
-from urllib.request import Request, urlopen
 
 from .calendar_metadata import normalize_metadata
 from .calendar_store import CalendarStore
@@ -101,18 +101,36 @@ class GoogleCalendarSync:
 
     @staticmethod
     def _http(method: str, url: str, headers: dict[str, str], body: bytes | None) -> dict[str, Any]:
-        if not (url.startswith(TOKEN_URL) or url.startswith(API_ROOT + "/")):
+        parsed = urlsplit(url)
+        allowed = (
+            parsed.scheme == "https"
+            and parsed.port in {None, 443}
+            and (
+                (parsed.hostname == "oauth2.googleapis.com" and parsed.path == "/token")
+                or (parsed.hostname == "www.googleapis.com" and parsed.path.startswith("/calendar/v3/"))
+            )
+            and not parsed.username
+            and not parsed.password
+            and not parsed.fragment
+        )
+        if not allowed or not parsed.hostname:
             raise GoogleCalendarError("Google request host is not allowed")
-        request = Request(url, data=body, method=method, headers={**headers, "Accept": "application/json"})
+        path = parsed.path + (("?" + parsed.query) if parsed.query else "")
+        connection = http.client.HTTPSConnection(
+            parsed.hostname, 443, timeout=TIMEOUT, context=ssl.create_default_context()
+        )
         try:
-            with urlopen(request, timeout=TIMEOUT) as response:
-                payload = response.read(MAX_BYTES + 1)
-        except HTTPError as exc:
-            if exc.code == 410:
-                raise GoogleGone("Google sync token expired") from exc
-            raise GoogleCalendarError(f"Google Calendar returned HTTP {exc.code}") from exc
-        except (URLError, TimeoutError, OSError) as exc:
+            connection.request(method, path, body=body, headers={**headers, "Accept": "application/json"})
+            response = connection.getresponse()
+            payload = response.read(MAX_BYTES + 1)
+            if response.status == 410:
+                raise GoogleGone("Google sync token expired")
+            if response.status < 200 or response.status >= 300:
+                raise GoogleCalendarError(f"Google Calendar returned HTTP {response.status}")
+        except (TimeoutError, OSError, http.client.HTTPException) as exc:
             raise GoogleCalendarError("Google Calendar is temporarily unavailable") from exc
+        finally:
+            connection.close()
         if len(payload) > MAX_BYTES:
             raise GoogleCalendarError("Google Calendar response exceeds 5 MiB")
         try:

@@ -2,7 +2,6 @@ import hashlib
 import importlib.util
 import tempfile
 import unittest
-import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -21,7 +20,7 @@ class InvoiceValidatorInstallerTests(unittest.TestCase):
         def download(url, *, max_bytes):
             self.assertGreater(max_bytes, 0)
             if url.endswith(".sha256"):
-                raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+                raise FileNotFoundError(url)
             return payload
 
         with tempfile.TemporaryDirectory() as temp:

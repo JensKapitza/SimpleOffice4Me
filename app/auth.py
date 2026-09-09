@@ -1,7 +1,9 @@
 import functools
+import http.client
 import json
 import re
 import secrets
+import ssl
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -354,6 +356,7 @@ def logout():
         abort(405)
     session.clear()
     return redirect(url_for('home'))
+
 
 def login_required(view):
     @functools.wraps(view)

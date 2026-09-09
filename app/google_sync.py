@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import http.client
 import json
+import ssl
 from datetime import datetime
 from urllib.parse import urlencode, quote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener

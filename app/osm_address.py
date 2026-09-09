@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener
 
 from .document_store import CONTROL_DIR, utc_now
 from .file_lock import exclusive_file_lock
@@ -45,6 +45,18 @@ GEOFABRIK_REGIONS = {
     "schleswig-holstein": ("Schleswig-Holstein", "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf"),
     "thueringen": ("Thüringen", "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf"),
 }
+
+
+def _open_geofabrik(request: Request, timeout: float):
+    parsed = urlparse(request.full_url)
+    if parsed.scheme != "https" or parsed.hostname != "download.geofabrik.de" or parsed.username or parsed.password:
+        raise ValueError("OSM request must target approved Geofabrik HTTPS host")
+    response = build_opener().open(request, timeout=timeout)
+    final = urlparse(response.geturl())
+    if final.scheme != "https" or final.hostname != "download.geofabrik.de" or final.username or final.password:
+        response.close()
+        raise ValueError("OSM redirect left approved Geofabrik HTTPS host")
+    return response
 
 
 def _clean(value: Any, limit: int = 300) -> str:
@@ -313,13 +325,13 @@ class LocalAddressIndex:
         modified = ""
         try:
             request = Request(url, headers=headers, method="HEAD")
-            with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed allow-listed host
+            with _open_geofabrik(request, timeout=20) as response:
                 size = int(response.headers.get("Content-Length") or 0)
                 modified = str(response.headers.get("Last-Modified") or "")
         except (OSError, ValueError):
             try:
                 request = Request(url, headers={**headers, "Range": "bytes=0-0"})
-                with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed allow-listed host
+                with _open_geofabrik(request, timeout=20) as response:
                     size = _remote_total(response.headers)
                     modified = str(response.headers.get("Last-Modified") or "")
             except (OSError, ValueError):
@@ -376,7 +388,7 @@ class LocalAddressIndex:
                         headers["If-Range"] = str(info["last_modified"])
                 request = Request(url, headers=headers)
                 try:
-                    with urlopen(request, timeout=read_timeout) as response:  # noqa: S310 - fixed allow-listed host
+                    with _open_geofabrik(request, timeout=read_timeout) as response:
                         status_code = int(getattr(response, "status", response.getcode()) or 0)
                         can_resume = bool(resume_from and status_code == 206)
                         if resume_from and not can_resume:
@@ -504,13 +516,26 @@ class LocalAddressIndex:
             return
         keys = list(dict.fromkeys((row[8], row[9]) for row in rows))
         existing: dict[tuple[str, str], tuple[str, ...]] = {}
+        db.execute(
+            """CREATE TEMP TABLE IF NOT EXISTS requested_address_key (
+                   osm_type TEXT NOT NULL,
+                   osm_id TEXT NOT NULL,
+                   PRIMARY KEY(osm_type, osm_id)
+               )"""
+        )
         for offset in range(0, len(keys), 300):
             chunk = keys[offset:offset + 300]
-            placeholders = ",".join("(?,?)" for _ in chunk)
-            params = [value for key in chunk for value in key]
+            db.execute("DELETE FROM requested_address_key")
+            db.executemany(
+                "INSERT OR IGNORE INTO requested_address_key(osm_type,osm_id) VALUES(?,?)",
+                chunk,
+            )
             for current in db.execute(
-                f"SELECT street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized FROM address WHERE (osm_type,osm_id) IN ({placeholders})",
-                params,
+                """SELECT a.street,a.house_number,a.postal,a.city,a.country,a.state,
+                          a.lat,a.lon,a.osm_type,a.osm_id,a.normalized
+                   FROM address a
+                   JOIN requested_address_key r
+                     ON r.osm_type=a.osm_type AND r.osm_id=a.osm_id"""
             ):
                 value = tuple(str(item) for item in current)
                 existing[(value[8], value[9])] = value
@@ -1112,14 +1137,28 @@ class LocalAddressIndex:
         maximum = max(1, min(int(limit), 20))
 
         def select(db: sqlite3.Connection, selected: list[str]) -> list[sqlite3.Row]:
-            where = " AND ".join("normalized LIKE ?" for _ in selected)
-            params: list[Any] = [f"%{token}%" for token in selected]
-            if country:
-                where += " AND country = ?"
-                params.append(country)
-            params.append(maximum)
+            token_patterns = [f"%{token}%" for token in selected[:8]]
+            token_patterns.extend([""] * (8 - len(token_patterns)))
+            params: list[Any] = []
+            for pattern in token_patterns:
+                params.extend((pattern, pattern))
+            params.extend((country, country, maximum))
             return db.execute(
-                f"SELECT * FROM address WHERE {where} ORDER BY CASE WHEN postal <> '' THEN 0 ELSE 1 END, city COLLATE NOCASE, street COLLATE NOCASE, house_number LIMIT ?",
+                """SELECT * FROM address
+                   WHERE (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR normalized LIKE ?)
+                     AND (? = '' OR country = ?)
+                   ORDER BY CASE WHEN postal <> '' THEN 0 ELSE 1 END,
+                            city COLLATE NOCASE,
+                            street COLLATE NOCASE,
+                            house_number
+                   LIMIT ?""",
                 params,
             ).fetchall()
 

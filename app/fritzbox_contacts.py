@@ -17,6 +17,8 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring as safe_xml_fromstring
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
@@ -144,7 +146,9 @@ class FritzBoxClient:
         self.timeout = max(1.0, min(float(timeout), 30.0))
         if not self.username or not self.password:
             raise ValueError("FRITZ!Box-Benutzername und Passwort sind erforderlich")
-        context = ssl.create_default_context() if self.verify_tls else ssl._create_unverified_context()
+        if not self.verify_tls:
+            raise ValueError("FRITZ!Box-TLS-Zertifikatsprüfung darf aus Sicherheitsgründen nicht deaktiviert werden")
+        context = ssl.create_default_context()
         manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
         manager.add_password(None, self.base_url + "/", self.username, self.password)
         self.opener = urllib.request.build_opener(
@@ -195,8 +199,8 @@ class FritzBoxClient:
         for description_path, path_prefix in TR064_DESCRIPTION_PATHS:
             try:
                 data = self._read(self.base_url + description_path)
-                root = ET.fromstring(data)
-            except (FritzBoxError, ET.ParseError):
+                root = safe_xml_fromstring(data)
+            except (FritzBoxError, ET.ParseError, DefusedXmlException):
                 continue
             for service in root.iter():
                 if service.tag.rsplit("}", 1)[-1] != "service":
@@ -242,8 +246,8 @@ class FritzBoxClient:
                 "'Zugriff für Anwendungen zulassen' aktivieren."
             ) from last_error
         try:
-            root = ET.fromstring(raw)
-        except ET.ParseError as exc:
+            root = safe_xml_fromstring(raw)
+        except (ET.ParseError, DefusedXmlException) as exc:
             raise FritzBoxError("Ungültige SOAP-Antwort der FRITZ!Box") from exc
         fault = next((node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "Fault"), None)
         if fault is not None:

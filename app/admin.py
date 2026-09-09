@@ -27,6 +27,18 @@ AUDIT_FILTER_KEYS = (
     "q", "actor", "action", "target_type", "target_id", "outcome",
     "request_id", "client_ip", "from_at", "to_at",
 )
+AUDIT_WHERE = """
+ WHERE (?='' OR actor_name LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR detail LIKE ?)
+   AND (?='' OR actor_name LIKE ?)
+   AND (?='' OR action LIKE ?)
+   AND (?='' OR target_type = ?)
+   AND (?='' OR target_id LIKE ?)
+   AND (?='' OR outcome = ?)
+   AND (?='' OR detail LIKE ?)
+   AND (?='' OR detail LIKE ?)
+   AND (?='' OR occurred_at >= ?)
+   AND (?='' OR occurred_at < datetime(?, '+1 day'))
+"""
 
 FEATURE_DETAILS = {
     "documents": ("Dokumente und Suche", "Documents and search", "Dokumentablage, Suche, Vorschau und Sicherheitsprüfung.", "Document storage, search, preview and security checks."),
@@ -54,32 +66,26 @@ def _audit_filters() -> dict[str, str]:
     return {key: request.args.get(key, "").strip()[:300] for key in AUDIT_FILTER_KEYS}
 
 
-def _audit_query(filters: dict[str, str]) -> tuple[str, list[object]]:
-    where: list[str] = []
-    parameters: list[object] = []
-    if filters["q"]:
-        where.append("(actor_name LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR detail LIKE ?)")
-        needle = f"%{filters['q']}%"
-        parameters.extend([needle] * 5)
-    if filters["actor"]:
-        where.append("actor_name LIKE ?"); parameters.append(f"%{filters['actor']}%")
-    if filters["action"]:
-        where.append("action LIKE ?"); parameters.append(f"%{filters['action']}%")
-    if filters["target_type"]:
-        where.append("target_type = ?"); parameters.append(filters["target_type"])
-    if filters["target_id"]:
-        where.append("target_id LIKE ?"); parameters.append(f"%{filters['target_id']}%")
-    if filters["outcome"]:
-        where.append("outcome = ?"); parameters.append(filters["outcome"])
-    if filters["request_id"]:
-        where.append("detail LIKE ?"); parameters.append(f'%"request_id": "%{filters["request_id"]}%"%')
-    if filters["client_ip"]:
-        where.append("detail LIKE ?"); parameters.append(f'%"client_ip": "%{filters["client_ip"]}%"%')
-    if filters["from_at"]:
-        where.append("occurred_at >= ?"); parameters.append(filters["from_at"])
-    if filters["to_at"]:
-        where.append("occurred_at < datetime(?, '+1 day')"); parameters.append(filters["to_at"])
-    return (f" WHERE {' AND '.join(where)}" if where else ""), parameters
+def _audit_parameters(filters: dict[str, str]) -> list[object]:
+    query = filters["q"]
+    needle = f"%{query}%" if query else ""
+    actor = f"%{filters['actor']}%" if filters["actor"] else ""
+    action = f"%{filters['action']}%" if filters["action"] else ""
+    target_id = f"%{filters['target_id']}%" if filters["target_id"] else ""
+    request_id = f'%"request_id": "%{filters["request_id"]}%"%' if filters["request_id"] else ""
+    client_ip = f'%"client_ip": "%{filters["client_ip"]}%"%' if filters["client_ip"] else ""
+    return [
+        query, needle, needle, needle, needle, needle,
+        filters["actor"], actor,
+        filters["action"], action,
+        filters["target_type"], filters["target_type"],
+        filters["target_id"], target_id,
+        filters["outcome"], filters["outcome"],
+        filters["request_id"], request_id,
+        filters["client_ip"], client_ip,
+        filters["from_at"], filters["from_at"],
+        filters["to_at"], filters["to_at"],
+    ]
 
 
 def _event_detail(row) -> dict:
@@ -316,9 +322,20 @@ def logs():
         page = event_page = 1
     limit = 50
     errors = get_db().execute("SELECT * FROM application_error ORDER BY occurred_at DESC LIMIT ? OFFSET ?", (limit + 1, (page - 1) * limit)).fetchall()
-    event_filters = _audit_filters(); predicate, parameters = _audit_query(event_filters)
+    event_filters = _audit_filters(); parameters = _audit_parameters(event_filters)
     events = get_db().execute(
-        f"SELECT * FROM security_event{predicate} ORDER BY occurred_at DESC LIMIT ? OFFSET ?",
+        """SELECT * FROM security_event
+           WHERE (?='' OR actor_name LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR detail LIKE ?)
+             AND (?='' OR actor_name LIKE ?)
+             AND (?='' OR action LIKE ?)
+             AND (?='' OR target_type = ?)
+             AND (?='' OR target_id LIKE ?)
+             AND (?='' OR outcome = ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR occurred_at >= ?)
+             AND (?='' OR occurred_at < datetime(?, '+1 day'))
+           ORDER BY occurred_at DESC LIMIT ? OFFSET ?""",
         (*parameters, limit + 1, (event_page - 1) * limit),
     ).fetchall()
     return render_template(
@@ -334,8 +351,22 @@ def export_logs():
     export_format = request.args.get("format", "txt").strip().casefold()
     if export_format not in {"txt", "csv"}:
         abort(400, description="format muss txt oder csv sein")
-    filters = _audit_filters(); predicate, parameters = _audit_query(filters)
-    rows = get_db().execute(f"SELECT * FROM security_event{predicate} ORDER BY occurred_at DESC LIMIT 20000", parameters).fetchall()
+    filters = _audit_filters(); parameters = _audit_parameters(filters)
+    rows = get_db().execute(
+        """SELECT * FROM security_event
+           WHERE (?='' OR actor_name LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR detail LIKE ?)
+             AND (?='' OR actor_name LIKE ?)
+             AND (?='' OR action LIKE ?)
+             AND (?='' OR target_type = ?)
+             AND (?='' OR target_id LIKE ?)
+             AND (?='' OR outcome = ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR occurred_at >= ?)
+             AND (?='' OR occurred_at < datetime(?, '+1 day'))
+           ORDER BY occurred_at DESC LIMIT 20000""",
+        parameters,
+    ).fetchall()
     info = system_info(include_request=True); exported_at = utc_now()
     active_filters = {key: value for key, value in filters.items() if value}
     audit("audit_exported", "audit", export_format, detail={"format": export_format, "rows": len(rows), "filters": active_filters, "application_id": info["application_id"], "request_id": info.get("request_id", "")})

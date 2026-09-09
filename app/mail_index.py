@@ -362,11 +362,17 @@ class MailSearchIndex:
         if not ids:
             return 0
         now = utc_now()
-        placeholders = ",".join("?" for _ in ids)
         with self._db() as db:
+            db.execute("CREATE TEMP TABLE IF NOT EXISTS requested_mail_row(id INTEGER PRIMARY KEY)")
+            db.execute("DELETE FROM requested_mail_row")
+            db.executemany("INSERT OR IGNORE INTO requested_mail_row(id) VALUES(?)", ((row_id,) for row_id in ids))
             cursor = db.execute(
-                f"UPDATE mail_message_index SET present=0, presence_status='target_not_found', missing_reason=?, missing_at=CASE WHEN missing_at='' THEN ? ELSE missing_at END WHERE owner_key=? AND account_id=? AND id IN ({placeholders})",
-                (reason[:500], now, owner, account_id, *ids),
+                """UPDATE mail_message_index
+                   SET present=0, presence_status='target_not_found', missing_reason=?,
+                       missing_at=CASE WHEN missing_at='' THEN ? ELSE missing_at END
+                   WHERE owner_key=? AND account_id=?
+                     AND id IN (SELECT id FROM requested_mail_row)""",
+                (reason[:500], now, owner, account_id),
             )
             return int(cursor.rowcount)
 
@@ -375,12 +381,16 @@ class MailSearchIndex:
         ids = sorted({int(value) for value in row_ids if int(value) > 0})[:2000]
         if not ids:
             return []
-        placeholders = ",".join("?" for _ in ids)
-        condition = " AND present=1" if present_only else ""
         with self._db() as db:
+            db.execute("CREATE TEMP TABLE IF NOT EXISTS requested_mail_row(id INTEGER PRIMARY KEY)")
+            db.execute("DELETE FROM requested_mail_row")
+            db.executemany("INSERT OR IGNORE INTO requested_mail_row(id) VALUES(?)", ((row_id,) for row_id in ids))
             rows = db.execute(
-                f"SELECT * FROM mail_message_index WHERE owner_key=? AND account_id=? AND id IN ({placeholders}){condition}",
-                (owner, account_id, *ids),
+                """SELECT m.* FROM mail_message_index m
+                   JOIN requested_mail_row r ON r.id=m.id
+                   WHERE m.owner_key=? AND m.account_id=?
+                     AND (?=0 OR m.present=1)""",
+                (owner, account_id, int(present_only)),
             ).fetchall()
             return [dict(row) for row in rows]
 
@@ -389,17 +399,18 @@ class MailSearchIndex:
         limit = max(1, min(int(limit), 1000))
         query = query.strip()
         with self._db() as db:
-            where_missing = "" if include_missing else " AND m.present=1"
+            include_missing_flag = int(include_missing)
             terms = [term for term in _WORD_RE.findall(unicodedata.normalize("NFKC", query).casefold()) if len(term) >= 2][:12]
             if terms and self._fts_available(db):
                 expression = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
                 try:
                     rows = db.execute(
-                        f"""SELECT m.* FROM mail_search_fts f
-                            JOIN mail_message_index m ON m.id=CAST(f.message_row_id AS INTEGER)
-                            WHERE mail_search_fts MATCH ? AND m.owner_key=? AND m.account_id=?{where_missing}
-                            ORDER BY m.present DESC, m.last_seen_at DESC LIMIT ?""",
-                        (expression, owner, account_id, limit),
+                        """SELECT m.* FROM mail_search_fts f
+                           JOIN mail_message_index m ON m.id=CAST(f.message_row_id AS INTEGER)
+                           WHERE mail_search_fts MATCH ? AND m.owner_key=? AND m.account_id=?
+                             AND (?=1 OR m.present=1)
+                           ORDER BY m.present DESC, m.last_seen_at DESC LIMIT ?""",
+                        (expression, owner, account_id, include_missing_flag, limit),
                     ).fetchall()
                     return [dict(row) for row in rows]
                 except sqlite3.OperationalError:
@@ -407,16 +418,20 @@ class MailSearchIndex:
             if query:
                 needle = f"%{query.casefold()}%"
                 rows = db.execute(
-                    f"""SELECT m.* FROM mail_message_index m
-                        WHERE m.owner_key=? AND m.account_id=?{where_missing}
-                          AND lower(m.search_text) LIKE ?
-                        ORDER BY m.present DESC, m.last_seen_at DESC LIMIT ?""",
-                    (owner, account_id, needle, limit),
+                    """SELECT m.* FROM mail_message_index m
+                       WHERE m.owner_key=? AND m.account_id=?
+                         AND (?=1 OR m.present=1)
+                         AND lower(m.search_text) LIKE ?
+                       ORDER BY m.present DESC, m.last_seen_at DESC LIMIT ?""",
+                    (owner, account_id, include_missing_flag, needle, limit),
                 ).fetchall()
             else:
                 rows = db.execute(
-                    f"SELECT m.* FROM mail_message_index m WHERE m.owner_key=? AND m.account_id=?{where_missing} ORDER BY m.present DESC, m.last_seen_at DESC LIMIT ?",
-                    (owner, account_id, limit),
+                    """SELECT m.* FROM mail_message_index m
+                       WHERE m.owner_key=? AND m.account_id=?
+                         AND (?=1 OR m.present=1)
+                       ORDER BY m.present DESC, m.last_seen_at DESC LIMIT ?""",
+                    (owner, account_id, include_missing_flag, limit),
                 ).fetchall()
             return [dict(row) for row in rows]
 

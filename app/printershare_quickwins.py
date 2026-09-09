@@ -35,6 +35,25 @@ MAX_API_OFFSET = 5000
 ORPHAN_GRACE_SECONDS = 24 * 60 * 60
 TEMP_GRACE_SECONDS = 60 * 60
 REQUEST_ID_RE = re.compile(r"[^A-Za-z0-9._:-]+")
+JOB_COUNT_SQL = """
+SELECT COUNT(*) FROM print_job
+ WHERE (?=1 OR (source='web' AND source_peer=?))
+   AND (?='' OR status=?)
+   AND (?='' OR source=?)
+   AND (?='' OR retention=?)
+   AND (?=-1 OR (?=1 AND payload_path<>'') OR (?=0 AND payload_path=''))
+   AND (?='' OR job_id LIKE ? OR printer_name LIKE ? OR source_peer LIKE ? OR payload_sha256 LIKE ? OR content_type LIKE ?)
+"""
+JOB_LIST_SQL = """
+SELECT * FROM print_job
+ WHERE (?=1 OR (source='web' AND source_peer=?))
+   AND (?='' OR status=?)
+   AND (?='' OR source=?)
+   AND (?='' OR retention=?)
+   AND (?=-1 OR (?=1 AND payload_path<>'') OR (?=0 AND payload_path=''))
+   AND (?='' OR job_id LIKE ? OR printer_name LIKE ? OR source_peer LIKE ? OR payload_sha256 LIKE ? OR content_type LIKE ?)
+ ORDER BY created_at DESC, job_id DESC LIMIT ? OFFSET ?
+"""
 
 
 def _store() -> PrinterShareStore:
@@ -132,53 +151,37 @@ def _safe_job(row: dict[str, Any], *, admin: bool = False) -> dict[str, Any]:
     return result
 
 
-def _where_clause(*, admin: bool, username: str) -> tuple[list[str], list[Any]]:
-    clauses: list[str] = []
-    params: list[Any] = []
-    if not admin:
-        clauses.extend(["source='web'", "source_peer=?"])
-        params.append(username)
-
+def _job_query_parameters(*, admin: bool, username: str) -> list[Any]:
     status = str(request.args.get("status") or "").strip().casefold()
-    if status in JOB_STATUSES:
-        clauses.append("status=?")
-        params.append(status)
-
+    if status not in JOB_STATUSES:
+        status = ""
     source = str(request.args.get("source") or "").strip().casefold()
-    if admin and source in JOB_SOURCES:
-        clauses.append("source=?")
-        params.append(source)
-
+    if not admin or source not in JOB_SOURCES:
+        source = ""
     retention = str(request.args.get("retention") or "").strip().casefold()
-    if retention in RETENTION_ORDER:
-        clauses.append("retention=?")
-        params.append(retention)
-
-    retained = _parse_bool(request.args.get("retained"))
-    if retained is True:
-        clauses.append("payload_path<>''")
-    elif retained is False:
-        clauses.append("payload_path='' ")
-
+    if retention not in RETENTION_ORDER:
+        retention = ""
+    retained_value = _parse_bool(request.args.get("retained"))
+    retained = -1 if retained_value is None else int(retained_value)
     query = " ".join(str(request.args.get("q") or "").split())[:MAX_QUERY_LENGTH]
-    if query:
-        like = f"%{query}%"
-        clauses.append("(job_id LIKE ? OR printer_name LIKE ? OR source_peer LIKE ? OR payload_sha256 LIKE ? OR content_type LIKE ?)")
-        params.extend([like, like, like, like, like])
-    return clauses, params
+    like = f"%{query}%" if query else ""
+    return [
+        int(admin), username,
+        status, status,
+        source, source,
+        retention, retention,
+        retained, retained, retained,
+        query, like, like, like, like, like,
+    ]
 
 
 def _query_jobs(store: PrinterShareStore, *, admin: bool, username: str) -> tuple[list[dict[str, Any]], int]:
     limit = _clamp_int(request.args.get("limit"), 50, 1, MAX_API_JOBS)
     offset = _clamp_int(request.args.get("offset"), 0, 0, MAX_API_OFFSET)
-    clauses, params = _where_clause(admin=admin, username=username)
-    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    params = _job_query_parameters(admin=admin, username=username)
     with _db(store) as db:
-        total = int(db.execute(f"SELECT COUNT(*) FROM print_job{where}", params).fetchone()[0])
-        rows = db.execute(
-            f"SELECT * FROM print_job{where} ORDER BY created_at DESC, job_id DESC LIMIT ? OFFSET ?",
-            [*params, limit, offset],
-        ).fetchall()
+        total = int(db.execute(JOB_COUNT_SQL, params).fetchone()[0])
+        rows = db.execute(JOB_LIST_SQL, [*params, limit, offset]).fetchall()
     return [_safe_job(dict(row), admin=admin) for row in rows], total
 
 

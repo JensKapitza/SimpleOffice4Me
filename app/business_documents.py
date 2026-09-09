@@ -27,6 +27,9 @@ import time
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
+
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -785,8 +788,8 @@ def _pdfa3_convert(pdf: bytes) -> tuple[bytes, str]:
 
 def embed_invoice_xml(pdf: bytes, xml: bytes, filename: str = "factur-x.xml") -> bytes:
     if filename.casefold() not in ZUGFERD_FILENAMES: raise ValueError("unsupported ZUGFeRD XML filename")
-    try: ET.fromstring(xml)
-    except ET.ParseError as exc: raise ValueError("invoice XML is not well formed") from exc
+    try: DefusedElementTree.fromstring(xml)
+    except (ET.ParseError, DefusedXmlException) as exc: raise ValueError("invoice XML is not well formed") from exc
     reader=PdfReader(io.BytesIO(pdf)); writer=PdfWriter(); writer.clone_document_from_reader(reader); writer.add_attachment(filename, xml)
     try:
         embedded=writer._root_object[NameObject("/Names")][NameObject("/EmbeddedFiles")][NameObject("/Names")]
@@ -798,8 +801,8 @@ def embed_invoice_xml(pdf: bytes, xml: bytes, filename: str = "factur-x.xml") ->
 
 def _validate_hybrid(pdf: bytes, xml: bytes) -> dict[str, Any]:
     result={"pdfa":False,"xml":False,"validated":False,"details":[],"pdfa_exit_code":None,"xml_exit_code":None,"pdfa_output":"","xml_output":"","validator":""}
-    try: ET.fromstring(xml); result["xml"]=True
-    except ET.ParseError: result["details"].append("xml_not_well_formed")
+    try: DefusedElementTree.fromstring(xml); result["xml"]=True
+    except (ET.ParseError, DefusedXmlException): result["details"].append("xml_not_well_formed")
     verapdf=shutil.which("verapdf")
     if verapdf:
         with tempfile.TemporaryDirectory(prefix="simpleoffice-verapdf-") as temp:
@@ -1067,8 +1070,8 @@ def inspect_zugferd_pdf(path: Path) -> dict[str,Any]:
         if str(filename).casefold() not in ZUGFERD_FILENAMES:continue
         payload=payloads[0] if isinstance(payloads,list) and payloads else payloads
         if not isinstance(payload,(bytes,bytearray)):continue
-        try:text=bytes(payload).decode("utf-8"); xml_root=ET.fromstring(text)
-        except (UnicodeDecodeError,ET.ParseError):continue
+        try:text=bytes(payload).decode("utf-8"); xml_root=DefusedElementTree.fromstring(text)
+        except (UnicodeDecodeError,ET.ParseError,DefusedXmlException):continue
         values=_xml_values(xml_root); result.update({"detected":True,"xml_filename":str(filename),"raw_xml":text,"invoice_id":(values.get("ID") or [""])[0],"issue_date":(values.get("DateTimeString") or [""])[0],"currency":(values.get("InvoiceCurrencyCode") or [""])[0],"grand_total":(values.get("GrandTotalAmount") or [""])[0],"tax_total":(values.get("TaxTotalAmount") or [""])[0],"due_payable":(values.get("DuePayableAmount") or [""])[0]}); names=values.get("Name",[])
         if names:result["seller"]=names[0]
         if len(names)>1:result["buyer"]=names[1]

@@ -4,14 +4,17 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import os
 import shutil
+import ssl
 import sys
 import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 VERSION = "2.25.0"

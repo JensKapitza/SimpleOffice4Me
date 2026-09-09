@@ -100,21 +100,15 @@ class MailAutoconfigTests(unittest.TestCase):
         )
 
     def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):
-        class Response:
-            headers = {}
+        import app.mail_autoconfig as mail_autoconfig
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def read(self, _size):
-                return b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'
-
-        with patch("app.mail_autoconfig._OPENER.open", return_value=Response()):
-            records = _fetch_mx("example.org")
+        payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'
+        with patch.object(mail_autoconfig, "_https_get", return_value=payload) as https_get:
+            records = mail_autoconfig._fetch_mx("example.org")
         self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)
+        _, kwargs = https_get.call_args
+        self.assertEqual("dns.google", kwargs["fixed_host"])
+        self.assertFalse(kwargs["provider_owned"])
 
     @patch("app.mail_autoconfig._fetch_mx", return_value=[])
     def test_falls_back_to_domain_guess_when_no_provider_data_is_reachable(self, _mx):

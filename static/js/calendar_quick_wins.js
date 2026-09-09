@@ -13,6 +13,13 @@
     const caldav = document.getElementById("caldav");
     const google = document.getElementById("google-calendar-sync");
 
+    const icon = (className) => {
+      const element = document.createElement("i");
+      element.className = className;
+      element.setAttribute("aria-hidden", "true");
+      return element;
+    };
+
     // Every manually created/edited appointment must expose its context in the title.
     // The explicit prefix also survives ICS/CalDAV clients that do not know our metadata.
     const normalizeAppointmentTitle = (title, kind, company) => {
@@ -27,7 +34,39 @@
       form.dataset.appointmentContextReady = "1";
       const row = document.createElement("div");
       row.className = "row g-2 mb-2";
-      row.innerHTML = `<div class="col-md-4"><label class="form-label">Grundtyp</label><select class="form-select" data-appointment-context required><option value="">Bitte wählen</option><option value="private">Privat</option><option value="business">Geschäftlich</option></select></div><div class="col-md-8"><label class="form-label">Firma <span class="text-secondary">(bei geschäftlich, falls vorhanden)</span></label><input class="form-control" data-appointment-company maxlength="160" autocomplete="organization" placeholder="Firma / Organisation"></div>`;
+      const kindColumn = document.createElement("div");
+      kindColumn.className = "col-md-4";
+      const kindLabel = document.createElement("label");
+      kindLabel.className = "form-label";
+      kindLabel.textContent = "Grundtyp";
+      const kindSelect = document.createElement("select");
+      kindSelect.className = "form-select";
+      kindSelect.dataset.appointmentContext = "";
+      kindSelect.required = true;
+      [["", "Bitte wählen"], ["private", "Privat"], ["business", "Geschäftlich"]].forEach(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        kindSelect.append(option);
+      });
+      kindColumn.append(kindLabel, kindSelect);
+      const companyColumn = document.createElement("div");
+      companyColumn.className = "col-md-8";
+      const companyLabel = document.createElement("label");
+      companyLabel.className = "form-label";
+      companyLabel.append(document.createTextNode("Firma "));
+      const companyHint = document.createElement("span");
+      companyHint.className = "text-secondary";
+      companyHint.textContent = "(bei geschäftlich, falls vorhanden)";
+      companyLabel.append(companyHint);
+      const companyInput = document.createElement("input");
+      companyInput.className = "form-control";
+      companyInput.dataset.appointmentCompany = "";
+      companyInput.maxLength = 160;
+      companyInput.autocomplete = "organization";
+      companyInput.placeholder = "Firma / Organisation";
+      companyColumn.append(companyLabel, companyInput);
+      row.append(kindColumn, companyColumn);
       title.closest(".col-md-6, .col-md, .mb-2, .mb-3")?.before(row) || title.before(row);
       const kind = row.querySelector("[data-appointment-context]");
       const company = row.querySelector("[data-appointment-company]");
@@ -63,7 +102,44 @@
     const googleReady = google?.querySelector(".card-header .badge")?.textContent.trim() === "Bereit";
     const cockpit = document.createElement("section");
     cockpit.className = "card mb-4"; cockpit.id = "calendar-cockpit";
-    cockpit.innerHTML = `<div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><strong>Kalendercockpit</strong><div class="btn-group btn-group-sm" role="group" aria-label="Kalenderansicht"><button type="button" class="btn btn-outline-secondary" id="calendar-view-essential">Kompakt</button><button type="button" class="btn btn-outline-secondary" id="calendar-view-all">Alles anzeigen</button></div></div><div class="card-body"><div class="row g-2 text-center"><div class="col-6 col-lg-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${reminderCount}</div><div class="small text-secondary">Erinnerungen</div></div></div><div class="col-6 col-lg-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${pendingInvitations}</div><div class="small text-secondary">Offene Einladungen</div></div></div><div class="col-6 col-lg-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${schedulingEnabled ? "Ja" : "Nein"}</div><div class="small text-secondary">Scheduling aktiv</div></div></div><div class="col-6 col-lg-3"><div class="border rounded p-2"><div class="fs-5 fw-semibold">${googleReady ? "Bereit" : "Aus"}</div><div class="small text-secondary">Google Sync</div></div></div></div></div>`;
+    const cockpitHeader = document.createElement("div");
+    cockpitHeader.className = "card-header d-flex flex-wrap justify-content-between align-items-center gap-2";
+    const cockpitTitle = document.createElement("strong");
+    cockpitTitle.textContent = "Kalendercockpit";
+    const viewButtons = document.createElement("div");
+    viewButtons.className = "btn-group btn-group-sm";
+    viewButtons.setAttribute("role", "group");
+    viewButtons.setAttribute("aria-label", "Kalenderansicht");
+    [["calendar-view-essential", "Kompakt"], ["calendar-view-all", "Alles anzeigen"]].forEach(([id, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-outline-secondary";
+      button.id = id;
+      button.textContent = label;
+      viewButtons.append(button);
+    });
+    cockpitHeader.append(cockpitTitle, viewButtons);
+    const cockpitBody = document.createElement("div");
+    cockpitBody.className = "card-body";
+    const metrics = document.createElement("div");
+    metrics.className = "row g-2 text-center";
+    [[reminderCount, "Erinnerungen"], [pendingInvitations, "Offene Einladungen"], [schedulingEnabled ? "Ja" : "Nein", "Scheduling aktiv"], [googleReady ? "Bereit" : "Aus", "Google Sync"]].forEach(([value, label]) => {
+      const column = document.createElement("div");
+      column.className = "col-6 col-lg-3";
+      const box = document.createElement("div");
+      box.className = "border rounded p-2";
+      const metric = document.createElement("div");
+      metric.className = "fs-5 fw-semibold";
+      metric.textContent = String(value);
+      const caption = document.createElement("div");
+      caption.className = "small text-secondary";
+      caption.textContent = label;
+      box.append(metric, caption);
+      column.append(box);
+      metrics.append(column);
+    });
+    cockpitBody.append(metrics);
+    cockpit.append(cockpitHeader, cockpitBody);
     if (topRow) topRow.after(cockpit);
     const targets = [["reminders", "Erinnerungen"], ["scheduling", "Einladungen"], ["scheduling-access", "Verfügbarkeit"], ["caldav", "CalDAV"], ["google-calendar-sync", "Google Sync"]].filter(([id]) => document.getElementById(id));
     const navigation = document.createElement("nav"); navigation.className = "d-flex flex-wrap gap-2 mb-4"; navigation.setAttribute("aria-label", "Kalender-Schnellnavigation");
@@ -72,12 +148,25 @@
     if (reminders) {
       const items = Array.from(reminders.querySelectorAll(".list-group > .list-group-item"));
       if (items.length && !items.every((item) => item.classList.contains("text-secondary"))) {
-        const filter = document.createElement("div"); filter.className = "input-group input-group-sm mb-3"; filter.innerHTML = `<span class="input-group-text"><i class="fas fa-filter" aria-hidden="true"></i></span><input type="search" class="form-control" placeholder="Erinnerungen filtern …" aria-label="Erinnerungen filtern"><span class="input-group-text" data-calendar-reminder-count>${items.length}</span>`;
-        const list = reminders.querySelector(".list-group"); list?.before(filter); const input = filter.querySelector("input"); const count = filter.querySelector("[data-calendar-reminder-count]");
+        const filter = document.createElement("div"); filter.className = "input-group input-group-sm mb-3";
+        const iconBox = document.createElement("span");
+        iconBox.className = "input-group-text";
+        iconBox.append(icon("fas fa-filter"));
+        const input = document.createElement("input");
+        input.type = "search";
+        input.className = "form-control";
+        input.placeholder = "Erinnerungen filtern …";
+        input.setAttribute("aria-label", "Erinnerungen filtern");
+        const count = document.createElement("span");
+        count.className = "input-group-text";
+        count.dataset.calendarReminderCount = "";
+        count.textContent = String(items.length);
+        filter.append(iconBox, input, count);
+        const list = reminders.querySelector(".list-group"); list?.before(filter);
         input.addEventListener("input", () => { const query = input.value.trim().toLowerCase(); let visible = 0; items.forEach((item) => { const show = !query || item.textContent.toLowerCase().includes(query); item.classList.toggle("d-none", !show); if (show) visible += 1; }); count.textContent = `${visible}/${items.length}`; });
       }
     }
-    [schedulingAccess, caldav].filter(Boolean).forEach((section) => { section.querySelectorAll("code").forEach((code) => { const text = code.textContent.trim(); if (!text || code.nextElementSibling?.matches("[data-copy-calendar-value]")) return; const button = document.createElement("button"); button.type = "button"; button.className = "btn btn-sm btn-link py-0 px-1 align-baseline"; button.dataset.copyCalendarValue = "1"; button.title = "In die Zwischenablage kopieren"; button.setAttribute("aria-label", `${text} kopieren`); button.innerHTML = '<i class="fas fa-copy" aria-hidden="true"></i>'; code.after(button); button.addEventListener("click", async () => { try { await navigator.clipboard.writeText(text); button.innerHTML = '<i class="fas fa-check" aria-hidden="true"></i>'; setTimeout(() => { button.innerHTML = '<i class="fas fa-copy" aria-hidden="true"></i>'; }, 1200); } catch (error) { console.warn("Kalenderadresse konnte nicht kopiert werden", error); } }); }); });
+    [schedulingAccess, caldav].filter(Boolean).forEach((section) => { section.querySelectorAll("code").forEach((code) => { const text = code.textContent.trim(); if (!text || code.nextElementSibling?.matches("[data-copy-calendar-value]")) return; const button = document.createElement("button"); button.type = "button"; button.className = "btn btn-sm btn-link py-0 px-1 align-baseline"; button.dataset.copyCalendarValue = "1"; button.title = "In die Zwischenablage kopieren"; button.setAttribute("aria-label", `${text} kopieren`); button.append(icon("fas fa-copy")); code.after(button); button.addEventListener("click", async () => { try { await navigator.clipboard.writeText(text); button.replaceChildren(icon("fas fa-check")); setTimeout(() => { button.replaceChildren(icon("fas fa-copy")); }, 1200); } catch (error) { console.warn("Kalenderadresse konnte nicht kopiert werden", error); } }); }); });
     const advancedSections = [google, schedulingAccess, caldav].filter(Boolean); const storageKey = "simpleoffice.calendar.compactView";
     const applyCompact = (compact) => { advancedSections.forEach((section) => section.classList.toggle("d-none", compact)); cockpit.querySelector("#calendar-view-essential")?.classList.toggle("active", compact); cockpit.querySelector("#calendar-view-all")?.classList.toggle("active", !compact); try { localStorage.setItem(storageKey, compact ? "1" : "0"); } catch (_) {} };
     let compact = false; try { compact = localStorage.getItem(storageKey) === "1"; } catch (_) {} applyCompact(compact);

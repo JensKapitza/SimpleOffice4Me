@@ -71,12 +71,20 @@ def revoke_token(user_id: int, token_id: int) -> bool:
 
 
 def operation_log(user_id: int, administrator: bool, limit: int = 200):
-    where = "" if administrator else "WHERE mcp_operation.actor_id = ?"
-    parameters = () if administrator else (user_id,)
+    safe_limit = max(1, min(int(limit), 500))
+    if administrator:
+        return get_db().execute(
+            """SELECT mcp_operation.request_id,mcp_operation.occurred_at,user.username,
+                      mcp_operation.tool,mcp_operation.target_id,mcp_operation.outcome,mcp_operation.error_type
+               FROM mcp_operation JOIN user ON user.id=mcp_operation.actor_id
+               ORDER BY mcp_operation.id DESC LIMIT ?""",
+            (safe_limit,),
+        ).fetchall()
     return get_db().execute(
-        f"""SELECT mcp_operation.request_id,mcp_operation.occurred_at,user.username,
-                   mcp_operation.tool,mcp_operation.target_id,mcp_operation.outcome,mcp_operation.error_type
-            FROM mcp_operation JOIN user ON user.id=mcp_operation.actor_id
-            {where} ORDER BY mcp_operation.id DESC LIMIT {max(1, min(int(limit), 500))}""",
-        parameters,
+        """SELECT mcp_operation.request_id,mcp_operation.occurred_at,user.username,
+                  mcp_operation.tool,mcp_operation.target_id,mcp_operation.outcome,mcp_operation.error_type
+           FROM mcp_operation JOIN user ON user.id=mcp_operation.actor_id
+           WHERE mcp_operation.actor_id = ?
+           ORDER BY mcp_operation.id DESC LIMIT ?""",
+        (user_id, safe_limit),
     ).fetchall()

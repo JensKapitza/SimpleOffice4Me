@@ -7,9 +7,11 @@ by the existing VTODO task store.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import math
 import re
+import ssl
 import time
 import uuid
 from calendar import monthrange
@@ -17,9 +19,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote_plus, urlsplit
-from urllib.request import Request, urlopen
 
 from flask import (
     Blueprint,
@@ -108,21 +108,46 @@ def isbn_from_barcode(value: Any) -> str:
 
 def _http_json(url: str) -> dict[str, Any]:
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_METADATA_HOSTS:
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in ALLOWED_METADATA_HOSTS
+        or parsed.port not in {None, 443}
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
         raise ValueError("Nicht erlaubte Metadatenquelle")
-    req = Request(
-        url,
-        headers={
-            "Accept": "application/json,text/plain,*/*",
-            "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.7,en;q=0.5",
-            "Cache-Control": "no-cache",
-            "User-Agent": FIREFOX_USER_AGENT,
-        },
+    path = parsed.path + (("?" + parsed.query) if parsed.query else "")
+    connection = http.client.HTTPSConnection(
+        parsed.hostname, 443, timeout=HTTP_TIMEOUT_SECONDS, context=ssl.create_default_context()
     )
-    with urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as response:  # noqa: S310 - allowlisted HTTPS hosts only
-        if int(getattr(response, "status", 200)) != 200:
-            raise ValueError("Metadatenquelle antwortet nicht erfolgreich")
+    try:
+        connection.request(
+            "GET",
+            path,
+            headers={
+                "Accept": "application/json,text/plain,*/*",
+                "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.7,en;q=0.5",
+                "Cache-Control": "no-cache",
+                "User-Agent": FIREFOX_USER_AGENT,
+            },
+        )
+        response = connection.getresponse()
+        declared = response.getheader("Content-Length")
+        if declared:
+            try:
+                if int(declared) > MAX_METADATA_BYTES:
+                    raise ValueError("Metadatenantwort ist zu groß")
+            except ValueError as exc:
+                if str(exc) == "Metadatenantwort ist zu groß":
+                    raise
         data = response.read(MAX_METADATA_BYTES + 1)
+        if response.status != 200:
+            raise ValueError("Metadatenquelle antwortet nicht erfolgreich")
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:
+        raise ValueError("Metadatenquelle ist nicht erreichbar") from exc
+    finally:
+        connection.close()
     if len(data) > MAX_METADATA_BYTES:
         raise ValueError("Metadatenantwort ist zu groß")
     value = json.loads(data.decode("utf-8"))
@@ -297,7 +322,7 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
         )
         reachable_sources += 1
         openlibrary_search = parse_openlibrary_search(payload, isbn)
-    except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+    except (TimeoutError, OSError, ValueError, json.JSONDecodeError, http.client.HTTPException) as exc:
         errors.append(f"openlibrary-search:{type(exc).__name__}")
 
     result = dict(openlibrary_search)
@@ -310,7 +335,7 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
             )
             reachable_sources += 1
             openlibrary_legacy = parse_openlibrary(payload, isbn)
-        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, OSError, ValueError, json.JSONDecodeError, http.client.HTTPException) as exc:
             errors.append(f"openlibrary-legacy:{type(exc).__name__}")
     result = merge_book_metadata(result, openlibrary_legacy)
 
@@ -326,7 +351,7 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
             )
             reachable_sources += 1
             google = parse_google_books(payload, isbn)
-        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as exc:
+        except (TimeoutError, OSError, ValueError, json.JSONDecodeError, http.client.HTTPException) as exc:
             errors.append(f"google:{type(exc).__name__}")
         result = merge_book_metadata(result, google)
 

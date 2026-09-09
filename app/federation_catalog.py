@@ -226,23 +226,32 @@ class FederationCatalog:
 
     def remote_files(self, peer_id: str = "", query: str = "", limit: int = 500) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 5000))
-        clauses, values = [], []
-        if peer_id:
-            clauses.append("f.peer_id=?")
-            values.append(sanitize_peer_id(peer_id))
-        if query:
-            clauses.append("(f.path LIKE ? OR f.remote_document_id LIKE ? OR f.tags_json LIKE ?)")
-            needle = f"%{query[:200]}%"
-            values.extend([needle, needle, needle])
-        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        safe_peer = sanitize_peer_id(peer_id) if peer_id else ""
+        needle = f"%{query[:200]}%" if query else ""
+        base = """SELECT f.*,COALESCE(p.server_priority,0) AS server_priority
+                  FROM federation_remote_file f
+                  LEFT JOIN federation_catalog_peer p ON p.peer_id=f.peer_id"""
         with self._db() as db:
-            rows = db.execute(
-                """SELECT f.*,COALESCE(p.server_priority,0) AS server_priority
-                   FROM federation_remote_file f
-                   LEFT JOIN federation_catalog_peer p ON p.peer_id=f.peer_id"""
-                + where + " ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
-                (*values, limit),
-            ).fetchall()
+            if safe_peer and needle:
+                rows = db.execute(
+                    base + " WHERE f.peer_id=? AND (f.path LIKE ? OR f.remote_document_id LIKE ? OR f.tags_json LIKE ?) ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (safe_peer, needle, needle, needle, limit),
+                ).fetchall()
+            elif safe_peer:
+                rows = db.execute(
+                    base + " WHERE f.peer_id=? ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (safe_peer, limit),
+                ).fetchall()
+            elif needle:
+                rows = db.execute(
+                    base + " WHERE f.path LIKE ? OR f.remote_document_id LIKE ? OR f.tags_json LIKE ? ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (needle, needle, needle, limit),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    base + " ORDER BY f.available DESC,f.path COLLATE NOCASE LIMIT ?",
+                    (limit,),
+                ).fetchall()
         return [self._remote(row) for row in rows]
 
     def get_remote(self, peer_id: str, remote_document_id: str) -> dict[str, Any] | None:
@@ -330,11 +339,24 @@ class FederationCatalog:
         updates = {key: value for key, value in changes.items() if key in allowed}
         if not updates:
             return self.get_request(request_id) or {}
-        updates["updated_at"] = _now()
+        current = self.get_request(request_id)
+        if not current:
+            raise ValueError("Download-Anforderung ist unbekannt")
+        updated_at = _now()
         with self._db() as db:
             cursor = db.execute(
-                "UPDATE federation_download_request SET " + ",".join(f"{key}=?" for key in updates) + " WHERE request_id=?",
-                (*updates.values(), request_id),
+                """UPDATE federation_download_request
+                   SET status=?,attempts=?,next_attempt_at=?,last_error=?,local_document_id=?,updated_at=?
+                   WHERE request_id=?""",
+                (
+                    updates.get("status", current["status"]),
+                    updates.get("attempts", current["attempts"]),
+                    updates.get("next_attempt_at", current["next_attempt_at"]),
+                    updates.get("last_error", current["last_error"]),
+                    updates.get("local_document_id", current["local_document_id"]),
+                    updated_at,
+                    request_id,
+                ),
             )
             if cursor.rowcount != 1:
                 raise ValueError("Download-Anforderung ist unbekannt")
@@ -342,14 +364,29 @@ class FederationCatalog:
 
     def get_request(self, request_id: str) -> dict[str, Any] | None:
         with self._db() as db:
-            row = db.execute(self._queue_sql(" WHERE q.request_id=?"), (request_id,)).fetchone()
+            row = db.execute(
+                """SELECT q.*,f.path,f.size,f.tags_json,f.origin_tags_json,f.file_priority,f.available,
+                          COALESCE(p.server_priority,0) AS server_priority,
+                          (COALESCE(p.server_priority,0)+COALESCE(f.file_priority,0)+q.transfer_priority) AS effective_priority
+                   FROM federation_download_request q
+                   JOIN federation_remote_file f ON f.peer_id=q.peer_id AND f.remote_document_id=q.remote_document_id
+                   LEFT JOIN federation_catalog_peer p ON p.peer_id=q.peer_id
+                   WHERE q.request_id=?""",
+                (request_id,),
+            ).fetchone()
         return self._request(row) if row else None
 
     def queue(self, limit: int = 500) -> list[dict[str, Any]]:
         with self._db() as db:
             rows = db.execute(
-                self._queue_sql("") +
-                " ORDER BY CASE q.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'retry' THEN 2 WHEN 'waiting_peer' THEN 3 ELSE 4 END, effective_priority DESC,q.created_at ASC LIMIT ?",
+                """SELECT q.*,f.path,f.size,f.tags_json,f.origin_tags_json,f.file_priority,f.available,
+                          COALESCE(p.server_priority,0) AS server_priority,
+                          (COALESCE(p.server_priority,0)+COALESCE(f.file_priority,0)+q.transfer_priority) AS effective_priority
+                   FROM federation_download_request q
+                   JOIN federation_remote_file f ON f.peer_id=q.peer_id AND f.remote_document_id=q.remote_document_id
+                   LEFT JOIN federation_catalog_peer p ON p.peer_id=q.peer_id
+                   ORDER BY CASE q.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'retry' THEN 2 WHEN 'waiting_peer' THEN 3 ELSE 4 END,
+                            effective_priority DESC,q.created_at ASC LIMIT ?""",
                 (max(1, min(int(limit), 5000)),),
             ).fetchall()
         return [self._request(row) for row in rows]
@@ -357,9 +394,14 @@ class FederationCatalog:
     def next_requests(self, limit: int = 1) -> list[dict[str, Any]]:
         with self._db() as db:
             rows = db.execute(
-                self._queue_sql(
-                    " WHERE q.status IN ('queued','retry','waiting_peer') AND q.next_attempt_at<=?"
-                ) + " ORDER BY effective_priority DESC,q.created_at ASC LIMIT ?",
+                """SELECT q.*,f.path,f.size,f.tags_json,f.origin_tags_json,f.file_priority,f.available,
+                          COALESCE(p.server_priority,0) AS server_priority,
+                          (COALESCE(p.server_priority,0)+COALESCE(f.file_priority,0)+q.transfer_priority) AS effective_priority
+                   FROM federation_download_request q
+                   JOIN federation_remote_file f ON f.peer_id=q.peer_id AND f.remote_document_id=q.remote_document_id
+                   LEFT JOIN federation_catalog_peer p ON p.peer_id=q.peer_id
+                   WHERE q.status IN ('queued','retry','waiting_peer') AND q.next_attempt_at<=?
+                   ORDER BY effective_priority DESC,q.created_at ASC LIMIT ?""",
                 (_now(), max(1, min(int(limit), 100))),
             ).fetchall()
         return [self._request(row) for row in rows]
@@ -391,17 +433,6 @@ class FederationCatalog:
             }
             for row in rows
         ]
-
-    @staticmethod
-    def _queue_sql(where: str) -> str:
-        return (
-            "SELECT q.*,f.path,f.size,f.tags_json,f.origin_tags_json,f.file_priority,f.available,"
-            "COALESCE(p.server_priority,0) AS server_priority,"
-            "(COALESCE(p.server_priority,0)+COALESCE(f.file_priority,0)+q.transfer_priority) AS effective_priority "
-            "FROM federation_download_request q "
-            "JOIN federation_remote_file f ON f.peer_id=q.peer_id AND f.remote_document_id=q.remote_document_id "
-            "LEFT JOIN federation_catalog_peer p ON p.peer_id=q.peer_id" + where
-        )
 
     @staticmethod
     def _remote(row: sqlite3.Row) -> dict[str, Any]:
