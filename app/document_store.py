@@ -67,7 +67,7 @@ def _validated_search_where(fragment: str) -> str:
     if not words.issubset(_SEARCH_SQL_WORDS):
         raise ValueError("compiled document search contains an unsupported SQL token")
     stripped = re.sub(r"[A-Za-z_]+", "", fragment)
-    if re.search(r"[^\s()?'=0-9\\]", stripped):
+    if re.search(r"[^\s()?'=+0-9\\]", stripped):
         raise ValueError("compiled document search contains unsupported SQL syntax")
     return fragment
 

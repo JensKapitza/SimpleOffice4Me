@@ -121,10 +121,10 @@ class MiniServicesConfigTests(unittest.TestCase):
             path = Path(directory) / "mini-services.json"
             config = copy.deepcopy(DEFAULT_CONFIG)
             config["dns"]["blocklist_urls"] = ["https://lists.example/block.txt"]
-            with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", return_value=Response()):
+            with mock.patch("simpleoffice_mini_services._https_open", return_value=Response()):
                 first = refresh_blocklists(config, path)
             self.assertEqual(1, first["domains"])
-            with mock.patch("simpleoffice_mini_services.urllib.request.urlopen", side_effect=OSError("offline")):
+            with mock.patch("simpleoffice_mini_services._https_open", side_effect=OSError("offline")):
                 second = refresh_blocklists(config, path)
             self.assertTrue(second["preserved_previous"])
             self.assertEqual(1, second["domains"])
