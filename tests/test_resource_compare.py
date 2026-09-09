@@ -22,6 +22,16 @@ class ResourceCompareTests(unittest.TestCase):
         self.left_temp.cleanup()
         self.right_temp.cleanup()
 
+    def test_metadata_mode_reads_no_file_data(self):
+        payload = b"A" * (SAMPLE_BYTES + 4096)
+        (self.left_root / "large.bin").write_bytes(payload)
+        (self.right_root / "large.bin").write_bytes(payload)
+        result = compare_files(self.left, "large.bin", self.right, "large.bin", mode="metadata")
+        self.assertEqual("probably_identical", result.status)
+        self.assertEqual("metadata", result.confidence)
+        self.assertEqual(0, result.bytes_read_left)
+        self.assertEqual(0, result.bytes_read_right)
+
     def test_fast_large_file_reads_only_first_sample(self):
         payload = b"A" * (SAMPLE_BYTES + 4096)
         (self.left_root / "large.bin").write_bytes(payload)
