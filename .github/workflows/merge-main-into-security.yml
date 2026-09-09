@@ -1,0 +1,37 @@
+name: Merge main into security branch
+on:
+  push:
+    paths:
+      - '.github/workflows/merge-main-into-security.yml'
+permissions:
+  contents: write
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/quick-wins-round4
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Attempt merge and report conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'SimpleOffice Security Bot'
+          git config user.email 'security-bot@users.noreply.github.com'
+          git fetch origin main
+          set +e
+          git merge --no-ff origin/main -m 'Merge current main into security quick wins'
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo 'MERGE_CONFLICTS_BEGIN'
+            git diff --name-only --diff-filter=U
+            echo 'MERGE_CONFLICTS_END'
+            git merge --abort
+            exit 1
+          fi
+          git rm .github/workflows/merge-main-into-security.yml
+          git commit --amend --no-edit
+          git push origin HEAD:security/quick-wins-round4
