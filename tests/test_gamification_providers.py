@@ -12,9 +12,17 @@ class GamificationProviderTests(unittest.TestCase):
         self.assertIsNone(roulette(policy, "jens", candidates, seed=1))
 
     def test_roulette_requires_normal_read_access(self):
-        policy = GamePolicy(providers=frozenset({"images"}))
-        candidates = [Candidate("images", "img:1", {"preview_url": "/preview/1"}, False)]
+        policy = GamePolicy(providers=frozenset({"images"}), collections=frozenset({"images"}), preview_allowed=True)
+        candidates = [Candidate("images", "img:1", {"preview": True}, False, resource_class="photo", collection="images")]
         self.assertEqual(eligible_challenges(policy, "jens", candidates), [])
+
+    def test_image_provider_requires_server_verified_preview(self):
+        provider = get_provider("images")
+        self.assertEqual(provider.build_challenges("img:1", {}), [])
+        challenges = provider.build_challenges("img:1", {"preview": True})
+        self.assertEqual({item.kind for item in challenges}, {"year", "tags", "place"})
+        self.assertTrue(all(item.payload == {"preview": True} for item in challenges))
+        self.assertNotIn("img:1", str([item.payload for item in challenges]))
 
     def test_contact_provider_only_builds_policy_fields(self):
         policy = GamePolicy(providers=frozenset({"contacts"}), fields=frozenset({"street", "phone", "private_note"}))
@@ -29,12 +37,12 @@ class GamificationProviderTests(unittest.TestCase):
 
     def test_federation_roulette_needs_peer_permission(self):
         policy = GamePolicy(scope="federation", providers=frozenset({"images"}), preview_allowed=True)
-        candidate = Candidate("images", "img:1", {"preview_url": "/preview/1"}, True, federation_allowed=False)
+        candidate = Candidate("images", "img:1", {"preview": True}, True, federation_allowed=False)
         self.assertIsNone(roulette(policy, "friend", [candidate]))
 
     def test_answer_validation_accepts_unknown_as_ui_skip_not_answer(self):
         provider = get_provider("images")
-        challenge = provider.build_challenges("img:1", {})[0]
+        challenge = provider.build_challenges("img:1", {"preview": True})[0]
         self.assertTrue(provider.validate_answer(challenge, "2020"))
         self.assertFalse(provider.validate_answer(challenge, "unknown"))
 
