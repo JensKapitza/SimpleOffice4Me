@@ -294,6 +294,8 @@ from . import inventory
 app.register_blueprint(inventory.bp)
 from . import library
 app.register_blueprint(library.bp)
+from . import gamification_routes
+app.register_blueprint(gamification_routes.bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
