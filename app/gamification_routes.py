@@ -302,8 +302,14 @@ def create_session():
     org_id = str(request.form.get("org_id", "")).strip().casefold()
     if scope == "federation":
         peer = FederationStore(current_app.config["DOCUMENT_ROOT"]).get_peer(peer_id)
-        if peer is None or any(not peer_allows(peer, "receive_challenges", provider=value) for value in providers):
-            return redirect(url_for("gamification.manage", message="Peer ist für diese Spiel-Provider nicht freigegeben."))
+        denied = peer is None or any(
+            not peer_allows(peer, "send_challenges", provider=value)
+            or not peer_allows(peer, "receive_answers", provider=value)
+            or (value == "images" and not peer_allows(peer, "send_previews", provider="images"))
+            for value in providers
+        )
+        if denied:
+            return redirect(url_for("gamification.manage", message="Peer ist auf dieser Instanz nicht für Senden/Antwortempfang der gewählten Spiel-Provider freigegeben."))
         extra["peer_id"] = peer_id
     elif scope == "organization":
         if not any(item["org_id"] == org_id for item in organizations_for_user(get_db(), actor)):
