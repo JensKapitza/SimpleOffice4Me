@@ -2,7 +2,7 @@ import unittest
 
 from app.gamification_engine import Candidate, eligible_challenges, roulette
 from app.gamification_policy import GamePolicy
-from app.gamification_providers import get_provider
+from app.gamification_providers import Challenge, get_provider
 
 
 class GamificationProviderTests(unittest.TestCase):
@@ -23,6 +23,15 @@ class GamificationProviderTests(unittest.TestCase):
         self.assertEqual({item.kind for item in challenges}, {"year", "tags", "place"})
         self.assertTrue(all(item.payload == {"preview": True} for item in challenges))
         self.assertNotIn("img:1", str([item.payload for item in challenges]))
+
+    def test_tag_answers_are_server_side_bounded(self):
+        provider = get_provider("images")
+        challenge = Challenge("images", "img:1", "tags", "Tags?", "tags", {"preview": True})
+        self.assertTrue(provider.validate_answer(challenge, "Wald, Urlaub"))
+        self.assertFalse(provider.validate_answer(challenge, "x" * 501))
+        self.assertTrue(provider.validate_answer(challenge, ["Wald", "Urlaub"]))
+        self.assertFalse(provider.validate_answer(challenge, ["x"] * 51))
+        self.assertFalse(provider.validate_answer(challenge, ["x" * 101]))
 
     def test_contact_provider_only_builds_policy_fields(self):
         policy = GamePolicy(providers=frozenset({"contacts"}), fields=frozenset({"street", "phone", "private_note"}))
