@@ -91,6 +91,17 @@ class ServiceControlTests(unittest.TestCase):
             self.assertFalse(service_control.process_matches({"pid": 0, "marker": "marker"}))
             kill.assert_not_called()
 
+    def test_windows_process_lookup_passes_pid_outside_powershell_source(self):
+        completed = MagicMock(returncode=0, stdout="python service.py")
+        with patch.object(service_control.os, "name", "nt"), patch.object(service_control.sys, "platform", "win32"), patch(
+            "tools.service_control.subprocess.run", return_value=completed
+        ) as run:
+            self.assertEqual("python service.py", service_control._command_line(1234))
+        command = run.call_args.args[0]
+        self.assertEqual("1234", command[-1])
+        self.assertNotIn("1234", command[-2])
+        self.assertIn("$args[0]", command[-2])
+
     def test_invalid_state_records_are_ignored(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(service_control, "RUN_DIR", Path(temp)):
             path = Path(temp) / "web.json"
