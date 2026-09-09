@@ -89,10 +89,10 @@ def _result(status: str, confidence: str, left: ResourceEntry, right: ResourceEn
                          [asdict(item) for item in evidence], read_left, read_right)
 
 
-def compare_files(left_provider, left_id: str, right_provider, right_id: str, *, mode: str = "normal") -> CompareResult:
-    mode = str(mode or "normal").lower()
-    if mode not in {"fast", "normal", "full"}:
-        raise ProviderError("Vergleichsmodus muss fast, normal oder full sein")
+def compare_files(left_provider, left_id: str, right_provider, right_id: str, *, mode: str = "metadata") -> CompareResult:
+    mode = str(mode or "metadata").lower()
+    if mode not in {"metadata", "fast", "normal", "full"}:
+        raise ProviderError("Vergleichsmodus muss metadata, fast, normal oder full sein")
     left = left_provider.stat(left_id)
     right = right_provider.stat(right_id)
     if left.kind != "file" or right.kind != "file":
@@ -118,6 +118,10 @@ def compare_files(left_provider, left_id: str, right_provider, right_id: str, *,
     if int(left.size) == 0:
         return _result("identical", "certain", left, right,
                        evidence + [CompareEvidence("empty", "match", "Beide Dateien sind leer")], 0, 0)
+
+    if mode == "metadata":
+        evidence.append(CompareEvidence("metadata", "candidate", "Name/Groesse bzw. vorhandene Attribute geprueft; keine Dateidaten gelesen"))
+        return _result("probably_identical", "metadata", left, right, evidence, 0, 0)
 
     offsets = _sample_offsets(int(left.size))
     if mode == "fast":
@@ -149,7 +153,7 @@ def compare_files(left_provider, left_id: str, right_provider, right_id: str, *,
     return _result("probably_identical", "sampled", left, right, evidence, read_left, read_right)
 
 
-def compare_directories(left_provider, left_path: str, right_provider, right_path: str, *, mode: str = "fast") -> dict[str, Any]:
+def compare_directories(left_provider, left_path: str, right_provider, right_path: str, *, mode: str = "metadata") -> dict[str, Any]:
     left_items = list(left_provider.list(left_path))[:MAX_DIRECTORY_ENTRIES]
     right_items = list(right_provider.list(right_path))[:MAX_DIRECTORY_ENTRIES]
     left_by_name = {item.name.casefold(): item for item in left_items}
@@ -177,7 +181,7 @@ def compare_directories(left_provider, left_path: str, right_provider, right_pat
 
 def completeness_check(source_provider, source_path: str, target_provider, target_path: str, *, full: bool = False) -> dict[str, Any]:
     """Verify that every source file exists on target; extra target entries are allowed."""
-    mode = "full" if full else "fast"
+    mode = "full" if full else "metadata"
     compared = compare_directories(source_provider, source_path, target_provider, target_path, mode=mode)
     required_missing = []
     required_uncertain = []
