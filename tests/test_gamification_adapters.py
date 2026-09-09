@@ -2,9 +2,16 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.contact_store import ContactStore
-from app.gamification_adapters import apply_contact_proposal, contact_candidates, contact_proposal_can_apply
+from app.gamification_adapters import (
+    apply_contact_proposal,
+    contact_candidates,
+    contact_proposal_can_apply,
+    image_candidates,
+    image_preview_path,
+)
 
 
 def _write_contacts(root, contacts):
@@ -36,6 +43,21 @@ def _proposal(contact_id="one", field="city", value="Duisburg", **extra):
         "value": value,
         "accepted_by": None,
         **extra,
+    }
+
+
+def _photo(document_id="photo-1", *, tags=None, source="mobile-web-bulk"):
+    return {
+        "document_id": document_id,
+        "last_path": f"photos/{document_id}.jpg",
+        "sha256": "a" * 64,
+        "tags": tags or ["bild", "foto-upload"],
+        "attributes": {"photo_upload": {"source": source}},
+        "preview": {
+            "status": "ready",
+            "source_sha256": "a" * 64,
+            "thumbnail": f".webcache/{document_id}/{'a' * 64}/thumbnail.webp",
+        },
     }
 
 
@@ -121,6 +143,49 @@ class GamificationAdapterTests(unittest.TestCase):
         self.assertFalse(contact_proposal_can_apply(self.root, "owner", proposal))
         with self.assertRaises(ValueError):
             apply_contact_proposal(self.root, "owner", proposal)
+
+    def test_photo_adapter_requires_explicit_upload_and_cached_thumbnail(self):
+        safe = _photo("safe")
+        not_upload = _photo("legacy", source="scanner")
+        cached = self.root / ".webcache" / "safe" / ("a" * 64) / "thumbnail.webp"
+        with patch("app.gamification_adapters.DocumentStore.list_documents", return_value=[safe, not_upload]), \
+             patch("app.gamification_adapters.PreviewService.cached_path", side_effect=lambda item, variant="thumbnail": cached if item["document_id"] == "safe" else None):
+            candidates = image_candidates(self.root, "owner")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].object_ref, "document:safe")
+        self.assertEqual(candidates[0].data, {"preview": True})
+        self.assertEqual(candidates[0].resource_class, "photo")
+        self.assertNotIn("photos/", str(candidates[0].data))
+        self.assertNotIn("safe", str(candidates[0].data))
+
+    def test_photo_adapter_excludes_sensitive_markers(self):
+        documents = [
+            _photo("private", tags=["foto-upload", "privat"]),
+            _photo("invoice", tags=["foto-upload", "rechnung"]),
+        ]
+        cached = self.root / ".webcache" / "x" / "thumbnail.webp"
+        with patch("app.gamification_adapters.DocumentStore.list_documents", return_value=documents), \
+             patch("app.gamification_adapters.PreviewService.cached_path", return_value=cached):
+            self.assertEqual(image_candidates(self.root, "owner"), [])
+
+    def test_photo_adapter_refuses_missing_cached_thumbnail(self):
+        with patch("app.gamification_adapters.DocumentStore.list_documents", return_value=[_photo()]), \
+             patch("app.gamification_adapters.PreviewService.cached_path", return_value=None):
+            self.assertEqual(image_candidates(self.root, "owner"), [])
+
+    def test_photo_preview_resolver_never_falls_back_to_original(self):
+        document = _photo("one")
+        cached = self.root / ".webcache" / "one" / "thumbnail.webp"
+        with patch("app.gamification_adapters.DocumentStore.get_document", return_value=document), \
+             patch("app.gamification_adapters.PreviewService.cached_path", return_value=cached):
+            self.assertEqual(image_preview_path(self.root, "owner", "document:one"), cached)
+        with patch("app.gamification_adapters.DocumentStore.get_document", return_value=document), \
+             patch("app.gamification_adapters.PreviewService.cached_path", return_value=None):
+            self.assertIsNone(image_preview_path(self.root, "owner", "document:one"))
+
+    def test_photo_preview_resolver_rejects_client_style_arbitrary_reference(self):
+        self.assertIsNone(image_preview_path(self.root, "owner", "../../etc/passwd"))
+        self.assertIsNone(image_preview_path(self.root, "", "document:one"))
 
 
 if __name__ == "__main__":
