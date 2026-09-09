@@ -91,6 +91,35 @@ def download_entry():
     return send_file(stream, as_attachment=True, download_name=entry.name, mimetype=entry.mime_type)
 
 
+@bp.get("/api/range")
+def range_entry():
+    """Return at most 1 MiB from a file without forcing a complete remote download."""
+    _api_access()
+    provider = _provider()
+    resource_id = request.args.get("id", "")
+    offset = max(0, int(request.args.get("offset", "0") or 0))
+    length = max(0, min(int(request.args.get("length", str(1024 * 1024)) or 0), 1024 * 1024))
+    native = getattr(provider, "read_range", None)
+    if callable(native):
+        data = native(resource_id, offset, length)
+    else:
+        with provider.open(resource_id) as stream:
+            try:
+                stream.seek(offset)
+            except (AttributeError, OSError):
+                remaining = offset
+                while remaining:
+                    block = stream.read(min(remaining, 1024 * 1024))
+                    if not block:
+                        break
+                    remaining -= len(block)
+            data = stream.read(length)
+    response = Response(bytes(data), mimetype="application/octet-stream")
+    response.headers["Content-Length"] = str(len(data))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 @bp.post("/api/upload")
 def upload_entry():
     _api_access()
@@ -134,7 +163,7 @@ def copy_entry():
     target = _registry().get(str(payload.get("target_provider", "self")))
     entry = source.stat(str(payload.get("id", "")))
     if entry.kind != "file":
-        raise ProviderError("Ordnerkopien werden nur elementweise ausgeführt")
+        raise ProviderError("Ordnerkopien werden nur elementweise ausgefuehrt")
     with source.open(entry.resource_id) as stream:
         created = target.upload(str(payload.get("target_path", "")), stream, name=str(payload.get("name") or entry.name), metadata=entry.metadata)
     return jsonify({"entry": created.to_dict()})
@@ -147,3 +176,5 @@ def provider_error(error):
 
 def init_app(app) -> None:
     app.register_blueprint(bp)
+    from .resource_compare_routes import bp as compare_bp
+    app.register_blueprint(compare_bp)
