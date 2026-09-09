@@ -49,7 +49,7 @@ class Provider:
                 return False
             return 1800 <= year <= 2200
         if challenge.answer_type == "tags":
-            return isinstance(answer, (str, list, tuple))
+            return isinstance(answer, (str, list, tuple)) and bool(str(answer).strip())
         return isinstance(answer, str) and 0 < len(answer.strip()) <= 500
 
 
@@ -57,12 +57,16 @@ class ImageProvider(Provider):
     name = "images"
 
     def build_challenges(self, object_ref: str, data: Mapping[str, Any]) -> list[Challenge]:
-        preview = data.get("preview_url", "")
-        base = {"preview_url": preview}
+        # A boolean flag is all the browser-facing challenge needs. The actual
+        # thumbnail is resolved later from the actor-bound challenge id; URLs,
+        # document ids and filesystem paths never enter the payload.
+        if data.get("preview") is not True:
+            return []
+        base = {"preview": True}
         return [
             Challenge(self.name, object_ref, "year", "Aus welchem Jahr ist dieses Bild?", "year", base.copy()),
             Challenge(self.name, object_ref, "tags", "Was ist auf diesem Bild zu sehen?", "tags", base.copy()),
-            Challenge(self.name, object_ref, "place", "Wo koennte dieses Bild aufgenommen worden sein?", "text", base.copy()),
+            Challenge(self.name, object_ref, "place", "Wo könnte dieses Bild aufgenommen worden sein?", "text", base.copy()),
         ]
 
 
@@ -72,7 +76,7 @@ class DocumentProvider(Provider):
     def build_challenges(self, object_ref: str, data: Mapping[str, Any]) -> list[Challenge]:
         safe = {"display_name": str(data.get("display_name", ""))[:200]}
         return [
-            Challenge(self.name, object_ref, "document_type", "Was fuer ein Dokument ist das?", "text", safe.copy()),
+            Challenge(self.name, object_ref, "document_type", "Was für ein Dokument ist das?", "text", safe.copy()),
             Challenge(self.name, object_ref, "tags", "Welche Tags passen zu dieser Datei?", "tags", safe.copy()),
             Challenge(self.name, object_ref, "year", "Aus welchem Jahr stammt die Datei?", "year", safe.copy()),
         ]
@@ -89,7 +93,7 @@ class ContactProvider(Provider):
         display = str(data.get("display_name", ""))[:200]
         result: list[Challenge] = []
         prompts = {
-            "street": f"Welche Strasse fehlt bei {display}?",
+            "street": f"Welche Straße fehlt bei {display}?",
             "house_number": f"Welche Hausnummer fehlt bei {display}?",
             "postal_code": f"Welche PLZ fehlt bei {display}?",
             "city": f"Welcher Ort fehlt bei {display}?",
@@ -99,7 +103,7 @@ class ContactProvider(Provider):
             "email": f"Welche E-Mail-Adresse fehlt bei {display}?",
             "company": f"Welche Firma fehlt bei {display}?",
         }
-        # Initial rollout asks only for genuinely missing values.  Verification
+        # Initial rollout asks only for genuinely missing values. Verification
         # of existing phone/address/email data is a separate mode because it
         # discloses current values and needs field-level policy decisions.
         for field in fields:
