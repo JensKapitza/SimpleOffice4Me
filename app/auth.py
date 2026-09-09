@@ -1,10 +1,11 @@
 import functools
+import http.client
 import json
 import re
 import secrets
+import ssl
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, session, url_for, current_app
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -26,7 +27,33 @@ bp = Blueprint('auth', __name__, url_prefix='/auth')
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+GOOGLE_RESPONSE_LIMIT = 2 * 1024 * 1024
 DUMMY_PASSWORD_HASH = generate_password_hash(secrets.token_urlsafe(32))
+
+
+def _google_json(host: str, path: str, *, method: str = "GET", headers: dict[str, str] | None = None, body: bytes | None = None) -> dict:
+    allowed = {
+        ("oauth2.googleapis.com", "/token"),
+        ("openidconnect.googleapis.com", "/v1/userinfo"),
+    }
+    if (host, path) not in allowed:
+        raise ValueError("Google OAuth endpoint is not allowed")
+    connection = http.client.HTTPSConnection(host, 443, timeout=15, context=ssl.create_default_context())
+    try:
+        connection.request(method, path, body=body, headers=headers or {})
+        response = connection.getresponse()
+        if response.status < 200 or response.status >= 300:
+            response.read(GOOGLE_RESPONSE_LIMIT + 1)
+            raise ValueError(f"Google OAuth returned HTTP {response.status}")
+        payload = response.read(GOOGLE_RESPONSE_LIMIT + 1)
+    finally:
+        connection.close()
+    if len(payload) > GOOGLE_RESPONSE_LIMIT:
+        raise ValueError("Google OAuth response is too large")
+    value = json.loads(payload.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("Google OAuth returned invalid JSON")
+    return value
 
 
 def _registration_enabled() -> bool:
@@ -189,15 +216,17 @@ def google_callback():
             'code': code, 'client_id': config['client_id'], 'client_secret': config['client_secret'],
             'redirect_uri': config['redirect_uri'], 'grant_type': 'authorization_code',
         }).encode('utf-8')
-        token_request = Request(GOOGLE_TOKEN_URL, data=body, headers={'Content-Type': 'application/x-www-form-urlencoded'})
-        with urlopen(token_request, timeout=15) as response:
-            token = json.loads(response.read().decode('utf-8'))
+        token = _google_json(
+            "oauth2.googleapis.com", "/token", method="POST",
+            headers={'Content-Type': 'application/x-www-form-urlencoded'}, body=body,
+        )
         access_token = str(token.get('access_token', ''))
         if not access_token:
             raise ValueError('Google did not return an access token')
-        profile_request = Request(GOOGLE_USERINFO_URL, headers={'Authorization': f'Bearer {access_token}'})
-        with urlopen(profile_request, timeout=15) as response:
-            profile = json.loads(response.read().decode('utf-8'))
+        profile = _google_json(
+            "openidconnect.googleapis.com", "/v1/userinfo",
+            headers={'Authorization': f'Bearer {access_token}'},
+        )
         subject = str(profile.get('sub', '')).strip()
         email = str(profile.get('email', '')).strip().casefold()
         if not subject or not email or profile.get('email_verified') is not True:
