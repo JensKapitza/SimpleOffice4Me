@@ -29,6 +29,24 @@ jobs:
             echo 'MERGE_CONFLICTS_BEGIN'
             git diff --name-only --diff-filter=U
             echo 'MERGE_CONFLICTS_END'
+            python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          paths = subprocess.check_output(['git','diff','--name-only','--diff-filter=U'], text=True).splitlines()
+          for name in paths:
+              print(f'===== CONFLICT {name} =====')
+              lines = Path(name).read_text(encoding='utf-8', errors='replace').splitlines()
+              marks = [i for i,l in enumerate(lines) if l.startswith('<<<<<<< ')]
+              for idx in marks:
+                  end = idx
+                  while end < len(lines) and not lines[end].startswith('>>>>>>> '):
+                      end += 1
+                  start = max(0, idx - 12)
+                  stop = min(len(lines), end + 13)
+                  for n in range(start, stop):
+                      print(f'{n+1:05d}: {lines[n]}')
+                  print('-----')
+          PY
             git merge --abort
             exit 1
           fi
