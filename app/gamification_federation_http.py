@@ -51,7 +51,6 @@ def _actor(peer_id: str) -> str:
 
 
 def _source_still_allowed(challenge: dict) -> bool:
-    """Re-check the local source owner's current feature and object eligibility."""
     owner = str(challenge.get("created_by", "")).strip()
     provider = str(challenge.get("provider", "")).strip()
     object_ref = str(challenge.get("object_ref", "")).strip()
@@ -89,7 +88,7 @@ def _next_challenge(store: GamificationStore, session_id: str, actor: str, peer:
         if challenge is None:
             continue
         provider = str(challenge.get("provider", ""))
-        if peer_allows(peer, "receive_challenges", provider=provider) and _source_still_allowed(challenge):
+        if peer_allows(peer, "send_challenges", provider=provider) and _source_still_allowed(challenge):
             return challenge
     return None
 
@@ -104,7 +103,7 @@ def next_challenge(session_id: str):
     try:
         peer, proof = authenticate_peer(
             _federation(), request.headers, method=request.method, path=request.path,
-            body=body, required_permission="receive_challenges",
+            body=body, required_permission="send_challenges",
         )
         actor = _actor(proof.peer_id)
         challenge = _next_challenge(_game(), session_id, actor, peer)
@@ -128,13 +127,13 @@ def challenge_preview(challenge_id: str):
     try:
         peer, proof = authenticate_peer(
             _federation(), request.headers, method=request.method, path=request.path,
-            body=body, required_permission="preview_media", provider="images",
+            body=body, required_permission="send_previews", provider="images",
         )
         actor = _actor(proof.peer_id)
         challenge = _game().get_challenge_for_actor(challenge_id, actor)
         if challenge is None or challenge.get("provider") != "images" or not _source_still_allowed(challenge):
             return _deny()
-        if not peer_allows(peer, "preview_media", provider="images"):
+        if not peer_allows(peer, "send_previews", provider="images"):
             return _deny()
         preview = image_preview_path(_root(), str(challenge.get("created_by", "")), str(challenge["object_ref"]))
         if preview is None:
@@ -153,7 +152,7 @@ def submit_answer(challenge_id: str):
         body = _raw_body()
         peer, proof = authenticate_peer(
             _federation(), request.headers, method=request.method, path=request.path,
-            body=body, required_permission="submit_answers",
+            body=body, required_permission="receive_answers",
         )
         actor = _actor(proof.peer_id)
         store = _game()
@@ -161,7 +160,7 @@ def submit_answer(challenge_id: str):
         if persisted is None or not _source_still_allowed(persisted):
             return _deny()
         provider_name = str(persisted["provider"])
-        if not peer_allows(peer, "submit_answers", provider=provider_name):
+        if not peer_allows(peer, "receive_answers", provider=provider_name):
             return _deny()
         try:
             payload = json.loads(body.decode("utf-8")) if body else {}
