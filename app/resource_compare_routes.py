@@ -6,7 +6,8 @@ from dataclasses import asdict
 from flask import Blueprint, current_app, g, jsonify, request
 
 from .federation_http import _authorized
-from .resource_compare import compare_directories, compare_files, completeness_check
+from .resource_compare import compare_directories, compare_files
+from .resource_completeness import verify_complete
 from .resource_provider import ProviderError
 from .resource_registry import ResourceRegistry
 
@@ -68,11 +69,11 @@ def compare_directory():
 
 @bp.post("/completeness")
 def completeness():
-    """Ensure every source file is present at target; target extras are allowed."""
+    """Recursively ensure every source file is present at target; target extras are allowed."""
     _access()
     payload = request.get_json(silent=True) or {}
     left, right = _providers(payload)
-    result = completeness_check(left, str(payload.get("left_path", "")), right, str(payload.get("right_path", "")), full=True)
+    result = verify_complete(left, str(payload.get("left_path", "")), right, str(payload.get("right_path", "")))
     return jsonify(result)
 
 
