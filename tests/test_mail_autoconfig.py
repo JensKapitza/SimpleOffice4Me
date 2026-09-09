@@ -100,24 +100,13 @@ class MailAutoconfigTests(unittest.TestCase):
         )
 
     def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):
-        class Response:
-            headers = {}
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
-
-            def geturl(self):
-                return "https://dns.google/resolve?name=example.org&type=MX"
-
-            def read(self, _size):
-                return b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'
-
-        with patch("app.mail_autoconfig.urllib.request.urlopen", return_value=Response()):
+        payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'
+        with patch("app.mail_autoconfig._https_get", return_value=payload) as https_get:
             records = _fetch_mx("example.org")
         self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)
+        _, kwargs = https_get.call_args
+        self.assertEqual("dns.google", kwargs["fixed_host"])
+        self.assertFalse(kwargs["provider_owned"])
 
     @patch("app.mail_autoconfig._fetch_mx", return_value=[])
     def test_falls_back_to_domain_guess_when_no_provider_data_is_reachable(self, _mx):
@@ -132,11 +121,11 @@ class MailAutoconfigTests(unittest.TestCase):
     def test_provider_fetch_rejects_private_destination_before_http(self):
         source = DiscoverySource("provider-autoconfig", "https://autoconfig.example.org/mail/config-v1.1.xml", provider_owned=True)
         with patch("app.mail_autoconfig._host_is_public", return_value=False), patch(
-            "app.mail_autoconfig.urllib.request.urlopen"
-        ) as urlopen:
+            "app.mail_autoconfig.http.client.HTTPSConnection"
+        ) as connection:
             with self.assertRaises(ValueError):
                 _fetch(source)
-            urlopen.assert_not_called()
+            connection.assert_not_called()
 
     def test_plaintext_and_pop_only_configs_are_not_accepted(self):
         insecure = XML.replace(b"<socketType>SSL</socketType>", b"<socketType>plain</socketType>")
