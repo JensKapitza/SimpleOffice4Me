@@ -54,7 +54,9 @@ def compare_file():
     _access()
     payload = request.get_json(silent=True) or {}
     left, right = _providers(payload)
-    result = compare_files(left, str(payload.get("left_id", "")), right, str(payload.get("right_id", "")), mode=str(payload.get("mode", "normal")))
+    result = compare_files(left, str(payload.get("left_id", "")), right,
+                           str(payload.get("right_id", "")),
+                           mode=str(payload.get("mode", "metadata")))
     return jsonify(asdict(result))
 
 
@@ -63,7 +65,9 @@ def compare_directory():
     _access()
     payload = request.get_json(silent=True) or {}
     left, right = _providers(payload)
-    result = compare_directories(left, str(payload.get("left_path", "")), right, str(payload.get("right_path", "")), mode=str(payload.get("mode", "fast")))
+    result = compare_directories(left, str(payload.get("left_path", "")), right,
+                                 str(payload.get("right_path", "")),
+                                 mode=str(payload.get("mode", "metadata")))
     return jsonify(result)
 
 
@@ -73,7 +77,8 @@ def completeness():
     _access()
     payload = request.get_json(silent=True) or {}
     left, right = _providers(payload)
-    result = verify_complete(left, str(payload.get("left_path", "")), right, str(payload.get("right_path", "")))
+    result = verify_complete(left, str(payload.get("left_path", "")), right,
+                             str(payload.get("right_path", "")))
     return jsonify(result)
 
 
