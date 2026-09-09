@@ -1,8 +1,8 @@
 """Regression tests for XML parsers that consume external data."""
 
+import unittest
 from pathlib import Path
 
-import pytest
 from defusedxml.common import DefusedXmlException
 
 from app.mail_autoconfig import parse_thunderbird_config
@@ -11,14 +11,14 @@ from app.mail_autoconfig import parse_thunderbird_config
 MAIL_AUTOCONFIG = Path("app/mail_autoconfig.py")
 
 
-def test_mail_autoconfig_uses_defusedxml_parser():
-    source = MAIL_AUTOCONFIG.read_text(encoding="utf-8")
-    assert "safe_xml_fromstring" in source
-    assert "ET.fromstring(data)" not in source
+class XmlSecurityRegressionTests(unittest.TestCase):
+    def test_mail_autoconfig_uses_defusedxml_parser(self):
+        source = MAIL_AUTOCONFIG.read_text(encoding="utf-8")
+        self.assertIn("safe_xml_fromstring", source)
+        self.assertNotIn("ET.fromstring(data)", source)
 
-
-def test_mail_autoconfig_rejects_doctype_and_external_entities():
-    payload = b'''<?xml version="1.0"?>
+    def test_mail_autoconfig_rejects_doctype_and_external_entities(self):
+        payload = b'''<?xml version="1.0"?>
 <!DOCTYPE clientConfig [
   <!ENTITY xxe SYSTEM "file:///etc/passwd">
 ]>
@@ -40,5 +40,9 @@ def test_mail_autoconfig_rejects_doctype_and_external_entities():
   </emailProvider>
 </clientConfig>'''
 
-    with pytest.raises(DefusedXmlException):
-        parse_thunderbird_config(payload, "user@example.org", "test")
+        with self.assertRaises(DefusedXmlException):
+            parse_thunderbird_config(payload, "user@example.org", "test")
+
+
+if __name__ == "__main__":
+    unittest.main()
