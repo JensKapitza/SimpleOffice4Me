@@ -229,9 +229,17 @@ class PasswordVault:
     def entries(self, user_id: str, vault_key: bytes, *, include_deleted: bool = False) -> list[dict[str, Any]]:
         if len(vault_key) != 32:
             raise ValueError("Vault ist nicht entsperrt")
-        sql = "SELECT * FROM vault_entry WHERE user_id=?" + ("" if include_deleted else " AND deleted_at IS NULL") + " ORDER BY updated_at DESC"
         with self._db() as db:
-            rows = db.execute(sql, (str(user_id),)).fetchall()
+            if include_deleted:
+                rows = db.execute(
+                    "SELECT * FROM vault_entry WHERE user_id=? ORDER BY updated_at DESC",
+                    (str(user_id),),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM vault_entry WHERE user_id=? AND deleted_at IS NULL ORDER BY updated_at DESC",
+                    (str(user_id),),
+                ).fetchall()
         result = []
         for row in rows:
             try:

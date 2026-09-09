@@ -504,13 +504,26 @@ class LocalAddressIndex:
             return
         keys = list(dict.fromkeys((row[8], row[9]) for row in rows))
         existing: dict[tuple[str, str], tuple[str, ...]] = {}
+        db.execute(
+            """CREATE TEMP TABLE IF NOT EXISTS requested_address_key (
+                   osm_type TEXT NOT NULL,
+                   osm_id TEXT NOT NULL,
+                   PRIMARY KEY(osm_type, osm_id)
+               )"""
+        )
         for offset in range(0, len(keys), 300):
             chunk = keys[offset:offset + 300]
-            placeholders = ",".join("(?,?)" for _ in chunk)
-            params = [value for key in chunk for value in key]
+            db.execute("DELETE FROM requested_address_key")
+            db.executemany(
+                "INSERT OR IGNORE INTO requested_address_key(osm_type,osm_id) VALUES(?,?)",
+                chunk,
+            )
             for current in db.execute(
-                f"SELECT street,house_number,postal,city,country,state,lat,lon,osm_type,osm_id,normalized FROM address WHERE (osm_type,osm_id) IN ({placeholders})",
-                params,
+                """SELECT a.street,a.house_number,a.postal,a.city,a.country,a.state,
+                          a.lat,a.lon,a.osm_type,a.osm_id,a.normalized
+                   FROM address a
+                   JOIN requested_address_key r
+                     ON r.osm_type=a.osm_type AND r.osm_id=a.osm_id"""
             ):
                 value = tuple(str(item) for item in current)
                 existing[(value[8], value[9])] = value

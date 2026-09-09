@@ -252,16 +252,15 @@ class MailFederationStore:
 
     def list_sources(self, actor: str, account_id: str, *, message_row_id: int | None = None, limit: int = 500) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 2000))
-        params: list[Any] = [_owner(actor), account_id]
-        condition = ""
-        if message_row_id is not None:
-            condition = " AND message_row_id=?"
-            params.append(int(message_row_id))
-        params.append(limit)
+        row_filter = int(message_row_id) if message_row_id is not None else None
         with self._db() as db:
             rows = db.execute(
-                f"SELECT * FROM mail_federation_source WHERE owner_key=? AND account_id=?{condition} ORDER BY availability='index_only',confidence DESC,last_seen_at DESC LIMIT ?",
-                params,
+                """SELECT * FROM mail_federation_source
+                   WHERE owner_key=? AND account_id=?
+                     AND (? IS NULL OR message_row_id=?)
+                   ORDER BY availability='index_only',confidence DESC,last_seen_at DESC
+                   LIMIT ?""",
+                (_owner(actor), account_id, row_filter, row_filter, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -357,13 +356,23 @@ def locate_local(root: str | Path, queries: list[dict[str, Any]]) -> dict[str, l
             for exported_account in exported:
                 owner_key, actor = str(exported_account["owner_key"]), str(exported_account["owner"])
                 account_id = str(exported_account["account_id"])
-                for digest, column, kind in ((raw_hash, "raw_sha512", "raw"), (content_hash, "content_sha512", "content")):
+                for digest, kind in ((raw_hash, "raw"), (content_hash, "content")):
                     if not digest:
                         continue
-                    rows = db.execute(
-                        f"SELECT * FROM mail_message_index WHERE owner_key=? AND account_id=? AND {column}=? ORDER BY present DESC,last_seen_at DESC LIMIT ?",
-                        (owner_key, account_id, digest, MAX_MATCHES_PER_QUERY),
-                    ).fetchall()
+                    if kind == "raw":
+                        rows = db.execute(
+                            """SELECT * FROM mail_message_index
+                               WHERE owner_key=? AND account_id=? AND raw_sha512=?
+                               ORDER BY present DESC,last_seen_at DESC LIMIT ?""",
+                            (owner_key, account_id, digest, MAX_MATCHES_PER_QUERY),
+                        ).fetchall()
+                    else:
+                        rows = db.execute(
+                            """SELECT * FROM mail_message_index
+                               WHERE owner_key=? AND account_id=? AND content_sha512=?
+                               ORDER BY present DESC,last_seen_at DESC LIMIT ?""",
+                            (owner_key, account_id, digest, MAX_MATCHES_PER_QUERY),
+                        ).fetchall()
                     for dbrow in rows:
                         row = dict(dbrow)
                         found.setdefault(int(row["id"]), {"row": row, "actor": actor, "kind": kind, "distance": 0, "confidence": 100})

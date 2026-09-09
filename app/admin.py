@@ -324,7 +324,18 @@ def logs():
     errors = get_db().execute("SELECT * FROM application_error ORDER BY occurred_at DESC LIMIT ? OFFSET ?", (limit + 1, (page - 1) * limit)).fetchall()
     event_filters = _audit_filters(); parameters = _audit_parameters(event_filters)
     events = get_db().execute(
-        "SELECT * FROM security_event" + AUDIT_WHERE + " ORDER BY occurred_at DESC LIMIT ? OFFSET ?",
+        """SELECT * FROM security_event
+           WHERE (?='' OR actor_name LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR detail LIKE ?)
+             AND (?='' OR actor_name LIKE ?)
+             AND (?='' OR action LIKE ?)
+             AND (?='' OR target_type = ?)
+             AND (?='' OR target_id LIKE ?)
+             AND (?='' OR outcome = ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR occurred_at >= ?)
+             AND (?='' OR occurred_at < datetime(?, '+1 day'))
+           ORDER BY occurred_at DESC LIMIT ? OFFSET ?""",
         (*parameters, limit + 1, (event_page - 1) * limit),
     ).fetchall()
     return render_template(
@@ -342,7 +353,18 @@ def export_logs():
         abort(400, description="format muss txt oder csv sein")
     filters = _audit_filters(); parameters = _audit_parameters(filters)
     rows = get_db().execute(
-        "SELECT * FROM security_event" + AUDIT_WHERE + " ORDER BY occurred_at DESC LIMIT 20000",
+        """SELECT * FROM security_event
+           WHERE (?='' OR actor_name LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ? OR detail LIKE ?)
+             AND (?='' OR actor_name LIKE ?)
+             AND (?='' OR action LIKE ?)
+             AND (?='' OR target_type = ?)
+             AND (?='' OR target_id LIKE ?)
+             AND (?='' OR outcome = ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR detail LIKE ?)
+             AND (?='' OR occurred_at >= ?)
+             AND (?='' OR occurred_at < datetime(?, '+1 day'))
+           ORDER BY occurred_at DESC LIMIT 20000""",
         parameters,
     ).fetchall()
     info = system_info(include_request=True); exported_at = utc_now()

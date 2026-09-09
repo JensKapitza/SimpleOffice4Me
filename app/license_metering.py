@@ -295,8 +295,14 @@ class LicenseStore:
 
     def invoices(self, *, open_only: bool = False) -> list[dict[str, Any]]:
         with self._db() as db:
-            sql = "SELECT * FROM license_invoice" + (" WHERE status='open'" if open_only else "") + " ORDER BY created_at DESC"
-            rows = db.execute(sql).fetchall()
+            if open_only:
+                rows = db.execute(
+                    "SELECT * FROM license_invoice WHERE status='open' ORDER BY created_at DESC"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM license_invoice ORDER BY created_at DESC"
+                ).fetchall()
         return [dict(row) for row in rows]
 
     def overview(self) -> dict[str, Any]:
