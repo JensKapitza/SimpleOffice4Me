@@ -49,7 +49,14 @@ class Provider:
                 return False
             return 1800 <= year <= 2200
         if challenge.answer_type == "tags":
-            return isinstance(answer, (str, list, tuple)) and bool(str(answer).strip())
+            if isinstance(answer, str):
+                return 0 < len(answer.strip()) <= 500
+            if isinstance(answer, (list, tuple)):
+                return 0 < len(answer) <= 50 and all(
+                    isinstance(value, str) and 0 < len(value.strip()) <= 100
+                    for value in answer
+                )
+            return False
         return isinstance(answer, str) and 0 < len(answer.strip()) <= 500
 
 
@@ -57,9 +64,6 @@ class ImageProvider(Provider):
     name = "images"
 
     def build_challenges(self, object_ref: str, data: Mapping[str, Any]) -> list[Challenge]:
-        # A boolean flag is all the browser-facing challenge needs. The actual
-        # thumbnail is resolved later from the actor-bound challenge id; URLs,
-        # document ids and filesystem paths never enter the payload.
         if data.get("preview") is not True:
             return []
         base = {"preview": True}
@@ -103,9 +107,6 @@ class ContactProvider(Provider):
             "email": f"Welche E-Mail-Adresse fehlt bei {display}?",
             "company": f"Welche Firma fehlt bei {display}?",
         }
-        # Initial rollout asks only for genuinely missing values. Verification
-        # of existing phone/address/email data is a separate mode because it
-        # discloses current values and needs field-level policy decisions.
         for field in fields:
             if field in existing:
                 continue
