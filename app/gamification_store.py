@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 VOTE_SOURCES = frozenset({"human", "ai", "system"})
+PARTICIPANT_ROLES = frozenset({"answer", "review", "owner"})
 
 
 def _now() -> str:
@@ -36,6 +37,12 @@ class GamificationStore:
                     id TEXT PRIMARY KEY, scope TEXT NOT NULL, title TEXT NOT NULL,
                     policy_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
                     created_by TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS game_participant (
+                    session_id TEXT NOT NULL REFERENCES game_session(id) ON DELETE CASCADE,
+                    participant TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'answer',
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(session_id, participant)
                 );
                 CREATE TABLE IF NOT EXISTS game_item (
                     id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES game_session(id) ON DELETE CASCADE,
@@ -70,8 +77,6 @@ class GamificationStore:
                     action TEXT NOT NULL, detail_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
                 );
             """)
-            # Existing installations may have the initial vote table without a
-            # source column. Additive migration keeps their human votes valid.
             columns = {str(row[1]) for row in db.execute("PRAGMA table_info(annotation_vote)").fetchall()}
             if "source" not in columns:
                 db.execute("ALTER TABLE annotation_vote ADD COLUMN source TEXT NOT NULL DEFAULT 'human'")
@@ -83,6 +88,26 @@ class GamificationStore:
                        (session_id, scope, title.strip(), json.dumps(policy, sort_keys=True), created_by, _now()))
             self._audit(db, session_id, created_by, "session.created", {"scope": scope})
         return session_id
+
+    def add_participant(self, session_id: str, participant: str, *, role: str = "answer", actor: str = "") -> None:
+        participant = str(participant).strip()
+        actor = str(actor or participant).strip()
+        if not participant or len(participant) > 200 or role not in PARTICIPANT_ROLES:
+            raise ValueError("invalid game participant")
+        with self._db() as db:
+            session = db.execute("SELECT created_by,status FROM game_session WHERE id=?", (session_id,)).fetchone()
+            if session is None or session["status"] != "active":
+                raise ValueError("game session is not active")
+            # Participant management is an administrative operation of the
+            # session owner. Callers cannot add themselves to arbitrary rounds.
+            if actor != str(session["created_by"]):
+                raise ValueError("only session owner may add participants")
+            db.execute(
+                "INSERT INTO game_participant(session_id,participant,role,created_at) VALUES(?,?,?,?) "
+                "ON CONFLICT(session_id,participant) DO UPDATE SET role=excluded.role",
+                (session_id, participant, role, _now()),
+            )
+            self._audit(db, session_id, actor, "participant.added", {"participant": participant, "role": role})
 
     def add_item(self, session_id: str, provider: str, object_ref: str, resource_class: str = "") -> str:
         item_id = str(uuid.uuid4())
@@ -121,7 +146,6 @@ class GamificationStore:
         return challenge_id
 
     def get_challenge_for_actor(self, challenge_id: str, actor: str) -> dict[str, Any] | None:
-        """Return an open challenge only when it belongs to an active local session of actor."""
         with self._db() as db:
             row = self._challenge_row(db, challenge_id, actor)
         if row is None:
@@ -136,12 +160,12 @@ class GamificationStore:
             "SELECT c.*, i.session_id, i.provider, i.object_ref, i.resource_class, s.scope, s.created_by "
             "FROM game_challenge c JOIN game_item i ON i.id=c.item_id "
             "JOIN game_session s ON s.id=i.session_id "
-            "WHERE c.id=? AND c.status='open' AND s.status='active' AND s.created_by=?",
-            (challenge_id, actor),
+            "WHERE c.id=? AND c.status='open' AND s.status='active' AND "
+            "(s.created_by=? OR EXISTS(SELECT 1 FROM game_participant gp WHERE gp.session_id=s.id AND gp.participant=? AND gp.role IN ('answer','owner')))",
+            (challenge_id, actor, actor),
         ).fetchone()
 
-    def get_proposal_for_actor(self, proposal_id: str, actor: str) -> dict[str, Any] | None:
-        """Resolve an opaque proposal only inside the actor's own active local session."""
+    def get_proposal_for_actor(self, proposal_id: str, actor: str, *, scope: str = "local") -> dict[str, Any] | None:
         with self._db() as db:
             row = db.execute(
                 "SELECT p.*, i.session_id, i.provider, i.object_ref, i.resource_class, "
@@ -149,8 +173,9 @@ class GamificationStore:
                 "FROM annotation_proposal p JOIN game_item i ON i.id=p.item_id "
                 "JOIN game_session s ON s.id=i.session_id "
                 "LEFT JOIN annotation_acceptance a ON a.proposal_id=p.id "
-                "WHERE p.id=? AND s.status='active' AND s.scope='local' AND s.created_by=?",
-                (proposal_id, actor),
+                "WHERE p.id=? AND s.status='active' AND s.scope=? AND "
+                "(s.created_by=? OR EXISTS(SELECT 1 FROM game_participant gp WHERE gp.session_id=s.id AND gp.participant=? AND gp.role IN ('review','owner','answer')))",
+                (proposal_id, scope, actor, actor),
             ).fetchone()
         if row is None:
             return None
@@ -176,7 +201,6 @@ class GamificationStore:
         return proposal_id
 
     def answer_challenge(self, challenge_id: str, actor: str, value: Any, *, source: str = "human") -> str:
-        """Atomically consume an actor-bound challenge and create its proposal."""
         if source not in VOTE_SOURCES:
             raise ValueError("invalid proposal source")
         with self._db() as db:
@@ -198,7 +222,6 @@ class GamificationStore:
         return proposal_id
 
     def skip_challenge(self, challenge_id: str, actor: str, *, disposition: str = "unknown") -> None:
-        """Consume a challenge without creating a proposal for unknown/skip answers."""
         if disposition not in {"unknown", "skip"}:
             raise ValueError("invalid challenge disposition")
         with self._db() as db:
@@ -212,8 +235,7 @@ class GamificationStore:
             ).rowcount
             if changed != 1:
                 raise ValueError("challenge was already completed")
-            self._audit(db, str(challenge["session_id"]), actor, f"challenge.{disposition}",
-                        {"challenge_id": challenge_id})
+            self._audit(db, str(challenge["session_id"]), actor, f"challenge.{disposition}", {"challenge_id": challenge_id})
 
     def propose(self, item_id: str, field_name: str, value: Any, actor: str, source: str = "human") -> str:
         if source not in VOTE_SOURCES:
@@ -226,7 +248,6 @@ class GamificationStore:
         return proposal_id
 
     def vote(self, proposal_id: str, voter: str, approve: bool, *, source: str = "human") -> None:
-        """Record one vote per identity while preserving its human/AI provenance."""
         if source not in VOTE_SOURCES:
             raise ValueError("invalid vote source")
         with self._db() as db:
@@ -244,7 +265,6 @@ class GamificationStore:
 
     def consensus(self, proposal_id: str, min_votes: int = 3, ratio: float = 0.75,
                   *, include_nonhuman: bool = False) -> dict[str, Any]:
-        """Calculate consensus from human votes unless explicitly requested otherwise."""
         with self._db() as db:
             if include_nonhuman:
                 row = db.execute(
@@ -262,7 +282,6 @@ class GamificationStore:
                 "reached": total >= min_votes and score >= ratio}
 
     def accept(self, proposal_id: str, actor: str, mode: str = "manual") -> None:
-        """Record acceptance only. Provider code must re-check write ACL before applying it."""
         with self._db() as db:
             db.execute("INSERT INTO annotation_acceptance(proposal_id,accepted_by,mode,accepted_at) VALUES(?,?,?,?) "
                        "ON CONFLICT(proposal_id) DO NOTHING", (proposal_id, actor, mode, _now()))
