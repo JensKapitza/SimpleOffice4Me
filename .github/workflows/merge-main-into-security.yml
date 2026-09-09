@@ -52,8 +52,16 @@ jobs:
           text = text.replace('tftp_bind == "0.0.0.0"', 'tftp_bind == UNSPECIFIED_IPV4')
           text = text.replace('bind == "0.0.0.0"', 'bind == UNSPECIFIED_IPV4')
           path.write_text(text, encoding='utf-8')
+
+          test_path = Path('tests/test_mail_autoconfig.py')
+          test_text = test_path.read_text(encoding='utf-8')
+          old = '''    def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):\n        payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'\n        with patch("app.mail_autoconfig._https_get", return_value=payload) as https_get:\n            records = _fetch_mx("example.org")\n        self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)\n        _, kwargs = https_get.call_args\n        self.assertEqual("dns.google", kwargs["fixed_host"])\n        self.assertFalse(kwargs["provider_owned"])\n'''
+          new = '''    def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):\n        import app.mail_autoconfig as mail_autoconfig\n\n        payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'\n        with patch.object(mail_autoconfig, "_https_get", return_value=payload) as https_get:\n            records = mail_autoconfig._fetch_mx("example.org")\n        self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)\n        _, kwargs = https_get.call_args\n        self.assertEqual("dns.google", kwargs["fixed_host"])\n        self.assertFalse(kwargs["provider_owned"])\n'''
+          if old not in test_text:
+              raise SystemExit('expected hardened MX regression test block not found')
+          test_path.write_text(test_text.replace(old, new, 1), encoding='utf-8')
           PY
-          git add app/mail_autoconfig.py simpleoffice_network_boot.py
+          git add app/mail_autoconfig.py simpleoffice_network_boot.py tests/test_mail_autoconfig.py
           git commit --amend --no-edit
       - name: Verify merged tree
         shell: bash
@@ -87,10 +95,7 @@ jobs:
           payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'
           with patch.object(module, '_https_get', return_value=payload) as mocked:
               records = module._fetch_mx('example.org')
-          print('MX records:', records, 'https_get calls:', mocked.call_count)
-          if records != [(10, 'mx1.provider.net'), (20, 'mx2.provider.net')]:
-              import inspect
-              print(inspect.getsource(module._fetch_mx))
+          if records != [(10, 'mx1.provider.net'), (20, 'mx2.provider.net')] or mocked.call_count != 1:
               raise SystemExit('merged MX resolver behavior is incorrect')
           PY
       - name: Run security regression tests
