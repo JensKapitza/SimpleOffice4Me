@@ -1842,8 +1842,8 @@ def _content_language(username: str, resource: Path, document: dict | None) -> s
     if not serialized:
         return ""
     try:
-        return (ElementTree.fromstring(serialized).text or "").strip()
-    except ElementTree.ParseError:
+        return (DefusedElementTree.fromstring(serialized).text or "").strip()
+    except (ElementTree.ParseError, DefusedXmlException):
         return ""
 
 
@@ -2569,8 +2569,8 @@ def _search_simple_value(properties: dict[str, str], tag: str):
     if serialized is None:
         return None
     try:
-        element = ElementTree.fromstring(serialized)
-    except ElementTree.ParseError:
+        element = DefusedElementTree.fromstring(serialized)
+    except (ElementTree.ParseError, DefusedXmlException):
         return None
     if list(element):
         return None
@@ -2885,7 +2885,7 @@ def _parse_proppatch(body: bytes) -> list[tuple[str, str, str]]:
         for element in prop_nodes[0]:
             if action == "remove" and (element.attrib or list(element) or (element.text or "").strip()):
                 raise ValueError("properties in a remove instruction must be empty")
-            clone = ElementTree.fromstring(ElementTree.tostring(element, encoding="utf-8"))
+            clone = DefusedElementTree.fromstring(ElementTree.tostring(element, encoding="utf-8"))
             clone.tail = None
             language = prop_nodes[0].get("{http://www.w3.org/XML/1998/namespace}lang")
             if language and "{http://www.w3.org/XML/1998/namespace}lang" not in clone.attrib:
@@ -2904,7 +2904,7 @@ def _parse_proppatch(body: bytes) -> list[tuple[str, str, str]]:
 def _live_property_value_valid(tag: str, serialized: str) -> bool:
     if tag not in MUTABLE_DAV_PROPERTIES | MICROSOFT_CLIENT_PROPERTIES | {MICROSOFT_SPECIAL_FOLDER}:
         return True
-    element = ElementTree.fromstring(serialized)
+    element = DefusedElementTree.fromstring(serialized)
     if list(element):
         return False
     if tag in MICROSOFT_CLIENT_PROPERTIES | {MICROSOFT_SPECIAL_FOLDER} and element.attrib:
