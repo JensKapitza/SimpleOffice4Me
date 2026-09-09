@@ -1,4 +1,7 @@
 import json
+import tempfile
+import unittest
+from pathlib import Path
 
 from app.contact_store import ContactStore
 from app.gamification_adapters import contact_candidates
@@ -11,7 +14,7 @@ def _write_contacts(root, contacts):
 
 
 def _contact(contact_id, name, owner="owner", *, fields=None, readers=None, tags=None):
-    payload = {
+    return {
         "contact_id": contact_id,
         "fields": {"display_name": name, **(fields or {})},
         "addresses": [],
@@ -23,45 +26,47 @@ def _contact(contact_id, name, owner="owner", *, fields=None, readers=None, tags
         "changes": [],
         "created_by": owner,
     }
-    return payload
 
 
-def test_contact_adapter_only_returns_actor_visible_contacts(tmp_path):
-    _write_contacts(tmp_path, [
-        _contact("owned", "Owned"),
-        _contact("shared", "Shared", owner="other", readers=["owner"]),
-        _contact("hidden", "Hidden", owner="other"),
-    ])
+class GamificationAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
 
-    candidates = contact_candidates(tmp_path, "owner")
-    refs = {candidate.object_ref for candidate in candidates}
+    def tearDown(self):
+        self.tmp.cleanup()
 
-    assert refs == {"contact:owned", "contact:shared"}
+    def test_contact_adapter_only_returns_actor_visible_contacts(self):
+        _write_contacts(self.root, [
+            _contact("owned", "Owned"),
+            _contact("shared", "Shared", owner="other", readers=["owner"]),
+            _contact("hidden", "Hidden", owner="other"),
+        ])
+        refs = {candidate.object_ref for candidate in contact_candidates(self.root, "owner")}
+        self.assertEqual(refs, {"contact:owned", "contact:shared"})
+
+    def test_contact_adapter_excludes_crm_and_financial_contacts(self):
+        _write_contacts(self.root, [
+            _contact("normal", "Normal", fields={"phone": "123"}),
+            _contact("customer", "Customer", fields={"customer_number": "K-1"}),
+            _contact("bank", "Bank", fields={"bank_iban": "DE00"}),
+            _contact("tagged", "Tagged", tags=["CRM"]),
+        ])
+        candidates = contact_candidates(self.root, "owner")
+        self.assertEqual([candidate.object_ref for candidate in candidates], ["contact:normal"])
+        self.assertEqual(candidates[0].data["display_name"], "Normal")
+        self.assertIn("phone", candidates[0].data["existing_fields"])
+        self.assertNotIn("123", str(candidates[0].data))
+
+    def test_contact_adapter_never_copies_notes_or_sharing_metadata(self):
+        _write_contacts(self.root, [
+            _contact("one", "One", fields={"note": "private text", "email": "a@example.invalid"}),
+        ])
+        candidate = contact_candidates(self.root, "owner")[0]
+        self.assertEqual(set(candidate.data), {"display_name", "existing_fields"})
+        self.assertNotIn("private text", str(candidate.data))
+        self.assertNotIn("a@example.invalid", str(candidate.data))
 
 
-def test_contact_adapter_excludes_crm_and_financial_contacts(tmp_path):
-    _write_contacts(tmp_path, [
-        _contact("normal", "Normal", fields={"phone": "123"}),
-        _contact("customer", "Customer", fields={"customer_number": "K-1"}),
-        _contact("bank", "Bank", fields={"bank_iban": "DE00"}),
-        _contact("tagged", "Tagged", tags=["CRM"]),
-    ])
-
-    candidates = contact_candidates(tmp_path, "owner")
-
-    assert [candidate.object_ref for candidate in candidates] == ["contact:normal"]
-    assert candidates[0].data["display_name"] == "Normal"
-    assert "phone" in candidates[0].data["existing_fields"]
-    assert "123" not in str(candidates[0].data)
-
-
-def test_contact_adapter_never_copies_notes_or_sharing_metadata(tmp_path):
-    _write_contacts(tmp_path, [
-        _contact("one", "One", fields={"note": "private text", "email": "a@example.invalid"}),
-    ])
-
-    candidate = contact_candidates(tmp_path, "owner")[0]
-
-    assert set(candidate.data) == {"display_name", "existing_fields"}
-    assert "private text" not in str(candidate.data)
-    assert "a@example.invalid" not in str(candidate.data)
+if __name__ == "__main__":
+    unittest.main()
