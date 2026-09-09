@@ -24,7 +24,7 @@ jobs:
       - name: Install security scanners
         run: python -m pip install --disable-pip-version-check pip-audit bandit
       - name: Audit Python dependencies
-        run: python -m pip_audit -r requirements.txt
+        run: python -m pip_audit .
       - name: Scan first-party Python code
         run: bandit -r app tools *.py -x tests,libs -ll -ii
       - name: Reject Python shell execution quick wins
