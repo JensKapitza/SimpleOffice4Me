@@ -7,7 +7,7 @@
       <h1 class="h3 mb-1">Daten-Roulette</h1>
       <p class="text-muted mb-0">Daten verbessern, ohne Zugriffsrechte zu erweitern.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('gamification.manage') }}">Runden &amp; Auswertung</a>
+    <div class="d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('gamification.manage') }}">Runden &amp; Auswertung</a><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('gamification_leaderboard.index') }}">Rangliste</a></div>
   </div>
 
   <div class="row g-2 mb-3">
