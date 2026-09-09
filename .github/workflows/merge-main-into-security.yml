@@ -14,42 +14,48 @@ jobs:
           ref: security/quick-wins-round4
           fetch-depth: 0
           persist-credentials: true
-      - name: Attempt merge and report conflicts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Merge current main
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'SimpleOffice Security Bot'
           git config user.email 'security-bot@users.noreply.github.com'
           git fetch origin main
+          git merge --no-ff -X theirs origin/main -m 'Merge current main into security quick wins'
+      - name: Verify merged tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q app tools *.py
+          python -m pip install --disable-pip-version-check pip-audit bandit
+          python -m pip_audit .
           set +e
-          git merge --no-ff origin/main -m 'Merge current main into security quick wins'
+          bandit -r app tools *.py -x tests,libs -ll -ii -f json -o /tmp/bandit.json
           rc=$?
           set -e
-          if [ "$rc" -ne 0 ]; then
-            echo 'MERGE_CONFLICTS_BEGIN'
-            git diff --name-only --diff-filter=U
-            echo 'MERGE_CONFLICTS_END'
-            python - <<'PY'
-          from pathlib import Path
-          import subprocess
-          paths = subprocess.check_output(['git','diff','--name-only','--diff-filter=U'], text=True).splitlines()
-          for name in paths:
-              print(f'===== CONFLICT {name} =====')
-              lines = Path(name).read_text(encoding='utf-8', errors='replace').splitlines()
-              marks = [i for i,l in enumerate(lines) if l.startswith('<<<<<<< ')]
-              for idx in marks:
-                  end = idx
-                  while end < len(lines) and not lines[end].startswith('>>>>>>> '):
-                      end += 1
-                  start = max(0, idx - 12)
-                  stop = min(len(lines), end + 13)
-                  for n in range(start, stop):
-                      print(f'{n+1:05d}: {lines[n]}')
-                  print('-----')
+          python - <<'PY'
+          import json
+          data=json.load(open('/tmp/bandit.json', encoding='utf-8'))
+          medium=[item for item in data.get('results',[]) if item.get('issue_severity') in {'MEDIUM','HIGH'}]
+          if medium:
+              for item in medium:
+                  print(item.get('test_id'), item.get('filename'), item.get('line_number'), item.get('issue_text'))
+              raise SystemExit(f'{len(medium)} medium/high Bandit finding(s) remain')
+          print('Bandit medium/high findings: 0')
           PY
-            git merge --abort
-            exit 1
-          fi
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then exit "$rc"; fi
+      - name: Run security regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_auth tests.test_mail_autoconfig tests.test_webdav_download_security tests.test_xml_security_regressions -v
+      - name: Finalize and push merge
+        shell: bash
+        run: |
+          set -euo pipefail
           git rm .github/workflows/merge-main-into-security.yml
           git commit --amend --no-edit
           git push origin HEAD:security/quick-wins-round4
