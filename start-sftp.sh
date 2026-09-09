@@ -108,12 +108,12 @@ for distribution_name, module_name in packages:
     print(f"  {distribution_name} {version(distribution_name)}: native Termux-Installation")
 PY
 
-  TERMUX_RUNTIME_REQUIREMENTS="Flask>=3.0,<4 beautifulsoup4>=4.12,<5 reportlab>=4.0,<6 pypdf>=5.0,<7 waitress>=3.0,<4 watchdog>=6,<7 tzdata>=2024.1"
+  TERMUX_RUNTIME_REQUIREMENTS="Flask>=3.0,<4 argon2-cffi>=23.1,<26 beautifulsoup4>=4.12,<5 defusedxml>=0.7,<1 reportlab>=4.0,<6 pypdf>=5.0,<7 waitress>=3.0,<4 watchdog>=6,<7 tzdata>=2024.1"
   echo "Termux: versuche zuerst fertige Wheels für die gemeinsame Laufzeit ..."
   # shellcheck disable=SC2086
   if ! "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: $TERMUX_RUNTIME_REQUIREMENTS; then
     echo "Nicht alle Laufzeitpakete besitzen ein kompatibles Android-Wheel; installiere Build-Werkzeuge für den kontrollierten Fallback."
-    pkg install -y clang make pkg-config libffi openssl
+    pkg install -y clang make pkg-config libffi openssl argon2
     # shellcheck disable=SC2086
     "$VENV_PYTHON" -m pip install --disable-pip-version-check --prefer-binary $TERMUX_RUNTIME_REQUIREMENTS
   fi
@@ -129,6 +129,7 @@ PY
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: --no-deps 'paramiko>=3.5,<6'
   "$VENV_PYTHON" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
   "$VENV_PYTHON" -m pip check
+  "$VENV_PYTHON" -c 'from argon2 import PasswordHasher; PasswordHasher(); print("argon2-cffi ist vorhanden und verwendbar.")'
 
   # pip check prüft Metadaten; dieser Smoke-Test prüft zusätzlich den echten Importpfad.
   "$VENV_PYTHON" - <<'PY'
