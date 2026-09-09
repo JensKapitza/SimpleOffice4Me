@@ -13,6 +13,7 @@ from .gamification_adapters import (
     apply_contact_proposal,
     contact_candidates,
     contact_proposal_can_apply,
+    document_candidates,
     image_candidates,
     image_preview_path,
 )
@@ -25,13 +26,13 @@ bp = Blueprint("gamification", __name__, url_prefix="/gamification")
 
 
 def _policy() -> GamePolicy:
-    # Local rollout: contact cleanup plus images that already have a safe cached
-    # thumbnail. Documents remain fail-closed until a positive classification
-    # allowlist is connected.
+    # Local rollout: contacts, protected photo thumbnails and explicitly released
+    # general files. Originals stay disabled and document contents are never sent
+    # to the game.
     return GamePolicy(
         scope="local",
-        providers=frozenset({"contacts", "images"}),
-        collections=frozenset({"contacts", "images"}),
+        providers=frozenset({"contacts", "images", "documents"}),
+        collections=frozenset({"contacts", "images", "files"}),
         preview_allowed=True,
         original_allowed=False,
         submit_proposals=True,
@@ -45,7 +46,11 @@ def _store() -> GamificationStore:
 
 def _local_candidates(actor: str):
     root = current_app.config["DOCUMENT_ROOT"]
-    return [*contact_candidates(root, actor), *image_candidates(root, actor)]
+    return [
+        *contact_candidates(root, actor),
+        *image_candidates(root, actor),
+        *document_candidates(root, actor),
+    ]
 
 
 def _policy_snapshot(policy: GamePolicy) -> dict[str, object]:
@@ -92,11 +97,12 @@ def index():
     challenge = None
     if generated is not None:
         store = _store()
-        # A round is intentionally one server-bound challenge. This avoids
-        # long-lived browser state and gives every displayed question a clear
-        # audit/session boundary.
         session_id = store.create_session("Lokale Daten-Roulette-Runde", "local", actor, _policy_snapshot(policy))
-        resource_class = {"contacts": "contact", "images": "photo"}.get(generated.provider)
+        resource_class = {
+            "contacts": "contact",
+            "images": "photo",
+            "documents": "released_file",
+        }.get(generated.provider)
         if resource_class is None:
             abort(404)
         item_id = store.add_item(session_id, generated.provider, generated.object_ref, resource_class)
