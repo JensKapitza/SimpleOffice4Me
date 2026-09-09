@@ -9,11 +9,26 @@ from .resource_provider import ProviderCapabilities, ProviderError, ResourceEntr
 
 SMART_COLLECTIONS = {
     "documents": "Dokumente",
+    "customers": "Kunden",
+    "projects": "Projekte",
+    "invoices": "Rechnungen",
+    "receipts": "Belege",
+    "mail": "E-Mail",
+    "tasks": "Aufgaben",
     "inbox": "Eingang",
     "unassigned": "Ohne Zuordnung",
     "duplicates": "Duplikate",
     "archive": "Archiv",
     "recent": "Zuletzt geändert",
+}
+
+_COLLECTION_TERMS = {
+    "customers": ("kunde", "customer", "contact"),
+    "projects": ("projekt", "project"),
+    "invoices": ("rechnung", "invoice"),
+    "receipts": ("beleg", "receipt", "expense"),
+    "mail": ("email/", ".eml", "mail"),
+    "tasks": ("aufgabe", "task", "todo"),
 }
 
 
@@ -54,9 +69,31 @@ class SmartViewProvider:
                 rows = db.execute("""SELECT s.relative_path,s.document_id,s.size,s.last_seen_at FROM scan_file s
                     JOIN document_listing d ON d.document_id=s.document_id
                     WHERE d.has_notes=0 AND d.has_relationships=0 ORDER BY s.last_seen_at DESC LIMIT 500""").fetchall()
+            elif key in _COLLECTION_TERMS:
+                rows = self._business_rows(db, _COLLECTION_TERMS[key])
             else:
                 rows = db.execute("SELECT relative_path,document_id,size,last_seen_at FROM scan_file ORDER BY relative_path LIMIT 500").fetchall()
         return [self._entry(row) for row in rows]
+
+    def _business_rows(self, db, terms: tuple[str, ...]):
+        clauses = []
+        params = []
+        for term in terms:
+            like = f"%{term.casefold()}%"
+            clauses.append("(lower(s.relative_path) LIKE ? OR lower(COALESCE(x.tags,'')) LIKE ? OR lower(COALESCE(x.attributes,'')) LIKE ?)")
+            params.extend([like, like, like])
+        sql = """SELECT DISTINCT s.relative_path,s.document_id,s.size,s.last_seen_at
+            FROM scan_file s LEFT JOIN document_search x ON x.document_id=s.document_id
+            WHERE """ + " OR ".join(clauses) + " ORDER BY s.last_seen_at DESC LIMIT 500"
+        try:
+            return db.execute(sql, params).fetchall()
+        except Exception:
+            # Some stripped SQLite builds use the compatibility search table.
+            fallback = " OR ".join("lower(relative_path) LIKE ?" for _ in terms)
+            return db.execute(
+                "SELECT relative_path,document_id,size,last_seen_at FROM scan_file WHERE " + fallback + " ORDER BY last_seen_at DESC LIMIT 500",
+                [f"%{term.casefold()}%" for term in terms],
+            ).fetchall()
 
     def _entry(self, row) -> ResourceEntry:
         path = str(row["relative_path"])
