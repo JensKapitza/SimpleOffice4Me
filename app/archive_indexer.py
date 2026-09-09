@@ -108,21 +108,7 @@ def _disk_budget(path: Path) -> tuple[int, int]:
 
 
 def _scratch_parent(store: Any, member_size: int = 0) -> Path:
-    """Prefer tmpfs only for small members; otherwise use private persistent scratch."""
-    ram_limit = _env_int("SIMPLEOFFICE_ARCHIVE_RAM_MEMBER_MB", 32, 0, 512) * 1024 * 1024
-    shm = Path("/dev/shm")
-    if ram_limit and member_size <= ram_limit and shm.is_dir() and os.access(shm, os.W_OK):
-        try:
-            if shutil.disk_usage(shm).free >= max(member_size * 2, 64 * 1024 * 1024):
-                parent = shm / "simpleoffice-archive-index"
-                parent.mkdir(mode=0o700, exist_ok=True)
-                try:
-                    parent.chmod(0o700)
-                except OSError:
-                    pass
-                return parent
-        except OSError:
-            pass
+    """Use only the private application-controlled scratch directory."""
     parent = Path(store.control) / "archive-index-scratch"
     parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     try:
@@ -136,7 +122,7 @@ def cleanup_stale_scratch(store: Any, max_age_seconds: int = 24 * 3600) -> int:
     """Remove private leftovers from an interrupted or power-lost indexing run."""
     removed = 0
     cutoff = time.time() - max_age_seconds
-    roots = [Path(store.control) / "archive-index-scratch", Path("/dev/shm/simpleoffice-archive-index")]
+    roots = [Path(store.control) / "archive-index-scratch"]
     for root in roots:
         if not root.is_dir() or root.is_symlink():
             continue
@@ -393,7 +379,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "scratch_budget_bytes": disk_budget,
             "scratch_fraction_of_free": 0.10,
             "single_member_materialization": True,
-            "ramdisk_small_members_only": True,
+            "ramdisk_small_members_only": False,
         },
     }
     current_tags = list(metadata.get("tags", []))
