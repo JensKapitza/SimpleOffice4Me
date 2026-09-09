@@ -2,152 +2,179 @@
 
 ## Ziel
 
-Die Gamification ist eine generische Engine zur spielerischen Verbesserung der Datenqualitaet. Sie darf fuer Bilder, allgemeine Dateien/Dokumente und freigegebene Kontaktdaten verwendet werden und spaeter durch weitere Provider erweitert werden.
+Die Gamification ist eine generische Engine zur spielerischen Verbesserung der Datenqualitaet fuer Bilder, explizit freigegebene Dateien/Dokumente und freigegebene Kontaktdaten.
 
 Die Engine ist kein alternativer Synchronisationskanal und darf Zugriffsrechte der Anwendung oder der Federation niemals erweitern.
 
 Grundablauf:
 
-`Objekt -> Challenge -> Antwort -> Vorschlag -> Abstimmung -> Konsens -> Freigabe -> optionale Uebernahme`
+`Objekt -> Challenge -> Antwort -> Vorschlag -> Abstimmung -> Konsens -> Freigabe -> optionale Uebernahme -> optionale Belohnung`
 
 ## Sicherheitsinvarianten
 
 Diese Regeln sind verbindlich und haben Vorrang vor Spielregeln, Punkten und Federation-Funktionen.
 
 1. **Default deny.** Kein Datensatz nimmt automatisch am Spiel teil.
-2. **Kein Rechtegewinn durch Gamification.** Ein Teilnehmer darf im Spiel nur Daten sehen, die er ohne das Spiel bereits lesen darf und die zusaetzlich fuer die konkrete Spielrunde freigegeben wurden.
-3. **Explizite Ausschlussklassen.** Rechnungsstellung, Buchhaltung/Belege, Zahlungsdaten, CRM-interne Daten, Zugangsdaten, Security-Daten, private Notizen und sonstige als sensibel markierte Daten sind standardmaessig nicht spielbar und nicht ueber Gamification transferierbar.
-4. **Kein Federation-Bypass.** Eine Challenge, Vorschau, Antwort, Abstimmung oder Konsensmeldung darf keine Federation-Send-/Receive-/Collection-Policy umgehen.
-5. **Minimale Offenlegung.** Es wird nur der fuer die Challenge benoetigte Ausschnitt ausgeliefert. Bei Bildern soll eine begrenzte Vorschau statt des Originals moeglich sein. Bei Kontakten werden nur explizit spielbare Felder gezeigt.
-6. **Originaldaten bleiben autoritativ.** Antworten und Mehrheitsentscheidungen sind zunaechst Vorschlaege. Verifizierte oder anderweitig autoritative Metadaten werden nicht durch Abstimmungen ueberschrieben.
-7. **Auditierbarkeit.** Erzeugung, Freigabe, Antwort, Abstimmung, Konsens und Uebernahme muessen mit Akteur, Zeitpunkt und Objektbezug nachvollziehbar sein.
-8. **Widerruf.** Spiel- und Federation-Freigaben muessen widerrufbar sein. Ein Widerruf verhindert neue Auslieferungen und neue Bearbeitungen.
-9. **Keine Punkte fuer Raten.** `weiss_nicht`/Ueberspringen ist eine gueltige Antwort. Punkte duerfen Nutzer nicht dazu motivieren, unbekannte Daten zu erfinden.
-10. **Unabhaengige Stimmen.** Pro Nutzer/Identitaet zaehlt fuer denselben Vorschlag hoechstens eine Stimme. Automatische/AI-Aussagen werden getrennt von menschlichen Stimmen behandelt.
+2. **Kein Rechtegewinn durch Gamification.** Ein Teilnehmer darf nur Daten sehen, die er ohne das Spiel bereits lesen darf und die zusaetzlich fuer die konkrete Spielrunde freigegeben wurden.
+3. **Explizite Ausschlussklassen.** Rechnungsstellung, Buchhaltung/Belege, Zahlungsdaten, CRM-interne Daten, Zugangsdaten, Security-Daten, private Notizen und sonstige sensible Daten sind nicht spielbar und nicht ueber Gamification transferierbar.
+4. **Kein Federation-Bypass.** Challenge, Vorschau, Antwort, Abstimmung oder Konsensmeldung duerfen keine Federation-Policy umgehen.
+5. **Minimale Offenlegung.** Es wird nur der fuer die Challenge benoetigte Ausschnitt ausgeliefert. Bilder verwenden Cache-Thumbnails statt Originale. Kontakte legen keine vorhandenen Telefonnummern, E-Mails oder Notizen offen, wenn nur ein fehlendes Feld gesucht wird.
+6. **Originaldaten bleiben autoritativ.** Antworten und Mehrheitsentscheidungen sind Vorschlaege. Verifizierte oder anderweitig autoritative Metadaten werden nicht stillschweigend ersetzt.
+7. **Auditierbarkeit.** Erzeugung, Freigabe, Antwort, Abstimmung, Uebernahme und Belohnung sind nachvollziehbar.
+8. **Widerruf wirkt weiter.** Feature-Sperren, Objektklassifikation und Organisationsmitgliedschaft werden beim Spielen erneut geprueft. Federation revalidiert den lokalen Ursprung bei Abruf, Preview und Antwort.
+9. **Keine Punkte fuer Raten.** `weiss_nicht`/Ueberspringen ist gueltig und erzeugt keine Punkte.
+10. **Unabhaengige Stimmen.** Pro Identitaet zaehlt fuer denselben Vorschlag hoechstens eine Stimme. AI-/System-Stimmen sind getrennt und zaehlen nicht zum normalen menschlichen Konsens.
+11. **Acceptance ist kein Schreibrecht.** Vor realen Aenderungen gelten weiterhin die normalen Schreib-ACLs des Providers.
 
 ## Provider
 
 ### Bilder
 
-Moegliche Challenges:
+Aktive Challenges:
 
 - Jahr/Zeitraum
 - Ort/Region
 - Objekt-/Inhaltstags
-- Ereignis/Album
-- Personen nur bei ausdruecklicher Freigabe
-- vorhandene Tags bestaetigen oder ablehnen
 
-Federierte Spiele sollen nach Moeglichkeit eine Vorschau und eine opaque Objekt-ID verwenden. Das Originalbild muss nicht uebertragen werden.
+Reale Bild-Challenges werden derzeit nur aus expliziten `mobile-web-bulk`-Foto-Uploads erzeugt. Voraussetzung ist ein bereits erzeugtes sicheres `.webcache`-Thumbnail. Originalbild, lokaler Dateipfad, Dokument-ID und EXIF-Daten gelangen nicht in den Browser-Payload.
+
+Sensible Marker wie `privat`, `vertraulich`, Rechnungs-/CRM-/Buchhaltungsbezug schliessen das Bild aus.
 
 ### Allgemeine Dateien/Dokumente
 
-Moegliche Challenges:
+Aktive Challenges:
 
 - Dokumenttyp
-- Datum
+- Jahr
 - allgemeine Tags
-- Projekt/Kategorie, soweit der Teilnehmer diese bereits lesen darf
-- Duplikat-Vorschlag
-- Archivierungsvorschlag
 
-Ausgeschlossen bleiben insbesondere Rechnungsstellung, Buchhaltung/Belege, Zahlungsinformationen und CRM-interne Dokumente, sofern sie nicht spaeter durch eine explizite, strengere Unternehmenspolicy als eigener Modus implementiert werden. Der normale Spielmodus darf diese Klassen nicht freischalten.
+Dateien sind positive Opt-in-Ressourcen. Erlaubte Freigabe-Tags sind derzeit `gamification`, `gamification-freigegeben`, `daten-roulette` und `spiel-freigabe`. Selbst mit Opt-in bleiben sensible Klassen hart gesperrt.
+
+Die Challenge zeigt nur den Basis-Dateinamen. Pfad, Inhalt, OCR-Text, Notizen, Attribute und vorhandene Tags werden nicht mitgegeben. Bilddateien laufen ausschliesslich durch den strengeren Bildprovider.
 
 ### Kontakte
 
-Ziel ist die Verbesserung gemeinsamer Kontaktdaten, z. B.:
+Aktive Felder:
 
 - Strasse und Hausnummer
 - PLZ und Ort
-- Telefonnummern
-- E-Mail-Adressen
-- Firma/Organisation
-- Duplikat-/Identitaetsvorschlaege
-- Aktualitaetsbestaetigung
+- Land
+- Telefonnummer/Mobilnummer
+- E-Mail-Adresse
+- Firma
 
-Feldwerte werden als Vorschlaege gespeichert. Eine Telefonnummer darf z. B. nicht entfernt werden, nur weil ein anderer Teilnehmer eine zweite Nummer nennt.
+Der erste Live-Modus fragt nur nach fehlenden Werten. Kontakte mit CRM-, Rechnungs-, Buchhaltungs-, Bank- oder Zahlungsmerkmalen sind ausgeschlossen.
+
+Eine manuelle Uebernahme ist nur fuer den Rundenbesitzer moeglich und verwendet `ContactStore.patch_fields`. Owner-/Manager-Schreibrecht und der aktuelle Datenstand werden unmittelbar vor dem Schreiben erneut geprueft. Bereits spaeter befuellte Felder werden nicht ueberschrieben.
 
 ## Spielmodi
 
 ### Lokal
 
-Nur Daten der eigenen Instanz. Die normale Leseberechtigung und die zusaetzliche Gamification-Policy gelten gleichzeitig.
+Nur Daten der eigenen Instanz. Normale Feature-/Objektberechtigung und die Gamification-Policy gelten gleichzeitig.
 
 ### Familie/Freunde ueber Federation
 
-Nur explizit fuer den Peer/die Gruppe und die Spielrunde freigegebene Objekte/Felder. Freigabe fuer das Spiel bedeutet insbesondere **nicht** Freigabe des Originals oder der restlichen Sammlung.
+Eine Federation-Runde fuegt einen bekannten Peer explizit als Session-Teilnehmer hinzu. Der Peer muss in seiner Policy den Gamification-Empfang sowie den jeweiligen Provider erlauben.
+
+HTTP-Aufrufe verwenden eine peer-spezifische HMAC-Signatur (`SOFP-GAME-V1`) ueber Peer-ID, Zeitstempel, Nonce, HTTP-Methode, Pfad, Body-SHA-256 und Aktion. Nonces werden gegen Replay gespeichert. Mehrfach verwendete Peer-Tokens werden als mehrdeutige Identitaet abgelehnt.
+
+Federation-Endpunkte:
+
+- `GET /federation/v1/gamification/sessions/<session_id>/next`
+- `GET /federation/v1/gamification/challenges/<challenge_id>/preview`
+- `POST /federation/v1/gamification/challenges/<challenge_id>/answer`
+
+Die Gegenrichtung besitzt einen No-Redirect-Client mit signierten Requests, begrenzten Antwortgroessen und lokal konstruierten Preview-Pfaden. Vom Peer gelieferte URLs werden nicht verfolgt.
 
 ### Firmenintern
 
-Ein Unternehmensspiel ist erlaubt, wenn alle folgenden Bedingungen erfuellt sind:
+Organisationen referenzieren reale lokale `user.id`-Konten. Rollen sind `member`, `manager`, `owner`. Nur Administratoren koennen Organisationen anlegen; Manager koennen keine Owner ernennen oder bestehende Owner herabstufen.
 
-- Teilnehmer gehoeren zum freigegebenen Unternehmenskontext bzw. zur zugelassenen Gruppe,
-- der einzelne Teilnehmer besitzt bereits Leserecht auf dem betroffenen Datensatz/Feld,
-- die Ressource ist explizit fuer die Spielrunde freigegeben,
-- sensible Ausschlussklassen bleiben gesperrt,
-- Schreib-/Uebernahmerechte werden separat geprueft.
+Eine Firmenrunde erfordert:
 
-Mitarbeiter duerfen dadurch z. B. gemeinsam freigegebene Firmenkontakte vervollstaendigen. Die Mitgliedschaft in derselben Firma allein reicht nicht als Leseberechtigung.
+- gemeinsame explizite Organisationsmitgliedschaft,
+- explizite Session-Teilnahme,
+- normales Feature-/Objekt-Leserecht jedes eingeladenen Teilnehmers,
+- zusaetzliche Gamification-Freigabe des Objekts,
+- weiterhin wirksame sensible Ausschlussklassen.
+
+Beim Erzeugen der Firmenrunde wird die Schnittmenge der fuer **alle** eingeladenen Teilnehmer normal sichtbaren Kandidaten gebildet. Spaetere Rechte- oder Mitgliedschaftsaenderungen werden beim Zugriff erneut geprueft.
 
 ## Policy-Modell
 
-Eine Spielrunde benoetigt mindestens:
+Eine Spielrunde enthaelt mindestens:
 
-- `scope`: local, federation oder organization
+- `scope`: `local`, `federation` oder `organization`
 - erlaubte Provider/Ressourcentypen
 - erlaubte Sammlungen/Objekte
 - erlaubte Felder/Challenge-Typen
-- Teilnehmer/Gruppe/Peers
+- Teilnehmer/Peers/Organisation
 - `preview_allowed`
-- `original_allowed` (standardmaessig false fuer Federation-Spiele)
+- `original_allowed` (fuer Federation standardmaessig `false`)
 - `submit_proposals`
 - `view_other_proposals`
 - `auto_accept_consensus`
 - Konsensschwelle
-- Ablaufzeit/Widerruf
 
-Effektive Berechtigung ist immer die Schnittmenge aus:
+Effektive Berechtigung:
 
-`normaler Lesezugriff AND lokale Gamification-Policy AND ggf. Federation-Peer-Policy AND Spielrunden-Policy`
+`normaler Zugriff AND lokale Gamification-Policy AND ggf. Peer-/Organisationspolicy AND Session-Teilnahme`
 
 Fehlt eine Freigabe, lautet das Ergebnis `deny`.
 
-## Konsens
+## Vorschlaege, Stimmen und Konsens
 
 Konsens ist ein Qualitaetssignal und kein Wahrheitsbeweis.
 
-Empfohlener Startwert fuer nicht-sensible Tags:
+Standard:
 
-- mindestens 3 unabhaengige menschliche Stimmen,
+- mindestens 3 unabhaengige **menschliche** Stimmen,
 - mindestens 75 % Zustimmung.
 
-Fuer Kontaktdaten soll Konsens standardmaessig nur einen hervorgehobenen Vorschlag erzeugen. Automatische Uebernahme muss pro Feldklasse explizit aktiviert werden.
+`annotation_vote.source` unterscheidet `human`, `ai` und `system`. Bestehende Datenbanken werden additiv migriert; alte Stimmen gelten als `human`. Der normale Konsens wertet ausschliesslich menschliche Stimmen aus.
 
-Werte mit autoritativer Quelle, z. B. verifiziertes EXIF-Aufnahmedatum oder manuell verifizierte Stammdaten, duerfen durch Spielkonsens nicht stillschweigend ersetzt werden.
+Nur der Rundenbesitzer darf einen erreichten Konsens endgueltig bestaetigen. Bei Kontakten folgt danach erneut die normale Schreibrechtepruefung. Bei Bild-/Datei-Metadaten wird derzeit nur die bestaetigte Annotation gespeichert; die Originaldatei wird nicht automatisch veraendert.
 
 ## Datenmodell
 
-Die Engine soll generisch aufgebaut werden:
+Implementiert sind:
 
-- `game_session`: Runde, Scope, Policy, Status
-- `game_item`: opaque Referenz auf Provider + Objekt
-- `game_challenge`: Frage/Aufgabentyp und erlaubte Antwortform
-- `annotation_proposal`: vorgeschlagener Wert mit Quelle
-- `annotation_vote`: unabhaengige Stimme
-- `annotation_consensus`: berechnetes Ergebnis
-- `annotation_acceptance`: explizite oder policybasierte Uebernahme
-- `game_reward`: Punkte/Achievements getrennt von der fachlichen Bewertung
-- `game_audit`: sicherheitsrelevante Ereignisse
+- `game_session`
+- `game_participant`
+- `game_item`
+- `game_challenge`
+- `annotation_proposal`
+- `annotation_vote`
+- `annotation_acceptance`
+- `game_reward`
+- `game_audit`
+- `game_organization`
+- `game_organization_member`
 
-Provider muessen mindestens `can_expose`, `build_challenge`, `validate_answer`, `propose_change` und `apply_accepted_change` kapseln. `apply_accepted_change` prueft die normalen Schreibrechte erneut; eine vorherige Spielberechtigung ist kein Schreibrecht.
+## Belohnungen
 
-## Federation
+Belohnungen sind vollstaendig von Wahrheit, Konsens und Autorisierung getrennt.
 
-Gamification wird als eigener Capability-/Ressourcentyp behandelt und nicht als Alias fuer `documents` oder `contacts`.
+- XP nur fuer **akzeptierte menschliche** Vorschlaege,
+- derzeit 10 XP pro akzeptierter Verbesserung,
+- keine XP fuer Antworten allein,
+- keine XP fuer `weiss_nicht`/Skip,
+- keine XP fuer AI-/System-Proposals,
+- eine Belohnung pro Proposal maximal einmal.
 
-Eine Federation-Nachricht soll nur opaque Objektbezug, Challenge-Daten und die explizit erlaubte Vorschau/Feldmenge enthalten. Antworten/Votes koennen zum Ursprung zurueckgesendet werden. Der Ursprung bleibt fuer die Uebernahme autoritativ.
+Profilwerte:
 
-Empfohlene Capability:
+- XP
+- Anzahl bestaetigter Verbesserungen
+- Tagesserie
+- Achievements fuer erste, 10 und 50 Verbesserungen sowie 3-/7-Tage-Serien
+
+Die Rangliste ist privacy-scoped: sichtbar sind nur lokale Personen, mit denen der aktuelle Nutzer eine aktive Gamification-Runde teilt. `peer:*`-Identitaeten werden nicht als Personen angezeigt. Ohne explizite Sichtbarkeitsmenge liefert die Reward-Schicht keine globale Rangliste.
+
+## Federation-Capability
+
+Beispiel:
 
 ```json
 {
@@ -161,26 +188,27 @@ Empfohlene Capability:
 }
 ```
 
-Gamification-Capabilities ersetzen niemals die vorhandenen SOFP-Ressourcenrechte.
+Gamification-Capabilities ersetzen niemals bestehende SOFP-Ressourcenrechte. `original_media` wird vom aktuellen Gamification-Transport nicht zur Auslieferung von Originalen verwendet.
 
 ## Nicht-Ziele
 
 - kein Exportmechanismus fuer CRM oder Rechnungen
 - kein Ersatz fuer ACL/RBAC
-- kein automatisches Zusammenfuehren von Kontakten ohne normale Merge-Pruefung
-- kein automatisches Loeschen aufgrund von Spielantworten
+- kein automatisches Zusammenfuehren oder Loeschen von Kontakten
+- keine automatische Aenderung von Originaldateien aufgrund von Spielantworten
 - kein offenes Internet-Spiel mit privaten Daten
-- keine Weitergabe kompletter Sammlungen nur zur Erzeugung von Challenges
+- keine Weitergabe kompletter Sammlungen zur Challenge-Erzeugung
+- keine Punkte als Wahrheits- oder Berechtigungssignal
 
-## Implementierungsreihenfolge
+## Implementierungsstand
 
-1. Policy-/Exclusion-Layer und Auditlog
-2. generisches Datenmodell und Provider-API
-3. lokales Roulette fuer Bilder, Dokumente und Kontakte
-4. Vorschlaege/Voting/Konsens
-5. kontrollierte Uebernahme mit erneuter Schreibrechtepruefung
-6. Federation-Capability und minimierte Challenge-Payloads
-7. Organisations-/Firmenmodus mit Gruppen- und ACL-Pruefung
-8. XP, Serien, Achievements und Ranglisten
+1. Policy-/Exclusion-Layer und Auditlog: **implementiert**
+2. generisches Datenmodell und Provider-API: **implementiert**
+3. lokales Roulette fuer Bilder, Dateien und Kontakte: **implementiert**
+4. Vorschlaege/Voting/menschlicher Konsens: **implementiert**
+5. kontrollierte Kontakt-Uebernahme mit erneuter Schreibrechtepruefung: **implementiert**
+6. signierte Federation-Capability, minimierte Payloads und sicherer Client: **implementiert**
+7. Organisations-/Firmenmodus mit realen Nutzern und Schnittmenge der Zugriffsrechte: **implementiert**
+8. XP, Serien, Achievements und privacy-scoped Rangliste: **implementiert**
 
-Sicherheit und Datenqualitaet werden vor Belohnungsmechanismen implementiert.
+Sicherheit und Datenqualitaet bleiben fachlich vor Belohnungsmechanismen.
