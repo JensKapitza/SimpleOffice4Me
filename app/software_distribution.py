@@ -401,3 +401,123 @@ class SoftwareDistributionStore:
             with exclusive_file_lock(self.lock_path):
                 if not self.state_path.exists():
                     atomic_json_write(self.state_path, {"schema": STATE_SCHEMA, "releases": [], "offers": [], "staged": []})
+
+    def _read(self) -> dict[str, Any]:
+        try:
+            value = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                return value
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {"schema": STATE_SCHEMA, "releases": [], "offers": [], "staged": []}
+
+    def _save(self, state: dict[str, Any]) -> None:
+        with exclusive_file_lock(self.lock_path):
+            atomic_json_write(self.state_path, state)
+
+    def build(self, *, include_wheels: bool = False) -> dict[str, Any]:
+        tmp = self.releases / f"simpleoffice-release-{int(time.time())}.zip.tmp"
+        result = build_release_archive(tmp, include_wheels=include_wheels)
+        digest = result["archive_sha256"]
+        final = self.releases / f"{digest}.zip"
+        tmp.replace(final)
+        state = self._read()
+        entry = {key: result[key] for key in ("archive_sha256", "archive_size", "release", "repository", "wheelhouse")}
+        state["releases"] = [entry] + [item for item in state.get("releases", []) if item.get("archive_sha256") != digest]
+        state["releases"] = state["releases"][:20]
+        self._save(state)
+        return entry
+
+    def latest(self) -> dict[str, Any] | None:
+        releases = self._read().get("releases", [])
+        return releases[0] if releases else None
+
+    def release_path(self, digest: str) -> Path:
+        digest = normalize_sha256(digest)
+        path = (self.releases / f"{digest}.zip").resolve()
+        if self.releases.resolve() not in path.parents or not path.is_file() or _sha256(path) != digest:
+            raise ValueError("Release nicht verfügbar")
+        return path
+
+    def offers(self) -> list[dict[str, Any]]:
+        return list(self._read().get("offers", []))
+
+    def record_offer(self, peer_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        release = payload.get("release") or {}
+        bundle = payload.get("bundle") or {}
+        digest = normalize_sha256(bundle.get("sha256", ""))
+        entry = {
+            "peer_id": peer_id,
+            "release": release,
+            "bundle": {"sha256": digest, "size": int(bundle.get("size") or 0)},
+            "offered_at": int(time.time()),
+            "status": "available" if is_newer_release(release, local_release_info()) else "not-newer",
+        }
+        state = self._read()
+        state["offers"] = [entry] + [item for item in state.get("offers", []) if not (item.get("peer_id") == peer_id and item.get("bundle", {}).get("sha256") == digest)]
+        state["offers"] = state["offers"][:100]
+        self._save(state)
+        return entry
+
+    def staged(self) -> list[dict[str, Any]]:
+        return list(self._read().get("staged", []))
+
+    def stage_from_peer(self, peer_id: str) -> dict[str, Any]:
+        federation = FederationStore(self.document_root)
+        peer = federation.get_peer(peer_id)
+        if not peer or not peer.get("enabled"):
+            raise ValueError("Federation-Peer ist nicht aktiv")
+        policy = peer.get("policy") or {}
+        software_policy = policy.get("software", {}) if isinstance(policy, dict) else {}
+        if software_policy.get("receive") is not True:
+            raise ValueError("Peer-Policy muss software.receive=true explizit erlauben")
+        token = federation.peer_token(peer_id)
+        remote = _json_request(peer["base_url"] + "/federation/v1/software/releases/current", token=token, timeout=60)
+        release = remote.get("release") or {}
+        if not is_newer_release(release, local_release_info()):
+            raise ValueError("Peer bietet keine neuere Version an")
+        remote_manifest = remote.get("manifest") or {}
+        if not manifest_valid(remote_manifest):
+            raise ValueError("Peer lieferte kein gültiges Software-Manifest")
+        digest = normalize_sha256(remote.get("bundle", {}).get("sha256", ""))
+        if normalize_sha256(remote_manifest.get("blob_hash", "")) != digest:
+            raise ValueError("Software-Manifest passt nicht zum Bundle")
+        size = int(remote_manifest.get("size", 0))
+        if size <= 0 or size > MAX_RELEASE_BYTES:
+            raise ValueError("Ungültige Release-Größe")
+        partial = self.incoming / f"{digest}.part"
+        preallocate(partial, size)
+        chunks = remote_manifest.get("chunks") or []
+        for chunk in chunks:
+            index = int(chunk["index"])
+            offset = int(chunk["offset"])
+            length = int(chunk["length"])
+            with partial.open("rb") as handle:
+                handle.seek(offset)
+                existing = handle.read(length)
+            if len(existing) == length and verify_chunk(existing, chunk["hash"]):
+                continue
+            url = f"{peer['base_url']}/federation/v1/software/releases/{digest}/chunks/{index}"
+            with _request(url, token=token, timeout=120) as response:
+                data = response.read()
+            if len(data) != length or not verify_chunk(data, chunk["hash"]):
+                raise ValueError(f"Release-Chunk {index} ist beschädigt")
+            write_chunk(partial, offset, data)
+        if not verify_file(partial, digest):
+            raise ValueError("Release-Gesamthash stimmt nicht")
+        final = self.incoming / f"{digest}.zip"
+        partial.replace(final)
+        verified = inspect_release_archive(final)
+        entry = {"peer_id": peer_id, "sha256": digest, "path": str(final), "release": verified["release"], "staged_at": int(time.time())}
+        state = self._read()
+        state["staged"] = [entry] + [item for item in state.get("staged", []) if item.get("sha256") != digest]
+        state["staged"] = state["staged"][:20]
+        self._save(state)
+        return entry
+
+    def staged_path(self, digest: str) -> Path:
+        digest = normalize_sha256(digest)
+        path = (self.incoming / f"{digest}.zip").resolve()
+        if self.incoming.resolve() not in path.parents or not path.is_file() or _sha256(path) != digest:
+            raise ValueError("Gestagtes Release nicht verfügbar")
+        return path
