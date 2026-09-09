@@ -35,15 +35,16 @@ def close_db(e=None):
 
 def _migrate_sensitive_database_values() -> None:
     """Replace legacy plaintext authentication material in SQLite in place."""
-    from werkzeug.security import generate_password_hash
-
+    from .password_security import hash_password
     from .security_controls import protect_value
 
     db = get_db()
     for row in db.execute("SELECT id, password FROM user").fetchall():
         password = str(row["password"] or "")
-        if password and not password.startswith(("scrypt:", "pbkdf2:")):
-            db.execute("UPDATE user SET password=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (generate_password_hash(password), row["id"]))
+        # Existing password hashes cannot be converted to Argon2id without the
+        # plaintext password. They are upgraded after a successful login.
+        if password and not password.startswith(("$argon2id$", "scrypt:", "pbkdf2:")):
+            db.execute("UPDATE user SET password=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (hash_password(password), row["id"]))
     for row in db.execute("SELECT provider,user_id,access_token,refresh_token FROM oauth_token").fetchall():
         access_token = str(row["access_token"] or "")
         refresh_token = str(row["refresh_token"] or "")
