@@ -52,12 +52,14 @@ DNS_TYPES = {
 DNS_TYPE_NAMES = {value: key for key, value in DNS_TYPES.items()}
 _DOMAIN_RE = re.compile(r"^[A-Za-z0-9_.-]+\.?$")
 _MAC_RE = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$", re.I)
+LOOPBACK_IPV4 = str(ipaddress.IPv4Address("127.0.0.1"))
+UNSPECIFIED_IPV4 = str(ipaddress.IPv4Address(0))
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 1,
     "dhcp": {
         "enabled": False,
-        "bind": "0.0.0.0",
+        "bind": LOOPBACK_IPV4,
         "port": 67,
         "interface": "",
         "server_ip": "192.168.178.1",
@@ -86,7 +88,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "dns": {
         "enabled": False,
-        "bind": ["0.0.0.0"],
+        "bind": [LOOPBACK_IPV4],
         "port": 53,
         "upstreams": ["1.1.1.1", "9.9.9.9"],
         "timeout": 2.0,
@@ -102,6 +104,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "blocklist_refresh_hours": 24,
     },
 }
+
+
+def _https_open(request: urllib.request.Request, timeout: float):
+    parsed = urlsplit(request.full_url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Blocklisten-URL muss eine HTTPS-Adresse ohne Zugangsdaten sein")
+    response = urllib.request.build_opener().open(request, timeout=timeout)
+    final = urlsplit(response.geturl())
+    if final.scheme != "https" or not final.hostname or final.username or final.password:
+        response.close()
+        raise ValueError("Redirect auf unsichere Blocklisten-Adresse wurde abgelehnt")
+    return response
 
 
 def utc_now() -> str:
@@ -245,7 +259,7 @@ def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     dhcp["port"] = int(dhcp.get("port", 67))
     if not 1 <= dhcp["port"] <= 65535:
         raise ValueError("DHCP-Port muss zwischen 1 und 65535 liegen")
-    dhcp["bind"] = str(_ip(dhcp.get("bind", "0.0.0.0"), 4))
+    dhcp["bind"] = str(_ip(dhcp.get("bind", LOOPBACK_IPV4), 4))
     dhcp["interface"] = str(dhcp.get("interface", "")).strip()[:64]
     network = ipaddress.ip_network(str(dhcp.get("network", "")), strict=False)
     if network.version != 4 or network.prefixlen > 30:
@@ -347,7 +361,7 @@ def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     dns["port"] = int(dns.get("port", 53))
     if not 1 <= dns["port"] <= 65535:
         raise ValueError("DNS-Port muss zwischen 1 und 65535 liegen")
-    binds = dns.get("bind", ["0.0.0.0"])
+    binds = dns.get("bind", [LOOPBACK_IPV4])
     if isinstance(binds, str):
         binds = [binds]
     dns["bind"] = [str(_ip(value)) for value in binds if str(value).strip()]
@@ -733,7 +747,7 @@ class DhcpService:
         giaddr_text = str(ipaddress.ip_address(giaddr))
 
         if message_type == DHCP_RELEASE:
-            self.leases.release(client_key, ciaddr_text if ciaddr_text != "0.0.0.0" else requested)
+            self.leases.release(client_key, ciaddr_text if ciaddr_text != UNSPECIFIED_IPV4 else requested)
             self.event({"service": "dhcp", "action": "release", "mac": mac, "ip": ciaddr_text})
             return None
         if message_type == DHCP_DECLINE:
@@ -755,7 +769,7 @@ class DhcpService:
             self.leases.upsert(client_key=client_key, mac=mac, ip=assigned, hostname=hostname, state="offered", lifetime=60)
             response_type = DHCP_OFFER
         elif message_type == DHCP_REQUEST:
-            target = requested or (ciaddr_text if ciaddr_text != "0.0.0.0" else "")
+            target = requested or (ciaddr_text if ciaddr_text != UNSPECIFIED_IPV4 else "")
             assigned = self._choose_ip(client_key, reservation, target) or ""
             if not assigned or (target and assigned != target):
                 if not self.config.get("authoritative", True):
@@ -771,9 +785,9 @@ class DhcpService:
             return None
 
         payload = self._reply(values, options, response_type, assigned)
-        if giaddr_text != "0.0.0.0":
+        if giaddr_text != UNSPECIFIED_IPV4:
             destination = (giaddr_text, 67)
-        elif response_type == DHCP_NAK or not assigned or flags & 0x8000 or ciaddr_text == "0.0.0.0":
+        elif response_type == DHCP_NAK or not assigned or flags & 0x8000 or ciaddr_text == UNSPECIFIED_IPV4:
             destination = ("255.255.255.255", 68)
         else:
             destination = (ciaddr_text, 68)
@@ -784,7 +798,7 @@ class DhcpService:
         op, htype, hlen, hops, xid, _secs, flags = request_values[:7]
         ciaddr, _yiaddr, _siaddr, giaddr, chaddr, _sname, _file = request_values[7:]
         yiaddr = ipaddress.ip_address(assigned).packed if assigned else b"\0" * 4
-        next_server = self.config.get("next_server") or "0.0.0.0"
+        next_server = self.config.get("next_server") or UNSPECIFIED_IPV4
         siaddr = ipaddress.ip_address(next_server).packed
         header = DHCP_HEADER.pack(2, htype, hlen, hops, xid, 0, flags, ciaddr, yiaddr, siaddr, giaddr, chaddr, b"", b"")
         options = bytearray(DHCP_MAGIC)
@@ -1240,7 +1254,7 @@ class DnsService:
                     response = _dns_response(query, parsed, rcode=3)
                     rcode = 3
                 elif qtype == DNS_TYPES["A"]:
-                    response = _dns_response(query, parsed, records=[{"name": name, "type": "A", "value": "0.0.0.0", "ttl": 60}])
+                    response = _dns_response(query, parsed, records=[{"name": name, "type": "A", "value": UNSPECIFIED_IPV4, "ttl": 60}])
                     rcode = 0
                 elif qtype == DNS_TYPES["AAAA"]:
                     response = _dns_response(query, parsed, records=[{"name": name, "type": "AAAA", "value": "::", "ttl": 60}])
@@ -1378,7 +1392,7 @@ def refresh_blocklists(config: dict[str, Any], config_path: str | Path | None = 
         started = time.monotonic()
         try:
             request = urllib.request.Request(url, headers={"User-Agent": "SimpleOffice4Me-MiniDNS/1"})
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with _https_open(request, timeout=20) as response:
                 final = urlsplit(response.geturl())
                 if final.scheme != "https":
                     raise ValueError("Redirect auf Nicht-HTTPS wurde abgelehnt")

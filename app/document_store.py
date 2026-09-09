@@ -29,6 +29,8 @@ from typing import Any, Callable, Iterable
 from xml.etree import ElementTree
 
 import click
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 from flask import current_app
 from flask.cli import with_appcontext
 
@@ -3241,9 +3243,9 @@ class DocumentStore:
                         if not name.endswith(".xml") or name.startswith("docProps/"):
                             continue
                         try:
-                            root = ElementTree.fromstring(archive.read(name))
+                            root = DefusedElementTree.fromstring(archive.read(name))
                             text_parts.extend(value.strip() for value in root.itertext() if value.strip())
-                        except ElementTree.ParseError:
+                        except (ElementTree.ParseError, DefusedXmlException):
                             continue
                 return "\n".join(text_parts), "office_zip"
             except (OSError, zipfile.BadZipFile) as exc:

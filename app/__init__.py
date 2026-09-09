@@ -425,9 +425,8 @@ def calendar_display_datetime(value):
 
 @app.template_filter("safe_calendar_html")
 def safe_calendar_html(value):
-    from markupsafe import Markup
     from .calendar_description import sanitize_calendar_html
-    return Markup(sanitize_calendar_html(str(value or "")))
+    return sanitize_calendar_html(str(value or ""))
 
 
 @app.after_request

@@ -75,7 +75,7 @@ def save():
             "dhcp": {
                 **previous["dhcp"],
                 "enabled": request.form.get("dhcp_enabled") == "1",
-                "bind": request.form.get("dhcp_bind", "0.0.0.0"),
+                "bind": request.form.get("dhcp_bind", "127.0.0.1"),
                 "port": request.form.get("dhcp_port", "67"),
                 "interface": request.form.get("dhcp_interface", ""),
                 "server_ip": request.form.get("server_ip", ""),
@@ -105,7 +105,7 @@ def save():
             "dns": {
                 **previous["dns"],
                 "enabled": request.form.get("dns_enabled") == "1",
-                "bind": _csv(request.form.get("dns_bind", "0.0.0.0")),
+                "bind": _csv(request.form.get("dns_bind", "127.0.0.1")),
                 "port": request.form.get("dns_port", "53"),
                 "upstreams": _csv(request.form.get("upstreams", "")),
                 "timeout": request.form.get("dns_timeout", "2.0"),

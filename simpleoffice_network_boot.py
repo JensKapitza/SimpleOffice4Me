@@ -28,7 +28,7 @@ DEFAULT_BOOT_SETTINGS: dict[str, Any] = {
     "version": 1,
     "enabled": False,
     "tftp_enabled": False,
-    "tftp_bind": "0.0.0.0",
+    "tftp_bind": "127.0.0.1",
     "tftp_port": 69,
     "tftp_timeout": 3,
     "tftp_retries": 5,
@@ -118,10 +118,10 @@ def validate_boot_settings(candidate: dict[str, Any]) -> dict[str, Any]:
     for key in ("enabled", "tftp_enabled"):
         data[key] = bool(data.get(key))
     try:
-        socket.inet_aton(str(data.get("tftp_bind") or "0.0.0.0"))
+        socket.inet_aton(str(data.get("tftp_bind") or "127.0.0.1"))
     except OSError as exc:
         raise ValueError("TFTP-Bind-Adresse muss IPv4 sein") from exc
-    data["tftp_bind"] = str(data.get("tftp_bind") or "0.0.0.0")
+    data["tftp_bind"] = str(data.get("tftp_bind") or "127.0.0.1")
     data["tftp_port"] = int(data.get("tftp_port", 69))
     data["tftp_timeout"] = int(data.get("tftp_timeout", 3))
     data["tftp_retries"] = int(data.get("tftp_retries", 5))

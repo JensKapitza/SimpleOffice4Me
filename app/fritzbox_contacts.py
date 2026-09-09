@@ -146,7 +146,9 @@ class FritzBoxClient:
         self.timeout = max(1.0, min(float(timeout), 30.0))
         if not self.username or not self.password:
             raise ValueError("FRITZ!Box-Benutzername und Passwort sind erforderlich")
-        context = ssl.create_default_context() if self.verify_tls else ssl._create_unverified_context()
+        if not self.verify_tls:
+            raise ValueError("FRITZ!Box-TLS-Zertifikatsprüfung darf aus Sicherheitsgründen nicht deaktiviert werden")
+        context = ssl.create_default_context()
         manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
         manager.add_password(None, self.base_url + "/", self.username, self.password)
         self.opener = urllib.request.build_opener(

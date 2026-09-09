@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener
 
 from .document_store import CONTROL_DIR, utc_now
 from .file_lock import exclusive_file_lock
@@ -45,6 +45,18 @@ GEOFABRIK_REGIONS = {
     "schleswig-holstein": ("Schleswig-Holstein", "https://download.geofabrik.de/europe/germany/schleswig-holstein-latest.osm.pbf"),
     "thueringen": ("Thüringen", "https://download.geofabrik.de/europe/germany/thueringen-latest.osm.pbf"),
 }
+
+
+def _open_geofabrik(request: Request, timeout: float):
+    parsed = urlparse(request.full_url)
+    if parsed.scheme != "https" or parsed.hostname != "download.geofabrik.de" or parsed.username or parsed.password:
+        raise ValueError("OSM request must target approved Geofabrik HTTPS host")
+    response = build_opener().open(request, timeout=timeout)
+    final = urlparse(response.geturl())
+    if final.scheme != "https" or final.hostname != "download.geofabrik.de" or final.username or final.password:
+        response.close()
+        raise ValueError("OSM redirect left approved Geofabrik HTTPS host")
+    return response
 
 
 def _clean(value: Any, limit: int = 300) -> str:
@@ -313,13 +325,13 @@ class LocalAddressIndex:
         modified = ""
         try:
             request = Request(url, headers=headers, method="HEAD")
-            with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed allow-listed host
+            with _open_geofabrik(request, timeout=20) as response:
                 size = int(response.headers.get("Content-Length") or 0)
                 modified = str(response.headers.get("Last-Modified") or "")
         except (OSError, ValueError):
             try:
                 request = Request(url, headers={**headers, "Range": "bytes=0-0"})
-                with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed allow-listed host
+                with _open_geofabrik(request, timeout=20) as response:
                     size = _remote_total(response.headers)
                     modified = str(response.headers.get("Last-Modified") or "")
             except (OSError, ValueError):
@@ -376,7 +388,7 @@ class LocalAddressIndex:
                         headers["If-Range"] = str(info["last_modified"])
                 request = Request(url, headers=headers)
                 try:
-                    with urlopen(request, timeout=read_timeout) as response:  # noqa: S310 - fixed allow-listed host
+                    with _open_geofabrik(request, timeout=read_timeout) as response:
                         status_code = int(getattr(response, "status", response.getcode()) or 0)
                         can_resume = bool(resume_from and status_code == 206)
                         if resume_from and not can_resume:
