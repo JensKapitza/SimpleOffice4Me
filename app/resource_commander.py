@@ -1,0 +1,149 @@
+"""Two-pane Resource Commander for local, mail and federation resources."""
+from __future__ import annotations
+
+from flask import Blueprint, Response, abort, current_app, g, jsonify, render_template, request, send_file
+
+from .auth import login_required
+from .federation_http import _authorized
+from .resource_provider import ProviderError
+from .resource_registry import ResourceRegistry
+
+bp = Blueprint("resource_commander", __name__, url_prefix="/resource-commander")
+
+
+def _actor() -> str:
+    user = getattr(g, "user", None)
+    if user is not None:
+        for key in ("username", "email", "id"):
+            try:
+                value = user[key]
+            except (KeyError, TypeError):
+                value = None
+            if value is not None and str(value).strip():
+                return str(value)
+    return "federation"
+
+
+def _secret() -> bytes:
+    secret = current_app.config["SECRET_KEY"]
+    return secret.encode("utf-8") if isinstance(secret, str) else bytes(secret)
+
+
+def _registry() -> ResourceRegistry:
+    return ResourceRegistry(current_app.config["DOCUMENT_ROOT"], _secret(), _actor())
+
+
+def _api_access() -> None:
+    if getattr(g, "user", None) is not None:
+        return
+    if _authorized():
+        return
+    abort(401)
+
+
+def _provider():
+    provider_id = request.values.get("provider", "self")
+    smart = request.values.get("smart", "0") in {"1", "true", "yes", "on"}
+    return _registry().get(provider_id, smart=smart)
+
+
+@bp.get("")
+@login_required
+def page():
+    return render_template("resource_commander.html")
+
+
+@bp.get("/api/providers")
+def providers():
+    _api_access()
+    return jsonify({"providers": _registry().descriptors()})
+
+
+@bp.get("/api/list")
+def list_entries():
+    _api_access()
+    provider = _provider()
+    entries = [entry.to_dict() for entry in provider.list(request.args.get("path", ""))]
+    return jsonify({"provider": provider.provider_id, "capabilities": provider.capabilities.to_dict(), "entries": entries})
+
+
+@bp.get("/api/stat")
+def stat_entry():
+    _api_access()
+    provider = _provider()
+    return jsonify({"entry": provider.stat(request.args.get("id", "")).to_dict(), "capabilities": provider.capabilities.to_dict()})
+
+
+@bp.get("/api/search")
+def search_entries():
+    _api_access()
+    provider = _provider()
+    entries = [entry.to_dict() for entry in provider.search(request.args.get("q", ""), request.args.get("path", ""))]
+    return jsonify({"entries": entries, "capabilities": provider.capabilities.to_dict()})
+
+
+@bp.get("/api/download")
+def download_entry():
+    _api_access()
+    provider = _provider()
+    entry = provider.stat(request.args.get("id", ""))
+    stream = provider.open(entry.resource_id)
+    return send_file(stream, as_attachment=True, download_name=entry.name, mimetype=entry.mime_type)
+
+
+@bp.post("/api/upload")
+def upload_entry():
+    _api_access()
+    provider = _provider()
+    entry = provider.upload(request.args.get("path", ""), request.stream, name=request.args.get("name", "upload.bin"))
+    return jsonify({"entry": entry.to_dict()}), 201
+
+
+@bp.post("/api/mkdir")
+def mkdir_entry():
+    _api_access()
+    payload = request.get_json(silent=True) or {}
+    provider = _registry().get(payload.get("provider", "self"))
+    entry = provider.mkdir(str(payload.get("path", "")), str(payload.get("name", "")))
+    return jsonify({"entry": entry.to_dict()}), 201
+
+
+@bp.post("/api/delete")
+def delete_entry():
+    _api_access()
+    payload = request.get_json(silent=True) or {}
+    provider = _registry().get(payload.get("provider", "self"))
+    provider.delete(str(payload.get("id", "")))
+    return jsonify({"ok": True})
+
+
+@bp.post("/api/move")
+def move_entry():
+    _api_access()
+    payload = request.get_json(silent=True) or {}
+    provider = _registry().get(payload.get("provider", "self"))
+    entry = provider.move(str(payload.get("id", "")), str(payload.get("path", "")), name=str(payload.get("name") or "") or None)
+    return jsonify({"entry": entry.to_dict()})
+
+
+@bp.post("/api/copy")
+def copy_entry():
+    _api_access()
+    payload = request.get_json(silent=True) or {}
+    source = _registry().get(str(payload.get("source_provider", "self")), smart=bool(payload.get("source_smart")))
+    target = _registry().get(str(payload.get("target_provider", "self")))
+    entry = source.stat(str(payload.get("id", "")))
+    if entry.kind != "file":
+        raise ProviderError("Ordnerkopien werden nur elementweise ausgeführt")
+    with source.open(entry.resource_id) as stream:
+        created = target.upload(str(payload.get("target_path", "")), stream, name=str(payload.get("name") or entry.name), metadata=entry.metadata)
+    return jsonify({"entry": created.to_dict()})
+
+
+@bp.errorhandler(ProviderError)
+def provider_error(error):
+    return jsonify({"error": str(error)}), 400
+
+
+def init_app(app) -> None:
+    app.register_blueprint(bp)
