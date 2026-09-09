@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from urllib.parse import urlencode, quote
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, quote, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from flask import current_app
 
@@ -16,12 +16,40 @@ from .contact_store import ContactStore
 PEOPLE_URL = "https://people.googleapis.com/v1/people/me/connections"
 CALENDAR_LIST_URL = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
 CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events"
+GOOGLE_API_HOSTS = frozenset({"people.googleapis.com", "www.googleapis.com"})
+MAX_GOOGLE_RESPONSE_BYTES = 16 * 1024 * 1024
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_GOOGLE_OPENER = build_opener(_NoRedirectHandler())
+
+
+def _validated_google_url(url: str) -> str:
+    parsed = urlsplit(str(url or ""))
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in GOOGLE_API_HOSTS
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+        or parsed.port not in {None, 443}
+    ):
+        raise ValueError("Google API URL is not allowed")
+    return parsed.geturl()
 
 
 def _get_json(url: str, access_token: str) -> dict:
-    request = Request(url, headers={"Authorization": f"Bearer {access_token}"})
-    with urlopen(request, timeout=20) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    safe_url = _validated_google_url(url)
+    request = Request(safe_url, headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"})
+    with _GOOGLE_OPENER.open(request, timeout=20) as response:
+        raw = response.read(MAX_GOOGLE_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_GOOGLE_RESPONSE_BYTES:
+        raise ValueError("Google API response is too large")
+    payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("Google API returned invalid JSON")
     return payload
