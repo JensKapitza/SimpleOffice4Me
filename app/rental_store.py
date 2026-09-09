@@ -115,7 +115,10 @@ class RentalStoreBase:
 
     def tenancies(self, object_id: str = "") -> list[dict[str, Any]]:
         with self._db() as db:
-            rows = db.execute("SELECT * FROM rental_tenancy" + (" WHERE object_id=?" if object_id else "") + " ORDER BY object_id,starts_on", ((object_id,) if object_id else ())).fetchall()
+            rows = db.execute(
+                "SELECT * FROM rental_tenancy WHERE (?='' OR object_id=?) ORDER BY object_id,starts_on",
+                (object_id, object_id),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def add_tenancy(self, object_id: str, contact_id: str, starts_on: str, ends_on: str, actor: str, *, federation_peer_id: str = "", contract_document_id: str = "", note: str = "") -> dict[str, Any]:
@@ -134,7 +137,10 @@ class RentalStoreBase:
 
     def metrics(self, object_id: str = "") -> list[dict[str, Any]]:
         with self._db() as db:
-            rows = db.execute("SELECT * FROM rental_metric" + (" WHERE object_id=?" if object_id else "") + " ORDER BY object_id,metric_type,valid_from", ((object_id,) if object_id else ())).fetchall()
+            rows = db.execute(
+                "SELECT * FROM rental_metric WHERE (?='' OR object_id=?) ORDER BY object_id,metric_type,valid_from",
+                (object_id, object_id),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def add_metric(self, object_id: str, metric_type: str, value: Any, valid_from: str, valid_to: str, actor: str, *, source_kind: str = "manual", source_note: str = "", source_document_id: str = "") -> dict[str, Any]:
@@ -156,11 +162,11 @@ class RentalStoreBase:
         return next(item for item in self.metrics(object_id) if item["metric_id"] == metric_id)
 
     def ledger(self, *, contact_id: str = "", object_id: str = "") -> list[dict[str, Any]]:
-        clauses=[]; args=[]
-        if contact_id: clauses.append("contact_id=?"); args.append(contact_id)
-        if object_id: clauses.append("object_id=?"); args.append(object_id)
-        where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        with self._db() as db: rows=db.execute(f"SELECT * FROM rental_ledger{where} ORDER BY booked_on,created_at",args).fetchall()
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM rental_ledger WHERE (?='' OR contact_id=?) AND (?='' OR object_id=?) ORDER BY booked_on,created_at",
+                (contact_id, contact_id, object_id, object_id),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def add_ledger_entry(self, object_id: str, contact_id: str, booked_on: str, kind: str, amount: Any, actor: str, *, note: str = "", document_id: str = "", source_kind: str = "manual") -> dict[str, Any]:
@@ -220,7 +226,7 @@ class RentalStoreBase:
         if not str(cost_group).strip() or not str(description).strip(): raise ValueError("Kostengruppe und Beschreibung sind erforderlich")
         value=money(amount); start,end=parse_date(starts_on),parse_date(ends_on)
         if value < 0: raise ValueError("Kostenbetrag darf nicht negativ sein")
-        if end < start: raise ValueError("Kostenende liegt vor Kostenbeginn")
+        if end < start: raise ValueError("Kostenende liegt vor Beginn")
         if allocation_method not in ALLOCATION_METHODS: raise ValueError("Unbekannter Verteilungsschlüssel")
         if allocation_method=="direct" and (not direct_object_id or direct_object_id not in self._settlement_unit_ids(settlement_id)): raise ValueError("Bei direkter Zuordnung fehlt ein gültiges Objekt")
         self._validate_source(source_kind,source_note,source_document_id)
