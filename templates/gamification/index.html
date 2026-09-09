@@ -62,12 +62,12 @@
   {% else %}
   <div class="card shadow-sm"><div class="card-body text-center py-5">
     <h2 class="h5">Keine passende sichere Aufgabe</h2>
-    <p class="text-muted mb-0">Aktuell werden freigegebene Kontakt-Aufgaben und sichere Foto-Vorschauen berücksichtigt.</p>
+    <p class="text-muted mb-0">Berücksichtigt werden freigegebene Kontakte, sichere Foto-Vorschauen und ausdrücklich für das Daten-Roulette freigegebene Dateien.</p>
   </div></div>
   {% endif %}
 
   <div class="alert alert-light border mt-3 small mb-0">
-    Rechnungen, Buchhaltung, Zahlungsdaten, CRM-interne Daten, Zugangsdaten und private Notizen sind im normalen Daten-Roulette ausgeschlossen. Vorschläge ändern Originaldaten nicht automatisch.
+    Rechnungen, Buchhaltung, Zahlungsdaten, CRM-interne Daten, Zugangsdaten und private Notizen sind ausgeschlossen. Dateien müssen zusätzlich z. B. mit <code>gamification-freigegeben</code> oder <code>daten-roulette</code> markiert sein. Vorschläge ändern Originaldaten nicht automatisch.
   </div>
 </section>
 {% endblock %}
