@@ -1,15 +1,15 @@
 """Web entry point for local data-quality roulette.
 
-Only server-created opaque challenge ids are accepted from the browser. Object
-references, providers and fields stay server-side and are bound to the current
-actor through GamificationStore.
+Only server-created opaque challenge/proposal ids are accepted from the browser.
+Object references, providers and fields stay server-side and are bound to the
+current actor through GamificationStore.
 """
 from __future__ import annotations
 
 from flask import Blueprint, current_app, g, redirect, render_template, request, url_for
 
 from .auth import login_required
-from .gamification_adapters import contact_candidates
+from .gamification_adapters import apply_contact_proposal, contact_candidates, contact_proposal_can_apply
 from .gamification_engine import roulette
 from .gamification_policy import GamePolicy
 from .gamification_providers import Challenge, get_provider
@@ -55,6 +55,24 @@ def _policy_snapshot(policy: GamePolicy) -> dict[str, object]:
     }
 
 
+def _pending_proposal(actor: str) -> dict[str, object] | None:
+    proposal_id = str(request.args.get("proposal", "")).strip()
+    if not proposal_id or len(proposal_id) > 80:
+        return None
+    proposal = _store().get_proposal_for_actor(proposal_id, actor)
+    if proposal is None:
+        return None
+    return {
+        "id": proposal_id,
+        "field_name": str(proposal["field_name"]),
+        "value": str(proposal["value"])[:500],
+        "can_apply": contact_proposal_can_apply(
+            current_app.config["DOCUMENT_ROOT"], actor, proposal,
+        ),
+        "accepted": bool(proposal.get("accepted_by")),
+    }
+
+
 @bp.get("/")
 @login_required
 def index():
@@ -83,6 +101,7 @@ def index():
     return render_template(
         "gamification/index.html",
         challenge=challenge,
+        pending_proposal=_pending_proposal(actor),
         message=request.args.get("message", "")[:200],
     )
 
@@ -93,19 +112,19 @@ def answer():
     actor = str(g.user["username"])
     challenge_id = str(request.form.get("challenge_id", "")).strip()
     if not challenge_id or len(challenge_id) > 80:
-        return render_template("gamification/index.html", challenge=None, message="Ungültige Spielrunde."), 400
+        return render_template("gamification/index.html", challenge=None, pending_proposal=None, message="Ungültige Spielrunde."), 400
 
     store = _store()
     persisted = store.get_challenge_for_actor(challenge_id, actor)
     if persisted is None:
-        return render_template("gamification/index.html", challenge=None, message="Diese Spielrunde ist nicht mehr verfügbar."), 409
+        return render_template("gamification/index.html", challenge=None, pending_proposal=None, message="Diese Spielrunde ist nicht mehr verfügbar."), 409
 
     action = str(request.form.get("action", "answer")).strip().casefold()
     if action in {"unknown", "skip"}:
         store.skip_challenge(challenge_id, actor, disposition=action)
         return redirect(url_for("gamification.index", message="Übersprungen – dafür gibt es keine Ratepunkte."))
     if action != "answer":
-        return render_template("gamification/index.html", challenge=None, message="Ungültige Spielaktion."), 400
+        return render_template("gamification/index.html", challenge=None, pending_proposal=None, message="Ungültige Spielaktion."), 400
 
     value = str(request.form.get("answer", "")).strip()
     challenge = Challenge(
@@ -128,8 +147,46 @@ def answer():
                 "answer_type": challenge.answer_type,
                 "payload": challenge.payload,
             },
+            pending_proposal=None,
             message="Bitte eine gültige Antwort eingeben oder ‚Weiß ich nicht‘ wählen.",
         ), 400
 
-    store.answer_challenge(challenge_id, actor, value)
-    return redirect(url_for("gamification.index", message="Vorschlag gespeichert. Die Originaldaten wurden nicht automatisch geändert."))
+    proposal_id = store.answer_challenge(challenge_id, actor, value)
+    return redirect(url_for(
+        "gamification.index",
+        proposal=proposal_id,
+        message="Vorschlag gespeichert. Eine Übernahme ist nur mit normalem Schreibrecht möglich.",
+    ))
+
+
+@bp.post("/accept")
+@login_required
+def accept():
+    """Explicitly apply one actor-bound contact proposal after fresh ACL checks."""
+    actor = str(g.user["username"])
+    proposal_id = str(request.form.get("proposal_id", "")).strip()
+    if not proposal_id or len(proposal_id) > 80:
+        return redirect(url_for("gamification.index", message="Ungültiger Vorschlag."))
+
+    store = _store()
+    proposal = store.get_proposal_for_actor(proposal_id, actor)
+    if proposal is None:
+        return redirect(url_for("gamification.index", message="Vorschlag ist nicht verfügbar."))
+    if proposal.get("accepted_by"):
+        return redirect(url_for("gamification.index", message="Vorschlag wurde bereits übernommen."))
+
+    try:
+        apply_contact_proposal(current_app.config["DOCUMENT_ROOT"], actor, proposal)
+    except ValueError as exc:
+        current_app.logger.info(
+            "gamification proposal refused actor=%s proposal=%s reason=%s",
+            actor, proposal_id, str(exc),
+        )
+        return redirect(url_for(
+            "gamification.index",
+            proposal=proposal_id,
+            message="Vorschlag konnte nicht übernommen werden. Schreibrecht oder Datenstand haben sich geändert.",
+        ))
+
+    store.accept(proposal_id, actor, mode="manual")
+    return redirect(url_for("gamification.index", message="Kontaktvorschlag übernommen und protokolliert."))
