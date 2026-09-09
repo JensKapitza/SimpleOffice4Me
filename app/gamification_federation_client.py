@@ -81,14 +81,14 @@ def fetch_next(root: str | Path, peer_id: str, session_id: str) -> dict[str, Any
     if not challenge_id or len(challenge_id) > 80 or provider not in {"images", "documents", "contacts"}:
         raise ValueError("peer returned invalid gamification challenge")
     if not peer_allows(peer, "receive_challenges", provider=provider):
-        raise ValueError("peer returned provider outside local policy")
+        raise ValueError("peer returned provider outside local receive policy")
     data.pop("preview_endpoint", None)
     data["peer_id"] = peer_id
     return data
 
 
 def fetch_preview(root: str | Path, peer_id: str, challenge_id: str) -> bytes:
-    _peer_info, base_url, token = _peer(root, peer_id, "preview_media", provider="images")
+    _peer_info, base_url, token = _peer(root, peer_id, "receive_previews", provider="images")
     safe_challenge = urllib.parse.quote(str(challenge_id), safe="")
     path = f"/federation/v1/gamification/challenges/{safe_challenge}/preview"
     headers = signed_headers(_local_peer_id(), token, method="GET", path=path, action="fetch_preview")
