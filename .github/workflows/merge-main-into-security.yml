@@ -55,11 +55,17 @@ jobs:
 
           test_path = Path('tests/test_mail_autoconfig.py')
           test_text = test_path.read_text(encoding='utf-8')
-          old = '''    def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):\n        payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'\n        with patch("app.mail_autoconfig._https_get", return_value=payload) as https_get:\n            records = _fetch_mx("example.org")\n        self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)\n        _, kwargs = https_get.call_args\n        self.assertEqual("dns.google", kwargs["fixed_host"])\n        self.assertFalse(kwargs["provider_owned"])\n'''
-          new = '''    def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):\n        import app.mail_autoconfig as mail_autoconfig\n\n        payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'\n        with patch.object(mail_autoconfig, "_https_get", return_value=payload) as https_get:\n            records = mail_autoconfig._fetch_mx("example.org")\n        self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)\n        _, kwargs = https_get.call_args\n        self.assertEqual("dns.google", kwargs["fixed_host"])\n        self.assertFalse(kwargs["provider_owned"])\n'''
-          if old not in test_text:
-              raise SystemExit('expected hardened MX regression test block not found')
-          test_path.write_text(test_text.replace(old, new, 1), encoding='utf-8')
+          start = test_text.index('    def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):')
+          boundaries = []
+          for marker in ('\n    @patch("app.mail_autoconfig._fetch_mx"', '\n    def test_'):
+              pos = test_text.find(marker, start + 1)
+              if pos != -1:
+                  boundaries.append(pos)
+          if not boundaries:
+              raise SystemExit('next MX test boundary not found')
+          end = min(boundaries)
+          replacement = '''    def test_fetch_mx_prefers_lowest_priority_and_parses_targets(self):\n        import app.mail_autoconfig as mail_autoconfig\n\n        payload = b'{"Status":0,"Answer":[{"type":15,"data":"20 mx2.provider.net."},{"type":15,"data":"10 mx1.provider.net."}]}'\n        with patch.object(mail_autoconfig, "_https_get", return_value=payload) as https_get:\n            records = mail_autoconfig._fetch_mx("example.org")\n        self.assertEqual([(10, "mx1.provider.net"), (20, "mx2.provider.net")], records)\n        _, kwargs = https_get.call_args\n        self.assertEqual("dns.google", kwargs["fixed_host"])\n        self.assertFalse(kwargs["provider_owned"])\n'''
+          test_path.write_text(test_text[:start] + replacement + test_text[end:], encoding='utf-8')
           PY
           git add app/mail_autoconfig.py simpleoffice_network_boot.py tests/test_mail_autoconfig.py
           git commit --amend --no-edit
