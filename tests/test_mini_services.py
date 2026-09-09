@@ -63,6 +63,15 @@ class MiniServicesConfigTests(unittest.TestCase):
         config = validate_config(copy.deepcopy(DEFAULT_CONFIG))
         self.assertEqual("192.168.178.0/24", config["dhcp"]["network"])
         self.assertEqual(["1.1.1.1", "9.9.9.9"], config["dns"]["upstreams"])
+        self.assertEqual(["127.0.0.1"], config["dns"]["bind"])
+
+    def test_dns_rejects_unspecified_bind_addresses(self):
+        for bind in ("0.0.0.0", "::"):
+            with self.subTest(bind=bind):
+                config = copy.deepcopy(DEFAULT_CONFIG)
+                config["dns"]["bind"] = [bind]
+                with self.assertRaisesRegex(ValueError, "nicht alle Netzwerkinterfaces"):
+                    validate_config(config)
 
     def test_rejects_invalid_dhcp_timer_order(self):
         config = copy.deepcopy(DEFAULT_CONFIG)
@@ -183,6 +192,13 @@ class NetworkBootTests(unittest.TestCase):
         settings = validate_boot_settings(copy.deepcopy(DEFAULT_BOOT_SETTINGS))
         self.assertFalse(settings["enabled"])
         self.assertFalse(settings["tftp_enabled"])
+        self.assertEqual("127.0.0.1", settings["tftp_bind"])
+
+    def test_tftp_rejects_unspecified_bind_address(self):
+        settings = copy.deepcopy(DEFAULT_BOOT_SETTINGS)
+        settings["tftp_bind"] = "0.0.0.0"
+        with self.assertRaisesRegex(ValueError, "nicht alle Netzwerkinterfaces"):
+            validate_boot_settings(settings)
 
     def test_pxe_architecture_and_ipxe_chain_are_separate(self):
         with tempfile.TemporaryDirectory() as directory:
