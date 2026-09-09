@@ -46,6 +46,7 @@ PY
 echo "Installiere SimpleOffice-Pythonpakete …"
 TERMUX_RUNTIME_REQUIREMENTS=(
   'Flask>=3.0,<4'
+  'argon2-cffi>=23.1,<26'
   'beautifulsoup4>=4.12,<5'
   'defusedxml>=0.7,<1'
   'reportlab>=4.0,<6'
@@ -57,7 +58,7 @@ TERMUX_RUNTIME_REQUIREMENTS=(
 
 if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: "${TERMUX_RUNTIME_REQUIREMENTS[@]}"; then
   echo "Nicht alle Web-Laufzeitpakete besitzen ein kompatibles Android-Wheel; installiere Build-Werkzeuge für den kontrollierten Fallback."
-  pkg install -y clang make pkg-config libffi openssl
+  pkg install -y clang make pkg-config libffi openssl argon2
   "$VENV/bin/python" -m pip install --disable-pip-version-check --prefer-binary "${TERMUX_RUNTIME_REQUIREMENTS[@]}"
 fi
 
@@ -69,6 +70,7 @@ PY
 
 "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
 "$VENV/bin/python" -m pip check
+"$VENV/bin/python" -c 'from argon2 import PasswordHasher; PasswordHasher(); print("  argon2-cffi: verwendbar")'
 
 # Keep the command executable even when the checkout came from an archive that
 # did not preserve Unix mode bits.

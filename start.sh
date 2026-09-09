@@ -283,7 +283,7 @@ native_python_packages() {
 }
 
 termux_build_packages() {
-  printf '%s\n' "clang make pkg-config libffi openssl"
+  printf '%s\n' "clang make pkg-config libffi openssl argon2"
 }
 
 python_is_compatible() {
@@ -512,6 +512,7 @@ if [ "$IS_TERMUX" -eq 1 ]; then
 
   termux_runtime_requirements=(
     'Flask>=3.0,<4'
+    'argon2-cffi>=23.1,<26'
     'beautifulsoup4>=4.12,<5'
     'defusedxml>=0.7,<1'
     'reportlab>=4.0,<6'
@@ -532,6 +533,7 @@ if [ "$IS_TERMUX" -eq 1 ]; then
 
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
   "$VENV/bin/python" -m pip check
+  "$VENV/bin/python" -c 'from argon2 import PasswordHasher; PasswordHasher(); print("argon2-cffi ist vorhanden und verwendbar.")'
 elif [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && native_dependency_versions_ok; then
   echo "Alle benötigten Python-Abhängigkeiten kommen passend aus der Linux-Umgebung; pip installiert nur SimpleOffice selbst."
   "$VENV/bin/python" -m pip install --disable-pip-version-check --no-deps --editable "$ROOT"
