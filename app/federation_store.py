@@ -258,12 +258,25 @@ class FederationStore:
         updates = {key: value for key, value in changes.items() if key in allowed}
         if not updates:
             return self.get_transfer(transfer_id) or {}
-        updates["updated_at"] = _now()
-        sql = ",".join(f"{key}=?" for key in updates)
+        current = self.get_transfer(transfer_id)
+        if current is None:
+            return {}
+        values = {
+            key: updates[key] if key in updates else current[key]
+            for key in allowed
+        }
+        values["updated_at"] = _now()
         with self._db() as db:
             db.execute(
-                f"UPDATE federation_transfer SET {sql} WHERE transfer_id=?",
-                (*updates.values(), transfer_id),
+                """UPDATE federation_transfer SET
+                       status=?,transferred_bytes=?,have_bitmap=?,final_path=?,error=?,
+                       target_url=?,target_peer=?,source_peer=?,updated_at=?
+                   WHERE transfer_id=?""",
+                (
+                    values["status"], values["transferred_bytes"], values["have_bitmap"],
+                    values["final_path"], values["error"], values["target_url"],
+                    values["target_peer"], values["source_peer"], values["updated_at"], transfer_id,
+                ),
             )
         self.record_event("transfer_updated", transfer_id=transfer_id, detail={k: v for k, v in updates.items() if k != "have_bitmap"})
         return self.get_transfer(transfer_id) or {}
