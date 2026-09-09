@@ -12,6 +12,27 @@
 
   {% if message %}<div class="alert alert-info" role="status">{{ message }}</div>{% endif %}
 
+  {% if pending_proposal %}
+  <article class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="small text-muted mb-2">Gespeicherter Vorschlag</div>
+      <div class="mb-1"><strong>Feld:</strong> {{ pending_proposal.field_name }}</div>
+      <div class="mb-3"><strong>Vorschlag:</strong> {{ pending_proposal.value }}</div>
+      {% if pending_proposal.accepted %}
+        <div class="text-success">Bereits übernommen.</div>
+      {% elif pending_proposal.can_apply %}
+        <form method="post" action="{{ url_for('gamification.accept') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="proposal_id" value="{{ pending_proposal.id }}">
+          <button class="btn btn-success" type="submit">Vorschlag übernehmen</button>
+        </form>
+      {% else %}
+        <div class="text-muted">Übernahme nicht möglich: Es fehlt Schreibrecht oder der Datenstand hat sich geändert.</div>
+      {% endif %}
+    </div>
+  </article>
+  {% endif %}
+
   {% if challenge %}
   <article class="card shadow-sm">
     <div class="card-body">
