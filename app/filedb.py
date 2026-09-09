@@ -54,3 +54,5 @@ def list_files(root: Path | None) -> None:
 def init_app(app):
     app.cli.add_command(list_files)
     app.cli.add_command(import_file)
+    from .resource_commander import init_app as init_resource_commander
+    init_resource_commander(app)
