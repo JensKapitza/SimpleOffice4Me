@@ -28,7 +28,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main refactor/enforce-1000-lines-complete
-          echo "OLD_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          OLD_HEAD="$(git rev-parse HEAD)"
+          echo "OLD_HEAD=$OLD_HEAD" >> "$GITHUB_ENV"
 
           set +e
           git rebase --force-rebase origin/main
@@ -43,13 +44,10 @@ jobs:
 
             case "$conflicts" in
               "app/document_store.py")
-                # The replayed commit is the verified DocumentStore split.
-                # Keep that split; its later XOR commit avoids broadening the SQL whitelist.
                 git checkout --theirs -- app/document_store.py
                 git add app/document_store.py
                 ;;
               "tests/test_mini_services.py")
-                # main contains the newer _https_open based regression test.
                 git checkout --ours -- tests/test_mini_services.py
                 git add tests/test_mini_services.py
                 ;;
@@ -68,6 +66,13 @@ jobs:
           if git rev-list --merges origin/main..HEAD | grep -q .; then
             echo "Merge commits remain after rebase"
             git rev-list --merges --oneline origin/main..HEAD
+            exit 1
+          fi
+
+          # Rebase may rewrite commit IDs, but it must not change the verified file tree.
+          if ! git diff --quiet "$OLD_HEAD" HEAD --; then
+            echo "Rebased tree differs from previously verified PR tree"
+            git diff --stat "$OLD_HEAD" HEAD --
             exit 1
           fi
 
