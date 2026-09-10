@@ -1,7 +1,9 @@
-"""Read-only reward leaderboard scoped to users who share game sessions."""
-from flask import Blueprint, current_app, g, render_template
+"""Reward leaderboard and small user-facing data-roulette actions."""
+from flask import Blueprint, abort, current_app, g, redirect, render_template, request, url_for
 
+from .access_control import has_feature
 from .auth import login_required
+from .gamification_document_selection import set_document_game_release
 from .gamification_rewards import leaderboard, profile
 from .gamification_store import GamificationStore
 
@@ -42,3 +44,23 @@ def index():
         rows=leaderboard(store, 50, _visible_participants(store, actor)),
         reward_profile=profile(store, actor),
     )
+
+
+@bp.post("/documents/<document_id>/release")
+@login_required
+def document_release(document_id: str):
+    """Toggle the persistent roulette opt-in from a document screen."""
+    if not has_feature(g.user, "documents"):
+        abort(403)
+    released = str(request.form.get("released", "1")).strip() == "1"
+    try:
+        set_document_game_release(
+            current_app.config["DOCUMENT_ROOT"],
+            str(g.user["username"]),
+            document_id,
+            released,
+        )
+    except ValueError as exc:
+        return redirect(url_for("documents.detail", document_id=document_id, roulette_message=str(exc)[:180]))
+    message = "Für Daten-Roulette freigegeben." if released else "Daten-Roulette-Freigabe entfernt."
+    return redirect(url_for("documents.detail", document_id=document_id, roulette_message=message))
