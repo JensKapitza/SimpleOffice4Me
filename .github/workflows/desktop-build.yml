@@ -1,0 +1,54 @@
+name: Desktop build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-build.yml'
+      - 'app/**'
+      - 'templates/**'
+      - 'static/**'
+      - 'pyproject.toml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux
+          - os: windows-latest
+            artifact: windows
+          - os: macos-latest
+            artifact: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/electron/package-lock.json
+      - name: Install Electron dependencies
+        working-directory: desktop/electron
+        run: npm install --no-audit --no-fund
+      - name: Build Python backend
+        working-directory: desktop/electron
+        run: npm run build:backend
+      - name: Package Electron app
+        working-directory: desktop/electron
+        run: npx electron-builder --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simpleoffice4me-desktop-${{ matrix.artifact }}
+          path: desktop/electron/dist/**
+          if-no-files-found: error
+          retention-days: 14
