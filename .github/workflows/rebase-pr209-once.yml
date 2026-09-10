@@ -21,7 +21,7 @@ jobs:
           ref: refactor/enforce-1000-lines-complete
           fetch-depth: 0
 
-      - name: Linearize branch on current main
+      - name: Rebase single PR commit on latest main
         shell: bash
         run: |
           set -euo pipefail
@@ -30,49 +30,16 @@ jobs:
           git fetch origin main refactor/enforce-1000-lines-complete
           OLD_HEAD="$(git rev-parse HEAD)"
           echo "OLD_HEAD=$OLD_HEAD" >> "$GITHUB_ENV"
-
-          set +e
-          git rebase --force-rebase origin/main
-          rc=$?
-          set -e
-
-          while [ "$rc" -ne 0 ]; do
-            conflicts="$(git diff --name-only --diff-filter=U)"
-            echo "REBASE_CONFLICTS_BEGIN"
-            printf '%s\n' "$conflicts"
-            echo "REBASE_CONFLICTS_END"
-
-            case "$conflicts" in
-              "app/document_store.py")
-                git checkout --theirs -- app/document_store.py
-                git add app/document_store.py
-                ;;
-              "tests/test_mini_services.py")
-                git checkout --ours -- tests/test_mini_services.py
-                git add tests/test_mini_services.py
-                ;;
-              *)
-                echo "Unexpected rebase conflict; refusing automatic resolution"
-                exit 1
-                ;;
-            esac
-
-            set +e
-            GIT_EDITOR=true git rebase --continue
-            rc=$?
-            set -e
-          done
-
-          if git rev-list --merges origin/main..HEAD | grep -q .; then
-            echo "Merge commits remain after rebase"
-            git rev-list --merges --oneline origin/main..HEAD
+          old_count="$(git rev-list --count origin/main..HEAD || true)"
+          echo "Current PR-only commit count: $old_count"
+          git rebase origin/main
+          new_count="$(git rev-list --count origin/main..HEAD)"
+          if [ "$new_count" -ne 1 ]; then
+            echo "Expected exactly one rebased PR commit, got $new_count"
             exit 1
           fi
-
-          # Rebase may rewrite commit IDs, but it must not change the verified file tree.
-          if ! git diff --quiet "$OLD_HEAD" HEAD --; then
-            echo "Rebased tree differs from previously verified PR tree"
-            git diff --stat "$OLD_HEAD" HEAD --
+          if git rev-list --merges origin/main..HEAD | grep -q .; then
+            echo "Merge commit remains after rebase"
             exit 1
           fi
 
@@ -110,7 +77,7 @@ jobs:
       - name: Run full unit suite on Python 3.14
         run: python -m unittest discover -s tests -v
 
-      - name: Force-push verified linear history
+      - name: Force-push verified rebased head
         shell: bash
         run: |
           set -euo pipefail
