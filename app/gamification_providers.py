@@ -82,6 +82,7 @@ class DocumentProvider(Provider):
         return [
             Challenge(self.name, object_ref, "document_type", "Was für ein Dokument ist das?", "text", safe.copy()),
             Challenge(self.name, object_ref, "tags", "Welche Tags passen zu dieser Datei?", "tags", safe.copy()),
+            Challenge(self.name, object_ref, "note", "Welche hilfreiche Notiz sollte zu dieser Datei gespeichert werden?", "text", safe.copy()),
             Challenge(self.name, object_ref, "year", "Aus welchem Jahr stammt die Datei?", "year", safe.copy()),
         ]
 
