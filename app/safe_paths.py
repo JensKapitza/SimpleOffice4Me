@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path, PureWindowsPath
 
+from werkzeug.security import safe_join
 from werkzeug.utils import secure_filename
 
 
@@ -48,15 +49,18 @@ def _portable_relative(value: str | Path) -> Path:
 def resolve_under(root: str | Path, value: str | Path = ".", *, strict: bool = False) -> Path:
     """Normalize VALUE below ROOT and reject traversal and symlink escapes.
 
-    ``normpath`` removes redundant separators/dot segments and ``realpath``
-    follows existing symlinks before the containment check. This is the common
-    boundary for URL, form, header, archive and database values that may have
-    originated outside the trusted process.
+    Werkzeug's ``safe_join`` rejects lexical escapes before a filesystem path is
+    formed. ``normpath`` then canonicalizes dot segments and ``realpath`` follows
+    existing links. The final ``relative_to`` check proves the physical target
+    still remains below the configured root.
     """
     root_path = normalize_path(root, strict=True)
     requested = _portable_relative(value)
-    joined = os.path.normpath(os.path.join(os.fspath(root_path), os.fspath(requested)))
-    candidate = Path(os.path.realpath(joined))
+    joined = safe_join(os.fspath(root_path), requested.as_posix())
+    if joined is None:
+        raise ValueError("path must remain inside the configured root")
+    normalized = os.path.normpath(joined)
+    candidate = Path(os.path.realpath(normalized))
     try:
         candidate.relative_to(root_path)
     except ValueError as exc:
@@ -87,14 +91,12 @@ def resolve_directory_under(root: str | Path, value: str | Path = ".") -> Path:
 
 
 def resolve_for_write_under(root: str | Path, value: str | Path) -> Path:
-    """Resolve a possibly-missing destination and prove its parent is contained.
-
-    Existing symlinks in any parent component are followed by ``realpath``;
-    escapes are rejected before callers create, replace, rename or delete data.
-    """
+    """Resolve a possibly-missing destination and prove its parent is contained."""
     candidate = resolve_under(root, value, strict=False)
-    parent = normalize_path(candidate.parent, strict=True)
     root_path = normalize_path(root, strict=True)
+    if candidate == root_path:
+        return candidate
+    parent = normalize_path(candidate.parent, strict=True)
     try:
         parent.relative_to(root_path)
     except ValueError as exc:
