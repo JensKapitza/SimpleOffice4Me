@@ -1,0 +1,77 @@
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
+
+android {
+    namespace 'de.simpleoffice4me.android'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'de.simpleoffice4me.android'
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        python {
+            version '3.13'
+            pip {
+                install 'Flask==3.1.3'
+                install 'argon2-cffi==23.1.0'
+                install 'beautifulsoup4==4.14.2'
+                install 'defusedxml==0.7.1'
+                install 'Pillow==11.1.0'
+                install 'reportlab==4.2.5'
+                install 'pypdf==6.1.1'
+                install 'cryptography==42.0.8'
+                install 'tzdata==2026.2'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            python.srcDir "$buildDir/generated/simpleofficePython"
+        }
+    }
+}
+
+// Keep one source of truth: package the existing Flask app and web resources
+// into Chaquopy's Python source tree at build time.
+tasks.register('syncSimpleOfficePython', Sync) {
+    into "$buildDir/generated/simpleofficePython"
+    from('../../..') {
+        include 'app/**'
+        exclude 'app/**/__pycache__/**'
+        exclude 'app/**/*.pyc'
+    }
+    from('../../..') {
+        include 'templates/**'
+        include 'static/**'
+    }
+    from('src/main/python')
+}
+
+preBuild.dependsOn syncSimpleOfficePython
+
+dependencies {
+    implementation 'androidx.activity:activity-ktx:1.12.1'
+    implementation 'androidx.webkit:webkit:1.14.0'
+}
