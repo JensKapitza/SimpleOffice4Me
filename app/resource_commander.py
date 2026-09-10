@@ -4,7 +4,7 @@ from __future__ import annotations
 from flask import Blueprint, Response, abort, current_app, g, jsonify, render_template, request, send_file
 
 from .auth import login_required
-from .federation_http import _authorized
+from .resource_commander_access import api_access_authorized
 from .resource_provider import ProviderError
 from .resource_registry import ResourceRegistry
 
@@ -35,9 +35,7 @@ def _registry() -> ResourceRegistry:
 
 
 def _api_access() -> None:
-    if getattr(g, "user", None) is not None:
-        return
-    if _authorized():
+    if api_access_authorized():
         return
     abort(401)
 
