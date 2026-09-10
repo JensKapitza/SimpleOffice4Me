@@ -55,4 +55,7 @@ def init_app(app):
     app.cli.add_command(list_files)
     app.cli.add_command(import_file)
     from .resource_commander import init_app as init_resource_commander
+    from .webdav_smart_mount import init_app as init_smart_mount
+
     init_resource_commander(app)
+    init_smart_mount(app)
