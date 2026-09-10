@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SimpleOffice4Me startet</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f5f7;color:#1f2937}
+    body{display:grid;place-items:center}
+    main{width:min(560px,calc(100% - 48px));background:#fff;border:1px solid #d8dde6;border-radius:16px;padding:32px;box-shadow:0 12px 36px rgba(0,0,0,.08)}
+    h1{font-size:1.5rem;margin:0 0 12px}
+    p{line-height:1.5;margin:0;color:#5b6472}
+    .spinner{width:32px;height:32px;border:4px solid #d9dee7;border-top-color:#374151;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:20px}
+    .error{display:none;margin-top:18px;padding:12px;border-radius:10px;background:#fef2f2;color:#991b1b;white-space:pre-wrap}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="spinner" id="spinner" aria-hidden="true"></div>
+  <h1>SimpleOffice4Me startet</h1>
+  <p>Das lokale Python-Backend wird vorbereitet. Die Anwendung bleibt auf diesem Gerät und ist nur über den lokalen Loopback erreichbar.</p>
+  <div class="error" id="error" role="alert"></div>
+</main>
+<script>
+  const message = new URLSearchParams(location.search).get('error');
+  if (message) {
+    document.getElementById('spinner').style.display = 'none';
+    const box = document.getElementById('error');
+    box.textContent = message;
+    box.style.display = 'block';
+  }
+</script>
+</body>
+</html>
