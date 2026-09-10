@@ -1,0 +1,6 @@
+electron/node_modules/
+electron/dist/
+python-setup/.build-venv/
+python-setup/build/
+python-setup/dist/
+*.log
