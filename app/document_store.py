@@ -19,7 +19,7 @@ from . import document_store_part_4 as _part_module_4
 from .document_store_part_4 import _DocumentStorePart4
 from . import document_store_part_5 as _part_module_5
 from .document_store_part_5 import _DocumentStorePart5
-from .safe_paths import relative_under, resolve_file_under
+from .safe_paths import normalize_path, relative_under, resolve_file_under
 
 _SAFE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 
@@ -28,21 +28,29 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
     """Filesystem store with a validated public document lookup boundary."""
 
     def get_document(self, reference: str | Path) -> dict[str, Any]:
-        """Resolve path references safely and reject metadata-path traversal.
-
-        The legacy implementation accepts either a document ID or a managed file
-        path. A path is normalized/realpathed below ``self.root`` before lookup;
-        a non-path reference must be a single safe document-ID component. Stored
-        ``last_path`` is normalized before any caller can use it for file I/O.
-        """
+        """Resolve path references safely and reject metadata-path traversal."""
         raw = str(reference or "")
-        path_like = isinstance(reference, Path) or "/" in raw or "\\" in raw
-        if path_like:
+        safe_reference: str | Path | None = None
+
+        if isinstance(reference, Path) and reference.is_absolute():
             try:
-                safe_reference: str | Path = resolve_file_under(self.root, raw)
+                relative = normalize_path(reference, strict=True).relative_to(
+                    normalize_path(self.root, strict=True)
+                )
+                safe_reference = resolve_file_under(self.root, relative)
             except (OSError, ValueError) as exc:
                 raise ValueError("document path is outside the managed store") from exc
         else:
+            # Preserve the legacy convenience where a single filename can be a
+            # path reference, but normalize it before probing the filesystem.
+            try:
+                safe_reference = resolve_file_under(self.root, raw)
+            except (OSError, ValueError):
+                path_like = "/" in raw or "\\" in raw or raw in {".", ".."} or raw.startswith(".")
+                if path_like:
+                    raise ValueError("document path is outside the managed store")
+
+        if safe_reference is None:
             if not _SAFE_DOCUMENT_ID.fullmatch(raw) or raw in {".", ".."}:
                 raise ValueError("invalid document reference")
             safe_reference = raw
