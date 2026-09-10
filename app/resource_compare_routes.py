@@ -5,7 +5,7 @@ from dataclasses import asdict
 
 from flask import Blueprint, current_app, g, jsonify, request
 
-from .federation_http import _authorized
+from .resource_commander_access import api_access_authorized
 from .resource_compare import compare_directories, compare_files
 from .resource_completeness import verify_complete
 from .resource_provider import ProviderError
@@ -37,7 +37,7 @@ def _registry() -> ResourceRegistry:
 
 
 def _access() -> None:
-    if getattr(g, "user", None) is not None or _authorized():
+    if api_access_authorized():
         return
     raise ProviderError("Nicht autorisiert")
 
