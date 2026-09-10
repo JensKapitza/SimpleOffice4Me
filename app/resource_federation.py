@@ -27,11 +27,15 @@ class FederationResourceProvider:
         self.base = self._validated_base(base_url)
         self.token = token
         self._allowed_capabilities = allowed_capabilities or ProviderCapabilities(
-            read=True, write=True, delete=False, move=False, copy=True, folders=True,
-            search=True, metadata=True, streaming=True, smart_view=False,
-            server_side_copy=True,
+            read=False, write=False, delete=False, move=False, copy=False, folders=False,
+            search=False, metadata=False, streaming=False, smart_view=False,
+            server_side_copy=False,
         )
         self.capabilities = self._allowed_capabilities
+
+    def _require(self, capability: str) -> None:
+        if not bool(getattr(self.capabilities, capability, False)):
+            raise ProviderError(f"Federation-Peer erlaubt '{capability}' nicht")
 
     def _apply_remote_capabilities(self, remote_caps: dict) -> None:
         """Intersect remote claims with this peer's locally configured ceiling."""
@@ -136,22 +140,29 @@ class FederationResourceProvider:
         return ResourceEntry(**{key: item for key, item in value.items() if key in allowed})
 
     def list(self, path: str = "") -> Iterable[ResourceEntry]:
+        self._require("read")
         query = urllib.parse.urlencode({"provider": "self", "path": path})
         data = self._json("GET", f"/resource-commander/api/list?{query}")
         remote_caps = data.get("capabilities") or {}
         if remote_caps:
             self._apply_remote_capabilities(remote_caps)
+            self._require("read")
         return [self._entry(item, self.provider_id) for item in data.get("entries", [])]
 
     def stat(self, resource_id: str) -> ResourceEntry:
+        self._require("metadata")
+        self._require("read")
         query = urllib.parse.urlencode({"provider": "self", "id": resource_id})
         return self._entry(self._json("GET", f"/resource-commander/api/stat?{query}")["entry"], self.provider_id)
 
     def open(self, resource_id: str) -> BinaryIO:
+        self._require("read")
         query = urllib.parse.urlencode({"provider": "self", "id": resource_id})
         return self._request("GET", f"/resource-commander/api/download?{query}")
 
     def read_range(self, resource_id: str, offset: int, length: int) -> bytes:
+        self._require("read")
+        self._require("streaming")
         requested = max(0, min(int(length), 1024 * 1024))
         query = urllib.parse.urlencode({
             "provider": "self", "id": resource_id,
@@ -170,6 +181,7 @@ class FederationResourceProvider:
                 connection.close()
 
     def upload(self, path: str, source: BinaryIO, *, name: str, metadata=None) -> ResourceEntry:
+        self._require("write")
         query = urllib.parse.urlencode({"provider": "self", "path": path, "name": name})
         body = source.read()
         response = self._request(
@@ -188,19 +200,25 @@ class FederationResourceProvider:
         return self._entry(data["entry"], self.provider_id)
 
     def mkdir(self, path: str, name: str) -> ResourceEntry:
+        self._require("write")
+        self._require("folders")
         data = self._json("POST", "/resource-commander/api/mkdir", payload={"provider": "self", "path": path, "name": name})
         return self._entry(data["entry"], self.provider_id)
 
     def delete(self, resource_id: str) -> None:
+        self._require("delete")
         self._json("POST", "/resource-commander/api/delete", payload={"provider": "self", "id": resource_id})
 
     def move(self, resource_id: str, target_path: str, *, name: str | None = None) -> ResourceEntry:
+        self._require("move")
         data = self._json("POST", "/resource-commander/api/move", payload={
             "provider": "self", "id": resource_id, "path": target_path, "name": name or "",
         })
         return self._entry(data["entry"], self.provider_id)
 
     def search(self, query: str, path: str = "") -> Iterable[ResourceEntry]:
+        self._require("read")
+        self._require("search")
         params = urllib.parse.urlencode({"provider": "self", "q": query, "path": path})
         data = self._json("GET", f"/resource-commander/api/search?{params}")
         return [self._entry(item, self.provider_id) for item in data.get("entries", [])]
