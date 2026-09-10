@@ -9,30 +9,46 @@ from .resource_local import LocalResourceProvider
 from .resource_mail import MailResourceProvider
 from .resource_provider import ProviderCapabilities, ProviderError
 from .resource_smartview import SmartViewProvider
+from .safe_paths import normalize_path
 
 
 class ResourceRegistry:
     def __init__(self, root: str | Path, master_key: bytes, actor: str):
-        self.root = Path(root).resolve()
+        self.root = normalize_path(root, strict=True)
         self.master_key = master_key
         self.actor = actor
         self._federation = FederationStore(self.root)
 
     @staticmethod
-    def _federation_capabilities(peer: dict) -> ProviderCapabilities:
-        policy = peer.get("policy") or {}
+    def _document_policy(peer: dict) -> dict:
+        policy = peer.get("policy")
+        if not isinstance(policy, dict):
+            return {}
+        resources = policy.get("resources")
+        if isinstance(resources, dict) and isinstance(resources.get("documents"), dict):
+            return resources["documents"]
+        documents = policy.get("documents")
+        return documents if isinstance(documents, dict) else {}
+
+    @classmethod
+    def _federation_capabilities(cls, peer: dict) -> ProviderCapabilities:
+        policy = peer.get("policy") if isinstance(peer.get("policy"), dict) else {}
+        documents = cls._document_policy(peer)
+        can_read = documents.get("receive") is True
+        can_write = documents.get("send") is True
+        smart_view = can_read and policy.get("smart_view") is True
         return ProviderCapabilities(
-            read=bool(policy.get("receive", True) or policy.get("send", True)),
-            write=bool(policy.get("send", True)),
+            read=can_read,
+            write=can_write,
             delete=False,
             move=False,
-            copy=True,
-            folders=True,
-            search=True,
-            metadata=True,
-            streaming=True,
-            smart_view=bool(policy.get("smart_view", False)),
-            server_side_copy=True,
+            copy=can_read,
+            folders=can_read or can_write,
+            search=can_read,
+            metadata=can_read,
+            streaming=can_read,
+            smart_view=smart_view,
+            server_side_copy=can_write,
         )
 
     def descriptors(self) -> list[dict]:
