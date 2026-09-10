@@ -1,34 +1,31 @@
 """Small compatibility helpers for legacy top-level template routes.
 
 Historically every rendered page was parsed a second time with BeautifulSoup and
-html5lib only to pretty-print it.  That adds noticeable CPU/RAM cost on small
-systems (especially Termux), can subtly rewrite valid HTML, and provides no
-runtime benefit.  Keep the public helper name for compatibility but return the
-Jinja result directly.
+html5lib only to pretty-print it. That adds noticeable CPU/RAM cost on small
+systems and provides no runtime benefit.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Response, render_template, request, send_from_directory
+from flask import Response, render_template, request, send_file
+
+from .safe_paths import normalize_path, resolve_file_under
 
 
 def download_file(static_dir: str = "", dirname: str = "", filename: str = ""):
-    """Serve one static file without allowing the requested directory to escape.
-
-    Flask's ``send_from_directory`` performs its own safe join for ``filename``;
-    this additional check protects the separately supplied ``dirname`` argument.
-    Normal application static assets should use Flask's built-in static route.
-    """
+    """Serve one static file only after canonical path validation."""
     if request.path == "/favicon.ico":
         return Response(status=204)
 
-    root = Path(static_dir).expanduser().resolve()
-    directory = (root / str(dirname or "")).resolve()
-    if root not in (directory, *directory.parents):
+    try:
+        root = normalize_path(static_dir, strict=True)
+        relative = Path(str(dirname or "")) / str(filename or "")
+        target = resolve_file_under(root, relative)
+    except (OSError, ValueError):
         return Response("not found", status=404)
-    return send_from_directory(directory, filename, as_attachment=False)
+    return send_file(target, conditional=True)
 
 
 def renderwithbs4(myFile: str = "index.html") -> str:
