@@ -1,7 +1,7 @@
 """Permission-aware virtual namespace shared by WebDAV and SFTP.
 
-The ordinary filesystem remains the durable source of truth.  This module is
-the mandatory authorization boundary for remote filesystem protocols: callers
+The ordinary filesystem remains the durable source of truth. This module is the
+mandatory authorization boundary for remote filesystem protocols: callers
 address normalized relative paths and never receive the physical storage path
 unless the effective folder policy permits the requested operation.
 """
@@ -23,6 +23,7 @@ from .document_store import (
     utc_now,
 )
 from .file_lock import exclusive_file_lock
+from .safe_paths import normalize_path, resolve_for_write_under, resolve_under
 
 
 ROLES = {"read": 1, "write": 2, "manage": 3}
@@ -42,7 +43,7 @@ class VirtualFileSystem:
 
     def __init__(self, root: str | Path, administrators: Iterable[str] = ()):
         self.store = DocumentStore(root)
-        self.root = self.store.root
+        self.root = normalize_path(self.store.root, strict=True)
         self.administrators = {value.strip() for value in administrators if value.strip()}
 
     @staticmethod
@@ -54,43 +55,61 @@ class VirtualFileSystem:
         admins = os.environ.get("SIMPLEOFFICE_DOCUMENT_ADMINS", "")
         return cls(root, admins.split(","))
 
-    def resolve(self, value: str | Path, *, allow_missing: bool = True) -> Path:
-        supplied = Path(value)
+    def _virtual_relative(self, value: str | Path) -> Path:
+        """Translate a client path to a lexical path below the virtual root."""
+        raw = str(value or "").replace("\\", "/")
+        supplied = Path(raw)
         if supplied.is_absolute():
             try:
-                text = supplied.relative_to(self.root).as_posix()
+                relative = normalize_path(supplied).relative_to(self.root)
+                raw = relative.as_posix()
             except ValueError:
-                # WebDAV/SFTP clients address their virtual root as "/".  An
-                # absolute client path is therefore interpreted inside this
-                # namespace, never as an operating-system path.
-                text = supplied.as_posix().lstrip("/")
-        else:
-            text = str(value).replace("\\", "/").strip("/")
-        relative = Path(text or ".")
-        if relative.is_absolute() or ".." in relative.parts or "\x00" in text:
+                # DAV/SFTP clients conventionally spell their virtual root with
+                # a leading slash. Never interpret it as an OS absolute path.
+                raw = raw.lstrip("/")
+        raw = raw.strip("/")
+        relative = Path(os.path.normpath(raw or "."))
+        if relative.is_absolute() or "\x00" in raw or any(part == ".." for part in relative.parts):
             raise ValueError("path must remain inside the virtual filesystem")
         if any(part in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE, ""} for part in relative.parts):
             raise ValueError("path contains a reserved segment")
-        candidate = self.root if relative == Path(".") else self.root / relative
+        return relative
+
+    def resolve(self, value: str | Path, *, allow_missing: bool = True) -> Path:
+        """Normalize a remote path and prove containment before filesystem I/O."""
+        relative = self._virtual_relative(value)
+        lexical = self.root if relative == Path(".") else self.root / relative
+
+        # The namespace does not expose symlinks, even when their destination is
+        # technically inside the root. Check every existing lexical component
+        # before realpath can collapse it.
         current = self.root
         for part in (() if relative == Path(".") else relative.parts):
             current = current / part
             if current.is_symlink():
                 raise ValueError("symbolic links are not available")
-        # The root itself has a parent outside the virtual namespace.  For all
-        # descendants, resolving the parent catches symlink escapes while still
-        # allowing the conventional "." spelling for the root collection.
-        boundary = candidate if candidate == self.root else candidate.parent
+
         try:
-            boundary.resolve().relative_to(self.root)
-        except ValueError as exc:
+            if allow_missing:
+                candidate = resolve_for_write_under(self.root, relative)
+            else:
+                candidate = resolve_under(self.root, relative, strict=True)
+        except (OSError, ValueError) as exc:
             raise ValueError("path must remain inside the virtual filesystem") from exc
+        if lexical.exists() and lexical.is_symlink():
+            raise ValueError("symbolic links are not available")
         if not allow_missing and not candidate.exists():
-            raise FileNotFoundError(text)
+            raise FileNotFoundError(relative.as_posix())
         return candidate
 
     def relative(self, path: str | Path) -> str:
-        resolved = self.resolve(path) if not isinstance(path, Path) or not path.is_absolute() else path
+        if isinstance(path, Path) and path.is_absolute():
+            try:
+                resolved = normalize_path(path).relative_to(self.root)
+            except ValueError as exc:
+                raise ValueError("path must remain inside the virtual filesystem") from exc
+            return "." if not resolved.parts else resolved.as_posix()
+        resolved = self.resolve(path)
         return "." if resolved == self.root else resolved.relative_to(self.root).as_posix()
 
     def _policy_directories(self, path: Path) -> list[Path]:
@@ -98,8 +117,8 @@ class VirtualFileSystem:
         if not target.exists():
             target = target.parent if target != self.root else target
         try:
-            relative = target.resolve().relative_to(self.root)
-        except ValueError as exc:
+            relative = resolve_under(self.root, target.relative_to(self.root), strict=True).relative_to(self.root)
+        except (OSError, ValueError) as exc:
             raise ValueError("path must remain inside the virtual filesystem") from exc
         directories = [self.root]
         current = self.root
@@ -134,8 +153,6 @@ class VirtualFileSystem:
                 role = str(grant.get("role", "")).strip()
                 if principal and role in ROLES:
                     effective[principal] = role
-        # Compatibility boundary: an installation has the historical writable
-        # namespace until an administrator explicitly enables an ACL.
         return effective.get(username, "") if enabled else "write"
 
     def allows(self, actor: str, path: str | Path, required: str = "read") -> bool:
@@ -160,12 +177,16 @@ class VirtualFileSystem:
                 or child.is_symlink()
             ):
                 continue
+            try:
+                child = resolve_under(self.root, child.relative_to(self.root), strict=True)
+            except (OSError, ValueError):
+                continue
             if not self.allows(actor, child, "read"):
                 continue
-            stat = child.stat(follow_symlinks=False)
+            stat_result = child.stat(follow_symlinks=False)
             result.append(VirtualEntry(
                 self.relative(child), child.name, child.is_dir(),
-                0 if child.is_dir() else stat.st_size, stat.st_mtime_ns,
+                0 if child.is_dir() else stat_result.st_size, stat_result.st_mtime_ns,
             ))
         return result
 
@@ -173,6 +194,7 @@ class VirtualFileSystem:
         resource = self.require(actor, path, "read")
         if not resource.is_file() or resource.is_symlink():
             raise FileNotFoundError(self.relative(resource))
+        resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
         return resource.read_bytes()
 
     def write_bytes(
@@ -187,6 +209,7 @@ class VirtualFileSystem:
         resource = self.resolve(path)
         if resource.exists():
             self.require(actor, resource, "write")
+            resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
             document = self.store.get_document(resource)
             return self.store.replace_content(
                 document["document_id"], content, actor,
@@ -194,6 +217,7 @@ class VirtualFileSystem:
                 max_bytes=max_bytes,
             )
         self.require(actor, resource.parent, "write")
+        resource = resolve_for_write_under(self.root, resource.relative_to(self.root))
         return self.store.create_document_at(
             self.relative(resource), content, actor, max_bytes=max_bytes,
         )
@@ -201,11 +225,13 @@ class VirtualFileSystem:
     def mkdir(self, actor: str, path: str | Path) -> Path:
         resource = self.resolve(path)
         self.require(actor, resource.parent, "write")
+        resource = resolve_for_write_under(self.root, resource.relative_to(self.root))
         return self.store.create_collection(self.relative(resource), actor)
 
     def remove(self, actor: str, path: str | Path, *, expected_sha256: str = "") -> None:
         resource = self.require(actor, path, "write")
         self.require(actor, resource.parent, "write")
+        resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
         if resource.is_dir():
             self.store.delete_empty_collection(self.relative(resource), actor)
         else:
@@ -222,10 +248,17 @@ class VirtualFileSystem:
         destination_path = self.resolve(destination)
         self.require(actor, source_path.parent, "write")
         self.require(actor, destination_path.parent, "write")
+        source_path = resolve_under(self.root, source_path.relative_to(self.root), strict=True)
+        destination_path = resolve_for_write_under(
+            self.root, destination_path.relative_to(self.root)
+        )
         if destination_path.exists():
             if not replace:
                 raise FileExistsError(self.relative(destination_path))
             self.require(actor, destination_path, "write")
+            destination_path = resolve_under(
+                self.root, destination_path.relative_to(self.root), strict=True
+            )
             if source_path.is_dir() or destination_path.is_dir():
                 raise ValueError("POSIX replacement is limited to regular files")
             source_document = self.store.get_document(source_path)
@@ -249,12 +282,11 @@ class VirtualFileSystem:
         self, actor: str, path: str | Path, *, atime: float | None = None,
         mtime: float | None = None,
     ) -> None:
-        """Set portable timestamps without exposing ownership or mode changes."""
         resource = self.require(actor, path, "write")
+        resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
         current = resource.stat(follow_symlinks=False)
         accessed = current.st_atime if atime is None else float(atime)
         modified = current.st_mtime if mtime is None else float(mtime)
-        # Keep platform-dependent timestamp conversion away from extreme input.
         if not 0 <= accessed <= 4102444800 or not 0 <= modified <= 4102444800:
             raise ValueError("timestamp is outside the supported range")
         os.utime(resource, (accessed, modified), follow_symlinks=False)
@@ -286,6 +318,7 @@ class VirtualFileSystem:
             for username, role in sorted(grants.items())
             if username.strip() and role in ROLES
         ]
+        target = resolve_under(self.root, target.relative_to(self.root), strict=True)
         policy_path = self.store.ensure_folder_policy(target, actor)
         with exclusive_file_lock(policy_path.with_suffix(".lock")):
             policy = self.store._read_json(policy_path, {})
@@ -312,6 +345,7 @@ class VirtualFileSystem:
 
     def access_policy(self, folder: str | Path) -> dict[str, Any]:
         target = self.resolve(folder, allow_missing=False)
+        target = resolve_under(self.root, target.relative_to(self.root), strict=True)
         policy = self.store._read_json(target / POLICY_FILE, {})
         grants = policy.get("grants", []) if policy.get("access_enabled") is True else []
         return {
