@@ -12,24 +12,34 @@ This project is the Android counterpart of the Electron desktop wrapper. Electro
 - SQLite, secrets and application data remain in Android private app storage.
 - Cleartext HTTP is permitted only for localhost/127.0.0.1.
 
-The initial APK targets `arm64-v8a`, Android API 24 or newer.
+The initial APK targets `arm64-v8a`, Android API 24 or newer. This includes modern ARM64 devices such as the Poco F6 Pro.
 
 ## Build
 
-Requirements: JDK 17, Android SDK 36 and Gradle 8.13.
+Requirements: JDK 17, Android SDK 36, Gradle 8.13 and Python 3.13 for the Chaquopy build host.
 
 ```bash
 cd android/apk
 gradle assembleDebug
 ```
 
-Debug APK:
+The debug APK is signed automatically with the Android debug key and is directly installable:
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-For CI, GitHub Actions builds debug and release APKs and uploads them as `simpleoffice4me-android-apk`.
+A normal `assembleRelease` without a configured release signing key creates an unsigned APK and must not be distributed as an installable package.
+
+GitHub Actions therefore publishes only the verified signed artifact:
+
+```text
+simpleoffice4me-android-installable/
+  SimpleOffice4Me-Android-arm64.apk
+  SimpleOffice4Me-Android-arm64.apk.sha256
+```
+
+Before upload, CI verifies the APK signature with `apksigner` and validates 16 KiB page/alignment compatibility with `zipalign -P 16`.
 
 ## Current Android-specific limits
 
