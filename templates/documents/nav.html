@@ -39,6 +39,17 @@
         <div class="input-group input-group-sm"><input id="global-quick-search" class="form-control" type="search" name="q" value="{{ query if request.endpoint == 'documents.quick_search' else '' }}" placeholder="{{ 'Quick search…' if g.language == 'en' else 'Schnellsuche…' }}"><button type="submit" class="btn btn-outline-light" title="{{ 'Search' if g.language == 'en' else 'Suchen' }}"><i class="fas fa-magnifying-glass" aria-hidden="true"></i><span class="visually-hidden">{{ 'Search' if g.language == 'en' else 'Suchen' }}</span></button></div>
       </form>
       <div class="navbar-nav navigation-actions border-top border-xxl-0 pt-2 pt-xxl-0 align-items-xxl-center">
+        {% if document is defined and document.document_id is defined %}
+          {% set roulette = namespace(released=false) %}
+          {% for tag in document.tags|default([]) %}{% if tag|lower in ['gamification','gamification-freigegeben','daten-roulette','spiel-freigabe'] %}{% set roulette.released = true %}{% endif %}{% endfor %}
+          <form method="post" action="{{ url_for('gamification_leaderboard.document_release', document_id=document.document_id) }}" class="px-xxl-1">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="released" value="{{ '0' if roulette.released else '1' }}">
+            <button class="nav-link border-0 bg-transparent text-nowrap" type="submit" title="{{ 'Roulette-Freigabe entfernen' if roulette.released else 'Datei für Daten-Roulette freigeben' }}">
+              <i class="fas fa-dice me-1" aria-hidden="true"></i>{{ 'Roulette aus' if roulette.released else 'Für Roulette' }}
+            </button>
+          </form>
+        {% endif %}
         <a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a>
         <a class="nav-link" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a>
         <a class="nav-link" href="{{ url_for('documents.first_run_setup') }}"><i class="fas fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Einrichten</a>
