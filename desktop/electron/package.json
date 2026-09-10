@@ -1,0 +1,54 @@
+{
+  "name": "simpleoffice4me-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Electron desktop wrapper for SimpleOffice4Me",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:backend": "python ../python-setup/build_backend.py",
+    "pack": "npm run build:backend && electron-builder --dir",
+    "dist": "npm run build:backend && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "de.simpleoffice4me.desktop",
+    "productName": "SimpleOffice4Me",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html"
+    ],
+    "extraResources": [
+      {
+        "from": "../python-setup/dist",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Office"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
