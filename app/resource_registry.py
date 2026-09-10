@@ -7,7 +7,7 @@ from .federation_store import FederationStore
 from .resource_federation import FederationResourceProvider
 from .resource_local import LocalResourceProvider
 from .resource_mail import MailResourceProvider
-from .resource_provider import ProviderError
+from .resource_provider import ProviderCapabilities, ProviderError
 from .resource_smartview import SmartViewProvider
 
 
@@ -17,6 +17,23 @@ class ResourceRegistry:
         self.master_key = master_key
         self.actor = actor
         self._federation = FederationStore(self.root)
+
+    @staticmethod
+    def _federation_capabilities(peer: dict) -> ProviderCapabilities:
+        policy = peer.get("policy") or {}
+        return ProviderCapabilities(
+            read=bool(policy.get("receive", True) or policy.get("send", True)),
+            write=bool(policy.get("send", True)),
+            delete=False,
+            move=False,
+            copy=True,
+            folders=True,
+            search=True,
+            metadata=True,
+            streaming=True,
+            smart_view=bool(policy.get("smart_view", False)),
+            server_side_copy=True,
+        )
 
     def descriptors(self) -> list[dict]:
         providers = [self.get("self"), self.get("mail")]
@@ -28,14 +45,7 @@ class ResourceRegistry:
                 "provider_id": f"federation:{peer['peer_id']}",
                 "label": peer.get("label") or peer["peer_id"],
                 "kind": "federation",
-                "capabilities": {
-                    "read": bool((peer.get("policy") or {}).get("receive", True) or (peer.get("policy") or {}).get("send", True)),
-                    "write": bool((peer.get("policy") or {}).get("send", True)),
-                    "delete": False, "move": False, "copy": True, "folders": True,
-                    "search": True, "metadata": True, "streaming": True,
-                    "smart_view": bool((peer.get("policy") or {}).get("smart_view", False)),
-                    "server_side_copy": True,
-                },
+                "capabilities": self._federation_capabilities(peer).to_dict(),
             })
         return result
 
@@ -60,5 +70,11 @@ class ResourceRegistry:
             peer = self._federation.get_peer(peer_id)
             if not peer or not peer.get("enabled"):
                 raise ProviderError("Federation-Peer ist nicht verfügbar")
-            return FederationResourceProvider(peer_id, str(peer.get("label") or peer_id), str(peer["base_url"]), self._federation.peer_token(peer_id))
+            return FederationResourceProvider(
+                peer_id,
+                str(peer.get("label") or peer_id),
+                str(peer["base_url"]),
+                self._federation.peer_token(peer_id),
+                allowed_capabilities=self._federation_capabilities(peer),
+            )
         raise ProviderError("Unbekannter Provider")
