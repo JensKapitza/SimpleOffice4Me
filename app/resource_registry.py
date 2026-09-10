@@ -7,6 +7,7 @@ from .federation_store import FederationStore
 from .resource_federation import FederationResourceProvider
 from .resource_local import LocalResourceProvider
 from .resource_mail import MailResourceProvider
+from .resource_peer_credentials import peer_commander_token
 from .resource_provider import ProviderCapabilities, ProviderError
 from .resource_smartview import SmartViewProvider
 from .safe_paths import normalize_path
@@ -90,7 +91,7 @@ class ResourceRegistry:
                 peer_id,
                 str(peer.get("label") or peer_id),
                 str(peer["base_url"]),
-                self._federation.peer_token(peer_id),
+                peer_commander_token(peer_id),
                 allowed_capabilities=self._federation_capabilities(peer),
             )
         raise ProviderError("Unbekannter Provider")
