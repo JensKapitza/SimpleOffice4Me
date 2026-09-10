@@ -75,6 +75,7 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertIn("watchdog>=6,<7", script)
         self.assertIn("--only-binary=:all:", script)
         self.assertIn("--no-deps --editable", script)
+        self.assertIn("android/install-termux-argon2.sh", script)
         self.assertIn("pip check", script)
 
     def test_project_declares_python_tzdata_fallback(self):
