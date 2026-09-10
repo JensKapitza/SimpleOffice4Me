@@ -1,11 +1,5 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-# This workflow integrates a collection of open source static analysis tools
-# with GitHub code scanning. For documentation, or to provide feedback, visit
-# https://github.com/github/ossar-action
+# Static analysis with Microsoft Security DevOps (MSDO).
+# The legacy github/ossar-action@v1 targets Node.js 20 and is deprecated.
 name: OSSAR
 
 on:
@@ -34,11 +28,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
-    - name: Run OSSAR
-      uses: github/ossar-action@v1
-      id: ossar
+    - name: Run Microsoft Security DevOps
+      # Pinned to a reviewed Node.js 24 commit from microsoft/security-devops-action.
+      uses: microsoft/security-devops-action@241d09d34a00dc03aad8b1e8cf988a6f66ecd3f5
+      id: msdo
 
-    - name: Upload OSSAR results
+    - name: Upload security scan results
       uses: github/codeql-action/upload-sarif@v4
       with:
-        sarif_file: ${{ steps.ossar.outputs.sarifFile }}
+        sarif_file: ${{ steps.msdo.outputs.sarifFile }}
