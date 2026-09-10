@@ -23,9 +23,17 @@ def python_in_venv() -> Path:
     return BUILD_VENV / "bin" / "python"
 
 
+def build_environment() -> dict[str, str]:
+    """Use UTF-8 for all build subprocesses, including PyInstaller isolation."""
+    environment = os.environ.copy()
+    environment["PYTHONUTF8"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
+    return environment
+
+
 def run(*args: str) -> None:
     print("+", " ".join(args), flush=True)
-    subprocess.run(args, cwd=REPO, check=True)
+    subprocess.run(args, cwd=REPO, env=build_environment(), check=True)
 
 
 def add_data(source: Path, destination: str) -> str:
