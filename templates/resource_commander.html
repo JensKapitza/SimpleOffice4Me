@@ -53,5 +53,12 @@
     <option value="full">Diff: vollständig</option>
   </select>
   <button id="complete" type="button">Hab ich alles?</button>
+  {% if g.user %}
+  <a
+    id="smart-mount-link"
+    href="{{ url_for('webdav_smart_mount.smart_mount', username=g.user['username']) }}"
+    title="Virtuelle SmartView-WebDAV-Wurzel öffnen oder diese URL im Dateimanager mounten"
+  >Smart-Mount öffnen</a>
+  {% endif %}
 </div>
 {% endblock %}
