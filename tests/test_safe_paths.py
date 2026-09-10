@@ -22,6 +22,13 @@ class SafePathsTest(unittest.TestCase):
             self.assertEqual(nested.resolve(), resolve_under(root, "customers/42", strict=True))
             self.assertEqual(Path("customers/42"), relative_under(root, "customers/42", require_name=True))
 
+    def test_root_itself_is_allowed_for_directory_and_write_resolution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            self.assertEqual(root, resolve_under(root, ".", strict=True))
+            self.assertEqual(root, resolve_directory_under(root, "."))
+            self.assertEqual(root, resolve_for_write_under(root, "."))
+
     def test_parent_traversal_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
