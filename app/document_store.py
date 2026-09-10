@@ -5,6 +5,8 @@ the maintenance limit while preserving the public app.document_store API.
 """
 from __future__ import annotations
 
+import re
+
 from . import document_store_core as _core
 from .document_store_core import *  # noqa: F401,F403
 from . import document_store_part_1 as _part_module_1
@@ -17,10 +19,44 @@ from . import document_store_part_4 as _part_module_4
 from .document_store_part_4 import _DocumentStorePart4
 from . import document_store_part_5 as _part_module_5
 from .document_store_part_5 import _DocumentStorePart5
+from .safe_paths import relative_under, resolve_file_under
+
+_SAFE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 
 
 class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart3, _DocumentStorePart4, _DocumentStorePart5):
-    'Filesystem store with xattrs when available and JSON sidecars otherwise.'
+    """Filesystem store with a validated public document lookup boundary."""
+
+    def get_document(self, reference: str | Path) -> dict[str, Any]:
+        """Resolve path references safely and reject metadata-path traversal.
+
+        The legacy implementation accepts either a document ID or a managed file
+        path. A path is normalized/realpathed below ``self.root`` before lookup;
+        a non-path reference must be a single safe document-ID component. Stored
+        ``last_path`` is normalized before any caller can use it for file I/O.
+        """
+        raw = str(reference or "")
+        path_like = isinstance(reference, Path) or "/" in raw or "\\" in raw
+        if path_like:
+            try:
+                safe_reference: str | Path = resolve_file_under(self.root, raw)
+            except (OSError, ValueError) as exc:
+                raise ValueError("document path is outside the managed store") from exc
+        else:
+            if not _SAFE_DOCUMENT_ID.fullmatch(raw) or raw in {".", ".."}:
+                raise ValueError("invalid document reference")
+            safe_reference = raw
+
+        metadata = super().get_document(safe_reference)
+        last_path = str(metadata.get("last_path", "") or "")
+        if last_path and not last_path.startswith("[external]"):
+            try:
+                metadata["last_path"] = relative_under(
+                    self.root, last_path, require_name=True
+                ).as_posix()
+            except (OSError, ValueError) as exc:
+                raise ValueError("document metadata contains an unsafe path") from exc
+        return metadata
 
 
 # Some tests and callers intentionally patch app.document_store.sha256_file.
@@ -75,7 +111,6 @@ def scan_documents_command(root: Path | None, verify_hashes: bool) -> None:
 @click.option("--user", "actor", required=True)
 @with_appcontext
 def document_note_command(document: str, text: str, actor: str) -> None:
-    """Add TEXT as a note to DOCUMENT (ID or relative file path)."""
     note = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_note(document, text, actor)
     click.echo(note["id"])
 
@@ -86,7 +121,6 @@ def document_note_command(document: str, text: str, actor: str) -> None:
 @click.option("--user", "actor", required=True)
 @with_appcontext
 def document_state_command(document: str, state: str, actor: str) -> None:
-    """Set the human workflow STATE of DOCUMENT."""
     changed = DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_state(document, state, actor)
     click.echo(json.dumps(changed, ensure_ascii=False))
 
@@ -99,7 +133,6 @@ def document_state_command(document: str, state: str, actor: str) -> None:
 @click.option("--user", "actor", required=True)
 @with_appcontext
 def document_link_command(source: str, target: str, relation_type: str, label: str, actor: str) -> None:
-    """Link SOURCE to TARGET for the document mindmap."""
     link = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_link(source, target, relation_type, label, actor)
     click.echo(link["id"])
 
@@ -108,7 +141,6 @@ def document_link_command(source: str, target: str, relation_type: str, label: s
 @click.argument("document")
 @with_appcontext
 def document_graph_command(document: str) -> None:
-    """Print graph data for DOCUMENT as JSON."""
     graph = DocumentStore(current_app.config["DOCUMENT_ROOT"]).graph(document)
     click.echo(json.dumps(graph, ensure_ascii=False, indent=2))
 
@@ -120,7 +152,6 @@ def document_graph_command(document: str) -> None:
 @click.option("--user", "actor", required=True)
 @with_appcontext
 def document_attribute_command(document: str, key: str, value: str, actor: str) -> None:
-    """Set a freely modelled KEY/VALUE attribute on DOCUMENT."""
     DocumentStore(current_app.config["DOCUMENT_ROOT"]).set_attribute(document, key, value, actor)
     click.echo(key)
 
@@ -135,7 +166,6 @@ def document_attribute_command(document: str, key: str, value: str, actor: str) 
 def document_deadline_command(
     document: str, expires_at: str, kind: str, label: str, actor: str
 ) -> None:
-    """Append one retention or work deadline to DOCUMENT."""
     deadline = DocumentStore(current_app.config["DOCUMENT_ROOT"]).add_deadline(
         document, kind, expires_at, label, actor
     )
@@ -146,7 +176,6 @@ def document_deadline_command(
 @click.argument("document")
 @with_appcontext
 def retention_status_command(document: str) -> None:
-    """Explain every direct, inherited and transitive deadline."""
     status = DocumentStore(current_app.config["DOCUMENT_ROOT"]).retention_status(document)
     click.echo(json.dumps(status, ensure_ascii=False, indent=2))
 
@@ -158,7 +187,6 @@ def retention_status_command(document: str) -> None:
 @click.option("--user", "actor", required=True)
 @with_appcontext
 def retention_cleanup_command(destination: str, apply: bool, confirm: str, actor: str) -> None:
-    """Preview cleanup candidates or move them; never delete document files."""
     if apply and confirm != "AUSSONDERN":
         raise click.UsageError("--apply requires --confirm AUSSONDERN")
     result = DocumentStore(current_app.config["DOCUMENT_ROOT"]).cleanup_expired(
@@ -172,7 +200,6 @@ def retention_cleanup_command(destination: str, apply: bool, confirm: str, actor
 @click.option("--limit", default=50, show_default=True)
 @with_appcontext
 def search_documents_command(query: str, limit: int) -> None:
-    """Search document paths, states, tags, notes and domain attributes."""
     results = DocumentStore(current_app.config["DOCUMENT_ROOT"]).search(query, limit)
     click.echo(json.dumps(results, ensure_ascii=False, indent=2))
 
