@@ -1,0 +1,82 @@
+name: Rebase PR 209 once
+
+on:
+  push:
+    branches:
+      - automation/rebase-pr209
+    paths:
+      - .github/workflows/rebase-pr209-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rebase-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: refactor/enforce-1000-lines-complete
+          fetch-depth: 0
+
+      - name: Linearize branch on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main refactor/enforce-1000-lines-complete
+          echo "OLD_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          if ! git rebase --force-rebase origin/main; then
+            echo "REBASE_CONFLICTS_BEGIN"
+            git diff --name-only --diff-filter=U || true
+            echo "REBASE_CONFLICTS_END"
+            exit 1
+          fi
+          if git rev-list --merges origin/main..HEAD | grep -q .; then
+            echo "Merge commits remain after rebase"
+            git rev-list --merges --oneline origin/main..HEAD
+            exit 1
+          fi
+
+      - name: Enforce source file size limit
+        run: python tools/check_file_size.py . --limit 1000
+
+      - name: Compile project sources
+        run: python -m compileall -q app tools tests simpleoffice_mini_core.py simpleoffice_mini_runtime.py simpleoffice_mini_services.py
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install project on Python 3.10
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable ".[security]"
+
+      - name: Run full unit suite on Python 3.10
+        run: python -m unittest discover -s tests -v
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install project on Python 3.14
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable ".[security]"
+
+      - name: Run full unit suite on Python 3.14
+        run: python -m unittest discover -s tests -v
+
+      - name: Force-push verified linear history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push --force-with-lease=refs/heads/refactor/enforce-1000-lines-complete:${OLD_HEAD} origin HEAD:refs/heads/refactor/enforce-1000-lines-complete
