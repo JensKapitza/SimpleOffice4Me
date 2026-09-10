@@ -86,8 +86,13 @@ def _virtual_name(entry: ResourceEntry, duplicate: bool) -> str:
     return f"{stem} [{token}]{suffix}"
 
 
-def _members(provider: SmartViewProvider, collection: str) -> list[tuple[str, ResourceEntry]]:
-    entries = list(provider.list(collection))[:MAX_SMART_MEMBERS]
+def _members(
+    provider: SmartViewProvider,
+    collection: str,
+    *,
+    context: str = "",
+) -> list[tuple[str, ResourceEntry]]:
+    entries = list(provider.list_scoped(collection, context=context))[:MAX_SMART_MEMBERS]
     counts = Counter(entry.name.casefold() for entry in entries)
     result = [
         (_virtual_name(entry, counts[entry.name.casefold()] > 1), entry)
@@ -115,8 +120,10 @@ def _resolve_member(
     virtual_name: str,
     identity: dict,
     username: str,
+    *,
+    context: str = "",
 ) -> ResourceEntry:
-    for name, entry in _members(provider, collection):
+    for name, entry in _members(provider, collection, context=context):
         if name == virtual_name and _visible(identity, username, entry):
             return entry
     raise ProviderError("SmartView-Ressource nicht gefunden")
@@ -230,14 +237,21 @@ def _propfind(
         if depth != "0":
             rows.extend(
                 _file_prop(username, collection, name, entry, context=context)
-                for name, entry in _members(provider, collection)
+                for name, entry in _members(provider, collection, context=context)
                 if _visible(identity, username, entry)
             )
         return _multistatus(rows)
     if len(parts) != 2:
         return Response("not found", 404)
     try:
-        entry = _resolve_member(provider, collection, parts[1], identity, username)
+        entry = _resolve_member(
+            provider,
+            collection,
+            parts[1],
+            identity,
+            username,
+            context=context,
+        )
     except ProviderError:
         return Response("not found", 404)
     return _multistatus([_file_prop(username, collection, parts[1], entry, context=context)])
@@ -282,13 +296,17 @@ def _serve(username: str, relative: str, context: str = ""):
     if identity.get("scope") != "write" and request.method not in _READ_METHODS:
         return Response("write access required", 403)
     try:
-        entry = _resolve_member(provider, parts[0], parts[1], identity, username)
+        entry = _resolve_member(
+            provider,
+            parts[0],
+            parts[1],
+            identity,
+            username,
+            context=context,
+        )
     except ProviderError:
         return Response("not found", 404)
 
-    # Delegate file operations to the real resource. This intentionally permits
-    # COPY/MOVE of the underlying file while the virtual collections themselves
-    # remain immutable.
     return file_tree(username, entry.resource_id)
 
 
