@@ -35,8 +35,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: desktop/electron/package-lock.json
       - name: Install Electron dependencies
         working-directory: desktop/electron
         run: npm install --no-audit --no-fund
