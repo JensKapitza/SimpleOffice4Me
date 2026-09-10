@@ -1,5 +1,5 @@
 """Reward leaderboard and small user-facing data-roulette actions."""
-from flask import Blueprint, abort, current_app, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .access_control import has_feature
 from .auth import login_required
@@ -61,6 +61,7 @@ def document_release(document_id: str):
             released,
         )
     except ValueError as exc:
-        return redirect(url_for("documents.detail", document_id=document_id, roulette_message=str(exc)[:180]))
-    message = "Für Daten-Roulette freigegeben." if released else "Daten-Roulette-Freigabe entfernt."
-    return redirect(url_for("documents.detail", document_id=document_id, roulette_message=message))
+        flash(str(exc)[:180])
+        return redirect(url_for("documents.detail", document_id=document_id))
+    flash("Für Daten-Roulette freigegeben." if released else "Daten-Roulette-Freigabe entfernt.")
+    return redirect(url_for("documents.detail", document_id=document_id))
