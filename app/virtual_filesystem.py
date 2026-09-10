@@ -60,10 +60,13 @@ class VirtualFileSystem:
         raw = str(value or "").replace("\\", "/")
         supplied = Path(raw)
         if supplied.is_absolute():
-            try:
-                relative = normalize_path(supplied).relative_to(self.root)
-                raw = relative.as_posix()
-            except ValueError:
+            if isinstance(value, Path):
+                try:
+                    relative = normalize_path(supplied).relative_to(self.root)
+                    raw = relative.as_posix()
+                except ValueError:
+                    raw = raw.lstrip("/")
+            else:
                 # DAV/SFTP clients conventionally spell their virtual root with
                 # a leading slash. Never interpret it as an OS absolute path.
                 raw = raw.lstrip("/")
@@ -78,29 +81,12 @@ class VirtualFileSystem:
     def resolve(self, value: str | Path, *, allow_missing: bool = True) -> Path:
         """Normalize a remote path and prove containment before filesystem I/O."""
         relative = self._virtual_relative(value)
-        lexical = self.root if relative == Path(".") else self.root / relative
-
-        # The namespace does not expose symlinks, even when their destination is
-        # technically inside the root. Check every existing lexical component
-        # before realpath can collapse it.
-        current = self.root
-        for part in (() if relative == Path(".") else relative.parts):
-            current = current / part
-            if current.is_symlink():
-                raise ValueError("symbolic links are not available")
-
         try:
             if allow_missing:
-                candidate = resolve_for_write_under(self.root, relative)
-            else:
-                candidate = resolve_under(self.root, relative, strict=True)
+                return resolve_for_write_under(self.root, relative)
+            return resolve_under(self.root, relative, strict=True)
         except (OSError, ValueError) as exc:
             raise ValueError("path must remain inside the virtual filesystem") from exc
-        if lexical.exists() and lexical.is_symlink():
-            raise ValueError("symbolic links are not available")
-        if not allow_missing and not candidate.exists():
-            raise FileNotFoundError(relative.as_posix())
-        return candidate
 
     def relative(self, path: str | Path) -> str:
         if isinstance(path, Path) and path.is_absolute():
