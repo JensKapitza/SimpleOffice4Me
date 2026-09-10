@@ -8,6 +8,8 @@ on:
       - 'app/**'
       - 'templates/**'
       - 'static/**'
+      - 'tools/**'
+      - 'simpleoffice_*.py'
       - '.github/workflows/android-apk-build.yml'
 
 permissions:
@@ -43,6 +45,18 @@ jobs:
       - name: Build installable Android APK
         working-directory: android/apk
         run: gradle --no-daemon assembleDebug
+
+      - name: Verify bundled Python runtime assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='android/apk/app/build/outputs/apk/debug/app-debug.apk'
+          unzip -l "$APK" > /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/app/__init__.py' /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/simpleoffice_version.py' /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/tools/launcher.py' /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/templates/' /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/static/' /tmp/apk-files.txt
 
       - name: Verify APK signature and 16 KiB alignment
         shell: bash
