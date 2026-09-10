@@ -3,8 +3,9 @@ import tempfile
 import unittest
 
 from app.resource_local import LocalResourceProvider
-from app.resource_provider import ProviderError
+from app.resource_provider import ProviderError, ResourceEntry
 from app.resource_smartview import SmartViewProvider
+from app.webdav_smart_mount import _href, _virtual_name
 
 
 class LocalResourceProviderTests(unittest.TestCase):
@@ -46,6 +47,33 @@ class SmartViewProviderTests(unittest.TestCase):
             self.assertIn("Eingang", names)
             self.assertIn("Duplikate", names)
             self.assertIn("Archiv", names)
+
+    def test_smart_mount_href_is_stable_and_encoded(self):
+        self.assertEqual(
+            "/webdav/smart/jens/",
+            _href("jens", collection=True),
+        )
+        self.assertEqual(
+            "/webdav/smart/jens/invoices/Rechnung%202026.pdf",
+            _href("jens", "invoices/Rechnung 2026.pdf"),
+        )
+
+    def test_smart_mount_disambiguates_duplicate_file_names(self):
+        first = ResourceEntry(
+            resource_id="Kunde-A/Rechnung.pdf",
+            name="Rechnung.pdf",
+            provider="smart",
+        )
+        second = ResourceEntry(
+            resource_id="Kunde-B/Rechnung.pdf",
+            name="Rechnung.pdf",
+            provider="smart",
+        )
+        first_name = _virtual_name(first, True)
+        second_name = _virtual_name(second, True)
+        self.assertNotEqual(first_name, second_name)
+        self.assertTrue(first_name.startswith("Rechnung ["))
+        self.assertTrue(first_name.endswith("].pdf"))
 
 
 if __name__ == "__main__":
