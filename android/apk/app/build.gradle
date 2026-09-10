@@ -54,9 +54,6 @@ android {
     }
 }
 
-// Package the existing Flask sources and resources as Android assets. The app
-// copies this tree into its private files directory before importing it, so the
-// existing writable relative paths continue to work without duplicating source.
 tasks.register('syncSimpleOfficeAssets', Sync) {
     into "$buildDir/generated/simpleofficeAssets/simpleoffice"
     from('../../..') {
@@ -69,8 +66,3 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
 }
 
 preBuild.dependsOn syncSimpleOfficeAssets
-
-dependencies {
-    implementation 'androidx.activity:activity-ktx:1.12.1'
-    implementation 'androidx.webkit:webkit:1.14.0'
-}
