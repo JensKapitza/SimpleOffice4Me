@@ -50,6 +50,16 @@ class SmartViewProvider:
         self.root = self.store.root
 
     def list(self, path: str = "") -> Iterable[ResourceEntry]:
+        return self.list_scoped(path)
+
+    def list_scoped(self, path: str = "", context: str = "") -> Iterable[ResourceEntry]:
+        """List a SmartView collection, optionally relative to a real subtree.
+
+        Context currently changes the duplicate collection: a duplicate group is
+        included only when at least two files with the same SHA-256 exist inside
+        that subtree. This makes ``SmartView/Duplikate`` useful from any mounted
+        folder without leaking unrelated duplicate groups from elsewhere.
+        """
         key = str(path or "").strip("/")
         if not key:
             return [
@@ -67,9 +77,7 @@ class SmartViewProvider:
             raise ProviderError("Unbekannte SmartView")
         with self.store._db() as db:
             if key == "duplicates":
-                rows = db.execute("""SELECT s.relative_path,s.document_id,s.size,s.last_seen_at
-                    FROM scan_file s JOIN (SELECT sha256 FROM scan_file GROUP BY sha256 HAVING COUNT(*) > 1) d USING(sha256)
-                    ORDER BY s.relative_path LIMIT 500""").fetchall()
+                rows = self._duplicate_rows(db, context)
             elif key == "recent":
                 rows = db.execute(
                     "SELECT relative_path,document_id,size,last_seen_at FROM scan_file ORDER BY last_seen_at DESC LIMIT 500"
@@ -93,6 +101,41 @@ class SmartViewProvider:
                     "SELECT relative_path,document_id,size,last_seen_at FROM scan_file ORDER BY relative_path LIMIT 500"
                 ).fetchall()
         return [self._entry(row) for row in rows]
+
+    @staticmethod
+    def _context_prefix(context: str) -> str:
+        value = str(context or "").strip().strip("/")
+        if not value:
+            return ""
+        normalized = Path(value)
+        if normalized.is_absolute() or any(part in {"", ".", ".."} for part in normalized.parts):
+            raise ProviderError("Ungültiger SmartView-Kontext")
+        return normalized.as_posix().rstrip("/") + "/"
+
+    def _duplicate_rows(self, db, context: str):
+        prefix = self._context_prefix(context)
+        if not prefix:
+            return db.execute("""SELECT s.relative_path,s.document_id,s.size,s.last_seen_at
+                FROM scan_file s JOIN (
+                    SELECT sha256 FROM scan_file
+                    WHERE sha256 IS NOT NULL AND sha256 != ''
+                    GROUP BY sha256 HAVING COUNT(*) > 1
+                ) d USING(sha256)
+                ORDER BY s.sha256,s.relative_path LIMIT 500""").fetchall()
+
+        # LIKE is used with a bound parameter; wildcard characters from folder
+        # names are escaped so the subtree boundary remains exact.
+        escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = escaped + "%"
+        return db.execute("""SELECT s.relative_path,s.document_id,s.size,s.last_seen_at
+            FROM scan_file s JOIN (
+                SELECT sha256 FROM scan_file
+                WHERE sha256 IS NOT NULL AND sha256 != ''
+                  AND relative_path LIKE ? ESCAPE '\\'
+                GROUP BY sha256 HAVING COUNT(*) > 1
+            ) d USING(sha256)
+            WHERE s.relative_path LIKE ? ESCAPE '\\'
+            ORDER BY s.sha256,s.relative_path LIMIT 500""", (pattern, pattern)).fetchall()
 
     @staticmethod
     def _business_rows(db, terms: tuple[str, ...]):
