@@ -3,7 +3,7 @@
 {% block content %}
 <section class="container-xl py-3">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <div><h1 class="h3 mb-1">Daten-Roulette verwalten</h1><p class="text-muted mb-0">Runden, Teilnehmer, Dateifreigaben, Konsens und Belohnungen.</p></div>
+    <div><h1 class="h3 mb-1">Daten-Roulette verwalten</h1><p class="text-muted mb-0">Runden, Teilnehmer, Dateifreigaben, Vorschläge, Konsens und Belohnungen.</p></div>
     <a class="btn btn-outline-primary" href="{{ url_for('gamification.index') }}">Zum Roulette</a>
   </div>
 
@@ -47,7 +47,25 @@
   </div></section>
 
   <section class="card"><div class="card-header"><strong>Offene Vorschläge / Konsens</strong></div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th scope="col">Vorschlag</th><th scope="col">Quelle</th><th scope="col">Konsens</th><th scope="col">Aktion</th></tr></thead><tbody>
-    {% for proposal in proposals %}<tr><td><strong>{{ proposal.provider }} · {{ proposal.field_name }}</strong><br><span class="text-break">{{ proposal.value }}</span></td><td>{{ proposal.proposed_by }} · {{ proposal.source }}</td><td>{{ proposal.consensus.approvals }}/{{ proposal.consensus.total }} · {{ (proposal.consensus.ratio * 100)|round|int }}%</td><td><form class="d-inline" method="post" action="{{ url_for('gamification.vote') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="proposal_id" value="{{ proposal.id }}"><button class="btn btn-sm btn-outline-success" name="approve" value="1" type="submit">Ja</button><button class="btn btn-sm btn-outline-danger" name="approve" value="0" type="submit">Nein</button></form>{% if proposal.created_by == g.user['username'] and proposal.consensus.reached %}<form class="d-inline" method="post" action="{{ url_for('gamification.confirm') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="proposal_id" value="{{ proposal.id }}"><button class="btn btn-sm btn-primary" type="submit">Konsens übernehmen</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="text-muted">Keine offenen Vorschläge.</td></tr>{% endfor %}
+    {% for proposal in proposals %}
+      {% set directly_applicable = proposal.provider == 'contacts' or (proposal.provider in ['documents','images'] and proposal.field_name == 'tags') or (proposal.provider == 'documents' and proposal.field_name == 'note') %}
+      <tr>
+        <td><strong>{{ proposal.provider }} · {{ proposal.field_name }}</strong><br><span class="text-break">{{ proposal.value }}</span>{% if directly_applicable %}<br><span class="badge text-bg-success mt-1">kann übernommen werden</span>{% endif %}</td>
+        <td>{{ proposal.proposed_by }} · {{ proposal.source }}</td>
+        <td>{{ proposal.consensus.approvals }}/{{ proposal.consensus.total }} · {{ (proposal.consensus.ratio * 100)|round|int }}%</td>
+        <td>
+          <form class="d-inline" method="post" action="{{ url_for('gamification.vote') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="proposal_id" value="{{ proposal.id }}"><button class="btn btn-sm btn-outline-success" name="approve" value="1" type="submit">Ja</button><button class="btn btn-sm btn-outline-danger" name="approve" value="0" type="submit">Nein</button></form>
+          {% if proposal.created_by == g.user['username'] and directly_applicable %}
+            <form class="d-inline" method="post" action="{{ url_for('gamification_leaderboard.apply_proposal', proposal_id=proposal.id) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              {% if request.args.get('replace_proposal') == proposal.id %}<input type="hidden" name="replace_existing" value="1"><button class="btn btn-sm btn-danger" type="submit">Bestehenden Wert ersetzen</button>{% else %}<button class="btn btn-sm btn-primary" type="submit">Vorschlag übernehmen</button>{% endif %}
+            </form>
+          {% elif proposal.created_by == g.user['username'] and proposal.consensus.reached %}
+            <form class="d-inline" method="post" action="{{ url_for('gamification.confirm') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="proposal_id" value="{{ proposal.id }}"><button class="btn btn-sm btn-primary" type="submit">Konsens bestätigen</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}<tr><td colspan="4" class="text-muted">Keine offenen Vorschläge.</td></tr>{% endfor %}
   </tbody></table></div></section>
 </section>
 {% endblock %}
