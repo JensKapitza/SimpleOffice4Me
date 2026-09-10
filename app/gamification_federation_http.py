@@ -15,6 +15,7 @@ from .gamification_adapters import (
     image_candidates,
     image_preview_path,
 )
+from .gamification_document_selection import document_candidate_from_object_ref
 from .gamification_federation import authenticate_peer, minimal_challenge_envelope, peer_allows
 from .gamification_providers import Challenge, get_provider
 from .gamification_store import GamificationStore
@@ -50,6 +51,21 @@ def _actor(peer_id: str) -> str:
     return f"peer:{peer_id}"
 
 
+def _session_has_document(challenge: dict) -> bool:
+    session_id = str(challenge.get("session_id", "")).strip()
+    object_ref = str(challenge.get("object_ref", "")).strip()
+    if not session_id or not object_ref:
+        return False
+    with _game()._db() as db:
+        row = db.execute(
+            "SELECT 1 FROM game_item i JOIN game_session s ON s.id=i.session_id "
+            "WHERE i.session_id=? AND i.provider='documents' AND i.object_ref=? "
+            "AND s.scope='federation' AND s.status='active'",
+            (session_id, object_ref),
+        ).fetchone()
+    return row is not None
+
+
 def _source_still_allowed(challenge: dict) -> bool:
     owner = str(challenge.get("created_by", "")).strip()
     provider = str(challenge.get("provider", "")).strip()
@@ -60,6 +76,15 @@ def _source_still_allowed(challenge: dict) -> bool:
     user = get_db().execute("SELECT * FROM user WHERE username=?", (owner,)).fetchone()
     if user is None or not has_feature(user, feature):
         return False
+
+    # A document explicitly selected for this federation round remains playable
+    # without a permanent roulette tag. The exact game_item is the grant; the
+    # document itself is still revalidated against the hard exclusion filter.
+    if provider == "documents" and _session_has_document(challenge):
+        return document_candidate_from_object_ref(
+            _root(), owner, object_ref, require_release=False,
+        ) is not None
+
     if provider == "contacts":
         candidates = contact_candidates(_root(), owner)
     elif provider == "images":
