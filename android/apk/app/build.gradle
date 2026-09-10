@@ -48,28 +48,27 @@ android {
 
     sourceSets {
         main {
-            python.srcDir "$buildDir/generated/simpleofficePython"
+            python.srcDir 'src/main/python'
+            assets.srcDir "$buildDir/generated/simpleofficeAssets"
         }
     }
 }
 
-// Keep one source of truth: package the existing Flask app and web resources
-// into Chaquopy's Python source tree at build time.
-tasks.register('syncSimpleOfficePython', Sync) {
-    into "$buildDir/generated/simpleofficePython"
+// Package the existing Flask sources and resources as Android assets. The app
+// copies this tree into its private files directory before importing it, so the
+// existing writable relative paths continue to work without duplicating source.
+tasks.register('syncSimpleOfficeAssets', Sync) {
+    into "$buildDir/generated/simpleofficeAssets/simpleoffice"
     from('../../..') {
         include 'app/**'
+        include 'templates/**'
+        include 'static/**'
         exclude 'app/**/__pycache__/**'
         exclude 'app/**/*.pyc'
     }
-    from('../../..') {
-        include 'templates/**'
-        include 'static/**'
-    }
-    from('src/main/python')
 }
 
-preBuild.dependsOn syncSimpleOfficePython
+preBuild.dependsOn syncSimpleOfficeAssets
 
 dependencies {
     implementation 'androidx.activity:activity-ktx:1.12.1'
