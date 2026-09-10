@@ -6,6 +6,7 @@ from typing import Iterable
 
 from .document_store import DocumentStore
 from .resource_provider import ProviderCapabilities, ProviderError, ResourceEntry
+from .safe_paths import resolve_file_under, relative_under
 
 SMART_COLLECTIONS = {
     "documents": "Dokumente",
@@ -53,13 +54,6 @@ class SmartViewProvider:
         return self.list_scoped(path)
 
     def list_scoped(self, path: str = "", context: str = "") -> Iterable[ResourceEntry]:
-        """List a SmartView collection, optionally relative to a real subtree.
-
-        Context currently changes the duplicate collection: a duplicate group is
-        included only when at least two files with the same SHA-256 exist inside
-        that subtree. This makes ``SmartView/Duplikate`` useful from any mounted
-        folder without leaking unrelated duplicate groups from elsewhere.
-        """
         key = str(path or "").strip("/")
         if not key:
             return [
@@ -102,14 +96,14 @@ class SmartViewProvider:
                 ).fetchall()
         return [self._entry(row) for row in rows]
 
-    @staticmethod
-    def _context_prefix(context: str) -> str:
+    def _context_prefix(self, context: str) -> str:
         value = str(context or "").strip().strip("/")
         if not value:
             return ""
-        normalized = Path(value)
-        if normalized.is_absolute() or any(part in {"", ".", ".."} for part in normalized.parts):
-            raise ProviderError("Ungültiger SmartView-Kontext")
+        try:
+            normalized = relative_under(self.root, value, require_name=True)
+        except (OSError, ValueError) as exc:
+            raise ProviderError("Ungültiger SmartView-Kontext") from exc
         return normalized.as_posix().rstrip("/") + "/"
 
     def _duplicate_rows(self, db, context: str):
@@ -123,8 +117,6 @@ class SmartViewProvider:
                 ) d USING(sha256)
                 ORDER BY s.sha256,s.relative_path LIMIT 500""").fetchall()
 
-        # LIKE is used with a bound parameter; wildcard characters from folder
-        # names are escaped so the subtree boundary remains exact.
         escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         pattern = escaped + "%"
         return db.execute("""SELECT s.relative_path,s.document_id,s.size,s.last_seen_at
@@ -139,7 +131,6 @@ class SmartViewProvider:
 
     @staticmethod
     def _business_rows(db, terms: tuple[str, ...]):
-        """Use fixed SQL and filter a bounded candidate projection in Python."""
         rows = db.execute("""SELECT s.relative_path,s.document_id,s.size,s.last_seen_at,
                     COALESCE(x.tags,'') AS search_tags, COALESCE(x.attributes,'') AS search_attributes
                 FROM scan_file s LEFT JOIN document_search x ON x.document_id=s.document_id
@@ -160,11 +151,15 @@ class SmartViewProvider:
 
     def _entry(self, row) -> ResourceEntry:
         path = str(row["relative_path"])
+        try:
+            safe_relative = relative_under(self.root, path, require_name=True).as_posix()
+        except (OSError, ValueError) as exc:
+            raise ProviderError("Ungültiger SmartView-Pfad") from exc
         return ResourceEntry(
-            resource_id=path,
-            name=Path(path).name,
+            resource_id=safe_relative,
+            name=Path(safe_relative).name,
             kind="file",
-            path=path,
+            path=safe_relative,
             size=int(row["size"] or 0),
             modified=str(row["last_seen_at"] or ""),
             provider=self.provider_id,
@@ -172,23 +167,24 @@ class SmartViewProvider:
         )
 
     def stat(self, resource_id: str) -> ResourceEntry:
+        try:
+            normalized = relative_under(self.root, resource_id, require_name=True).as_posix()
+        except (OSError, ValueError) as exc:
+            raise ProviderError("Ungültiger SmartView-Pfad") from exc
         with self.store._db() as db:
             row = db.execute(
                 "SELECT relative_path,document_id,size,last_seen_at FROM scan_file WHERE relative_path=?",
-                (str(resource_id),),
+                (normalized,),
             ).fetchone()
         if row is None:
             raise ProviderError("SmartView-Ressource nicht gefunden")
         return self._entry(row)
 
     def open(self, resource_id: str):
-        candidate = (self.root / str(resource_id)).resolve()
         try:
-            candidate.relative_to(self.root)
-        except ValueError as exc:
-            raise ProviderError("Ungültiger SmartView-Pfad") from exc
-        if not candidate.is_file() or candidate.is_symlink():
-            raise ProviderError("Datei nicht gefunden")
+            candidate = resolve_file_under(self.root, resource_id)
+        except (OSError, ValueError) as exc:
+            raise ProviderError("Datei nicht gefunden oder Pfad unsicher") from exc
         return candidate.open("rb")
 
     def search(self, query: str, path: str = "") -> Iterable[ResourceEntry]:
