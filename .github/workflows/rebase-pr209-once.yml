@@ -29,12 +29,42 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main refactor/enforce-1000-lines-complete
           echo "OLD_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          if ! git rebase --force-rebase origin/main; then
+
+          set +e
+          git rebase --force-rebase origin/main
+          rc=$?
+          set -e
+
+          while [ "$rc" -ne 0 ]; do
+            conflicts="$(git diff --name-only --diff-filter=U)"
             echo "REBASE_CONFLICTS_BEGIN"
-            git diff --name-only --diff-filter=U || true
+            printf '%s\n' "$conflicts"
             echo "REBASE_CONFLICTS_END"
-            exit 1
-          fi
+
+            case "$conflicts" in
+              "app/document_store.py")
+                # The replayed commit is the verified DocumentStore split.
+                # Keep that split; its later XOR commit avoids broadening the SQL whitelist.
+                git checkout --theirs -- app/document_store.py
+                git add app/document_store.py
+                ;;
+              "tests/test_mini_services.py")
+                # main contains the newer _https_open based regression test.
+                git checkout --ours -- tests/test_mini_services.py
+                git add tests/test_mini_services.py
+                ;;
+              *)
+                echo "Unexpected rebase conflict; refusing automatic resolution"
+                exit 1
+                ;;
+            esac
+
+            set +e
+            GIT_EDITOR=true git rebase --continue
+            rc=$?
+            set -e
+          done
+
           if git rev-list --merges origin/main..HEAD | grep -q .; then
             echo "Merge commits remain after rebase"
             git rev-list --merges --oneline origin/main..HEAD
