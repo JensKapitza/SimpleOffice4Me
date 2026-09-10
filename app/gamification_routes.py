@@ -18,6 +18,10 @@ from .gamification_adapters import (
     image_candidates,
     image_preview_path,
 )
+from .gamification_document_selection import (
+    document_candidate_from_object_ref,
+    query_document_candidates,
+)
 from .gamification_engine import eligible_challenges, roulette
 from .gamification_federation import peer_allows
 from .gamification_organization import add_member, bind_participant, create_organization, organizations_for_user
@@ -86,9 +90,32 @@ def _session_policy(session_id: str) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
+def _session_has_item(session_id: str, provider: str, object_ref: str) -> bool:
+    with _store()._db() as db:
+        row = db.execute(
+            "SELECT 1 FROM game_item i JOIN game_session s ON s.id=i.session_id "
+            "WHERE i.session_id=? AND i.provider=? AND i.object_ref=? AND s.status='active'",
+            (session_id, provider, object_ref),
+        ).fetchone()
+    return row is not None
+
+
 def _session_access(actor: str, *, session_id: str, scope: str, provider: str, object_ref: str) -> bool:
-    if not _candidate_access(actor, provider, object_ref):
+    if not _provider_feature_allowed(actor, provider):
         return False
+
+    # Documents selected by a search expression are an explicit grant for this
+    # round only. They do not need a permanent roulette tag, but they must still
+    # be a persisted item of this exact session and pass the hard safety filter.
+    if provider == "documents" and _session_has_item(session_id, provider, object_ref):
+        candidate = document_candidate_from_object_ref(
+            current_app.config["DOCUMENT_ROOT"], actor, object_ref, require_release=False,
+        )
+        if candidate is None:
+            return False
+    elif not _candidate_access(actor, provider, object_ref):
+        return False
+
     if scope == "organization":
         org_id = str(_session_policy(session_id).get("org_id", ""))
         if not org_id or not any(item["org_id"] == org_id for item in organizations_for_user(get_db(), actor)):
@@ -148,8 +175,16 @@ def _pending_proposal(actor: str) -> dict[str, object] | None:
     }
 
 
-def _populate_session(store: GamificationStore, session_id: str, actor: str, policy: GamePolicy, *, organization: bool = False) -> int:
-    candidates = _local_candidates(actor)
+def _populate_session(
+    store: GamificationStore,
+    session_id: str,
+    actor: str,
+    policy: GamePolicy,
+    *,
+    organization: bool = False,
+    candidates=None,
+) -> int:
+    candidates = list(_local_candidates(actor) if candidates is None else candidates)
     if organization:
         with store._db() as db:
             participants = [str(row["participant"]) for row in db.execute(
@@ -171,7 +206,7 @@ def _sessions(actor: str):
     store = _store()
     with store._db() as db:
         rows = db.execute(
-            "SELECT id,scope,title,status,policy_json,created_at FROM game_session WHERE created_by=? OR EXISTS(" 
+            "SELECT id,scope,title,status,policy_json,created_at FROM game_session WHERE created_by=? OR EXISTS("
             "SELECT 1 FROM game_participant gp WHERE gp.session_id=game_session.id AND gp.participant=?) "
             "ORDER BY created_at DESC LIMIT 50", (actor, actor),
         ).fetchall()
@@ -197,7 +232,7 @@ def _review_proposals(actor: str):
             "SELECT p.id,p.field_name,p.value_json,p.proposed_by,p.source,i.provider,i.object_ref,i.session_id,s.scope,s.created_by "
             "FROM annotation_proposal p JOIN game_item i ON i.id=p.item_id JOIN game_session s ON s.id=i.session_id "
             "LEFT JOIN annotation_acceptance a ON a.proposal_id=p.id "
-            "WHERE a.proposal_id IS NULL AND s.status='active' AND (s.created_by=? OR EXISTS(" 
+            "WHERE a.proposal_id IS NULL AND s.status='active' AND (s.created_by=? OR EXISTS("
             "SELECT 1 FROM game_participant gp WHERE gp.session_id=s.id AND gp.participant=?)) "
             "ORDER BY p.created_at DESC LIMIT 50", (actor, actor),
         ).fetchall()
@@ -292,12 +327,19 @@ def create_session():
     providers = frozenset(value for value in request.form.getlist("providers") if value in PROVIDER_SET and _provider_feature_allowed(actor, value))
     if scope not in {"local", "federation", "organization"} or not providers:
         return redirect(url_for("gamification.manage", message="Ungültige Runde, Provider gesperrt oder keine Provider gewählt."))
+
+    document_query = str(request.form.get("document_query", "")).strip()
+    if document_query and "documents" not in providers:
+        return redirect(url_for("gamification.manage", message="Eine Dateisuche benötigt den Provider Dateien."))
+    if document_query and scope == "organization":
+        return redirect(url_for("gamification.manage", message="Rundenbezogene Dateisuche ist für Lokal oder Federation vorgesehen."))
+
     policy = GamePolicy(
         scope=scope, providers=providers, collections=frozenset(COLLECTIONS[value] for value in providers),
         preview_allowed="images" in providers, original_allowed=False, submit_proposals=True,
     )
     store = _store()
-    extra = {}
+    extra = {"document_query": document_query} if document_query else {}
     peer_id = str(request.form.get("peer_id", "")).strip()
     org_id = str(request.form.get("org_id", "")).strip().casefold()
     if scope == "federation":
@@ -315,15 +357,35 @@ def create_session():
         if not any(item["org_id"] == org_id for item in organizations_for_user(get_db(), actor)):
             return redirect(url_for("gamification.manage", message="Keine Mitgliedschaft in dieser Organisation."))
         extra["org_id"] = org_id
+
+    try:
+        round_candidates = _local_candidates(actor)
+        if document_query:
+            round_candidates = [item for item in round_candidates if item.provider != "documents"]
+            round_candidates.extend(query_document_candidates(current_app.config["DOCUMENT_ROOT"], actor, document_query))
+    except ValueError as exc:
+        return redirect(url_for("gamification.manage", message=f"Dateisuche ungültig: {str(exc)[:160]}"))
+
     session_id = store.create_session(title, scope, actor, _policy_snapshot(policy, **extra))
     try:
+        participants = [value.strip() for value in str(request.form.get("participants", "")).split(",") if value.strip()]
         if scope == "federation":
             store.add_participant(session_id, f"peer:{peer_id}", role="answer", actor=actor)
         elif scope == "organization":
-            participants = [value.strip() for value in str(request.form.get("participants", "")).split(",") if value.strip()]
             for participant in participants:
                 bind_participant(store, get_db(), session_id, participant, org_id=org_id, actor=actor, role="answer")
-        count = _populate_session(store, session_id, actor, policy, organization=scope == "organization")
+        else:
+            for participant in participants:
+                if participant == actor:
+                    continue
+                user = _user(participant)
+                if user is None:
+                    raise ValueError("unknown local participant")
+                store.add_participant(session_id, participant, role="answer", actor=actor)
+        count = _populate_session(
+            store, session_id, actor, policy,
+            organization=scope == "organization", candidates=round_candidates,
+        )
     except ValueError:
         return redirect(url_for("gamification.manage", message="Teilnehmer oder Freigabe konnte nicht sicher gebunden werden."))
     return redirect(url_for("gamification.manage", message=f"Runde erstellt: {count} sichere Aufgaben vorbereitet."))
@@ -413,10 +475,11 @@ def answer():
     persisted = store.get_challenge_for_actor(challenge_id, actor)
     if persisted is None or not _challenge_access(actor, persisted):
         return _render_challenge(None, actor, "Diese Spielrunde ist nicht mehr verfügbar oder die Berechtigung wurde entzogen."), 409
+    session_id = str(persisted.get("session_id", ""))
     action = str(request.form.get("action", "answer")).strip().casefold()
     if action in {"unknown", "skip"}:
         store.skip_challenge(challenge_id, actor, disposition=action)
-        return redirect(url_for("gamification.index", message="Übersprungen – dafür gibt es keine Ratepunkte."))
+        return redirect(url_for("gamification.play_session", session_id=session_id, message="Übersprungen – dafür gibt es keine Ratepunkte."))
     if action != "answer":
         return _render_challenge(None, actor, "Ungültige Spielaktion."), 400
     value = str(request.form.get("answer", "")).strip()
@@ -424,7 +487,7 @@ def answer():
     if not get_provider(challenge.provider).validate_answer(challenge, value):
         return _render_challenge(persisted, actor, "Bitte eine gültige Antwort eingeben oder ‚Weiß ich nicht‘ wählen."), 400
     proposal_id = store.answer_challenge(challenge_id, actor, value)
-    return redirect(url_for("gamification.index", proposal=proposal_id, message="Vorschlag gespeichert. Originaldaten wurden nicht automatisch geändert."))
+    return redirect(url_for("gamification.play_session", session_id=session_id, proposal=proposal_id, message="Vorschlag gespeichert. Originaldaten wurden nicht automatisch geändert."))
 
 
 @bp.post("/accept")
