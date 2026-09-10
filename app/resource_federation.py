@@ -13,17 +13,34 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
 class FederationResourceProvider:
-    def __init__(self, peer_id: str, label: str, base_url: str, token: str):
+    def __init__(
+        self,
+        peer_id: str,
+        label: str,
+        base_url: str,
+        token: str,
+        allowed_capabilities: ProviderCapabilities | None = None,
+    ):
         self.peer_id = peer_id
         self.provider_id = f"federation:{peer_id}"
         self.label = label or peer_id
         self.base = self._validated_base(base_url)
         self.token = token
-        self.capabilities = ProviderCapabilities(
-            read=True, write=True, delete=True, move=True, copy=True, folders=True,
+        self._allowed_capabilities = allowed_capabilities or ProviderCapabilities(
+            read=True, write=True, delete=False, move=False, copy=True, folders=True,
             search=True, metadata=True, streaming=True, smart_view=False,
             server_side_copy=True,
         )
+        self.capabilities = self._allowed_capabilities
+
+    def _apply_remote_capabilities(self, remote_caps: dict) -> None:
+        """Intersect remote claims with this peer's locally configured ceiling."""
+        values = {}
+        for key in ProviderCapabilities.__dataclass_fields__:
+            allowed = bool(getattr(self._allowed_capabilities, key, False))
+            advertised = bool(remote_caps.get(key, False))
+            values[key] = allowed and advertised
+        self.capabilities = ProviderCapabilities(**values)
 
     @staticmethod
     def _validated_base(base_url: str) -> urllib.parse.SplitResult:
@@ -123,10 +140,7 @@ class FederationResourceProvider:
         data = self._json("GET", f"/resource-commander/api/list?{query}")
         remote_caps = data.get("capabilities") or {}
         if remote_caps:
-            self.capabilities = ProviderCapabilities(**{
-                key: bool(value) for key, value in remote_caps.items()
-                if key in ProviderCapabilities.__dataclass_fields__
-            })
+            self._apply_remote_capabilities(remote_caps)
         return [self._entry(item, self.provider_id) for item in data.get("entries", [])]
 
     def stat(self, resource_id: str) -> ResourceEntry:
