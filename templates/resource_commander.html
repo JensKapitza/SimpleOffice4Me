@@ -54,12 +54,11 @@
   </select>
   <button id="complete" type="button">Hab ich alles?</button>
   {% if g.user %}
-  <button
-    id="smart-mount-copy"
-    type="button"
-    data-smart-mount-url="{{ url_for('webdav_smart_mount.smart_mount', username=g.user['username'], _external=True) }}"
-    title="Virtuelle SmartView-WebDAV-URL kopieren"
-  >Smart-Mount URL</button>
+  <a
+    id="smart-mount-link"
+    href="{{ url_for('webdav_smart_mount.smart_mount', username=g.user['username']) }}"
+    title="Virtuelle SmartView-WebDAV-Wurzel öffnen oder diese URL im Dateimanager mounten"
+  >Smart-Mount öffnen</a>
   {% endif %}
 </div>
 {% endblock %}
