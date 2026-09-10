@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 APP_SOURCE = Path("app/__init__.py")
-WEBDAV_SOURCE = Path("app/webdav.py")
+WEBDAV_SOURCES = [Path("app/webdav.py"), *sorted(Path("app").glob("webdav_part_*.py"))]
 
 
 class WebDavDownloadSecurityTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class WebDavDownloadSecurityTests(unittest.TestCase):
         self.assertIn('response.headers["Content-Security-Policy"] = "sandbox"', source)
 
     def test_webdav_downloads_share_one_response_path(self):
-        source = WEBDAV_SOURCE.read_text(encoding="utf-8")
+        source = "\n".join(path.read_text(encoding="utf-8") for path in WEBDAV_SOURCES)
         self.assertIn("return _download_response(", source)
         self.assertIn('if request.method in {"GET", "HEAD"}:', source)
 

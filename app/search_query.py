@@ -115,7 +115,7 @@ class SearchQuery:
             right_fts, right_sql = self._and_expression()
             self.requires_sql = True
             fts = f"({fts} XOR {right_fts})"
-            sql = f"((CASE WHEN {sql} THEN 1 ELSE 0 END) + (CASE WHEN {right_sql} THEN 1 ELSE 0 END) = 1)"
+            sql = f"((CASE WHEN {sql} THEN 1 ELSE 0 END) = (CASE WHEN {right_sql} THEN 0 ELSE 1 END))"
         return fts, sql
 
     def _and_expression(self) -> tuple[str, str]:
