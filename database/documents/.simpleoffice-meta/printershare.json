@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "default_retention": "no_store",
+  "ttl_seconds": 86400,
+  "max_job_bytes": 67108864,
+  "federation_enabled": false,
+  "federation_default_retention": "no_store",
+  "printers": {}
+}

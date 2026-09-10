@@ -77,6 +77,8 @@ def _published_checksum() -> str:
         if exc.code == 404:
             raise RuntimeError("Maven Central did not publish a SHA-256 checksum for the validator") from exc
         raise
+    except FileNotFoundError as exc:
+        raise RuntimeError("Maven Central did not publish a SHA-256 checksum for the validator") from exc
     if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
         raise RuntimeError("Maven Central returned an invalid SHA-256 checksum")
     return value

@@ -36,6 +36,8 @@ simpleoffice-sftp = "app.sftp_server:serve"
 packages = ["app", "app.library"]
 py-modules = [
   "simpleoffice_version",
+  "simpleoffice_mini_core",
+  "simpleoffice_mini_runtime",
   "simpleoffice_mini_services",
   "simpleoffice_network_boot",
   "simpleoffice_network_boot_dhcp",
