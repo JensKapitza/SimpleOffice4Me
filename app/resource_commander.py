@@ -9,6 +9,7 @@ from .resource_provider import ProviderError
 from .resource_registry import ResourceRegistry
 
 bp = Blueprint("resource_commander", __name__, url_prefix="/resource-commander")
+MAX_RANGE_BYTES = 1024 * 1024
 
 
 def _actor() -> str:
@@ -47,6 +48,21 @@ def _provider():
     return _registry().get(provider_id, smart=smart)
 
 
+def _require(provider, capability: str) -> None:
+    if not bool(getattr(provider.capabilities, capability, False)):
+        raise ProviderError(f"Provider erlaubt die Aktion '{capability}' nicht")
+
+
+def _bounded_int(value: str, *, minimum: int, maximum: int, label: str) -> int:
+    try:
+        parsed = int(str(value or "0"))
+    except (TypeError, ValueError) as exc:
+        raise ProviderError(f"Ungültiger Wert für {label}") from exc
+    if parsed < minimum:
+        raise ProviderError(f"{label} darf nicht kleiner als {minimum} sein")
+    return min(parsed, maximum)
+
+
 @bp.get("")
 @login_required
 def page():
@@ -64,21 +80,33 @@ def list_entries():
     _api_access()
     provider = _provider()
     entries = [entry.to_dict() for entry in provider.list(request.args.get("path", ""))]
-    return jsonify({"provider": provider.provider_id, "capabilities": provider.capabilities.to_dict(), "entries": entries})
+    return jsonify({
+        "provider": provider.provider_id,
+        "capabilities": provider.capabilities.to_dict(),
+        "entries": entries,
+    })
 
 
 @bp.get("/api/stat")
 def stat_entry():
     _api_access()
     provider = _provider()
-    return jsonify({"entry": provider.stat(request.args.get("id", "")).to_dict(), "capabilities": provider.capabilities.to_dict()})
+    _require(provider, "metadata")
+    return jsonify({
+        "entry": provider.stat(request.args.get("id", "")).to_dict(),
+        "capabilities": provider.capabilities.to_dict(),
+    })
 
 
 @bp.get("/api/search")
 def search_entries():
     _api_access()
     provider = _provider()
-    entries = [entry.to_dict() for entry in provider.search(request.args.get("q", ""), request.args.get("path", ""))]
+    _require(provider, "search")
+    entries = [
+        entry.to_dict()
+        for entry in provider.search(request.args.get("q", ""), request.args.get("path", ""))
+    ]
     return jsonify({"entries": entries, "capabilities": provider.capabilities.to_dict()})
 
 
@@ -86,6 +114,7 @@ def search_entries():
 def download_entry():
     _api_access()
     provider = _provider()
+    _require(provider, "read")
     entry = provider.stat(request.args.get("id", ""))
     stream = provider.open(entry.resource_id)
     return send_file(stream, as_attachment=True, download_name=entry.name, mimetype=entry.mime_type)
@@ -96,9 +125,17 @@ def range_entry():
     """Return at most 1 MiB from a file without forcing a complete remote download."""
     _api_access()
     provider = _provider()
+    _require(provider, "read")
     resource_id = request.args.get("id", "")
-    offset = max(0, int(request.args.get("offset", "0") or 0))
-    length = max(0, min(int(request.args.get("length", str(1024 * 1024)) or 0), 1024 * 1024))
+    offset = _bounded_int(
+        request.args.get("offset", "0"), minimum=0, maximum=2**63 - 1, label="offset",
+    )
+    length = _bounded_int(
+        request.args.get("length", str(MAX_RANGE_BYTES)),
+        minimum=0,
+        maximum=MAX_RANGE_BYTES,
+        label="length",
+    )
     native = getattr(provider, "read_range", None)
     if callable(native):
         data = native(resource_id, offset, length)
@@ -109,7 +146,7 @@ def range_entry():
             except (AttributeError, OSError):
                 remaining = offset
                 while remaining:
-                    block = stream.read(min(remaining, 1024 * 1024))
+                    block = stream.read(min(remaining, MAX_RANGE_BYTES))
                     if not block:
                         break
                     remaining -= len(block)
@@ -124,7 +161,12 @@ def range_entry():
 def upload_entry():
     _api_access()
     provider = _provider()
-    entry = provider.upload(request.args.get("path", ""), request.stream, name=request.args.get("name", "upload.bin"))
+    _require(provider, "write")
+    entry = provider.upload(
+        request.args.get("path", ""),
+        request.stream,
+        name=request.args.get("name", "upload.bin"),
+    )
     return jsonify({"entry": entry.to_dict()}), 201
 
 
@@ -133,6 +175,8 @@ def mkdir_entry():
     _api_access()
     payload = request.get_json(silent=True) or {}
     provider = _registry().get(payload.get("provider", "self"))
+    _require(provider, "write")
+    _require(provider, "folders")
     entry = provider.mkdir(str(payload.get("path", "")), str(payload.get("name", "")))
     return jsonify({"entry": entry.to_dict()}), 201
 
@@ -142,6 +186,7 @@ def delete_entry():
     _api_access()
     payload = request.get_json(silent=True) or {}
     provider = _registry().get(payload.get("provider", "self"))
+    _require(provider, "delete")
     provider.delete(str(payload.get("id", "")))
     return jsonify({"ok": True})
 
@@ -151,7 +196,12 @@ def move_entry():
     _api_access()
     payload = request.get_json(silent=True) or {}
     provider = _registry().get(payload.get("provider", "self"))
-    entry = provider.move(str(payload.get("id", "")), str(payload.get("path", "")), name=str(payload.get("name") or "") or None)
+    _require(provider, "move")
+    entry = provider.move(
+        str(payload.get("id", "")),
+        str(payload.get("path", "")),
+        name=str(payload.get("name") or "") or None,
+    )
     return jsonify({"entry": entry.to_dict()})
 
 
@@ -159,13 +209,24 @@ def move_entry():
 def copy_entry():
     _api_access()
     payload = request.get_json(silent=True) or {}
-    source = _registry().get(str(payload.get("source_provider", "self")), smart=bool(payload.get("source_smart")))
+    source = _registry().get(
+        str(payload.get("source_provider", "self")),
+        smart=bool(payload.get("source_smart")),
+    )
     target = _registry().get(str(payload.get("target_provider", "self")))
+    _require(source, "read")
+    _require(source, "copy")
+    _require(target, "write")
     entry = source.stat(str(payload.get("id", "")))
     if entry.kind != "file":
-        raise ProviderError("Ordnerkopien werden nur elementweise ausgefuehrt")
+        raise ProviderError("Ordnerkopien werden nur elementweise ausgeführt")
     with source.open(entry.resource_id) as stream:
-        created = target.upload(str(payload.get("target_path", "")), stream, name=str(payload.get("name") or entry.name), metadata=entry.metadata)
+        created = target.upload(
+            str(payload.get("target_path", "")),
+            stream,
+            name=str(payload.get("name") or entry.name),
+            metadata=entry.metadata,
+        )
     return jsonify({"entry": created.to_dict()})
 
 
