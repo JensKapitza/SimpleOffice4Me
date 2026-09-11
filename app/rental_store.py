@@ -14,11 +14,12 @@ from .rental_types import (
     ALLOCATION_METHODS, EDITABLE_STATUSES, LEDGER_KINDS, METRIC_TYPES, SOURCE_KINDS, STATUSES,
     intersection, iso, money, number, parse_date, utc_now,
 )
+from .safe_paths import normalize_path, resolve_file_under
 
 
 class RentalStoreBase:
     def __init__(self, root: str | Path):
-        self.root = Path(root).expanduser().resolve()
+        self.root = normalize_path(root, strict=True)
         self.control = self.root / ".simpleoffice-meta"
         self.db_path = self.control / "rental-billing.sqlite3"
         self.approval_root = self.control / "rental-approvals"
@@ -280,9 +281,10 @@ class RentalStoreBase:
         return ContactStore(self.root).get(contact_id)
 
     def _safe_document_path(self, relative: str) -> Path:
-        candidate=(self.root/str(relative or "")).resolve()
-        if self.root not in (candidate,*candidate.parents) or not candidate.is_file() or candidate.is_symlink(): raise ValueError("Belegdatei ist nicht sicher verfügbar")
-        return candidate
+        try:
+            return resolve_file_under(self.root, str(relative or ""))
+        except (OSError, ValueError) as exc:
+            raise ValueError("Belegdatei ist nicht sicher verfügbar") from exc
 
     def _document_snapshot(self, document_id: str) -> dict[str, Any]:
         from .document_store import DocumentStore
