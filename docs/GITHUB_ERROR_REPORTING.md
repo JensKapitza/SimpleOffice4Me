@@ -9,8 +9,8 @@ Empfohlen ist der zentrale Relay-Modus:
 ```text
 SimpleOffice A ─┐
 SimpleOffice B ─┼── HTTPS ──> SimpleOffice error-relay ──> GitHub Issues
-Android/APK  ───┘                    │
-                               GitHub-Token nur hier
+Android/APK  ───┤                    │
+Desktop-App  ───┘               GitHub-Token nur hier
 ```
 
 Normale Installationen besitzen **keinen GitHub-Token**. Sie kennen lediglich die HTTPS-URL des Relay. Der Relay ist Bestandteil desselben SimpleOffice4Me-Codes und wird aus demselben Dockerfile gebaut. Es muss daher kein zweites Serverprojekt gepflegt werden.
@@ -30,7 +30,7 @@ Zwischen Installation, Relay und GitHub gilt dieselbe feste Allowlist. Übertrag
 
 Nicht übertragen werden Request-Body, Query-Parameter, Header, Cookies, Sessiondaten, Benutzerkennung, Kundendaten, Datenbankinhalte, Umgebungsvariablen, Logdateien oder Anhänge.
 
-Der Relay akzeptiert maximal 16 KiB pro Bericht, lehnt unbekannte JSON-Felder ab und besitzt ein lokales sowie globales Rate-Limit. Client-IP-Adressen werden nicht persistiert; für das kurzlebige In-Memory-Rate-Limit wird nur ein pro Prozess gesalzener Hash verwendet.
+Der Relay akzeptiert maximal 16 KiB pro Bericht, lehnt unbekannte JSON-Felder ab und besitzt ein lokales sowie globales Rate-Limit. Client-IP-Adressen werden nicht persistiert; für das kurzlebige In-Memory-Rate-Limit wird nur ein pro Prozess gesalzener Hash verwendet. Stack-Felder werden auf technische Zeichenmengen begrenzt, damit ein anonymer Caller keinen Markdown-Inhalt in erzeugte GitHub-Issues einschleusen kann.
 
 Technische Fehlerdetails werden auf der lokalen 500-Seite nur einem angemeldeten SimpleOffice-Administrator angezeigt.
 
@@ -59,7 +59,7 @@ $EDITOR deploy/docker/secrets/github-error-token
 chmod 600 deploy/docker/secrets/github-error-token
 ```
 
-`deploy/docker/secrets/` ist in `.gitignore` eingetragen. Der echte Token darf niemals committed, in ein Docker-Image eingebaut oder in eine APK gepackt werden.
+`deploy/docker/secrets/` ist in `.gitignore` eingetragen. Der echte Token darf niemals committed, in ein Docker-Image eingebaut oder in eine APK bzw. Desktop-App gepackt werden.
 
 Danach den Relay bauen und starten:
 
@@ -113,11 +113,17 @@ https://errors.example.org/api/error-reports/v1/reports
 
 gesetzt. **Kein GitHub-Token darf als Android-Buildvariable gesetzt werden.** Ist die Repository-Variable leer, wird die APK weiterhin gebaut; automatische externe Meldungen bleiben dann deaktiviert und der manuelle Fallback bleibt verfügbar.
 
+## Desktop-Pakete automatisch an den Relay anbinden
+
+Der Desktop-Build verwendet dieselbe Repository-Variable `SIMPLEOFFICE_ERROR_REPORT_URL`. Der Workflow erzeugt daraus ausschließlich eine öffentliche `desktop/electron/build-config.json`, die Electron mit ins Paket nimmt. Beim Start übernimmt Electron die URL in die Umgebung des lokalen Python-Backends.
+
+Windows-, Linux- und macOS-Pakete benötigen dadurch ebenfalls keinen GitHub-Token. Eine zur Laufzeit gesetzte `SIMPLEOFFICE_ERROR_REPORT_URL` kann die eingebettete öffentliche URL für administrierte Installationen überschreiben.
+
 ## Manuelle Meldung über GitHub-App oder Browser
 
 Kann ein Fehler nicht automatisch übertragen werden, zeigt die lokale 500-Seite einen Link **„Fehler auf GitHub melden“**. Er öffnet die normale GitHub-Seite zum Erstellen eines Issues und enthält lediglich die Request-ID sowie einen kurzen Hinweistext.
 
-Die Android-Hülle von SimpleOffice4Me gibt externe HTTPS-Links über Android `ACTION_VIEW` an das Betriebssystem weiter. Ist die GitHub-App als Handler eingerichtet, kann sie den Link übernehmen; andernfalls wird der Browser verwendet. Ein GitHub-Token wird dafür ebenfalls nicht in SimpleOffice gespeichert.
+Die Android-Hülle von SimpleOffice4Me gibt externe HTTPS-Links über Android `ACTION_VIEW` an das Betriebssystem weiter. Ist die GitHub-App als Handler eingerichtet, kann sie den Link übernehmen; andernfalls wird der Browser verwendet. Die Electron-Hülle öffnet externe HTTP/HTTPS-Links über den Systembrowser. Ein GitHub-Token wird dafür nicht in SimpleOffice gespeichert.
 
 Hat der automatische Relay bereits erfolgreich ein Issue angelegt, wird stattdessen der vorhandene Issue-Link angezeigt, damit der Benutzer nicht versehentlich ein zweites Issue erzeugt.
 
