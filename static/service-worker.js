@@ -18,10 +18,12 @@ const SHELL_ASSETS = [
 self.addEventListener("install", function (event) {
   event.waitUntil((async function () {
     const cache = await caches.open(CACHE_NAME);
-    await Promise.allSettled(SHELL_ASSETS.map(function (asset) {
+    // Installation is atomic: a partially cached shell must never replace a
+    // previously working offline cache. Updated workers remain waiting until
+    // the UI explicitly sends SKIP_WAITING.
+    await Promise.all(SHELL_ASSETS.map(function (asset) {
       return cache.add(new Request(asset, {cache: "reload"}));
     }));
-    await self.skipWaiting();
   }()));
 });
 

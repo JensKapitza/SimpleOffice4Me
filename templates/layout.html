@@ -31,10 +31,10 @@
 <body>
   <a class="skip-link" href="#main-content">{{ 'Skip to content' if g.language|default('de') == 'en' else 'Zum Inhalt springen' }}</a>
   <div id="simpleoffice-live-region" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
-  <div id="network-offline-banner" class="alert alert-warning rounded-0 border-start-0 border-end-0 mb-0 text-center" role="status" hidden>
+  <div id="network-offline-banner" class="alert alert-warning rounded-0 border-start-0 border-end-0 mb-0 text-center" role="status" aria-live="polite" hidden>
     {{ 'Offline. Network features are temporarily unavailable.' if g.language|default('de') == 'en' else 'Offline. Netzwerkfunktionen sind vorübergehend nicht verfügbar.' }}
   </div>
-  <div id="pwa-update-banner" class="alert alert-info rounded-0 border-start-0 border-end-0 mb-0 d-flex flex-wrap justify-content-center align-items-center gap-2" role="status" hidden>
+  <div id="pwa-update-banner" class="alert alert-info rounded-0 border-start-0 border-end-0 mb-0 d-flex flex-wrap justify-content-center align-items-center gap-2" role="status" aria-live="polite" hidden>
     <span>{{ 'An app update is ready.' if g.language|default('de') == 'en' else 'Ein App-Update ist verfügbar.' }}</span>
     <button type="button" class="btn btn-sm btn-outline-primary" id="pwa-update-apply">{{ 'Update now' if g.language|default('de') == 'en' else 'Jetzt aktualisieren' }}</button>
   </div>
@@ -46,7 +46,7 @@
   </div>
   {% endif %}
   {% if license_ui.open_invoices %}
-  <div class="alert alert-warning rounded-0 border-start-0 border-end-0 mb-0 d-flex flex-wrap justify-content-between align-items-center gap-2" role="status">
+  <div class="alert alert-warning rounded-0 border-start-0 border-end-0 mb-0 d-flex flex-wrap justify-content-between align-items-center gap-2" role="status" aria-live="polite">
     <span><strong>{{ 'Payment due:' if g.language|default('de') == 'en' else 'Zahlung offen:' }}</strong> {{ license_ui.open_invoices|length }} {{ 'invoice(s)' if g.language|default('de') == 'en' else 'Rechnung(en)' }} · {{ 'services:' if g.language|default('de') == 'en' else 'Services:' }} {{ license_ui.open_invoices|map(attribute='service')|unique|join(', ') }}</span>
     {% if g.user and g.user['is_admin'] %}<a class="btn btn-sm btn-outline-warning" href="{{ url_for('licensing_admin.index') }}">{{ 'Show invoices' if g.language|default('de') == 'en' else 'Rechnungen anzeigen' }}</a>{% endif %}
   </div>
