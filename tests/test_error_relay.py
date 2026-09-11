@@ -3,7 +3,7 @@ import unittest
 from collections import deque
 from unittest.mock import patch
 
-from werkzeug.exceptions import Forbidden
+from werkzeug.exceptions import Forbidden, NotFound
 
 from app import app
 from app.error_relay import (
@@ -16,6 +16,7 @@ from app.error_relay import (
     _rate_by_source,
     _rate_global,
     _reserve_upstream,
+    _restrict_public_relay_surface,
     _upstream_attempts,
     _upstream_fingerprints,
     validate_report_payload,
@@ -69,6 +70,20 @@ class ErrorRelayTests(unittest.TestCase):
         with app.test_request_context("/api/error-reports/v1/admin", method="POST"):
             with self.assertRaises(Forbidden):
                 protect_browser_mutation()
+
+    def test_dedicated_relay_role_has_exact_public_surface(self):
+        env = {"SIMPLEOFFICE_CONTAINER_ROLE": "error-relay"}
+        with patch.dict(os.environ, env, clear=False):
+            with app.test_request_context("/api/error-reports/v1/health", method="GET"):
+                self.assertIsNone(_restrict_public_relay_surface())
+            with app.test_request_context("/api/error-reports/v1/reports", method="POST"):
+                self.assertIsNone(_restrict_public_relay_surface())
+            with app.test_request_context("/api/error-reports/v1/admin", method="GET"):
+                with self.assertRaises(NotFound):
+                    _restrict_public_relay_surface()
+            with app.test_request_context("/api/error-reports/v1/reports", method="DELETE"):
+                with self.assertRaises(NotFound):
+                    _restrict_public_relay_surface()
 
     @patch("app.error_relay.load_config")
     def test_health_is_unavailable_without_github_credential(self, load_config):
