@@ -1,1 +1,46 @@
-{% extends "layout.html" %}{% block body %}<main id="main-content" class="container py-5"><div class="alert alert-danger"><h1 class="h4">Die Anfrage konnte nicht verarbeitet werden</h1><p>Ein Administrator kann den Fehler über diese Vorgangs-ID prüfen:</p><code>{{ request_id }}</code></div><a href="{{ url_for('home') }}">Zur Startseite</a></main>{% endblock %}
+{% extends "layout.html" %}
+{% block body %}
+<main id="main-content" class="container py-5">
+  <div class="alert alert-danger">
+    <h1 class="h4">Die Anfrage konnte nicht verarbeitet werden</h1>
+    <p>Ein Administrator kann den Fehler über diese Vorgangs-ID prüfen:</p>
+    <code>{{ request_id }}</code>
+  </div>
+
+  {% if error_details %}
+  <details class="card mb-3">
+    <summary class="card-header fw-semibold">Technische Fehlerdetails (nur Administrator)</summary>
+    <div class="card-body">
+      <dl class="row mb-3">
+        <dt class="col-sm-3">Typ</dt><dd class="col-sm-9"><code>{{ error_details.exception_type }}</code></dd>
+        <dt class="col-sm-3">Fehler</dt><dd class="col-sm-9"><code>{{ error_details.message }}</code></dd>
+        <dt class="col-sm-3">Endpoint</dt><dd class="col-sm-9"><code>{{ error_details.endpoint }}</code></dd>
+        <dt class="col-sm-3">Methode</dt><dd class="col-sm-9"><code>{{ error_details.method }}</code></dd>
+        {% if error_details.template %}
+        <dt class="col-sm-3">Template</dt><dd class="col-sm-9"><code>{{ error_details.template }}:{{ error_details.template_line }}</code></dd>
+        {% endif %}
+        {% if error_details.undefined_variable %}
+        <dt class="col-sm-3">Variable</dt><dd class="col-sm-9"><code>{{ error_details.undefined_variable }}</code></dd>
+        {% endif %}
+      </dl>
+
+      {% if error_details.frames %}
+      <details class="mb-3">
+        <summary>Bereinigter Stack</summary>
+        <pre class="mt-2 mb-0"><code>{% for frame in error_details.frames %}{% if frame.template %}{{ frame.template }}:{{ frame.line }}{% if frame.variable %} ({{ frame.variable }}){% endif %}{% else %}{{ frame.file }}:{{ frame.line }} in {{ frame.function }}{% endif %}
+{% endfor %}</code></pre>
+      </details>
+      {% endif %}
+
+      {% if error_details.issue_number and error_details.issue_url %}
+      <p class="mb-0">GitHub-Issue: <a href="{{ error_details.issue_url }}" target="_blank" rel="noopener noreferrer">#{{ error_details.issue_number }}</a></p>
+      {% else %}
+      <p class="text-muted mb-0">GitHub-Übertragung ist deaktiviert oder konnte nicht abgeschlossen werden.</p>
+      {% endif %}
+    </div>
+  </details>
+  {% endif %}
+
+  <a href="{{ url_for('home') }}">Zur Startseite</a>
+</main>
+{% endblock %}
