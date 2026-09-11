@@ -1,8 +1,8 @@
 """Privacy-preserving GitHub issue reporting for application errors.
 
-The reporter intentionally uses a strict allow-list. Request bodies, query
-parameters, cookies, headers, user identities, environment variables and log
-files are never included in outbound reports.
+Only explicitly allow-listed technical metadata is sent. Request bodies,
+query parameters, cookies, headers, user identities, exception messages,
+environment variables, database content and log files are never uploaded.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class GitHubReporterConfig:
     enabled: bool
     repository: str
     token: str
-    label: str = "automatic-error-report"
+    label: str = ""
     api_base: str = "https://api.github.com"
 
 
@@ -40,18 +40,16 @@ def load_config() -> GitHubReporterConfig:
         enabled=enabled,
         repository=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY", "").strip(),
         token=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_TOKEN", "").strip(),
-        label=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_LABEL", "automatic-error-report").strip()
-        or "automatic-error-report",
+        label=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_LABEL", "").strip(),
         api_base=os.environ.get("SIMPLEOFFICE_GITHUB_API_BASE", "https://api.github.com").rstrip("/"),
     )
 
 
 def sanitize_text(value: object, limit: int = 500) -> str:
-    """Return a bounded, best-effort redacted string suitable for GitHub."""
+    """Return a bounded, best-effort redacted string for local admin display."""
     text = str(value or "").replace("\x00", "")
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
-    # Remove obvious absolute paths while keeping the basename useful.
     text = re.sub(r"(?:[A-Za-z]:\\|/)(?:[^\s:/\\]+[/\\])+([^\s:/\\]+)", r"<path>/\1", text)
     return text[:limit]
 
@@ -90,7 +88,13 @@ def build_report(
     frames: Sequence[Mapping[str, object]],
     app_version: str = "",
 ) -> tuple[str, str]:
-    """Build an issue title/body from an explicit allow-list."""
+    """Build an issue using a strict outbound allow-list.
+
+    ``exception_message`` is intentionally accepted for a stable caller API but
+    deliberately not serialized because arbitrary exception text can contain
+    customer or document data.
+    """
+    del exception_message
     exception_type = sanitize_text(exception_type, 120) or "ApplicationError"
     endpoint = sanitize_text(endpoint, 160) or "unknown"
     fingerprint = sanitize_text(fingerprint, 128)
@@ -100,15 +104,15 @@ def build_report(
         "request_id": sanitize_text(request_id, 64),
         "fingerprint": fingerprint,
         "exception_type": exception_type,
-        "exception_message": sanitize_text(exception_message, 500),
         "endpoint": endpoint,
         "method": sanitize_text(method, 12),
         "app_version": sanitize_text(app_version, 120),
         "frames": safe_frames(frames),
     }
     body = (
-        "Automatisch von SimpleOffice gemeldet. Es werden nur explizit "
-        "freigegebene, bereinigte technische Daten übertragen.\n\n"
+        "Automatisch von SimpleOffice gemeldet. Es werden ausschließlich "
+        "freigegebene technische Metadaten übertragen; keine Logs, Anhänge, "
+        "Request-Daten oder Exception-Nachrichten.\n\n"
         "```json\n"
         + json.dumps(payload, ensure_ascii=False, indent=2)
         + "\n```\n\n"
@@ -146,12 +150,10 @@ def find_existing_issue(config: GitHubReporterConfig, fingerprint: str) -> int |
 
 
 def create_issue(config: GitHubReporterConfig, title: str, body: str) -> int:
-    result = _request_json(
-        config,
-        "POST",
-        f"/repos/{config.repository}/issues",
-        {"title": title, "body": body, "labels": [config.label]},
-    )
+    payload: dict[str, object] = {"title": title, "body": body}
+    if config.label:
+        payload["labels"] = [config.label]
+    result = _request_json(config, "POST", f"/repos/{config.repository}/issues", payload)
     if not isinstance(result, dict) or "number" not in result:
         raise RuntimeError("GitHub returned no issue number")
     return int(result["number"])
