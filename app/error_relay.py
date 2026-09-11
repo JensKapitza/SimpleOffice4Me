@@ -55,6 +55,26 @@ def relay_enabled() -> bool:
     }
 
 
+def _restrict_public_relay_surface() -> None:
+    """Fail closed if the dedicated relay image later gains extra routes."""
+    if os.environ.get("SIMPLEOFFICE_CONTAINER_ROLE", "web").strip() != "error-relay":
+        return
+    allowed = (
+        request.path == "/api/error-reports/v1/health"
+        and request.method in {"GET", "HEAD"}
+    ) or (
+        request.path == "/api/error-reports/v1/reports"
+        and request.method == "POST"
+    )
+    if not allowed:
+        abort(404)
+
+
+@bp.before_request
+def restrict_public_relay_surface():
+    _restrict_public_relay_surface()
+
+
 def _source_key() -> str:
     # Keep no raw client address in relay state or logs.
     address = str(request.remote_addr or "unknown").encode("utf-8", "replace")
