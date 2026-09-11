@@ -1,10 +1,15 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app.github_error_reporter import (
     GitHubReporterConfig,
+    MAX_HTTP_RESPONSE_BYTES,
+    _RejectRedirects,
+    _request_json,
     build_report,
     find_existing_issue,
     load_config,
@@ -94,6 +99,69 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertNotIn("github_pat_", url.casefold())
         self.assertNotIn("authorization%3a", url.casefold())
 
+    def test_manual_issue_url_rejects_invalid_repository(self):
+        with self.assertRaises(ValueError):
+            manual_issue_url("0123456789abcdef", "../attacker/repository")
+
+    def test_token_file_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / "token"
+            target.write_text("github_pat_secret", encoding="utf-8")
+            target.chmod(0o600)
+            link = root / "token-link"
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            env = {
+                "SIMPLEOFFICE_GITHUB_ERROR_REPORTING": "1",
+                "SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE": str(link),
+            }
+            with patch.dict(os.environ, env, clear=True):
+                with self.assertRaises(RuntimeError):
+                    load_config()
+
+    def test_oversized_token_file_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_file = Path(temp_dir) / "token"
+            token_file.write_text("x" * 5000, encoding="utf-8")
+            token_file.chmod(0o600)
+            env = {
+                "SIMPLEOFFICE_GITHUB_ERROR_REPORTING": "1",
+                "SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE": str(token_file),
+            }
+            with patch.dict(os.environ, env, clear=True):
+                with self.assertRaises(RuntimeError):
+                    load_config()
+
+    @patch("app.github_error_reporter.urllib.request.build_opener")
+    def test_github_request_uses_redirect_rejecting_opener(self, build_opener):
+        opener = MagicMock()
+        response = MagicMock()
+        response.read.return_value = b"{}"
+        opener.open.return_value.__enter__.return_value = response
+        build_opener.return_value = opener
+        config = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
+
+        self.assertEqual({}, _request_json(config, "GET", "/rate_limit"))
+        handler = build_opener.call_args.args[0]
+        self.assertIsInstance(handler, _RejectRedirects)
+        request = opener.open.call_args.args[0]
+        self.assertEqual("Bearer token", request.get_header("Authorization"))
+
+    @patch("app.github_error_reporter.urllib.request.build_opener")
+    def test_http_response_size_is_bounded(self, build_opener):
+        opener = MagicMock()
+        response = MagicMock()
+        response.read.return_value = b"x" * (MAX_HTTP_RESPONSE_BYTES + 1)
+        opener.open.return_value.__enter__.return_value = response
+        build_opener.return_value = opener
+        config = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
+
+        with self.assertRaises(RuntimeError):
+            _request_json(config, "GET", "/rate_limit")
+
     @patch("app.github_error_reporter._request_json")
     def test_existing_issue_is_reused(self, request_json):
         request_json.return_value = {"items": [{"number": 123}]}
@@ -102,6 +170,7 @@ class GitHubErrorReporterTests(unittest.TestCase):
         path = request_json.call_args.args[2]
         self.assertIn("search/issues", path)
         self.assertIn("fp123", path)
+        self.assertIn("per_page=1", path)
 
 
 if __name__ == "__main__":
