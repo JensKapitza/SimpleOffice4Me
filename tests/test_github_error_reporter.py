@@ -7,18 +7,30 @@ from unittest.mock import MagicMock, patch
 
 from app.github_error_reporter import (
     GitHubReporterConfig,
+    LOCAL_REPORT_INFLIGHT_LIMIT,
+    LOCAL_REPORT_LIMIT,
     MAX_HTTP_RESPONSE_BYTES,
     _RejectRedirects,
+    _local_issue_cache,
+    _local_report_attempts,
+    _local_report_inflight,
     _request_json,
+    _reserve_local_report,
     build_report,
     find_existing_issue,
     load_config,
     manual_issue_url,
+    report_error,
     sanitize_text,
 )
 
 
 class GitHubErrorReporterTests(unittest.TestCase):
+    def setUp(self):
+        _local_issue_cache.clear()
+        _local_report_attempts.clear()
+        _local_report_inflight.clear()
+
     def test_disabled_by_default(self):
         with patch.dict(os.environ, {}, clear=True):
             config = load_config()
@@ -55,6 +67,10 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertNotIn("abc123", cleaned)
         self.assertNotIn("person@example.test", cleaned)
         self.assertNotIn("/srv/private", cleaned)
+
+    def test_sanitizer_bounds_work_on_oversized_error_text(self):
+        cleaned = sanitize_text("A" * 100_000 + " password=too-late", 100)
+        self.assertEqual(100, len(cleaned))
 
     def test_report_has_strict_allowlist(self):
         title, body = build_report(
@@ -171,6 +187,44 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertIn("search/issues", path)
         self.assertIn("fp123", path)
         self.assertIn("per_page=1", path)
+
+    @patch("app.github_error_reporter._post_relay", return_value={"issue_number": 321})
+    @patch("app.github_error_reporter.load_config")
+    def test_successful_report_is_cached_locally(self, load_config_mock, post_relay):
+        load_config_mock.return_value = GitHubReporterConfig(
+            True,
+            "JensKapitza/SimpleOffice4Me",
+            "",
+            relay_url="https://errors.example.test/api/error-reports/v1/reports",
+        )
+        kwargs = {
+            "exception_type": "UndefinedError",
+            "exception_message": "ignored",
+            "endpoint": "contacts.merge",
+            "method": "POST",
+            "request_id": "abcd1234",
+            "fingerprint": "abcdef1234567890abcd",
+            "frames": [],
+        }
+        self.assertEqual(321, report_error(**kwargs))
+        self.assertEqual(321, report_error(**kwargs))
+        self.assertEqual(1, post_relay.call_count)
+
+    @patch("app.github_error_reporter.time.monotonic", return_value=100.0)
+    def test_local_report_budget_is_bounded(self, _clock):
+        _local_report_attempts.extend([100.0] * LOCAL_REPORT_LIMIT)
+        status, issue = _reserve_local_report("abcdef1234567890abcd")
+        self.assertEqual("limited", status)
+        self.assertIsNone(issue)
+        self.assertNotIn("abcdef1234567890abcd", _local_report_inflight)
+
+    def test_local_report_parallelism_is_bounded(self):
+        _local_report_inflight.update(
+            f"busy-{index}" for index in range(LOCAL_REPORT_INFLIGHT_LIMIT)
+        )
+        status, issue = _reserve_local_report("abcdef1234567890abcd")
+        self.assertEqual("busy", status)
+        self.assertIsNone(issue)
 
 
 if __name__ == "__main__":
