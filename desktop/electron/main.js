@@ -11,6 +11,23 @@ let backend = null;
 let backendUrl = null;
 let quitting = false;
 
+function packagedErrorReportUrl() {
+  try {
+    const configPath = path.join(__dirname, 'build-config.json');
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const value = typeof parsed.errorReportUrl === 'string' ? parsed.errorReportUrl.trim() : '';
+    if (!value) return '';
+    if (!value.startsWith('https://')) {
+      throw new Error('Packaged error report URL must use HTTPS');
+    }
+    return value;
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return '';
+    console.error('Invalid desktop build configuration:', error);
+    return '';
+  }
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -59,6 +76,10 @@ async function startBackend() {
 
   backendUrl = `http://127.0.0.1:${port}`;
   const launch = backendCommand();
+  const errorReportUrl = (process.env.SIMPLEOFFICE_ERROR_REPORT_URL || packagedErrorReportUrl()).trim();
+  if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
+    throw new Error('SIMPLEOFFICE_ERROR_REPORT_URL muss HTTPS verwenden.');
+  }
   const env = {
     ...process.env,
     PYTHONUTF8: '1',
@@ -68,6 +89,7 @@ async function startBackend() {
     SIMPLEOFFICE_DOCUMENT_ROOT: documentRoot,
     SIMPLEOFFICE_HOST: '127.0.0.1',
     SIMPLEOFFICE_PORT: String(port),
+    SIMPLEOFFICE_ERROR_REPORT_URL: errorReportUrl,
     SIMPLEOFFICE_BACKGROUND_INDEX: process.env.SIMPLEOFFICE_BACKGROUND_INDEX || '0',
     SIMPLEOFFICE_OSM_INDEX: process.env.SIMPLEOFFICE_OSM_INDEX || '0',
     SIMPLEOFFICE_DATALOGGER: process.env.SIMPLEOFFICE_DATALOGGER || '0'
