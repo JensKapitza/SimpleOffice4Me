@@ -20,6 +20,7 @@ from app.github_error_reporter import (
     find_existing_issue,
     load_config,
     manual_issue_url,
+    master_error_report_url,
     report_error,
     sanitize_text,
 )
@@ -31,11 +32,63 @@ class GitHubErrorReporterTests(unittest.TestCase):
         _local_report_attempts.clear()
         _local_report_inflight.clear()
 
-    def test_disabled_by_default(self):
+    def test_disabled_by_default_in_source_checkout_without_master(self):
         with patch.dict(os.environ, {}, clear=True):
             config = load_config()
         self.assertFalse(config.enabled)
         self.assertEqual(config.token, "")
+
+    @patch("app.github_error_reporter.master_federation_identity", return_value=("https://master.example.test", False))
+    def test_global_master_is_default_error_collector(self, _master):
+        with patch.dict(os.environ, {}, clear=True):
+            config = load_config()
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.token, "")
+        self.assertEqual(
+            "https://master.example.test/api/error-reports/v1/reports",
+            config.relay_url,
+        )
+
+    @patch("app.github_error_reporter.master_federation_identity", return_value=("https://master.example.test/simpleoffice/", False))
+    def test_master_collector_preserves_master_base_path(self, _master):
+        self.assertEqual(
+            "https://master.example.test/simpleoffice/api/error-reports/v1/reports",
+            master_error_report_url(),
+        )
+
+    @patch("app.github_error_reporter.master_federation_identity", return_value=("https://master.example.test", True))
+    def test_master_build_never_reports_to_itself(self, _master):
+        with patch.dict(os.environ, {}, clear=True):
+            config = load_config()
+        self.assertFalse(config.enabled)
+        self.assertEqual("", config.relay_url)
+
+    @patch("app.github_error_reporter.master_federation_identity", return_value=("https://master.example.test", False))
+    def test_explicit_relay_overrides_master_collector(self, _master):
+        env = {"SIMPLEOFFICE_ERROR_REPORT_URL": "https://custom.example.test/reports"}
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+        self.assertEqual(env["SIMPLEOFFICE_ERROR_REPORT_URL"], config.relay_url)
+
+    @patch("app.github_error_reporter.master_federation_identity", return_value=("https://master.example.test", False))
+    def test_master_reporting_can_be_explicitly_disabled(self, _master):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_REPORTING": "0"}, clear=True):
+            config = load_config()
+        self.assertFalse(config.enabled)
+        self.assertEqual("", config.relay_url)
+
+    @patch("app.github_error_reporter.master_federation_identity", return_value=("https://master.example.test", False))
+    def test_direct_mode_wins_over_master_fallback(self, _master):
+        env = {
+            "SIMPLEOFFICE_GITHUB_ERROR_REPORTING": "1",
+            "SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY": "JensKapitza/SimpleOffice4Me",
+            "SIMPLEOFFICE_GITHUB_ERROR_TOKEN": "github_pat_example",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+        self.assertTrue(config.enabled)
+        self.assertEqual("", config.relay_url)
+        self.assertEqual("github_pat_example", config.token)
 
     def test_token_is_read_from_environment_only_for_direct_mode(self):
         env = {
