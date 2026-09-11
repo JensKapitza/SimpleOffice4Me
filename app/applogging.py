@@ -1,6 +1,7 @@
 """Bounded application logging with mandatory secret redaction."""
 
 import logging
+import os
 import re
 from logging.config import dictConfig
 
@@ -34,14 +35,42 @@ class SecretRedactionFilter(logging.Filter):
         return True
 
 
+def _stream_only() -> bool:
+    return os.environ.get("SIMPLEOFFICE_LOG_STDERR_ONLY", "0").strip().casefold() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def initlogging():
-    dictConfig({
-        "version": 1, "disable_existing_loggers": False,
-        "formatters": {"default": {"format": "[%(asctime)s] %(levelname)s in %(module)s: %(message)s"}},
-        "filters": {"redact": {"()": "app.applogging.SecretRedactionFilter"}},
-        "handlers": {
-            "wsgi": {"class": "logging.StreamHandler", "stream": "ext://flask.logging.wsgi_errors_stream", "formatter": "default", "filters": ["redact"]},
-            "file": {"class": "logging.handlers.RotatingFileHandler", "formatter": "default", "filters": ["redact"], "filename": "logconfig.log", "maxBytes": 1024 * 1024, "backupCount": 3, "encoding": "utf-8"},
+    handlers = {
+        "wsgi": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://flask.logging.wsgi_errors_stream",
+            "formatter": "default",
+            "filters": ["redact"],
         },
-        "root": {"level": "ERROR", "handlers": ["wsgi", "file"]},
+    }
+    root_handlers = ["wsgi"]
+    if not _stream_only():
+        handlers["file"] = {
+            "class": "logging.handlers.RotatingFileHandler",
+            "formatter": "default",
+            "filters": ["redact"],
+            "filename": "logconfig.log",
+            "maxBytes": 1024 * 1024,
+            "backupCount": 3,
+            "encoding": "utf-8",
+        }
+        root_handlers.append("file")
+    dictConfig({
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "[%(asctime)s] %(levelname)s in %(module)s: %(message)s",
+            },
+        },
+        "filters": {"redact": {"()": "app.applogging.SecretRedactionFilter"}},
+        "handlers": handlers,
+        "root": {"level": "ERROR", "handlers": root_handlers},
     })
