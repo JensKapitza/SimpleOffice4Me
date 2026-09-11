@@ -65,6 +65,14 @@ def _literal_template_references() -> set[str]:
     return references
 
 
+def _parameterless_get_rule(endpoint: str):
+    rules = [
+        rule for rule in app.url_map.iter_rules(endpoint)
+        if "GET" in rule.methods and not rule.arguments
+    ]
+    return min(rules, key=lambda item: (len(item.rule), item.rule)) if rules else None
+
+
 class FrontendRouteContractTests(unittest.TestCase):
     def test_every_literal_template_url_for_endpoint_is_registered(self):
         """A stale url_for in any template must not take the whole UI down."""
@@ -163,6 +171,18 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         app.config.update(self.saved)
         self.temp.cleanup()
 
+    @staticmethod
+    def _page_failure(endpoint: str, rule: str, response) -> str | None:
+        body = response.get_data(as_text=True)
+        if response.status_code == 404 or response.status_code >= 500:
+            excerpt = body[:240].replace("\n", " ")
+            return f"{endpoint} -> {rule}: HTTP {response.status_code}: {excerpt}"
+        if response.status_code == 200 and response.content_type.startswith("text/html"):
+            folded = body.casefold()
+            if "<html" not in folded or "<body" not in folded or len(body.strip()) < 300:
+                return f"{endpoint} -> {rule}: empty/incomplete HTML shell ({len(body)} chars)"
+        return None
+
     def test_root_resolves_to_nonempty_html_interface(self):
         response = self.client.get("/", follow_redirects=True)
         self.assertEqual(200, response.status_code)
@@ -171,6 +191,25 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertIn("<body", body.casefold())
         self.assertGreater(len(body.strip()), 500)
 
+    def test_all_parameterless_template_linked_get_endpoints_render(self):
+        """Smoke-test every directly callable GET endpoint advertised anywhere in templates."""
+        failures: list[str] = []
+        tested: list[str] = []
+        for endpoint in sorted(_all_template_endpoints()):
+            if endpoint.startswith(".") or endpoint == "static":
+                continue
+            rule = _parameterless_get_rule(endpoint)
+            if rule is None:
+                continue
+            response = self.client.get(rule.rule, follow_redirects=True)
+            tested.append(f"{endpoint} -> {rule.rule} [{response.status_code}]")
+            failure = self._page_failure(endpoint, rule.rule, response)
+            if failure:
+                failures.append(failure)
+
+        self.assertGreater(len(tested), 25, f"Too few template-linked GET endpoints tested: {tested}")
+        self.assertEqual([], failures, "Template-linked page smoke failures:\n" + "\n".join(failures))
+
     def test_all_parameterless_get_pages_in_main_navigation_render(self):
         """Render every directly reachable GET page exposed by the global navbar."""
         nav_endpoints = _literal_endpoints(NAV_TEMPLATE)
@@ -178,29 +217,19 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         tested: list[str] = []
 
         for endpoint in sorted(nav_endpoints):
-            rules = [
-                rule for rule in app.url_map.iter_rules(endpoint)
-                if "GET" in rule.methods and not rule.arguments
-            ]
-            if not rules:
+            rule = _parameterless_get_rule(endpoint)
+            if rule is None:
                 continue
-
-            rule = min(rules, key=lambda item: (len(item.rule), item.rule))
             response = self.client.get(rule.rule, follow_redirects=True)
             body = response.get_data(as_text=True)
             tested.append(f"{endpoint} -> {rule.rule} [{response.status_code}, {len(body)} chars]")
-            if response.status_code == 404 or response.status_code >= 500:
-                excerpt = body[:240].replace("\n", " ")
-                failures.append(
-                    f"{endpoint} -> {rule.rule}: HTTP {response.status_code}: {excerpt}"
-                )
+            failure = self._page_failure(endpoint, rule.rule, response)
+            if failure:
+                failures.append(failure)
                 continue
             if response.status_code == 200 and response.content_type.startswith("text/html"):
-                folded = body.casefold()
-                if "<html" not in folded or "<body" not in folded or len(body.strip()) < 300:
-                    failures.append(
-                        f"{endpoint} -> {rule.rule}: empty/incomplete HTML shell ({len(body)} chars)"
-                    )
+                if 'id="main-navigation"' not in body:
+                    failures.append(f"{endpoint} -> {rule.rule}: global navigation missing from rendered page")
 
         self.assertGreater(len(tested), 10, f"Too few navigation pages tested: {tested}")
         self.assertEqual([], failures, "Navigation page smoke failures:\n" + "\n".join(failures))
