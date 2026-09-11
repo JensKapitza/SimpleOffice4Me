@@ -153,11 +153,14 @@ def health():
     if not relay_enabled():
         abort(404)
     config = load_config()
-    return jsonify({
+    ready = bool(config.token and config.repository)
+    response = jsonify({
         "service": "simpleoffice-error-relay",
         "schema": REPORT_SCHEMA,
-        "ready": bool(config.token and config.repository),
+        "ready": ready,
     })
+    response.status_code = 200 if ready else 503
+    return response
 
 
 @bp.post("/reports")
