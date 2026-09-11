@@ -3,6 +3,9 @@
 Only explicitly allow-listed technical metadata is sent. Request bodies,
 query parameters, cookies, headers, user identities, exception messages,
 environment variables, database content and log files are never uploaded.
+
+A normal SimpleOffice installation can send the allow-listed report to a
+central SimpleOffice error relay. Only the relay needs GitHub credentials.
 """
 from __future__ import annotations
 
@@ -17,6 +20,8 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
+DEFAULT_REPOSITORY = "JensKapitza/SimpleOffice4Me"
+REPORT_SCHEMA = 1
 _SECRET_PATTERNS = (
     re.compile(r"(?i)(authorization|cookie|token|secret|password|passwd|api[_-]?key)\s*[:=]\s*[^\s,;]+"),
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
@@ -31,6 +36,7 @@ class GitHubReporterConfig:
     token: str
     label: str = ""
     api_base: str = "https://api.github.com"
+    relay_url: str = ""
 
 
 def _read_token() -> str:
@@ -47,17 +53,27 @@ def _read_token() -> str:
     return os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_TOKEN", "").strip()
 
 
+def _enabled(value: str) -> bool:
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
 def load_config() -> GitHubReporterConfig:
-    """Load reporter configuration from environment or a protected secret file."""
-    enabled = os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPORTING", "0").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+    """Load reporter configuration from runtime settings and protected secrets."""
+    relay_url = os.environ.get("SIMPLEOFFICE_ERROR_REPORT_URL", "").strip()
+    direct_enabled = _enabled(os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPORTING", "0"))
+    enabled = direct_enabled or bool(relay_url)
+    token = _read_token() if direct_enabled else ""
     return GitHubReporterConfig(
         enabled=enabled,
-        repository=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY", "").strip(),
-        token=_read_token(),
+        repository=os.environ.get(
+            "SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY", DEFAULT_REPOSITORY
+        ).strip() or DEFAULT_REPOSITORY,
+        token=token,
         label=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_LABEL", "").strip(),
-        api_base=os.environ.get("SIMPLEOFFICE_GITHUB_API_BASE", "https://api.github.com").rstrip("/"),
+        # GitHub.com is intentional here. Allowing an arbitrary host while attaching
+        # a bearer token would turn a modified environment into a token-exfiltration path.
+        api_base="https://api.github.com",
+        relay_url=relay_url,
     )
 
 
@@ -81,48 +97,100 @@ def safe_frames(frames: Iterable[Mapping[str, object]]) -> list[dict[str, object
                 "variable": sanitize_text(frame.get("variable"), 120),
             })
         else:
+            filename = Path(str(frame.get("file") or "")).name
             safe.append({
-                "file": sanitize_text(frame.get("file"), 160),
+                "file": sanitize_text(filename, 160),
                 "line": int(frame.get("line") or 0),
                 "function": sanitize_text(frame.get("function"), 160),
             })
     return safe[-12:]
 
 
-def build_report(*, exception_type: str, exception_message: str, endpoint: str,
-                 method: str, request_id: str, fingerprint: str,
-                 frames: Sequence[Mapping[str, object]], app_version: str = "") -> tuple[str, str]:
-    """Build an issue using a strict outbound allow-list."""
+def build_report_payload(*, exception_type: str, exception_message: str, endpoint: str,
+                         method: str, request_id: str, fingerprint: str,
+                         frames: Sequence[Mapping[str, object]], app_version: str = "") -> dict[str, object]:
+    """Build the strict transport allow-list. Arbitrary exception text is dropped."""
     del exception_message
-    exception_type = sanitize_text(exception_type, 120) or "ApplicationError"
-    endpoint = sanitize_text(endpoint, 160) or "unknown"
-    fingerprint = sanitize_text(fingerprint, 128)
-    title = f"[auto] {exception_type} in {endpoint}"[:240]
-    payload = {
+    return {
+        "schema": REPORT_SCHEMA,
         "request_id": sanitize_text(request_id, 64),
-        "fingerprint": fingerprint,
-        "exception_type": exception_type,
-        "endpoint": endpoint,
+        "fingerprint": sanitize_text(fingerprint, 128),
+        "exception_type": sanitize_text(exception_type, 120) or "ApplicationError",
+        "endpoint": sanitize_text(endpoint, 160) or "unknown",
         "method": sanitize_text(method, 12),
         "app_version": sanitize_text(app_version, 120),
         "frames": safe_frames(frames),
     }
+
+
+def build_report_from_payload(payload: Mapping[str, object]) -> tuple[str, str]:
+    """Render an allow-listed payload as a GitHub issue."""
+    exception_type = sanitize_text(payload.get("exception_type"), 120) or "ApplicationError"
+    endpoint = sanitize_text(payload.get("endpoint"), 160) or "unknown"
+    fingerprint = sanitize_text(payload.get("fingerprint"), 128)
+    safe_payload = {
+        "request_id": sanitize_text(payload.get("request_id"), 64),
+        "fingerprint": fingerprint,
+        "exception_type": exception_type,
+        "endpoint": endpoint,
+        "method": sanitize_text(payload.get("method"), 12),
+        "app_version": sanitize_text(payload.get("app_version"), 120),
+        "frames": safe_frames(payload.get("frames") or []),
+    }
+    title = f"[auto] {exception_type} in {endpoint}"[:240]
     body = (
         "Automatisch von SimpleOffice gemeldet. Es werden ausschließlich "
         "freigegebene technische Metadaten übertragen; keine Logs, Anhänge, "
         "Request-Daten oder Exception-Nachrichten.\n\n```json\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+        + json.dumps(safe_payload, ensure_ascii=False, indent=2)
         + "\n```\n\n"
         + f"<!-- simpleoffice-error:{fingerprint} -->"
     )
     return title, body
 
 
+def build_report(*, exception_type: str, exception_message: str, endpoint: str,
+                 method: str, request_id: str, fingerprint: str,
+                 frames: Sequence[Mapping[str, object]], app_version: str = "") -> tuple[str, str]:
+    """Build an issue using the same strict outbound allow-list as the relay."""
+    payload = build_report_payload(
+        exception_type=exception_type,
+        exception_message=exception_message,
+        endpoint=endpoint,
+        method=method,
+        request_id=request_id,
+        fingerprint=fingerprint,
+        frames=frames,
+        app_version=app_version,
+    )
+    return build_report_from_payload(payload)
+
+
+def manual_issue_url(request_id: str, repository: str = DEFAULT_REPOSITORY) -> str:
+    """Return a short GitHub issue URL suitable for Android app/browser handoff."""
+    safe_request_id = sanitize_text(request_id, 64)
+    title = f"[manual] SimpleOffice Fehler {safe_request_id}"[:240]
+    body = (
+        "SimpleOffice hat einen Fehler angezeigt.\n\n"
+        f"Request-ID: `{safe_request_id}`\n\n"
+        "Bitte beschreibe kurz, was unmittelbar vor dem Fehler gemacht wurde. "
+        "Keine Passwörter, Tokens, Kundendaten oder Dokumentinhalte einfügen."
+    )
+    query = urllib.parse.urlencode({"title": title, "body": body})
+    return f"https://github.com/{repository}/issues/new?{query}"
+
+
 def _validated_api_base(value: str) -> str:
     parsed = urllib.parse.urlsplit(value)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("SIMPLEOFFICE_GITHUB_API_BASE must be an HTTPS URL without credentials")
-    return value.rstrip("/")
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "api.github.com"
+        or parsed.username
+        or parsed.password
+        or parsed.port not in {None, 443}
+    ):
+        raise ValueError("GitHub API must use https://api.github.com")
+    return "https://api.github.com"
 
 
 def _request_json(config: GitHubReporterConfig, method: str, path: str, payload: dict | None = None) -> object:
@@ -138,8 +206,36 @@ def _request_json(config: GitHubReporterConfig, method: str, path: str, payload:
     request.add_header("User-Agent", "SimpleOffice4Me-error-reporter")
     if data is not None:
         request.add_header("Content-Type", "application/json")
-    # nosec B310: _validated_api_base() enforces HTTPS and rejects URL credentials.
-    with urllib.request.urlopen(request, timeout=5) as response:
+    # nosec B310: host, scheme and port are fixed by _validated_api_base().
+    with urllib.request.urlopen(request, timeout=3) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _validated_relay_url(value: str) -> str:
+    parsed = urllib.parse.urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        raise ValueError("SIMPLEOFFICE_ERROR_REPORT_URL must be an HTTPS URL without credentials or fragment")
+    return value
+
+
+def _post_relay(relay_url: str, payload: Mapping[str, object]) -> object:
+    """Send only the allow-listed report to the central SimpleOffice relay."""
+    url = _validated_relay_url(relay_url)
+    data = json.dumps(dict(payload), ensure_ascii=False).encode("utf-8")
+    if len(data) > 16 * 1024:
+        raise ValueError("Error report exceeds relay size limit")
+    request = urllib.request.Request(url, data=data, method="POST")
+    request.add_header("Accept", "application/json")
+    request.add_header("Content-Type", "application/json")
+    request.add_header("User-Agent", "SimpleOffice4Me-error-reporter")
+    # nosec B310: _validated_relay_url() enforces HTTPS and rejects credentials.
+    with urllib.request.urlopen(request, timeout=3) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -170,18 +266,29 @@ def issue_url(config: GitHubReporterConfig, issue_number: int) -> str:
     return f"https://github.com/{config.repository}/issues/{int(issue_number)}"
 
 
+def report_payload_to_github(config: GitHubReporterConfig, payload: Mapping[str, object]) -> int:
+    """Create/deduplicate a GitHub issue. Intended for direct mode and the central relay."""
+    if not config.token:
+        raise RuntimeError("GitHub error reporter token is not configured")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", config.repository):
+        raise ValueError("Invalid SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY")
+    fingerprint = sanitize_text(payload.get("fingerprint"), 128)
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", fingerprint):
+        raise ValueError("Invalid error fingerprint")
+    existing = find_existing_issue(config, fingerprint)
+    if existing is not None:
+        return existing
+    title, body = build_report_from_payload(payload)
+    return create_issue(config, title, body)
+
+
 def report_error(*, exception_type: str, exception_message: str, endpoint: str,
                  method: str, request_id: str, fingerprint: str,
                  frames: Sequence[Mapping[str, object]], app_version: str = "") -> int | None:
     config = load_config()
-    if not config.enabled or not config.repository or not config.token:
+    if not config.enabled:
         return None
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", config.repository):
-        raise ValueError("Invalid SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY")
-    existing = find_existing_issue(config, fingerprint)
-    if existing is not None:
-        return existing
-    title, body = build_report(
+    payload = build_report_payload(
         exception_type=exception_type,
         exception_message=exception_message,
         endpoint=endpoint,
@@ -191,4 +298,13 @@ def report_error(*, exception_type: str, exception_message: str, endpoint: str,
         frames=frames,
         app_version=app_version,
     )
-    return create_issue(config, title, body)
+    if config.relay_url:
+        result = _post_relay(config.relay_url, payload)
+        if isinstance(result, dict):
+            issue_number = result.get("issue_number")
+            if isinstance(issue_number, int) and issue_number > 0:
+                return issue_number
+        return None
+    if not config.token:
+        return None
+    return report_payload_to_github(config, payload)
