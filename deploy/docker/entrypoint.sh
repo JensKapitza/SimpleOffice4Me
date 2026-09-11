@@ -35,20 +35,20 @@ EOF
 fi
 
 if [ "$ROLE" = "error-relay" ]; then
-    # A mounted Docker secret may be world-readable inside /run/secrets. Copy it
-    # once into the private SimpleOffice state tree with strict permissions.
-    # The source path itself is not persisted and the secret is never baked into
-    # the image or repository.
+    # The mounted Docker secret is copied into /tmp, which is a container tmpfs
+    # in the supplied Compose file. It therefore never enters the persistent
+    # SimpleOffice volume and disappears when the container stops.
     if [ -n "${SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE:-}" ]; then
         if [ ! -r "$SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE" ]; then
             echo "GitHub error token source is not readable" >&2
             exit 78
         fi
-        install -m 0600 "$SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE" "$INSTANCE_DIR/github-error-token"
+        TOKEN_RUNTIME_FILE=/tmp/simpleoffice-github-error-token
+        install -m 0600 "$SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE" "$TOKEN_RUNTIME_FILE"
         if [ "$(id -u)" = "0" ]; then
-            chown simpleoffice:simpleoffice "$INSTANCE_DIR/github-error-token"
+            chown simpleoffice:simpleoffice "$TOKEN_RUNTIME_FILE"
         fi
-        export SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE="$INSTANCE_DIR/github-error-token"
+        export SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE="$TOKEN_RUNTIME_FILE"
     fi
     export SIMPLEOFFICE_ERROR_RELAY_ENABLED=${SIMPLEOFFICE_ERROR_RELAY_ENABLED:-1}
     export SIMPLEOFFICE_GITHUB_ERROR_REPORTING=${SIMPLEOFFICE_GITHUB_ERROR_REPORTING:-1}
