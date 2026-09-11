@@ -1,0 +1,10 @@
+<div class="vstack gap-2" aria-live="polite">
+{% for message in messages %}
+  <article class="card {% if message.sender_kind == 'local' and message.sender_username == g.user['username'] %}ms-md-5{% else %}me-md-5{% endif %}" id="message-{{ message.message_id }}"><div class="card-body py-2">
+    <div class="d-flex justify-content-between gap-2 small text-secondary"><span><strong class="text-body">{{ message.sender_label or message.sender_username }}</strong>{% if message.sender_peer_id %}@{{ message.sender_peer_id }}{% endif %}</span><time>{{ message.created_display }}</time></div>
+    {% if message.body %}<div class="mt-2" style="white-space:pre-wrap">{{ message.body }}</div>{% endif %}
+    {% if message.attachments %}<div class="vstack gap-1 mt-2">{% for file in message.attachments %}<a class="btn btn-sm btn-outline-secondary text-start" href="{{ url_for('chat.attachment', attachment_id=file.attachment_id) }}"><i class="fas fa-paperclip me-1" aria-hidden="true"></i>{{ file.filename }} <span class="text-secondary">({{ (file.size / 1024)|round(1) }} KiB{% if file.visibility == 'chat' %}, privat{% endif %})</span>{% if file.state != 'ready' %} · Übertragung ausstehend{% endif %}</a>{% endfor %}</div>{% endif %}
+    {% for delivery in message.deliveries %}<div class="small mt-2 {% if delivery.status == 'failed' %}text-danger{% else %}text-secondary{% endif %}">Federation {{ delivery.peer_id }}: {{ delivery.status }}{% if delivery.error %} · {{ delivery.error }}{% endif %}{% if delivery.status == 'failed' and may_send %}<form class="d-inline" method="post" action="{{ url_for('chat.retry_message', message_id=message.message_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-link btn-sm p-0 ms-1" type="submit">erneut senden</button></form>{% endif %}</div>{% endfor %}
+  </div></article>
+{% else %}<div class="text-secondary text-center py-5">Noch keine Nachrichten.</div>{% endfor %}
+<div id="latest"></div></div>
