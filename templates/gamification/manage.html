@@ -1,7 +1,8 @@
 {% extends "layout.html" %}
 {% block title %}Daten-Roulette verwalten{% endblock %}
-{% block content %}
-<section class="container-xl py-3">
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div><h1 class="h3 mb-1">Daten-Roulette verwalten</h1><p class="text-muted mb-0">Runden, Teilnehmer, Dateifreigaben, Vorschläge, Konsens und Belohnungen.</p></div>
     <a class="btn btn-outline-primary" href="{{ url_for('gamification.index') }}">Zum Roulette</a>
@@ -67,5 +68,5 @@
       </tr>
     {% else %}<tr><td colspan="4" class="text-muted">Keine offenen Vorschläge.</td></tr>{% endfor %}
   </tbody></table></div></section>
-</section>
+</main>
 {% endblock %}
