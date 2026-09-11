@@ -7,6 +7,7 @@
         <a class="nav-link" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-gauge me-1" aria-hidden="true"></i>{{ tr('overview') }}</a>
         <a class="nav-link" href="{{ url_for('documents.projects') }}"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>Projekte</a>
         <a class="nav-link" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
+        <a class="nav-link" href="{{ url_for('chat.index') }}"><i class="fas fa-comments me-1" aria-hidden="true"></i>Chat</a>
         <a class="nav-link" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1" aria-hidden="true"></i>Objekte</a>
         <a class="nav-link" href="{{ url_for('documents.forms') }}"><i class="fas fa-table-list me-1" aria-hidden="true"></i>{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a>
         <a class="nav-link" href="{{ url_for('rentals.index') }}"><i class="fas fa-building me-1" aria-hidden="true"></i>Vermietung</a>
