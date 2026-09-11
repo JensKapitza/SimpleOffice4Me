@@ -13,8 +13,11 @@ import json
 import os
 import re
 import stat
+import threading
+import time
 import urllib.parse
 import urllib.request
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
@@ -24,12 +27,20 @@ DEFAULT_REPOSITORY = "JensKapitza/SimpleOffice4Me"
 REPORT_SCHEMA = 1
 MAX_TOKEN_BYTES = 4096
 MAX_HTTP_RESPONSE_BYTES = 256 * 1024
+LOCAL_REPORT_WINDOW_SECONDS = 60
+LOCAL_REPORT_LIMIT = 30
+LOCAL_REPORT_INFLIGHT_LIMIT = 2
+LOCAL_REPORT_CACHE_LIMIT = 1000
 _REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 _SECRET_PATTERNS = (
     re.compile(r"(?i)(authorization|cookie|token|secret|password|passwd|api[_-]?key)\s*[:=]\s*[^\s,;]+"),
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
     re.compile(r"(?i)\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{8,}\b"),
 )
+_local_report_lock = threading.Lock()
+_local_report_attempts: deque[float] = deque()
+_local_report_inflight: set[str] = set()
+_local_issue_cache: OrderedDict[str, int] = OrderedDict()
 
 
 @dataclass(frozen=True)
@@ -120,7 +131,9 @@ def load_config() -> GitHubReporterConfig:
 
 def sanitize_text(value: object, limit: int = 500) -> str:
     """Return a bounded, best-effort redacted string for local admin display."""
-    text = str(value or "").replace("\x00", "")
+    # Bound regex work before redaction as exception text can itself be attacker-controlled.
+    scan_limit = max(256, min(max(0, limit) * 4, 8192))
+    text = str(value or "")[:scan_limit].replace("\x00", "")
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
     text = re.sub(r"(?:[A-Za-z]:\\|/)(?:[^\s:/\\]+[/\\])+([^\s:/\\]+)", r"<path>/\1", text)
@@ -378,6 +391,41 @@ def report_payload_to_github(config: GitHubReporterConfig, payload: Mapping[str,
     return create_issue(config, title, body)
 
 
+def _reserve_local_report(fingerprint: str) -> tuple[str, int | None]:
+    """Bound synchronous outbound work caused by application error storms."""
+    now = time.monotonic()
+    with _local_report_lock:
+        cached = _local_issue_cache.get(fingerprint)
+        if cached is not None:
+            _local_issue_cache.move_to_end(fingerprint)
+            return "cached", cached
+        if fingerprint in _local_report_inflight:
+            return "duplicate", None
+        if len(_local_report_inflight) >= LOCAL_REPORT_INFLIGHT_LIMIT:
+            return "busy", None
+        cutoff = now - LOCAL_REPORT_WINDOW_SECONDS
+        while _local_report_attempts and _local_report_attempts[0] <= cutoff:
+            _local_report_attempts.popleft()
+        if len(_local_report_attempts) >= LOCAL_REPORT_LIMIT:
+            return "limited", None
+        _local_report_attempts.append(now)
+        _local_report_inflight.add(fingerprint)
+        return "reserved", None
+
+
+def _release_local_report(fingerprint: str) -> None:
+    with _local_report_lock:
+        _local_report_inflight.discard(fingerprint)
+
+
+def _remember_local_issue(fingerprint: str, issue_number: int) -> None:
+    with _local_report_lock:
+        _local_issue_cache[fingerprint] = issue_number
+        _local_issue_cache.move_to_end(fingerprint)
+        while len(_local_issue_cache) > LOCAL_REPORT_CACHE_LIMIT:
+            _local_issue_cache.popitem(last=False)
+
+
 def report_error(*, exception_type: str, exception_message: str, endpoint: str,
                  method: str, request_id: str, fingerprint: str,
                  frames: Sequence[Mapping[str, object]], app_version: str = "") -> int | None:
@@ -394,13 +442,24 @@ def report_error(*, exception_type: str, exception_message: str, endpoint: str,
         frames=frames,
         app_version=app_version,
     )
-    if config.relay_url:
-        result = _post_relay(config.relay_url, payload)
-        if isinstance(result, dict):
-            issue_number = result.get("issue_number")
-            if isinstance(issue_number, int) and issue_number > 0:
-                return issue_number
+    safe_fingerprint = sanitize_text(payload.get("fingerprint"), 128)
+    reservation, cached_issue = _reserve_local_report(safe_fingerprint)
+    if reservation == "cached":
+        return cached_issue
+    if reservation != "reserved":
         return None
-    if not config.token:
-        return None
-    return report_payload_to_github(config, payload)
+    try:
+        issue_number: int | None = None
+        if config.relay_url:
+            result = _post_relay(config.relay_url, payload)
+            if isinstance(result, dict):
+                candidate = result.get("issue_number")
+                if isinstance(candidate, int) and not isinstance(candidate, bool) and candidate > 0:
+                    issue_number = candidate
+        elif config.token:
+            issue_number = report_payload_to_github(config, payload)
+        if issue_number is not None and issue_number > 0:
+            _remember_local_issue(safe_fingerprint, issue_number)
+        return issue_number
+    finally:
+        _release_local_report(safe_fingerprint)
