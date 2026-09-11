@@ -195,7 +195,7 @@ public class MainActivity extends Activity {
             }
             Python python = Python.getInstance();
             PyObject module = python.getModule("android_runtime");
-            module.callAttr("start", runtimeRoot.getAbsolutePath());
+            module.callAttr("start", runtimeRoot.getAbsolutePath(), BuildConfig.ERROR_REPORT_URL);
 
             showStatus("Lokales Backend wird geprüft …", true);
             waitForBackend();
