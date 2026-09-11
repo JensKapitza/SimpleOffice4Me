@@ -288,6 +288,8 @@ app.register_blueprint(admin.bp)
 
 from . import mcp
 app.register_blueprint(mcp.bp)
+from . import error_relay
+app.register_blueprint(error_relay.bp)
 from . import datalogger
 app.register_blueprint(datalogger.bp)
 from . import inventory
@@ -304,6 +306,16 @@ from .settings_store import SettingsStore, translate, ui_literal_translations
 def assign_request_id():
     g.request_id = secrets.token_hex(8)
     g.request_started_at = time.perf_counter()
+
+
+@app.before_request
+def restrict_error_relay_role():
+    """Expose only the relay API when this image is run as the dedicated relay role."""
+    if os.environ.get("SIMPLEOFFICE_CONTAINER_ROLE", "web").strip() != "error-relay":
+        return None
+    if request.path.startswith("/api/error-reports/v1/"):
+        return None
+    abort(404)
 
 
 @app.before_request
@@ -374,10 +386,12 @@ def unhandled_application_error(error):
 
     issue_number = None
     issue_href = ""
+    manual_issue_href = ""
     sanitized_message = ""
     try:
-        from .github_error_reporter import issue_url, load_config, report_error, sanitize_text
+        from .github_error_reporter import issue_url, load_config, manual_issue_url, report_error, sanitize_text
         sanitized_message = sanitize_text(error, 500)
+        manual_issue_href = manual_issue_url(request_id)
         if fingerprint:
             issue_number = report_error(
                 exception_type=exception_type,
@@ -424,6 +438,7 @@ def unhandled_application_error(error):
         "errors/500.html",
         request_id=request_id,
         error_details=admin_error,
+        manual_issue_url=manual_issue_href,
     ), 500
 
 
