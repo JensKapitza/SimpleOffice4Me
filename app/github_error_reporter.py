@@ -6,11 +6,10 @@ files are never included in outbound reports.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
-import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
@@ -158,6 +157,10 @@ def create_issue(config: GitHubReporterConfig, title: str, body: str) -> int:
     return int(result["number"])
 
 
+def issue_url(config: GitHubReporterConfig, issue_number: int) -> str:
+    return f"https://github.com/{config.repository}/issues/{int(issue_number)}"
+
+
 def report_error(
     *,
     exception_type: str,
@@ -173,7 +176,6 @@ def report_error(
     config = load_config()
     if not config.enabled or not config.repository or not config.token:
         return None
-    # Validate repository syntax before using it in a URL.
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", config.repository):
         raise ValueError("Invalid SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY")
 
