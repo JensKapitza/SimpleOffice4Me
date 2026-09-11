@@ -44,6 +44,35 @@
     </div>
     <div class="card-body border-bottom">
       <p class="small text-secondary">Hier liegen die fertigen Installationsdateien unabhängig von GitHub: Windows <code>.exe/.msi</code>, macOS <code>.dmg/.pkg</code>, Linux <code>.AppImage/.deb/.rpm</code>, Android <code>.apk</code>, Docker <code>.tar.gz</code> und ZIP-Archive. Jede Datei wird über SHA-256 adressiert.</p>
+
+      <div class="border rounded p-3 mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+          <div><strong>GitHub-Artefaktquelle</strong><div class="small text-secondary">Zentrale Admin-Konfiguration für Repository und Zugriffstoken.</div></div>
+          <span class="badge {{ 'text-bg-success' if github_artifacts.configured else 'text-bg-secondary' }}">{{ 'Token konfiguriert' if github_artifacts.configured else 'Token fehlt' }}</span>
+        </div>
+        <form method="post" action="{{ url_for('software_admin.save_github_artifact_config') }}" autocomplete="off">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="row g-3">
+            <div class="col-lg-7">
+              <label class="form-label" for="github-repository">GitHub Repository / URL</label>
+              <input class="form-control" id="github-repository" name="github_repository" maxlength="300" required value="{{ github_artifacts.repository_url }}" placeholder="https://github.com/JensKapitza/SimpleOffice4Me" spellcheck="false">
+              <div class="form-text">Akzeptiert eine vollständige HTTPS-URL oder <code>owner/repository</code>.</div>
+            </div>
+            <div class="col-lg-5">
+              <label class="form-label" for="github-token">GitHub Token</label>
+              <input class="form-control" id="github-token" name="github_token" type="password" maxlength="500" autocomplete="new-password" placeholder="{{ 'gespeichert – leer lassen zum Beibehalten' if github_artifacts.configured else 'github_pat_…' }}">
+              <div class="form-text">Der Token wird verschlüsselt gespeichert und niemals wieder angezeigt.</div>
+            </div>
+          </div>
+          {% if github_artifacts.configured %}<div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="clear_github_token" value="1" id="clear-github-token"><label class="form-check-label" for="clear-github-token">Gespeicherten GitHub-Token entfernen</label></div>{% endif %}
+          {% if github_artifacts.source == 'environment' %}<div class="alert alert-warning py-2 mt-3 mb-0 small">Aktuell stammen die Werte noch aus der bisherigen Environment-Konfiguration. Speichern übernimmt sie in die Admin-Konfiguration; der Token wird dabei verschlüsselt abgelegt.</div>{% endif %}
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+            <button class="btn btn-primary" type="submit">GitHub-Konfiguration speichern</button>
+            <span class="small text-secondary">Quelle: {{ github_artifacts.source }} · Repository: <code>{{ github_artifacts.repository }}</code></span>
+          </div>
+        </form>
+      </div>
+
       <div class="row g-3">
         <div class="col-lg-6">
           <form method="post" enctype="multipart/form-data" action="{{ url_for('software_admin.upload_artifact') }}" class="input-group">
@@ -60,7 +89,6 @@
           </form>
         </div>
       </div>
-      <p class="small text-secondary mt-3 mb-0">Für automatischen GitHub-Import: <code>SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE</code> bevorzugt; alternativ <code>SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN</code>.</p>
     </div>
     <div class="table-responsive"><table class="table table-sm align-middle mb-0">
       <thead><tr><th scope="col">Datei</th><th scope="col">Plattform</th><th scope="col">Größe</th><th scope="col">SHA-256</th><th scope="col">Quelle</th><th scope="col">Aktionen</th></tr></thead>
