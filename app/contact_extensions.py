@@ -22,6 +22,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
 from .osm_address import LocalAddressIndex, field_suggestions, search_address, unique_candidate
+from .safe_paths import resolve_file_under
 from .settings_store import translate
 
 
@@ -177,9 +178,7 @@ class ContactCRMStore:
         DocumentStore(self.root).history.record("contact_crm_activity_added", actor, "contact-crm", contact_id, activity)
         return activity
 
-    def timeline(
-        self, contact: dict[str, Any], crm: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
+    def timeline(self, contact: dict[str, Any], crm: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         crm = crm if crm is not None else self.record(str(contact.get("contact_id", "")))
         entries = [dict(item) for item in crm.get("activities", [])]
         entries.extend(dict(item) for item in crm.get("history", []))
@@ -244,10 +243,7 @@ class ContactCRMStore:
                     store.patch_fields(proposal["contact_id"], field_changes, actor)
                 if "tags" in accepted:
                     current = store.get(proposal["contact_id"], actor)
-                    ContactManagement(self.root).update_metadata(
-                        proposal["contact_id"], actor,
-                        proposed.get("tags", "").split(","), current.get("groups", []),
-                    )
+                    ContactManagement(self.root).update_metadata(proposal["contact_id"], actor, proposed.get("tags", "").split(","), current.get("groups", []))
                 proposal["status"] = "accepted"; proposal["accepted_fields"] = sorted(accepted)
             else: raise ValueError("unknown proposal action")
             proposal["resolved_at"] = utc_now(); proposal["resolved_by"] = actor; self._write(data)
@@ -268,15 +264,16 @@ def _parse_address_rows(text: str) -> list[dict[str, str]]:
     for line in str(text or "").splitlines():
         if not line.strip(): continue
         parts = [part.strip() for part in line.split("|")]
-        if len(parts) == 5: parts.insert(4, "")  # legacy row without STATE
+        if len(parts) == 5: parts.insert(4, "")
         parts += [""] * max(0, 6 - len(parts))
         result.append(dict(zip(("type", "street", "postal", "city", "state", "country"), parts[:6])))
     return result
 
 
 def _eml_preview(root: Path, document_id: str) -> dict[str, Any]:
-    store = DocumentStore(root); document = store.get_document(document_id); path = root / str(document.get("last_path", ""))
-    if path.suffix.casefold() != ".eml" or not path.is_file() or path.is_symlink(): raise ValueError("document is not a regular EML file")
+    store = DocumentStore(root); document = store.get_document(document_id)
+    path = resolve_file_under(root, document.get("last_path", ""))
+    if path.suffix.casefold() != ".eml": raise ValueError("document is not a regular EML file")
     message = BytesParser(policy=policy.default).parsebytes(path.read_bytes()); attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
@@ -345,11 +342,7 @@ def register(bp) -> None:
         try:
             ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).add_activity(contact_id, request.form, actor); flash(translate(g.language, "crm.activity.saved"))
         except ValueError as exc:
-            message_keys = {
-                "unknown CRM activity type": "crm.activity.error.type",
-                "unknown CRM activity direction": "crm.activity.error.direction",
-                "subject or note is required": "crm.activity.error.content_required",
-            }
+            message_keys = {"unknown CRM activity type": "crm.activity.error.type", "unknown CRM activity direction": "crm.activity.error.direction", "subject or note is required": "crm.activity.error.content_required"}
             flash(translate(g.language, message_keys.get(str(exc), "crm.activity.error.default")))
         return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id) + "#crm-timeline")
 
@@ -378,12 +371,9 @@ def register(bp) -> None:
 
     @bp.get("/contact-update/<token>/address-search.json", endpoint="crm_public_address_search")
     def crm_public_address_search(token: str):
-        if ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).token(token) is None:
-            abort(404)
-        query = request.args.get("q", "").strip(); field = request.args.get("field", "").strip()
-        index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
-        if len(query) < 3:
-            return jsonify({"candidates": [], "suggestions": [], "unique": None, "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
+        if ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).token(token) is None: abort(404)
+        query = request.args.get("q", "").strip(); field = request.args.get("field", "").strip(); index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
+        if len(query) < 3: return jsonify({"candidates": [], "suggestions": [], "unique": None, "source": "local_osm", "ready": index.status()["ready"], "attribution": "© OpenStreetMap contributors"})
         try:
             candidates = search_address(query, root=current_app.config["DOCUMENT_ROOT"], country_code=request.args.get("country", "de"), limit=8)
         except (OSError, RuntimeError, ValueError, sqlite3.Error):
@@ -395,8 +385,7 @@ def register(bp) -> None:
     def crm_proposals():
         actor = str(g.user["username"]); contacts = ContactStore(current_app.config["DOCUMENT_ROOT"]); rows = []
         for proposal in ContactCRMStore(current_app.config["DOCUMENT_ROOT"]).proposals():
-            if not contacts.can_manage(proposal.get("contact_id", ""), actor):
-                continue
+            if not contacts.can_manage(proposal.get("contact_id", ""), actor): continue
             contact = contacts.get(proposal["contact_id"], actor)
             rows.append({**proposal, "contact": contact, "current_values": _external_update_values(contact)})
         return render_template("documents/contact_proposals.html", proposals=rows)
