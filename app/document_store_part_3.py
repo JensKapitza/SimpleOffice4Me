@@ -6,12 +6,7 @@ from .document_store_core import *  # noqa: F401,F403
 
 class _DocumentStorePart3:
     def inbox_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
-        """Load an inbox page from the SQLite projection, never all sidecars.
-
-        The projection is disposable and is populated incrementally by the
-        index worker.  During an initial scan the page therefore stays fast
-        and simply grows as documents become available.
-        """
+        """Load an inbox page from the SQLite projection, never all sidecars."""
         self.initialize()
         page = max(1, page)
         page_size = max(1, min(500, page_size))
@@ -53,9 +48,10 @@ class _DocumentStorePart3:
         document = self.get_document(reference)
         if not allow_locked:
             self._require_document_editable(document)
-        source = self.root / str(document.get("last_path", ""))
-        if not source.is_file() or source.is_symlink():
-            raise ValueError("only an available regular document file can be moved")
+        try:
+            source = resolve_file_under(self.root, document.get("last_path", ""))
+        except (OSError, ValueError) as exc:
+            raise ValueError("only an available regular document file can be moved") from exc
         requested = Path(destination_folder.strip())
         if not destination_folder.strip() or requested.is_absolute() or ".." in requested.parts:
             raise ValueError("choose a relative destination folder inside the document store")
@@ -109,13 +105,7 @@ class _DocumentStorePart3:
         expected_destination_sha256: str,
         max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any]:
-        """Replace one destination from a MOVE source with recovery and rollback.
-
-        The destination keeps its stable identity, grants, tags and properties.
-        Its old payload enters immutable content history, while the consumed
-        source remains recoverable in the WebDAV trash. A source-side conflict
-        after the destination write restores the previous destination bytes.
-        """
+        """Replace one destination from a MOVE source with recovery and rollback."""
         self._require_actor(actor)
         source = self.get_document(source_reference)
         destination = self.get_document(destination_reference)
@@ -123,13 +113,11 @@ class _DocumentStorePart3:
             raise ValueError("source and destination are the same document")
         self._require_document_editable(source)
         self._require_document_editable(destination)
-        source_path = self.root / str(source.get("last_path", ""))
-        destination_path = self.root / str(destination.get("last_path", ""))
-        if (
-            not source_path.is_file() or source_path.is_symlink()
-            or not destination_path.is_file() or destination_path.is_symlink()
-        ):
-            raise ValueError("MOVE replacement requires two available regular document files")
+        try:
+            source_path = resolve_file_under(self.root, source.get("last_path", ""))
+            destination_path = resolve_file_under(self.root, destination.get("last_path", ""))
+        except (OSError, ValueError) as exc:
+            raise ValueError("MOVE replacement requires two available regular document files") from exc
         if source_path.stat().st_size > max_bytes:
             raise ValueError("document exceeds the configured upload size limit")
         source_content = source_path.read_bytes()
@@ -206,14 +194,7 @@ class _DocumentStorePart3:
         expected_destination_sha256: str,
         max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any]:
-        """Copy source bytes over a destination while preserving its identity.
-
-        COPY must leave the source untouched. The destination keeps its stable
-        ID, grants, tags, retention state and WebDAV properties; replace_content
-        archives the previous payload and performs the atomic write. Both
-        resource validators are checked again after HTTP precondition handling
-        so a late filesystem change cannot silently win.
-        """
+        """Copy source bytes over a destination while preserving its identity."""
         self._require_actor(actor)
         source = self.get_document(source_reference)
         destination = self.get_document(destination_reference)
@@ -221,13 +202,11 @@ class _DocumentStorePart3:
             raise ValueError("source and destination are the same document")
         self._require_document_editable(source)
         self._require_document_editable(destination)
-        source_path = self.root / str(source.get("last_path", ""))
-        destination_path = self.root / str(destination.get("last_path", ""))
-        if (
-            not source_path.is_file() or source_path.is_symlink()
-            or not destination_path.is_file() or destination_path.is_symlink()
-        ):
-            raise ValueError("COPY replacement requires two available regular document files")
+        try:
+            source_path = resolve_file_under(self.root, source.get("last_path", ""))
+            destination_path = resolve_file_under(self.root, destination.get("last_path", ""))
+        except (OSError, ValueError) as exc:
+            raise ValueError("COPY replacement requires two available regular document files") from exc
         if source_path.stat().st_size > max_bytes:
             raise ValueError("document exceeds the configured upload size limit")
 
@@ -316,9 +295,10 @@ class _DocumentStorePart3:
         self._require_actor(actor)
         source_metadata = self.get_document(reference)
         self._require_document_editable(source_metadata)
-        source = self.root / str(source_metadata.get("last_path", ""))
-        if not source.is_file() or source.is_symlink():
-            raise ValueError("only an available regular document file can be copied")
+        try:
+            source = resolve_file_under(self.root, source_metadata.get("last_path", ""))
+        except (OSError, ValueError) as exc:
+            raise ValueError("only an available regular document file can be copied") from exc
         relative = self._safe_managed_relative_path(destination_path, require_name=True)
         destination = self.root / relative
         if not destination.parent.is_dir() or destination.parent.is_symlink():
@@ -403,19 +383,27 @@ class _DocumentStorePart3:
                         portable = self._read_json(sidecar, {})
                         if portable.get("document_id") != document_id:
                             raise ValueError("collection contains unknown internal metadata")
-                        portable_path = self.root / str(portable.get("last_path", ""))
+                        portable_value = str(portable.get("last_path", ""))
                         try:
-                            portable_path.resolve().relative_to(source.resolve())
+                            portable_relative = self._safe_managed_relative_path(portable_value, require_name=True)
+                        except ValueError:
+                            raise ValueError("collection contains out-of-scope internal metadata") from None
+                        portable_path = self.root / portable_relative
+                        try:
+                            portable_path.resolve(strict=False).relative_to(source.resolve())
                         except (OSError, ValueError):
                             raise ValueError("collection contains out-of-scope internal metadata") from None
                         registered = self.get_document(document_id)
-                        active_match = (
-                            registered.get("last_path") == portable.get("last_path")
-                            and portable_path.is_file() and not portable_path.is_symlink()
-                        )
+                        active_match = False
+                        if registered.get("last_path") == portable_value:
+                            try:
+                                resolve_file_under(self.root, portable_relative)
+                                active_match = True
+                            except (OSError, ValueError):
+                                active_match = False
                         deleted_match = (
                             registered.get("system_state") == "webdav_deleted"
-                            and registered.get("deleted_from") == portable.get("last_path")
+                            and registered.get("deleted_from") == portable_value
                             and not portable_path.exists()
                         )
                         if not active_match and not deleted_match:
@@ -596,9 +584,11 @@ class _DocumentStorePart3:
                 for document_id, snapshot in snapshots.items():
                     self._save_document(snapshot)
                     self._refresh_search_index(snapshot)
-                    old_path = self.root / str(snapshot.get("last_path", ""))
-                    if old_path.is_file() and not old_path.is_symlink():
-                        self._scan_file(old_path)
+                    try:
+                        old_path = resolve_file_under(self.root, snapshot.get("last_path", ""))
+                    except (OSError, ValueError):
+                        continue
+                    self._scan_file(old_path)
                 self._record_revision(
                     "webdav_collection_move_rolled_back", actor, "collections",
                     hashlib.sha256(f"{source_path}:{destination_path}".encode()).hexdigest(),
@@ -713,9 +703,11 @@ class _DocumentStorePart3:
                 for snapshot in snapshots.values():
                     self._save_document(snapshot)
                     self._refresh_search_index(snapshot)
-                    original = self.root / str(snapshot.get("last_path", ""))
-                    if original.is_file() and not original.is_symlink():
-                        self._scan_file(original, force_hash=True)
+                    try:
+                        original = resolve_file_under(self.root, snapshot.get("last_path", ""))
+                    except (OSError, ValueError):
+                        continue
+                    self._scan_file(original, force_hash=True)
                 manifest_path.unlink(missing_ok=True)
                 if operation.exists() and not any(operation.iterdir()):
                     operation.rmdir()
@@ -757,4 +749,3 @@ class _DocumentStorePart3:
                 "resources": deleted_documents,
                 "directories_relative": manifest["directories"],
             }
-
