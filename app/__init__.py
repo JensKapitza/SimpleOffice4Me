@@ -342,6 +342,7 @@ def unhandled_application_error(error):
     exception_type = type(error).__name__[:120]
     endpoint = (request.endpoint or "")[:160]
     path = request.path[:500]
+    method = request.method[:12]
     extracted_frames = traceback.extract_tb(error.__traceback__)[-12:]
     template, template_line, undefined_variable = _jinja_error_context(error, extracted_frames)
     frames = [
@@ -350,10 +351,13 @@ def unhandled_application_error(error):
     ]
     if template:
         frames.append({"template": template, "line": template_line, "variable": undefined_variable})
+
+    fingerprint = ""
+    actor = getattr(g, "user", None)
     try:
         from .access_control import error_fingerprint, utc_now
         from .db import get_db
-        actor = getattr(g, "user", None)
+        fingerprint = error_fingerprint(exception_type, endpoint, method, path)
         dbh = get_db()
         dbh.execute(
             """INSERT OR IGNORE INTO application_error(
@@ -361,18 +365,66 @@ def unhandled_application_error(error):
                    method, path, fingerprint, frames
                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (utc_now(), request_id, actor["id"] if actor else None, exception_type,
-             endpoint, request.method[:12], path,
-             error_fingerprint(exception_type, endpoint, request.method[:12], path),
+             endpoint, method, path, fingerprint,
              json.dumps(frames, ensure_ascii=False)),
         )
         dbh.commit()
     except Exception:
         pass
+
+    issue_number = None
+    issue_href = ""
+    sanitized_message = ""
+    try:
+        from .github_error_reporter import issue_url, load_config, report_error, sanitize_text
+        sanitized_message = sanitize_text(error, 500)
+        if fingerprint:
+            issue_number = report_error(
+                exception_type=exception_type,
+                exception_message=sanitized_message,
+                endpoint=endpoint,
+                method=method,
+                request_id=request_id,
+                fingerprint=fingerprint,
+                frames=frames,
+                app_version=os.environ.get("SIMPLEOFFICE_VERSION", ""),
+            )
+            if issue_number is not None:
+                issue_href = issue_url(load_config(), issue_number)
+    except Exception as reporter_error:
+        app.logger.warning(
+            "GitHub error reporter failed request_id=%s type=%s",
+            request_id, type(reporter_error).__name__,
+        )
+
+    admin_error = None
+    try:
+        from .access_control import is_admin
+        if actor is not None and is_admin(actor):
+            admin_error = {
+                "exception_type": exception_type,
+                "message": sanitized_message or exception_type,
+                "endpoint": endpoint or "-",
+                "method": method,
+                "template": template,
+                "template_line": template_line,
+                "undefined_variable": undefined_variable,
+                "frames": frames,
+                "issue_number": issue_number,
+                "issue_url": issue_href,
+            }
+    except Exception:
+        pass
+
     app.logger.error(
         "Unhandled application error request_id=%s type=%s endpoint=%s template=%s line=%s variable=%s",
         request_id, exception_type, endpoint, template or "-", template_line or "-", undefined_variable or "-",
     )
-    return render_template("errors/500.html", request_id=request_id), 500
+    return render_template(
+        "errors/500.html",
+        request_id=request_id,
+        error_details=admin_error,
+    ), 500
 
 
 @app.before_request
