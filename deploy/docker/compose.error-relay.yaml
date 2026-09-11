@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     image: simpleoffice4me:local
     restart: unless-stopped
+    init: true
+    read_only: true
+    pids_limit: 128
     environment:
       SIMPLEOFFICE_CONTAINER_ROLE: error-relay
       SIMPLEOFFICE_HOST: 0.0.0.0
