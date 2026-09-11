@@ -44,6 +44,44 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
 
+  docker-error-relay:
+    name: Docker error relay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate relay Compose file
+        run: docker compose -f deploy/docker/compose.error-relay.yaml config > /dev/null
+      - name: Build shared SimpleOffice image
+        run: docker build --tag simpleoffice4me:error-relay-ci .
+      - name: Smoke-test restricted relay role
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN_FILE="$RUNNER_TEMP/simpleoffice-error-relay-token"
+          printf '%s\n' 'ci-placeholder-not-a-real-token' > "$TOKEN_FILE"
+          chmod 600 "$TOKEN_FILE"
+          docker run -d --name simpleoffice-error-relay-ci \
+            -e SIMPLEOFFICE_CONTAINER_ROLE=error-relay \
+            -e SIMPLEOFFICE_ERROR_RELAY_ENABLED=1 \
+            -e SIMPLEOFFICE_GITHUB_ERROR_REPORTING=1 \
+            -e SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE=/run/secrets/github-error-token \
+            -v "$TOKEN_FILE:/run/secrets/github-error-token:ro" \
+            -p 127.0.0.1:18090:8080 \
+            simpleoffice4me:error-relay-ci
+          trap 'docker logs simpleoffice-error-relay-ci || true; docker rm -f simpleoffice-error-relay-ci >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 40); do
+            status="$(curl -sS -o /tmp/relay-health.json -w '%{http_code}' http://127.0.0.1:18090/api/error-reports/v1/health || true)"
+            if [ "$status" = "200" ]; then
+              break
+            fi
+            sleep 0.5
+          done
+          test "${status:-}" = "200"
+          python -m json.tool /tmp/relay-health.json > /dev/null
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18090/)" = "404"
+
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-24.04
