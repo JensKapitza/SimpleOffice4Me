@@ -1,8 +1,9 @@
 """Public, privacy-preserving error relay embedded in SimpleOffice4Me.
 
-The relay is intentionally independent from federation. Remote SimpleOffice
-installations do not receive GitHub credentials; they only POST a small,
-strictly allow-listed technical report to this endpoint.
+The relay is intentionally independent from federation authentication. Remote
+SimpleOffice installations do not receive GitHub credentials; they only POST a
+small, strictly allow-listed technical report. A build marked as the global
+master automatically exposes this collector unless explicitly disabled.
 """
 from __future__ import annotations
 
@@ -16,7 +17,13 @@ from collections import OrderedDict, deque
 
 from flask import Blueprint, abort, jsonify, request
 
-from .github_error_reporter import REPORT_SCHEMA, load_config, report_payload_to_github, sanitize_text
+from .github_error_reporter import (
+    REPORT_SCHEMA,
+    load_relay_config,
+    master_mode,
+    report_payload_to_github,
+    sanitize_text,
+)
 
 
 bp = Blueprint("error_relay", __name__, url_prefix="/api/error-reports/v1")
@@ -38,6 +45,7 @@ _FINGERPRINT = re.compile(r"[A-Za-z0-9_.:-]{8,128}\Z")
 _FRAME_NAME = re.compile(r"[A-Za-z0-9_.:+<> -]{1,160}\Z")
 _TEMPLATE_NAME = re.compile(r"[A-Za-z0-9_./:+-]{1,240}\Z")
 _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+_TRUE_VALUES = {"1", "true", "yes", "on"}
 _rate_lock = threading.Lock()
 _rate_salt = secrets.token_bytes(32)
 _rate_by_source: dict[str, deque[float]] = {}
@@ -50,9 +58,11 @@ _upstream_attempts: deque[float] = deque()
 
 
 def relay_enabled() -> bool:
-    return os.environ.get("SIMPLEOFFICE_ERROR_RELAY_ENABLED", "0").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+    """Enable explicitly configured relays or the baked global master by default."""
+    configured = os.environ.get("SIMPLEOFFICE_ERROR_RELAY_ENABLED")
+    if configured is not None:
+        return configured.strip().casefold() in _TRUE_VALUES
+    return master_mode()
 
 
 def _restrict_public_relay_surface() -> None:
@@ -102,8 +112,6 @@ def _rate_allowed() -> bool:
     source = _source_key()
     with _rate_lock:
         _trim(_rate_global, now)
-        # Reject at the global boundary before allocating attacker-controlled
-        # source buckets. This keeps memory bounded even with many source keys.
         if len(_rate_global) >= RATE_LIMIT_GLOBAL:
             return False
 
@@ -180,10 +188,7 @@ def _validated_frames(value: object) -> list[dict[str, object]]:
                 "line": line,
             }
             variable = sanitize_text(frame.get("variable"), 120)
-            if variable:
-                item["variable"] = _frame_text(variable, _FRAME_NAME, 120)
-            else:
-                item["variable"] = ""
+            item["variable"] = _frame_text(variable, _FRAME_NAME, 120) if variable else ""
             result.append(item)
         else:
             if set(frame) - {"file", "line", "function"}:
@@ -251,10 +256,9 @@ def health():
     if not relay_enabled():
         abort(404)
     try:
-        config = load_config()
+        config = load_relay_config()
         ready = bool(config.token and config.repository)
     except Exception:
-        # Configuration errors are intentionally not reflected to anonymous callers.
         ready = False
     response = jsonify({
         "service": "simpleoffice-error-relay",
@@ -293,7 +297,7 @@ def receive_report():
         return jsonify({"accepted": True, "issue_number": cached, "deduplicated": True})
 
     try:
-        config = load_config()
+        config = load_relay_config()
     except Exception:
         return jsonify({"error": "relay not configured"}), 503
     if not config.token:
@@ -314,15 +318,12 @@ def receive_report():
         return response
 
     try:
-        # Recheck after reservation in case a previous request populated the cache
-        # between our first lookup and acquiring the upstream slot.
         cached = _cached_issue(fingerprint)
         if cached is not None:
             return jsonify({"accepted": True, "issue_number": cached, "deduplicated": True})
         try:
             issue_number = report_payload_to_github(config, payload)
         except Exception:
-            # Do not reflect GitHub/token/network details to an anonymous caller.
             return jsonify({"error": "upstream unavailable"}), 502
         _remember_issue(fingerprint, issue_number)
         return jsonify({"accepted": True, "issue_number": issue_number, "deduplicated": False}), 202
