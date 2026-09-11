@@ -166,7 +166,7 @@ def init_document_store_command(root: Path) -> None:
 def scan_documents_command(root: Path | None, verify_hashes: bool) -> None:
     store = DocumentStore(root or current_app.config["DOCUMENT_ROOT"])
     report = store.scan(verify_hashes=verify_hashes)
-    click.echo(f"files={report.files} new={report.new_files} updated={report.updated_files} duplicates={report.duplicates} symlinks={report.symlinks} boundaries={report.skipped_boundaries} errors={report.errors}")
+    click.echo(f"files={report.files} new={report.new_files} updated={report.updated_files} duplicates={report.duplicates} symlinks={report.skipped_symlinks} boundaries={report.skipped_boundaries} errors={report.errors}")
 
 
 @click.command("document-note")
@@ -274,8 +274,10 @@ def init_app(app: Any) -> None:
     app.cli.add_command(retention_status_command)
     app.cli.add_command(retention_cleanup_command)
     app.cli.add_command(search_documents_command)
-    from . import chat_routes, federation_chat_http
+    from . import chat_policy_admin, chat_routes, federation_chat_http
     if "chat" not in app.blueprints:
         app.register_blueprint(chat_routes.bp)
     if "federation_chat" not in app.blueprints:
         app.register_blueprint(federation_chat_http.bp)
+    if "chat_policy_admin" not in app.blueprints:
+        app.register_blueprint(chat_policy_admin.bp)
