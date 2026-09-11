@@ -7,6 +7,18 @@
     <code>{{ request_id }}</code>
   </div>
 
+  {% if automatic_issue_url %}
+  <div class="alert alert-success">
+    <p class="mb-2">Der technische Fehlerbericht wurde bereits automatisch übermittelt.</p>
+    <a class="btn btn-sm btn-outline-success" href="{{ automatic_issue_url }}" target="_blank" rel="noopener noreferrer">GitHub-Issue öffnen</a>
+  </div>
+  {% elif manual_issue_url %}
+  <div class="alert alert-secondary">
+    <p class="mb-2">Falls du GitHub auf diesem Gerät verwendest, kannst du den Fehler alternativ dort melden. Der Link enthält nur die Vorgangs-ID und keine Logs, Kundendaten oder Zugangsdaten.</p>
+    <a class="btn btn-sm btn-outline-primary" href="{{ manual_issue_url }}" target="_blank" rel="noopener noreferrer">Fehler auf GitHub melden</a>
+  </div>
+  {% endif %}
+
   {% if error_details %}
   <details class="card mb-3">
     <summary class="card-header fw-semibold">Technische Fehlerdetails (nur Administrator)</summary>
@@ -35,7 +47,7 @@
       {% if error_details.issue_number and error_details.issue_url %}
       <p class="mb-0">GitHub-Issue: <a href="{{ error_details.issue_url }}" target="_blank" rel="noopener noreferrer">#{{ error_details.issue_number }}</a></p>
       {% else %}
-      <p class="text-muted mb-0">GitHub-Übertragung ist deaktiviert oder konnte nicht abgeschlossen werden.</p>
+      <p class="text-muted mb-0">Automatische GitHub-Übertragung ist deaktiviert oder konnte nicht abgeschlossen werden.</p>
       {% endif %}
     </div>
   </details>
