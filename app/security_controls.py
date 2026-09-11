@@ -65,8 +65,15 @@ def protect_browser_mutation() -> None:
     if current_app.testing and not current_app.config.get("TEST_CSRF_PROTECTION", False):
         return
     # Credentialed protocol resources are exempt. Their browser settings pages
-    # live under /admin and remain CSRF protected.
-    if request.path.startswith(("/caldav/", "/carddav/", "/webdav/", "/federation/v1/")) or request.path == "/mcp":
+    # live under /admin and remain CSRF protected. The public error relay is
+    # credential-free by design and enforces its own strict schema and limits.
+    if request.path.startswith((
+        "/caldav/",
+        "/carddav/",
+        "/webdav/",
+        "/federation/v1/",
+        "/api/error-reports/v1/",
+    )) or request.path == "/mcp":
         return
     expected = session.get("_csrf_token")
     supplied = request.form.get("_csrf_token", "") or request.headers.get("X-CSRF-Token", "")
