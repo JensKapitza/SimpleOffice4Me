@@ -7,6 +7,7 @@ from app.github_error_reporter import (
     build_report,
     find_existing_issue,
     load_config,
+    manual_issue_url,
     sanitize_text,
 )
 
@@ -18,7 +19,7 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertFalse(config.enabled)
         self.assertEqual(config.token, "")
 
-    def test_token_is_read_from_environment_only(self):
+    def test_token_is_read_from_environment_only_for_direct_mode(self):
         env = {
             "SIMPLEOFFICE_GITHUB_ERROR_REPORTING": "1",
             "SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY": "JensKapitza/SimpleOffice4Me",
@@ -29,6 +30,17 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertTrue(config.enabled)
         self.assertEqual(config.repository, "JensKapitza/SimpleOffice4Me")
         self.assertEqual(config.token, "github_pat_example")
+
+    def test_relay_mode_needs_no_local_github_token(self):
+        env = {
+            "SIMPLEOFFICE_ERROR_REPORT_URL": "https://errors.example.test/api/error-reports/v1/reports",
+            "SIMPLEOFFICE_GITHUB_ERROR_TOKEN": "must-not-be-read",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.token, "")
+        self.assertEqual(config.relay_url, env["SIMPLEOFFICE_ERROR_REPORT_URL"])
 
     def test_sanitizer_removes_common_secrets_and_email(self):
         value = "password=hunter2 token=abc123 person@example.test /srv/private/customer.txt"
@@ -57,6 +69,13 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertNotIn("/srv/app", body)
         self.assertNotIn("cookie", body.casefold())
         self.assertNotIn("authorization", body.casefold())
+
+    def test_manual_issue_url_works_without_any_embedded_token(self):
+        url = manual_issue_url("0123456789abcdef")
+        self.assertTrue(url.startswith("https://github.com/JensKapitza/SimpleOffice4Me/issues/new?"))
+        self.assertIn("0123456789abcdef", url)
+        self.assertNotIn("token", url.casefold())
+        self.assertNotIn("password", url.casefold())
 
     @patch("app.github_error_reporter._request_json")
     def test_existing_issue_is_reused(self, request_json):
