@@ -9,6 +9,7 @@ from __future__ import annotations
 from flask import Blueprint
 
 from .business_document_generation import *  # noqa: F401,F403
+from .safe_paths import resolve_file_under
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 
@@ -45,12 +46,11 @@ def _customer_document_rows(root: Path, contact_id: str, invoice_rows: list[dict
         except ValueError:
             result.append({**relation, "available": False, "error": "document_metadata_missing"})
             continue
-        candidate = root / str(document.get("last_path", ""))
-        path = candidate.resolve()
         try:
-            path.relative_to(root)
-            safe = candidate.is_file() and not candidate.is_symlink()
-        except ValueError:
+            path = resolve_file_under(root, document.get("last_path", ""))
+            safe = True
+        except (OSError, ValueError):
+            path = None
             safe = False
         result.append({**relation, "document": document, "path": path,
                        "filename": Path(str(document.get("last_path", ""))).name,
@@ -104,11 +104,6 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
     document_rows = _customer_document_rows(root, contact_id, invoice_rows)
     if not document_rows and not invoice_rows:
         raise ValueError("customer archive is empty")
-
-    # Python 3.10's SpooledTemporaryFile does not expose ``seekable`` while
-    # ZipFile expects that attribute when reopening an archive for reading.
-    # TemporaryFile remains disk-backed, bounded in memory and compatible
-    # with every supported Python version.
     target = tempfile.TemporaryFile(mode="w+b")
     export_id, exported_at = str(uuid.uuid4()), utc_now()
     manifest_documents: list[dict[str, Any]] = []
@@ -319,84 +314,43 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
     path = _invoice_store_path(root, invoice_id)
     timings: dict[str, float] = {}
     started_total = time.perf_counter()
-
     def timed(step: str, operation):
         started = time.perf_counter()
-        try:
-            return operation()
+        try: return operation()
         finally:
-            elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-            timings[step] = elapsed_ms
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 1); timings[step] = elapsed_ms
             log = logger.warning if elapsed_ms > 500 else logger.debug
             log("invoice_finalization invoice_id=%s step=%s duration_ms=%.1f", invoice_id, step, elapsed_ms)
-
     with exclusive_file_lock(path.with_suffix(".lock"), blocking=False) as acquired, exclusive_file_lock(root / CONTROL_DIR / ".project-billing.lock"):
-        if not acquired:
-            raise ValueError("invoice finalization is already in progress")
+        if not acquired: raise ValueError("invoice finalization is already in progress")
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
-        if row.get("status") != "draft":
-            raise ValueError("invoice is already finalized")
+        if row.get("status") != "draft": raise ValueError("invoice is already finalized")
         timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
         timed("project_positions_load", lambda: _validate_project_sources(root, row, actor))
         settings = timed("business_settings_load", lambda: business_settings(root))
-        number = row.get("invoice_number", "")
-        number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
-        row["invoice_number"] = number
-        row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
+        number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
+        row["invoice_number"] = number; row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
         try:
             tpl = timed("template_load", lambda: active_template(root, row["template_id"]))
-            content_pdf = timed("content_pdf_render", lambda: _invoice_content_pdf(row))
-            visual = timed("template_pdf_render", lambda: _merge_content_with_template(root, tpl, content_pdf))
-            pdfa, pdfa_details = timed("ghostscript_pdfa_convert", lambda: _pdfa3_convert_detailed(visual))
+            content_pdf = timed("content_pdf_render", lambda: _invoice_content_pdf(row)); visual = timed("template_pdf_render", lambda: _merge_content_with_template(root, tpl, content_pdf)); pdfa, pdfa_details = timed("ghostscript_pdfa_convert", lambda: _pdfa3_convert_detailed(visual))
             row["zugferd"].update({"pdfa_pipeline": pdfa_details["status"], "pdfa_details": pdfa_details})
-            try:
-                xml = timed("zugferd_xml_generate", lambda: _cii_xml(row))
-            except Exception:
-                row["zugferd"]["status"] = "xml_generation_failed"
-                raise
-            try:
-                hybrid = timed("zugferd_xml_embed", lambda: embed_invoice_xml(pdfa, xml, "factur-x.xml"))
-            except Exception:
-                row["zugferd"]["status"] = "embedding_failed"
-                raise
-            validation = timed("zugferd_validate", lambda: _validate_hybrid(hybrid, xml))
-            technical_status = _zugferd_status(str(pdfa_details["status"]), validation)
-            row["zugferd"].update({"validation": validation, "status": technical_status})
-            if technical_status != "validated":
-                raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: " + ", ".join(validation.get("details", [])))
-            document = timed(
-                "final_file_save_and_contact_link",
-                lambda: _store_generated_pdf(
-                    root, row["contact_id"], f"Rechnung-{number}", hybrid, actor, "invoice", tpl["template_id"],
-                    metadata={"invoice_id": invoice_id, "invoice_number": number, "invoice_total": row["totals"]["gross"], "invoice_currency": row["currency"], "zugferd_status": technical_status, "zugferd_version": "2.5.2"},
-                ),
-            )
+            try: xml = timed("zugferd_xml_generate", lambda: _cii_xml(row))
+            except Exception: row["zugferd"]["status"] = "xml_generation_failed"; raise
+            try: hybrid = timed("zugferd_xml_embed", lambda: embed_invoice_xml(pdfa, xml, "factur-x.xml"))
+            except Exception: row["zugferd"]["status"] = "embedding_failed"; raise
+            validation = timed("zugferd_validate", lambda: _validate_hybrid(hybrid, xml)); technical_status = _zugferd_status(str(pdfa_details["status"]), validation); row["zugferd"].update({"validation": validation, "status": technical_status})
+            if technical_status != "validated": raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: " + ", ".join(validation.get("details", [])))
+            document = timed("final_file_save_and_contact_link", lambda: _store_generated_pdf(root, row["contact_id"], f"Rechnung-{number}", hybrid, actor, "invoice", tpl["template_id"], metadata={"invoice_id": invoice_id, "invoice_number": number, "invoice_total": row["totals"]["gross"], "invoice_currency": row["currency"], "zugferd_status": technical_status, "zugferd_version": "2.5.2"}))
         except Exception as exc:
-            row["status"] = "draft"
-            row["finalization_error"] = str(exc)
-            row["finalization_timings_ms"] = timings
-            row["history"].append({"type": "finalization_failed", "at": utc_now(), "actor": actor, "error": str(exc)[:500]})
-            atomic_json_write(path, row)
-            raise
-        row.pop("finalization_error", None)
-        row["document_id"] = document["document_id"]
-        row["status"] = "open"
-        row["history"].append({"type": "issued", "at": utc_now(), "actor": actor})
-        timed("invoice_and_project_links_save", lambda: atomic_json_write(path, row))
-        timed("audit_history_save", lambda: DocumentStore(root).history.record("invoice_created", actor, "invoice", invoice_id, {"invoice_number": number, "contact_id": row["contact_id"], "document_id": document["document_id"], "totals": row["totals"], "zugferd": row["zugferd"]}))
-        row["finalization_timings_ms"] = timings
-        atomic_json_write(path, row)
-    if Decimal(row.get("settlement", {}).get("customer_credit", "0")) > 0:
-        row = timed("customer_credit_apply", lambda: apply_available_customer_credit(root, invoice_id, actor))
-    total_ms = round((time.perf_counter() - started_total) * 1000, 1)
-    row["finalization_timings_ms"] = {**timings, "total": total_ms}
-    logger.info("invoice_finalization invoice_id=%s total_ms=%.1f status=%s timings=%s", invoice_id, total_ms, row["zugferd"]["status"], timings)
-    return row, document
+            row["status"] = "draft"; row["finalization_error"] = str(exc); row["finalization_timings_ms"] = timings; row["history"].append({"type": "finalization_failed", "at": utc_now(), "actor": actor, "error": str(exc)[:500]}); atomic_json_write(path, row); raise
+        row.pop("finalization_error", None); row["document_id"] = document["document_id"]; row["status"] = "open"; row["history"].append({"type": "issued", "at": utc_now(), "actor": actor})
+        timed("invoice_and_project_links_save", lambda: atomic_json_write(path, row)); timed("audit_history_save", lambda: DocumentStore(root).history.record("invoice_created", actor, "invoice", invoice_id, {"invoice_number": number, "contact_id": row["contact_id"], "document_id": document["document_id"], "totals": row["totals"], "zugferd": row["zugferd"]})); row["finalization_timings_ms"] = timings; atomic_json_write(path, row)
+    if Decimal(row.get("settlement", {}).get("customer_credit", "0")) > 0: row = timed("customer_credit_apply", lambda: apply_available_customer_credit(root, invoice_id, actor))
+    total_ms = round((time.perf_counter() - started_total) * 1000, 1); row["finalization_timings_ms"] = {**timings, "total": total_ms}; logger.info("invoice_finalization invoice_id=%s total_ms=%.1f status=%s timings=%s", invoice_id, total_ms, row["zugferd"]["status"], timings); return row, document
 
 
 def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
-    draft=save_invoice_draft(root,contact_id,form,actor)
-    return finalize_invoice(root,draft["invoice_id"],actor)
+    draft=save_invoice_draft(root,contact_id,form,actor); return finalize_invoice(root,draft["invoice_id"],actor)
 
 
 @bp.get("/templates")
@@ -405,8 +359,7 @@ def template_manager():return render_template("documents/business_templates.html
 
 @bp.get("/templates/din5008-guide.pdf")
 @login_required
-def din5008_template_guide():
-    return send_file(io.BytesIO(din5008_template_guide_pdf()), mimetype="application/pdf", as_attachment=True, download_name="SimpleOffice-DIN5008-Vorlagenmuster.pdf")
+def din5008_template_guide(): return send_file(io.BytesIO(din5008_template_guide_pdf()), mimetype="application/pdf", as_attachment=True, download_name="SimpleOffice-DIN5008-Vorlagenmuster.pdf")
 
 @bp.post("/templates")
 @login_required
@@ -447,7 +400,6 @@ def invoice_object_catalog():
         return jsonify({"items":items})
     return jsonify({"items":store.invoice_candidates(query,20)})
 
-
 @bp.get("/projects/invoice-candidates.json")
 @login_required
 def project_invoice_candidates():
@@ -462,41 +414,20 @@ def project_invoice_candidates():
             items.append({"project_id":project["project_id"],"project_title":project["title"],"source_type":line["source_type"],"source_id":line["source_id"],"description":line["description"],"minutes":minutes,"quantity":format(quantity,"f"),"category":"","net_price":"","vat_rate":"19"})
     return jsonify({"items":items})
 
-
 @bp.get("/contacts/<contact_id>/appointment-invoice-candidates.json")
 @login_required
 def appointment_invoice_candidates(contact_id: str):
-    root, actor = _root(), _actor()
-    contacts = ContactStore(root)
-    if not contacts.can_manage(contact_id, actor):
-        abort(403)
-    billed = _billed_appointment_sources(root)
-    items = []
+    root, actor = _root(), _actor(); contacts = ContactStore(root)
+    if not contacts.can_manage(contact_id, actor): abort(403)
+    billed = _billed_appointment_sources(root); items = []
     for event in CalendarStore(root).events(actor):
         billing = event.get("billing", {}) if isinstance(event.get("billing"), dict) else {}
-        if event.get("contact_id") != contact_id or event.get("event_id") in billed or not billing.get("billable"):
-            continue
-        if event.get("status", "active") in {"cancelled", "deleted", "moved"}:
-            continue
-        appointment_type = str(event.get("appointment_type") or "").strip()
-        description = str(billing.get("description") or "").strip()
+        if event.get("contact_id") != contact_id or event.get("event_id") in billed or not billing.get("billable"): continue
+        if event.get("status", "active") in {"cancelled", "deleted", "moved"}: continue
+        appointment_type = str(event.get("appointment_type") or "").strip(); description = str(billing.get("description") or "").strip()
         if not description:
-            prefix = f"{appointment_type}: " if appointment_type else "Termin: "
-            description = f"{prefix}{event.get('title', 'Leistung')} ({str(event.get('start', ''))[:10]})"
-        items.append({
-            "source_type": "calendar_event",
-            "source_id": event["event_id"],
-            "event_id": event["event_id"],
-            "event_start": event.get("start", ""),
-            "appointment_type": appointment_type,
-            "attendance": event.get("attendance", ""),
-            "description": description,
-            "quantity": billing.get("quantity", "1"),
-            "net_price": billing.get("net_price", "0.00"),
-            "vat_rate": billing.get("vat_rate", "19"),
-            "currency": billing.get("currency", "EUR"),
-            "category": "Termin",
-        })
+            prefix = f"{appointment_type}: " if appointment_type else "Termin: "; description = f"{prefix}{event.get('title', 'Leistung')} ({str(event.get('start', ''))[:10]})"
+        items.append({"source_type": "calendar_event", "source_id": event["event_id"], "event_id": event["event_id"], "event_start": event.get("start", ""), "appointment_type": appointment_type, "attendance": event.get("attendance", ""), "description": description, "quantity": billing.get("quantity", "1"), "net_price": billing.get("net_price", "0.00"), "vat_rate": billing.get("vat_rate", "19"), "currency": billing.get("currency", "EUR"), "category": "Termin"})
     return jsonify({"items": sorted(items, key=lambda item: item["event_start"], reverse=True)})
 
 @bp.route("/contacts/<contact_id>/letter",methods=("GET","POST"))
@@ -530,10 +461,8 @@ def contact_invoice(contact_id:str):
             row=save_invoice_draft(root,contact_id,request.form,actor,draft_id)
             if request.form.get("action")=="finalize":
                 row,document=finalize_invoice(root,row["invoice_id"],actor)
-                if row["zugferd"]["status"] == "validated":
-                    message = f"Invoice {row['invoice_number']} finalized, linked and technically validated." if g.language == "en" else f"Rechnung {row['invoice_number']} finalisiert, verknüpft und technisch validiert."
-                else:
-                    message = f"Invoice {row['invoice_number']} was created, but technical validation failed: {row['zugferd']['status']}." if g.language == "en" else f"Rechnung {row['invoice_number']} wurde erzeugt, aber die technische Validierung ist fehlgeschlagen: {row['zugferd']['status']}."
+                if row["zugferd"]["status"] == "validated": message = f"Invoice {row['invoice_number']} finalized, linked and technically validated." if g.language == "en" else f"Rechnung {row['invoice_number']} finalisiert, verknüpft und technisch validiert."
+                else: message = f"Invoice {row['invoice_number']} was created, but technical validation failed: {row['zugferd']['status']}." if g.language == "en" else f"Rechnung {row['invoice_number']} wurde erzeugt, aber die technische Validierung ist fehlgeschlagen: {row['zugferd']['status']}."
                 flash(message);return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
             flash("Rechnungsentwurf schnell gespeichert. Es wurde noch keine endgültige Rechnungsnummer vergeben.");return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
         except PermissionError:abort(403)
@@ -542,7 +471,6 @@ def contact_invoice(contact_id:str):
     recipient={"type":draft.get("buyer",{}).get("recipient_type") if draft else ("company" if default_company else "private"),"company":draft.get("buyer",{}).get("company","") if draft else default_company,"contact":draft.get("buyer",{}).get("contact_name","") if draft else (default_person or str(fields.get("display_name","")).strip())}
     if request.method=="POST":recipient={"type":request.form.get("recipient_type","private"),"company":request.form.get("recipient_company",""),"contact":request.form.get("recipient_contact","")}
     payment_days=str((date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days) if draft else str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=draft.get("issue_date",date.today().isoformat()) if draft else date.today().isoformat(),service_date=draft.get("service_date",date.today().isoformat()) if draft else date.today().isoformat(),links=contact_links(root,contact_id),draft=draft,recipient=recipient)
-
 
 @bp.get("/invoices/<invoice_id>/draft.pdf")
 @login_required
@@ -555,7 +483,6 @@ def invoice_draft_preview(invoice_id: str):
     except ValueError:abort(409)
     return send_file(io.BytesIO(pdf),as_attachment=False,download_name=f"{_safe_filename(row['invoice_number'])}.pdf",mimetype="application/pdf")
 
-
 @bp.get("/contacts/<contact_id>/billing")
 @login_required
 def customer_billing(contact_id: str):
@@ -566,12 +493,7 @@ def customer_billing(contact_id: str):
     rows = [row for row in invoices(root) if row.get("contact_id") == contact_id]
     candidates = [item for item in contacts.contacts(actor) if item.get("contact_id") != contact_id and contacts.can_manage_contact(item, actor)]
     customer_documents = _customer_document_rows(root, contact_id, rows)
-    return render_template("documents/customer_billing.html", contact=contact, rows=rows,
-                           customer_documents=customer_documents,
-                           credit=CustomerCreditLedger(root).account(contact_id),
-                           referrals=CustomerCreditLedger(root).referrals(contact_id),
-                           candidates=candidates, today=date.today().isoformat())
-
+    return render_template("documents/customer_billing.html", contact=contact, rows=rows, customer_documents=customer_documents, credit=CustomerCreditLedger(root).account(contact_id), referrals=CustomerCreditLedger(root).referrals(contact_id), candidates=candidates, today=date.today().isoformat())
 
 @bp.post("/contacts/<contact_id>/credits")
 @login_required
@@ -579,14 +501,9 @@ def add_customer_credit(contact_id: str):
     root, actor = _root(), _actor()
     if not ContactStore(root).can_manage(contact_id, actor): abort(403)
     try:
-        CustomerCreditLedger(root).add(contact_id, request.form.get("amount", ""),
-            kind=request.form.get("kind", "topup"), tax_treatment=request.form.get("tax_treatment", ""),
-            actor=actor, note=request.form.get("note", ""), reference=request.form.get("reference", ""),
-            currency=request.form.get("currency", "EUR"), related_contact_id=request.form.get("related_contact_id", ""))
-        flash("Kundenguthaben wurde revisionssicher gebucht.")
+        CustomerCreditLedger(root).add(contact_id, request.form.get("amount", ""), kind=request.form.get("kind", "topup"), tax_treatment=request.form.get("tax_treatment", ""), actor=actor, note=request.form.get("note", ""), reference=request.form.get("reference", ""), currency=request.form.get("currency", "EUR"), related_contact_id=request.form.get("related_contact_id", "")); flash("Kundenguthaben wurde revisionssicher gebucht.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".customer_billing", contact_id=contact_id))
-
 
 @bp.post("/contacts/<contact_id>/referrals")
 @login_required
@@ -594,36 +511,28 @@ def add_customer_referral(contact_id: str):
     root, actor = _root(), _actor(); referred_id = request.form.get("referred_id", "").strip(); contacts = ContactStore(root)
     if not contacts.can_manage(contact_id, actor) or not contacts.can_manage(referred_id, actor): abort(403)
     try:
-        ledger = CustomerCreditLedger(root); ledger.add_referral(contact_id, referred_id, actor, request.form.get("note", ""))
-        reward = request.form.get("reward_amount", "").strip()
-        if reward:
-            ledger.add(contact_id, reward, kind="referral", tax_treatment=request.form.get("tax_treatment", "manual_review"), actor=actor, note=f"Prämie für geworbenen Kunden {referred_id}", related_contact_id=referred_id)
+        ledger = CustomerCreditLedger(root); ledger.add_referral(contact_id, referred_id, actor, request.form.get("note", "")); reward = request.form.get("reward_amount", "").strip()
+        if reward: ledger.add(contact_id, reward, kind="referral", tax_treatment=request.form.get("tax_treatment", "manual_review"), actor=actor, note=f"Prämie für geworbenen Kunden {referred_id}", related_contact_id=referred_id)
         flash("Kundenwerbung wurde gespeichert.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".customer_billing", contact_id=contact_id))
-
 
 @bp.post("/contacts/<contact_id>/credits/refund")
 @login_required
 def refund_customer_credit(contact_id: str):
     root, actor = _root(), _actor()
     if not ContactStore(root).can_manage(contact_id, actor): abort(403)
-    try:
-        CustomerCreditLedger(root).refund(contact_id, request.form.get("amount", ""), actor=actor,
-            reference=request.form.get("reference", ""), note=request.form.get("note", ""), currency=request.form.get("currency", "EUR"))
-        flash("Guthabenauszahlung wurde protokolliert.")
+    try: CustomerCreditLedger(root).refund(contact_id, request.form.get("amount", ""), actor=actor, reference=request.form.get("reference", ""), note=request.form.get("note", ""), currency=request.form.get("currency", "EUR")); flash("Guthabenauszahlung wurde protokolliert.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".customer_billing", contact_id=contact_id))
 
 
 def _invoice_pdf_path(root: Path, row: dict[str, Any]) -> Path:
     document = DocumentStore(root).get_document(row.get("document_id", ""))
-    path = (root / str(document.get("last_path", ""))).resolve()
-    try: path.relative_to(root)
-    except ValueError as exc: raise ValueError("invoice PDF is outside document storage") from exc
-    if not path.is_file(): raise ValueError("invoice PDF not found")
-    return path
-
+    try:
+        return resolve_file_under(root, document.get("last_path", ""))
+    except (OSError, ValueError) as exc:
+        raise ValueError("invoice PDF not found or outside document storage") from exc
 
 @bp.get("/invoices/<invoice_id>/download")
 @login_required
@@ -632,12 +541,10 @@ def invoice_download(invoice_id: str):
     try: row = invoice(root, invoice_id)
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
-    if row.get("status") == "draft":
-        return send_file(io.BytesIO(draft_invoice_pdf(root,row)),as_attachment=True,download_name=f"{_safe_filename(row['invoice_number'])}.pdf",mimetype="application/pdf")
+    if row.get("status") == "draft": return send_file(io.BytesIO(draft_invoice_pdf(root,row)),as_attachment=True,download_name=f"{_safe_filename(row['invoice_number'])}.pdf",mimetype="application/pdf")
     try: path = _invoice_pdf_path(root, row)
     except ValueError: abort(404)
     return send_file(path, as_attachment=True, download_name=f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", mimetype="application/pdf")
-
 
 @bp.get("/contacts/<contact_id>/invoices.zip")
 @login_required
@@ -652,39 +559,23 @@ def customer_invoice_archive(contact_id: str):
             except ValueError: continue
             archive.writestr(f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", path.read_bytes()); count += 1
     if count == 0: abort(404)
-    target.seek(0)
-    return send_file(target, as_attachment=True, download_name=f"Rechnungen-{_safe_filename(contact_id)}.zip", mimetype="application/zip")
-
+    target.seek(0); return send_file(target, as_attachment=True, download_name=f"Rechnungen-{_safe_filename(contact_id)}.zip", mimetype="application/zip")
 
 @bp.get("/contacts/<contact_id>/customer-documents.zip")
 @login_required
 def customer_document_archive_download(contact_id: str):
-    root, actor = _root(), _actor()
-    contacts = ContactStore(root)
-    try:
-        contact = contacts.get(contact_id, actor)
-    except ValueError:
-        abort(404)
-    if not contacts.can_manage(contact_id, actor):
-        abort(403)
-    try:
-        target, _summary = customer_document_archive(root, contact, actor)
-    except ValueError:
-        abort(404)
-    response = send_file(
-        target, as_attachment=True,
-        download_name=f"Kundenakte-{_safe_filename(contact.get('fields', {}).get('display_name', contact_id))}.zip",
-        mimetype="application/zip", conditional=False,
-    )
-    response.call_on_close(target.close)
-    return response
+    root, actor = _root(), _actor(); contacts = ContactStore(root)
+    try: contact = contacts.get(contact_id, actor)
+    except ValueError: abort(404)
+    if not contacts.can_manage(contact_id, actor): abort(403)
+    try: target, _summary = customer_document_archive(root, contact, actor)
+    except ValueError: abort(404)
+    response = send_file(target, as_attachment=True, download_name=f"Kundenakte-{_safe_filename(contact.get('fields', {}).get('display_name', contact_id))}.zip", mimetype="application/zip", conditional=False); response.call_on_close(target.close); return response
 
 @bp.get("/invoices")
 @login_required
 def invoice_overview():
-    root,actor=_root(),_actor();contacts=ContactStore(root);query=request.args.get("q","").strip().casefold();selected_status=request.args.get("status","").strip()
-    contact_map={item["contact_id"]:item for item in contacts.contacts(actor) if contacts.can_manage_contact(item,actor)}
-    rows=[]
+    root,actor=_root(),_actor();contacts=ContactStore(root);query=request.args.get("q","").strip().casefold();selected_status=request.args.get("status","").strip(); contact_map={item["contact_id"]:item for item in contacts.contacts(actor) if contacts.can_manage_contact(item,actor)}; rows=[]
     for row in invoices(root):
         contact=contact_map.get(row.get("contact_id"))
         if contact is None:continue
@@ -693,8 +584,7 @@ def invoice_overview():
         searchable=f"{row.get('invoice_number','')} {row.get('buyer',{}).get('name','')} {contact.get('fields',{}).get('display_name','')}"
         if query and query not in searchable.casefold():continue
         rows.append({**row,"contact":contact})
-    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}
-    return render_template("documents/invoice_overview.html",rows=rows,stats=stats,query=request.args.get("q","").strip(),selected_status=selected_status)
+    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}; return render_template("documents/invoice_overview.html",rows=rows,stats=stats,query=request.args.get("q","").strip(),selected_status=selected_status)
 
 @bp.get("/invoices/<invoice_id>")
 @login_required
@@ -714,38 +604,20 @@ def invoice_payment(invoice_id:str):
     if not ContactStore(root).can_manage(row["contact_id"],actor):abort(403)
     try:record_invoice_payment(root,invoice_id,request.form,actor);flash(translate(g.language,"invoice.payment.saved"))
     except ValueError as exc:
-        keys={"invoice is already paid":"invoice.payment.error.paid","payment amount must be positive and not exceed the outstanding amount":"invoice.payment.error.amount","payment date must be a valid ISO date":"invoice.payment.error.date"}
-        flash(translate(g.language,keys.get(str(exc),"invoice.payment.error.default")))
+        keys={"invoice is already paid":"invoice.payment.error.paid","payment amount must be positive and not exceed the outstanding amount":"invoice.payment.error.amount","payment date must be a valid ISO date":"invoice.payment.error.date"}; flash(translate(g.language,keys.get(str(exc),"invoice.payment.error.default")))
     return redirect(url_for(".invoice_detail",invoice_id=invoice_id))
-
 
 @bp.post("/invoices/<invoice_id>/write-off")
 @login_required
 def invoice_write_off(invoice_id: str):
     root, actor = _root(), _actor()
-    try:
-        row = invoice(root, invoice_id)
-    except ValueError:
-        abort(404)
-    if not ContactStore(root).can_manage(row["contact_id"], actor):
-        abort(403)
-    error_keys = {
-        "a draft invoice cannot be written off": "writeoff.error.draft",
-        "invoice has no collectible outstanding amount": "writeoff.error.no_outstanding",
-        "write-off reason is invalid": "writeoff.error.reason",
-        "a note is required for another write-off reason": "writeoff.error.note",
-        "write-off amount must be positive and not exceed the collectible outstanding amount": "writeoff.error.amount",
-        "write-off date must be a valid ISO date": "writeoff.error.date",
-        "write-off date cannot precede the invoice date": "writeoff.error.date_before_invoice",
-        "stopping collection requires writing off the full collectible outstanding amount": "writeoff.error.stop_requires_full",
-    }
-    try:
-        write_off_invoice(root, invoice_id, request.form, actor)
-        flash(translate(g.language, "writeoff.saved"))
-    except ValueError as exc:
-        flash(translate(g.language, error_keys.get(str(exc), "writeoff.error")))
+    try: row = invoice(root, invoice_id)
+    except ValueError: abort(404)
+    if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
+    error_keys = {"a draft invoice cannot be written off":"writeoff.error.draft","invoice has no collectible outstanding amount":"writeoff.error.no_outstanding","write-off reason is invalid":"writeoff.error.reason","a note is required for another write-off reason":"writeoff.error.note","write-off amount must be positive and not exceed the collectible outstanding amount":"writeoff.error.amount","write-off date must be a valid ISO date":"writeoff.error.date","write-off date cannot precede the invoice date":"writeoff.error.date_before_invoice","stopping collection requires writing off the full collectible outstanding amount":"writeoff.error.stop_requires_full"}
+    try: write_off_invoice(root, invoice_id, request.form, actor); flash(translate(g.language, "writeoff.saved"))
+    except ValueError as exc: flash(translate(g.language, error_keys.get(str(exc), "writeoff.error")))
     return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-
 
 @bp.post("/invoices/<invoice_id>/apply-credit")
 @login_required
@@ -755,12 +627,9 @@ def invoice_apply_credit(invoice_id: str):
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
     try:
-        updated = apply_available_customer_credit(root, invoice_id, actor)
-        amount = updated.get("credit_applied", "0.00")
-        flash("Kundenguthaben wurde auf die Rechnung angewendet." if amount != "0.00" else "Kein verrechenbares Kundenguthaben vorhanden.")
+        updated = apply_available_customer_credit(root, invoice_id, actor); amount = updated.get("credit_applied", "0.00"); flash("Kundenguthaben wurde auf die Rechnung angewendet." if amount != "0.00" else "Kein verrechenbares Kundenguthaben vorhanden.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-
 
 @bp.post("/invoices/<invoice_id>/credit-notes")
 @login_required
@@ -769,9 +638,7 @@ def invoice_credit_note(invoice_id: str):
     try: row = invoice(root, invoice_id)
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
-    try:
-        note, _document = create_credit_note(root, invoice_id, request.form.get("amount", ""), request.form.get("reason", ""), actor)
-        flash(f"Gutschrift {note['credit_note_number']} wurde erstellt.")
+    try: note, _document = create_credit_note(root, invoice_id, request.form.get("amount", ""), request.form.get("reason", ""), actor); flash(f"Gutschrift {note['credit_note_number']} wurde erstellt.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 
@@ -783,8 +650,10 @@ def attach_existing(contact_id:str):
     document_id=request.form.get("document_id","").strip();store=DocumentStore(root)
     try:document=store.get_document(document_id)
     except ValueError:abort(404)
-    metadata:dict[str,Any]={};path=root/str(document.get("last_path",""))
-    if path.suffix.casefold()==".pdf" and path.is_file():
+    metadata:dict[str,Any]={}
+    try:path=resolve_file_under(root,document.get("last_path",""))
+    except (OSError,ValueError):path=None
+    if path is not None and path.suffix.casefold()==".pdf":
         details=inspect_zugferd_pdf(path)
         if details.get("detected"):
             metadata["zugferd"]={key:value for key,value in details.items() if key!="raw_xml"};store.set_attribute(document_id,"zugferd_detected","yes",actor)
@@ -796,6 +665,8 @@ def attach_existing(contact_id:str):
 @login_required
 def zugferd_details(document_id:str):
     root=_root();store=DocumentStore(root)
-    try:document=store.get_document(document_id)
-    except ValueError:abort(404)
-    return render_template("documents/zugferd_details.html",document=document,details=inspect_zugferd_pdf(root/str(document.get("last_path",""))))
+    try:
+        document=store.get_document(document_id)
+        path=resolve_file_under(root,document.get("last_path",""))
+    except (OSError,ValueError):abort(404)
+    return render_template("documents/zugferd_details.html",document=document,details=inspect_zugferd_pdf(path))
