@@ -20,7 +20,7 @@ class ReuseServer(WSGIServer):
     allow_reuse_address = True
 
 
-def _configure_environment(runtime_root: Path) -> None:
+def _configure_environment(runtime_root: Path, error_report_url: str = "") -> None:
     os.chdir(runtime_root)
     if str(runtime_root) not in sys.path:
         sys.path.insert(0, str(runtime_root))
@@ -34,13 +34,21 @@ def _configure_environment(runtime_root: Path) -> None:
     os.environ["SIMPLEOFFICE_DATALOGGER"] = "0"
     os.environ["SIMPLEOFFICE_MCP"] = "0"
 
+    report_url = str(error_report_url or "").strip()
+    if report_url and not report_url.startswith("https://"):
+        raise RuntimeError("SimpleOffice error report URL must use HTTPS")
+    if report_url:
+        os.environ["SIMPLEOFFICE_ERROR_REPORT_URL"] = report_url
+    else:
+        os.environ.pop("SIMPLEOFFICE_ERROR_REPORT_URL", None)
+
 
 def _serve() -> None:
     assert _SERVER is not None
     _SERVER.serve_forever(poll_interval=0.25)
 
 
-def start(runtime_root: str) -> bool:
+def start(runtime_root: str, error_report_url: str = "") -> bool:
     """Import the app and bind the local server before returning.
 
     Import and bind errors intentionally happen on the calling thread so
@@ -60,7 +68,7 @@ def start(runtime_root: str) -> bool:
     if _THREAD is not None and _THREAD.is_alive() and _SERVER is not None:
         return True
 
-    _configure_environment(root)
+    _configure_environment(root, error_report_url)
 
     try:
         from app import app
