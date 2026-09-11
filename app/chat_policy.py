@@ -1,6 +1,7 @@
 """Policy checks and local notices for structured federated chat actions."""
 from __future__ import annotations
 
+import copy
 import json
 import time
 import uuid
@@ -33,6 +34,42 @@ def action_allowed(peer: dict[str, Any], message_type: str, direction: str) -> b
     actions = chat.get("actions") if isinstance(chat, dict) else None
     rule = actions.get(action) if isinstance(actions, dict) else None
     return bool(isinstance(rule, dict) and rule.get(direction) is True)
+
+
+def chat_policy_state(policy: dict[str, Any] | None) -> dict[str, Any]:
+    source = policy if isinstance(policy, dict) else {}
+    chat = source.get("chat") if isinstance(source.get("chat"), dict) else {}
+    actions = chat.get("actions") if isinstance(chat.get("actions"), dict) else {}
+    return {
+        "send": chat.get("send") is True,
+        "receive": chat.get("receive") is True,
+        "actions": {
+            action: {
+                "send": isinstance(actions.get(action), dict) and actions[action].get("send") is True,
+                "receive": isinstance(actions.get(action), dict) and actions[action].get("receive") is True,
+            }
+            for action in sorted(ACTION_MESSAGE_TYPES)
+        },
+    }
+
+
+def merge_chat_policy(policy: dict[str, Any] | None, values: dict[str, Any]) -> dict[str, Any]:
+    """Update chat switches while preserving unrelated/unknown federation policy keys."""
+    result = copy.deepcopy(policy) if isinstance(policy, dict) else {}
+    chat = result.get("chat") if isinstance(result.get("chat"), dict) else {}
+    actions = chat.get("actions") if isinstance(chat.get("actions"), dict) else {}
+    chat["send"] = bool(values.get("send"))
+    chat["receive"] = bool(values.get("receive"))
+    submitted_actions = values.get("actions") if isinstance(values.get("actions"), dict) else {}
+    for action in ACTION_MESSAGE_TYPES:
+        current = actions.get(action) if isinstance(actions.get(action), dict) else {}
+        submitted = submitted_actions.get(action) if isinstance(submitted_actions.get(action), dict) else {}
+        current["send"] = bool(submitted.get("send"))
+        current["receive"] = bool(submitted.get("receive"))
+        actions[action] = current
+    chat["actions"] = actions
+    result["chat"] = chat
+    return result
 
 
 def policy_notice_id(related_message_id: str, perspective: str) -> str:
