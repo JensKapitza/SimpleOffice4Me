@@ -6,7 +6,7 @@
     <div><h1 class="h2 mb-1">Chat-Regeln</h1><p class="text-secondary mb-0">Lege pro Federation-Partner fest, was gesendet und angenommen werden darf.</p></div>
     <a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Zur Federation</a>
   </div>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="alert alert-secondary small">
     Nicht aktivierte Funktionen sind verboten. Strukturierte Aktionen werden auf beiden Servern geprüft; bei Ablehnung werden keine Nutzdaten übertragen.
@@ -23,7 +23,7 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="table-responsive">
           <table class="table align-middle mb-3">
-            <thead><tr><th>Funktion</th><th class="text-center">Senden erlauben</th><th class="text-center">Empfangen erlauben</th></tr></thead>
+            <thead><tr><th scope="col">Funktion</th><th scope="col" class="text-center">Senden erlauben</th><th scope="col" class="text-center">Empfangen erlauben</th></tr></thead>
             <tbody>
               <tr>
                 <td><strong>Chat allgemein</strong><div class="small text-secondary">Textnachrichten und Voraussetzung für alle Chat-Funktionen.</div></td>
@@ -45,7 +45,7 @@
     </div>
   </section>
   {% else %}
-  <div class="alert alert-info">Noch keine Federation-Partner eingerichtet.</div>
+  <div class="alert alert-info" role="status" aria-live="polite">Noch keine Federation-Partner eingerichtet.</div>
   {% endfor %}
 </main>
 {% endblock %}
