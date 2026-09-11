@@ -391,7 +391,16 @@ def unhandled_application_error(error):
     try:
         from .github_error_reporter import issue_url, load_config, manual_issue_url, report_error, sanitize_text
         sanitized_message = sanitize_text(error, 500)
-        manual_issue_href = manual_issue_url(request_id)
+        app_version = os.environ.get("SIMPLEOFFICE_VERSION", "")
+        manual_issue_href = manual_issue_url(
+            request_id,
+            exception_type=exception_type,
+            endpoint=endpoint,
+            method=method,
+            fingerprint=fingerprint,
+            frames=frames,
+            app_version=app_version,
+        )
         if fingerprint:
             issue_number = report_error(
                 exception_type=exception_type,
@@ -401,7 +410,7 @@ def unhandled_application_error(error):
                 request_id=request_id,
                 fingerprint=fingerprint,
                 frames=frames,
-                app_version=os.environ.get("SIMPLEOFFICE_VERSION", ""),
+                app_version=app_version,
             )
             if issue_number is not None:
                 issue_href = issue_url(load_config(), issue_number)
