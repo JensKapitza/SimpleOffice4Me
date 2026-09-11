@@ -23,8 +23,8 @@ def _federation(): return FederationStore(_root())
 def _active_users(usernames: list[str]) -> list[str]:
     wanted=sorted({str(x or "").strip() for x in usernames if str(x or "").strip()})
     if not wanted: return []
-    placeholders=",".join("?" for _ in wanted)
-    rows=get_db().execute(f"SELECT username FROM user WHERE username IN ({placeholders}) AND is_disabled=0",tuple(wanted)).fetchall(); found=sorted(str(r["username"]) for r in rows)
+    rows=get_db().execute("SELECT username FROM user WHERE is_disabled=0").fetchall()
+    active={str(r["username"]) for r in rows}; found=sorted(active.intersection(wanted))
     if found != wanted: raise ValueError("Unbekannte oder deaktivierte Chat-Teilnehmer: " + ", ".join(sorted(set(wanted)-set(found))))
     return found
 
