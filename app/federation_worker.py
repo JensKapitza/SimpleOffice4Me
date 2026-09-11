@@ -19,6 +19,7 @@ from .federation_core import (
     verify_chunk,
 )
 from .federation_store import FederationStore
+from .safe_paths import resolve_file_under
 
 
 USER_AGENT = "SimpleOffice4Me-SOFP/1"
@@ -161,10 +162,10 @@ def _find_blob(root: str | Path, digest: str) -> Path:
         ).fetchone()
     if not row:
         raise ValueError("Blob nicht im lokalen Dokumentindex gefunden")
-    path = (documents.root / str(row["relative_path"])).resolve()
-    if documents.root not in (path, *path.parents) or not path.is_file() or path.is_symlink():
-        raise ValueError("Lokaler Blob ist nicht freigegeben")
-    return path
+    try:
+        return resolve_file_under(documents.root, str(row["relative_path"]))
+    except (OSError, ValueError) as exc:
+        raise ValueError("Lokaler Blob ist nicht freigegeben") from exc
 
 
 def _remote_status(base_url: str, transfer_id: str, token: str) -> dict[str, Any] | None:
