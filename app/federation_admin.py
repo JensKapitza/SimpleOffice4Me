@@ -9,6 +9,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 
 from .access_control import is_admin
 from .auth import login_required
+from .chat_policy import ACTION_LABELS, chat_policy_state, merge_chat_policy
 from .document_origin import document_origin_tags, persist_origin_tags
 from .document_store import DocumentStore, sha256_file
 from .federation_catalog import FederationCatalog
@@ -80,6 +81,20 @@ def _redirect_dashboard(**values):
     return redirect(url_for("federation_admin.dashboard", **args))
 
 
+def _chat_form_values() -> dict:
+    return {
+        "send": request.form.get("chat_send") == "1",
+        "receive": request.form.get("chat_receive") == "1",
+        "actions": {
+            action: {
+                "send": request.form.get(f"chat_{action}_send") == "1",
+                "receive": request.form.get(f"chat_{action}_receive") == "1",
+            }
+            for action in ACTION_LABELS
+        },
+    }
+
+
 @bp.get("")
 @admin_required
 def dashboard():
@@ -101,12 +116,15 @@ def dashboard():
             }
         except ValueError as exc:
             flash(str(exc))
+    peers = store.list_peers()
+    for peer in peers:
+        peer["chat_policy"] = chat_policy_state(peer.get("policy"))
     transfers = store.list_transfers(200)
     if selected:
         transfers = [item for item in transfers if item.get("blob_hash") == selected["federation_sha256"]]
     return render_template(
         "admin/federation.html",
-        peers=store.list_peers(),
+        peers=peers,
         transfers=transfers,
         events=store.events(100),
         stats=store.stats(),
@@ -118,7 +136,8 @@ def dashboard():
         remote_peer=remote_peer,
         download_queue=catalog.queue(500),
         catalog_events=catalog.events(100),
-        catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in store.list_peers()},
+        catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in peers},
+        chat_action_labels=ACTION_LABELS,
     )
 
 
@@ -244,6 +263,30 @@ def save_peer():
         flash("Federation-Peer gespeichert.")
     except (ValueError, json.JSONDecodeError) as exc:
         flash(f"Peer konnte nicht gespeichert werden: {exc}")
+    return _redirect_dashboard()
+
+
+@bp.post("/peers/<peer_id>/chat-policy")
+@admin_required
+def save_chat_policy(peer_id: str):
+    store = _store()
+    try:
+        peer = store.get_peer(peer_id)
+        if not peer:
+            raise ValueError("Federation-Peer nicht gefunden")
+        policy = merge_chat_policy(peer.get("policy"), _chat_form_values())
+        store.save_peer(
+            peer["peer_id"],
+            peer.get("label", peer["peer_id"]),
+            peer["base_url"],
+            "",
+            policy,
+            bool(peer.get("enabled")),
+        )
+        store.record_event("chat_policy_updated", peer_id=peer["peer_id"], detail={"actor": str(g.user["username"]), "chat": chat_policy_state(policy)})
+        flash(f"Chat-Regeln für {peer.get('label') or peer_id} gespeichert.")
+    except ValueError as exc:
+        flash(f"Chat-Regeln konnten nicht gespeichert werden: {exc}")
     return _redirect_dashboard()
 
 
