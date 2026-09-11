@@ -439,6 +439,7 @@ def unhandled_application_error(error):
         request_id=request_id,
         error_details=admin_error,
         manual_issue_url=manual_issue_href,
+        automatic_issue_url=issue_href,
     ), 500
 
 
