@@ -2,10 +2,14 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.applogging import initlogging
+from app.applogging import LOG_OUTPUT_LIMIT, initlogging, redact
 
 
 class ApplicationLoggingTests(unittest.TestCase):
+    def test_oversized_log_record_is_bounded(self):
+        cleaned = redact("A" * 1_000_000)
+        self.assertEqual(LOG_OUTPUT_LIMIT, len(cleaned))
+
     @patch("app.applogging.dictConfig")
     def test_stream_only_mode_does_not_create_file_handler(self, configure):
         with patch.dict(os.environ, {"SIMPLEOFFICE_LOG_STDERR_ONLY": "1"}, clear=False):
