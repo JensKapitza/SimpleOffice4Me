@@ -25,6 +25,7 @@ from typing import Iterable, Mapping, Sequence
 
 DEFAULT_REPOSITORY = "JensKapitza/SimpleOffice4Me"
 REPORT_SCHEMA = 1
+ERROR_REPORT_PATH = "/api/error-reports/v1/reports"
 MAX_TOKEN_BYTES = 4096
 MAX_HTTP_RESPONSE_BYTES = 256 * 1024
 LOCAL_REPORT_WINDOW_SECONDS = 60
@@ -32,6 +33,7 @@ LOCAL_REPORT_LIMIT = 30
 LOCAL_REPORT_INFLIGHT_LIMIT = 2
 LOCAL_REPORT_CACHE_LIMIT = 1000
 _REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+_FALSE_VALUES = {"0", "false", "no", "off"}
 _SECRET_PATTERNS = (
     re.compile(r"(?i)(authorization|cookie|token|secret|password|passwd|api[_-]?key)\s*[:=]\s*[^\s,;]+"),
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
@@ -101,6 +103,54 @@ def _enabled(value: str) -> bool:
     return value.strip().casefold() in {"1", "true", "yes", "on"}
 
 
+def _reporting_disabled() -> bool:
+    value = os.environ.get("SIMPLEOFFICE_ERROR_REPORTING")
+    return value is not None and value.strip().casefold() in _FALSE_VALUES
+
+
+def master_federation_identity() -> tuple[str, bool]:
+    """Return the immutable build-time master URL and whether this build is the master."""
+    try:
+        from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
+    except (ImportError, AttributeError):
+        return "", False
+    return str(LICENSE_MASTER_URL or "").strip(), bool(LICENSE_MASTER_MODE)
+
+
+def master_mode() -> bool:
+    """Return whether this packaged build is the configured master federation server."""
+    return master_federation_identity()[1]
+
+
+def master_error_report_url() -> str:
+    """Derive the default collector endpoint from the existing global master URL.
+
+    The master itself deliberately returns no outbound relay URL, preventing a
+    report from looping back into its own public collector.
+    """
+    master_url, is_master = master_federation_identity()
+    if is_master or not master_url:
+        return ""
+    parsed = urllib.parse.urlsplit(master_url)
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or port is not None and not 1 <= port <= 65535
+    ):
+        return ""
+    base_path = parsed.path.rstrip("/")
+    path = base_path + ERROR_REPORT_PATH
+    return urllib.parse.urlunsplit(("https", parsed.netloc, path, "", ""))
+
+
 def _validated_repository(value: str) -> str:
     repository = value.strip()
     if not _REPOSITORY_PATTERN.fullmatch(repository):
@@ -108,18 +158,46 @@ def _validated_repository(value: str) -> str:
     return repository
 
 
-def load_config() -> GitHubReporterConfig:
-    """Load reporter configuration from runtime settings and protected secrets."""
-    relay_url = os.environ.get("SIMPLEOFFICE_ERROR_REPORT_URL", "").strip()
-    direct_enabled = _enabled(os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPORTING", "0"))
-    enabled = direct_enabled or bool(relay_url)
-    token = _read_token() if direct_enabled else ""
+def _repository_setting() -> str:
     repository = os.environ.get(
         "SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY", DEFAULT_REPOSITORY
     ).strip() or DEFAULT_REPOSITORY
+    return _validated_repository(repository)
+
+
+def load_relay_config() -> GitHubReporterConfig:
+    """Load GitHub credentials for a collector without enabling direct client mode."""
+    return GitHubReporterConfig(
+        enabled=True,
+        repository=_repository_setting(),
+        token=_read_token(),
+        label=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_LABEL", "").strip(),
+        api_base="https://api.github.com",
+        relay_url="",
+    )
+
+
+def load_config() -> GitHubReporterConfig:
+    """Load client reporter config; the baked master is the zero-config default."""
+    explicit_relay = os.environ.get("SIMPLEOFFICE_ERROR_REPORT_URL", "").strip()
+    direct_enabled = _enabled(os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPORTING", "0"))
+
+    if explicit_relay:
+        relay_url = explicit_relay
+    elif direct_enabled:
+        # Direct mode is explicit and therefore wins over the automatic master fallback.
+        relay_url = ""
+    else:
+        relay_url = master_error_report_url()
+
+    enabled = not _reporting_disabled() and (direct_enabled or bool(relay_url))
+    token = _read_token() if enabled and direct_enabled else ""
+    if not enabled:
+        relay_url = ""
+
     return GitHubReporterConfig(
         enabled=enabled,
-        repository=_validated_repository(repository),
+        repository=_repository_setting(),
         token=token,
         label=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_LABEL", "").strip(),
         # GitHub.com is intentional here. Allowing an arbitrary host while attaching
