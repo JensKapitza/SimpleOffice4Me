@@ -10,10 +10,13 @@ from app.error_relay import (
     MAX_UPSTREAM_INFLIGHT,
     RATE_LIMIT_GLOBAL,
     RATE_SOURCE_BUCKET_LIMIT,
+    UPSTREAM_LIMIT_GLOBAL,
     _issue_cache,
     _rate_allowed,
     _rate_by_source,
     _rate_global,
+    _reserve_upstream,
+    _upstream_attempts,
     _upstream_fingerprints,
     validate_report_payload,
 )
@@ -27,6 +30,7 @@ class ErrorRelayTests(unittest.TestCase):
         _issue_cache.clear()
         _rate_by_source.clear()
         _rate_global.clear()
+        _upstream_attempts.clear()
         _upstream_fingerprints.clear()
         self.client = app.test_client()
         self.payload = {
@@ -150,6 +154,13 @@ class ErrorRelayTests(unittest.TestCase):
         self.assertEqual(503, response.status_code)
         self.assertEqual("2", response.headers.get("Retry-After"))
         report.assert_not_called()
+
+    @patch("app.error_relay.time.monotonic", return_value=100.0)
+    def test_hourly_upstream_budget_is_bounded(self, _clock):
+        _upstream_attempts.extend([100.0] * UPSTREAM_LIMIT_GLOBAL)
+        self.assertEqual("limited", _reserve_upstream(self.payload["fingerprint"]))
+        self.assertNotIn(self.payload["fingerprint"], _upstream_fingerprints)
+        self.assertEqual(UPSTREAM_LIMIT_GLOBAL, len(_upstream_attempts))
 
 
 if __name__ == "__main__":
