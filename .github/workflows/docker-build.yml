@@ -11,6 +11,7 @@ on:
       - 'templates/**'
       - 'static/**'
       - 'tools/**'
+      - 'simpleoffice_version.py'
       - 'pyproject.toml'
       - '.github/workflows/docker-build.yml'
   push:
@@ -41,8 +42,37 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve SimpleOffice version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          BUILD_EPOCH="$(git show -s --format=%ct HEAD)"
+          REVISION="$(git rev-parse HEAD)"
+          RELEASE_VERSION="$(python - <<'PY'
+          from simpleoffice_version import build_info
+          print(build_info()['release_version'])
+          PY
+          )"
+          VERSION="$(SIMPLEOFFICE_BUILD_NUMBER="$BUILD_NUMBER" SIMPLEOFFICE_BUILD_EPOCH="$BUILD_EPOCH" SIMPLEOFFICE_BUILD_REVISION="$REVISION" python - <<'PY'
+          from simpleoffice_version import build_info
+          print(build_info()['version'])
+          PY
+          )"
+          cat > .simpleoffice-release.json <<EOF
+          {"commit_count": $BUILD_NUMBER, "build_epoch": $BUILD_EPOCH, "revision": "$REVISION"}
+          EOF
+          echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+
       - name: Build portable Docker image
         uses: docker/build-push-action@v6
         with:
@@ -50,16 +80,22 @@ jobs:
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           push: false
-          outputs: type=docker,dest=/tmp/simpleoffice4me-linux-${{ matrix.arch }}.tar
-          tags: simpleoffice4me:pr-${{ github.event.pull_request.number || github.run_number }}-${{ matrix.arch }}
+          outputs: type=docker,dest=/tmp/SimpleOffice4Me-Docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar
+          tags: simpleoffice4me:${{ steps.version.outputs.version }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.title=SimpleOffice4Me
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.version.outputs.revision }}
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+
       - name: Compress Docker image
-        run: gzip -9 /tmp/simpleoffice4me-linux-${{ matrix.arch }}.tar
+        run: gzip -9 /tmp/SimpleOffice4Me-Docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar
+
       - uses: actions/upload-artifact@v6
         with:
-          name: simpleoffice4me-docker-linux-${{ matrix.arch }}
-          path: /tmp/simpleoffice4me-linux-${{ matrix.arch }}.tar.gz
+          name: simpleoffice4me-docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}
+          path: /tmp/SimpleOffice4Me-Docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -69,24 +105,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve SimpleOffice version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          BUILD_EPOCH="$(git show -s --format=%ct HEAD)"
+          REVISION="$(git rev-parse HEAD)"
+          RELEASE_VERSION="$(python - <<'PY'
+          from simpleoffice_version import build_info
+          print(build_info()['release_version'])
+          PY
+          )"
+          VERSION="$(SIMPLEOFFICE_BUILD_NUMBER="$BUILD_NUMBER" SIMPLEOFFICE_BUILD_EPOCH="$BUILD_EPOCH" SIMPLEOFFICE_BUILD_REVISION="$REVISION" python - <<'PY'
+          from simpleoffice_version import build_info
+          print(build_info()['version'])
+          PY
+          )"
+          cat > .simpleoffice-release.json <<EOF
+          {"commit_count": $BUILD_NUMBER, "build_epoch": $BUILD_EPOCH, "revision": "$REVISION"}
+          EOF
+          echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.release_version }}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=SimpleOffice4Me
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.version.outputs.revision }}
+
       - name: Build and publish multi-arch image
         uses: docker/build-push-action@v6
         with:
