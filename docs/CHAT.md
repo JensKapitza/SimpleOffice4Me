@@ -34,12 +34,39 @@ Schlägt die Gegenstelle fehl, bleibt die Nachricht lokal gespeichert und erhäl
 
 Für die lokale Instanz-ID wird `SIMPLEOFFICE_FEDERATION_PEER_ID` verwendet. Ohne Konfiguration dient der normalisierte Hostname als Fallback.
 
+## Richtlinien für strukturierte Chat-Aktionen
+
+Strukturierte Aktionen wie Kontaktangebote, Umfragen und Anfragen besitzen zusätzlich zur allgemeinen Chat-Freigabe eigene, standardmäßig gesperrte Regeln. Beispiel:
+
+```json
+{
+  "chat": {
+    "send": true,
+    "receive": true,
+    "actions": {
+      "contact": {"send": true, "receive": true},
+      "poll": {"send": true, "receive": true},
+      "request": {"send": true, "receive": true}
+    }
+  }
+}
+```
+
+Vor der Übertragung einer strukturierten Aktion wird ein signierter Preflight ausgeführt. Dabei werden nur Aktionstyp, Chat-ID, Nachrichten-ID und Teilnehmerbezug übertragen, aber **keine Kontaktdaten, Formulardaten, Anhänge oder sonstige Nutzdaten der Aktion**.
+
+Wird die Aktion lokal durch den eigenen Administrator verboten, bleibt die Nutzlast lokal und im Chat erscheint z. B. `Aktion „Kontaktangebot“: Durch die Serverregeln deines Admins blockiert.` Die Gegenseite erhält in diesem Fall nichts.
+
+Erlaubt die lokale Seite die Aktion, die Gegenseite aber nicht, erzeugt die empfangende Instanz einen lokalen Systemhinweis wie `Aktion „Kontaktangebot“ von <Benutzer>: Durch die Serverregeln deines Admins abgelehnt.` Die sendende Instanz erhält nur den maschinenlesbaren Ablehnungscode `admin_policy` zurück und erzeugt ihrerseits den Hinweis `Aktion „Kontaktangebot“: Durch die Serverregeln des Chatpartners abgelehnt.` Die verbotene Nutzlast wird nicht übertragen.
+
+Der eigentliche Event-Endpunkt prüft dieselbe Aktionsregel erneut. Ein Peer kann die Sicherheitsprüfung daher nicht umgehen, indem er den Preflight auslässt.
+
 ## Erweiterung ohne Schemawechsel
 
 `chat_message` besitzt bereits `message_type` und ein versionierbares JSON-Payload. Stufe 1 erzeugt im UI nur `text`. Reservierte Typen sind bereits:
 
 - `contact` – Kontakt bzw. Contact-ID teilen,
 - `poll` – Umfrage mit Optionen und späteren Antworten,
-- `request` – strukturierte Anfrage, z. B. „Kontakt vervollständigen“ oder „fehlende Datei hochladen“.
+- `request` – strukturierte Anfrage, z. B. „Kontakt vervollständigen“ oder „fehlende Datei hochladen“,
+- `system` – lokale, nicht vom Benutzer erzeugte Status- und Policy-Hinweise.
 
 Damit können spätere Stufen Formulare und Aktionen ergänzen, ohne Textnachrichten oder die Grundtabellen umzubauen.
