@@ -124,7 +124,7 @@ def build_report_payload(*, exception_type: str, exception_message: str, endpoin
 
 
 def build_report_from_payload(payload: Mapping[str, object]) -> tuple[str, str]:
-    """Render an allow-listed payload as a GitHub issue."""
+    """Render an allow-listed payload as an automatic GitHub issue."""
     exception_type = sanitize_text(payload.get("exception_type"), 120) or "ApplicationError"
     endpoint = sanitize_text(payload.get("endpoint"), 160) or "unknown"
     fingerprint = sanitize_text(payload.get("fingerprint"), 128)
@@ -166,16 +166,41 @@ def build_report(*, exception_type: str, exception_message: str, endpoint: str,
     return build_report_from_payload(payload)
 
 
-def manual_issue_url(request_id: str, repository: str = DEFAULT_REPOSITORY) -> str:
-    """Return a short GitHub issue URL suitable for Android app/browser handoff."""
-    safe_request_id = sanitize_text(request_id, 64)
-    title = f"[manual] SimpleOffice Fehler {safe_request_id}"[:240]
+def manual_issue_url(
+    request_id: str,
+    repository: str = DEFAULT_REPOSITORY,
+    *,
+    exception_type: str = "ApplicationError",
+    endpoint: str = "unknown",
+    method: str = "",
+    fingerprint: str = "",
+    frames: Sequence[Mapping[str, object]] = (),
+    app_version: str = "",
+) -> str:
+    """Build a useful, privacy-safe GitHub App/browser issue handoff URL."""
+    payload = build_report_payload(
+        exception_type=exception_type,
+        exception_message="",
+        endpoint=endpoint,
+        method=method,
+        request_id=request_id,
+        fingerprint=fingerprint,
+        # Keep browser/app handoff URLs compact while retaining the nearest frames.
+        frames=safe_frames(frames)[-6:],
+        app_version=app_version,
+    )
+    title = f"[manual] {payload['exception_type']} in {payload['endpoint']}"[:240]
     body = (
-        "SimpleOffice hat einen Fehler angezeigt.\n\n"
-        f"Request-ID: `{safe_request_id}`\n\n"
-        "Bitte beschreibe kurz, was unmittelbar vor dem Fehler gemacht wurde. "
+        "Manuell aus SimpleOffice vorbereitet. Enthalten sind nur freigegebene "
+        "technische Metadaten; keine Logs, Kundendaten, Request-Daten oder "
+        "Exception-Nachrichten.\n\n```json\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+        + "\n```\n\n"
+        "Bitte beschreibe optional kurz, was unmittelbar vor dem Fehler gemacht wurde. "
         "Keine Passwörter, Tokens, Kundendaten oder Dokumentinhalte einfügen."
     )
+    if payload["fingerprint"]:
+        body += f"\n\n<!-- simpleoffice-error:{payload['fingerprint']} -->"
     query = urllib.parse.urlencode({"title": title, "body": body})
     return f"https://github.com/{repository}/issues/new?{query}"
 
