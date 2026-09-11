@@ -3,6 +3,362 @@ from __future__ import annotations
 
 from .webdav_part_5 import *
 
+
+def _handle_tree_propfind(username: str, resource, is_collection: bool, document):
+    if not is_collection and document is None:
+        return Response("not found", 404)
+    depth = request.headers.get("Depth", "infinity").casefold()
+    if depth not in {"0", "1", "infinity"}:
+        return Response("PROPFIND Depth must be 0, 1 or infinity", 400)
+    body = request.get_data(cache=True)
+    try:
+        query = _parse_propfind(body)
+    except OverflowError as exc:
+        return Response(str(exc), 413)
+    except PermissionError:
+        error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
+        return Response(error, 400, mimetype="application/xml")
+    except ValueError as exc:
+        return Response(str(exc), 400)
+
+    # Keep a complete tree response consistent with the same lock used by
+    # PUT, COPY, MOVE, DELETE and property mutations. The XML is fully
+    # assembled before sending, so a client never receives a partial
+    # success followed by a server-side resource-limit failure.
+    mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
+    mutation_lock.__enter__()
+    g._webdav_mutation_lock = mutation_lock
+    is_collection = resource.is_dir() and not resource.is_symlink()
+    document = None
+    if resource.is_file() and not resource.is_symlink():
+        try:
+            document = _tree_document(resource)
+        except ValueError:
+            return Response("not found", 404)
+    elif not is_collection:
+        return Response("not found", 404)
+    effective_depth = depth if is_collection else "0"
+    href = _tree_url(username, _store().relative(resource), collection=is_collection)
+    wants_sync_token = query[0] == "propname" or f"{{{DAV}}}sync-token" in query[1]
+    sync_token = _collection_sync_token(username, resource) if is_collection and wants_sync_token else ""
+    responses: list[str] = []
+    response_size = len((PROPFIND_XML_PREFIX + PROPFIND_XML_SUFFIX).encode("utf-8"))
+    try:
+        response_size = _append_propfind_response(
+            responses,
+            _prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token, username=username, resource=resource, query=query, searchable=True),
+            response_size,
+        )
+        for child, child_is_collection, child_document in _propfind_members(resource, effective_depth, username):
+            child_href = _tree_url(
+                username, _store().relative(child), collection=child_is_collection,
+            )
+            response_size = _append_propfind_response(
+                responses,
+                _prop_response(
+                    child_href,
+                    child.name,
+                    collection=child_is_collection,
+                    document=child_document,
+                    username=username,
+                    resource=child,
+                    query=query,
+                    searchable=True,
+                ),
+                response_size,
+            )
+        xml = _propfind_multistatus(responses)
+    except _PropfindLimitError as exc:
+        return _propfind_limit_response(username, resource, exc)
+    return Response(
+        xml,
+        207,
+        {
+            "Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": "private, no-store",
+            "Vary": "Authorization, Depth",
+        },
+    )
+
+
+def _handle_tree_put(username: str, resource, document, is_collection: bool, key):
+    current_etag = _etag(document) if document else ""
+    if document:
+        precondition_error = _http_precondition_error(username, resource, document)
+        if precondition_error is not None:
+            return precondition_error
+        if_match = request.headers.get("If-Match", "")
+        if not _request_token(key) and not if_match:
+            return Response("existing resources require If-Match or a lock token", 428, {"ETag": current_etag})
+        content = request.get_data()
+        digest_error = _verify_content_digest(content, username, resource)
+        if digest_error is not None:
+            return digest_error
+        quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
+        if quota_error is not None:
+            return quota_error
+        scan_error = _webdav_upload_scan_error(content, username, resource)
+        if scan_error is not None:
+            return scan_error
+        try:
+            updated = _store().replace_content(document["document_id"], content, f"webdav:{username}", expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+        except ValueError as exc:
+            status = 412 if "changed since" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 400
+            return Response(str(exc), status)
+        if _etag(updated) != current_etag:
+            _record_sync_changes(username, _store().relative(resource))
+        return Response("", 204, _stored_integrity_headers(updated))
+    if is_collection:
+        return Response("cannot PUT a collection", 405)
+    precondition_error = _http_precondition_error(username, resource, None)
+    if precondition_error is not None:
+        return precondition_error
+    name_error = _portable_name_error(username, resource)
+    if name_error is not None:
+        return name_error
+    content = request.get_data()
+    digest_error = _verify_content_digest(content, username, resource)
+    if digest_error is not None:
+        return digest_error
+    quota_error = _check_quota(username, "PUT", resource, len(content))
+    if quota_error is not None:
+        return quota_error
+    scan_error = _webdav_upload_scan_error(content, username, resource)
+    if scan_error is not None:
+        return scan_error
+    try:
+        created = _store().create_document_at(_store().relative(resource), content, f"webdav:{username}", max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+    except FileExistsError:
+        return Response("resource already exists", 412)
+    except ValueError as exc:
+        return Response(str(exc), 409)
+    old_lock = _lock_for(key)
+    if old_lock:
+        _release_lock(key)
+        _save_lock(
+            created["document_id"], username, old_lock["token"], _timeout_seconds(), old_lock.get("owner", ""),
+            href=str(old_lock.get("href", request.url)), depth=str(old_lock.get("depth", "0")),
+            resource=_store().relative(resource),
+        )
+    _record_sync_changes(username, _store().relative(resource))
+    return Response("", 201, _stored_integrity_headers(created))
+
+
+def _handle_tree_delete(username: str, identity, resource, document, is_collection: bool, key):
+    if document:
+        precondition_error = _http_precondition_error(username, resource, document)
+        if precondition_error is not None:
+            return precondition_error
+        try:
+            _store().soft_delete_document(document["document_id"], f"webdav:{username}")
+        except ValueError as exc:
+            return Response(str(exc), 423)
+        _release_lock(key)
+        _record_sync_changes(username, _store().relative(resource))
+        return Response("", 204)
+    if is_collection:
+        if resource == _store().root:
+            return Response("the WebDAV root cannot be deleted", 403)
+        if _credential_is_boundary(identity, resource):
+            return Response("the credential lacks access to the parent collection", 403)
+        depth = request.headers.get("Depth", "infinity").lower()
+        if depth != "infinity":
+            return Response("collection DELETE requires Depth: infinity", 400)
+        precondition_error = _http_precondition_error(username, resource, None)
+        if precondition_error is not None:
+            return precondition_error
+        collection_lock_error = _collection_lock_error(resource, username)
+        if collection_lock_error is not None:
+            return collection_lock_error
+        try:
+            result = _store().soft_delete_collection(
+                _store().relative(resource), f"webdav:{username}",
+            )
+        except OSError:
+            return _quota_error(username, "DELETE", resource, 0, "sufficient-disk-space")
+        except (RuntimeError, ValueError) as exc:
+            status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 409
+            return Response(str(exc), status)
+        changed_paths = []
+        source_relative = str(result["path"])
+        for nested in result["directories_relative"]:
+            changed_paths.append(source_relative if nested == Path(".") else str(Path(source_relative) / nested))
+        changed_paths.extend(str(item.get("deleted_from", "")) for item in result["resources"])
+        _release_collection_locks_after_delete(username, resource)
+        _record_sync_changes(username, *changed_paths)
+        return Response("", 204)
+    return Response("not found", 404)
+
+
+def _handle_tree_copy_move(username: str, identity, resource, document, is_collection: bool, allow: str):
+    if document is None and not is_collection:
+        return Response("not found", 404)
+    if resource == _store().root:
+        return Response("the WebDAV root cannot be copied or moved", 403)
+    if request.method == "MOVE" and _credential_is_boundary(identity, resource):
+        return Response("the credential lacks access to the parent collection", 403)
+    overwrite = request.headers.get("Overwrite", "T").upper()
+    if overwrite not in {"T", "F"}:
+        return Response("Overwrite must be T or F", 400)
+    depth = request.headers.get("Depth", "infinity").lower()
+    if request.method == "COPY" and is_collection and depth not in {"0", "infinity"}:
+        return Response("collection COPY requires Depth: 0 or infinity", 400)
+    if request.method == "MOVE" and is_collection and depth != "infinity":
+        return Response("collection MOVE requires Depth: infinity", 400)
+    precondition_error = _http_precondition_error(username, resource, document)
+    if precondition_error is not None:
+        return precondition_error
+    current_etag = _etag(document) if document is not None else ""
+    try:
+        destination, destination_relative = _destination(username, identity)
+    except PermissionError:
+        return Response("destination is outside the authenticated WebDAV tree", 502)
+    except ValueError as exc:
+        return Response(str(exc), 400)
+    if not _vfs().allows(username, destination.parent, "write"):
+        return _need_privileges_response(
+            request.path, _missing_method_privilege(request.method), allow,
+        )
+    if destination.exists() and not _vfs().allows(username, destination, "write"):
+        return _need_privileges_response(
+            request.path, _missing_method_privilege(request.method), allow,
+        )
+    name_error = _portable_name_error(
+        username,
+        destination,
+        exclude=resource if request.method == "MOVE" else None,
+    )
+    if name_error is not None:
+        return name_error
+    replacing_document = None
+    destination_etag = ""
+    if destination == resource:
+        status = 403 if request.method == "MOVE" else 412
+        return Response("source and destination are the same resource", status)
+    if destination.exists():
+        if overwrite == "F":
+            return Response("destination exists and Overwrite is F", 412)
+        if is_collection or destination.is_symlink() or not destination.is_file():
+            return Response("only an existing regular file can be replaced by COPY or MOVE", 412)
+        try:
+            replacing_document = _tree_document(destination)
+        except ValueError:
+            return Response("destination is not an available managed document", 409)
+        destination_key = _lock_key(destination, replacing_document)
+        destination_etag = _etag(replacing_document)
+        if not _request_token(destination_key) and not _request_etag(destination_key, destination_etag):
+            return Response(
+                "replacing an existing destination requires its tagged DAV If ETag or lock token",
+                428, {"ETag": destination_etag, "Cache-Control": "private, no-cache"},
+            )
+        destination_lock = _require_lock(destination, replacing_document, username)
+        if destination_lock is not None:
+            destination_lock.headers.update({"ETag": destination_etag, "Cache-Control": "private, no-cache"})
+            return destination_lock
+    if not destination.parent.is_dir():
+        return Response("destination parent does not exist", 409)
+    if replacing_document is None:
+        destination_lock = _require_lock(destination, None, username)
+        if destination_lock is not None:
+            return destination_lock
+    manifest = None
+    if is_collection:
+        if request.method == "MOVE":
+            collection_lock_error = _collection_lock_error(resource, username)
+            if collection_lock_error is not None:
+                return collection_lock_error
+        try:
+            manifest = _store().collection_manifest(
+                _store().relative(resource), f"webdav:{username}",
+                depth=depth if request.method == "COPY" else "infinity",
+            )
+        except ValueError as exc:
+            status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 409
+            return Response(str(exc), status)
+    if request.method == "COPY":
+        if replacing_document is not None:
+            growth = 0
+        elif manifest is not None and depth == "infinity":
+            growth = int(manifest["total_bytes"])
+        else:
+            growth = resource.stat().st_size if document else 0
+        quota_error = _check_quota(username, "COPY", destination, growth)
+        if quota_error is not None:
+            return quota_error
+    try:
+        if is_collection and request.method == "COPY":
+            result = _store().copy_collection(
+                _store().relative(resource), destination_relative, f"webdav:{username}", depth=depth,
+            )
+            copied_directories = result["directories_relative"]
+            for nested in copied_directories:
+                source_collection = resource if nested == Path(".") else resource / nested
+                destination_collection = destination if nested == Path(".") else destination / nested
+                _copy_dead_properties(username, source_collection, None, destination_collection, None)
+            for item in result["resources"]:
+                _copy_dead_properties(
+                    username, item["source"], item["source_document"],
+                    item["destination"], item["destination_document"],
+                )
+        elif is_collection:
+            result = _store().move_collection(
+                _store().relative(resource), destination_relative, f"webdav:{username}",
+            )
+            _release_collection_locks_after_move(username, resource)
+        elif request.method == "COPY" and replacing_document is not None:
+            result = _store().replace_document_via_copy(
+                document["document_id"], replacing_document["document_id"], f"webdav:{username}",
+                expected_source_sha256=_etag_value(current_etag),
+                expected_destination_sha256=_etag_value(destination_etag),
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+            )
+        elif request.method == "COPY":
+            result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
+            _copy_dead_properties(username, resource, document, destination, result)
+        elif replacing_document is not None:
+            replacement = _store().replace_document_via_move(
+                document["document_id"], replacing_document["document_id"], f"webdav:{username}",
+                expected_source_sha256=_etag_value(current_etag),
+                expected_destination_sha256=_etag_value(destination_etag),
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+            )
+            result = replacement["document"]
+        else:
+            with exclusive_file_lock(_store().control / ".document-content.lock"):
+                result = _store().move_document(document["document_id"], _store().relative(destination.parent), f"webdav:{username}", destination_name=destination.name)
+    except OSError:
+        return _quota_error(username, request.method, destination, 0, "sufficient-disk-space")
+    except (FileExistsError, RuntimeError, ValueError) as exc:
+        message = str(exc)
+        status = 507 if "too many" in message or "nesting depth" in message or "rollback failed" in message else 413 if "upload size limit" in message else 412 if "changed since" in message else 423 if "locked" in message or "staged" in message else 403 if "itself" in message else 409
+        return Response(str(exc), status)
+    changed_paths: list[str] = []
+    if is_collection:
+        for nested in result["directories_relative"]:
+            destination_member = destination if nested == Path(".") else destination / nested
+            changed_paths.append(_store().relative(destination_member))
+            if request.method == "MOVE":
+                source_member = resource if nested == Path(".") else resource / nested
+                changed_paths.append(_store().relative(source_member))
+        for item in result["resources"]:
+            if request.method == "COPY":
+                changed_paths.append(_store().relative(item["destination"]))
+            else:
+                changed_paths.extend([item["before"], item["after"]])
+    if request.method == "COPY":
+        _record_sync_changes(username, *(changed_paths or [destination_relative]))
+    else:
+        _record_sync_changes(username, *(changed_paths or [_store().relative(resource), destination_relative]))
+        if not is_collection:
+            _release_file_lock_after_move(username, resource, document)
+    headers = {"Location": _tree_url(username, destination_relative, collection=is_collection)}
+    if not is_collection:
+        headers.update(_stored_integrity_headers(result))
+        headers["Location"] = _tree_url(username, destination_relative)
+        headers["Content-Location"] = headers["Location"]
+    return Response("", 204 if replacing_document is not None else 201, headers)
+
+
 @bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
 @bp.route("/webdav/files/<username>/<path:relative_path>", methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
 def file_tree(username: str, relative_path: str):
@@ -74,80 +430,7 @@ def file_tree(username: str, relative_path: str):
         return _search_response(username, identity, resource)
 
     if request.method == "PROPFIND":
-        if not is_collection and document is None:
-            return Response("not found", 404)
-        depth = request.headers.get("Depth", "infinity").casefold()
-        if depth not in {"0", "1", "infinity"}:
-            return Response("PROPFIND Depth must be 0, 1 or infinity", 400)
-        body = request.get_data(cache=True)
-        try:
-            query = _parse_propfind(body)
-        except OverflowError as exc:
-            return Response(str(exc), 413)
-        except PermissionError:
-            error = '<?xml version="1.0" encoding="utf-8"?><d:error xmlns:d="DAV:"><d:no-external-entities/></d:error>'
-            return Response(error, 400, mimetype="application/xml")
-        except ValueError as exc:
-            return Response(str(exc), 400)
-
-        # Keep a complete tree response consistent with the same lock used by
-        # PUT, COPY, MOVE, DELETE and property mutations. The XML is fully
-        # assembled before sending, so a client never receives a partial
-        # success followed by a server-side resource-limit failure.
-        mutation_lock = exclusive_file_lock(_sync_path().with_suffix(".mutation.lock"))
-        mutation_lock.__enter__()
-        g._webdav_mutation_lock = mutation_lock
-        is_collection = resource.is_dir() and not resource.is_symlink()
-        document = None
-        if resource.is_file() and not resource.is_symlink():
-            try:
-                document = _tree_document(resource)
-            except ValueError:
-                return Response("not found", 404)
-        elif not is_collection:
-            return Response("not found", 404)
-        effective_depth = depth if is_collection else "0"
-        href = _tree_url(username, _store().relative(resource), collection=is_collection)
-        wants_sync_token = query[0] == "propname" or f"{{{DAV}}}sync-token" in query[1]
-        sync_token = _collection_sync_token(username, resource) if is_collection and wants_sync_token else ""
-        responses: list[str] = []
-        response_size = len((PROPFIND_XML_PREFIX + PROPFIND_XML_SUFFIX).encode("utf-8"))
-        try:
-            response_size = _append_propfind_response(
-                responses,
-                _prop_response(href, resource.name if resource != _store().root else "SimpleOffice Dokumente", collection=is_collection, document=document, sync_token=sync_token, username=username, resource=resource, query=query, searchable=True),
-                response_size,
-            )
-            for child, child_is_collection, child_document in _propfind_members(resource, effective_depth, username):
-                child_href = _tree_url(
-                    username, _store().relative(child), collection=child_is_collection,
-                )
-                response_size = _append_propfind_response(
-                    responses,
-                    _prop_response(
-                        child_href,
-                        child.name,
-                        collection=child_is_collection,
-                        document=child_document,
-                        username=username,
-                        resource=child,
-                        query=query,
-                        searchable=True,
-                    ),
-                    response_size,
-                )
-            xml = _propfind_multistatus(responses)
-        except _PropfindLimitError as exc:
-            return _propfind_limit_response(username, resource, exc)
-        return Response(
-            xml,
-            207,
-            {
-                "Content-Type": "application/xml; charset=utf-8",
-                "Cache-Control": "private, no-store",
-                "Vary": "Authorization, Depth",
-            },
-        )
+        return _handle_tree_propfind(username, resource, is_collection, document)
 
     if request.method in {"GET", "HEAD"}:
         if document is None:
@@ -215,278 +498,13 @@ def file_tree(username: str, relative_path: str):
         return Response("", 204)
 
     if request.method == "PUT":
-        current_etag = _etag(document) if document else ""
-        if document:
-            precondition_error = _http_precondition_error(username, resource, document)
-            if precondition_error is not None:
-                return precondition_error
-            if_match = request.headers.get("If-Match", "")
-            if not _request_token(key) and not if_match:
-                return Response("existing resources require If-Match or a lock token", 428, {"ETag": current_etag})
-            content = request.get_data()
-            digest_error = _verify_content_digest(content, username, resource)
-            if digest_error is not None:
-                return digest_error
-            quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
-            if quota_error is not None:
-                return quota_error
-            scan_error = _webdav_upload_scan_error(content, username, resource)
-            if scan_error is not None:
-                return scan_error
-            try:
-                updated = _store().replace_content(document["document_id"], content, f"webdav:{username}", expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
-            except ValueError as exc:
-                status = 412 if "changed since" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 400
-                return Response(str(exc), status)
-            if _etag(updated) != current_etag:
-                _record_sync_changes(username, _store().relative(resource))
-            return Response("", 204, _stored_integrity_headers(updated))
-        if is_collection:
-            return Response("cannot PUT a collection", 405)
-        precondition_error = _http_precondition_error(username, resource, None)
-        if precondition_error is not None:
-            return precondition_error
-        name_error = _portable_name_error(username, resource)
-        if name_error is not None:
-            return name_error
-        content = request.get_data()
-        digest_error = _verify_content_digest(content, username, resource)
-        if digest_error is not None:
-            return digest_error
-        quota_error = _check_quota(username, "PUT", resource, len(content))
-        if quota_error is not None:
-            return quota_error
-        scan_error = _webdav_upload_scan_error(content, username, resource)
-        if scan_error is not None:
-            return scan_error
-        try:
-            created = _store().create_document_at(_store().relative(resource), content, f"webdav:{username}", max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
-        except FileExistsError:
-            return Response("resource already exists", 412)
-        except ValueError as exc:
-            return Response(str(exc), 409)
-        old_lock = _lock_for(key)
-        if old_lock:
-            _release_lock(key)
-            _save_lock(
-                created["document_id"], username, old_lock["token"], _timeout_seconds(), old_lock.get("owner", ""),
-                href=str(old_lock.get("href", request.url)), depth=str(old_lock.get("depth", "0")),
-                resource=_store().relative(resource),
-            )
-        _record_sync_changes(username, _store().relative(resource))
-        return Response("", 201, _stored_integrity_headers(created))
+        return _handle_tree_put(username, resource, document, is_collection, key)
 
     if request.method == "DELETE":
-        if document:
-            precondition_error = _http_precondition_error(username, resource, document)
-            if precondition_error is not None:
-                return precondition_error
-            try:
-                _store().soft_delete_document(document["document_id"], f"webdav:{username}")
-            except ValueError as exc:
-                return Response(str(exc), 423)
-            _release_lock(key)
-            _record_sync_changes(username, _store().relative(resource))
-            return Response("", 204)
-        if is_collection:
-            if resource == _store().root:
-                return Response("the WebDAV root cannot be deleted", 403)
-            if _credential_is_boundary(identity, resource):
-                return Response("the credential lacks access to the parent collection", 403)
-            depth = request.headers.get("Depth", "infinity").lower()
-            if depth != "infinity":
-                return Response("collection DELETE requires Depth: infinity", 400)
-            precondition_error = _http_precondition_error(username, resource, None)
-            if precondition_error is not None:
-                return precondition_error
-            collection_lock_error = _collection_lock_error(resource, username)
-            if collection_lock_error is not None:
-                return collection_lock_error
-            try:
-                result = _store().soft_delete_collection(
-                    _store().relative(resource), f"webdav:{username}",
-                )
-            except OSError:
-                return _quota_error(username, "DELETE", resource, 0, "sufficient-disk-space")
-            except (RuntimeError, ValueError) as exc:
-                status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 409
-                return Response(str(exc), status)
-            changed_paths = []
-            source_relative = str(result["path"])
-            for nested in result["directories_relative"]:
-                changed_paths.append(source_relative if nested == Path(".") else str(Path(source_relative) / nested))
-            changed_paths.extend(str(item.get("deleted_from", "")) for item in result["resources"])
-            _release_collection_locks_after_delete(username, resource)
-            _record_sync_changes(username, *changed_paths)
-            return Response("", 204)
-        return Response("not found", 404)
+        return _handle_tree_delete(username, identity, resource, document, is_collection, key)
 
     if request.method in {"COPY", "MOVE"}:
-        if document is None and not is_collection:
-            return Response("not found", 404)
-        if resource == _store().root:
-            return Response("the WebDAV root cannot be copied or moved", 403)
-        if request.method == "MOVE" and _credential_is_boundary(identity, resource):
-            return Response("the credential lacks access to the parent collection", 403)
-        overwrite = request.headers.get("Overwrite", "T").upper()
-        if overwrite not in {"T", "F"}:
-            return Response("Overwrite must be T or F", 400)
-        depth = request.headers.get("Depth", "infinity").lower()
-        if request.method == "COPY" and is_collection and depth not in {"0", "infinity"}:
-            return Response("collection COPY requires Depth: 0 or infinity", 400)
-        if request.method == "MOVE" and is_collection and depth != "infinity":
-            return Response("collection MOVE requires Depth: infinity", 400)
-        precondition_error = _http_precondition_error(username, resource, document)
-        if precondition_error is not None:
-            return precondition_error
-        current_etag = _etag(document) if document is not None else ""
-        try:
-            destination, destination_relative = _destination(username, identity)
-        except PermissionError:
-            return Response("destination is outside the authenticated WebDAV tree", 502)
-        except ValueError as exc:
-            return Response(str(exc), 400)
-        if not _vfs().allows(username, destination.parent, "write"):
-            return _need_privileges_response(
-                request.path, _missing_method_privilege(request.method), allow,
-            )
-        if destination.exists() and not _vfs().allows(username, destination, "write"):
-            return _need_privileges_response(
-                request.path, _missing_method_privilege(request.method), allow,
-            )
-        name_error = _portable_name_error(
-            username,
-            destination,
-            exclude=resource if request.method == "MOVE" else None,
-        )
-        if name_error is not None:
-            return name_error
-        replacing_document = None
-        if destination == resource:
-            status = 403 if request.method == "MOVE" else 412
-            return Response("source and destination are the same resource", status)
-        if destination.exists():
-            if overwrite == "F":
-                return Response("destination exists and Overwrite is F", 412)
-            if is_collection or destination.is_symlink() or not destination.is_file():
-                return Response("only an existing regular file can be replaced by COPY or MOVE", 412)
-            try:
-                replacing_document = _tree_document(destination)
-            except ValueError:
-                return Response("destination is not an available managed document", 409)
-            destination_key = _lock_key(destination, replacing_document)
-            destination_etag = _etag(replacing_document)
-            if not _request_token(destination_key) and not _request_etag(destination_key, destination_etag):
-                return Response(
-                    "replacing an existing destination requires its tagged DAV If ETag or lock token",
-                    428, {"ETag": destination_etag, "Cache-Control": "private, no-cache"},
-                )
-            destination_lock = _require_lock(destination, replacing_document, username)
-            if destination_lock is not None:
-                destination_lock.headers.update({"ETag": destination_etag, "Cache-Control": "private, no-cache"})
-                return destination_lock
-        if not destination.parent.is_dir():
-            return Response("destination parent does not exist", 409)
-        if replacing_document is None:
-            destination_lock = _require_lock(destination, None, username)
-            if destination_lock is not None:
-                return destination_lock
-        manifest = None
-        if is_collection:
-            if request.method == "MOVE":
-                collection_lock_error = _collection_lock_error(resource, username)
-                if collection_lock_error is not None:
-                    return collection_lock_error
-            try:
-                manifest = _store().collection_manifest(
-                    _store().relative(resource), f"webdav:{username}",
-                    depth=depth if request.method == "COPY" else "infinity",
-                )
-            except ValueError as exc:
-                status = 507 if "too many" in str(exc) or "nesting depth" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 409
-                return Response(str(exc), status)
-        if request.method == "COPY":
-            if replacing_document is not None:
-                growth = 0
-            elif manifest is not None and depth == "infinity":
-                growth = int(manifest["total_bytes"])
-            else:
-                growth = resource.stat().st_size if document else 0
-            quota_error = _check_quota(username, "COPY", destination, growth)
-            if quota_error is not None:
-                return quota_error
-        try:
-            if is_collection and request.method == "COPY":
-                result = _store().copy_collection(
-                    _store().relative(resource), destination_relative, f"webdav:{username}", depth=depth,
-                )
-                copied_directories = result["directories_relative"]
-                for nested in copied_directories:
-                    source_collection = resource if nested == Path(".") else resource / nested
-                    destination_collection = destination if nested == Path(".") else destination / nested
-                    _copy_dead_properties(username, source_collection, None, destination_collection, None)
-                for item in result["resources"]:
-                    _copy_dead_properties(
-                        username, item["source"], item["source_document"],
-                        item["destination"], item["destination_document"],
-                    )
-            elif is_collection:
-                result = _store().move_collection(
-                    _store().relative(resource), destination_relative, f"webdav:{username}",
-                )
-                _release_collection_locks_after_move(username, resource)
-            elif request.method == "COPY" and replacing_document is not None:
-                result = _store().replace_document_via_copy(
-                    document["document_id"], replacing_document["document_id"], f"webdav:{username}",
-                    expected_source_sha256=_etag_value(current_etag),
-                    expected_destination_sha256=_etag_value(destination_etag),
-                    max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
-                )
-            elif request.method == "COPY":
-                result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
-                _copy_dead_properties(username, resource, document, destination, result)
-            elif replacing_document is not None:
-                replacement = _store().replace_document_via_move(
-                    document["document_id"], replacing_document["document_id"], f"webdav:{username}",
-                    expected_source_sha256=_etag_value(current_etag),
-                    expected_destination_sha256=_etag_value(destination_etag),
-                    max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
-                )
-                result = replacement["document"]
-            else:
-                with exclusive_file_lock(_store().control / ".document-content.lock"):
-                    result = _store().move_document(document["document_id"], _store().relative(destination.parent), f"webdav:{username}", destination_name=destination.name)
-        except OSError:
-            return _quota_error(username, request.method, destination, 0, "sufficient-disk-space")
-        except (FileExistsError, RuntimeError, ValueError) as exc:
-            message = str(exc)
-            status = 507 if "too many" in message or "nesting depth" in message or "rollback failed" in message else 413 if "upload size limit" in message else 412 if "changed since" in message else 423 if "locked" in message or "staged" in message else 403 if "itself" in message else 409
-            return Response(str(exc), status)
-        changed_paths: list[str] = []
-        if is_collection:
-            for nested in result["directories_relative"]:
-                destination_member = destination if nested == Path(".") else destination / nested
-                changed_paths.append(_store().relative(destination_member))
-                if request.method == "MOVE":
-                    source_member = resource if nested == Path(".") else resource / nested
-                    changed_paths.append(_store().relative(source_member))
-            for item in result["resources"]:
-                if request.method == "COPY":
-                    changed_paths.append(_store().relative(item["destination"]))
-                else:
-                    changed_paths.extend([item["before"], item["after"]])
-        if request.method == "COPY":
-            _record_sync_changes(username, *(changed_paths or [destination_relative]))
-        else:
-            _record_sync_changes(username, *(changed_paths or [_store().relative(resource), destination_relative]))
-            if not is_collection:
-                _release_file_lock_after_move(username, resource, document)
-        headers = {"Location": _tree_url(username, destination_relative, collection=is_collection)}
-        if not is_collection:
-            headers.update(_stored_integrity_headers(result))
-            headers["Location"] = _tree_url(username, destination_relative)
-            headers["Content-Location"] = headers["Location"]
-        return Response("", 204 if replacing_document is not None else 201, headers)
+        return _handle_tree_copy_move(username, identity, resource, document, is_collection, allow)
 
     return Response("method not allowed", 405, {"Allow": allow})
 
