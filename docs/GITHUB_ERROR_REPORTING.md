@@ -83,7 +83,7 @@ Wenn genau ein vertrauenswürdiger Reverse-Proxy direkt vor dem Relay steht, kan
 
 Für `JensKapitza/SimpleOffice4Me` reicht ein Fine-Grained Token mit `Issues: Read and write`. Contents-, Administration- oder Secrets-Schreibrechte sind für den Reporter nicht erforderlich.
 
-Der Compose-Relay mountet die Token-Datei zunächst nur nach `/run/secrets/github-error-token`. Der Entry-Point kopiert sie vor dem Privilege-Drop in den privaten SimpleOffice-State, setzt `0600` und übergibt der Anwendung ausschließlich den Dateipfad. Der Tokenwert erscheint dadurch weder im Repository noch im Image.
+Der Compose-Relay mountet die Token-Datei nach `/run/secrets/github-error-token`. Der Entry-Point kopiert sie vor dem Privilege-Drop mit Modus `0600` nach `/tmp/simpleoffice-github-error-token`; `/tmp` ist im mitgelieferten Compose-Stack ein `tmpfs`. Der Token landet deshalb weder im persistenten SimpleOffice-Volume noch im Image und verschwindet mit dem Container. Die Anwendung erhält ausschließlich den Dateipfad.
 
 Langfristig kann an derselben Stelle statt eines PAT eine dedizierte GitHub App verwendet werden; die Client-/Relay-Schnittstelle muss dafür nicht geändert werden.
 
@@ -100,6 +100,18 @@ export SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE=/etc/simpleoffice/secrets/github-err
 Die Token-Datei muss eine reguläre Datei sein und darf keine Gruppen- oder Fremdrechte besitzen, beispielsweise Modus `0600`.
 
 Ein Environment-Token über `SIMPLEOFFICE_GITHUB_ERROR_TOKEN` wird aus Kompatibilitätsgründen unterstützt, eine geschützte Datei ist für Serverbetrieb vorzuziehen.
+
+## Android/APK automatisch an den Relay anbinden
+
+Die öffentliche Relay-URL darf in eine APK eingebaut werden, weil sie **kein Secret** ist. Der Android-Build liest dafür `SIMPLEOFFICE_ERROR_REPORT_URL` und schreibt ausschließlich diese HTTPS-URL in `BuildConfig.ERROR_REPORT_URL`. Beim Start übergibt die Android-Hülle sie an den lokalen Python-Server, der sie als `SIMPLEOFFICE_ERROR_REPORT_URL` setzt.
+
+Der GitHub-Actions-Workflow liest denselben Wert aus der Repository-Variable `SIMPLEOFFICE_ERROR_REPORT_URL`. Nach Bereitstellung des öffentlichen Relay wird diese Variable einmalig beispielsweise auf
+
+```text
+https://errors.example.org/api/error-reports/v1/reports
+```
+
+gesetzt. **Kein GitHub-Token darf als Android-Buildvariable gesetzt werden.** Ist die Repository-Variable leer, wird die APK weiterhin gebaut; automatische externe Meldungen bleiben dann deaktiviert und der manuelle Fallback bleibt verfügbar.
 
 ## Manuelle Meldung über GitHub-App oder Browser
 
