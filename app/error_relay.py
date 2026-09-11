@@ -12,7 +12,7 @@ import re
 import secrets
 import threading
 import time
-from collections import OrderedDict, defaultdict, deque
+from collections import OrderedDict, deque
 
 from flask import Blueprint, abort, jsonify, request
 
@@ -24,6 +24,8 @@ MAX_REPORT_BYTES = 16 * 1024
 RATE_WINDOW_SECONDS = 60
 RATE_LIMIT_PER_SOURCE = 60
 RATE_LIMIT_GLOBAL = 300
+RATE_SOURCE_BUCKET_LIMIT = 4096
+MAX_UPSTREAM_INFLIGHT = 4
 CACHE_LIMIT = 5000
 _ALLOWED_KEYS = {
     "schema", "request_id", "fingerprint", "exception_type", "endpoint",
@@ -36,10 +38,12 @@ _TEMPLATE_NAME = re.compile(r"[A-Za-z0-9_./:+-]{1,240}\Z")
 _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 _rate_lock = threading.Lock()
 _rate_salt = secrets.token_bytes(32)
-_rate_by_source: dict[str, deque[float]] = defaultdict(deque)
+_rate_by_source: dict[str, deque[float]] = {}
 _rate_global: deque[float] = deque()
 _cache_lock = threading.Lock()
 _issue_cache: OrderedDict[str, int] = OrderedDict()
+_upstream_lock = threading.Lock()
+_upstream_fingerprints: set[str] = set()
 
 
 def relay_enabled() -> bool:
@@ -60,23 +64,58 @@ def _trim(bucket: deque[float], now: float) -> None:
         bucket.popleft()
 
 
+def _cleanup_source_buckets(now: float) -> None:
+    cutoff = now - RATE_WINDOW_SECONDS
+    stale = [
+        key for key, values in _rate_by_source.items()
+        if not values or values[-1] <= cutoff
+    ]
+    for key in stale:
+        _rate_by_source.pop(key, None)
+
+
 def _rate_allowed() -> bool:
     now = time.monotonic()
     source = _source_key()
     with _rate_lock:
         _trim(_rate_global, now)
-        bucket = _rate_by_source[source]
-        _trim(bucket, now)
-        if len(_rate_global) >= RATE_LIMIT_GLOBAL or len(bucket) >= RATE_LIMIT_PER_SOURCE:
+        # Reject at the global boundary before allocating attacker-controlled
+        # source buckets. This keeps memory bounded even with many source keys.
+        if len(_rate_global) >= RATE_LIMIT_GLOBAL:
             return False
+
+        bucket = _rate_by_source.get(source)
+        if bucket is not None:
+            _trim(bucket, now)
+            if len(bucket) >= RATE_LIMIT_PER_SOURCE:
+                return False
+        else:
+            if len(_rate_by_source) >= RATE_SOURCE_BUCKET_LIMIT:
+                _cleanup_source_buckets(now)
+                if len(_rate_by_source) >= RATE_SOURCE_BUCKET_LIMIT:
+                    return False
+            bucket = deque()
+            _rate_by_source[source] = bucket
+
         _rate_global.append(now)
         bucket.append(now)
-        # Avoid unbounded source-map growth behind scanners/botnets.
-        if len(_rate_by_source) > 4096:
-            stale = [key for key, values in _rate_by_source.items() if not values or values[-1] <= now - RATE_WINDOW_SECONDS]
-            for key in stale[:2048]:
-                _rate_by_source.pop(key, None)
         return True
+
+
+def _reserve_upstream(fingerprint: str) -> str:
+    """Reserve one bounded GitHub request slot without blocking request threads."""
+    with _upstream_lock:
+        if fingerprint in _upstream_fingerprints:
+            return "duplicate"
+        if len(_upstream_fingerprints) >= MAX_UPSTREAM_INFLIGHT:
+            return "busy"
+        _upstream_fingerprints.add(fingerprint)
+        return "reserved"
+
+
+def _release_upstream(fingerprint: str) -> None:
+    with _upstream_lock:
+        _upstream_fingerprints.discard(fingerprint)
 
 
 def _bounded_token(value: object, limit: int) -> str:
@@ -181,8 +220,12 @@ def _remember_issue(fingerprint: str, issue_number: int) -> None:
 def health():
     if not relay_enabled():
         abort(404)
-    config = load_config()
-    ready = bool(config.token and config.repository)
+    try:
+        config = load_config()
+        ready = bool(config.token and config.repository)
+    except Exception:
+        # Configuration errors are intentionally not reflected to anonymous callers.
+        ready = False
     response = jsonify({
         "service": "simpleoffice-error-relay",
         "schema": REPORT_SCHEMA,
@@ -219,13 +262,34 @@ def receive_report():
     if cached is not None:
         return jsonify({"accepted": True, "issue_number": cached, "deduplicated": True})
 
-    config = load_config()
+    try:
+        config = load_config()
+    except Exception:
+        return jsonify({"error": "relay not configured"}), 503
     if not config.token:
         return jsonify({"error": "relay not configured"}), 503
+
+    reservation = _reserve_upstream(fingerprint)
+    if reservation == "duplicate":
+        return jsonify({"accepted": True, "pending": True, "deduplicated": True}), 202
+    if reservation == "busy":
+        response = jsonify({"error": "relay busy"})
+        response.status_code = 503
+        response.headers["Retry-After"] = "2"
+        return response
+
     try:
-        issue_number = report_payload_to_github(config, payload)
-    except Exception:
-        # Do not reflect GitHub/token/network details to an anonymous caller.
-        return jsonify({"error": "upstream unavailable"}), 502
-    _remember_issue(fingerprint, issue_number)
-    return jsonify({"accepted": True, "issue_number": issue_number, "deduplicated": False}), 202
+        # Recheck after reservation in case a previous request populated the cache
+        # between our first lookup and acquiring the upstream slot.
+        cached = _cached_issue(fingerprint)
+        if cached is not None:
+            return jsonify({"accepted": True, "issue_number": cached, "deduplicated": True})
+        try:
+            issue_number = report_payload_to_github(config, payload)
+        except Exception:
+            # Do not reflect GitHub/token/network details to an anonymous caller.
+            return jsonify({"error": "upstream unavailable"}), 502
+        _remember_issue(fingerprint, issue_number)
+        return jsonify({"accepted": True, "issue_number": issue_number, "deduplicated": False}), 202
+    finally:
+        _release_upstream(fingerprint)
