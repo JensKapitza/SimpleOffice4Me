@@ -79,8 +79,11 @@ def identify_source_peer(store: FederationStore, proof: ChatRequestProof, signat
     for configured in store.list_peers():
         peer_id = str(configured.get("peer_id") or "")
         if not peer_id: continue
-        try: candidate = store.peer_token(peer_id)
-        except Exception: continue
+        candidate = ""
+        try:
+            candidate = store.peer_token(peer_id)
+        except (ValueError, RuntimeError):
+            candidate = ""
         if candidate and hmac.compare_digest(candidate, token): duplicates.append(peer_id)
     if len(duplicates) != 1: raise ValueError("Federation-Token wird mehrfach verwendet; eindeutige Tokens erforderlich")
     return peer
