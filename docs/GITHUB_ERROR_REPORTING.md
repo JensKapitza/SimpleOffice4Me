@@ -1,25 +1,57 @@
 # GitHub-Fehlerberichte
 
-SimpleOffice4Me kann unbehandelte Anwendungsfehler datensparsam melden und dedupliziert als GitHub-Issues ablegen. Das Fehlerreporting ist **kein Bestandteil der Federation**: Eine Installation kann Fehler melden, ohne einen Federation-Peer zu kennen oder Federation aktiviert zu haben.
+SimpleOffice4Me kann unbehandelte Anwendungsfehler datensparsam melden und dedupliziert als GitHub-Issues ablegen. Der Fehlertransport benötigt **keine aktive Federation-Verbindung und keinen Federation-Token**. Er verwendet jedoch standardmäßig dieselbe globale Master-Adresse, die bereits beim Build als `LICENSE_MASTER_URL` hinterlegt wird.
 
-## Architektur
+## Zero-Config-Architektur
 
-Empfohlen ist der zentrale Relay-Modus:
+Für reguläre Client-Builds gilt ohne zusätzliche Konfiguration:
 
 ```text
 SimpleOffice A ─┐
-SimpleOffice B ─┼── HTTPS ──> SimpleOffice error-relay ──> GitHub Issues
-Android/APK  ───┤                    │
-Desktop-App  ───┘               GitHub-Token nur hier
+SimpleOffice B ─┼── HTTPS ──> globale Master-Federation ──> GitHub Issues
+Android/APK  ───┤                       │
+Desktop-App  ───┘                  GitHub-Token nur hier
 ```
 
-Normale Installationen besitzen **keinen GitHub-Token**. Sie kennen lediglich die HTTPS-URL des Relay. Der Relay ist Bestandteil desselben SimpleOffice4Me-Codes und wird aus demselben Dockerfile gebaut. Es muss daher kein zweites Serverprojekt gepflegt werden.
+Ist in `app/build_master.py` eine `LICENSE_MASTER_URL` eingebrannt und `LICENSE_MASTER_MODE=False`, leitet SimpleOffice daraus automatisch den Fehler-Endpunkt ab:
 
-Der Docker-Role `error-relay` beschränkt die öffentlich erreichbare Flask-Anwendung auf `/api/error-reports/v1/`; normale SimpleOffice-Routen werden in diesem Role mit 404 beantwortet.
+```text
+<LICENSE_MASTER_URL>/api/error-reports/v1/reports
+```
+
+Es muss dafür **keine** `SIMPLEOFFICE_ERROR_REPORT_URL` gesetzt werden.
+
+Ein Build mit `LICENSE_MASTER_MODE=True` aktiviert den Error-Collector auf derselben SimpleOffice-Instanz automatisch. Der Master sendet seine eigenen Fehler nicht an sich selbst; dadurch entsteht keine Schleife.
+
+Die Fehler-API ist technisch getrennt von der authentifizierten Federation. Eine fremde Installation muss weder Federation zu deinem Server aktiviert haben noch einen Federation- oder GitHub-Token besitzen. Sie braucht lediglich HTTPS-Zugriff auf die globale Master-Adresse.
+
+## Priorität der Konfiguration
+
+Die Auswahl des Meldewegs erfolgt in dieser Reihenfolge:
+
+1. `SIMPLEOFFICE_ERROR_REPORT_URL` – optionaler expliziter/custom Relay-Override.
+2. Expliziter direkter GitHub-Modus mit `SIMPLEOFFICE_GITHUB_ERROR_REPORTING=1` – für kontrollierte Einzelserver.
+3. Ohne beides automatisch die buildfeste globale `LICENSE_MASTER_URL`.
+
+Mit
+
+```bash
+SIMPLEOFFICE_ERROR_REPORTING=0
+```
+
+kann die ausgehende automatische Fehlermeldung vollständig deaktiviert werden.
+
+Auf dem Master kann der automatisch aktivierte Collector bei Bedarf explizit abgeschaltet werden:
+
+```bash
+SIMPLEOFFICE_ERROR_RELAY_ENABLED=0
+```
+
+Der separate Docker-Role `error-relay` bleibt als optionale Alternative erhalten. Er kann auf einem beliebigen Build mit `SIMPLEOFFICE_ERROR_RELAY_ENABLED=1` betrieben werden.
 
 ## Datenschutzprinzip
 
-Zwischen Installation, Relay und GitHub gilt dieselbe feste Allowlist. Übertragen werden nur:
+Zwischen Installation, Master/Relay und GitHub gilt dieselbe feste Allowlist. Übertragen werden nur:
 
 - Request-ID
 - stabiler Fehler-Fingerprint
@@ -30,66 +62,66 @@ Zwischen Installation, Relay und GitHub gilt dieselbe feste Allowlist. Übertrag
 
 Nicht übertragen werden Request-Body, Query-Parameter, Header, Cookies, Sessiondaten, Benutzerkennung, Kundendaten, Datenbankinhalte, Umgebungsvariablen, Logdateien oder Anhänge.
 
-Der Relay akzeptiert maximal 16 KiB pro Bericht, lehnt unbekannte JSON-Felder ab und besitzt ein lokales sowie globales Rate-Limit. Client-IP-Adressen werden nicht persistiert; für das kurzlebige In-Memory-Rate-Limit wird nur ein pro Prozess gesalzener Hash verwendet. Stack-Felder werden auf technische Zeichenmengen begrenzt, damit ein anonymer Caller keinen Markdown-Inhalt in erzeugte GitHub-Issues einschleusen kann.
+Der Collector akzeptiert maximal 16 KiB pro Bericht, lehnt unbekannte JSON-Felder ab und besitzt lokale und globale Rate-Limits. Client-IP-Adressen werden nicht persistiert; für das kurzlebige In-Memory-Rate-Limit wird nur ein pro Prozess gesalzener Hash verwendet. Stack-Felder werden auf technische Zeichenmengen begrenzt, damit ein anonymer Caller keinen Markdown-Inhalt in erzeugte GitHub-Issues einschleusen kann.
 
 Technische Fehlerdetails werden auf der lokalen 500-Seite nur einem angemeldeten SimpleOffice-Administrator angezeigt.
 
-## Normalen SimpleOffice-Server anbinden
+## GitHub-Zugang nur auf Master/Relay
 
-Eine normale Installation benötigt nur die öffentliche HTTPS-Adresse des Relay:
+Der GitHub-Zugang gehört ausschließlich auf die Instanz, die den Collector bereitstellt. Für `JensKapitza/SimpleOffice4Me` reicht ein Fine-Grained Token mit `Issues: Read and write`. Contents-, Administration- oder Secrets-Schreibrechte sind für den Reporter nicht erforderlich.
+
+Bevorzugt wird eine private Token-Datei:
 
 ```bash
-export SIMPLEOFFICE_ERROR_REPORT_URL='https://errors.example.org/api/error-reports/v1/reports'
+SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE=/etc/simpleoffice/secrets/github-error-token
 ```
 
-Bei Docker Compose kann derselbe Wert in `deploy/docker/.env` gesetzt werden. `deploy/docker/compose.yaml` reicht ihn an den Container weiter.
+Die Datei muss regulär sein, darf kein Symlink sein und keine Gruppen- oder Fremdrechte besitzen, beispielsweise Modus `0600`.
 
-Ohne `SIMPLEOFFICE_ERROR_REPORT_URL` und ohne explizit aktivierten direkten GitHub-Modus bleibt die automatische externe Übertragung deaktiviert. Die lokale Fehlerprotokollierung funktioniert weiterhin.
+Ein Environment-Token über `SIMPLEOFFICE_GITHUB_ERROR_TOKEN` wird aus Kompatibilitätsgründen unterstützt. Der Token darf niemals committed, in ein Docker-Image, eine APK oder ein Desktop-Paket eingebaut werden.
 
-## Zentralen Relay mit demselben Docker-Image starten
+Langfristig kann an derselben Stelle eine dedizierte GitHub App verwendet werden; die Client-/Collector-Schnittstelle muss dafür nicht geändert werden.
 
-Der fertige Compose-Stack liegt unter `deploy/docker/compose.error-relay.yaml`.
+## Master als Collector
 
-Zuerst lokal ein Secret-Verzeichnis und die Token-Datei anlegen:
+Ein korrekt gebauter Master (`LICENSE_MASTER_MODE=True`) stellt automatisch bereit:
+
+```text
+POST /api/error-reports/v1/reports
+GET  /api/error-reports/v1/health
+```
+
+Die normale SimpleOffice-Weboberfläche und die bestehenden Federation-Endpunkte bleiben auf dem Master weiterhin verfügbar. Nur der optionale dedizierte Docker-Role `error-relay` beschränkt die sichtbare Oberfläche auf die Fehler-API.
+
+Der Health-Endpunkt liefert HTTP 200, wenn der Collector aktiv und ein GitHub-Zugang konfiguriert ist, ansonsten 503 beziehungsweise 404 bei deaktiviertem Collector.
+
+## Separaten Relay mit demselben Docker-Image starten
+
+Falls der globale Master später nicht selbst öffentlich als Collector dienen soll, bleibt der fertige Compose-Stack unter `deploy/docker/compose.error-relay.yaml` verfügbar.
 
 ```bash
 mkdir -p deploy/docker/secrets
 chmod 700 deploy/docker/secrets
 $EDITOR deploy/docker/secrets/github-error-token
 chmod 600 deploy/docker/secrets/github-error-token
-```
-
-`deploy/docker/secrets/` ist in `.gitignore` eingetragen. Der echte Token darf niemals committed, in ein Docker-Image eingebaut oder in eine APK bzw. Desktop-App gepackt werden.
-
-Danach den Relay bauen und starten:
-
-```bash
 docker compose -f deploy/docker/compose.error-relay.yaml up -d --build
 ```
 
-Standardmäßig lauscht der Relay nur auf `127.0.0.1:8090`. Davor gehört ein TLS-Reverse-Proxy wie Caddy, nginx oder Traefik. Erst die öffentliche `https://.../api/error-reports/v1/reports`-Adresse wird an andere SimpleOffice-Installationen verteilt.
+Der Compose-Stack bindet standardmäßig nur an `127.0.0.1:8090`. Der Token wird mit Modus `0600` nach `/tmp/simpleoffice-github-error-token` kopiert; `/tmp` ist dort `tmpfs`. Er landet weder im persistenten Volume noch im Image.
 
-Der Health-Endpunkt lautet:
+## Eigener Collector als Override
 
-```text
-/api/error-reports/v1/health
+Ein Betreiber kann die eingebaute Master-Adresse bewusst überschreiben:
+
+```bash
+SIMPLEOFFICE_ERROR_REPORT_URL=https://errors.example.org/api/error-reports/v1/reports
 ```
 
-Er liefert nur dann HTTP 200, wenn der Relay aktiviert und ein GitHub-Zugang konfiguriert ist. Der Docker-Healthcheck wählt diesen Endpunkt automatisch, wenn `SIMPLEOFFICE_CONTAINER_ROLE=error-relay` gesetzt ist.
+Das ist nur ein Override und für normale, korrekt gebaute SimpleOffice-Clients nicht erforderlich.
 
-Wenn genau ein vertrauenswürdiger Reverse-Proxy direkt vor dem Relay steht, kann `SIMPLEOFFICE_TRUSTED_PROXY_HOPS=1` gesetzt werden. Standard ist absichtlich `0`.
+## Direkter GitHub-Modus
 
-## GitHub-Zugang nur auf dem Relay
-
-Für `JensKapitza/SimpleOffice4Me` reicht ein Fine-Grained Token mit `Issues: Read and write`. Contents-, Administration- oder Secrets-Schreibrechte sind für den Reporter nicht erforderlich.
-
-Der Compose-Relay mountet die Token-Datei nach `/run/secrets/github-error-token`. Der Entry-Point kopiert sie vor dem Privilege-Drop mit Modus `0600` nach `/tmp/simpleoffice-github-error-token`; `/tmp` ist im mitgelieferten Compose-Stack ein `tmpfs`. Der Token landet deshalb weder im persistenten SimpleOffice-Volume noch im Image und verschwindet mit dem Container. Die Anwendung erhält ausschließlich den Dateipfad.
-
-Langfristig kann an derselben Stelle statt eines PAT eine dedizierte GitHub App verwendet werden; die Client-/Relay-Schnittstelle muss dafür nicht geändert werden.
-
-## Direkter GitHub-Modus für einzelne eigene Server
-
-Für eine eigene kontrollierte Installation bleibt der direkte Modus möglich:
+Für eine eigene kontrollierte Installation bleibt direkter GitHub-Zugriff möglich:
 
 ```bash
 export SIMPLEOFFICE_GITHUB_ERROR_REPORTING=1
@@ -97,40 +129,26 @@ export SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY=JensKapitza/SimpleOffice4Me
 export SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE=/etc/simpleoffice/secrets/github-error-token
 ```
 
-Die Token-Datei muss eine reguläre Datei sein und darf keine Gruppen- oder Fremdrechte besitzen, beispielsweise Modus `0600`.
+Dieser Modus hat bewusst Vorrang vor dem automatischen Master-Fallback.
 
-Ein Environment-Token über `SIMPLEOFFICE_GITHUB_ERROR_TOKEN` wird aus Kompatibilitätsgründen unterstützt, eine geschützte Datei ist für Serverbetrieb vorzuziehen.
+## Android/APK und Desktop
 
-## Android/APK automatisch an den Relay anbinden
+Die Fehlerlogik sitzt in derselben Python-App. Sobald der jeweilige Paket-Build die globale `LICENSE_MASTER_URL` enthält, ist deshalb keine separate Error-Adresse nötig.
 
-Die öffentliche Relay-URL darf in eine APK eingebaut werden, weil sie **kein Secret** ist. Der Android-Build liest dafür `SIMPLEOFFICE_ERROR_REPORT_URL` und schreibt ausschließlich diese HTTPS-URL in `BuildConfig.ERROR_REPORT_URL`. Beim Start übergibt die Android-Hülle sie an den lokalen Python-Server, der sie als `SIMPLEOFFICE_ERROR_REPORT_URL` setzt.
+Die bereits vorhandene optionale Build-/Runtime-Einstellung `SIMPLEOFFICE_ERROR_REPORT_URL` bleibt für spezielle Builds oder Tests als Override bestehen. **Kein GitHub-Token darf in Android-BuildConfig oder Desktop-Pakete gelangen.**
 
-Der GitHub-Actions-Workflow liest denselben Wert aus der Repository-Variable `SIMPLEOFFICE_ERROR_REPORT_URL`. Nach Bereitstellung des öffentlichen Relay wird diese Variable einmalig beispielsweise auf
+Die Android-Hülle gibt externe HTTPS-Links über Android `ACTION_VIEW` an das Betriebssystem weiter. Ist die GitHub-App als Handler eingerichtet, kann sie den manuellen Fallback übernehmen; andernfalls wird der Browser verwendet. Die Electron-Hülle öffnet externe HTTP/HTTPS-Links über den Systembrowser.
 
-```text
-https://errors.example.org/api/error-reports/v1/reports
-```
+## Manueller Fallback
 
-gesetzt. **Kein GitHub-Token darf als Android-Buildvariable gesetzt werden.** Ist die Repository-Variable leer, wird die APK weiterhin gebaut; automatische externe Meldungen bleiben dann deaktiviert und der manuelle Fallback bleibt verfügbar.
+Kann ein Fehler nicht automatisch übertragen werden, zeigt die lokale 500-Seite **„Fehler auf GitHub melden“**. Der Link füllt eine datensparsame technische Diagnose vor: Request-ID, Fingerprint, Exception-Typ, Endpoint, Methode, optionale Version und höchstens sechs bereinigte Stack-Koordinaten.
 
-## Desktop-Pakete automatisch an den Relay anbinden
+Exception-Nachricht, Request-Inhalte, Kundendaten, Benutzerkennung, Logs und Zugangsdaten werden auch bei diesem Weg nicht übernommen.
 
-Der Desktop-Build verwendet dieselbe Repository-Variable `SIMPLEOFFICE_ERROR_REPORT_URL`. Der Workflow erzeugt daraus ausschließlich eine öffentliche `desktop/electron/build-config.json`, die Electron mit ins Paket nimmt. Beim Start übernimmt Electron die URL in die Umgebung des lokalen Python-Backends.
+Hat der automatische Collector bereits erfolgreich ein Issue angelegt, wird stattdessen der vorhandene Issue-Link angezeigt, damit kein doppeltes Issue entsteht.
 
-Windows-, Linux- und macOS-Pakete benötigen dadurch ebenfalls keinen GitHub-Token. Eine zur Laufzeit gesetzte `SIMPLEOFFICE_ERROR_REPORT_URL` kann die eingebettete öffentliche URL für administrierte Installationen überschreiben.
-
-## Manuelle Meldung über GitHub-App oder Browser
-
-Kann ein Fehler nicht automatisch übertragen werden, zeigt die lokale 500-Seite einen Link **„Fehler auf GitHub melden“**. Der Link öffnet die normale GitHub-Seite zum Erstellen eines Issues und füllt eine datensparsame technische Diagnose vor. Enthalten sind Request-ID, Fingerprint, Exception-Typ, Endpoint, Methode, optionale Version und höchstens die sechs nächsten bereinigten Stack-Koordinaten. Die Exception-Nachricht, Request-Inhalte, Kundendaten, Benutzerkennung, Logs und Zugangsdaten werden auch bei diesem Weg nicht in die URL übernommen.
-
-Die Android-Hülle von SimpleOffice4Me gibt externe HTTPS-Links über Android `ACTION_VIEW` an das Betriebssystem weiter. Ist die GitHub-App als Handler eingerichtet, kann sie den Link übernehmen; andernfalls wird der Browser verwendet. Die Electron-Hülle öffnet externe HTTP/HTTPS-Links über den Systembrowser. Ein GitHub-Token wird dafür nicht in SimpleOffice gespeichert.
-
-Hat der automatische Relay bereits erfolgreich ein Issue angelegt, wird stattdessen der vorhandene Issue-Link angezeigt, damit der Benutzer nicht versehentlich ein zweites Issue erzeugt.
-
-## Verhalten bei Fehlern
+## Verhalten bei Ausfällen
 
 Bei einem unbehandelten Fehler speichert SimpleOffice weiterhin seinen lokalen strukturierten Fehlerdatensatz. Danach wird die externe Meldung versucht.
 
-Im Relay-Modus sendet die Installation die feste Allowlist an den zentralen SimpleOffice-Relay. Der Relay prüft Schema, Größe und Rate-Limits und sucht über GitHub nach einem offenen Issue mit demselben Fingerprint. Existiert bereits eines, wird dessen Nummer zurückgegeben. Andernfalls wird ein neues Issue angelegt.
-
-Ist der Relay oder GitHub nicht erreichbar, ist der Token ungültig oder ist die Funktion deaktiviert, bleibt die normale lokale Fehlerbehandlung aktiv. Ein Fehler des Reporters darf keinen weiteren Anwendungsfehler auslösen.
+Ist Master/Relay oder GitHub nicht erreichbar, ist der GitHub-Zugang ungültig oder wurde Reporting deaktiviert, bleibt die lokale Fehlerbehandlung aktiv. Ein Fehler des Reporters darf keinen weiteren Anwendungsfehler auslösen.
