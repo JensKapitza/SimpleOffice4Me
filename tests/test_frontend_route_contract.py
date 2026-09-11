@@ -33,6 +33,10 @@ DYNAMIC_LAYOUT_ASSETS = {
     "manifest-slideshow.webmanifest",
 }
 STATE_CHANGING_GET_ENDPOINTS = {"auth.logout"}
+NON_PAGE_GET_ENDPOINTS = {
+    # JavaScript JSON lookup. A parameterless request is a valid negative lookup (404).
+    "library.resolve_location",
+}
 
 
 def _literal_endpoints(path: Path) -> set[str]:
@@ -210,11 +214,16 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertGreater(len(body.strip()), 500)
 
     def test_all_parameterless_template_linked_get_endpoints_render(self):
-        """Smoke-test every directly callable GET endpoint advertised anywhere in templates."""
+        """Smoke-test every directly callable GET page advertised anywhere in templates."""
         failures: list[str] = []
         tested: list[str] = []
         for endpoint in sorted(_all_template_endpoints()):
-            if endpoint.startswith(".") or endpoint == "static" or endpoint in STATE_CHANGING_GET_ENDPOINTS:
+            if (
+                endpoint.startswith(".")
+                or endpoint == "static"
+                or endpoint in STATE_CHANGING_GET_ENDPOINTS
+                or endpoint in NON_PAGE_GET_ENDPOINTS
+            ):
                 continue
             rule = _parameterless_get_rule(endpoint)
             if rule is None:
