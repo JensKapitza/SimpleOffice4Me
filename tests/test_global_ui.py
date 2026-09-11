@@ -13,7 +13,9 @@ class GlobalUiQuickWinsTest(unittest.TestCase):
 
     def test_helper_has_keyboard_and_repeat_submit_guards(self):
         script = (ROOT / "static" / "js" / "global_ui.js").read_text(encoding="utf-8")
-        self.assertIn('event.key !== "/"', script)
+        self.assertIn('key === "/"', script)
+        self.assertIn('key === "k"', script)
+        self.assertIn('event.ctrlKey || event.metaKey', script)
         self.assertIn('input.type = "search"', script)
         self.assertIn('setAttribute("role", "search")', script)
         self.assertIn('form.dataset.allowMultipleSubmit', script)

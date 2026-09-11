@@ -38,6 +38,9 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn('request.headers.has("range")', text)
         self.assertIn('no-store', text)
         self.assertIn('navigationPreload.enable()', text)
+        self.assertIn('Promise.all(SHELL_ASSETS.map', text)
+        self.assertNotIn('Promise.allSettled(SHELL_ASSETS.map', text)
+        self.assertNotIn('await self.skipWaiting()', text)
 
     def test_pwa_update_path_is_explicit(self):
         text = self.read("static/js/pwa.js")
@@ -52,6 +55,7 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn('id="network-offline-banner"', text)
         self.assertIn('id="pwa-update-banner"', text)
         self.assertIn('viewport-fit=cover', text)
+        self.assertIn('role="status" aria-live="polite"', text)
 
     def test_android_wrapper_guards_api_and_preserves_state(self):
         text = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java")
@@ -61,11 +65,13 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn("webView.saveState(outState)", text)
         self.assertIn("connection.setUseCaches(false)", text)
         self.assertIn("RUNTIME_VERSION", text)
+        self.assertIn("mainFrameLoadFailed", text)
 
     def test_android_version_is_bumped(self):
         text = self.read("android/apk/app/build.gradle")
         self.assertRegex(text, r"versionCode\s+3\b")
         self.assertIn("versionName '1.0.2'", text)
+        self.assertIn("buildConfig true", text)
 
 
 if __name__ == "__main__":

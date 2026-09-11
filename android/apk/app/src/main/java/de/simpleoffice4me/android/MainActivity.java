@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private TextView status;
     private Bundle pendingWebState;
+    private boolean mainFrameLoadFailed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -119,13 +120,16 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
-                if (isLocalUrl(url)) showStatus("SimpleOffice4Me wird geladen …", true);
+                if (isLocalUrl(url)) {
+                    mainFrameLoadFailed = false;
+                    showStatus("SimpleOffice4Me wird geladen …", true);
+                }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (isLocalUrl(url)) {
+                if (isLocalUrl(url) && !mainFrameLoadFailed) {
                     progress.setVisibility(View.GONE);
                     status.setVisibility(View.GONE);
                 }
@@ -135,6 +139,7 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) {
+                    mainFrameLoadFailed = true;
                     showStatus("Seite konnte nicht geladen werden:\n" + error.getDescription(), false);
                 }
             }
@@ -143,6 +148,7 @@ public class MainActivity extends Activity {
             public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
                 super.onReceivedHttpError(view, request, errorResponse);
                 if (request.isForMainFrame() && errorResponse.getStatusCode() >= 500) {
+                    mainFrameLoadFailed = true;
                     showStatus("Lokaler Serverfehler: HTTP " + errorResponse.getStatusCode(), false);
                 }
             }
