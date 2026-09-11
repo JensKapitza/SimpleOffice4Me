@@ -36,6 +36,7 @@ from flask.cli import with_appcontext
 
 from .retention import evaluate_deadlines, parse_deadline
 from .revision_history import RevisionHistory
+from .safe_paths import resolve_file_under, resolve_under
 from .search_query import compile_query
 
 
