@@ -19,6 +19,7 @@ from app.error_relay import (
     _restrict_public_relay_surface,
     _upstream_attempts,
     _upstream_fingerprints,
+    relay_enabled,
     validate_report_payload,
 )
 from app.github_error_reporter import GitHubReporterConfig
@@ -68,10 +69,26 @@ class ErrorRelayTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_report_payload(payload)
 
-    def test_relay_is_disabled_by_default(self):
+    @patch("app.error_relay.master_mode", return_value=False)
+    def test_relay_is_disabled_by_default_on_non_master_source_checkout(self, _master):
         with patch.dict(os.environ, {}, clear=True):
             response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
         self.assertEqual(404, response.status_code)
+
+    @patch("app.error_relay.master_mode", return_value=True)
+    def test_master_federation_is_collector_without_extra_configuration(self, _master):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(relay_enabled())
+
+    @patch("app.error_relay.master_mode", return_value=True)
+    def test_master_collector_can_be_explicitly_disabled(self, _master):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "0"}, clear=True):
+            self.assertFalse(relay_enabled())
+
+    @patch("app.error_relay.master_mode", return_value=False)
+    def test_non_master_can_still_run_dedicated_relay_role(self, _master):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
+            self.assertTrue(relay_enabled())
 
     def test_future_relay_mutation_is_not_implicitly_csrf_exempt(self):
         with app.test_request_context("/api/error-reports/v1/admin", method="POST"):
@@ -92,7 +109,7 @@ class ErrorRelayTests(unittest.TestCase):
                 with self.assertRaises(NotFound):
                     _restrict_public_relay_surface()
 
-    @patch("app.error_relay.load_config")
+    @patch("app.error_relay.load_relay_config")
     def test_health_is_unavailable_without_github_credential(self, load_config):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "")
         with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
@@ -100,7 +117,7 @@ class ErrorRelayTests(unittest.TestCase):
         self.assertEqual(503, response.status_code)
         self.assertFalse(response.get_json()["ready"])
 
-    @patch("app.error_relay.load_config")
+    @patch("app.error_relay.load_relay_config")
     def test_health_is_ready_with_github_credential(self, load_config):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "relay-token")
         with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
@@ -109,8 +126,8 @@ class ErrorRelayTests(unittest.TestCase):
         self.assertTrue(response.get_json()["ready"])
 
     @patch("app.error_relay.report_payload_to_github", return_value=321)
-    @patch("app.error_relay.load_config")
-    def test_valid_anonymous_report_is_forwarded_without_federation(self, load_config, report):
+    @patch("app.error_relay.load_relay_config")
+    def test_valid_anonymous_report_is_forwarded_without_federation_auth(self, load_config, report):
         load_config.return_value = GitHubReporterConfig(
             enabled=True,
             repository="JensKapitza/SimpleOffice4Me",
@@ -128,7 +145,7 @@ class ErrorRelayTests(unittest.TestCase):
         self.assertNotIn("authorization", forwarded)
 
     @patch("app.error_relay.report_payload_to_github")
-    @patch("app.error_relay.load_config")
+    @patch("app.error_relay.load_relay_config")
     def test_invalid_report_never_reaches_github(self, load_config, report):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
         payload = dict(self.payload)
@@ -155,7 +172,7 @@ class ErrorRelayTests(unittest.TestCase):
         self.assertNotIn("overflow-source", _rate_by_source)
 
     @patch("app.error_relay.report_payload_to_github")
-    @patch("app.error_relay.load_config")
+    @patch("app.error_relay.load_relay_config")
     def test_duplicate_inflight_fingerprint_does_not_create_second_issue(self, load_config, report):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
         _upstream_fingerprints.add(self.payload["fingerprint"])
@@ -167,7 +184,7 @@ class ErrorRelayTests(unittest.TestCase):
         report.assert_not_called()
 
     @patch("app.error_relay.report_payload_to_github")
-    @patch("app.error_relay.load_config")
+    @patch("app.error_relay.load_relay_config")
     def test_upstream_concurrency_is_bounded(self, load_config, report):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
         _upstream_fingerprints.update(f"busy-{index}" for index in range(MAX_UPSTREAM_INFLIGHT))
