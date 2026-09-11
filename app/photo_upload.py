@@ -16,6 +16,7 @@ from flask import Blueprint, current_app, flash, g, jsonify, redirect, request, 
 
 from .auth import login_required
 from .document_store import DocumentStore, sha256_file, utc_now
+from .safe_paths import resolve_file_under
 from .settings_store import SettingsStore
 
 
@@ -53,7 +54,6 @@ def _json_safe(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [_json_safe(item, depth=depth + 1) for item in list(value)[:MAX_METADATA_ITEMS]]
     try:
-        # Pillow's IFDRational and similar numeric wrappers are losslessly useful as floats.
         numerator = getattr(value, "numerator")
         denominator = getattr(value, "denominator")
         if denominator:
@@ -241,7 +241,7 @@ def extract_photo_metadata(path: Path) -> dict[str, Any]:
         result["pillow"] = pillow
     except ImportError:
         result["pillow"] = {"status": "unavailable", "error": "Pillow is not installed"}
-    except Exception as exc:  # Pillow raises format-specific subclasses across versions.
+    except Exception as exc:
         result["pillow"] = {"status": "error", "error": _bounded_text(exc, 1000)}
     result["exiftool"] = _exiftool_metadata(path)
     _merge_exiftool_derived(derived, result["exiftool"])
@@ -277,17 +277,10 @@ def _instant_local_parts(value: str, timezone_name: str) -> tuple[str, str, str]
     return local.strftime("%Y"), local.strftime("%Y-%m"), local.strftime("%Y-%m-%d")
 
 
-def metadata_tags(
-    *,
-    received_at: str,
-    timezone_name: str,
-    client_last_modified_at: str,
-    rich_metadata: dict[str, Any],
-) -> set[str]:
+def metadata_tags(*, received_at: str, timezone_name: str, client_last_modified_at: str, rich_metadata: dict[str, Any]) -> set[str]:
     """Create bounded, searchable tags from useful normalized photo facts."""
     derived = rich_metadata.get("derived", {}) if isinstance(rich_metadata.get("derived"), dict) else {}
     tags = {"bild", "foto-upload"}
-
     upload_parts = _instant_local_parts(received_at, timezone_name)
     if upload_parts:
         year, month, day = upload_parts
@@ -300,7 +293,6 @@ def metadata_tags(
     if capture_parts:
         year, month, day = capture_parts
         tags.update({f"jahr-{year}", f"aufnahme-monat-{month}", f"aufnahme-{day}"})
-
     image_format = _bounded_text(derived.get("format", ""), 32).casefold()
     if image_format:
         tags.add(f"format-{DocumentStore._tag_token(image_format)}")
@@ -312,7 +304,6 @@ def metadata_tags(
     lens = _bounded_text(derived.get("lens_model", ""), 240)
     if lens:
         tags.add(f"objektiv-{DocumentStore._tag_token(lens)}")
-
     try:
         width, height = int(derived.get("width", 0)), int(derived.get("height", 0))
     except (TypeError, ValueError):
@@ -367,17 +358,7 @@ class PhotoBulkImporter:
     def __init__(self, root: str | Path):
         self.store = DocumentStore(root)
 
-    def import_photo(
-        self,
-        upload: Any,
-        filename: str,
-        actor: str,
-        *,
-        archive: bool = False,
-        max_bytes: int = 512 * 1024 * 1024,
-        client: dict[str, Any] | None = None,
-        run_ocr: bool = False,
-    ) -> dict[str, Any]:
+    def import_photo(self, upload: Any, filename: str, actor: str, *, archive: bool = False, max_bytes: int = 512 * 1024 * 1024, client: dict[str, Any] | None = None, run_ocr: bool = False) -> dict[str, Any]:
         self.store._require_actor(actor)
         self.store.initialize()
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
@@ -386,7 +367,6 @@ class PhotoBulkImporter:
         safe_name = _safe_filename(original_filename)
         if Path(safe_name).suffix.lower() not in PHOTO_EXTENSIONS:
             raise ValueError("Erlaubt sind JPEG, PNG, GIF und WebP.")
-
         received_at = utc_now()
         source = getattr(upload, "stream", upload)
         staging = self.store.control / "staging" / f"photo-{uuid.uuid4().hex}-{safe_name}"
@@ -414,9 +394,6 @@ class PhotoBulkImporter:
             staging.replace(target)
         finally:
             staging.unlink(missing_ok=True)
-
-        # A full DocumentStore.scan() for every queue item makes hundreds of phone
-        # photos quadratic in archive size. Index exactly the new file instead.
         restore_ocr = None
         if not run_ocr:
             restore_ocr = self.store._image_ocr
@@ -426,7 +403,6 @@ class PhotoBulkImporter:
         finally:
             if restore_ocr is not None:
                 self.store._image_ocr = restore_ocr  # type: ignore[method-assign]
-
         metadata = self.store.get_document(target)
         if not run_ocr:
             analysis = metadata.setdefault("image_analysis", {})
@@ -436,26 +412,18 @@ class PhotoBulkImporter:
             metadata["ocr_text"] = ""
             metadata["extracted_text"] = ""
             metadata["text_extraction"] = {
-                "source_sha256": metadata.get("sha256", ""),
-                "extracted_at": received_at,
-                "status": "deferred",
-                "kind": "image",
-                "native_characters": 0,
-                "image_ocr_characters": 0,
-                "characters": 0,
+                "source_sha256": metadata.get("sha256", ""), "extracted_at": received_at,
+                "status": "deferred", "kind": "image", "native_characters": 0,
+                "image_ocr_characters": 0, "characters": 0,
             }
             self.store._save_document(metadata)
             self.store._refresh_search_index(metadata)
-
         rich = extract_photo_metadata(target)
         client = dict(client or {})
         upload_metadata = {
-            "source": "mobile-web-bulk",
-            "received_at": received_at,
-            "original_filename": original_filename,
-            "stored_filename": target.name,
-            "size_bytes": written,
-            "sha256": digest,
+            "source": "mobile-web-bulk", "received_at": received_at,
+            "original_filename": original_filename, "stored_filename": target.name,
+            "size_bytes": written, "sha256": digest,
             "client_mime_type": _bounded_text(client.get("mime_type", ""), 160),
             "client_reported_size_bytes": _parse_int(client.get("size", written), written, 0, max_bytes),
             "client_last_modified_at": _bounded_text(client.get("last_modified_at", ""), 128),
@@ -477,10 +445,8 @@ class PhotoBulkImporter:
         defaults = SettingsStore(self.store.root).settings()["documents"]
         tags.update(str(tag).strip() for tag in defaults.get("default_tags", []) if str(tag).strip())
         metadata = self.store.update_metadata(
-            metadata["document_id"],
-            attributes={"photo_upload": upload_metadata, "photo_metadata": rich},
-            tags=[*metadata.get("tags", []), *sorted(tags)],
-            author=actor,
+            metadata["document_id"], attributes={"photo_upload": upload_metadata, "photo_metadata": rich},
+            tags=[*metadata.get("tags", []), *sorted(tags)], author=actor,
         )
         if defaults.get("default_state", "new") != "new":
             self.store.set_state(metadata["document_id"], str(defaults["default_state"]), actor)
@@ -517,21 +483,16 @@ def upload_photo():
         return jsonify({"ok": False, "error": "Keine Bilddatei empfangen."}), 400
     try:
         metadata = PhotoBulkImporter(current_app.config["DOCUMENT_ROOT"]).import_photo(
-            uploaded,
-            uploaded.filename,
-            str(g.user["username"]),
+            uploaded, uploaded.filename, str(g.user["username"]),
             archive=request.form.get("archive") == "1",
             max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
-            client=_client_metadata(),
-            run_ocr=request.form.get("run_ocr") == "1",
+            client=_client_metadata(), run_ocr=request.form.get("run_ocr") == "1",
         )
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError):
         return jsonify({"ok": False, "error": "Foto konnte nicht verarbeitet werden."}), 400
     return jsonify({
-        "ok": True,
-        "document_id": metadata["document_id"],
-        "path": metadata.get("last_path", ""),
-        "tags": metadata.get("tags", []),
+        "ok": True, "document_id": metadata["document_id"],
+        "path": metadata.get("last_path", ""), "tags": metadata.get("tags", []),
         "received_at": metadata.get("attributes", {}).get("photo_upload", {}).get("received_at", ""),
         "detail_url": url_for("documents.detail", document_id=metadata["document_id"]),
     })
@@ -543,7 +504,7 @@ def refresh_metadata(document_id: str):
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
     try:
         metadata = store.get_document(document_id)
-        path = store.root / str(metadata.get("last_path", ""))
+        path = resolve_file_under(store.root, metadata.get("last_path", ""))
         _verify_photo(path)
         rich = extract_photo_metadata(path)
         upload_metadata = metadata.get("attributes", {}).get("photo_upload", {})
