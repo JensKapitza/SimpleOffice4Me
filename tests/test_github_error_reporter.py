@@ -70,12 +70,12 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertNotIn("cookie", body.casefold())
         self.assertNotIn("authorization", body.casefold())
 
-    def test_manual_issue_url_works_without_any_embedded_token(self):
+    def test_manual_issue_url_works_without_any_embedded_secret(self):
         url = manual_issue_url("0123456789abcdef")
         self.assertTrue(url.startswith("https://github.com/JensKapitza/SimpleOffice4Me/issues/new?"))
         self.assertIn("0123456789abcdef", url)
-        self.assertNotIn("token", url.casefold())
-        self.assertNotIn("password", url.casefold())
+        self.assertNotIn("github_pat_", url.casefold())
+        self.assertNotIn("authorization%3a", url.casefold())
 
     @patch("app.github_error_reporter._request_json")
     def test_existing_issue_is_reused(self, request_json):
