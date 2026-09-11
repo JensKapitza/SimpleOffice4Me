@@ -9,7 +9,7 @@
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label class="visually-hidden" for="chat-body">Nachricht</label><textarea class="form-control mb-2" id="chat-body" name="body" rows="3" maxlength="20000" placeholder="Nachricht schreiben …"></textarea>
     <div class="row g-2 align-items-center"><div class="col-md"><label class="form-label small mb-1" for="chat-files">Dateien</label><input class="form-control" id="chat-files" type="file" name="attachments" multiple></div><div class="col-md-auto"><label class="form-check mt-md-4"><input class="form-check-input" type="checkbox" name="private_files" value="1" checked><span class="form-check-label">Nur Chat-Teilnehmer + Admin</span></label></div><div class="col-md-auto mt-md-4"><button class="btn btn-primary" type="submit">Senden</button></div></div>
-  </div></form>{% else %}<div class="alert alert-info mt-3">Du siehst diesen Chat als Administrator. Schreiben können nur eingetragene Teilnehmer.</div>{% endif %}
+  </div></form>{% else %}<div class="alert alert-info mt-3" role="status" aria-live="polite">Du siehst diesen Chat als Administrator. Schreiben können nur eingetragene Teilnehmer.</div>{% endif %}
 </main>
 <script>(()=>{const target=document.getElementById('chat-messages');if(!target)return;const url={{ url_for('chat.messages_fragment', room_id=room.room_id)|tojson }};setInterval(async()=>{if(document.hidden)return;try{const r=await fetch(url,{headers:{'Accept':'text/html'},cache:'no-store'});if(r.ok)target.innerHTML=await r.text();}catch(_){}},5000);})();</script>
 {% endblock %}
