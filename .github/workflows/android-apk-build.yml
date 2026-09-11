@@ -17,6 +17,8 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Public endpoint only; never put the GitHub token into an Android build.
+  SIMPLEOFFICE_ERROR_REPORT_URL: ${{ vars.SIMPLEOFFICE_ERROR_REPORT_URL }}
 
 jobs:
   apk:
