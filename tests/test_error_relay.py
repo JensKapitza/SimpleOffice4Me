@@ -29,10 +29,36 @@ class ErrorRelayTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_report_payload(payload)
 
+    def test_markdown_injection_in_frame_is_rejected(self):
+        payload = dict(self.payload)
+        payload["frames"] = [{
+            "file": "contacts.py",
+            "line": 42,
+            "function": "merge```\n[click](https://evil.example)",
+        }]
+        with self.assertRaises(ValueError):
+            validate_report_payload(payload)
+
     def test_relay_is_disabled_by_default(self):
         with patch.dict(os.environ, {}, clear=True):
             response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
         self.assertEqual(404, response.status_code)
+
+    @patch("app.error_relay.load_config")
+    def test_health_is_unavailable_without_github_credential(self, load_config):
+        load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "")
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
+            response = self.client.get("/api/error-reports/v1/health")
+        self.assertEqual(503, response.status_code)
+        self.assertFalse(response.get_json()["ready"])
+
+    @patch("app.error_relay.load_config")
+    def test_health_is_ready_with_github_credential(self, load_config):
+        load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "relay-token")
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
+            response = self.client.get("/api/error-reports/v1/health")
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(response.get_json()["ready"])
 
     @patch("app.error_relay.report_payload_to_github", return_value=321)
     @patch("app.error_relay.load_config")
