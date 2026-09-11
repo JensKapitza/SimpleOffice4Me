@@ -10,13 +10,6 @@ ROLE=${SIMPLEOFFICE_CONTAINER_ROLE:-web}
 
 mkdir -p "$INSTANCE_DIR" "$DATABASE_DIR" "$DOCUMENT_DIR"
 
-# Web and error-relay roles initialize the named-volume ownership and then drop
-# to the unprivileged application account. The network role deliberately does
-# not change ownership and receives only its explicit capabilities from Compose.
-if { [ "$ROLE" = "web" ] || [ "$ROLE" = "error-relay" ]; } && [ "$(id -u)" = "0" ]; then
-    chown -R simpleoffice:simpleoffice "$STATE_DIR"
-fi
-
 if [ ! -f "$CONFIG" ]; then
     HOST=${SIMPLEOFFICE_HOST:-0.0.0.0}
     PORT=${SIMPLEOFFICE_PORT:-8080}
@@ -29,9 +22,13 @@ if [ ! -f "$CONFIG" ]; then
   "port": $PORT
 }
 EOF
-    if [ "$ROLE" = "web" ] || [ "$ROLE" = "error-relay" ]; then
-        chown simpleoffice:simpleoffice "$CONFIG" 2>/dev/null || true
-    fi
+fi
+
+# Web and error-relay roles initialize named-volume/tmpfs ownership only after
+# bootstrap files are created. This ordering also works for hardened relay
+# containers which intentionally run without CAP_DAC_OVERRIDE.
+if { [ "$ROLE" = "web" ] || [ "$ROLE" = "error-relay" ]; } && [ "$(id -u)" = "0" ]; then
+    chown -R simpleoffice:simpleoffice "$STATE_DIR"
 fi
 
 if [ "$ROLE" = "error-relay" ]; then
