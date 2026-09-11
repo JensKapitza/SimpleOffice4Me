@@ -13,6 +13,7 @@ from typing import Any
 
 from .chat_documents import attachment_bytes
 from .chat_federation_auth import ChatRequestProof, headers_for, new_nonce
+from .chat_policy import action_allowed, action_for_message_type, record_policy_notice
 from .chat_store import ChatStore
 from .federation_core import sanitize_peer_id
 from .federation_store import FederationStore
@@ -37,17 +38,24 @@ def _endpoint(peer: dict[str, Any], suffix: str) -> str:
     if not base.startswith(("https://", "http://")) or "@" in base.split("//", 1)[-1].split("/", 1)[0]: raise ValueError("Ungültige Federation-URL")
     return base + "/federation/v1/chat/" + suffix.lstrip("/")
 
-def _request(url: str, payload: bytes, content_type: str, proof: ChatRequestProof, token: str) -> dict[str, Any]:
+def _decode_response(body: bytes) -> dict[str, Any]:
+    if len(body) > MAX_RESPONSE_BYTES: raise ValueError("Federation-Antwort ist zu groß")
+    if not body: return {}
+    parsed = json.loads(body.decode("utf-8")); return parsed if isinstance(parsed, dict) else {}
+
+def _request(url: str, payload: bytes, content_type: str, proof: ChatRequestProof, token: str, *, return_http_error: bool=False) -> tuple[int, dict[str, Any]]:
     headers = headers_for(proof, token); headers.update({"Content-Type":content_type,"Accept":"application/json","Cache-Control":"no-store"})
     req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
     try:
         with urllib.request.build_opener(_NoRedirect()).open(req, timeout=20) as response:
             body = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(body) > MAX_RESPONSE_BYTES: raise ValueError("Federation-Antwort ist zu groß")
-            if not body: return {}
-            parsed = json.loads(body.decode("utf-8")); return parsed if isinstance(parsed, dict) else {}
+            return int(response.status), _decode_response(body)
     except urllib.error.HTTPError as exc:
-        detail = exc.read(4096).decode("utf-8", "replace").strip(); raise ValueError(f"Federation-Chat HTTP {exc.code}: {detail or exc.reason}") from exc
+        body=exc.read(MAX_RESPONSE_BYTES + 1)
+        if return_http_error:
+            try: return int(exc.code), _decode_response(body)
+            except (ValueError,UnicodeDecodeError,json.JSONDecodeError): return int(exc.code), {}
+        detail=body[:4096].decode("utf-8","replace").strip(); raise ValueError(f"Federation-Chat HTTP {exc.code}: {detail or exc.reason}") from exc
     except urllib.error.URLError as exc: raise ValueError(f"Federation-Chat nicht erreichbar: {exc.reason}") from exc
 
 def _proof(kind: str, resource_id: str, payload: bytes) -> ChatRequestProof:
@@ -58,13 +66,35 @@ def event_payload(store: ChatStore, message_id: str) -> dict[str, Any]:
     full = next((x for x in store.messages(room["room_id"], limit=1000) if x["message_id"] == message_id), message)
     return {"schema":1,"room":{"room_id":room["room_id"],"title":room["title"]},"source_users":store.local_users(room["room_id"]),"target_users":store.remote_users(room["room_id"]),"message":{"message_id":message["message_id"],"sender_username":message["sender_username"],"message_type":message["message_type"],"body":message["body"],"payload":message["payload"],"created_at":message["created_at"]},"attachments":[{"attachment_id":x["attachment_id"],"filename":x["filename"],"mime_type":x["mime_type"],"size":x["size"],"sha256":x["sha256"],"visibility":x["visibility"]} for x in full.get("attachments",[])]}
 
+def _policy_preflight(chat: ChatStore, federation: FederationStore, peer: dict[str,Any], token: str, message: dict[str,Any], room: dict[str,Any]) -> None:
+    action=action_for_message_type(message["message_type"])
+    if not action: return
+    peer_id=str(room["remote_peer_id"])
+    if not action_allowed(peer,action,"send"):
+        record_policy_notice(chat,room["room_id"],message["message_id"],action,"sender_local",peer_id=peer_id)
+        chat.mark_delivery(message["message_id"],peer_id,"failed",f"{action}.send ist durch die lokale Admin-Policy blockiert")
+        federation.record_event("chat_action_policy_denied",peer_id=peer_id,detail={"message_id":message["message_id"],"action":action,"direction":"send"})
+        raise PermissionError("Diese Chat-Aktion wurde durch die Serverregeln deines Admins blockiert")
+    preflight={"schema":1,"room":{"room_id":room["room_id"],"title":room["title"]},"source_users":chat.local_users(room["room_id"]),"target_users":chat.remote_users(room["room_id"]),"message_id":message["message_id"],"sender_username":message["sender_username"],"message_type":action}
+    payload=json.dumps(preflight,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+    status,response=_request(_endpoint(peer,"actions/preflight"),payload,"application/json; charset=utf-8",_proof("policy",message["message_id"],payload),token,return_http_error=True)
+    if status == 403 and response.get("reason_code") == "admin_policy":
+        record_policy_notice(chat,room["room_id"],message["message_id"],action,"sender_remote",peer_id=peer_id)
+        chat.mark_delivery(message["message_id"],peer_id,"failed",f"{action}.receive ist auf der Gegenstelle durch Admin-Policy blockiert")
+        federation.record_event("chat_action_policy_denied",peer_id=peer_id,detail={"message_id":message["message_id"],"action":action,"direction":"remote_receive"})
+        raise PermissionError("Dein Angebot wurde durch die Serverregeln des Chatpartners abgelehnt")
+    if status < 200 or status >= 300 or response.get("allowed") is not True:
+        raise ValueError(f"Federation-Chat Policy-Preflight fehlgeschlagen (HTTP {status})")
+
 def send_message(root: str | Path, message_id: str) -> dict[str, Any]:
     chat=ChatStore(root); message=chat.message(message_id); room=chat.room(message["room_id"]); peer_id=str(room.get("remote_peer_id") or "")
     if not peer_id: return {"federated":False,"status":"local"}
     federation=FederationStore(root); peer=federation.get_peer(peer_id)
     if not peer or not _chat_send_allowed(peer):
         chat.mark_delivery(message_id,peer_id,"failed","chat.send ist für den Peer nicht freigegeben"); raise ValueError("Federation-Peer erlaubt keinen Chat-Versand (chat.send=true fehlt)")
-    token=federation.peer_token(peer_id); payload=json.dumps(event_payload(chat,message_id),ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8"); chat.mark_delivery(message_id,peer_id,"sending")
+    token=federation.peer_token(peer_id)
+    _policy_preflight(chat,federation,peer,token,message,room)
+    payload=json.dumps(event_payload(chat,message_id),ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8"); chat.mark_delivery(message_id,peer_id,"sending")
     try:
         _request(_endpoint(peer,"events"),payload,"application/json; charset=utf-8",_proof("event",message_id,payload),token)
         attachments=next((x.get("attachments",[]) for x in chat.messages(room["room_id"],limit=1000) if x["message_id"]==message_id),[]); sent=0
