@@ -21,6 +21,7 @@ from flask import current_app
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
+from .safe_paths import normalize_path, resolve_directory_under, resolve_file_under
 
 
 CATEGORIES = ("documents", "images", "media", "notes", "contacts", "calendar", "forms", "projects", "settings")
@@ -38,7 +39,7 @@ MEDIA_SUFFIXES = IMAGE_SUFFIXES | {".mp3", ".wav", ".ogg", ".mp4", ".mkv", ".mov
 
 class ReplicationStore:
     def __init__(self, root: str | Path):
-        self.root = Path(root).expanduser().resolve()
+        self.root = normalize_path(root, strict=True)
         self.control = self.root / CONTROL_DIR
         self.path = self.control / "replication.json"
         self.history = RevisionHistory(self.root)
@@ -171,6 +172,12 @@ class ReplicationStore:
         self._save(data, actor, "restic_repository_created", item["repository_id"])
         return item
 
+    def _restore_root(self) -> Path:
+        configured = os.environ.get("SIMPLEOFFICE_RESTORE_ROOT", "").strip()
+        root = normalize_path(configured or (self.root / "restored"))
+        root.mkdir(parents=True, exist_ok=True)
+        return normalize_path(root, strict=True)
+
     def run_restic(self, repository_id: str, action: str, password: str, actor: str, restore_path: str = "") -> dict[str, Any]:
         data = self.status()
         item = next((value for value in data["restic"] if value["repository_id"] == repository_id), None)
@@ -193,9 +200,10 @@ class ReplicationStore:
             source_root = self._restic_staging(item)
             command += ["backup", "--tag", "simpleoffice", *sum((["--tag", tag] for tag in item["tags"]), []), str(source_root)]
         elif action == "restore":
-            destination = Path(restore_path).expanduser()
-            if not destination.is_dir():
-                raise ValueError("Vorhandener Wiederherstellungsordner erforderlich")
+            try:
+                destination = resolve_directory_under(self._restore_root(), restore_path.strip() or ".")
+            except (OSError, ValueError) as exc:
+                raise ValueError("Wiederherstellungsordner muss innerhalb SIMPLEOFFICE_RESTORE_ROOT liegen") from exc
             command += ["restore", "latest", "--target", str(destination)]
         else:
             raise ValueError("Ungültige restic-Aktion")
@@ -214,10 +222,13 @@ class ReplicationStore:
         store = DocumentStore(self.root)
         if categories & {"documents", "images", "media"}:
             for document in store.list_documents():
-                source = self.root / document.get("last_path", "")
+                try:
+                    source = resolve_file_under(self.root, str(document.get("last_path", "")))
+                except (OSError, ValueError):
+                    continue
                 suffix = source.suffix.lower()
                 category = "images" if suffix in IMAGE_SUFFIXES else "media" if suffix in MEDIA_SUFFIXES else "documents"
-                if category not in categories or not source.is_file() or (tags and not tags.intersection(document.get("tags", []))):
+                if category not in categories or (tags and not tags.intersection(document.get("tags", []))):
                     continue
                 yield source, Path("documents") / document["document_id"] / source.name, category, document["document_id"]
         for category in categories:
