@@ -26,6 +26,8 @@ RATE_LIMIT_PER_SOURCE = 60
 RATE_LIMIT_GLOBAL = 300
 RATE_SOURCE_BUCKET_LIMIT = 4096
 MAX_UPSTREAM_INFLIGHT = 4
+UPSTREAM_WINDOW_SECONDS = 60 * 60
+UPSTREAM_LIMIT_GLOBAL = 120
 CACHE_LIMIT = 5000
 _ALLOWED_KEYS = {
     "schema", "request_id", "fingerprint", "exception_type", "endpoint",
@@ -44,6 +46,7 @@ _cache_lock = threading.Lock()
 _issue_cache: OrderedDict[str, int] = OrderedDict()
 _upstream_lock = threading.Lock()
 _upstream_fingerprints: set[str] = set()
+_upstream_attempts: deque[float] = deque()
 
 
 def relay_enabled() -> bool:
@@ -103,13 +106,20 @@ def _rate_allowed() -> bool:
 
 
 def _reserve_upstream(fingerprint: str) -> str:
-    """Reserve one bounded GitHub request slot without blocking request threads."""
+    """Reserve bounded GitHub capacity without blocking request threads."""
+    now = time.monotonic()
     with _upstream_lock:
         if fingerprint in _upstream_fingerprints:
             return "duplicate"
         if len(_upstream_fingerprints) >= MAX_UPSTREAM_INFLIGHT:
             return "busy"
+        cutoff = now - UPSTREAM_WINDOW_SECONDS
+        while _upstream_attempts and _upstream_attempts[0] <= cutoff:
+            _upstream_attempts.popleft()
+        if len(_upstream_attempts) >= UPSTREAM_LIMIT_GLOBAL:
+            return "limited"
         _upstream_fingerprints.add(fingerprint)
+        _upstream_attempts.append(now)
         return "reserved"
 
 
@@ -276,6 +286,11 @@ def receive_report():
         response = jsonify({"error": "relay busy"})
         response.status_code = 503
         response.headers["Retry-After"] = "2"
+        return response
+    if reservation == "limited":
+        response = jsonify({"error": "upstream rate limit exceeded"})
+        response.status_code = 429
+        response.headers["Retry-After"] = str(UPSTREAM_WINDOW_SECONDS)
         return response
 
     try:
