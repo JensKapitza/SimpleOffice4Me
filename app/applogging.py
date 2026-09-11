@@ -18,14 +18,17 @@ REDACTIONS = (
     # user:password@host URLs. Preserve the username for diagnostics.
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://[^\s/@:]+:)[^\s/@]+(@)"), r"\1[REDACTED]\2"),
 )
+LOG_OUTPUT_LIMIT = 32_000
+LOG_REDACTION_SCAN_LIMIT = 128_000
 
 
 def redact(value: object) -> str:
-    text = str(value)
+    # Bound regex work as well as output size. Exception and request-derived
+    # representations can otherwise force every redaction regex over huge input.
+    text = str(value)[:LOG_REDACTION_SCAN_LIMIT]
     for pattern, replacement in REDACTIONS:
         text = pattern.sub(replacement, text)
-    # Prevent a single accidental payload/trace line from exploding log files.
-    return text[:32_000]
+    return text[:LOG_OUTPUT_LIMIT]
 
 
 class SecretRedactionFilter(logging.Filter):
