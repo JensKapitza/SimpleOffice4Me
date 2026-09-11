@@ -40,6 +40,7 @@ from .document_store import (
     utc_now,
 )
 from .file_lock import exclusive_file_lock
+from .safe_paths import resolve_file_under
 from .ssh_keys import add_key, keys_for, revoke_key
 from .virtual_filesystem import VirtualFileSystem
 from .db import get_db
@@ -63,8 +64,6 @@ def _document_access_context(username: str) -> tuple[VirtualFileSystem, list[str
         value.strip() for value in os.environ.get("SIMPLEOFFICE_DOCUMENT_ADMINS", "").split(",")
         if value.strip()
     }
-    # A single-user installation remains administrable without an additional
-    # bootstrap step. Multi-user installations require an explicit admin.
     bootstrap_admin = len(users) == 1 and users[0] == username
     administrators = configured | ({username} if bootstrap_admin else set())
     return VirtualFileSystem(current_app.config["DOCUMENT_ROOT"], administrators), users, username in administrators
@@ -197,16 +196,12 @@ BIDI_CONTROL_CHARACTERS = frozenset(
     chr(codepoint)
     for codepoint in (*range(0x202A, 0x202F), *range(0x2066, 0x206A), 0x200E, 0x200F)
 )
-# Keep headroom for the exclusive ``.<name>.<uuid>.partial`` staging member
-# used by atomic PUT/COPY writes on filesystems with 255-byte segments.
 MAX_PORTABLE_NAME_BYTES = 200
 PROPFIND_XML_PREFIX = '<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">'
 PROPFIND_XML_SUFFIX = "</d:multistatus>"
 
 
 class _PropfindLimitError(Exception):
-    """Signal a bounded recursive listing that cannot be returned safely."""
-
     def __init__(self, reason: str, observed: int, limit: int):
         super().__init__(reason)
         self.reason = reason
@@ -215,8 +210,6 @@ class _PropfindLimitError(Exception):
 
 
 class _SearchError(Exception):
-    """Map a bounded RFC 5323 parsing or capability failure to DAV XML."""
-
     def __init__(self, status: int, message: str, condition: str = ""):
         super().__init__(message)
         self.status = status
@@ -225,7 +218,6 @@ class _SearchError(Exception):
 
 
 def _quota_state() -> dict[str, int] | None:
-    """Return repeatable RFC 4331 accounting for the visible managed tree."""
     if hasattr(g, "_webdav_quota_state"):
         return g._webdav_quota_state
     limit = max(0, int(current_app.config.get("WEBDAV_QUOTA_BYTES", 0)))
@@ -285,7 +277,6 @@ def _quota_error(username: str, operation: str, resource: Path, growth: int, con
 
 
 def _webdav_upload_scan_error(content: bytes, username: str, resource: Path) -> Response | None:
-    """Fail closed before a PUT body becomes a managed document revision."""
     if not current_app.config.get("WEBDAV_UPLOAD_SCAN", False):
         return None
     try:
@@ -314,7 +305,6 @@ def _webdav_upload_scan_error(content: bytes, username: str, resource: Path) -> 
 
 
 def _check_quota(username: str, operation: str, resource: Path, growth: int) -> Response | None:
-    """Reject positive allocation growth before mutation while its lock is held."""
     if growth <= 0:
         return None
     state = _quota_state()
@@ -328,7 +318,6 @@ def _check_quota(username: str, operation: str, resource: Path, growth: int) -> 
 
 
 def _credential_records(value: object) -> list[dict]:
-    """Read both the legacy single-password record and the v2 device list."""
     if not isinstance(value, dict):
         return []
     if "salt" in value and "hash" in value:
@@ -356,7 +345,6 @@ def _expired(record: dict, now: datetime | None = None) -> bool:
 
 
 def _nonnegative_int(value: object) -> int:
-    """Treat corrupt optional counters as absent instead of breaking settings."""
     try:
         return max(0, int(value))
     except (TypeError, ValueError):
@@ -364,7 +352,6 @@ def _nonnegative_int(value: object) -> int:
 
 
 def credentials_for(username: str) -> list[dict]:
-    """Return display-safe credential metadata without password material."""
     users = _read_json(_credentials_path(), {"users": {}}).get("users", {})
     value = users.get(username) if isinstance(users, dict) else None
     usage_users = _read_json(_credential_usage_path(), {"users": {}}).get("users", {})
@@ -395,7 +382,6 @@ def credentials_for(username: str) -> list[dict]:
 
 
 def _client_family(user_agent: str) -> str:
-    """Reduce a User-Agent to a small, non-identifying interoperability label."""
     value = user_agent.casefold()
     for marker, label in (
         ("libreoffice", "LibreOffice"),
@@ -411,7 +397,6 @@ def _client_family(user_agent: str) -> str:
 
 
 def _forget_credential_usage(username: str, *credential_ids: str) -> None:
-    """Remove stale usage metadata after revoke or rotation."""
     ids = {value for value in credential_ids if value}
     if not ids:
         return
@@ -439,7 +424,6 @@ def _forget_credential_usage(username: str, *credential_ids: str) -> None:
 
 
 def _record_credential_use(username: str, credential_id: str) -> None:
-    """Persist coarse last-use data at most once per 15 minutes and never fail auth."""
     if not credential_id:
         return
     now = datetime.now(timezone.utc)
@@ -475,14 +459,11 @@ def _record_credential_use(username: str, credential_id: str) -> None:
             payload["version"] = 1
             atomic_json_write(path, payload)
     except (OSError, RuntimeError, ValueError):
-        # Usage telemetry is deliberately fail-open; authentication and file I/O
-        # must never depend on this optional, coarse status projection.
         with _credential_usage_cache_lock:
             _credential_usage_cache.pop(cache_key, None)
 
 
 def _normalize_credential_prefix(value: str) -> str:
-    """Return an existing safe collection relative to the managed root."""
     raw = str(value or "").strip()
     if raw in {"", "."}:
         return ""
@@ -496,7 +477,6 @@ def _normalize_credential_prefix(value: str) -> str:
 
 
 def _credential_allows_path(identity: dict, resource: Path) -> bool:
-    """Apply a credential's collection boundary to existing and new resources."""
     prefix = str(identity.get("path_prefix", "")).strip()
     if not prefix:
         return True
@@ -522,7 +502,6 @@ def activate(
     expires_days: int = 90,
     path_prefix: str = "",
 ) -> str:
-    """Create an independently revocable WebDAV app password and return it once."""
     label = " ".join(label.split()).strip()
     if not label or len(label) > 80 or any(ord(character) < 32 for character in label):
         raise ValueError("Bezeichnung muss 1 bis 80 druckbare Zeichen enthalten.")
@@ -568,7 +547,6 @@ def activate(
 
 
 def revoke(username: str, actor: str, credential_id: str = "") -> bool:
-    """Revoke one device credential, or all credentials when no id is supplied."""
     path = _credentials_path()
     revoked: list[dict] = []
     with exclusive_file_lock(path.with_suffix(".lock")):
@@ -600,7 +578,6 @@ def revoke(username: str, actor: str, credential_id: str = "") -> bool:
 
 
 def rotate(username: str, actor: str, credential_id: str, expires_days: int = 365) -> str:
-    """Atomically replace one app password while preserving its scope and label."""
     if isinstance(expires_days, bool) or not 1 <= int(expires_days) <= 365:
         raise ValueError("Gültigkeit muss zwischen 1 und 365 Tagen liegen.")
     expires_days = int(expires_days)
@@ -644,7 +621,6 @@ def rotate(username: str, actor: str, credential_id: str, expires_days: int = 36
 
 
 def authenticate_password(username: str, password: str, *, record_use: bool = False) -> dict | None:
-    """Verify one protocol app password without requiring an HTTP request."""
     users = _read_json(_credentials_path(), {"users": {}}).get("users", {})
     value = users.get(username) if isinstance(users, dict) else None
     records = _credential_records(value)
@@ -687,7 +663,6 @@ def _unauthorized() -> Response:
 
 
 def _need_privileges_response(href: str, privilege: str, allow: str) -> Response:
-    """Give ACL-aware clients a useful least-privilege denial without exposing ACLs."""
     xml = (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<d:error xmlns:d="DAV:"><d:need-privileges><d:resource>'
@@ -713,10 +688,11 @@ def _missing_method_privilege(method: str) -> str:
 
 
 def _document_path(document: dict) -> Path:
-    path = _store().root / str(document.get("last_path", ""))
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("document unavailable")
-    return path
+    store = _store()
+    try:
+        return resolve_file_under(store.root, str(document.get("last_path", "")))
+    except (OSError, ValueError) as exc:
+        raise ValueError("document unavailable") from exc
 
 
 def _etag(document: dict) -> str:
@@ -725,7 +701,6 @@ def _etag(document: dict) -> str:
 
 
 def _stored_integrity_headers(document: dict) -> dict[str, str]:
-    """Describe the stored representation after a successful state change."""
     etag = _etag(document)
     digest = bytes.fromhex(_etag_value(etag))
     return {
@@ -742,7 +717,6 @@ def _etag_value(value: str) -> str:
 
 
 def _http_date_timestamp(value: str) -> int | None:
-    """Parse an IMF-fixdate for conditional requests; invalid dates are ignored."""
     try:
         parsed = parsedate_to_datetime(value)
         if parsed.tzinfo is None:
@@ -762,6 +736,4 @@ def _etag_list_matches(value: str, current_etag: str, *, weak: bool) -> bool:
         for is_weak, tag in tags
     )
 
-# Export private helpers too so later ordered parts see the same globals
-# they had in the original single module.
 __all__ = [name for name in globals() if not name.startswith("__")]
