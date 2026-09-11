@@ -3,6 +3,8 @@ import unittest
 from collections import deque
 from unittest.mock import patch
 
+from werkzeug.exceptions import Forbidden
+
 from app import app
 from app.error_relay import (
     MAX_UPSTREAM_INFLIGHT,
@@ -16,6 +18,7 @@ from app.error_relay import (
     validate_report_payload,
 )
 from app.github_error_reporter import GitHubReporterConfig
+from app.security_controls import protect_browser_mutation
 
 
 class ErrorRelayTests(unittest.TestCase):
@@ -57,6 +60,11 @@ class ErrorRelayTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
         self.assertEqual(404, response.status_code)
+
+    def test_future_relay_mutation_is_not_implicitly_csrf_exempt(self):
+        with app.test_request_context("/api/error-reports/v1/admin", method="POST"):
+            with self.assertRaises(Forbidden):
+                protect_browser_mutation()
 
     @patch("app.error_relay.load_config")
     def test_health_is_unavailable_without_github_credential(self, load_config):
