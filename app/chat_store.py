@@ -12,7 +12,7 @@ from typing import Any, Iterator
 
 from .document_store import CONTROL_DIR
 
-MESSAGE_TYPES = {"text", "contact", "poll", "request"}
+MESSAGE_TYPES = {"text", "contact", "poll", "request", "system"}
 VISIBILITIES = {"chat", "documents"}
 _USER_RE = re.compile(r"^[^\x00-\x1f\x7f]{1,120}$")
 _PEER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
@@ -129,7 +129,7 @@ class ChatStore:
         room_id,sender=_uuid(room_id,"Chat-ID"),_user(sender)
         if not self.is_participant(room_id,sender): raise PermissionError("Nur Chat-Teilnehmer dürfen Nachrichten senden")
         message_type=str(message_type or "text").casefold()
-        if message_type not in MESSAGE_TYPES: raise ValueError("Unbekannter Nachrichtentyp")
+        if message_type not in MESSAGE_TYPES - {"system"}: raise ValueError("Unbekannter Nachrichtentyp")
         mid=_uuid(message_id,"Nachrichten-ID") if message_id else str(uuid.uuid4()); ts=int(created_at or _now())
         with self._db() as db:
             db.execute("INSERT INTO chat_message(message_id,room_id,sender_kind,sender_username,message_type,body,payload_json,created_at,received_at) VALUES(?,?,?,?,?,?,?,?,?)",(mid,room_id,"local",sender,message_type,str(body or "")[:20000],_json(payload if isinstance(payload,dict) else {}),ts,_now()))
@@ -142,7 +142,7 @@ class ChatStore:
         allowed={x["username"] for x in self.participants(room_id) if x["participant_kind"]=="remote" and x["peer_id"]==source_peer}
         if sender not in allowed: raise PermissionError("Absender ist kein Teilnehmer dieses Chats")
         message_type=str(message_type or "text").casefold(); payload=payload if isinstance(payload,dict) else {}; body=str(body or "")[:20000]
-        if message_type not in MESSAGE_TYPES: raise ValueError("Unbekannter Nachrichtentyp")
+        if message_type not in MESSAGE_TYPES - {"system"}: raise ValueError("Unbekannter Nachrichtentyp")
         with self._db() as db:
             old=db.execute("SELECT * FROM chat_message WHERE message_id=?",(mid,)).fetchone()
             if old:
