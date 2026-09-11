@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
+from .safe_paths import resolve_file_under
 
 @bp.route("/")
 @login_required
@@ -365,8 +366,6 @@ def project_billing_projection(project_id: str):
         projection = _projects().billing_projection(project_id, str(g.user["username"]))
     except ValueError:
         abort(404)
-    # This endpoint is deliberately invoice-safe: internal composition and
-    # notes never leave the project page.
     return {"project_id": projection["project_id"], "project_title": projection["project_title"], "lines": projection["lines"]}
 
 
@@ -720,8 +719,11 @@ def images():
 @bp.get("/<document_id>/preview")
 @login_required
 def image_preview(document_id: str):
-    document = _document_or_404(document_id); path = _store().root / document.get("last_path", "")
-    if not path.is_file() or path.is_symlink(): abort(404)
+    document = _document_or_404(document_id)
+    try:
+        path = resolve_file_under(_store().root, document.get("last_path", ""))
+    except (OSError, ValueError):
+        abort(404)
     return send_file(path)
 
 
@@ -731,8 +733,9 @@ def document_thumbnail(document_id: str):
     document = _document_or_404(document_id)
     path = PreviewService(_store().root).cached_path(document, "thumbnail")
     if path is None:
-        original = _store().root / document.get("last_path", "")
-        if not original.is_file() or original.is_symlink():
+        try:
+            original = resolve_file_under(_store().root, document.get("last_path", ""))
+        except (OSError, ValueError):
             abort(404)
         path = original
         max_age = 0
@@ -791,5 +794,3 @@ def analyze_image(document_id: str):
     except (OSError, RuntimeError, ValueError) as exc:
         flash(f"Bildanalyse fehlgeschlagen: {exc}")
     return redirect(url_for("documents.images"))
-
-
