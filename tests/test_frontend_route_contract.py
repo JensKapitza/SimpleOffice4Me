@@ -23,6 +23,9 @@ TEMPLATE_REF = re.compile(
     r"{%\s*(?:extends|include|import|from)\s+['\"]([^'\"]+)['\"]"
 )
 SERVICE_WORKER_STATIC = re.compile(r"['\"](/static/[^'\"]+)['\"]")
+LAYOUT_EXTENDS = re.compile(r"{%\s*extends\s+['\"]layout\.html['\"]\s*%}")
+BODY_BLOCK = re.compile(r"{%\s*block\s+body\b")
+CONTENT_BLOCK = re.compile(r"{%\s*block\s+content\b")
 DYNAMIC_LAYOUT_ASSETS = {
     "manifest.webmanifest",
     "manifest-clock.webmanifest",
@@ -78,6 +81,15 @@ class FrontendRouteContractTests(unittest.TestCase):
         registered = {rule.endpoint for rule in app.url_map.iter_rules()}
         missing = sorted(_literal_endpoints(NAV_TEMPLATE) - registered)
         self.assertEqual([], missing, f"Main navigation endpoints are not registered: {missing}")
+
+    def test_layout_children_do_not_define_unrendered_content_block(self):
+        """layout.html exposes body, so a direct child using only content renders blank."""
+        broken: list[str] = []
+        for path in TEMPLATES.rglob("*.html"):
+            text = path.read_text(encoding="utf-8")
+            if LAYOUT_EXTENDS.search(text) and CONTENT_BLOCK.search(text) and not BODY_BLOCK.search(text):
+                broken.append(str(path.relative_to(TEMPLATES)))
+        self.assertEqual([], sorted(broken), f"Direct layout children render a dead content block: {broken}")
 
     def test_literal_template_dependencies_exist(self):
         """Literal include/extends/import targets must always be shipped."""
