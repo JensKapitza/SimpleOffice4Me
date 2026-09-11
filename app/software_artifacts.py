@@ -139,6 +139,31 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        _validate_https_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _validate_https_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(str(url or ""))
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Unsichere Download-URL")
+
+
+def _open_https(request: urllib.request.Request, *, timeout: int, allow_redirects: bool = True):
+    _validate_https_url(request.full_url)
+    handler = _HttpsOnlyRedirect() if allow_redirects else _NoRedirect()
+    opener = urllib.request.build_opener(handler)
+    response = opener.open(request, timeout=timeout)
+    try:
+        _validate_https_url(response.geturl())
+    except Exception:
+        response.close()
+        raise
+    return response
+
+
 class SoftwareArtifactStore:
     def __init__(self, document_root: str | Path):
         self.document_root = Path(document_root).expanduser().resolve()
@@ -477,7 +502,7 @@ class SoftwareArtifactStore:
 
     def _github_json(self, url: str, token: str) -> dict[str, Any]:
         try:
-            with urllib.request.urlopen(self._github_request(url, token), timeout=60) as response:
+            with _open_https(self._github_request(url, token), timeout=60) as response:
                 payload = json.load(response)
         except urllib.error.HTTPError as exc:
             detail = exc.read(2048).decode("utf-8", "replace").strip()
@@ -489,21 +514,18 @@ class SoftwareArtifactStore:
         return payload
 
     def _download_action_archive(self, url: str, token: str, destination: Path) -> None:
-        opener = urllib.request.build_opener(_NoRedirect())
         request = self._github_request(url, token)
         response = None
         try:
             try:
-                response = opener.open(request, timeout=120)
+                response = _open_https(request, timeout=120, allow_redirects=False)
             except urllib.error.HTTPError as exc:
                 if exc.code not in {301, 302, 303, 307, 308}:
                     detail = exc.read(2048).decode("utf-8", "replace").strip()
                     raise ValueError(f"GitHub Artefakt-Download HTTP {exc.code}: {detail[:500]}") from exc
                 location = urllib.parse.urljoin(url, str(exc.headers.get("Location") or ""))
-                parsed = urllib.parse.urlparse(location)
-                if parsed.scheme != "https" or not parsed.netloc:
-                    raise ValueError("GitHub lieferte eine unsichere Artefakt-Weiterleitung") from exc
-                response = urllib.request.urlopen(
+                _validate_https_url(location)
+                response = _open_https(
                     urllib.request.Request(location, headers={"User-Agent": "SimpleOffice4Me-installer-cache/1"}),
                     timeout=120,
                 )
