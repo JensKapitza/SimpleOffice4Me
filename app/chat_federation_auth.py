@@ -58,7 +58,7 @@ def parse_proof(headers) -> tuple[ChatRequestProof, str]:
     digest = str(headers.get("X-SimpleOffice-Payload-SHA256", "") or "").strip().casefold()
     signature = str(headers.get("X-SimpleOffice-Chat-Signature", "") or "").strip().casefold()
     if not _NONCE_RE.fullmatch(nonce): raise ValueError("Ungültiger Chat-Nonce")
-    if kind not in {"event", "attachment"}: raise ValueError("Ungültiger Chat-Request-Typ")
+    if kind not in {"event", "attachment", "policy"}: raise ValueError("Ungültiger Chat-Request-Typ")
     if not resource_id or "\r" in resource_id or "\n" in resource_id: raise ValueError("Ungültige Chat-Ressourcen-ID")
     if payload_size < 0: raise ValueError("Ungültige Chat-Payload-Größe")
     if not _SHA256_RE.fullmatch(digest) or not _SHA256_RE.fullmatch(signature): raise ValueError("Ungültige Chat-Prüfsumme oder Signatur")
