@@ -15,6 +15,7 @@ from .federation_store import FederationStore
 from .federation_worker import push_blob_to_peer
 from .object_store import ObjectStore
 from .rental_billing import ALLOCATION_METHODS, LEDGER_KINDS, METRIC_TYPES, RentalBillingStore
+from .safe_paths import resolve_file_under
 
 bp = Blueprint("rentals", __name__, url_prefix="/rentals")
 
@@ -52,12 +53,6 @@ def _require_admin() -> None:
 
 
 def _peer_allows_rental_send(policy: object) -> bool:
-    """Fail closed for a sensitive tenant package.
-
-    A rental package is transferred as a document, so an explicit document
-    send permission is mandatory.  Deployments that define an additional
-    ``rentals`` policy must explicitly enable that resource as well.
-    """
     if not isinstance(policy, dict):
         return False
     document_policy = policy.get("documents")
@@ -353,8 +348,10 @@ def approval_file(settlement_id: str, name: str):
     _require_admin()
     store = _store(); settlement = store.settlement(settlement_id)
     if settlement["status"] not in {"approved", "sent", "corrected", "void"}: abort(403)
-    directory = store.approval_directory(settlement_id).resolve(); path = (directory / name).resolve()
-    if directory not in (path, *path.parents) or not path.is_file(): abort(404)
+    try:
+        path = resolve_file_under(store.approval_directory(settlement_id), name)
+    except (OSError, ValueError):
+        abort(404)
     if path.suffix.casefold() not in {".pdf", ".json", ".zip"}: abort(404)
     return send_file(path, as_attachment=True, download_name=path.name)
 
@@ -388,7 +385,7 @@ def _default_peer_for_tenant(store: RentalBillingStore, settlement_id: str, cont
 def federate_tenant_package(settlement_id: str, contact_id: str):
     _require_admin(); store = _store()
     try:
-        package = store.tenant_package(settlement_id, contact_id)  # hard approval gate
+        package = store.tenant_package(settlement_id, contact_id)
         peer_id = request.form.get("peer_id", "").strip() or _default_peer_for_tenant(store, settlement_id, contact_id)
         federation = FederationStore(_root()); peer = federation.get_peer(peer_id)
         if not peer or not peer.get("enabled"): raise ValueError("Kein aktiver Federation-Peer für den Mieter")
@@ -398,7 +395,7 @@ def federate_tenant_package(settlement_id: str, contact_id: str):
         documents = DocumentStore(_root())
         imported = documents.import_file(package, _actor())
         document = documents.get_document(imported)
-        path = (_root() / str(document.get("last_path", ""))).resolve()
+        path = resolve_file_under(documents.root, str(document.get("last_path", "")))
         digest = str(document.get("sha256") or "").casefold()
         if not re.fullmatch(r"[0-9a-f]{64}", digest): digest = sha256_file(path)
         manifest = build_manifest(path); job_id = transfer_id()
