@@ -10,10 +10,10 @@ ROLE=${SIMPLEOFFICE_CONTAINER_ROLE:-web}
 
 mkdir -p "$INSTANCE_DIR" "$DATABASE_DIR" "$DOCUMENT_DIR"
 
-# The web role initializes named-volume ownership and then drops to the
-# unprivileged application account. The network role deliberately does not
-# change ownership and receives only its explicit capabilities from Compose.
-if [ "$ROLE" = "web" ] && [ "$(id -u)" = "0" ]; then
+# Web and error-relay roles initialize the named-volume ownership and then drop
+# to the unprivileged application account. The network role deliberately does
+# not change ownership and receives only its explicit capabilities from Compose.
+if { [ "$ROLE" = "web" ] || [ "$ROLE" = "error-relay" ]; } && [ "$(id -u)" = "0" ]; then
     chown -R simpleoffice:simpleoffice "$STATE_DIR"
 fi
 
@@ -29,13 +29,37 @@ if [ ! -f "$CONFIG" ]; then
   "port": $PORT
 }
 EOF
-    if [ "$ROLE" = "web" ]; then
+    if [ "$ROLE" = "web" ] || [ "$ROLE" = "error-relay" ]; then
         chown simpleoffice:simpleoffice "$CONFIG" 2>/dev/null || true
     fi
 fi
 
+if [ "$ROLE" = "error-relay" ]; then
+    # A mounted Docker secret may be world-readable inside /run/secrets. Copy it
+    # once into the private SimpleOffice state tree with strict permissions.
+    # The source path itself is not persisted and the secret is never baked into
+    # the image or repository.
+    if [ -n "${SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE:-}" ]; then
+        if [ ! -r "$SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE" ]; then
+            echo "GitHub error token source is not readable" >&2
+            exit 78
+        fi
+        install -m 0600 "$SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE" "$INSTANCE_DIR/github-error-token"
+        if [ "$(id -u)" = "0" ]; then
+            chown simpleoffice:simpleoffice "$INSTANCE_DIR/github-error-token"
+        fi
+        export SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE="$INSTANCE_DIR/github-error-token"
+    fi
+    export SIMPLEOFFICE_ERROR_RELAY_ENABLED=${SIMPLEOFFICE_ERROR_RELAY_ENABLED:-1}
+    export SIMPLEOFFICE_GITHUB_ERROR_REPORTING=${SIMPLEOFFICE_GITHUB_ERROR_REPORTING:-1}
+    export SIMPLEOFFICE_BACKGROUND_INDEX=0
+    export SIMPLEOFFICE_OSM_INDEX=0
+    export SIMPLEOFFICE_DATALOGGER=0
+    export SIMPLEOFFICE_MCP=0
+fi
+
 case "$ROLE" in
-    web)
+    web|error-relay)
         export SIMPLEOFFICE_HOST=${SIMPLEOFFICE_HOST:-0.0.0.0}
         if [ "$(id -u)" = "0" ]; then
             exec gosu simpleoffice "$@"
