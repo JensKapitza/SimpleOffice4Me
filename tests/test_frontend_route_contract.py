@@ -174,11 +174,28 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
 
     @staticmethod
     def _page_failure(endpoint: str, rule: str, response) -> str | None:
-        body = response.get_data(as_text=True)
+        mimetype = (response.mimetype or "").casefold()
+        is_text = mimetype.startswith("text/") or mimetype in {
+            "application/javascript",
+            "application/json",
+            "application/xml",
+            "application/xhtml+xml",
+        }
+        body: str | None = None
+        if is_text:
+            try:
+                body = response.get_data(as_text=True)
+            except UnicodeDecodeError as exc:
+                return f"{endpoint} -> {rule}: invalid UTF-8 {mimetype or 'text'} response: {exc}"
+
         if response.status_code == 404 or response.status_code >= 500:
-            excerpt = body[:240].replace("\n", " ")
+            if body is not None:
+                excerpt = body[:240].replace("\n", " ")
+            else:
+                excerpt = f"{len(response.data)} bytes, {mimetype or 'unknown content type'}"
             return f"{endpoint} -> {rule}: HTTP {response.status_code}: {excerpt}"
-        if response.status_code == 200 and response.content_type.startswith("text/html"):
+        if response.status_code == 200 and mimetype == "text/html":
+            assert body is not None
             folded = body.casefold()
             if "<html" not in folded or "<body" not in folded or len(body.strip()) < 300:
                 return f"{endpoint} -> {rule}: empty/incomplete HTML shell ({len(body)} chars)"
@@ -224,13 +241,13 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
             if rule is None:
                 continue
             response = self.client.get(rule.rule, follow_redirects=True)
-            body = response.get_data(as_text=True)
-            tested.append(f"{endpoint} -> {rule.rule} [{response.status_code}, {len(body)} chars]")
+            tested.append(f"{endpoint} -> {rule.rule} [{response.status_code}, {len(response.data)} bytes]")
             failure = self._page_failure(endpoint, rule.rule, response)
             if failure:
                 failures.append(failure)
                 continue
-            if response.status_code == 200 and response.content_type.startswith("text/html"):
+            if response.status_code == 200 and response.mimetype == "text/html":
+                body = response.get_data(as_text=True)
                 if 'id="main-navigation"' not in body:
                     failures.append(f"{endpoint} -> {rule.rule}: global navigation missing from rendered page")
 
