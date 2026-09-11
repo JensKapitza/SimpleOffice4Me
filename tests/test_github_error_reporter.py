@@ -1,5 +1,6 @@
 import os
 import unittest
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from app.github_error_reporter import (
@@ -70,10 +71,26 @@ class GitHubErrorReporterTests(unittest.TestCase):
         self.assertNotIn("cookie", body.casefold())
         self.assertNotIn("authorization", body.casefold())
 
-    def test_manual_issue_url_works_without_any_embedded_secret(self):
-        url = manual_issue_url("0123456789abcdef")
+    def test_manual_issue_url_contains_safe_diagnostics_without_secrets(self):
+        url = manual_issue_url(
+            "0123456789abcdef",
+            exception_type="UndefinedError",
+            endpoint="contacts.merge",
+            method="POST",
+            fingerprint="abcdef1234567890abcd",
+            frames=[{"file": "/srv/private/contacts.py", "line": 42, "function": "merge_contacts"}],
+            app_version="2026.09.11",
+        )
         self.assertTrue(url.startswith("https://github.com/JensKapitza/SimpleOffice4Me/issues/new?"))
-        self.assertIn("0123456789abcdef", url)
+        params = parse_qs(urlsplit(url).query)
+        body = params["body"][0]
+        title = params["title"][0]
+        self.assertIn("UndefinedError", title)
+        self.assertIn("contacts.merge", title)
+        self.assertIn("0123456789abcdef", body)
+        self.assertIn("abcdef1234567890abcd", body)
+        self.assertIn("contacts.py", body)
+        self.assertNotIn("/srv/private", body)
         self.assertNotIn("github_pat_", url.casefold())
         self.assertNotIn("authorization%3a", url.casefold())
 
