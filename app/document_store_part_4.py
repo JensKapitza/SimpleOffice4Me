@@ -13,9 +13,10 @@ class _DocumentStorePart4:
         with exclusive_file_lock(self.control / ".document-content.lock"):
             metadata = self.get_document(reference)
             self._require_document_editable(metadata)
-            source = self.root / str(metadata.get("last_path", ""))
-            if not source.is_file() or source.is_symlink():
-                raise ValueError("only an available regular document file can be deleted")
+            try:
+                source = resolve_file_under(self.root, metadata.get("last_path", ""))
+            except (OSError, ValueError) as exc:
+                raise ValueError("only an available regular document file can be deleted") from exc
             if expected_sha256 and not hmac.compare_digest(expected_sha256, sha256_file(source)):
                 raise ValueError("document content changed since it was opened")
             previous_path = self.relative(source)
@@ -274,9 +275,7 @@ class _DocumentStorePart4:
             ).fetchall()
         versions = []
         for (document_id,) in rows:
-            metadata = document if document_id == document["document_id"] else self._read_json(
-                self.documents / f"{document_id}.json", {}
-            )
+            metadata = document if document_id == document["document_id"] else self._read_json(self.documents / f"{document_id}.json", {})
             if metadata.get("document_id"):
                 versions.append(metadata)
         return versions or [document]
@@ -342,12 +341,7 @@ class _DocumentStorePart4:
         entries: list[dict[str, Any]] = []
         for document in self._all_documents():
             for note in document.get("notes", []):
-                entries.append({
-                    **note,
-                    "document_id": document["document_id"],
-                    "path": document.get("last_path", ""),
-                    "version_number": document.get("version_number", 1),
-                })
+                entries.append({**note, "document_id": document["document_id"], "path": document.get("last_path", ""), "version_number": document.get("version_number", 1)})
         return sorted(entries, key=lambda item: item.get("created_at", ""), reverse=True)
 
     def logbook(self, reference: str | Path | None = None) -> list[dict[str, Any]]:
@@ -364,8 +358,7 @@ class _DocumentStorePart4:
             try:
                 for line in self.events.read_text(encoding="utf-8").splitlines():
                     event = json.loads(line)
-                    if not isinstance(event, dict):
-                        continue
+                    if not isinstance(event, dict): continue
                     related = event.get("document_id") or event.get("source_document_id")
                     if document_id is None or related == document_id:
                         entries.append({**event, "source": "scanner"})
@@ -375,21 +368,15 @@ class _DocumentStorePart4:
 
     def logbook_page(self, *, page: int = 1, page_size: int = 50, query: str = "", actor: str = "", action: str = "", from_at: str = "", to_at: str = "") -> dict[str, Any]:
         """Return a bounded, filtered audit-log page instead of loading all events."""
-        page = max(1, int(page))
-        page_size = min(100, max(10, int(page_size)))
-        needed = page * page_size + 1
+        page = max(1, int(page)); page_size = min(100, max(10, int(page_size))); needed = page * page_size + 1
         query, actor, action = query.casefold().strip(), actor.casefold().strip(), action.casefold().strip()
 
         def matches(event: dict[str, Any]) -> bool:
             timestamp = str(event.get("at", ""))
-            if from_at and timestamp < from_at:
-                return False
-            if to_at and timestamp > f"{to_at}T23:59:59.999999+00:00":
-                return False
-            if actor and actor not in str(event.get("actor", "")).casefold():
-                return False
-            if action and action not in str(event.get("action", event.get("type", ""))).casefold():
-                return False
+            if from_at and timestamp < from_at: return False
+            if to_at and timestamp > f"{to_at}T23:59:59.999999+00:00": return False
+            if actor and actor not in str(event.get("actor", "")).casefold(): return False
+            if action and action not in str(event.get("action", event.get("type", ""))).casefold(): return False
             return not query or query in json.dumps(event, ensure_ascii=False).casefold()
 
         def take(items):
@@ -397,15 +384,11 @@ class _DocumentStorePart4:
             for item in items:
                 if matches(item):
                     found.append(item)
-                    if len(found) >= needed:
-                        break
+                    if len(found) >= needed: break
             return found
 
         history_dir = self.history.root / "events"
-        history_events = take(
-            {**self._read_json(path, {}), "source": "revision"}
-            for path in sorted(history_dir.glob("*.json"), reverse=True)
-        ) if history_dir.exists() else []
+        history_events = take({**self._read_json(path, {}), "source": "revision"} for path in sorted(history_dir.glob("*.json"), reverse=True)) if history_dir.exists() else []
         if self.events.exists() and not any((query, actor, action, from_at, to_at)):
             with self.events.open(encoding="utf-8") as source:
                 scanner_lines = list(deque(source, maxlen=needed))
@@ -414,107 +397,64 @@ class _DocumentStorePart4:
                 scanner_lines = list(source)
         else:
             scanner_lines = []
-        scanner_events = take(
-            {**event, "source": "scanner"}
-            for line in reversed(scanner_lines)
-            for event in [json.loads(line)]
-            if isinstance(event, dict)
-        )
+        scanner_events = take({**event, "source": "scanner"} for line in reversed(scanner_lines) for event in [json.loads(line)] if isinstance(event, dict))
         merged = sorted([*history_events, *scanner_events], key=lambda item: item.get("at", ""), reverse=True)
         start = (page - 1) * page_size
         return {"events": merged[start:start + page_size], "page": page, "has_next": len(merged) > start + page_size}
 
-    def scan(
-        self,
-        progress: Callable[[ScanReport], None] | None = None,
-        file_progress: Callable[[Path], None] | None = None,
-        verify_hashes: bool = False,
-        post_file: Callable[[Path], None] | None = None,
-    ) -> ScanReport:
+    def scan(self, progress: Callable[[ScanReport], None] | None = None, file_progress: Callable[[Path], None] | None = None, verify_hashes: bool = False, post_file: Callable[[Path], None] | None = None) -> ScanReport:
         self.initialize()
         files = new_files = updated_files = duplicates = symlinks = skipped_boundaries = errors = 0
-        # Device/inode tracking prevents a deliberately allowed symlink from
-        # walking back into an already visited directory tree.
-        pending = [self.root]
-        visited_directories: set[tuple[int, int]] = set()
+        pending = [self.root]; visited_directories: set[tuple[int, int]] = set()
         while pending:
             current_path = pending.pop()
             try:
-                current_stat = current_path.stat()
-                key = (current_stat.st_dev, current_stat.st_ino)
+                current_stat = current_path.stat(); key = (current_stat.st_dev, current_stat.st_ino)
                 if key in visited_directories:
-                    self._event("directory_cycle_skipped", {"path": self.relative(current_path)})
-                    continue
-                visited_directories.add(key)
-                options = self._scan_options(current_path)
-                entries = sorted(current_path.iterdir(), key=lambda entry: entry.name.lower())
+                    self._event("directory_cycle_skipped", {"path": self.relative(current_path)}); continue
+                visited_directories.add(key); options = self._scan_options(current_path); entries = sorted(current_path.iterdir(), key=lambda entry: entry.name.lower())
             except (OSError, ValueError) as exc:
-                errors += 1
-                self._event("folder_policy_invalid", {"path": self.relative(current_path), "error": str(exc)})
-                continue
+                errors += 1; self._event("folder_policy_invalid", {"path": self.relative(current_path), "error": str(exc)}); continue
             for path in entries:
-                if path.name in (POLICY_FILE, CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR):
-                    continue
+                if path.name in (POLICY_FILE, CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR): continue
                 try:
                     if path.is_symlink():
-                        symlinks += 1
-                        target = path.resolve(strict=True)
-                        self._event("symlink_seen", {"path": self.relative(path), "target": str(target)})
-                        if not options["follow_symlinks"]:
-                            continue
-                        if target.is_dir():
-                            pending.append(target)
+                        symlinks += 1; target = path.resolve(strict=True); self._event("symlink_seen", {"path": self.relative(path), "target": str(target)})
+                        if not options["follow_symlinks"]: continue
+                        if target.is_dir(): pending.append(target)
                         elif target.is_file():
                             if file_progress: file_progress(target)
                             created, updated, duplicate = self._scan_file(target, force_hash=verify_hashes)
                             if post_file: post_file(target)
-                            files += 1
-                            new_files += int(created)
-                            updated_files += int(updated)
-                            duplicates += int(duplicate)
+                            files += 1; new_files += int(created); updated_files += int(updated); duplicates += int(duplicate)
                         continue
                     entry_stat = path.stat(follow_symlinks=False)
                     if path.is_dir():
                         if entry_stat.st_dev != current_stat.st_dev and not options["allow_other_filesystems"]:
-                            skipped_boundaries += 1
-                            self._event(
-                                "filesystem_boundary_skipped",
-                                {"path": self.relative(path), "device": entry_stat.st_dev},
-                            )
-                            continue
-                        pending.append(path)
-                        continue
-                    if not path.is_file():
-                        continue
+                            skipped_boundaries += 1; self._event("filesystem_boundary_skipped", {"path": self.relative(path), "device": entry_stat.st_dev}); continue
+                        pending.append(path); continue
+                    if not path.is_file(): continue
                     if file_progress: file_progress(path)
                     created, updated, duplicate = self._scan_file(path, force_hash=verify_hashes)
                     if post_file: post_file(path)
-                    files += 1
-                    new_files += int(created)
-                    updated_files += int(updated)
-                    duplicates += int(duplicate)
+                    files += 1; new_files += int(created); updated_files += int(updated); duplicates += int(duplicate)
                 except (OSError, ValueError) as exc:
-                    errors += 1
-                    self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
-                if progress:
-                    progress(ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors))
+                    errors += 1; self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
+                if progress: progress(ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors))
         with self._db() as db:
             missing = [self.root / row[0] for row in db.execute("SELECT relative_path FROM scan_file").fetchall() if not (self.root / row[0]).exists()]
         if missing:
-            removed = self.scan_changed_paths(missing)
-            errors += removed.errors
+            removed = self.scan_changed_paths(missing); errors += removed.errors
         report = ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors)
         if progress: progress(report)
         return report
 
     def scan_status(self) -> dict[str, Any]:
-        self.initialize()
-        return self._read_json(self.scan_status_path, {"state": "idle", "updated_at": None})
+        self.initialize(); return self._read_json(self.scan_status_path, {"state": "idle", "updated_at": None})
 
     def scan_changed_paths(self, paths: Iterable[str | Path], post_file: Callable[[Path], None] | None = None) -> ScanReport:
         """Incrementally reconcile paths reported by a filesystem watcher."""
-        self.initialize()
-        files = new_files = updated_files = duplicates = errors = 0
+        self.initialize(); files = new_files = updated_files = duplicates = errors = 0
         for value in {Path(item) for item in paths}:
             try:
                 path = value.resolve(strict=False)
@@ -533,216 +473,92 @@ class _DocumentStorePart4:
                         db.execute("DELETE FROM scan_file WHERE relative_path=?", (relative,))
                         remaining = db.execute("SELECT 1 FROM scan_file WHERE document_id=? LIMIT 1", (document_id,)).fetchone()
                         if not remaining:
-                            db.execute("DELETE FROM document_listing WHERE document_id=?", (document_id,))
-                            db.execute("DELETE FROM document_search WHERE document_id=?", (document_id,))
-                            db.execute("DELETE FROM document_relationship WHERE source_id=?", (document_id,))
-                        fingerprint_path = self.fingerprints / f"{digest}.json"
-                        fingerprint = self._read_json(fingerprint_path, {})
+                            db.execute("DELETE FROM document_listing WHERE document_id=?", (document_id,)); db.execute("DELETE FROM document_search WHERE document_id=?", (document_id,)); db.execute("DELETE FROM document_relationship WHERE source_id=?", (document_id,))
+                        fingerprint_path = self.fingerprints / f"{digest}.json"; fingerprint = self._read_json(fingerprint_path, {})
                         if fingerprint:
-                            fingerprint["paths"] = [item for item in fingerprint.get("paths", []) if item != relative]
-                            fingerprint["last_seen_at"] = utc_now()
-                            atomic_json_write(fingerprint_path, fingerprint)
+                            fingerprint["paths"] = [item for item in fingerprint.get("paths", []) if item != relative]; fingerprint["last_seen_at"] = utc_now(); atomic_json_write(fingerprint_path, fingerprint)
                         self._event("file_missing", {"path": relative, "document_id": document_id})
             except (OSError, ValueError) as exc:
                 errors += 1; self._event("scan_error", {"path": str(value), "error": str(exc)})
         return ScanReport(files, new_files, updated_files, duplicates, errors=errors)
 
     def set_scan_status(self, status: dict[str, Any]) -> None:
-        self.initialize()
-        atomic_json_write(self.scan_status_path, {**status, "updated_at": utc_now()})
+        self.initialize(); atomic_json_write(self.scan_status_path, {**status, "updated_at": utc_now()})
 
     def set_preview_metadata(self, reference: str, preview: dict[str, Any]) -> None:
-        """Persist index-worker preview state without touching document content."""
-        metadata = self.get_document(reference)
-        metadata["preview"] = preview
-        self._save_document(metadata)
+        metadata = self.get_document(reference); metadata["preview"] = preview; self._save_document(metadata)
 
     def relative(self, path: Path) -> str:
         resolved = path.resolve()
-        if resolved == self.root:
-            return "."
-        try:
-            return str(resolved.relative_to(self.root))
-        except ValueError:
-            return f"[external] {resolved}"
+        if resolved == self.root: return "."
+        try: return str(resolved.relative_to(self.root))
+        except ValueError: return f"[external] {resolved}"
 
     def _scan_options(self, folder: Path) -> dict[str, bool]:
-        """Read the policy of a folder inside the managed tree.
-
-        A symlink target outside the tree has no implicit permission to escape
-        further boundaries. The link itself must have been explicitly allowed
-        by the policy of its parent directory.
-        """
         try:
-            self.ensure_folder_policy(folder)
-            policy = self._read_json(folder / POLICY_FILE, {})
+            self.ensure_folder_policy(folder); policy = self._read_json(folder / POLICY_FILE, {})
         except ValueError:
             policy = {}
         configured = policy.get("scan", {}) if isinstance(policy.get("scan", {}), dict) else {}
-        return {
-            "follow_symlinks": configured.get("follow_symlinks") is True,
-            "allow_other_filesystems": configured.get("allow_other_filesystems") is True,
-        }
+        return {"follow_symlinks": configured.get("follow_symlinks") is True, "allow_other_filesystems": configured.get("allow_other_filesystems") is True}
 
     def _scan_file(self, path: Path, force_hash: bool = False) -> tuple[bool, bool, bool]:
-        stat = path.stat()
-        relative_path = self.relative(path)
-        now = utc_now()
-        cached: tuple[str, str] | None = None
-        previous_same_path = None
-        previous_path = ""
+        stat = path.stat(); relative_path = self.relative(path); now = utc_now(); cached: tuple[str, str] | None = None; previous_same_path = None; previous_path = ""
         if not force_hash:
             with self._db() as db:
                 previous_same_path = db.execute("SELECT document_id,sha256 FROM scan_file WHERE relative_path=?", (relative_path,)).fetchone()
-                row = db.execute(
-                    """SELECT document_id, sha256 FROM scan_file
-                       WHERE relative_path = ? AND size = ? AND modified_ns = ?""",
-                    (relative_path, stat.st_size, stat.st_mtime_ns),
-                ).fetchone()
+                row = db.execute("SELECT document_id, sha256 FROM scan_file WHERE relative_path = ? AND size = ? AND modified_ns = ?", (relative_path, stat.st_size, stat.st_mtime_ns)).fetchone()
                 if row:
                     metadata = self._read_json(self.documents / f"{row[0]}.json", {})
-                    db.execute(
-                        """UPDATE scan_file SET last_seen_at = ?, device = ?, inode = ?
-                           WHERE relative_path = ?""",
-                        (now, stat.st_dev, stat.st_ino, relative_path),
-                    )
+                    db.execute("UPDATE scan_file SET last_seen_at = ?, device = ?, inode = ? WHERE relative_path = ?", (now, stat.st_dev, stat.st_ino, relative_path))
                     if metadata.get("document_id"):
-                        # Additive projections are rebuilt during an ordinary
-                        # scan without rehashing or extracting the file.
-                        self._refresh_listing_index(metadata, db)
-                        return False, False, metadata.get("system_state") == "duplicate"
-                    # The SQLite index is disposable. Rebuild a missing sidecar
-                    # from its cached identity instead of hiding the damage.
+                        self._refresh_listing_index(metadata, db); return False, False, metadata.get("system_state") == "duplicate"
                     cached = (row[0], row[1])
                 else:
-                    moved = db.execute(
-                        """SELECT relative_path, document_id, sha256 FROM scan_file
-                           WHERE device = ? AND inode = ? AND size = ? AND modified_ns = ?
-                           ORDER BY last_seen_at DESC LIMIT 1""",
-                        (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns),
-                    ).fetchone()
+                    moved = db.execute("SELECT relative_path, document_id, sha256 FROM scan_file WHERE device = ? AND inode = ? AND size = ? AND modified_ns = ? ORDER BY last_seen_at DESC LIMIT 1", (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)).fetchone()
                     if moved:
-                        previous_path, document_id, digest = moved
-                        cached = (document_id, digest)
+                        previous_path, document_id, digest = moved; cached = (document_id, digest)
 
-        xattrs = self._read_xattrs(path)
-        known_identity = cached is not None or bool(xattrs.get("document_id"))
-        if cached:
-            document_id, digest = cached
-        else:
-            digest = sha256_file(path)
-            document_id = xattrs.get("document_id") or str(uuid.uuid4())
-        metadata_path = self.documents / f"{document_id}.json"
-        metadata_exists = metadata_path.exists()
+        xattrs = self._read_xattrs(path); known_identity = cached is not None or bool(xattrs.get("document_id"))
+        if cached: document_id, digest = cached
+        else: digest = sha256_file(path); document_id = xattrs.get("document_id") or str(uuid.uuid4())
+        metadata_path = self.documents / f"{document_id}.json"; metadata_exists = metadata_path.exists()
         if previous_same_path and previous_same_path[1] == digest and metadata_exists:
             metadata = self._read_json(metadata_path, {})
             with self._db() as db:
-                db.execute("""UPDATE scan_file SET size=?,modified_ns=?,device=?,inode=?,last_seen_at=?
-                    WHERE relative_path=?""", (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, now, relative_path))
+                db.execute("UPDATE scan_file SET size=?,modified_ns=?,device=?,inode=?,last_seen_at=? WHERE relative_path=?", (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, now, relative_path))
                 if metadata.get("document_id"): self._refresh_listing_index(metadata, db)
             return False, False, metadata.get("system_state") == "duplicate"
-        created = not metadata_exists and not known_identity
-        updated = not created
-        metadata = self._read_json(metadata_path, {})
-        original_sha256 = metadata.get("original_sha256", digest)
-        integrity_changed = original_sha256 != digest
-        existing_tags = metadata.get("tags", xattrs.get("tags", []))
-        detected_tags = self._filename_tags(path.name)
-        all_tags = sorted({*existing_tags, *detected_tags}, key=str.casefold)
+        created = not metadata_exists and not known_identity; updated = not created; metadata = self._read_json(metadata_path, {})
+        original_sha256 = metadata.get("original_sha256", digest); integrity_changed = original_sha256 != digest; existing_tags = metadata.get("tags", xattrs.get("tags", [])); detected_tags = self._filename_tags(path.name); all_tags = sorted({*existing_tags, *detected_tags}, key=str.casefold)
         tagged_at = metadata.get("tagged_at", {})
-        if not isinstance(tagged_at, dict):
-            tagged_at = {}
-        for tag in all_tags:
-            tagged_at.setdefault(tag, metadata.get("first_seen_at", now))
+        if not isinstance(tagged_at, dict): tagged_at = {}
+        for tag in all_tags: tagged_at.setdefault(tag, metadata.get("first_seen_at", now))
         if previous_path and previous_path != relative_path:
-            metadata["location_history"] = [
-                *metadata.get("location_history", []),
-                {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"},
-            ]
-            with self._db() as db:
-                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
-            self._event(
-                "file_move_detected",
-                {"document_id": document_id, "from": previous_path, "to": relative_path},
-            )
-        metadata.update(
-            {
-                "version": 1,
-                "document_id": document_id,
-                "sha256": digest,
-                "first_seen_at": metadata.get("first_seen_at", now),
-                "last_seen_at": now,
-                "last_path": relative_path,
-                "tags": all_tags,
-                "tagged_at": tagged_at,
-                "original_sha256": original_sha256,
-                "content_sha256": digest,
-                "notes": metadata.get("notes", []),
-                "relationships": metadata.get("relationships", []),
-                "state": metadata.get("state", "new"),
-                "state_history": metadata.get("state_history", []),
-                "version_series_id": metadata.get("version_series_id", document_id),
-                "version_number": metadata.get("version_number", 1),
-                "attributes": metadata.get("attributes", {}),
-                "deadlines": metadata.get("deadlines", []),
-            }
-        )
-        atomic_json_write(metadata_path, metadata)
-        self._write_xattrs(path, document_id, digest, metadata["tags"])
-
-        fingerprint_path = self.fingerprints / f"{digest}.json"
-        fingerprint = self._read_json(fingerprint_path, {})
-        known_paths = set(fingerprint.get("paths", []))
-        if previous_path:
-            known_paths.discard(previous_path)
-        duplicate = bool(known_paths and relative_path not in known_paths)
-        known_paths.add(relative_path)
-        fingerprint.update(
-            {
-                "sha256": digest,
-                "first_seen_at": fingerprint.get("first_seen_at", now),
-                "last_seen_at": now,
-                "paths": sorted(known_paths),
-                "seen_count": int(fingerprint.get("seen_count", 0)) + 1,
-            }
-        )
+            metadata["location_history"] = [*metadata.get("location_history", []), {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"}]
+            with self._db() as db: db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+            self._event("file_move_detected", {"document_id": document_id, "from": previous_path, "to": relative_path})
+        metadata.update({"version": 1, "document_id": document_id, "sha256": digest, "first_seen_at": metadata.get("first_seen_at", now), "last_seen_at": now, "last_path": relative_path, "tags": all_tags, "tagged_at": tagged_at, "original_sha256": original_sha256, "content_sha256": digest, "notes": metadata.get("notes", []), "relationships": metadata.get("relationships", []), "state": metadata.get("state", "new"), "state_history": metadata.get("state_history", []), "version_series_id": metadata.get("version_series_id", document_id), "version_number": metadata.get("version_number", 1), "attributes": metadata.get("attributes", {}), "deadlines": metadata.get("deadlines", [])})
+        atomic_json_write(metadata_path, metadata); self._write_xattrs(path, document_id, digest, metadata["tags"])
+        fingerprint_path = self.fingerprints / f"{digest}.json"; fingerprint = self._read_json(fingerprint_path, {}); known_paths = set(fingerprint.get("paths", []))
+        if previous_path: known_paths.discard(previous_path)
+        duplicate = bool(known_paths and relative_path not in known_paths); known_paths.add(relative_path)
+        fingerprint.update({"sha256": digest, "first_seen_at": fingerprint.get("first_seen_at", now), "last_seen_at": now, "paths": sorted(known_paths), "seen_count": int(fingerprint.get("seen_count", 0)) + 1})
         atomic_json_write(fingerprint_path, fingerprint)
         metadata["system_state"] = "integrity_changed" if integrity_changed else ("duplicate" if duplicate else "indexed")
-        if self._is_image(path):
-            self._apply_image_analysis(path, metadata)
-        self._apply_document_text_extraction(path, metadata)
-        self._save_document(metadata)
-        if integrity_changed:
-            self._event(
-                "integrity_changed",
-                {"document_id": document_id, "expected_sha256": original_sha256, "observed_sha256": digest},
-            )
+        if self._is_image(path): self._apply_image_analysis(path, metadata)
+        self._apply_document_text_extraction(path, metadata); self._save_document(metadata)
+        if integrity_changed: self._event("integrity_changed", {"document_id": document_id, "expected_sha256": original_sha256, "observed_sha256": digest})
         self._refresh_search_index(metadata)
         with self._db() as db:
-            db.execute(
-                """INSERT INTO scan_file(
-                       relative_path, document_id, sha256, size, modified_ns, device, inode, last_seen_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(relative_path) DO UPDATE SET document_id=excluded.document_id,
-                     sha256=excluded.sha256, size=excluded.size, modified_ns=excluded.modified_ns,
-                     device=excluded.device, inode=excluded.inode, last_seen_at=excluded.last_seen_at""",
-                (
-                    relative_path, document_id, digest, stat.st_size, stat.st_mtime_ns,
-                    stat.st_dev, stat.st_ino, now,
-                ),
-            )
-        self._event(
-            "file_seen",
-            {"path": relative_path, "document_id": document_id, "sha256": digest, "first_seen": created, "duplicate": duplicate},
-        )
+            db.execute("INSERT INTO scan_file(relative_path, document_id, sha256, size, modified_ns, device, inode, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(relative_path) DO UPDATE SET document_id=excluded.document_id, sha256=excluded.sha256, size=excluded.size, modified_ns=excluded.modified_ns, device=excluded.device, inode=excluded.inode, last_seen_at=excluded.last_seen_at", (relative_path, document_id, digest, stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino, now))
+        self._event("file_seen", {"path": relative_path, "document_id": document_id, "sha256": digest, "first_seen": created, "duplicate": duplicate})
         return created, updated, duplicate
 
     @staticmethod
     def _filename_tags(filename: str) -> list[str]:
-        """Keep the complete filename stem and useful words as non-destructive tags."""
         stem = Path(filename).stem.strip()
-        if not stem:
-            return []
+        if not stem: return []
         words = [part.strip() for part in re.split(r"[\s_.-]+", stem) if len(part.strip()) > 1]
         return [stem, *words]
 
@@ -751,29 +567,14 @@ class _DocumentStorePart4:
         return path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
 
     def _apply_document_text_extraction(self, path: Path, metadata: dict[str, Any], force: bool = False) -> bool:
-        """Store extracted text beside a document and make it part of full-text search."""
         current = metadata.get("text_extraction", {})
-        if not force and current.get("source_sha256") == metadata.get("sha256") and "extracted_text" in metadata:
-            return False
-        analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "extracted_at": utc_now(), "status": "completed"}
-        native_text = ""
-        image_text = ""
+        if not force and current.get("source_sha256") == metadata.get("sha256") and "extracted_text" in metadata: return False
+        analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "extracted_at": utc_now(), "status": "completed"}; native_text = ""; image_text = ""
         try:
-            if self._is_image(path):
-                native_text = metadata.get("ocr_text", "")
-                analysis["kind"] = "image"
-            elif path.suffix.lower() == ".pdf":
-                native_text = self._pdf_text(path)
-                image_text = self._pdf_image_ocr(path)
-                analysis["kind"] = "pdf"
-            else:
-                native_text, kind = self._file_text(path)
-                analysis["kind"] = kind
+            if self._is_image(path): native_text = metadata.get("ocr_text", ""); analysis["kind"] = "image"
+            elif path.suffix.lower() == ".pdf": native_text = self._pdf_text(path); image_text = self._pdf_image_ocr(path); analysis["kind"] = "pdf"
+            else: native_text, kind = self._file_text(path); analysis["kind"] = kind
         except RuntimeError as exc:
-            analysis["status"] = "partial"
-            analysis["error"] = str(exc)
-        combined = "\n".join(part for part in (native_text, image_text) if part).strip()
-        metadata["extracted_text"] = combined
-        metadata["text_extraction"] = {**analysis, "native_characters": len(native_text), "image_ocr_characters": len(image_text), "characters": len(combined)}
+            analysis["status"] = "partial"; analysis["error"] = str(exc)
+        combined = "\n".join(part for part in (native_text, image_text) if part).strip(); metadata["extracted_text"] = combined; metadata["text_extraction"] = {**analysis, "native_characters": len(native_text), "image_ocr_characters": len(image_text), "characters": len(combined)}
         return True
-
