@@ -9,9 +9,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
@@ -31,15 +33,29 @@ class GitHubReporterConfig:
     api_base: str = "https://api.github.com"
 
 
+def _read_token() -> str:
+    """Load the GitHub token without ever requiring it in repository files."""
+    token_file = os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE", "").strip()
+    if token_file:
+        path = Path(token_file)
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise RuntimeError("GitHub token file must be a regular file")
+        if info.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            raise RuntimeError("GitHub token file must not be accessible by group or others")
+        return path.read_text(encoding="utf-8").strip()
+    return os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_TOKEN", "").strip()
+
+
 def load_config() -> GitHubReporterConfig:
-    """Load reporter configuration from environment variables only."""
+    """Load reporter configuration from environment or a protected secret file."""
     enabled = os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPORTING", "0").strip().casefold() in {
         "1", "true", "yes", "on",
     }
     return GitHubReporterConfig(
         enabled=enabled,
         repository=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY", "").strip(),
-        token=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_TOKEN", "").strip(),
+        token=_read_token(),
         label=os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_LABEL", "").strip(),
         api_base=os.environ.get("SIMPLEOFFICE_GITHUB_API_BASE", "https://api.github.com").rstrip("/"),
     )
@@ -59,47 +75,29 @@ def safe_frames(frames: Iterable[Mapping[str, object]]) -> list[dict[str, object
     safe: list[dict[str, object]] = []
     for frame in frames:
         if "template" in frame:
-            safe.append(
-                {
-                    "template": sanitize_text(frame.get("template"), 240),
-                    "line": int(frame.get("line") or 0),
-                    "variable": sanitize_text(frame.get("variable"), 120),
-                }
-            )
+            safe.append({
+                "template": sanitize_text(frame.get("template"), 240),
+                "line": int(frame.get("line") or 0),
+                "variable": sanitize_text(frame.get("variable"), 120),
+            })
         else:
-            safe.append(
-                {
-                    "file": sanitize_text(frame.get("file"), 160),
-                    "line": int(frame.get("line") or 0),
-                    "function": sanitize_text(frame.get("function"), 160),
-                }
-            )
+            safe.append({
+                "file": sanitize_text(frame.get("file"), 160),
+                "line": int(frame.get("line") or 0),
+                "function": sanitize_text(frame.get("function"), 160),
+            })
     return safe[-12:]
 
 
-def build_report(
-    *,
-    exception_type: str,
-    exception_message: str,
-    endpoint: str,
-    method: str,
-    request_id: str,
-    fingerprint: str,
-    frames: Sequence[Mapping[str, object]],
-    app_version: str = "",
-) -> tuple[str, str]:
-    """Build an issue using a strict outbound allow-list.
-
-    ``exception_message`` is intentionally accepted for a stable caller API but
-    deliberately not serialized because arbitrary exception text can contain
-    customer or document data.
-    """
+def build_report(*, exception_type: str, exception_message: str, endpoint: str,
+                 method: str, request_id: str, fingerprint: str,
+                 frames: Sequence[Mapping[str, object]], app_version: str = "") -> tuple[str, str]:
+    """Build an issue using a strict outbound allow-list."""
     del exception_message
     exception_type = sanitize_text(exception_type, 120) or "ApplicationError"
     endpoint = sanitize_text(endpoint, 160) or "unknown"
     fingerprint = sanitize_text(fingerprint, 128)
     title = f"[auto] {exception_type} in {endpoint}"[:240]
-
     payload = {
         "request_id": sanitize_text(request_id, 64),
         "fingerprint": fingerprint,
@@ -112,8 +110,7 @@ def build_report(
     body = (
         "Automatisch von SimpleOffice gemeldet. Es werden ausschließlich "
         "freigegebene technische Metadaten übertragen; keine Logs, Anhänge, "
-        "Request-Daten oder Exception-Nachrichten.\n\n"
-        "```json\n"
+        "Request-Daten oder Exception-Nachrichten.\n\n```json\n"
         + json.dumps(payload, ensure_ascii=False, indent=2)
         + "\n```\n\n"
         + f"<!-- simpleoffice-error:{fingerprint} -->"
@@ -121,8 +118,18 @@ def build_report(
     return title, body
 
 
+def _validated_api_base(value: str) -> str:
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("SIMPLEOFFICE_GITHUB_API_BASE must be an HTTPS URL without credentials")
+    return value.rstrip("/")
+
+
 def _request_json(config: GitHubReporterConfig, method: str, path: str, payload: dict | None = None) -> object:
-    url = f"{config.api_base}{path}"
+    api_base = _validated_api_base(config.api_base)
+    if not path.startswith("/"):
+        raise ValueError("GitHub API path must be absolute")
+    url = f"{api_base}{path}"
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, method=method)
     request.add_header("Accept", "application/vnd.github+json")
@@ -131,12 +138,12 @@ def _request_json(config: GitHubReporterConfig, method: str, path: str, payload:
     request.add_header("User-Agent", "SimpleOffice4Me-error-reporter")
     if data is not None:
         request.add_header("Content-Type", "application/json")
+    # nosec B310: _validated_api_base() enforces HTTPS and rejects URL credentials.
     with urllib.request.urlopen(request, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def find_existing_issue(config: GitHubReporterConfig, fingerprint: str) -> int | None:
-    """Find an open issue carrying this reporter fingerprint."""
     if not fingerprint:
         return None
     marker = f"simpleoffice-error:{sanitize_text(fingerprint, 128)}"
@@ -163,28 +170,17 @@ def issue_url(config: GitHubReporterConfig, issue_number: int) -> str:
     return f"https://github.com/{config.repository}/issues/{int(issue_number)}"
 
 
-def report_error(
-    *,
-    exception_type: str,
-    exception_message: str,
-    endpoint: str,
-    method: str,
-    request_id: str,
-    fingerprint: str,
-    frames: Sequence[Mapping[str, object]],
-    app_version: str = "",
-) -> int | None:
-    """Create one deduplicated GitHub issue, or return None when disabled."""
+def report_error(*, exception_type: str, exception_message: str, endpoint: str,
+                 method: str, request_id: str, fingerprint: str,
+                 frames: Sequence[Mapping[str, object]], app_version: str = "") -> int | None:
     config = load_config()
     if not config.enabled or not config.repository or not config.token:
         return None
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", config.repository):
         raise ValueError("Invalid SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY")
-
     existing = find_existing_issue(config, fingerprint)
     if existing is not None:
         return existing
-
     title, body = build_report(
         exception_type=exception_type,
         exception_message=exception_message,
