@@ -16,6 +16,8 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Public endpoint only; never expose the GitHub token to desktop packages.
+  SIMPLEOFFICE_ERROR_REPORT_URL: ${{ vars.SIMPLEOFFICE_ERROR_REPORT_URL }}
 
 jobs:
   build:
@@ -45,6 +47,21 @@ jobs:
       - name: Install Electron dependencies
         working-directory: desktop/electron
         run: npm install --no-audit --no-fund
+      - name: Embed public error relay configuration
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const value = (process.env.SIMPLEOFFICE_ERROR_REPORT_URL || '').trim();
+          if (value && !value.startsWith('https://')) {
+            throw new Error('SIMPLEOFFICE_ERROR_REPORT_URL must use HTTPS');
+          }
+          fs.writeFileSync(
+            'desktop/electron/build-config.json',
+            JSON.stringify({ errorReportUrl: value }, null, 2) + '\n',
+            'utf8'
+          );
+          NODE
       - name: Build Python backend
         working-directory: desktop/electron
         run: npm run build:backend
