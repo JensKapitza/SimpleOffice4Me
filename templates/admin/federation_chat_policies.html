@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h2 mb-1">Chat-Regeln</h1><p class="text-secondary mb-0">Lege pro Federation-Partner fest, was gesendet und angenommen werden darf.</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Zur Federation</a>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+
+  <div class="alert alert-secondary small">
+    Nicht aktivierte Funktionen sind verboten. Strukturierte Aktionen werden auf beiden Servern geprüft; bei Ablehnung werden keine Nutzdaten übertragen.
+  </div>
+
+  {% for peer in peers %}
+  <section class="card mb-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span><strong>{{ peer.label or peer.peer_id }}</strong> <code class="ms-1">{{ peer.peer_id }}</code></span>
+      <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'deaktiviert' }}</span>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('federation_admin.save_chat_policy', peer_id=peer.peer_id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="table-responsive">
+          <table class="table align-middle mb-3">
+            <thead><tr><th>Funktion</th><th class="text-center">Senden erlauben</th><th class="text-center">Empfangen erlauben</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Chat allgemein</strong><div class="small text-secondary">Textnachrichten und Voraussetzung für alle Chat-Funktionen.</div></td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_send" value="1" aria-label="Chat senden" {% if peer.chat_policy.send %}checked{% endif %}></td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_receive" value="1" aria-label="Chat empfangen" {% if peer.chat_policy.receive %}checked{% endif %}></td>
+              </tr>
+              {% for action, label in chat_action_labels.items() %}
+              <tr>
+                <td><strong>{{ label }}</strong>{% if action == 'contact' %}<div class="small text-secondary">Kontakte anbieten oder übernehmen.</div>{% elif action == 'poll' %}<div class="small text-secondary">Umfragen senden oder beantworten.</div>{% elif action == 'request' %}<div class="small text-secondary">Strukturierte Anforderungen, z. B. Kontakt ergänzen oder Datei hochladen.</div>{% endif %}</td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_{{ action }}_send" value="1" aria-label="{{ label }} senden" {% if peer.chat_policy.actions[action].send %}checked{% endif %}></td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_{{ action }}_receive" value="1" aria-label="{{ label }} empfangen" {% if peer.chat_policy.actions[action].receive %}checked{% endif %}></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit">Regeln speichern</button></div>
+      </form>
+    </div>
+  </section>
+  {% else %}
+  <div class="alert alert-info">Noch keine Federation-Partner eingerichtet.</div>
+  {% endfor %}
+</main>
+{% endblock %}
