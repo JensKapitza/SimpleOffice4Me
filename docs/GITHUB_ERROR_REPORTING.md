@@ -121,7 +121,7 @@ Windows-, Linux- und macOS-Pakete benötigen dadurch ebenfalls keinen GitHub-Tok
 
 ## Manuelle Meldung über GitHub-App oder Browser
 
-Kann ein Fehler nicht automatisch übertragen werden, zeigt die lokale 500-Seite einen Link **„Fehler auf GitHub melden“**. Er öffnet die normale GitHub-Seite zum Erstellen eines Issues und enthält lediglich die Request-ID sowie einen kurzen Hinweistext.
+Kann ein Fehler nicht automatisch übertragen werden, zeigt die lokale 500-Seite einen Link **„Fehler auf GitHub melden“**. Der Link öffnet die normale GitHub-Seite zum Erstellen eines Issues und füllt eine datensparsame technische Diagnose vor. Enthalten sind Request-ID, Fingerprint, Exception-Typ, Endpoint, Methode, optionale Version und höchstens die sechs nächsten bereinigten Stack-Koordinaten. Die Exception-Nachricht, Request-Inhalte, Kundendaten, Benutzerkennung, Logs und Zugangsdaten werden auch bei diesem Weg nicht in die URL übernommen.
 
 Die Android-Hülle von SimpleOffice4Me gibt externe HTTPS-Links über Android `ACTION_VIEW` an das Betriebssystem weiter. Ist die GitHub-App als Handler eingerichtet, kann sie den Link übernehmen; andernfalls wird der Browser verwendet. Die Electron-Hülle öffnet externe HTTP/HTTPS-Links über den Systembrowser. Ein GitHub-Token wird dafür nicht in SimpleOffice gespeichert.
 
