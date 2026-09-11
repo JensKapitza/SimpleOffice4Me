@@ -2,25 +2,49 @@
 {% block title %}Chat · SimpleOffice4Me{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-fluid py-3">
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div><h1 class="h3 mb-1">Chat</h1><p class="text-secondary mb-0">Direkte Nachrichten, Dokumentanhänge und Federation.</p></div>
+    <a class="btn btn-primary d-xl-none" href="#new-chat"><i class="fas fa-plus me-1" aria-hidden="true"></i>Neuer Chat</a>
+  </div>
   <div class="row g-3">
-    <section class="col-xl-8">
-      <div class="mb-3"><h1 class="h3 mb-1">Chat</h1><p class="text-secondary mb-0">Text und Dokumentanhänge. Administratoren können Chats zur Administration einsehen.</p></div>
-      {% if rooms %}<div class="list-group">
-        {% for room in rooms %}<a class="list-group-item list-group-item-action" href="{{ url_for('chat.room', room_id=room.room_id) }}"><div class="d-flex justify-content-between gap-3"><strong>{{ room.title }}</strong>{% if room.remote_peer_id %}<span class="badge text-bg-secondary">Federation</span>{% endif %}</div><div class="small text-secondary mt-1">{% for participant in room.participants %}{{ participant.username }}{% if participant.participant_kind == 'remote' %}@{{ participant.peer_id }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</div></a>{% endfor %}
-      </div>{% else %}<div class="alert alert-secondary">Noch keine Chats vorhanden.</div>{% endif %}
+    <section class="col-xl-8" aria-labelledby="chat-list-heading">
+      <h2 id="chat-list-heading" class="visually-hidden">Chats</h2>
+      {% if rooms %}
+        <div class="list-group shadow-sm">
+          {% for room in rooms %}
+            <a class="list-group-item list-group-item-action py-3" href="{{ url_for('chat.room', room_id=room.room_id) }}">
+              <div class="d-flex justify-content-between align-items-start gap-3">
+                <div class="min-w-0">
+                  <strong class="d-block text-truncate">{{ room.title }}</strong>
+                  <div class="small text-secondary mt-1 text-truncate">
+                    {% for participant in room.participants %}{{ participant.username }}{% if participant.participant_kind == 'remote' %}@{{ participant.peer_id }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+                  </div>
+                </div>
+                {% if room.remote_peer_id %}<span class="badge text-bg-secondary flex-shrink-0"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</span>{% endif %}
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="card border-0 bg-body-tertiary"><div class="card-body text-center py-5"><i class="far fa-comments fa-3x text-secondary mb-3" aria-hidden="true"></i><p class="mb-1 fw-semibold">Noch keine Chats</p><p class="text-secondary mb-0">Lege rechts deinen ersten lokalen oder federierten Chat an.</p></div></div>
+      {% endif %}
     </section>
-    <aside class="col-xl-4"><div class="card"><div class="card-body">
-      <h2 class="h5">Neuer Chat</h2>
-      <form method="post" action="{{ url_for('chat.create_room') }}">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <div class="mb-3"><label class="form-label" for="chat-title">Titel</label><input class="form-control" id="chat-title" name="title" maxlength="200" placeholder="z. B. Projekt Müller"></div>
-        <fieldset class="mb-3"><legend class="form-label fs-6">Lokale Teilnehmer</legend><div class="vstack gap-1">{% for user in users %}{% if user.username != g.user['username'] %}<label class="form-check"><input class="form-check-input" type="checkbox" name="local_users" value="{{ user.username }}"><span class="form-check-label">{{ user.display_name or user.username }}{% if user.is_admin %} <span class="text-secondary">(Admin)</span>{% endif %}</span></label>{% endif %}{% endfor %}</div></fieldset>
-        <div class="mb-3"><label class="form-label" for="remote-peer">Federation-Peer <span class="text-secondary">(optional)</span></label><select class="form-select" id="remote-peer" name="remote_peer_id"><option value="">Nur lokal</option>{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} ({{ peer.peer_id }})</option>{% endfor %}</select></div>
-        <div class="mb-3"><label class="form-label" for="remote-users">Benutzer auf dem Peer</label><input class="form-control" id="remote-users" name="remote_users" placeholder="anna, peter"><div class="form-text">Stufe 1 bindet einen Chat an höchstens einen Federation-Peer.</div></div>
-        <button class="btn btn-primary" type="submit"><i class="fas fa-plus me-1" aria-hidden="true"></i>Chat anlegen</button>
-      </form>
-    </div></div></aside>
+    <aside class="col-xl-4" id="new-chat">
+      <div class="card shadow-sm position-xl-sticky" style="top:5rem;">
+        <div class="card-body">
+          <h2 class="h5 mb-3"><i class="fas fa-comment-medical me-1" aria-hidden="true"></i>Neuer Chat</h2>
+          <form method="post" action="{{ url_for('chat.create_room') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3"><label class="form-label" for="chat-title">Titel</label><input class="form-control" id="chat-title" name="title" maxlength="200" placeholder="z. B. Projekt Müller" autocomplete="off"></div>
+            <fieldset class="mb-3"><legend class="form-label fs-6">Lokale Teilnehmer</legend><div class="vstack gap-1 border rounded p-2" style="max-height:14rem;overflow:auto;">{% for user in users %}{% if user.username != g.user['username'] %}<label class="form-check"><input class="form-check-input" type="checkbox" name="local_users" value="{{ user.username }}"><span class="form-check-label">{{ user.display_name or user.username }}{% if user.is_admin %} <span class="text-secondary">(Admin)</span>{% endif %}</span></label>{% endif %}{% endfor %}</div></fieldset>
+            <div class="mb-3"><label class="form-label" for="remote-peer">Federation-Peer <span class="text-secondary">(optional)</span></label><select class="form-select" id="remote-peer" name="remote_peer_id"><option value="">Nur lokal</option>{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} ({{ peer.peer_id }})</option>{% endfor %}</select></div>
+            <div class="mb-3"><label class="form-label" for="remote-users">Benutzer auf dem Peer</label><input class="form-control" id="remote-users" name="remote_users" placeholder="anna, peter" autocomplete="off"><div class="form-text">Mehrere Benutzernamen mit Komma trennen.</div></div>
+            <button class="btn btn-primary w-100" type="submit"><i class="fas fa-plus me-1" aria-hidden="true"></i>Chat anlegen</button>
+          </form>
+        </div>
+      </div>
+    </aside>
   </div>
 </main>
 {% endblock %}
