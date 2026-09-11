@@ -1,4 +1,4 @@
-"""Authenticated federation endpoints for offline SimpleOffice releases."""
+"""Authenticated federation endpoints for offline SimpleOffice releases and installers."""
 from __future__ import annotations
 
 from typing import Any
@@ -8,6 +8,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from .federation_core import build_manifest, chunk_range, normalize_sha256
 from .federation_http import _authorized, _send
 from .federation_store import FederationStore
+from .software_artifacts import SoftwareArtifactStore
 from .software_distribution import SoftwareDistributionStore, local_release_info
 
 bp = Blueprint("federation_software_http", __name__, url_prefix="/federation/v1/software")
@@ -15,6 +16,10 @@ bp = Blueprint("federation_software_http", __name__, url_prefix="/federation/v1/
 
 def _distribution() -> SoftwareDistributionStore:
     return SoftwareDistributionStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _artifacts() -> SoftwareArtifactStore:
+    return SoftwareArtifactStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _federation() -> FederationStore:
@@ -52,9 +57,48 @@ def software_status():
         "software_distribution": True,
         "local": local_release_info(),
         "latest": _public_release(distribution.latest()),
+        "artifacts": _artifacts().catalog(),
         "policy": "explicit-peer-policy",
         "update_mode": "git-fast-forward-only",
     })
+
+
+@bp.get("/artifacts")
+def artifact_catalog():
+    return jsonify({"schema": 1, "artifacts": _artifacts().catalog()})
+
+
+@bp.get("/artifacts/<digest>/manifest")
+def artifact_manifest(digest: str):
+    try:
+        path = _artifacts().artifact_path(digest)
+        return jsonify(build_manifest(path))
+    except ValueError:
+        return jsonify({"error": "artifact_not_found"}), 404
+
+
+@bp.route("/artifacts/<digest>/blob", methods=["GET", "HEAD"])
+def artifact_blob(digest: str):
+    try:
+        normalized = normalize_sha256(digest)
+        path = _artifacts().artifact_path(normalized)
+    except ValueError:
+        return jsonify({"error": "artifact_not_found"}), 404
+    return _send(path, normalized)
+
+
+@bp.route("/artifacts/<digest>/chunks/<int:index>", methods=["GET", "HEAD"])
+def artifact_chunk(digest: str, index: int):
+    try:
+        normalized = normalize_sha256(digest)
+        path = _artifacts().artifact_path(normalized)
+        manifest = build_manifest(path)
+        start, end = chunk_range(index, path.stat().st_size, int(manifest["chunk_size"]))
+    except (ValueError, IndexError):
+        return jsonify({"error": "chunk_not_found"}), 404
+    if start < 0 or end < start or start >= path.stat().st_size:
+        return jsonify({"error": "chunk_not_found"}), 404
+    return _send(path, normalized, (start, end))
 
 
 @bp.get("/releases/current")
@@ -114,13 +158,38 @@ def receive_offer():
     software = policy.get("software", {}) if isinstance(policy, dict) else {}
     if software.get("receive") is not True:
         return jsonify({"error": "software_receive_not_allowed"}), 403
+
+    artifacts = body.get("artifacts")
     try:
-        entry = _distribution().record_offer(source_peer, body)
+        artifact_entries = _artifacts().record_offer(source_peer, artifacts if artifacts is not None else [])
     except (TypeError, ValueError):
-        return jsonify({"error": "invalid_offer"}), 400
+        return jsonify({"error": "invalid_artifact_offer"}), 400
+
+    release = body.get("release") or {}
+    bundle = body.get("bundle") or {}
+    release_entry = None
+    if release or bundle:
+        if not release or not bundle:
+            return jsonify({"error": "invalid_offer"}), 400
+        try:
+            release_entry = _distribution().record_offer(source_peer, body)
+        except (TypeError, ValueError):
+            return jsonify({"error": "invalid_offer"}), 400
+
+    if release_entry is None and not artifact_entries:
+        return jsonify({"error": "empty_offer"}), 400
+
     _federation().record_event(
         "software_offer_received",
         peer_id=source_peer,
-        detail={"release": entry.get("release", {}), "bundle": entry.get("bundle", {})},
+        detail={
+            "release": release_entry.get("release", {}) if release_entry else {},
+            "bundle": release_entry.get("bundle", {}) if release_entry else {},
+            "artifacts": len(artifact_entries),
+        },
     )
-    return jsonify({"accepted": True, "status": entry["status"]}), 202
+    return jsonify({
+        "accepted": True,
+        "status": release_entry["status"] if release_entry else "artifacts-only",
+        "artifacts": len(artifact_entries),
+    }), 202
