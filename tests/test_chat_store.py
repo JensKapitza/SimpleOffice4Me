@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.chat_policy import action_allowed, record_policy_notice
 from app.chat_store import ChatStore
 
 
@@ -47,6 +48,26 @@ class ChatStoreTest(unittest.TestCase):
         ready = self.store.set_attachment_document(attachment["attachment_id"], "doc-123")
         self.assertEqual("ready", ready["state"])
         self.assertEqual("doc-123", ready["document_id"])
+
+    def test_structured_action_policy_is_default_deny(self):
+        peer = {"enabled": True, "policy": {"chat": {"send": True, "receive": True}}}
+        self.assertFalse(action_allowed(peer, "contact", "send"))
+        self.assertFalse(action_allowed(peer, "contact", "receive"))
+        peer["policy"]["chat"]["actions"] = {"contact": {"send": True, "receive": True}}
+        self.assertTrue(action_allowed(peer, "contact", "send"))
+        self.assertTrue(action_allowed(peer, "contact", "receive"))
+        self.assertTrue(action_allowed(peer, "text", "receive"))
+
+    def test_policy_notice_contains_no_blocked_payload(self):
+        room = self.store.create_room("Kontakt", "alice", [])
+        related = "44444444-4444-4444-8444-444444444444"
+        notice = record_policy_notice(self.store, room["room_id"], related, "contact", "sender_remote", peer_id="peer-a")
+        self.assertEqual("system", notice["message_type"])
+        self.assertEqual("policy_denied", notice["payload"]["event"])
+        self.assertEqual("admin_policy", notice["payload"]["reason_code"])
+        self.assertNotIn("contact", notice["payload"].get("data", {}))
+        again = record_policy_notice(self.store, room["room_id"], related, "contact", "sender_remote", peer_id="peer-a")
+        self.assertEqual(notice["message_id"], again["message_id"])
 
 
 if __name__ == "__main__":
