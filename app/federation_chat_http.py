@@ -62,8 +62,8 @@ def action_preflight():
             _federation().record_event("chat_action_policy_denied",peer_id=peer["peer_id"],detail={"message_id":message_id,"action":action,"direction":"receive"})
             return jsonify({"ok":False,"allowed":False,"reason_code":"admin_policy","action":action}),403
         return jsonify({"ok":True,"allowed":True,"action":action}),200
-    except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError) as exc:
-        return jsonify({"error":"invalid_chat_policy_preflight","detail":str(exc)[:500]}),400
+    except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError):
+        return jsonify({"error":"invalid_chat_policy_preflight"}),400
 
 @bp.post("/events")
 def receive_event():
@@ -89,7 +89,7 @@ def receive_event():
             chat.register_attachment(message_id,_uuid(item.get("attachment_id","") ,"Anhang-ID"),str(item.get("filename") or "datei"),str(item.get("mime_type") or "application/octet-stream"),int(item.get("size") or 0),str(item.get("sha256") or ""),str(item.get("visibility") or "chat"),state="pending")
         _federation().record_event("chat_message_received",peer_id=peer["peer_id"],detail={"message_id":message_id,"attachments":len(attachments)})
         return jsonify({"ok":True,"room_id":room_id,"message_id":message_id}),201
-    except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError) as exc: return jsonify({"error":"invalid_chat_event","detail":str(exc)[:500]}),400
+    except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError): return jsonify({"error":"invalid_chat_event"}),400
 
 @bp.post("/attachments/<attachment_id>")
 def receive_attachment(attachment_id: str):
@@ -103,7 +103,7 @@ def receive_attachment(attachment_id: str):
         document=save_attachment(_root(),payload,item["filename"],f"federation:{peer['peer_id']}",room_id=room["room_id"],attachment_id=attachment_id,local_users=chat.local_users(room["room_id"]),admin_users=_admins(),visibility=item["visibility"],source_peer=peer["peer_id"],max_bytes=int(current_app.config.get("MAX_CONTENT_LENGTH",512*1024*1024)))
         chat.set_attachment_document(attachment_id,document["document_id"]); _federation().record_event("chat_attachment_received",peer_id=peer["peer_id"],detail={"attachment_id":attachment_id,"document_id":document["document_id"]})
         return jsonify({"ok":True,"attachment_id":attachment_id,"document_id":document["document_id"]}),201
-    except (ValueError,PermissionError,OSError,RuntimeError) as exc: return jsonify({"error":"invalid_chat_attachment","detail":str(exc)[:500]}),400
+    except (ValueError,PermissionError,OSError,RuntimeError): return jsonify({"error":"invalid_chat_attachment"}),400
 
 @bp.get("/health")
 def health(): return Response("chat federation endpoint\n",200,{"Content-Type":"text/plain; charset=utf-8","Cache-Control":"no-store"})
