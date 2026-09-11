@@ -32,6 +32,7 @@ DYNAMIC_LAYOUT_ASSETS = {
     "manifest-files.webmanifest",
     "manifest-slideshow.webmanifest",
 }
+STATE_CHANGING_GET_ENDPOINTS = {"auth.logout"}
 
 
 def _literal_endpoints(path: Path) -> set[str]:
@@ -196,7 +197,7 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         failures: list[str] = []
         tested: list[str] = []
         for endpoint in sorted(_all_template_endpoints()):
-            if endpoint.startswith(".") or endpoint == "static":
+            if endpoint.startswith(".") or endpoint == "static" or endpoint in STATE_CHANGING_GET_ENDPOINTS:
                 continue
             rule = _parameterless_get_rule(endpoint)
             if rule is None:
@@ -217,6 +218,8 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         tested: list[str] = []
 
         for endpoint in sorted(nav_endpoints):
+            if endpoint in STATE_CHANGING_GET_ENDPOINTS:
+                continue
             rule = _parameterless_get_rule(endpoint)
             if rule is None:
                 continue
