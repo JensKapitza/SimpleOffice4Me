@@ -136,5 +136,18 @@ def activity_for(target_type: str, target_id: str, *, limit: int = 200):
 
 
 def error_fingerprint(exception_type: str, endpoint: str, method: str, path: str) -> str:
-    value = "\0".join((exception_type, endpoint, method, path)).encode("utf-8", "replace")
+    """Return a stable failure identity without attacker-controlled route cardinality.
+
+    Flask endpoint names identify a route independently of dynamic URL values.  Raw
+    paths are used only as a fallback when no endpoint exists, so varying record IDs
+    or slugs cannot manufacture unlimited fingerprints for the same route failure.
+    """
+    safe_endpoint = str(endpoint or "")[:160]
+    route_identity = safe_endpoint or str(path or "")[:500]
+    value = "\0".join((
+        str(exception_type or "")[:120],
+        safe_endpoint,
+        str(method or "")[:12].upper(),
+        route_identity,
+    )).encode("utf-8", "replace")
     return hashlib.sha256(value).hexdigest()[:20]
