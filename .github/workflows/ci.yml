@@ -39,6 +39,8 @@ jobs:
           python -m pip install --editable ".[security]"
       - name: Enforce source file size limit
         run: python tools/check_file_size.py . --limit 1000
+      - name: Enforce function size limit
+        run: python tools/check_function_size.py app tools --limit 300
       - name: Compile Python sources
         run: python -m compileall -q app tools
       - name: Run unit tests
