@@ -15,7 +15,7 @@ from .access_control import is_admin
 from .auth import login_required
 from .federation_store import FederationStore
 from .federation_worker import _json_request
-from .software_artifacts import SoftwareArtifactStore
+from .software_artifact_config import ConfiguredSoftwareArtifactStore, SoftwareArtifactConfiguration
 from .software_distribution import SoftwareDistributionStore, local_release_info
 
 bp = Blueprint("software_admin", __name__, url_prefix="/admin/software")
@@ -42,8 +42,12 @@ def _distribution() -> SoftwareDistributionStore:
     return SoftwareDistributionStore(current_app.config["DOCUMENT_ROOT"])
 
 
-def _artifacts() -> SoftwareArtifactStore:
-    return SoftwareArtifactStore(current_app.config["DOCUMENT_ROOT"])
+def _artifacts() -> ConfiguredSoftwareArtifactStore:
+    return ConfiguredSoftwareArtifactStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _artifact_configuration() -> SoftwareArtifactConfiguration:
+    return SoftwareArtifactConfiguration(current_app.config["DOCUMENT_ROOT"])
 
 
 def _federation() -> FederationStore:
@@ -107,6 +111,32 @@ def download_release(digest: str):
     except ValueError:
         abort(404)
     return send_file(path, as_attachment=True, download_name=f"simpleoffice-selfdeploy-{digest[:12]}.zip")
+
+
+@bp.post("/artifacts/github-config")
+@admin_required
+def save_github_artifact_config():
+    try:
+        configuration = _artifact_configuration()
+        result = configuration.save(
+            request.form.get("github_repository", ""),
+            token=request.form.get("github_token", ""),
+            clear_token=request.form.get("clear_github_token") == "1",
+            actor=str(g.user["username"]),
+        )
+        _federation().record_event(
+            "software_artifact_github_config_changed",
+            detail={
+                "repository": result["repository"],
+                "token_configured": bool(result["configured"]),
+                "source": result["source"],
+                "actor": str(g.user["username"]),
+            },
+        )
+        flash("GitHub-Artefaktquelle gespeichert.")
+    except Exception as exc:
+        flash(f"GitHub-Artefaktquelle konnte nicht gespeichert werden: {exc}")
+    return _redirect()
 
 
 @bp.post("/artifacts/upload")
