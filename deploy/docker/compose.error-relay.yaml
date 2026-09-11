@@ -32,6 +32,9 @@ services:
       - CHOWN
       - SETUID
       - SETGID
+      # Needed only during bootstrap to read the owner-only host bind mount;
+      # the token is immediately copied to the private /tmp tmpfs before gosu.
+      - DAC_READ_SEARCH
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=64m
 
