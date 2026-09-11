@@ -3,6 +3,12 @@ plugins {
     id 'com.chaquo.python'
 }
 
+def errorReportUrl = (System.getenv('SIMPLEOFFICE_ERROR_REPORT_URL') ?: '').trim()
+if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
+    throw new GradleException('SIMPLEOFFICE_ERROR_REPORT_URL must use https://')
+}
+def escapedErrorReportUrl = errorReportUrl.replace('\\', '\\\\').replace('"', '\\"')
+
 android {
     namespace 'de.simpleoffice4me.android'
     compileSdk 36
@@ -13,6 +19,7 @@ android {
         targetSdk 36
         versionCode 3
         versionName '1.0.2'
+        buildConfigField 'String', 'ERROR_REPORT_URL', "\"${escapedErrorReportUrl}\""
 
         ndk {
             abiFilters 'arm64-v8a'
