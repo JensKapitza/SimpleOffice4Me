@@ -1,7 +1,8 @@
 {% extends "layout.html" %}
 {% block title %}Daten-Roulette Rangliste{% endblock %}
-{% block content %}
-<section class="container py-3" style="max-width: 900px">
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-3" style="max-width: 900px">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div><h1 class="h3 mb-1">Rangliste</h1><p class="text-muted mb-0">Nur bestätigte menschliche Verbesserungen zählen.</p></div>
     <div class="d-flex gap-2"><a class="btn btn-outline-secondary" href="{{ url_for('gamification.manage') }}">Verwalten</a><a class="btn btn-outline-primary" href="{{ url_for('gamification.index') }}">Roulette</a></div>
@@ -11,5 +12,5 @@
     {% for row in rows %}<tr{% if row.participant == g.user['username'] %} class="table-active"{% endif %}><td>{{ loop.index }}</td><td>{{ row.participant }}</td><td>{{ row.xp }}</td><td>{{ row.accepted_fixes }}</td></tr>{% else %}<tr><td colspan="4" class="text-muted">Noch keine bestätigten Beiträge.</td></tr>{% endfor %}
   </tbody></table></div></div>
   <p class="small text-muted mt-3 mb-0">AI-/System-Vorschläge, bloße Antworten sowie „Weiß ich nicht“ erzeugen keine Ranglistenpunkte.</p>
-</section>
+</main>
 {% endblock %}
