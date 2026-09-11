@@ -1,4 +1,4 @@
-"""Admin UI for self-deploy bundles and federation-delivered offline updates."""
+"""Admin UI for self-deploy bundles, installer artifacts and offline updates."""
 from __future__ import annotations
 
 import os
@@ -15,6 +15,7 @@ from .access_control import is_admin
 from .auth import login_required
 from .federation_store import FederationStore
 from .federation_worker import _json_request
+from .software_artifacts import SoftwareArtifactStore
 from .software_distribution import SoftwareDistributionStore, local_release_info
 
 bp = Blueprint("software_admin", __name__, url_prefix="/admin/software")
@@ -41,6 +42,10 @@ def _distribution() -> SoftwareDistributionStore:
     return SoftwareDistributionStore(current_app.config["DOCUMENT_ROOT"])
 
 
+def _artifacts() -> SoftwareArtifactStore:
+    return SoftwareArtifactStore(current_app.config["DOCUMENT_ROOT"])
+
+
 def _federation() -> FederationStore:
     return FederationStore(current_app.config["DOCUMENT_ROOT"])
 
@@ -64,12 +69,16 @@ def _local_peer_id() -> str:
 @admin_required
 def index():
     distribution = _distribution()
+    artifacts = _artifacts()
     return render_template(
         "admin/software_updates.html",
         local_release=local_release_info(),
         built_release=distribution.latest(),
         offers=distribution.offers(),
         staged=distribution.staged(),
+        installer_artifacts=artifacts.catalog(),
+        installer_offers=artifacts.offers(),
+        github_artifacts=artifacts.github_sync_info(),
         peers=_federation().list_peers(),
         local_peer_id=_local_peer_id(),
     )
@@ -100,6 +109,111 @@ def download_release(digest: str):
     return send_file(path, as_attachment=True, download_name=f"simpleoffice-selfdeploy-{digest[:12]}.zip")
 
 
+@bp.post("/artifacts/upload")
+@admin_required
+def upload_artifact():
+    upload = request.files.get("artifact")
+    if upload is None or not upload.filename:
+        flash("Keine Installationsdatei ausgewählt.")
+        return _redirect()
+    try:
+        entry = _artifacts().cache_stream(upload.stream, upload.filename, source="admin-upload")
+        _federation().record_event(
+            "software_artifact_cached",
+            detail={"sha256": entry["sha256"], "name": entry["name"], "actor": str(g.user["username"])},
+        )
+        flash(f"Installations-Artefakt offline gespeichert: {entry['name']}")
+    except Exception as exc:
+        flash(f"Installations-Artefakt konnte nicht gespeichert werden: {exc}")
+    return _redirect()
+
+
+@bp.post("/artifacts/github-sync")
+@admin_required
+def github_sync_artifacts():
+    try:
+        result = _artifacts().sync_from_github()
+        _federation().record_event(
+            "software_artifacts_github_sync",
+            detail={
+                "repository": result["repository"],
+                "count": len(result["artifacts"]),
+                "actor": str(g.user["username"]),
+            },
+        )
+        flash(f"GitHub-Artefakte synchronisiert: {len(result['artifacts'])} Installationsdateien im Offline-Cache.")
+    except Exception as exc:
+        flash(f"GitHub-Artefakt-Sync fehlgeschlagen: {exc}")
+    return _redirect()
+
+
+@bp.get("/artifacts/<digest>/download")
+@admin_required
+def download_artifact(digest: str):
+    try:
+        store = _artifacts()
+        path = store.artifact_path(digest)
+        entry = next(item for item in store.catalog() if item["sha256"] == digest.casefold())
+    except (StopIteration, ValueError):
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=entry["name"])
+
+
+@bp.post("/artifacts/<digest>/delete")
+@admin_required
+def delete_artifact(digest: str):
+    try:
+        entry = _artifacts().delete(digest)
+        _federation().record_event(
+            "software_artifact_deleted",
+            detail={"sha256": entry["sha256"], "name": entry["name"], "actor": str(g.user["username"])},
+        )
+        flash(f"Installations-Artefakt aus Offline-Cache gelöscht: {entry['name']}")
+    except Exception as exc:
+        flash(f"Installations-Artefakt konnte nicht gelöscht werden: {exc}")
+    return _redirect()
+
+
+@bp.post("/peers/<peer_id>/artifacts/check")
+@admin_required
+def check_peer_artifacts(peer_id: str):
+    federation = _federation()
+    peer = federation.get_peer(peer_id)
+    try:
+        if not peer or not peer.get("enabled"):
+            raise ValueError("Peer ist nicht aktiv")
+        if not _policy(peer, "receive"):
+            raise ValueError("Peer-Policy muss software.receive=true erlauben")
+        data = _json_request(
+            peer["base_url"] + "/federation/v1/software/artifacts",
+            token=federation.peer_token(peer_id),
+            timeout=60,
+        )
+        entries = _artifacts().record_offer(peer_id, data.get("artifacts") or [])
+        federation.set_peer_health(peer_id, seen=True)
+        flash(f"Installer-Katalog von {peer['label']} geladen: {len(entries)} Artefakte.")
+    except Exception as exc:
+        federation.set_peer_health(peer_id, error=str(exc))
+        flash(f"Installer-Katalog konnte nicht geladen werden: {exc}")
+    return _redirect()
+
+
+@bp.post("/peers/<peer_id>/artifacts/<digest>/cache")
+@admin_required
+def cache_peer_artifact(peer_id: str, digest: str):
+    try:
+        entry = _artifacts().cache_from_peer(peer_id, digest)
+        _federation().record_event(
+            "software_artifact_received",
+            peer_id=peer_id,
+            detail={"sha256": entry["sha256"], "name": entry["name"], "actor": str(g.user["username"])},
+        )
+        flash(f"Installations-Artefakt vollständig geladen und geprüft: {entry['name']}")
+    except Exception as exc:
+        flash(f"Installations-Artefakt konnte nicht geladen werden: {exc}")
+    return _redirect()
+
+
 @bp.post("/peers/<peer_id>/check")
 @admin_required
 def check_peer(peer_id: str):
@@ -113,13 +227,21 @@ def check_peer(peer_id: str):
         latest = data.get("latest") or {}
         release = latest.get("release") or {}
         bundle = latest.get("bundle") or {}
+        installer_entries = data.get("artifacts") or []
+        if installer_entries:
+            _artifacts().record_offer(peer_id, installer_entries)
         if not release or not bundle:
+            if installer_entries:
+                flash(f"Peer hat kein Self-Deploy-Release, aber {len(installer_entries)} Installations-Artefakte angeboten.")
+                _federation().set_peer_health(peer_id, seen=True)
+                return _redirect()
             raise ValueError("Peer hat noch kein Software-Release gebaut")
         offer = _distribution().record_offer(peer_id, {"release": release, "bundle": bundle})
         if offer["status"] == "available":
             flash(f"Neuere Version gefunden: {release.get('version')} / {str(release.get('revision', ''))[:12]}")
         else:
-            flash("Peer ist nicht neuer als diese Instanz.")
+            suffix = f" · {len(installer_entries)} Installer angeboten" if installer_entries else ""
+            flash("Peer ist nicht neuer als diese Instanz." + suffix)
         _federation().set_peer_health(peer_id, seen=True)
     except Exception as exc:
         _federation().set_peer_health(peer_id, error=str(exc))
@@ -138,23 +260,35 @@ def offer_peer(peer_id: str):
         if not _policy(peer, "send"):
             raise ValueError("Peer-Policy muss software.send=true erlauben")
         latest = _distribution().latest()
-        if not latest:
-            raise ValueError("Zuerst ein Self-Deploy-Paket bauen")
+        artifacts = _artifacts().catalog()
+        if not latest and not artifacts:
+            raise ValueError("Zuerst ein Self-Deploy-Paket bauen oder Installations-Artefakte cachen")
         source_peer = request.form.get("source_peer", "").strip() or _local_peer_id()
         payload = {
             "source_peer": source_peer,
-            "release": latest["release"],
-            "bundle": {"sha256": latest["archive_sha256"], "size": latest["archive_size"]},
+            "release": latest["release"] if latest else {},
+            "bundle": {"sha256": latest["archive_sha256"], "size": latest["archive_size"]} if latest else {},
+            "artifacts": artifacts,
         }
         result = _json_request(
             peer["base_url"] + "/federation/v1/software/offers",
             method="POST",
             token=federation.peer_token(peer_id),
             payload=payload,
-            timeout=30,
+            timeout=60,
         )
-        federation.record_event("software_offer_sent", peer_id=peer_id, detail={"result": result, **payload})
-        flash(f"Update an {peer['label']} angeboten.")
+        federation.record_event(
+            "software_offer_sent",
+            peer_id=peer_id,
+            detail={
+                "result": result,
+                "source_peer": source_peer,
+                "release": payload["release"],
+                "bundle": payload["bundle"],
+                "artifacts": len(artifacts),
+            },
+        )
+        flash(f"Software an {peer['label']} angeboten: Release {'ja' if latest else 'nein'}, Installer {len(artifacts)}.")
     except Exception as exc:
         flash(f"Update-Angebot fehlgeschlagen: {exc}")
     return _redirect()
