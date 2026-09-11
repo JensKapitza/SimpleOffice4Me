@@ -72,6 +72,7 @@ jobs:
             --cap-add CHOWN \
             --cap-add SETUID \
             --cap-add SETGID \
+            --cap-add DAC_READ_SEARCH \
             --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
             --tmpfs /var/lib/simpleoffice4me:rw,nosuid,nodev,noexec,size=128m \
             -e SIMPLEOFFICE_CONTAINER_ROLE=error-relay \
