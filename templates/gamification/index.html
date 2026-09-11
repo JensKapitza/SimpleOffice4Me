@@ -1,7 +1,8 @@
 {% extends "layout.html" %}
 {% block title %}Daten-Roulette{% endblock %}
-{% block content %}
-<section class="container py-3" style="max-width: 760px">
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-3" style="max-width: 760px">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div>
       <h1 class="h3 mb-1">Daten-Roulette</h1>
@@ -79,5 +80,5 @@
   <div class="alert alert-light border mt-3 small mb-0">
     Rechnungen, Buchhaltung, Zahlungsdaten, CRM-interne Daten, Zugangsdaten und private Notizen sind ausgeschlossen. XP gibt es nur für tatsächlich bestätigte Verbesserungen, nicht fürs Raten.
   </div>
-</section>
+</main>
 {% endblock %}
