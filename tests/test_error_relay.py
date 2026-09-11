@@ -27,6 +27,13 @@ from app.security_controls import protect_browser_mutation
 
 class ErrorRelayTests(unittest.TestCase):
     def setUp(self):
+        previous_testing = app.config.get("TESTING")
+        previous_csrf = app.config.get("TEST_CSRF_PROTECTION")
+        self.addCleanup(
+            app.config.update,
+            TESTING=previous_testing,
+            TEST_CSRF_PROTECTION=previous_csrf,
+        )
         app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True)
         _issue_cache.clear()
         _rate_by_source.clear()
