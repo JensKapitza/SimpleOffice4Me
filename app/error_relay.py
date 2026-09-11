@@ -13,11 +13,10 @@ import secrets
 import threading
 import time
 from collections import OrderedDict, defaultdict, deque
-from typing import Mapping
 
 from flask import Blueprint, abort, jsonify, request
 
-from .github_error_reporter import REPORT_SCHEMA, load_config, report_payload_to_github, safe_frames, sanitize_text
+from .github_error_reporter import REPORT_SCHEMA, load_config, report_payload_to_github, sanitize_text
 
 
 bp = Blueprint("error_relay", __name__, url_prefix="/api/error-reports/v1")
@@ -32,6 +31,8 @@ _ALLOWED_KEYS = {
 }
 _TOKEN = re.compile(r"[A-Za-z0-9_.:+-]{1,160}\Z")
 _FINGERPRINT = re.compile(r"[A-Za-z0-9_.:-]{8,128}\Z")
+_FRAME_NAME = re.compile(r"[A-Za-z0-9_.:+<> -]{1,160}\Z")
+_TEMPLATE_NAME = re.compile(r"[A-Za-z0-9_./:+-]{1,240}\Z")
 _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 _rate_lock = threading.Lock()
 _rate_salt = secrets.token_bytes(32)
@@ -85,6 +86,47 @@ def _bounded_token(value: object, limit: int) -> str:
     return text
 
 
+def _frame_text(value: object, pattern: re.Pattern[str], limit: int) -> str:
+    text = sanitize_text(value, limit)
+    if not text or not pattern.fullmatch(text):
+        raise ValueError("invalid stack coordinate")
+    return text
+
+
+def _validated_frames(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list) or len(value) > 12:
+        raise ValueError("invalid frames")
+    result: list[dict[str, object]] = []
+    for frame in value:
+        if not isinstance(frame, dict):
+            raise ValueError("invalid frame")
+        line = frame.get("line")
+        if not isinstance(line, int) or isinstance(line, bool) or line < 0 or line > 10_000_000:
+            raise ValueError("invalid frame line")
+        if "template" in frame:
+            if set(frame) - {"template", "line", "variable"}:
+                raise ValueError("frame contains unsupported fields")
+            item: dict[str, object] = {
+                "template": _frame_text(frame.get("template"), _TEMPLATE_NAME, 240),
+                "line": line,
+            }
+            variable = sanitize_text(frame.get("variable"), 120)
+            if variable:
+                item["variable"] = _frame_text(variable, _FRAME_NAME, 120)
+            else:
+                item["variable"] = ""
+            result.append(item)
+        else:
+            if set(frame) - {"file", "line", "function"}:
+                raise ValueError("frame contains unsupported fields")
+            result.append({
+                "file": _frame_text(frame.get("file"), _FRAME_NAME, 160),
+                "line": line,
+                "function": _frame_text(frame.get("function"), _FRAME_NAME, 160),
+            })
+    return result
+
+
 def validate_report_payload(value: object) -> dict[str, object]:
     """Validate and rebuild the public report using a strict schema/allow-list."""
     if not isinstance(value, dict):
@@ -107,19 +149,6 @@ def validate_report_payload(value: object) -> dict[str, object]:
     if app_version and not _TOKEN.fullmatch(app_version):
         raise ValueError("invalid app version")
 
-    frames_value = value.get("frames")
-    if not isinstance(frames_value, list) or len(frames_value) > 12:
-        raise ValueError("invalid frames")
-    for frame in frames_value:
-        if not isinstance(frame, dict):
-            raise ValueError("invalid frame")
-        allowed = {"template", "line", "variable"} if "template" in frame else {"file", "line", "function"}
-        if set(frame) - allowed:
-            raise ValueError("frame contains unsupported fields")
-        line = frame.get("line")
-        if not isinstance(line, int) or line < 0 or line > 10_000_000:
-            raise ValueError("invalid frame line")
-
     return {
         "schema": REPORT_SCHEMA,
         "request_id": request_id,
@@ -128,7 +157,7 @@ def validate_report_payload(value: object) -> dict[str, object]:
         "endpoint": endpoint,
         "method": method,
         "app_version": app_version,
-        "frames": safe_frames(frames_value),
+        "frames": _validated_frames(value.get("frames")),
     }
 
 
