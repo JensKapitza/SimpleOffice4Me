@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .document_store_core import *  # noqa: F401,F403
+from .safe_paths import resolve_file_under
 
 
 class _DocumentStorePart1:
@@ -26,12 +27,9 @@ class _DocumentStorePart1:
                 if self.index_path not in _INITIALIZED_INDEXES or not self.index_path.is_file():
                     self._initialize_once()
                     _INITIALIZED_INDEXES.add(self.index_path)
-        # Recovery is intentionally not cached: an interrupted WebDAV DELETE
-        # can leave a new recovery journal at any time during this process.
         self._recover_interrupted_collection_deletions()
 
     def _initialize_once(self) -> None:
-        """Create or migrate the disposable index once per worker process."""
         self.root.mkdir(parents=True, exist_ok=True)
         self.documents.mkdir(parents=True, exist_ok=True)
         self.fingerprints.mkdir(parents=True, exist_ok=True)
@@ -73,8 +71,6 @@ class _DocumentStorePart1:
                     ON document_relationship(target_id, propagates_retention);
                 """
             )
-            # Additive migration for indexes created before move detection was
-            # introduced. The filesystem remains the source of truth.
             columns = {row[1] for row in db.execute("PRAGMA table_info(scan_file)")}
             if "device" not in columns:
                 db.execute("ALTER TABLE scan_file ADD COLUMN device INTEGER")
@@ -93,8 +89,6 @@ class _DocumentStorePart1:
                     USING fts5(document_id UNINDEXED, path, state, tags, notes, attributes, content)"""
                 )
             except sqlite3.OperationalError:
-                # FTS5 is normally present in SQLite. A plain table keeps the
-                # project usable on stripped-down platform builds.
                 db.execute(
                     """CREATE TABLE IF NOT EXISTS document_search (
                     document_id TEXT PRIMARY KEY, path TEXT, state TEXT, tags TEXT,
@@ -102,7 +96,6 @@ class _DocumentStorePart1:
                 )
 
     def _recover_interrupted_collection_deletions(self) -> None:
-        """Roll back a collection DELETE that stopped before it was committed."""
         recovery_root = self.control / COLLECTION_TRASH_DIR
         if not recovery_root.is_dir() or recovery_root.is_symlink():
             return
@@ -139,9 +132,11 @@ class _DocumentStorePart1:
                         raise ValueError("collection recovery document identity is invalid")
                     self._save_document(snapshot)
                     self._refresh_search_index(snapshot)
-                    restored_file = self.root / str(snapshot.get("last_path", ""))
-                    if restored_file.is_file() and not restored_file.is_symlink():
-                        self._scan_file(restored_file, force_hash=True)
+                    try:
+                        restored_file = resolve_file_under(self.root, str(snapshot.get("last_path", "")))
+                    except (OSError, ValueError):
+                        continue
+                    self._scan_file(restored_file, force_hash=True)
                 manifest_path.unlink(missing_ok=True)
                 operation.rmdir()
                 details = {
@@ -171,7 +166,6 @@ class _DocumentStorePart1:
                 if isinstance(loaded, dict) and loaded.get("folder_id"):
                     return policy
             except (OSError, json.JSONDecodeError):
-                # Do not overwrite an invalid policy. It must be repaired visibly.
                 raise ValueError(f"invalid folder policy: {policy}")
         created_at = utc_now()
         atomic_json_write(
@@ -204,7 +198,6 @@ class _DocumentStorePart1:
         return policy
 
     def import_file(self, source: str | Path, actor: str = "system") -> Path:
-        """Copy one local file into inbox without interpreting its filename as a command."""
         self.initialize()
         source_path = Path(source).expanduser().resolve()
         if not source_path.is_file() or source_path.is_symlink():
@@ -221,12 +214,6 @@ class _DocumentStorePart1:
         return target
 
     def import_directory(self, source: str | Path, label: str, actor: str = "system") -> dict[str, int | str]:
-        """Copy an existing directory into the managed archive without modifying it.
-
-        The source tree remains untouched.  Its relative directory structure is
-        retained below ``imports/<label>`` and name collisions create an
-        additional file instead of replacing an earlier import.
-        """
         self._require_actor(actor)
         self.initialize()
         source_root = Path(source).expanduser().resolve()
@@ -275,7 +262,6 @@ class _DocumentStorePart1:
         archive: bool = False,
         max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any]:
-        """Store an uploaded file safely; archive placement is content-hash sorted."""
         self._require_actor(actor)
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
             raise ValueError("upload size limit must be a positive number of bytes")
@@ -319,13 +305,11 @@ class _DocumentStorePart1:
         return sorted(self._read_json(self.archives_path, {"archives": []}).get("archives", []), key=lambda item: item.get("label", ""))
 
     def main_archive(self) -> dict[str, Any]:
-        """Describe the always-connected primary document archive separately."""
         self.initialize()
         policy = self._read_json(self.root / POLICY_FILE, {})
         return {"label": "Hauptarchiv (lokal)", "archive_id": policy.get("folder_id", "local"), "path": str(self.root), "available": True}
 
     def create_share(self, reference: str | Path, password: str, expires_days: int, actor: str, note_id: str = "") -> dict[str, Any]:
-        """Create a password-protected, expiring share for a file or one note."""
         self._require_actor(actor)
         password = password.strip()
         if len(password) < 12:
@@ -370,7 +354,6 @@ class _DocumentStorePart1:
         return self._public_share(share, datetime.now(timezone.utc)) if share else None
 
     def renew_share(self, reference: str | Path, share_id: str, password: str, expires_days: int, actor: str) -> dict[str, Any]:
-        """Reactivate the same persistent URL, only with a replacement password."""
         self._require_actor(actor)
         if len(password.strip()) < 12: raise ValueError("share password must contain at least 12 characters")
         if not 1 <= expires_days <= 365: raise ValueError("share expiry must be between 1 and 365 days")
@@ -385,7 +368,6 @@ class _DocumentStorePart1:
         return self._public_share(share, datetime.now(timezone.utc))
 
     def open_share(self, share_id: str, password: str, remote_addr: str = "") -> dict[str, Any]:
-        """Validate a share password and return its document metadata."""
         payload = self._read_json(self.shares_path, {"shares": []})
         share = next((item for item in payload["shares"] if item.get("share_id") == share_id), None)
         if not share: raise ValueError("Freigabelink ist nicht verfügbar")
@@ -405,9 +387,10 @@ class _DocumentStorePart1:
             if note is None:
                 raise ValueError("the shared note is no longer available")
             return {**result, "note": note}
-        path = self.root / document.get("last_path", "")
-        if not path.is_file() or path.is_symlink():
-            raise ValueError("the shared original is currently unavailable")
+        try:
+            path = resolve_file_under(self.root, str(document.get("last_path", "")))
+        except (OSError, ValueError) as exc:
+            raise ValueError("the shared original is currently unavailable") from exc
         return {**result, "path": path}
 
     def record_share_view(self, share_id: str, remote_addr: str = "") -> None:
@@ -416,7 +399,6 @@ class _DocumentStorePart1:
         if share: self._record_share_access(payload, share, "link_viewed", remote_addr)
 
     def record_access(self, reference: str | Path, actor: str, access_type: str) -> dict[str, Any]:
-        """Audit access without rewriting a potentially large document sidecar."""
         self._require_actor(actor)
         if access_type not in {"seen", "found"}: raise ValueError("unsupported document access type")
         document = self.get_document(reference)
@@ -456,7 +438,6 @@ class _DocumentStorePart1:
         return self._read_json(self.ssh_sources_path, {"sources": []}).get("sources", [])
 
     def register_ssh_source(self, name: str, host: str, username: str, remote_path: str, key_path: str, actor: str) -> dict[str, Any]:
-        """Register an SSH source without storing a password or private key."""
         self._require_actor(actor)
         values = {"name": name.strip(), "host": host.strip(), "username": username.strip(), "remote_path": remote_path.strip(), "key_path": key_path.strip()}
         if not all(values[key] for key in ("name", "host", "username", "remote_path")):
@@ -476,7 +457,6 @@ class _DocumentStorePart1:
         return record
 
     def sync_ssh_source(self, source_id: str, actor: str) -> int:
-        """One-way import from an SSH source using rsync and the local SSH agent."""
         self._require_actor(actor)
         source = next((item for item in self.ssh_sources() if item.get("source_id") == source_id), None)
         if source is None:
@@ -509,7 +489,6 @@ class _DocumentStorePart1:
         return imported
 
     def remove_ssh_source(self, source_id: str, actor: str) -> None:
-        """Remove only the local SSH source configuration, never remote files."""
         self._require_actor(actor)
         payload = self._read_json(self.ssh_sources_path, {"sources": []})
         source = next((item for item in payload.get("sources", []) if item.get("source_id") == source_id), None)
@@ -521,7 +500,6 @@ class _DocumentStorePart1:
         self._record_revision("ssh_source_removed", actor, "ssh-sources", source_id, source)
 
     def register_external_archive(self, root: str | Path, label: str, tags: list[str], actor: str) -> dict[str, Any]:
-        """Mark a mounted archive volume so it remains identifiable while absent."""
         self._require_actor(actor)
         path = Path(root).expanduser().resolve()
         if not path.is_dir():
@@ -541,7 +519,6 @@ class _DocumentStorePart1:
         return record
 
     def discover_archives(self, actor: str) -> list[dict[str, Any]]:
-        """Inspect mounted volume roots for our small portable archive marker."""
         self._require_actor(actor)
         found: dict[str, Path] = {}
         for mount in self._mounted_roots():
@@ -559,7 +536,6 @@ class _DocumentStorePart1:
         return updated
 
     def get_document(self, reference: str | Path) -> dict[str, Any]:
-        """Return metadata by document ID or by a path inside the managed tree."""
         self.initialize()
         reference_text = str(reference)
         candidate = Path(reference).expanduser()
@@ -584,7 +560,6 @@ class _DocumentStorePart1:
         return metadata
 
     def add_note(self, reference: str | Path, text: str, author: str = "") -> dict[str, Any]:
-        """Append an immutable note to a document's file-based metadata."""
         self._require_actor(author)
         text = text.strip()
         if not text:
@@ -601,7 +576,6 @@ class _DocumentStorePart1:
         return note
 
     def note_snapshot(self, reference: str | Path, note_id: str) -> Path:
-        """Return the immutable PDF snapshot that was created with a note."""
         document = self.get_document(reference)
         note = next((item for item in document.get("notes", []) if item.get("id") == note_id), None)
         if note is None:
@@ -612,7 +586,6 @@ class _DocumentStorePart1:
         return path
 
     def set_state(self, reference: str | Path, state: str, author: str = "") -> dict[str, Any]:
-        """Set a human workflow state and preserve the complete state history."""
         self._require_actor(author)
         state = state.strip()
         if not state:
@@ -630,7 +603,6 @@ class _DocumentStorePart1:
         return event
 
     def set_attribute(self, reference: str | Path, key: str, value: str, author: str = "") -> None:
-        """Set a domain-specific metadata value without schema migration."""
         self._require_actor(author)
         key = key.strip()
         if not key:
@@ -654,7 +626,6 @@ class _DocumentStorePart1:
         tags: list[str] | None = None,
         author: str = "",
     ) -> dict[str, Any]:
-        """Apply related metadata changes with one sidecar/index/audit write."""
         self._require_actor(author)
         metadata = self.get_document(reference)
         self._require_document_editable(metadata)
@@ -684,7 +655,6 @@ class _DocumentStorePart1:
         return metadata
 
     def set_malware_scan(self, reference: str | Path, value: dict[str, Any], author: str) -> None:
-        """Persist an immutable-content security verdict even during retention lock."""
         self._require_actor(author)
         metadata = self.get_document(reference)
         metadata.setdefault("attributes", {})["malware_scan"] = dict(value)
@@ -694,7 +664,6 @@ class _DocumentStorePart1:
         self._record_revision("document_malware_scan_set", author, "documents", metadata["document_id"], {"scan_id": value.get("scan_id", ""), "verdict": value.get("verdict", ""), "scanned_at": value.get("scanned_at", "")})
 
     def set_tags(self, reference: str | Path, tags: list[str], author: str = "") -> dict[str, Any]:
-        """Replace document tags while retaining filesystem and revision metadata."""
         self._require_actor(author)
         metadata = self.get_document(reference)
         self._require_document_editable(metadata)
@@ -713,12 +682,12 @@ class _DocumentStorePart1:
         return metadata
 
     def export_portable_metadata(self, reference: str | Path, actor: str) -> Path:
-        """Write an interoperable sidecar without renaming or modifying the file."""
         self._require_actor(actor)
         metadata = self.get_document(reference)
-        path = self.root / str(metadata.get("last_path", ""))
-        if not path.is_file() or path.is_symlink():
-            raise ValueError("document file is unavailable")
+        try:
+            path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
+        except (OSError, ValueError) as exc:
+            raise ValueError("document file is unavailable") from exc
         sidecar_dir = path.parent / CONTROL_DIR
         sidecar_dir.mkdir(parents=True, exist_ok=True)
         sidecar = sidecar_dir / f"{path.name}.simpleoffice.json"
@@ -756,7 +725,6 @@ class _DocumentStorePart1:
         label: str,
         author: str,
     ) -> dict[str, Any]:
-        """Append an audited document deadline without replacing older rules."""
         self._require_actor(author)
         kind = kind.strip().casefold()
         if kind not in {"retention", "work"}:
@@ -781,4 +749,3 @@ class _DocumentStorePart1:
             "document_deadline_added", author, "documents", metadata["document_id"], metadata
         )
         return deadline
-

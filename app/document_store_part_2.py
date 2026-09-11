@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .document_store_core import *  # noqa: F401,F403
+from .safe_paths import resolve_file_under
 
 
 class _DocumentStorePart2:
@@ -138,8 +139,6 @@ class _DocumentStorePart2:
     ) -> dict[str, Any]:
         """Evaluate only the indexed retention component of one document."""
         focus = self.get_document(reference)
-        # Keep the requested document current even while a background index is
-        # still filling the disposable projection.
         self._refresh_listing_index(focus)
         with self._db() as db:
             rows = db.execute(
@@ -171,7 +170,6 @@ class _DocumentStorePart2:
     def retention_statuses(
         self, *, now: datetime | None = None
     ) -> dict[str, dict[str, Any]]:
-        """Evaluate the complete archive in one graph pass for large stores."""
         documents = {item["document_id"]: item for item in self._all_documents()}
         return self._retention_statuses(documents, now=now)
 
@@ -181,7 +179,6 @@ class _DocumentStorePart2:
         *,
         now: datetime | None = None,
     ) -> dict[str, dict[str, Any]]:
-        """Evaluate supplied documents without discovering any other sidecars."""
         evaluated = {
             document_id: evaluate_deadlines(document, self._deadline_rules(document), now=now)
             for document_id, document in documents.items()
@@ -264,7 +261,6 @@ class _DocumentStorePart2:
         return statuses
 
     def cleanup_candidates(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
-        """List files eligible for a manually started cleanup; never move them."""
         candidates: list[dict[str, Any]] = []
         documents = {item["document_id"]: item for item in self._all_documents()}
         for document_id, status in self.retention_statuses(now=now).items():
@@ -287,7 +283,6 @@ class _DocumentStorePart2:
         apply: bool = False,
         now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Preview or manually move eligible files; physical deletion is never performed."""
         self._require_actor(actor)
         candidates = self.cleanup_candidates(now=now)
         if not apply:
@@ -329,11 +324,13 @@ class _DocumentStorePart2:
         return {"applied": True, "candidates": candidates, "moved": moved}
 
     def analyze_image(self, reference: str | Path, author: str) -> dict[str, Any]:
-        """Extract EXIF and OCR text from one managed image and add safe tags."""
         self._require_actor(author)
         metadata = self.get_document(reference)
         self._require_document_editable(metadata)
-        path = self.root / metadata.get("last_path", "")
+        try:
+            path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
+        except (OSError, ValueError) as exc:
+            raise ValueError("document file is unavailable") from exc
         if not self._is_image(path):
             raise ValueError("document is not a supported image")
         self._apply_image_analysis(path, metadata, force=True)
@@ -344,7 +341,6 @@ class _DocumentStorePart2:
         return metadata
 
     def refresh_missing_text(self, actor: str, force: bool = False) -> int:
-        """Backfill searchable text for existing files without reprocessing it later."""
         self._require_actor(actor)
         pending = {
             item["document_id"] for item in self._all_documents()
@@ -353,8 +349,9 @@ class _DocumentStorePart2:
         self.scan()
         updated = 0
         for metadata in self._all_documents():
-            path = self.root / metadata.get("last_path", "")
-            if not path.is_file() or path.is_symlink():
+            try:
+                path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
+            except (OSError, ValueError):
                 continue
             if self._is_image(path):
                 self._apply_image_analysis(path, metadata, force=force)
@@ -369,7 +366,6 @@ class _DocumentStorePart2:
         return updated
 
     def search_page(self, query: str, page: int = 1, page_size: int = 25) -> dict[str, Any]:
-        """Return one fast, indexed result page without touching document files."""
         query = query.strip()
         if not query:
             return {"results": [], "page": 1, "page_size": page_size, "has_next": False}
@@ -407,7 +403,6 @@ class _DocumentStorePart2:
         }
 
     def search(self, query: str, limit: int = 50) -> list[dict[str, Any]]:
-        """Compatibility helper returning the first indexed search page."""
         return self.search_page(query, page_size=limit)["results"]
 
     def add_link(
@@ -419,7 +414,6 @@ class _DocumentStorePart2:
         author: str = "",
         propagates_retention: bool = False,
     ) -> dict[str, Any]:
-        """Create a directed, labelled document relationship for graph views."""
         self._require_actor(author)
         source_metadata = self.get_document(source)
         self._require_document_editable(source_metadata)
@@ -450,7 +444,6 @@ class _DocumentStorePart2:
         return link
 
     def add_text_link(self, source: str | Path, target_text: str, relation_type: str = "related", label: str = "", author: str = "") -> dict[str, Any]:
-        """Link a document to a durable free-text reference such as an URL or case number."""
         self._require_actor(author)
         target_text = target_text.strip()
         if not target_text:
@@ -467,7 +460,6 @@ class _DocumentStorePart2:
         return link
 
     def import_version(self, source: str | Path, version_of: str | Path, author: str = "") -> dict[str, Any]:
-        """Import SOURCE as the next version of an existing document."""
         self._require_actor(author)
         parent = self.get_document(version_of)
         target = self.import_file(source, author)
@@ -511,12 +503,6 @@ class _DocumentStorePart2:
         max_bytes: int = 512 * 1024 * 1024,
         restored_from_sha256: str = "",
     ) -> dict[str, Any]:
-        """Atomically replace a managed file and retain the previous payload.
-
-        The precondition is checked while holding the same filesystem lock as
-        the write. This makes an HTTP ETag useful even when two WebDAV workers
-        receive concurrent saves.
-        """
         self._require_actor(author)
         if len(content) > max_bytes:
             raise ValueError("document exceeds the configured upload size limit")
@@ -526,9 +512,10 @@ class _DocumentStorePart2:
         with exclusive_file_lock(self.control / ".document-content.lock"):
             metadata = self.get_document(reference)
             self._require_document_editable(metadata)
-            path = self.root / str(metadata.get("last_path", ""))
-            if not path.is_file() or path.is_symlink():
-                raise ValueError("document file is unavailable")
+            try:
+                path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
+            except (OSError, ValueError) as exc:
+                raise ValueError("document file is unavailable") from exc
             current_sha256 = sha256_file(path)
             if expected_sha256 and not hmac.compare_digest(expected_sha256, current_sha256):
                 raise ValueError("document content changed since it was opened")
@@ -623,7 +610,6 @@ class _DocumentStorePart2:
             return metadata
 
     def content_recovery_versions(self, reference: str | Path) -> list[dict[str, Any]]:
-        """List immutable archived payloads that can replace the current content."""
         metadata = self.get_document(reference)
         versions: dict[str, dict[str, Any]] = {}
         for change in metadata.get("content_history", []):
@@ -649,15 +635,15 @@ class _DocumentStorePart2:
         *,
         max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any]:
-        """Restore one verified archived payload with a current-version precondition."""
         self._require_actor(actor)
         if not re.fullmatch(r"[0-9a-f]{64}", archived_sha256):
             raise ValueError("unknown archived content version")
         metadata = self.get_document(reference)
         self._require_document_editable(metadata)
-        path = self.root / str(metadata.get("last_path", ""))
-        if not path.is_file() or path.is_symlink():
-            raise ValueError("document file is unavailable")
+        try:
+            path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
+        except (OSError, ValueError) as exc:
+            raise ValueError("document file is unavailable") from exc
         current_sha256 = sha256_file(path)
         if not expected_current_sha256 or not hmac.compare_digest(expected_current_sha256, current_sha256):
             raise ValueError("document content changed since the recovery page was opened")
@@ -682,7 +668,6 @@ class _DocumentStorePart2:
         )
 
     def find_matches(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
-        """Find possible version parents by ID, path, name and all human metadata."""
         needle = query.strip().casefold()
         if not needle:
             return []
@@ -706,7 +691,6 @@ class _DocumentStorePart2:
 
     @staticmethod
     def tag_matches(pattern: str, tag: str) -> bool:
-        """Case-insensitive tag matching with optional ``*`` wildcard support."""
         pattern = pattern.strip().casefold()
         tag = tag.strip().casefold()
         if not pattern or not tag:
@@ -714,7 +698,6 @@ class _DocumentStorePart2:
         return fnmatch.fnmatchcase(tag, pattern) if "*" in pattern else tag.startswith(pattern)
 
     def graph(self, reference: str | Path) -> dict[str, Any]:
-        """Return one document, its versions and all inbound/outbound graph edges."""
         document = self.get_document(reference)
         document_id = document["document_id"]
         documents = self._all_documents()
@@ -747,7 +730,6 @@ class _DocumentStorePart2:
         return {"focus_document_id": document_id, "nodes": nodes, "edges": edges}
 
     def list_documents(self) -> list[dict[str, Any]]:
-        """List the known documents without treating the SQLite cache as truth."""
         return sorted(
             self._all_documents(),
             key=lambda item: (item.get("last_seen_at", ""), item.get("last_path", "")),
@@ -755,7 +737,6 @@ class _DocumentStorePart2:
         )
 
     def document_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
-        """Load only one document page from the scan index for large archives."""
         self.initialize()
         page = max(1, page); page_size = max(1, min(500, page_size))
         with self._db() as db:
@@ -767,4 +748,3 @@ class _DocumentStorePart2:
             if metadata.get("document_id"):
                 documents.append(metadata)
         return {"documents": documents, "page": page, "page_size": page_size, "total": total, "has_next": page * page_size < total}
-
