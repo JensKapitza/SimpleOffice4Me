@@ -4,7 +4,7 @@ import time
 import uuid
 
 from .federation_core import sanitize_peer_id
-from .federation_identity import FederationIdentity, verify
+from .federation_identity import FederationIdentity, public_key_fingerprint, verify
 from .federation_local_profile import local_peer_id
 from .federation_peer_schema import ensure_schema
 from .federation_store import FederationStore
@@ -24,6 +24,11 @@ def canonical_attestation(value):
 def verify_attestation(value, public_key):
     if not isinstance(value, dict) or not public_key or not value.get("signature"):
         return False
+    try:
+        if value.get("public_key_fingerprint") != public_key_fingerprint(public_key):
+            return False
+    except ValueError:
+        return False
     return verify(public_key, canonical_attestation(value), value["signature"])
 
 
@@ -35,6 +40,7 @@ class FederationAttestationStore:
 
     def replace_signed(self, verified_peer_id, verification_type, fingerprint="",
                        propagation=DIRECT_ONLY, max_hops=0, expires_at=None):
+        del fingerprint
         verified_peer_id = sanitize_peer_id(verified_peer_id)
         verifier = local_peer_id()
         with self.store._db() as db:
@@ -45,12 +51,13 @@ class FederationAttestationStore:
         if str(verification_type).upper() == "KNOWN_UNVERIFIED":
             return None
         return self.add_signed(
-            verified_peer_id, verification_type, fingerprint,
-            propagation, max_hops, expires_at,
+            verified_peer_id, verification_type,
+            propagation=propagation, max_hops=max_hops, expires_at=expires_at,
         )
 
     def add_signed(self, verified_peer_id, verification_type, fingerprint="",
                    propagation=DIRECT_ONLY, max_hops=0, expires_at=None):
+        del fingerprint
         propagation = str(propagation or DIRECT_ONLY).upper()
         if propagation not in PROPAGATION:
             raise ValueError("invalid attestation propagation")
