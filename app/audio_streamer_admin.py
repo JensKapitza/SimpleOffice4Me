@@ -27,6 +27,14 @@ def payload() -> dict:
     return value
 
 
+def _configuration_error():
+    return jsonify({"error": "Ungültige Audio-Konfiguration."}), 400
+
+
+def _runtime_error():
+    return jsonify({"error": "Audio-Dienst ist auf diesem System nicht verfügbar."}), 503
+
+
 @bp.get("")
 @admin_required
 def page():
@@ -50,8 +58,17 @@ def sender_start():
             destinations=data.get("destinations"),
             bitrate_kbps=int(data.get("bitrate_kbps") or 64),
         )
-    except (ValueError, TypeError, RuntimeError, OSError) as exc:
-        return jsonify({"error": str(exc)}), 400
+    except (ValueError, TypeError):
+        return _configuration_error()
+    except (RuntimeError, OSError) as exc:
+        audit(
+            "audio_stream_sender_failed",
+            "audio_stream",
+            "sender",
+            outcome="failure",
+            detail={"error_type": type(exc).__name__},
+        )
+        return _runtime_error()
     audit("audio_stream_sender_started", "audio_stream", "sender")
     return jsonify(result), 202
 
@@ -75,8 +92,17 @@ def receiver_start():
             virtual_microphone=bool(data.get("virtual_microphone", True)),
             virtual_sink=str(data.get("virtual_sink") or "simpleoffice_stream"),
         )
-    except (ValueError, TypeError, RuntimeError, OSError) as exc:
-        return jsonify({"error": str(exc)}), 400
+    except (ValueError, TypeError):
+        return _configuration_error()
+    except (RuntimeError, OSError) as exc:
+        audit(
+            "audio_stream_receiver_failed",
+            "audio_stream",
+            "receiver",
+            outcome="failure",
+            detail={"error_type": type(exc).__name__},
+        )
+        return _runtime_error()
     audit("audio_stream_receiver_started", "audio_stream", "receiver")
     return jsonify(result), 202
 
@@ -94,6 +120,6 @@ def receiver_stop():
 def receiver_sdp_download():
     try:
         content = receiver_sdp(int(request.args.get("port") or 5004))
-    except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "Ungültiger RTP-Port."}), 400
     return content, 200, {"Content-Type": "application/sdp"}
