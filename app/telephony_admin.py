@@ -143,7 +143,7 @@ def rotate_secret(extension: str):
 def delete_profile(extension: str):
     try:
         _store().delete_profile(extension)
-    except ValueError:
+    except (KeyError, ValueError):
         abort(404)
     audit("telephony_profile_deleted", "sip_extension", extension)
     flash("Nebenstelle geloescht.", "success")
