@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import io
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.audio_streamer import (
     ReceiverSession,
@@ -99,6 +100,21 @@ class AudioStreamerTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     session.start()
         unload.assert_called_once_with("17")
+        self.assertEqual(session.module_id, "")
+
+    @patch("app.audio_streamer.unload_virtual_microphone")
+    def test_decoder_eof_cleans_receiver_runtime(self, unload) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("app.audio_streamer.tempfile.tempdir", directory):
+                session = ReceiverSession(5004, [], "simpleoffice_stream")
+                decoder = Mock()
+                decoder.stdout = io.BytesIO(b"")
+                decoder.poll.return_value = 0
+                session.decoder = decoder
+                session.module_id = "17"
+                session._fanout()
+        unload.assert_called_once_with("17")
+        self.assertIsNone(session.decoder)
         self.assertEqual(session.module_id, "")
 
     def test_admin_does_not_expose_exception_text(self) -> None:
