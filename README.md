@@ -24,8 +24,49 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 - einfache EÜR-Belegerfassung für Einnahmen und Ausgaben mit Originaldatei,
   Vollständigkeitsprüfung, EUR-/Umsatzsteuerberechnung, Prüfstatus,
   Jahresübersicht und CSV-/ZIP-Übergabe an den Steuerberater
+- datensparsame zentrale Fehlerberichte mit stabilem Fingerprint,
+  Deduplizierung und optionalem eingeschränktem Error-Relay
+- Offline-Installer-Cache für fertige Windows-, macOS-, Linux-, Android- und
+  Docker-Artefakte mit Hashprüfung und gezielter Federation-Verteilung
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
+
+## Aktuelle Architektur-Erweiterungen
+
+### Zentrales, datensparsames Fehlerreporting
+
+Unbehandelte Anwendungsfehler können mit einer kleinen technischen Diagnose an
+den bekannten Master beziehungsweise einen optionalen Error-Relay weitergegeben
+und dedupliziert als GitHub-Issue erfasst werden. Normale Clients benötigen
+dafür keinen eigenen GitHub-Zugang und die Fehlerübertragung ist nicht an eine
+bestehende Federation-Kopplung gebunden.
+
+Der Grund für diese Trennung ist Sicherheit und Betriebsvereinfachung:
+vollständige Logs und fachliche Nutzdaten sollen nicht automatisch übertragen
+werden, während wiederkehrende Programmfehler trotzdem zentral erkannt werden
+können. Architektur, Datenschutzentscheidungen, Deduplizierung und die Gründe
+für den eingeschränkten Relay-Betrieb sind in
+[Neuerungen: Fehlerreporting](docs/NEUERUNGEN_FEHLERREPORTING.md) beschrieben.
+Die konkrete Betriebs- und Konfigurationsanleitung steht in
+[GitHub-Fehlerberichte](docs/GITHUB_ERROR_REPORTING.md).
+
+### Offline-Installer und Federation-Verteilung
+
+Self-Deploy kann fertige Installationsartefakte dauerhaft lokal vorhalten.
+Bekannte Federation-Peers erhalten zunächst nur einen Katalog und laden danach
+gezielt die tatsächlich benötigten Pakete. Große Dateien werden chunkweise
+übertragen und sowohl blockweise als auch vollständig geprüft.
+
+Der Grund ist ein robuster Offline-Betrieb: Ein bereits geprüftes Paket soll
+auch dann verfügbar bleiben, wenn GitHub oder das Internet nicht erreichbar
+sind. Gleichzeitig soll eine Federation nicht automatisch mehrere Gigabyte
+übertragen, nur weil Software grundsätzlich freigegeben ist.
+
+Unterstützte Formate, Hash-/Chunk-Modell, GitHub-Actions-Import,
+Admin-Konfiguration, Offline-Verhalten, Federation-Richtlinien und die Gründe
+für die einzelnen Architekturentscheidungen sind in
+[Neuerungen: Offline-Installer und Software-Verteilung](docs/NEUERUNGEN_OFFLINE_INSTALLER.md)
+beschrieben.
 
 ## Zielbild
 
