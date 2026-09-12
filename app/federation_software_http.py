@@ -59,7 +59,7 @@ def software_status():
         "latest": _public_release(distribution.latest()),
         "artifacts": _artifacts().catalog(),
         "policy": "explicit-peer-policy",
-        "update_mode": "git-fast-forward-only",
+        "update_mode": "transactional-file-replacement",
     })
 
 
