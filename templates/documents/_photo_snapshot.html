@@ -1,0 +1,29 @@
+<section class="card shadow-sm mb-4" id="photo-snapshot">
+  <div class="card-body">
+    <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
+      <div>
+        <h2 class="h5 mb-1"><i class="fas fa-camera me-2" aria-hidden="true"></i>Schnappschuss</h2>
+        <p class="text-secondary small mb-0">Direkt ein neues Foto aufnehmen. Auf Handy und Tablet wird die Kamera geöffnet; am PC wird die vom Browser bzw. Betriebssystem angebotene Bildquelle verwendet.</p>
+      </div>
+      <span class="badge text-bg-light border align-self-start">EXIF · GPS · Aufnahmezeit · SHA-256</span>
+    </div>
+    <form action="{{ url_for('photo_upload.upload_photo') }}" method="post" enctype="multipart/form-data" id="photo-snapshot-form">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="capture_source" value="direct-camera">
+      <input type="hidden" name="capture_client_at" id="photo-snapshot-client-at" value="">
+      <input type="hidden" name="batch_id" value="single-snapshot">
+      <input type="hidden" name="batch_index" value="1">
+      <input type="hidden" name="batch_count" value="1">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label fw-semibold" for="photo-snapshot-file">Neues Foto</label>
+          <input class="form-control form-control-lg" id="photo-snapshot-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" required>
+          <div class="form-text">Originaldatei und vorhandene EXIF-/GPS-Daten bleiben erhalten. Zusätzlich werden Uploadzeit, Client-Zeit und Herkunft gespeichert.</div>
+        </div>
+        <div class="col-md-4 d-grid">
+          <button class="btn btn-primary btn-lg" type="submit"><i class="fas fa-camera me-1" aria-hidden="true"></i>Aufnehmen &amp; speichern</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</section>
