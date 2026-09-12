@@ -44,8 +44,7 @@ def _download(url: str, target: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "SimpleOffice4Me-Updater/1"})
     total = 0
     with _opener().open(request, timeout=90) as response, target.open("wb") as output:
-        final_url = str(response.geturl())
-        if not final_url.lower().startswith("https://"):
+        if not str(response.geturl()).lower().startswith("https://"):
             raise ValueError("Update-Download wurde auf unsicheres Ziel umgeleitet")
         while True:
             block = response.read(1024 * 1024)
@@ -66,10 +65,14 @@ def _sha256(path: Path) -> str:
 
 
 def _resolve_ref(ref: str) -> tuple[str, int]:
-    if not ref or len(ref) > 200 or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-" for ch in ref):
+    allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+    if not ref or len(ref) > 200 or any(ch not in allowed for ch in ref):
         raise ValueError("Ungültiger Update-Ref")
     url = f"https://api.github.com/repos/{REPOSITORY}/commits/{ref}"
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "SimpleOffice4Me-Updater/1"})
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "SimpleOffice4Me-Updater/1"},
+    )
     with _opener().open(request, timeout=30) as response:
         payload = json.loads(response.read(1024 * 1024).decode("utf-8"))
     revision = str(payload.get("sha") or "")
@@ -98,8 +101,8 @@ def _validated_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
         if not name or path.is_absolute() or ".." in path.parts or not path.parts:
             raise ValueError("Update-Archiv enthält unsicheren Pfad")
         roots.add(path.parts[0])
-        mode = (item.external_attr >> 16) & 0o170000
-        if mode == stat.S_IFLNK:
+        file_type = (item.external_attr >> 16) & 0o170000
+        if file_type == stat.S_IFLNK:
             raise ValueError("Update-Archiv enthält symbolischen Link")
         total += max(0, item.file_size)
         if total > MAX_UNCOMPRESSED_BYTES:
@@ -122,6 +125,9 @@ def _extract(archive_path: Path, destination: Path) -> Path:
             target.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(item) as source, target.open("xb") as sink:
                 shutil.copyfileobj(source, sink, 1024 * 1024)
+            mode = (item.external_attr >> 16) & 0o777
+            if mode:
+                target.chmod(mode)
     source_root = destination / root_name
     if not (source_root / "pyproject.toml").is_file() or not (source_root / "app").is_dir():
         raise ValueError("Update-Archiv ist kein gültiges SimpleOffice4Me-Paket")
@@ -149,30 +155,31 @@ def _restore(root: Path, backup: Path, replaced: list[str]) -> None:
             saved.rename(target)
 
 
+def _replace_one(root: Path, source: Path, backup: Path, replaced: list[str]) -> None:
+    name = source.name
+    target = root / name
+    saved = backup / name
+    saved.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() or target.is_symlink():
+        target.rename(saved)
+    replaced.append(name)
+    if source.is_dir():
+        shutil.copytree(source, target)
+    else:
+        shutil.copy2(source, target)
+        if source.suffix in {".sh", ".command"}:
+            target.chmod(target.stat().st_mode | stat.S_IXUSR)
+
+
 def _replace(root: Path, source_root: Path, backup: Path) -> None:
     replaced: list[str] = []
     try:
         for name in MANAGED_DIRS:
             source = source_root / name
-            if not source.exists():
-                continue
-            target = root / name
-            saved = backup / name
-            saved.parent.mkdir(parents=True, exist_ok=True)
-            if target.exists() or target.is_symlink():
-                target.rename(saved)
-            shutil.copytree(source, target)
-            replaced.append(name)
+            if source.exists():
+                _replace_one(root, source, backup, replaced)
         for source in _top_level_files(source_root):
-            name = source.name
-            target = root / name
-            saved = backup / name
-            if target.exists() or target.is_symlink():
-                target.rename(saved)
-            shutil.copy2(source, target)
-            if source.suffix in {".sh", ".command"}:
-                target.chmod(target.stat().st_mode | stat.S_IXUSR)
-            replaced.append(name)
+            _replace_one(root, source, backup, replaced)
     except Exception:
         _restore(root, backup, replaced)
         raise
