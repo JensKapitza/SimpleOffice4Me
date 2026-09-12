@@ -2,6 +2,7 @@
 import base64
 import hashlib
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
@@ -19,6 +20,10 @@ def _b64(data):
 def _unb64(value):
     value = str(value or "")
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def public_key_fingerprint(public_key):
+    return hashlib.sha256(_unb64(public_key)).hexdigest()
 
 
 class FederationIdentity:
@@ -60,10 +65,9 @@ class FederationIdentity:
 
     def public_identity(self):
         _private, public_b64 = self._ensure()
-        public_raw = _unb64(public_b64)
         return {
             "public_key": public_b64,
-            "fingerprint": hashlib.sha256(public_raw).hexdigest(),
+            "fingerprint": public_key_fingerprint(public_b64),
         }
 
     def sign(self, payload):
@@ -78,5 +82,5 @@ def verify(public_key, payload, signature):
         key = Ed25519PublicKey.from_public_bytes(_unb64(public_key))
         key.verify(_unb64(signature), bytes(payload))
         return True
-    except (TypeError, ValueError):
+    except (InvalidSignature, TypeError, ValueError):
         return False
