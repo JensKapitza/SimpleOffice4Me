@@ -6,9 +6,8 @@ from .federation_worker import _json_request
 
 
 def publish(root, email="", urls=None, token="", ttl_seconds=86400):
-    del root
     token = token or bootstrap_token()
-    profile = local_profile()
+    profile = local_profile(root)
     payload = {"profile": profile, "ttl_seconds": max(60, min(int(ttl_seconds), 7 * 86400))}
     if email:
         payload["lookup"] = email_hash(email)
