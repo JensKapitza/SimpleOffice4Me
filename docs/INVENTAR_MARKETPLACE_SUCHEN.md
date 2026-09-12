@@ -2,28 +2,44 @@
 
 ## Ziel
 
-Bei der mobilen Inventarerfassung sollen vorhandene Produktdaten genutzt werden können, statt Titel, Hersteller, Beschreibung und Preis jedes Mal vollständig von Hand einzutragen. Das gilt nicht nur für Bücher, sondern auch für CDs, DVDs, Werkzeuge, Elektrogeräte und andere Gegenstände mit ISBN, EAN/Barcode oder eindeutigem Namen.
+Bei der mobilen Inventarerfassung sollen vorhandene Produktdaten genutzt werden können, statt Titel, Hersteller, Beschreibung und Preis jedes Mal vollständig von Hand einzutragen. Das gilt für Bücher, CDs, DVDs, Werkzeuge, Elektrogeräte und andere Gegenstände mit ISBN, EAN/Barcode oder eindeutigem Namen.
 
-Die Erfassungsseite bietet deshalb zwei zusätzliche Datenquellen:
+Die Amazon-/eBay-Suche wird ausschließlich durch einen ausdrücklichen Benutzerklick gestartet. Es gibt keinen Hintergrundcrawler und keine periodische Massenabfrage.
+
+## Standardpfad ohne API-Schlüssel
+
+Für den normalen Betrieb sind keine Amazon- oder eBay-API-Schlüssel erforderlich.
+
+Nach einem Klick auf **Amazon Daten suchen** oder **eBay Daten suchen** ruft SimpleOffice4Me genau eine öffentliche Suchergebnisseite des gewählten deutschen Marketplace ab und liest daraus maximal drei sichtbare Treffer. Unterstützt werden insbesondere Titel, Ergebnislink und soweit vorhanden Preis/Währung.
+
+Die Abfrage hat feste Grenzen:
+
+- nur `https://www.amazon.de` bzw. `https://www.ebay.de`
+- keine vom Benutzer vorgegebenen Zielhosts
+- 8 Sekunden Netzwerk-Timeout
+- maximal 2 MiB Antwortgröße
+- maximal drei Treffer
+- bestehendes serverseitiges Rate-Limit pro Benutzer/Anbieter
+- keine Hintergrundschleife
+- kein Umgehen von CAPTCHA-, Robot- oder Schutzseiten
+- keine automatischen Redirect-Ketten auf fremde Hosts
+
+Wenn eine Seite nicht auslesbar ist oder der Anbieter den direkten Abruf blockiert, bleibt der normale Amazon-/eBay-Suchlink als Fallback verfügbar.
+
+## Optionale offizielle APIs
+
+Sind bereits Zugangsdaten vorhanden, bleiben die offiziellen APIs als strukturierter Fallback nutzbar:
 
 - Amazon Product Advertising API 5.0
 - eBay Browse API
 
-Je Anbieter werden maximal die ersten drei Treffer geladen. Der erste Treffer wird in der Oberfläche als **Bester Treffer** hervorgehoben. Daten werden erst nach einem ausdrücklichen Klick auf **Daten übernehmen** in das Formular geschrieben.
+Der Ablauf ist damit:
 
-## Warum nicht automatisch den ersten Treffer speichern?
-
-EAN, ISBN und Produktnamen sind meist eindeutig genug für eine gute Sortierung, aber nicht immer für eine automatische Inventarentscheidung. Unterschiedliche Auflagen, Bundles, Größen oder gebrauchte Varianten können denselben oder einen sehr ähnlichen Titel haben.
-
-Darum gilt:
-
-1. suchen,
-2. bis zu drei Treffer anzeigen,
-3. ersten Treffer hervorheben,
-4. Benutzer wählt den passenden Treffer,
-5. erst dann werden Felder übernommen.
-
-Damit bleibt die Schnellerfassung schnell, ohne falsche Stammdaten still zu speichern.
+1. Benutzer startet die Suche.
+2. Öffentliche Marketplace-Suche wird einmalig abgefragt.
+3. Sind daraus keine Treffer auslesbar und eine offizielle API ist konfiguriert, wird die API als Fallback verwendet.
+4. Maximal drei Treffer werden angezeigt.
+5. Erst ein ausdrücklicher Klick auf **Daten übernehmen** füllt das Formular.
 
 ## Suchreihenfolge
 
@@ -33,11 +49,19 @@ Die Oberfläche verwendet als Suchbegriff bevorzugt:
 2. danach Barcode/EAN,
 3. danach den Objektnamen.
 
-Dadurch funktionieren Bücher und Medien besonders gut, während normale Gegenstände weiterhin über EAN oder Namen gesucht werden können.
+Damit wird bei Büchern möglichst die konkrete Ausgabe gesucht statt nur ein allgemeiner Werktitel.
+
+## Titel und bewusst ausgewählte Treffer
+
+Ein Marketplace-Treffer wird ausdrücklich vom Benutzer ausgewählt. Deshalb ist dessen Titel die Identität des ausgewählten Produkts und darf einen zuvor aus einer anderen Metadatenquelle geladenen Titel ersetzen.
+
+Das behebt insbesondere Fälle, in denen eine ISBN-Datenquelle den Originaltitel eines Werkes liefert, während Amazon/eBay für die konkrete deutsche Ausgabe den deutschen Titel anzeigen.
+
+Andere bereits gepflegte Felder behalten weiterhin die bestehende Überschreibschutz-Logik, sofern sie nicht ausdrücklich ersetzt werden.
 
 ## Übernommene Felder
 
-Soweit der Anbieter sie liefert, können übernommen werden:
+Soweit die jeweilige Quelle sie liefert, können übernommen werden:
 
 - Objektname/Titel
 - Autor bzw. Mitwirkende
@@ -52,13 +76,9 @@ Soweit der Anbieter sie liefert, können übernommen werden:
 - Preisquelle
 - Metadatenquelle
 
-Bereits ausgefüllte wichtige Textfelder werden standardmäßig geschützt. Mit **Vorhandene Felder überschreiben** kann der Benutzer ausdrücklich erlauben, bestehende Werte zu ersetzen.
+Öffentliche Suchseiten liefern meist weniger strukturierte Felder als die offiziellen APIs. Fehlende Werte werden nicht erfunden.
 
-## Amazon konfigurieren
-
-Amazon stellt Produktdaten nicht als frei nutzbare anonyme Such-API bereit. SimpleOffice4Me verwendet deshalb die offizielle Product Advertising API 5.0 und speichert deren Zugangsdaten nicht im Inventar oder im Browser.
-
-Erforderliche Umgebungsvariablen:
+## Optionale Amazon-API-Konfiguration
 
 ```text
 SIMPLEOFFICE_AMAZON_ACCESS_KEY
@@ -66,15 +86,9 @@ SIMPLEOFFICE_AMAZON_SECRET_KEY
 SIMPLEOFFICE_AMAZON_PARTNER_TAG
 ```
 
-Verwendet wird der deutsche Marketplace `www.amazon.de` über `webservices.amazon.de` und die Region `eu-west-1`.
+Verwendet wird der deutsche Marketplace. API-Zugangsdaten bleiben ausschließlich serverseitig.
 
-Sind keine Amazon-Zugangsdaten konfiguriert, bleibt die Schaltfläche trotzdem sichtbar. Statt Produktdaten still zu erfinden oder HTML-Seiten zu scrapen, bietet SimpleOffice4Me dann einen normalen Amazon-Suchlink an.
-
-## eBay konfigurieren
-
-Für eBay wird die offizielle Browse API verwendet. Der Server bezieht dafür ein OAuth-App-Token und hält dieses nur kurzzeitig im Arbeitsspeicher.
-
-Erforderliche Umgebungsvariablen:
+## Optionale eBay-API-Konfiguration
 
 ```text
 SIMPLEOFFICE_EBAY_CLIENT_ID
@@ -87,26 +101,23 @@ Optional:
 SIMPLEOFFICE_EBAY_MARKETPLACE_ID=EBAY_DE
 ```
 
-Ohne konfigurierte eBay-App-Zugangsdaten wird ebenfalls auf die normale eBay-Suche zurückgefallen.
+Der OAuth-App-Token verbleibt serverseitig und wird nur kurzzeitig im Arbeitsspeicher gehalten.
 
 ## Datenschutz und Sicherheit
 
-Marketplace-Zugangsdaten bleiben ausschließlich serverseitig. Der Browser erhält weder Amazon-Secret-Key noch eBay-Client-Secret oder OAuth-Token.
-
-Weitere Schutzmaßnahmen:
-
-- HTTPS für beide offiziellen APIs
-- begrenzte Antwortgröße
-- kurze Netzwerk-Timeouts
-- maximal drei Treffer pro Anfrage
-- serverseitiges Rate-Limit pro Benutzer und Anbieter
+- keine Marketplace-Zugangsdaten im Browser oder Inventar
+- HTTPS-only für Marketplace-Aufrufe
+- feste Host-Allowlist
+- Antwortgrößen- und Timeout-Limits
+- Rate-Limit pro Benutzer und Anbieter
 - keine automatische Speicherung eines Suchtreffers
-- externe Links werden im Browser auf Amazon-/eBay-Domains beschränkt
+- externe Ergebnislinks auf Amazon-/eBay-Domains beschränkt
+- keine CAPTCHA-/Anti-Bot-Umgehung
 - Fehlerantworten enthalten keine Zugangsdaten
 
 ## Mobile Aktionsleiste
 
-Auf Android-Geräten kann eine feste oder klebende Schaltflächenleiste von der Systemnavigation oder einer eingeblendeten Tastatur verdeckt werden. Die Inventarerfassung berücksichtigt deshalb:
+Die Inventarerfassung berücksichtigt auf Android weiterhin:
 
 - `env(safe-area-inset-bottom)`
 - `window.visualViewport`
@@ -115,6 +126,6 @@ Auf Android-Geräten kann eine feste oder klebende Schaltflächenleiste von der 
 
 Dadurch bleiben **Ins Inventar übernehmen**, **Amazon Daten suchen** und **eBay Daten suchen** auch auf kleinen Android-Displays erreichbar.
 
-## Warum offizielle APIs statt Scraping?
+## Wartbarkeit
 
-Direktes Auslesen der Amazon- oder eBay-Webseiten wäre technisch fragil: Seitenaufbau, Bot-Schutz und HTML-Struktur können sich jederzeit ändern. Die offiziellen APIs liefern strukturierte Daten, klar definierte Authentifizierung und stabile Felder. Der normale Suchlink bleibt als Fallback erhalten, wenn noch keine API-Zugangsdaten eingerichtet wurden.
+HTML-Strukturen von Marketplace-Seiten können sich ändern. Die Parser sind deshalb bewusst klein und isoliert und durch Regressionstests mit repräsentativen Suchergebnissen abgesichert. Wenn Amazon/eBay ihr Markup ändern, fällt die Anwendung auf den normalen Suchlink bzw. eine konfigurierte offizielle API zurück, statt falsche Daten zu erzeugen.
