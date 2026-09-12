@@ -1,6 +1,6 @@
 {% extends 'layout.html' %}
 {% block title %}Remote{% endblock %}
-{% block content %}
+{% block body %}
 <div class="container py-4">
   <h1 class="h3 mb-4">SimpleOffice Remote</h1>
   <div class="card shadow-sm mb-4">
@@ -22,7 +22,7 @@
     <div class="card-header"><strong>Veröffentlichte Anwendungen</strong></div>
     <div class="card-body">
       {% if apps %}
-      <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Status</th><th></th></tr></thead><tbody>
+      <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>
       {% for app in apps %}<tr><td>{{ app.label }}</td><td>{{ 'Aktiv' if app.enabled else 'Deaktiviert' }}</td><td class="text-end"><form method="post" action="{{ url_for('remote_admin.remove_app', app_id=app.app_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button></form></td></tr>{% endfor %}
       </tbody></table></div>
       {% else %}<p class="text-secondary mb-0">Noch keine Anwendungen veröffentlicht.</p>{% endif %}
