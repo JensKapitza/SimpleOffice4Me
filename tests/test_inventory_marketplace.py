@@ -51,7 +51,7 @@ class InventoryMarketplaceTests(unittest.TestCase):
         ):
             self.assertEqual({"amazon": False, "ebay": False}, provider_status())
             result = search_marketplace("amazon", "9783499249167")
-        self.assertFalse(result["configured"])
+        self.assertFalse(result["api_configured"])
         self.assertTrue(result["public_lookup"])
         self.assertEqual("public_page", result["source"])
         self.assertEqual("Flammenbrut: Thriller", result["results"][0]["title"])
@@ -64,7 +64,7 @@ class InventoryMarketplaceTests(unittest.TestCase):
             "app.inventory_marketplace._html_request", return_value=EBAY_HTML
         ):
             result = search_marketplace("ebay", "9783499249167")
-        self.assertFalse(result["configured"])
+        self.assertFalse(result["api_configured"])
         self.assertEqual("Flammenbrut Simon Beckett", result["results"][0]["title"])
         self.assertEqual("4.99", result["results"][0]["market_price"])
         self.assertEqual("123456789", result["results"][0]["external_id"])
@@ -141,13 +141,17 @@ class InventoryMarketplaceTests(unittest.TestCase):
         self.assertEqual("4.99", results[0]["market_price"])
         self.assertEqual("Musik", results[0]["categories"])
 
-    def test_frontend_keeps_marketplace_actions_above_android_navigation(self):
+    def test_frontend_supports_api_free_marketplace_and_selected_title(self):
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "inventory.js").read_text(encoding="utf-8")
         self.assertIn("visualViewport", script)
         self.assertIn("safe-area-inset-bottom", script)
         self.assertIn("eBay Daten suchen", script)
         self.assertIn("Bester Treffer", script)
         self.assertIn("/inventory/marketplace/search", script)
+        self.assertIn("const selectedTitle = cleanText(data.title)", script)
+        self.assertIn("title.value = selectedTitle", script)
+        self.assertIn("öffentliche Suche", script)
+        self.assertNotIn("API noch nicht konfiguriert", script)
 
 
 if __name__ == "__main__":
