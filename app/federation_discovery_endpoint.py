@@ -121,15 +121,17 @@ def _validate_address(address, allow_private, allow_loopback):
         raise ValueError("peer endpoint resolves to a non-public network address")
 
 
-def _validated_target(value):
+def _validated_target(value, *, allow_private=None, allow_loopback=None):
     base_url = normalize_endpoint(value)
     parsed = urlsplit(base_url)
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    allow_private = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS")
-    allow_loopback = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK")
+    if allow_private is None:
+        allow_private = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS")
+    if allow_loopback is None:
+        allow_loopback = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK")
     addresses = _resolve_addresses(parsed.hostname, port)
     for address in addresses:
-        _validate_address(address, allow_private, allow_loopback)
+        _validate_address(address, bool(allow_private), bool(allow_loopback))
     return base_url, parsed, port, addresses
 
 
@@ -174,9 +176,11 @@ def _host_header(host, port, scheme):
     return rendered if port == default_port else f"{rendered}:{port}"
 
 
-def fetch_discovery_profile(value, timeout=8):
+def fetch_discovery_profile(value, timeout=8, *, allow_private=None, allow_loopback=None):
     """Fetch the fixed discovery document through an IP-pinned connection."""
-    _base_url, parsed, port, addresses = _validated_target(value)
+    _base_url, parsed, port, addresses = _validated_target(
+        value, allow_private=allow_private, allow_loopback=allow_loopback
+    )
     connect_host = addresses[0].compressed
     connection = _connection_for(parsed.scheme, connect_host, port, parsed.hostname, timeout)
     try:
