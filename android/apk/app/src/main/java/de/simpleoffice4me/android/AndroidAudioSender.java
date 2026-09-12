@@ -53,7 +53,7 @@ final class AndroidAudioSender {
     private volatile String error = "";
 
     AndroidAudioSender(List<Target> targets, int bitrateKbps) {
-        this.targets = List.copyOf(targets);
+        this.targets = new ArrayList<>(targets);
         this.bitrateKbps = Math.max(16, Math.min(bitrateKbps, 256));
     }
 
