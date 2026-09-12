@@ -6,6 +6,8 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2"><div><h1>Bilder</h1><p class="text-muted">Bilder bleiben normale, hashbasiert verwaltete Dokumente. EXIF, OCR-Text und daraus erzeugte Tags werden lokal gespeichert und revisionssicher protokolliert.</p></div></div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
+  {% include "documents/_photo_snapshot.html" %}
+
   <section class="card shadow-sm mb-4" id="mobile-photo-import">
     <div class="card-body">
       <div class="d-flex flex-wrap justify-content-between gap-3 mb-3"><div><h2 class="h5 mb-1"><i class="fas fa-mobile-screen-button me-2" aria-hidden="true"></i>Handy-Fotos massenweise importieren</h2><p class="text-secondary small mb-0">Viele Galerie-Fotos gleichzeitig auswählen. Sie werden einzeln übertragen, damit ein Fehler nicht den ganzen Stapel verwirft.</p></div><span class="badge text-bg-light border align-self-start">EXIF + XMP/IPTC via ExifTool, falls installiert</span></div>
