@@ -4,7 +4,7 @@ import urllib.parse
 
 from .federation_discovery_country import normalize_country
 from .federation_discovery_email import email_hash
-from .federation_discovery_endpoint import normalize_endpoint, validate_discovery_endpoint
+from .federation_discovery_endpoint import fetch_discovery_profile, normalize_endpoint
 from .federation_peer_profile import peer_profile
 from .federation_store import FederationStore
 from .federation_trust_store import FederationTrustStore
@@ -40,8 +40,7 @@ def _remember(root, profile, source):
 
 
 def discover_direct(root, endpoint):
-    base = validate_discovery_endpoint(endpoint)
-    data = _json_request(base + "/.well-known/simpleoffice-federation", timeout=8)
+    data = fetch_discovery_profile(endpoint, timeout=8)
     return _remember(root, data, "direct")
 
 
