@@ -302,14 +302,17 @@ def init_app(app) -> None:
         federation_blocks_http,
         federation_catalog_http,
         federation_contacts_http,
+        federation_discovery_http,
+        federation_discovery_runtime,
         federation_http,
-        gamification_federation_http,
-        gamification_leaderboard_routes,
         federation_mail_http,
+        federation_peer_admin,
         federation_phase2,
         federation_print_http,
         federation_software_http,
         fritzbox_contacts,
+        gamification_federation_http,
+        gamification_leaderboard_routes,
         license_routes,
         mail_index_routes,
         printershare,
@@ -318,6 +321,8 @@ def init_app(app) -> None:
         software_admin,
     )
     app.register_blueprint(federation_http.bp)
+    app.register_blueprint(federation_discovery_http.bp)
+    app.register_blueprint(federation_peer_admin.bp)
     app.register_blueprint(gamification_federation_http.bp)
     app.register_blueprint(gamification_leaderboard_routes.bp)
     app.register_blueprint(federation_catalog_http.bp)
@@ -327,6 +332,7 @@ def init_app(app) -> None:
     app.register_blueprint(federation_print_http.bp)
     app.register_blueprint(federation_software_http.bp)
     federation_phase2.init_app(app)
+    federation_discovery_runtime.init_app(app)
     app.register_blueprint(federation_admin.bp)
     app.register_blueprint(software_admin.bp)
     printershare.init_app(app)
