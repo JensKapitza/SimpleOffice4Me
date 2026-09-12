@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% macro field_help(text) -%}
-<details class="d-inline-block ms-1 align-baseline"><summary class="badge rounded-pill text-bg-light border text-secondary" style="cursor:pointer; list-style:none" aria-label="Hilfe">?</summary><div class="small text-secondary mt-1">{{ text }}</div></details>
+<details class="d-inline-block ms-1 align-baseline" data-field-help="manual"><summary class="badge rounded-pill text-bg-light border text-secondary" style="cursor:pointer; list-style:none" aria-label="Hilfe">?</summary><div class="small text-secondary mt-1">{{ text }}</div></details>
 {%- endmacro %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
@@ -30,7 +30,7 @@
         <dt class="col-sm-4">Nebenstelle {{ field_help('Die interne Rufnummer dieses Geräts. In Linphone wird sie als Benutzername verwendet.') }}</dt><dd class="col-sm-8"><code>{{ one_time.extension }}</code></dd>
         <dt class="col-sm-4">SIP-Server {{ field_help('Der Server, bei dem sich das Telefon anmeldet.') }}</dt><dd class="col-sm-8"><code>{{ one_time.registrar_host or 'noch konfigurieren' }}</code></dd>
         <dt class="col-sm-4">Port / Transport {{ field_help('Port und Übertragungsart der SIP-Signalisierung. Diese Werte müssen zum Server passen.') }}</dt><dd class="col-sm-8"><code>{{ one_time.registrar_port }} / {{ one_time.transport|upper }}</code></dd>
-        <dt class="col-sm-4">Passwort {{ field_help('Einmaliges SIP-Zugangspasswort für dieses Gerät. Jetzt in Linphone oder das IP-Telefon übernehmen.') }}</dt><dd class="col-sm-8"><input class="form-control font-monospace" value="{{ one_time.password }}" readonly aria-label="SIP-Passwort"></dd>
+        <dt class="col-sm-4">Passwort {{ field_help('Einmaliges SIP-Zugangspasswort für dieses Gerät. Jetzt in Linphone oder das IP-Telefon übernehmen.') }}</dt><dd class="col-sm-8"><input class="form-control font-monospace" value="{{ one_time.password }}" readonly aria-label="SIP-Passwort" data-no-help="true"></dd>
         {% if one_time.sip_uri %}<dt class="col-sm-4">SIP-Adresse {{ field_help('Vollständige interne SIP-Adresse der Nebenstelle.') }}</dt><dd class="col-sm-8"><code>{{ one_time.sip_uri }}</code></dd>{% endif %}
       </dl>
     </div>
@@ -44,11 +44,11 @@
         <div class="card-body">
           <form method="post" action="{{ url_for('telephony_admin.save_settings') }}" class="row g-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-6"><label class="form-label">Server / DNS-Name {{ field_help('Adresse des SIP-Servers. Am besten einen stabilen DNS-Namen verwenden, z. B. pbx.home.arpa.') }}</label><input class="form-control" name="registrar_host" value="{{ settings.registrar_host }}" placeholder="{{ suggested_host or 'pbx.home.arpa' }}" required></div>
-            <div class="col-md-3"><label class="form-label">Port {{ field_help('Netzwerk-Port des SIP-Servers. 5060 ist typisch für UDP/TCP, TLS verwendet häufig 5061.') }}</label><input class="form-control" type="number" name="registrar_port" value="{{ settings.registrar_port }}" min="1" max="65535" required></div>
-            <div class="col-md-3"><label class="form-label">Transport {{ field_help('UDP ist unkompliziert, TCP verbindungsorientiert, TLS verschlüsselt die SIP-Signalisierung. Der Server muss die gewählte Variante unterstützen.') }}</label><select class="form-select" name="transport"><option value="udp" {% if settings.transport == 'udp' %}selected{% endif %}>UDP</option><option value="tcp" {% if settings.transport == 'tcp' %}selected{% endif %}>TCP</option><option value="tls" {% if settings.transport == 'tls' %}selected{% endif %}>TLS</option></select></div>
-            <div class="col-md-6"><label class="form-label">SIP-Realm {{ field_help('Anmeldebereich des SIP-Dienstes. Wenn du keinen besonderen Realm konfiguriert hast, den vorgeschlagenen Wert verwenden.') }}</label><input class="form-control" name="realm" value="{{ settings.realm }}" required></div>
-            <div class="col-md-6"><label class="form-label">STUN optional {{ field_help('Hilft Geräten hinter NAT/Router bei der Erreichbarkeit. Im reinen lokalen Netz kann das Feld meist leer bleiben.') }}</label><input class="form-control" name="stun_server" value="{{ settings.stun_server }}" placeholder="stun.example.net"></div>
+            <div class="col-md-6"><label class="form-label">Server / DNS-Name {{ field_help('Adresse des SIP-Servers. Am besten einen stabilen DNS-Namen verwenden, z. B. pbx.home.arpa.') }}</label><input class="form-control" name="registrar_host" value="{{ settings.registrar_host }}" placeholder="{{ suggested_host or 'pbx.home.arpa' }}" required data-no-help="true"></div>
+            <div class="col-md-3"><label class="form-label">Port {{ field_help('Netzwerk-Port des SIP-Servers. 5060 ist typisch für UDP/TCP, TLS verwendet häufig 5061.') }}</label><input class="form-control" type="number" name="registrar_port" value="{{ settings.registrar_port }}" min="1" max="65535" required data-no-help="true"></div>
+            <div class="col-md-3"><label class="form-label">Transport {{ field_help('UDP ist unkompliziert, TCP verbindungsorientiert, TLS verschlüsselt die SIP-Signalisierung. Der Server muss die gewählte Variante unterstützen.') }}</label><select class="form-select" name="transport" data-no-help="true"><option value="udp" {% if settings.transport == 'udp' %}selected{% endif %}>UDP</option><option value="tcp" {% if settings.transport == 'tcp' %}selected{% endif %}>TCP</option><option value="tls" {% if settings.transport == 'tls' %}selected{% endif %}>TLS</option></select></div>
+            <div class="col-md-6"><label class="form-label">SIP-Realm {{ field_help('Anmeldebereich des SIP-Dienstes. Wenn du keinen besonderen Realm konfiguriert hast, den vorgeschlagenen Wert verwenden.') }}</label><input class="form-control" name="realm" value="{{ settings.realm }}" required data-no-help="true"></div>
+            <div class="col-md-6"><label class="form-label">STUN optional {{ field_help('Hilft Geräten hinter NAT/Router bei der Erreichbarkeit. Im reinen lokalen Netz kann das Feld meist leer bleiben.') }}</label><input class="form-control" name="stun_server" value="{{ settings.stun_server }}" placeholder="stun.example.net" data-no-help="true"></div>
             <div class="col-12"><button class="btn btn-primary" type="submit">Serverdaten speichern</button></div>
           </form>
         </div>
@@ -69,9 +69,9 @@
     <div class="card-body">
       <form method="post" action="{{ url_for('telephony_admin.create_profile') }}" class="row g-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <div class="col-md-3"><label class="form-label">Nebenstelle {{ field_help('Kurze interne Rufnummer, z. B. 101. Jede Nebenstelle muss eindeutig sein.') }}</label><input class="form-control" name="extension" inputmode="numeric" pattern="[0-9]{1,12}" placeholder="101" required></div>
-        <div class="col-md-5"><label class="form-label">Name {{ field_help('Anzeigename des Geräts, z. B. Büro Jens, Empfang oder Handy. Er hilft später bei der Zuordnung.') }}</label><input class="form-control" name="display_name" placeholder="Büro Jens" maxlength="200"></div>
-        <div class="col-md-4"><label class="form-label">Gerätetyp {{ field_help('Softphone für Apps wie Linphone, IP-Tischtelefon für Hardwaretelefone, Türtelefon für SIP-Türstationen.') }}</label><select class="form-select" name="device_kind"><option value="softphone">Softphone</option><option value="deskphone">IP-Tischtelefon</option><option value="doorphone">Türtelefon</option><option value="other">Sonstiges SIP-Gerät</option></select></div>
+        <div class="col-md-3"><label class="form-label">Nebenstelle {{ field_help('Kurze interne Rufnummer, z. B. 101. Jede Nebenstelle muss eindeutig sein.') }}</label><input class="form-control" name="extension" inputmode="numeric" pattern="[0-9]{1,12}" placeholder="101" required data-no-help="true"></div>
+        <div class="col-md-5"><label class="form-label">Name {{ field_help('Anzeigename des Geräts, z. B. Büro Jens, Empfang oder Handy. Er hilft später bei der Zuordnung.') }}</label><input class="form-control" name="display_name" placeholder="Büro Jens" maxlength="200" data-no-help="true"></div>
+        <div class="col-md-4"><label class="form-label">Gerätetyp {{ field_help('Softphone für Apps wie Linphone, IP-Tischtelefon für Hardwaretelefone, Türtelefon für SIP-Türstationen.') }}</label><select class="form-select" name="device_kind" data-no-help="true"><option value="softphone">Softphone</option><option value="deskphone">IP-Tischtelefon</option><option value="doorphone">Türtelefon</option><option value="other">Sonstiges SIP-Gerät</option></select></div>
         <div class="col-12"><button class="btn btn-success" type="submit">Telefon hinzufügen</button></div>
       </form>
     </div>
