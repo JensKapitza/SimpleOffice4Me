@@ -33,6 +33,8 @@ import android.widget.TextView;
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -54,7 +56,7 @@ public class MainActivity extends Activity {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final String nfcBridgeToken = UUID.randomUUID().toString();
+    private final String nativeBridgeToken = UUID.randomUUID().toString();
     private WebView webView;
     private ProgressBar progress;
     private TextView status;
@@ -110,9 +112,7 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(true);
         settings.setUserAgentString(settings.getUserAgentString()
                 + " SimpleOffice4Me-Android/" + BuildConfig.VERSION_NAME);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            settings.setSafeBrowsingEnabled(true);
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
 
         webView.addJavascriptInterface(new NativeBridge(), "SimpleOfficeAndroid");
         webView.setWebChromeClient(new WebChromeClient() {
@@ -129,11 +129,7 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public boolean onShowFileChooser(
-                    WebView view,
-                    ValueCallback<Uri[]> callback,
-                    FileChooserParams params
-            ) {
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (!localPageVisible || !isLocalUrl(view.getUrl())) {
                     callback.onReceiveValue(null);
                     return true;
@@ -141,9 +137,7 @@ public class MainActivity extends Activity {
                 if (fileChooserCallback != null) fileChooserCallback.onReceiveValue(null);
                 fileChooserCallback = callback;
                 try {
-                    Intent chooser = params.createIntent();
-                    chooser.addCategory(Intent.CATEGORY_OPENABLE);
-                    startActivityForResult(chooser, FILE_CHOOSER_REQUEST);
+                    startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
                     return true;
                 } catch (ActivityNotFoundException error) {
                     fileChooserCallback = null;
@@ -161,12 +155,9 @@ public class MainActivity extends Activity {
                 String host = uri.getHost();
                 if ("http".equalsIgnoreCase(uri.getScheme())
                         && ("127.0.0.1".equals(host) || "localhost".equals(host))
-                        && uri.getPort() == 8765) {
-                    return false;
-                }
+                        && uri.getPort() == 8765) return false;
                 String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-                if ("http".equals(scheme) || "https".equals(scheme)
-                        || "mailto".equals(scheme) || "tel".equals(scheme)) {
+                if ("http".equals(scheme) || "https".equals(scheme) || "mailto".equals(scheme) || "tel".equals(scheme)) {
                     try {
                         startActivity(new Intent(Intent.ACTION_VIEW, uri));
                     } catch (ActivityNotFoundException error) {
@@ -196,7 +187,7 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 localPageVisible = isLocalUrl(url);
                 if (localPageVisible) {
-                    view.evaluateJavascript(nfcShim(nfcBridgeToken), null);
+                    view.evaluateJavascript(nativeShim(nativeBridgeToken), null);
                     if (!mainFrameLoadFailed) {
                         progress.setVisibility(View.GONE);
                         status.setVisibility(View.GONE);
@@ -227,24 +218,20 @@ public class MainActivity extends Activity {
         });
     }
 
-    private static String nfcShim(String token) {
+    private static String nativeShim(String token) {
         String quotedToken = org.json.JSONObject.quote(token);
         return "(function(){"
-                + "if(window.NDEFReader||!window.SimpleOfficeAndroid)return;"
+                + "if(!window.SimpleOfficeAndroid)return;"
                 + "const bridgeToken=" + quotedToken + ";"
-                + "class NativeNDEFReader extends EventTarget{"
-                + "async scan(){"
+                + "if(!window.NDEFReader){class NativeNDEFReader extends EventTarget{async scan(){"
                 + "const state=String(window.SimpleOfficeAndroid.startNfcScan(bridgeToken));"
-                + "if(state!=='ok'){throw new DOMException(state==='disabled'?'NFC ist deaktiviert.':'NFC ist nicht verfügbar.','NotSupportedError');}"
-                + "window.addEventListener('simpleoffice:nfc',(event)=>{"
-                + "const reading=new Event('reading');"
+                + "if(state!=='ok')throw new DOMException(state==='disabled'?'NFC ist deaktiviert.':'NFC ist nicht verfügbar.','NotSupportedError');"
+                + "window.addEventListener('simpleoffice:nfc',(event)=>{const reading=new Event('reading');"
                 + "Object.defineProperty(reading,'serialNumber',{value:String(event.detail||'')});"
-                + "Object.defineProperty(reading,'message',{value:{records:[]}});"
-                + "this.dispatchEvent(reading);"
-                + "},{once:true});"
-                + "}"
-                + "}"
-                + "window.NDEFReader=NativeNDEFReader;"
+                + "Object.defineProperty(reading,'message',{value:{records:[]}});this.dispatchEvent(reading);},{once:true});}}"
+                + "window.NDEFReader=NativeNDEFReader;}"
+                + "window.SimpleOfficeNativeScanner={scanBarcode:function(){"
+                + "return String(window.SimpleOfficeAndroid.startBarcodeScan(bridgeToken));}};"
                 + "})();";
     }
 
@@ -280,7 +267,6 @@ public class MainActivity extends Activity {
             try {
                 request.deny();
             } catch (IllegalStateException ignored) {
-                // Chromium already cancelled the request.
             }
         }
     }
@@ -292,19 +278,13 @@ public class MainActivity extends Activity {
         PermissionRequest request = pendingCameraPermission;
         pendingCameraPermission = null;
         if (request == null) return;
-        boolean granted = localPageVisible
-                && grantResults.length > 0
+        boolean granted = localPageVisible && grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED
-                && isTrustedLocalOrigin(request.getOrigin())
-                && requestsOnlyVideo(request);
+                && isTrustedLocalOrigin(request.getOrigin()) && requestsOnlyVideo(request);
         try {
-            if (granted) {
-                request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            } else {
-                request.deny();
-            }
+            if (granted) request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            else request.deny();
         } catch (IllegalStateException ignored) {
-            // The page may have navigated while the Android permission dialog was open.
         }
     }
 
@@ -325,20 +305,65 @@ public class MainActivity extends Activity {
     private final class NativeBridge {
         @JavascriptInterface
         public String startNfcScan(String token) {
-            if (!nfcBridgeToken.equals(token) || !localPageVisible) return "blocked";
+            if (!bridgeAllowed(token)) return "blocked";
             if (nfcAdapter == null) return "unavailable";
             if (!nfcAdapter.isEnabled()) return "disabled";
             mainHandler.post(MainActivity.this::beginNfcScan);
             return "ok";
         }
+
+        @JavascriptInterface
+        public String startBarcodeScan(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            mainHandler.post(MainActivity.this::beginBarcodeScan);
+            return "ok";
+        }
+    }
+
+    private boolean bridgeAllowed(String token) {
+        return nativeBridgeToken.equals(token) && localPageVisible && webView != null && isLocalUrl(webView.getUrl());
+    }
+
+    private void beginBarcodeScan() {
+        if (!localPageVisible || webView == null) return;
+        GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(this);
+        scanner.startScan()
+                .addOnSuccessListener(barcode -> dispatchBarcodeResult(barcode.getRawValue()))
+                .addOnCanceledListener(() -> dispatchBarcodeStatus("cancelled"))
+                .addOnFailureListener(error -> dispatchBarcodeStatus("error"));
+    }
+
+    private void dispatchBarcodeResult(String value) {
+        String clean = value == null ? "" : value.trim();
+        if (clean.isEmpty()) {
+            dispatchBarcodeStatus("empty");
+            return;
+        }
+        mainHandler.post(() -> {
+            if (!bridgeAllowed(nativeBridgeToken)) return;
+            String quoted = org.json.JSONObject.quote(clean);
+            webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('simpleoffice:barcode',{detail:" + quoted + "}));",
+                    null
+            );
+        });
+    }
+
+    private void dispatchBarcodeStatus(String state) {
+        mainHandler.post(() -> {
+            if (!bridgeAllowed(nativeBridgeToken)) return;
+            String quoted = org.json.JSONObject.quote(state);
+            webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('simpleoffice:barcode-status',{detail:" + quoted + "}));",
+                    null
+            );
+        });
     }
 
     private void beginNfcScan() {
         if (!localPageVisible || nfcAdapter == null || !nfcAdapter.isEnabled()) return;
-        int flags = NfcAdapter.FLAG_READER_NFC_A
-                | NfcAdapter.FLAG_READER_NFC_B
-                | NfcAdapter.FLAG_READER_NFC_F
-                | NfcAdapter.FLAG_READER_NFC_V
+        int flags = NfcAdapter.FLAG_READER_NFC_A | NfcAdapter.FLAG_READER_NFC_B
+                | NfcAdapter.FLAG_READER_NFC_F | NfcAdapter.FLAG_READER_NFC_V
                 | NfcAdapter.FLAG_READER_NFC_BARCODE;
         nfcScanRequested = true;
         try {
@@ -355,9 +380,7 @@ public class MainActivity extends Activity {
             if (webView == null || !localPageVisible || serial.isEmpty()) return;
             String quoted = org.json.JSONObject.quote(serial);
             webView.evaluateJavascript(
-                    "window.dispatchEvent(new CustomEvent('simpleoffice:nfc',{detail:" + quoted + "}));",
-                    null
-            );
+                    "window.dispatchEvent(new CustomEvent('simpleoffice:nfc',{detail:" + quoted + "}));", null);
         });
     }
 
@@ -366,7 +389,6 @@ public class MainActivity extends Activity {
             try {
                 nfcAdapter.disableReaderMode(this);
             } catch (IllegalStateException ignored) {
-                // Activity is already stopping; reader mode is removed by Android.
             }
         }
         nfcScanRequested = false;
@@ -389,8 +411,7 @@ public class MainActivity extends Activity {
             Uri uri = Uri.parse(value);
             String host = uri.getHost();
             return "http".equalsIgnoreCase(uri.getScheme())
-                    && ("127.0.0.1".equals(host) || "localhost".equals(host))
-                    && uri.getPort() == 8765;
+                    && ("127.0.0.1".equals(host) || "localhost".equals(host)) && uri.getPort() == 8765;
         } catch (Exception error) {
             return false;
         }
@@ -419,24 +440,18 @@ public class MainActivity extends Activity {
         try {
             File runtimeRoot = new File(getFilesDir(), "simpleoffice-runtime");
             syncRuntimeAssets(runtimeRoot);
-
             showStatus("Python-Laufzeit wird gestartet …", true);
-            if (!Python.isStarted()) {
-                Python.start(new AndroidPlatform(this));
-            }
+            if (!Python.isStarted()) Python.start(new AndroidPlatform(this));
             Python python = Python.getInstance();
             PyObject module = python.getModule("android_runtime");
             module.callAttr("start", runtimeRoot.getAbsolutePath(), BuildConfig.ERROR_REPORT_URL);
-
             showStatus("Lokales Backend wird geprüft …", true);
             waitForBackend();
             mainHandler.post(() -> {
                 if (webView == null) return;
                 Bundle state = pendingWebState;
                 pendingWebState = null;
-                if (state != null && webView.restoreState(state) != null) {
-                    return;
-                }
+                if (state != null && webView.restoreState(state) != null) return;
                 webView.loadUrl(LOCAL_URL);
             });
         } catch (Exception error) {
@@ -450,9 +465,7 @@ public class MainActivity extends Activity {
         long deadline = System.currentTimeMillis() + 45000;
         Exception lastError = null;
         while (System.currentTimeMillis() < deadline) {
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("Backend-Prüfung wurde abgebrochen");
-            }
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Backend-Prüfung wurde abgebrochen");
             HttpURLConnection connection = null;
             try {
                 connection = (HttpURLConnection) new URL(LOCAL_URL).openConnection();
@@ -462,9 +475,7 @@ public class MainActivity extends Activity {
                 connection.setUseCaches(false);
                 connection.setRequestProperty("Connection", "close");
                 int statusCode = connection.getResponseCode();
-                if (statusCode >= 200 && statusCode < 500) {
-                    return;
-                }
+                if (statusCode >= 200 && statusCode < 500) return;
                 lastError = new IOException("HTTP " + statusCode);
             } catch (Exception error) {
                 lastError = error;
@@ -484,23 +495,17 @@ public class MainActivity extends Activity {
             if (!target.exists() && !target.mkdirs() && !target.isDirectory()) {
                 throw new IOException("Verzeichnis kann nicht erstellt werden: " + target);
             }
-            for (String child : children) {
-                copyAssetTree(assets, assetPath + "/" + child, new File(target, child));
-            }
+            for (String child : children) copyAssetTree(assets, assetPath + "/" + child, new File(target, child));
             return;
         }
-
         File parent = target.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs() && !parent.isDirectory()) {
             throw new IOException("Verzeichnis kann nicht erstellt werden: " + parent);
         }
-        try (InputStream input = assets.open(assetPath);
-             FileOutputStream output = new FileOutputStream(target, false)) {
+        try (InputStream input = assets.open(assetPath); FileOutputStream output = new FileOutputStream(target, false)) {
             byte[] buffer = new byte[64 * 1024];
             int read;
-            while ((read = input.read(buffer)) >= 0) {
-                output.write(buffer, 0, read);
-            }
+            while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
         }
     }
 
@@ -530,11 +535,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
     }
 
     @Override
