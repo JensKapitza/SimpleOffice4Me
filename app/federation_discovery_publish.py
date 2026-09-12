@@ -1,12 +1,13 @@
 """Publish the local peer profile to configured directories."""
 from .federation_discovery_email import email_hash
-from .federation_discovery_service import bootstrap_urls
+from .federation_discovery_service import bootstrap_token, bootstrap_urls
 from .federation_local_profile import local_profile
 from .federation_worker import _json_request
 
 
 def publish(root, email="", urls=None, token="", ttl_seconds=86400):
     del root
+    token = token or bootstrap_token()
     profile = local_profile()
     payload = {"profile": profile, "ttl_seconds": max(60, min(int(ttl_seconds), 7 * 86400))}
     if email:
