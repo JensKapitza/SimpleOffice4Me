@@ -20,7 +20,8 @@ def bootstrap_token():
     return os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
 
 
-def _remember(root, profile, source):
+def remember_discovered_peer(root, profile, source):
+    """Persist discovery metadata without granting trust or data permissions."""
     profile = peer_profile(profile)
     trust = FederationTrustStore(root)
     trust.remember(
@@ -35,13 +36,15 @@ def _remember(root, profile, source):
             existing.get("policy") or {}, bool(existing.get("enabled")),
         )
     else:
+        # Discovery only makes a peer known. Explicit activation/policy remains
+        # a separate administrator decision.
         store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", {}, False)
     return profile
 
 
 def discover_direct(root, endpoint):
     data = fetch_discovery_profile(endpoint, timeout=8)
-    return _remember(root, data, "direct")
+    return remember_discovered_peer(root, data, "direct")
 
 
 def discover_country(root, country, urls=None, token=""):
@@ -54,7 +57,7 @@ def discover_country(root, country, urls=None, token=""):
             query = urllib.parse.urlencode({"country": country})
             data = _json_request(base + "/federation/v1/discovery/peers?" + query, token=token, timeout=10)
             for item in data.get("peers") or []:
-                profile = _remember(root, item, "country:" + country)
+                profile = remember_discovered_peer(root, item, "country:" + country)
                 found[profile["peer_id"]] = profile
         except Exception as exc:
             errors[base] = str(exc)[:300]
@@ -71,7 +74,7 @@ def discover_email(root, email, urls=None, token=""):
             query = urllib.parse.urlencode({"lookup": key})
             data = _json_request(base + "/federation/v1/discovery/resolve?" + query, token=token, timeout=10)
             for item in data.get("peers") or []:
-                profile = _remember(root, item, "email")
+                profile = remember_discovered_peer(root, item, "email")
                 found[profile["peer_id"]] = profile
         except Exception as exc:
             errors[base] = str(exc)[:300]
