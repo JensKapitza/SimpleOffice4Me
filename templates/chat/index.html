@@ -2,7 +2,7 @@
 {% block title %}Chat · SimpleOffice4Me{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-3 py-md-4">
+<main id="main-content" class="container-xl py-3 py-md-4" style="padding-bottom:calc(2rem + env(safe-area-inset-bottom));">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div><h1 class="h3 mb-1">Chat</h1><p class="text-secondary mb-0">Direkte Nachrichten, Dokumentanhänge und Federation.</p></div>
     <a class="btn btn-primary d-xl-none" href="#new-chat"><i class="fas fa-plus me-1" aria-hidden="true"></i>Neuer Chat</a>
@@ -27,12 +27,19 @@
           {% endfor %}
         </div>
       {% else %}
-        <div class="card border-0 bg-body-tertiary"><div class="card-body text-center py-5"><i class="far fa-comments fa-3x text-secondary mb-3" aria-hidden="true"></i><p class="mb-1 fw-semibold">Noch keine Chats</p><p class="text-secondary mb-0">Lege rechts deinen ersten lokalen oder federierten Chat an.</p></div></div>
+        <div class="card border-0 bg-body-tertiary shadow-sm">
+          <div class="card-body text-center py-4 py-md-5 px-3">
+            <i class="far fa-comments fa-3x text-secondary mb-3" aria-hidden="true"></i>
+            <p class="mb-1 fw-semibold">Noch keine Chats</p>
+            <p class="text-secondary mb-3">Erstelle unten deinen ersten lokalen oder federierten Chat.</p>
+            <a class="btn btn-outline-primary d-xl-none" href="#new-chat"><i class="fas fa-arrow-down me-1" aria-hidden="true"></i>Chat anlegen</a>
+          </div>
+        </div>
       {% endif %}
     </section>
     <aside class="col-xl-4" id="new-chat">
       <div class="card shadow-sm position-xl-sticky" style="top:5rem;">
-        <div class="card-body">
+        <div class="card-body p-3 p-md-4">
           <h2 class="h5 mb-3"><i class="fas fa-comment-medical me-1" aria-hidden="true"></i>Neuer Chat</h2>
           <form method="post" action="{{ url_for('chat.create_room') }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -40,7 +47,7 @@
             <fieldset class="mb-3"><legend class="form-label fs-6">Lokale Teilnehmer</legend><div class="vstack gap-1 border rounded p-2" style="max-height:14rem;overflow:auto;">{% for user in users %}{% if user.username != g.user['username'] %}<label class="form-check"><input class="form-check-input" type="checkbox" name="local_users" value="{{ user.username }}"><span class="form-check-label">{{ user.display_name or user.username }}{% if user.is_admin %} <span class="text-secondary">(Admin)</span>{% endif %}</span></label>{% endif %}{% endfor %}</div></fieldset>
             <div class="mb-3"><label class="form-label" for="remote-peer">Federation-Peer <span class="text-secondary">(optional)</span></label><select class="form-select" id="remote-peer" name="remote_peer_id"><option value="">Nur lokal</option>{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} ({{ peer.peer_id }})</option>{% endfor %}</select></div>
             <div class="mb-3"><label class="form-label" for="remote-users">Benutzer auf dem Peer</label><input class="form-control" id="remote-users" name="remote_users" placeholder="anna, peter" autocomplete="off"><div class="form-text">Mehrere Benutzernamen mit Komma trennen.</div></div>
-            <button class="btn btn-primary w-100" type="submit"><i class="fas fa-plus me-1" aria-hidden="true"></i>Chat anlegen</button>
+            <button class="btn btn-primary w-100 mb-2" type="submit"><i class="fas fa-plus me-1" aria-hidden="true"></i>Chat anlegen</button>
           </form>
         </div>
       </div>
