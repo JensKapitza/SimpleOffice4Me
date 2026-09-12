@@ -23,7 +23,10 @@ def bootstrap_token():
 def _remember(root, profile, source):
     profile = peer_profile(profile)
     trust = FederationTrustStore(root)
-    trust.remember(profile["peer_id"], profile["country"], profile["fingerprint"], source)
+    trust.remember(
+        profile["peer_id"], profile["country"], profile["fingerprint"], source,
+        profile.get("public_key", ""),
+    )
     store = FederationStore(root)
     existing = store.get_peer(profile["peer_id"])
     if existing:
