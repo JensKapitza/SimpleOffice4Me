@@ -39,7 +39,11 @@ class AudioStreamerTests(unittest.TestCase):
         command = sender_command(
             source="default",
             backend="pulse",
-            destinations=[("192.168.1.20", 5004), ("127.0.0.1", 5006)],
+            destinations=[
+                ("192.168.1.20", 5004),
+                ("127.0.0.1", 5006),
+                ("2001:db8::20", 5008),
+            ],
             bitrate_kbps=64,
         )
         self.assertEqual(command[0], "/usr/bin/ffmpeg")
@@ -48,6 +52,7 @@ class AudioStreamerTests(unittest.TestCase):
         self.assertIn("111", command)
         self.assertIn("rtp://192.168.1.20:5004?pkt_size=1200", command)
         self.assertIn("rtp://127.0.0.1:5006?pkt_size=1200", command)
+        self.assertIn("rtp://[2001:db8::20]:5008?pkt_size=1200", command)
         self.assertNotIn("shell=True", command)
 
     def test_sdp_declares_opus_payload(self) -> None:
