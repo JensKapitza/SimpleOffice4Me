@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
+import signal
 import subprocess
 import sys
 import time
@@ -11,52 +11,27 @@ from pathlib import Path
 from typing import Any
 
 STATE_VERSION = 2
-HEARTBEAT_MAX_AGE = 15
-
-
-def _meta_dir(root: str | Path) -> Path:
-    path = Path(root).expanduser().resolve() / ".simpleoffice-meta"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def _state_path(root: str | Path) -> Path:
-    return _meta_dir(root) / "companion-agent.json"
-
-
-def _heartbeat_path(root: str | Path) -> Path:
-    return _meta_dir(root) / "companion-agent-heartbeat.json"
-
-
-def _stop_path(root: str | Path) -> Path:
-    return _meta_dir(root) / "companion-agent-stop.json"
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return value if isinstance(value, dict) else {}
+    path = Path(root).expanduser().resolve() / ".simpleoffice-meta" / "companion-agent.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _read_state(root: str | Path) -> dict[str, Any]:
-    return _read_json(_state_path(root))
-
-
-def _write_json(path: Path, value: dict[str, Any]) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
-    if os.name != "nt":
-        try:
-            path.chmod(0o600)
-        except OSError:
-            pass
+    try:
+        value = json.loads(_state_path(root).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        value = {}
+    return value if isinstance(value, dict) else {}
 
 
 def _write_state(root: str | Path, value: dict[str, Any]) -> None:
-    _write_json(_state_path(root), value)
+    path = _state_path(root)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def platform_name() -> str:
@@ -73,13 +48,7 @@ def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
     if os.name == "nt":
-        result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        result = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, timeout=5, check=False)
         return str(pid) in result.stdout
     try:
         os.kill(pid, 0)
@@ -88,35 +57,16 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _heartbeat_matches(root: str | Path, state: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
-    heartbeat = _read_json(_heartbeat_path(root))
-    token = str(state.get("instance_token") or "")
-    pid = int(state.get("pid") or 0)
-    try:
-        age = max(0, int(time.time()) - int(heartbeat.get("heartbeat_at") or 0))
-    except (TypeError, ValueError):
-        age = HEARTBEAT_MAX_AGE + 1
-    matches = bool(
-        token
-        and heartbeat.get("instance_token") == token
-        and int(heartbeat.get("pid") or 0) == pid
-        and age <= HEARTBEAT_MAX_AGE
-        and _pid_alive(pid)
-    )
-    return matches, heartbeat
-
-
 def status(root: str | Path) -> dict[str, Any]:
     state = _read_state(root)
-    running, heartbeat = _heartbeat_matches(root, state)
+    pid = int(state.get("pid") or 0)
+    running = _pid_alive(pid)
     return {
         "installed": bool(state.get("installed")),
         "running": running,
-        "pid": int(state.get("pid") or 0) if running else 0,
+        "pid": pid if running else 0,
         "platform": platform_name(),
-        "started_at": heartbeat.get("started_at", "") if running else "",
-        "heartbeat_at": heartbeat.get("heartbeat_at", 0) if running else 0,
-        "stop_pending": bool(state.get("stop_pending")) if running else False,
+        "started_at": state.get("started_at", "") if running else "",
     }
 
 
@@ -134,20 +84,7 @@ def start(root: str | Path) -> dict[str, Any]:
     if current["running"]:
         return current
     root_path = Path(root).expanduser().resolve()
-    instance_token = secrets.token_urlsafe(32)
-    try:
-        _stop_path(root_path).unlink()
-    except FileNotFoundError:
-        pass
-    command = [
-        sys.executable,
-        "-m",
-        "tools.background_worker",
-        "--root",
-        str(root_path),
-        "--token",
-        instance_token,
-    ]
+    command = [sys.executable, "-m", "tools.background_worker", "--root", str(root_path)]
     kwargs: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
@@ -160,44 +97,19 @@ def start(root: str | Path) -> dict[str, Any]:
         kwargs["start_new_session"] = True
     process = subprocess.Popen(command, **kwargs)
     state = _read_state(root_path)
-    state.update({
-        "version": STATE_VERSION,
-        "installed": True,
-        "pid": process.pid,
-        "instance_token": instance_token,
-        "stop_pending": False,
-    })
+    state.update({"version": STATE_VERSION, "installed": True, "pid": process.pid, "started_at": int(time.time())})
     _write_state(root_path, state)
-    deadline = time.monotonic() + 3
-    while time.monotonic() < deadline:
-        current = status(root_path)
-        if current["running"]:
-            return current
-        if process.poll() is not None:
-            break
-        time.sleep(0.1)
-    raise RuntimeError("Companion-Agent konnte nicht gestartet werden")
+    return status(root_path)
 
 
 def stop(root: str | Path) -> dict[str, Any]:
-    root_path = Path(root).expanduser().resolve()
-    state = _read_state(root_path)
-    running, _heartbeat = _heartbeat_matches(root_path, state)
-    if not running:
-        state.update({"pid": 0, "instance_token": "", "stop_pending": False})
-        _write_state(root_path, state)
-        return status(root_path)
-    token = str(state.get("instance_token") or "")
-    _write_json(_stop_path(root_path), {"instance_token": token, "requested_at": int(time.time())})
-    state["stop_pending"] = True
-    _write_state(root_path, state)
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        current = status(root_path)
-        if not current["running"]:
-            state = _read_state(root_path)
-            state.update({"pid": 0, "instance_token": "", "stop_pending": False})
-            _write_state(root_path, state)
-            return status(root_path)
-        time.sleep(0.1)
-    return status(root_path)
+    state = _read_state(root)
+    pid = int(state.get("pid") or 0)
+    if _pid_alive(pid):
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T"], timeout=10, check=False, capture_output=True)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    state.update({"pid": 0, "started_at": ""})
+    _write_state(root, state)
+    return status(root)
