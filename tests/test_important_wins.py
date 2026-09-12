@@ -108,10 +108,30 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn("document.getElementById('barcode')", activity)
         self.assertIn("document.getElementById('lookup-book')", activity)
 
+    def test_android_has_native_audio_streaming(self):
+        manifest = self.read("android/apk/app/src/main/AndroidManifest.xml")
+        activity = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java")
+        sender = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidAudioSender.java")
+        receiver = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidAudioReceiver.java")
+        coordinator = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidAudioStreamer.java")
+        self.assertIn('android.permission.RECORD_AUDIO', manifest)
+        self.assertIn('android.hardware.microphone', manifest)
+        self.assertIn('startAudioSender(String token', activity)
+        self.assertIn('startAudioReceiver(String token', activity)
+        self.assertIn('Android Systemmikrofon', activity)
+        self.assertIn('Android Systemausgabe', activity)
+        self.assertIn('MediaRecorder.AudioSource.MIC', sender)
+        self.assertIn('MediaFormat.MIMETYPE_AUDIO_OPUS', sender)
+        self.assertIn('RTP_PAYLOAD_TYPE = 111', sender)
+        self.assertIn('AudioTrack', receiver)
+        self.assertIn('DatagramSocket', receiver)
+        self.assertIn('MAX_TARGETS = 16', coordinator)
+        self.assertIn('Build.VERSION_CODES.Q', coordinator)
+
     def test_android_version_is_bumped(self):
         text = self.read("android/apk/app/build.gradle")
-        self.assertRegex(text, r"versionCode\s+5\b")
-        self.assertIn("versionName '1.0.4'", text)
+        self.assertRegex(text, r"versionCode\s+6\b")
+        self.assertIn("versionName '1.0.5'", text)
         self.assertIn("buildConfig true", text)
 
 
