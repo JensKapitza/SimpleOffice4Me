@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block title %}Audio-Streamer · SimpleOffice4Me{% endblock %}
+{% block content %}
+<div class="container py-3" style="max-width: 980px;">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h3 mb-1">Live Audio-Streamer</h1>
+      <p class="text-muted mb-0">Mikrofon eines PC/Pi per WLAN als Opus/RTP an andere Geräte senden.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
+  </div>
+  <div id="stream-status" class="alert alert-secondary">Status wird geladen …</div>
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="card h-100"><div class="card-header fw-semibold">Sender – Mikrofon übertragen</div><div class="card-body">
+        <label class="form-label" for="capture-backend">Audio-System</label>
+        <select class="form-select mb-3" id="capture-backend"><option value="pulse">PipeWire / PulseAudio</option><option value="alsa">ALSA</option></select>
+        <label class="form-label" for="capture-source">Mikrofon / Quelle</label>
+        <input class="form-control mb-3" id="capture-source" value="default" autocomplete="off">
+        <label class="form-label" for="stream-targets">Ziele</label>
+        <textarea class="form-control mb-3" id="stream-targets" rows="4" placeholder="192.168.1.50:5004&#10;192.168.1.80:5004"></textarea>
+        <div class="form-text mb-3">Ein Ziel pro Zeile.</div>
+        <label class="form-label" for="stream-bitrate">Opus Bitrate (kbit/s)</label>
+        <input class="form-control mb-3" id="stream-bitrate" type="number" min="16" max="256" value="64">
+        <div class="d-flex gap-2"><button class="btn btn-primary" id="sender-start" type="button">Sender starten</button><button class="btn btn-outline-danger" id="sender-stop" type="button">Sender stoppen</button></div>
+      </div></div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="card h-100"><div class="card-header fw-semibold">Receiver – Audio empfangen</div><div class="card-body">
+        <label class="form-label" for="receiver-port">RTP-Port</label>
+        <input class="form-control mb-3" id="receiver-port" type="number" min="1024" max="65535" value="5004">
+        <label class="form-label" for="speaker-device">Lokaler Lautsprecher</label>
+        <input class="form-control mb-3" id="speaker-device" placeholder="leer = keine lokale Wiedergabe" autocomplete="off">
+        <div class="form-check mb-2"><input class="form-check-input" id="virtual-microphone" type="checkbox" checked><label class="form-check-label" for="virtual-microphone">Virtuelles Mikrofon bereitstellen</label></div>
+        <div class="d-flex flex-wrap gap-2"><button class="btn btn-success" id="receiver-start" type="button">Receiver starten</button><button class="btn btn-outline-danger" id="receiver-stop" type="button">Receiver stoppen</button><a class="btn btn-outline-secondary" id="sdp-download" href="{{ url_for('audio_streamer_admin.receiver_sdp_download') }}?port=5004">SDP für VLC/Tablet</a></div>
+      </div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
