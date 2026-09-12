@@ -1,4 +1,4 @@
-"""Administrator UI for DHCP/DNS Mini Services."""
+"""Administrator UI for Mini Services and DHCP/DNS configuration."""
 
 from __future__ import annotations
 
@@ -49,19 +49,33 @@ def _json_rows(name: str) -> list[dict]:
     return value
 
 
+def _network_context():
+    path = default_config_path()
+    return {
+        "config": load_config(path),
+        "status": read_status(path),
+        "leases": read_leases(path),
+        "dns_queries": tail_dns_log(path, 200),
+        "blocklist": read_blocklist_meta(path),
+        "config_path": str(path),
+    }
+
+
 @bp.get("")
 @admin_required
 def index():
-    path = default_config_path()
+    context = _network_context()
     return render_template(
-        "admin/mini_services.html",
-        config=load_config(path),
-        status=read_status(path),
-        leases=read_leases(path),
-        dns_queries=tail_dns_log(path, 200),
-        blocklist=read_blocklist_meta(path),
-        config_path=str(path),
+        "admin/mini_services_hub.html",
+        config=context["config"],
+        status=context["status"],
     )
+
+
+@bp.get("/network")
+@admin_required
+def network():
+    return render_template("admin/mini_services.html", **_network_context())
 
 
 @bp.post("/save")
@@ -126,7 +140,7 @@ def save():
         clean = save_config(candidate, path)
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         flash(f"Mini Services wurden nicht gespeichert: {exc}")
-        return redirect(url_for("mini_services_admin.index"))
+        return redirect(url_for("mini_services_admin.network"))
     audit(
         "mini_services_config_updated",
         "service",
@@ -134,7 +148,7 @@ def save():
         detail={"dhcp_enabled": clean["dhcp"]["enabled"], "dns_enabled": clean["dns"]["enabled"]},
     )
     flash("Mini Services gespeichert. Der Netzwerk-Worker übernimmt die Änderung automatisch.")
-    return redirect(url_for("mini_services_admin.index"))
+    return redirect(url_for("mini_services_admin.network"))
 
 
 @bp.post("/blocklists/refresh")
@@ -149,7 +163,7 @@ def refresh_lists():
     else:
         audit("mini_dns_blocklist_refresh", "service", "dns", detail={"domains": meta.get("domains", 0)})
         flash(f"Blocklisten aktualisiert: {meta.get('domains', 0)} Domains.")
-    return redirect(url_for("mini_services_admin.index"))
+    return redirect(url_for("mini_services_admin.network"))
 
 
 @bp.post("/dns-log/clear")
@@ -158,7 +172,7 @@ def clear_query_log():
     clear_dns_log(default_config_path())
     audit("mini_dns_log_cleared", "service", "dns")
     flash("DNS-Anfragelog wurde geleert.")
-    return redirect(url_for("mini_services_admin.index"))
+    return redirect(url_for("mini_services_admin.network"))
 
 
 @bp.post("/leases/clear")
@@ -167,7 +181,7 @@ def clear_dhcp_leases():
     clear_leases(default_config_path())
     audit("mini_dhcp_leases_cleared", "service", "dhcp")
     flash("DHCP-Leases wurden geleert. Aktive Clients können anschließend neue Leases anfordern.")
-    return redirect(url_for("mini_services_admin.index"))
+    return redirect(url_for("mini_services_admin.network"))
 
 
 # This module is imported while the main Flask app is already being built.
