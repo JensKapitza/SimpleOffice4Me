@@ -36,6 +36,18 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _user_ids(values) -> list[int]:
+    result = []
+    for value in values or ():
+        try:
+            user_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if user_id > 0 and user_id not in result:
+            result.append(user_id)
+    return result[:250]
+
+
 class RemoteAppCatalog:
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
@@ -69,10 +81,16 @@ class RemoteAppCatalog:
         for row in self.all():
             if not row.get("enabled", True):
                 continue
-            allowed = [int(value) for value in row.get("allowed_user_ids", []) if str(value).isdigit()]
-            if is_admin or not allowed or int(user_id) in allowed:
+            allowed = _user_ids(row.get("allowed_user_ids", []))
+            if is_admin or int(user_id) in allowed:
                 result.append(row)
         return result
+
+    def is_allowed(self, app_id: str, user_id: int, *, is_admin: bool = False) -> bool:
+        row = self.get(app_id)
+        if row is None or not row.get("enabled", True):
+            return False
+        return bool(is_admin) or int(user_id) in _user_ids(row.get("allowed_user_ids", []))
 
     def get(self, app_id: str) -> dict[str, Any] | None:
         app_id = _text(app_id, 80)
@@ -87,14 +105,6 @@ class RemoteAppCatalog:
             raise ValueError("Es muss eine vorhandene absolute Windows-EXE ausgewählt werden")
         if path.name.casefold() in _BLOCKED_EXECUTABLES:
             raise ValueError("Shell- und Skript-Interpreter dürfen nicht als RemoteApp veröffentlicht werden")
-        users = []
-        for value in allowed_user_ids or ():
-            try:
-                user_id = int(value)
-            except (TypeError, ValueError):
-                continue
-            if user_id > 0 and user_id not in users:
-                users.append(user_id)
         row = {
             "app_id": str(uuid.uuid4()),
             "label": label,
@@ -103,7 +113,7 @@ class RemoteAppCatalog:
             "sha256": _hash_file(path),
             "enabled": True,
             "favorite": bool(favorite),
-            "allowed_user_ids": users[:250],
+            "allowed_user_ids": _user_ids(allowed_user_ids),
         }
         with exclusive_file_lock(self.lock):
             data = self._read()
@@ -131,15 +141,7 @@ class RemoteAppCatalog:
             if favorite is not None:
                 row["favorite"] = bool(favorite)
             if allowed_user_ids is not None:
-                users = []
-                for value in allowed_user_ids:
-                    try:
-                        user_id = int(value)
-                    except (TypeError, ValueError):
-                        continue
-                    if user_id > 0 and user_id not in users:
-                        users.append(user_id)
-                row["allowed_user_ids"] = users[:250]
+                row["allowed_user_ids"] = _user_ids(allowed_user_ids)
             self._save(data)
             return row
 
