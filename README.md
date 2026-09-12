@@ -24,8 +24,27 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 - einfache EÜR-Belegerfassung für Einnahmen und Ausgaben mit Originaldatei,
   Vollständigkeitsprüfung, EUR-/Umsatzsteuerberechnung, Prüfstatus,
   Jahresübersicht und CSV-/ZIP-Übergabe an den Steuerberater
+- datensparsame zentrale Fehlerberichte mit stabilem Fingerprint, Deduplizierung,
+  optionalem Error-Relay und lokalem Fallback ohne automatischen Log-Upload
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
+
+## Aktuelle Architektur-Erweiterung: Fehlerreporting
+
+Unbehandelte Anwendungsfehler können jetzt mit einer kleinen technischen
+Diagnose an den bekannten Master beziehungsweise einen optionalen Error-Relay
+weitergegeben und dedupliziert als GitHub-Issue erfasst werden. Normale Clients
+benötigen dafür keine eigene GitHub-Konfiguration und die Fehlerübertragung ist
+nicht an eine bestehende Federation-Kopplung gebunden.
+
+Der Grund für diese Trennung ist Sicherheit und Betriebsvereinfachung: Logs und
+fachliche Nutzdaten sollen nicht automatisch hochgeladen werden, während
+wiederkehrende Programmfehler trotzdem zentral erkannt werden können. Die
+Architektur, Datenschutzentscheidungen, Deduplizierung und der eingeschränkte
+Relay-Betrieb sind in
+[Neuerungen: Fehlerreporting](docs/NEUERUNGEN_FEHLERREPORTING.md) erklärt. Die
+konkrete Konfiguration steht in
+[GitHub-Fehlerberichte](docs/GITHUB_ERROR_REPORTING.md).
 
 ## Zielbild
 
