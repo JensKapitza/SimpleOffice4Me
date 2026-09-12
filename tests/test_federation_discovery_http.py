@@ -26,7 +26,7 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.app = Flask(__name__)
-        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root))
+        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="federation-discovery-test")
         self.app.register_blueprint(bp)
         self.client = self.app.test_client()
         self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
