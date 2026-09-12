@@ -59,6 +59,11 @@ def normalize_destinations(values: Any) -> list[tuple[str, int]]:
     return result
 
 
+def _rtp_target(host: str, port: int) -> str:
+    formatted_host = f"[{host}]" if ":" in host else host
+    return f"rtp://{formatted_host}:{port}?pkt_size=1200"
+
+
 def sender_command(*, source: str, backend: str, destinations: list[tuple[str, int]], bitrate_kbps: int = 64) -> list[str]:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -77,7 +82,7 @@ def sender_command(*, source: str, backend: str, destinations: list[tuple[str, i
             "-map", "0:a:0", "-vn", "-ac", "2", "-ar", "48000",
             "-c:a", "libopus", "-application", "lowdelay", "-frame_duration", "20",
             "-b:a", f"{bitrate}k", "-payload_type", "111", "-f", "rtp",
-            f"rtp://{host}:{port}?pkt_size=1200",
+            _rtp_target(host, port),
         ]
     return command
 
