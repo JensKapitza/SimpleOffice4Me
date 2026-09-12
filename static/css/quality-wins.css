@@ -27,10 +27,24 @@ pre { overflow: auto; overscroll-behavior-inline: contain; }
 .alert, .badge, .form-text, .dropdown-item { overflow-wrap: anywhere; }
 #network-offline-banner, #pwa-update-banner { position: relative; z-index: 1035; }
 .so-file-selection { min-height: 1.25em; }
+.so-field-help {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  vertical-align: text-bottom;
+  user-select: none;
+}
+.so-field-help:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 @media (pointer: coarse) {
   .btn, .nav-link, .dropdown-item, .list-group-item-action, summary, input:not([type="hidden"]), select { min-height: 44px; }
   .form-check-input { min-width: 1.25rem; min-height: 1.25rem; }
+  .so-field-help { width: 1.5rem; height: 1.5rem; font-size: .85rem; }
 }
 
 @media (prefers-contrast: more) {
@@ -43,7 +57,7 @@ pre { overflow: auto; overscroll-behavior-inline: contain; }
 }
 
 @media print {
-  .app-navbar, .skip-link, .btn, button, .toast-container, #network-offline-banner, #pwa-update-banner { display: none !important; }
+  .app-navbar, .skip-link, .btn, button, .toast-container, #network-offline-banner, #pwa-update-banner, .so-field-help { display: none !important; }
   body { background: #fff !important; color: #000 !important; padding: 0 !important; }
   .card { box-shadow: none !important; break-inside: avoid; }
   a[href]::after { content: none !important; }
