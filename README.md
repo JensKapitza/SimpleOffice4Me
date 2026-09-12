@@ -28,6 +28,8 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
   Deduplizierung und optionalem eingeschränktem Error-Relay
 - Offline-Installer-Cache für fertige Windows-, macOS-, Linux-, Android- und
   Docker-Artefakte mit Hashprüfung und gezielter Federation-Verteilung
+- Git-unabhängige Anwendungsupdates über geprüfte HTTPS-Quellarchive mit
+  Rollback bei Kopierfehlern und Versionsnachweis in `.simpleoffice-release.json`
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
 
@@ -67,6 +69,22 @@ Admin-Konfiguration, Offline-Verhalten, Federation-Richtlinien und die Gründe
 für die einzelnen Architekturentscheidungen sind in
 [Neuerungen: Offline-Installer und Software-Verteilung](docs/NEUERUNGEN_OFFLINE_INSTALLER.md)
 beschrieben.
+
+### Update ohne Git-Abhängigkeit
+
+Der normale Updatepfad benötigt keine lokale Git-Installation und keine
+`.git`-Arbeitskopie mehr. `update.sh` und `update.bat` laden den gewählten
+GitHub-Stand als HTTPS-Quellarchiv, prüfen die Archivstruktur, ersetzen nur den
+verwalteten Programmbaum und schreiben Revision und Version anschließend in
+`.simpleoffice-release.json`.
+
+Der Grund ist die Trennung von Entwicklung und Betrieb: Git bleibt ein gutes
+Werkzeug für Entwickler, soll aber keine Laufzeitvoraussetzung für Desktop-,
+Windows-, AppImage-, Docker- oder portable Installationen sein. Lokale
+Laufzeitdaten wie `.venv`, `instance` und die Audit-Historie werden nicht als
+Teil des Programmupdates ersetzt. Details, Sicherheitsgrenzen, Rollback und
+offline nutzbare lokale Archive beschreibt
+[Git-freies Update](docs/GIT_FREIES_UPDATE.md).
 
 ## Zielbild
 
@@ -223,8 +241,10 @@ Ersteinrichtungs-Assistenten. Anschließend läuft die Anwendung mit dem
 produktionsgeeigneten Waitress-WSGI-Server statt mit Flasks Entwicklungsserver.
 Konfiguration und Sicherheitsgrenzen stehen unter
 [Produktionsbetrieb mit Waitress](docs/PRODUKTIONSBETRIEB.md). Updates laufen
-mit `update.sh` oder `update.bat`
-über ein sicheres `git pull --ff-only`.
+mit `update.sh` oder `update.bat` ohne lokale Git-Abhängigkeit über ein
+HTTPS-Quellarchiv einer konkreten GitHub-Revision. Archivgrenzen, Rollback,
+Versionierung und lokale/offline Archive sind in
+[Git-freies Update](docs/GIT_FREIES_UPDATE.md) beschrieben.
 Die technische CRA-Arbeitsakte, sichere Standardwerte, SBOM-Erzeugung,
 Schwachstellenmeldung und die Release-Prüfung stehen in
 [docs/CRA.md](docs/CRA.md), [docs/SECURITY.md](docs/SECURITY.md) und
