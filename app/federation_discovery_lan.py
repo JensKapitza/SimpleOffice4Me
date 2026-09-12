@@ -13,6 +13,7 @@ import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .federation_discovery_endpoint import fetch_discovery_profile
+from .federation_discovery_service import remember_discovered_peer
 from .federation_local_profile import local_peer_id
 from .federation_peer_profile import peer_profile
 
@@ -75,7 +76,10 @@ def local_lan_addresses() -> list[str]:
 
 
 def scan_ports(extra_port=None) -> list[int]:
-    values = [os.environ.get("SIMPLEOFFICE_PORT", ""), os.environ.get("SIMPLEOFFICE_FEDERATION_LAN_PORTS", "")]
+    values = [
+        os.environ.get("SIMPLEOFFICE_PORT", ""),
+        os.environ.get("SIMPLEOFFICE_FEDERATION_LAN_PORTS", ""),
+    ]
     if extra_port not in (None, ""):
         values.append(str(extra_port))
     ports: list[int] = []
@@ -125,7 +129,7 @@ def _probe(endpoint: str, timeout: float):
         return None
 
 
-def discover_lan(*, addresses=None, ports=None, timeout=_DEFAULT_TIMEOUT) -> dict:
+def discover_lan(root, *, addresses=None, ports=None, timeout=_DEFAULT_TIMEOUT) -> dict:
     addresses = list(addresses) if addresses is not None else local_lan_addresses()
     addresses = [value for value in addresses if is_private_lan_ipv4(value)][:_MAX_NETWORKS]
     if not addresses:
@@ -142,7 +146,9 @@ def discover_lan(*, addresses=None, ports=None, timeout=_DEFAULT_TIMEOUT) -> dic
             profile = future.result()
             if not profile or profile["peer_id"] == own_peer:
                 continue
-            found[profile["peer_id"]] = profile
+            source = "lan:" + profile["base_url"].split("//", 1)[-1].split(":", 1)[0]
+            stored = remember_discovered_peer(root, profile, source)
+            found[stored["peer_id"]] = stored
 
     networks = sorted({str(ipaddress.ip_network(f"{value}/24", strict=False)) for value in addresses})
     return {
