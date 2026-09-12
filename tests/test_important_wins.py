@@ -31,6 +31,17 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn('loading = "lazy"', text)
         self.assertIn('table-responsive', text)
 
+    def test_global_ui_adds_contextual_help_to_form_fields(self):
+        text = self.read("static/js/global_ui.js")
+        self.assertIn('root.querySelectorAll?.("input, select, textarea").forEach(enhanceFieldHelp)', text)
+        self.assertIn('control.dataset.help', text)
+        self.assertIn('data-bs-toggle', text)
+        self.assertIn('aria-describedby', text)
+        self.assertIn('MutationObserver', text)
+        css = self.read("static/css/quality-wins.css")
+        self.assertIn('.so-field-help', css)
+        self.assertIn('cursor: help', css)
+
     def test_service_worker_keeps_sensitive_app_data_out_of_cache(self):
         text = self.read("static/service-worker.js")
         self.assertIn('CACHE_NAME = `${CACHE_PREFIX}v2`', text)
