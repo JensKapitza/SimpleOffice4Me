@@ -12,9 +12,11 @@ from app.federation_discovery_endpoint import (
     normalize_endpoint,
     validate_discovery_endpoint,
 )
+from app.federation_discovery_lan import _targets, discover_lan, is_private_lan_ipv4, scan_ports
 from app.federation_discovery_service import discover_direct
 from app.federation_qr import decode_peer, encode_peer
 from app.federation_rendezvous_store import FederationRendezvousStore
+from app.federation_store import FederationStore
 
 
 PROFILE = {
@@ -89,11 +91,72 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         self.assertEqual(request_kwargs["headers"]["Host"], "peer.example")
         connection.close.assert_called_once_with()
 
+    def test_internal_lan_fetch_can_probe_private_but_not_link_local(self):
+        connection = Mock()
+        response = Mock()
+        response.status = 200
+        response.read.return_value = json.dumps(PROFILE).encode("utf-8")
+        connection.getresponse.return_value = response
+        with patch("app.federation_discovery_endpoint._connection_for", return_value=connection):
+            profile = fetch_discovery_profile(
+                "http://192.168.20.44:8080", timeout=.2, allow_private=True
+            )
+        self.assertEqual(profile["peer_id"], "peer-a")
+        with self.assertRaises(ValueError):
+            fetch_discovery_profile(
+                "http://169.254.169.254:8080", timeout=.2, allow_private=True
+            )
+
     def test_direct_discovery_uses_pinned_fetcher(self):
         with patch("app.federation_discovery_service.fetch_discovery_profile", return_value=PROFILE) as fetcher:
             peer = discover_direct(self.root, "https://peer.example")
         self.assertEqual(peer["peer_id"], "peer-a")
         fetcher.assert_called_once_with("https://peer.example", timeout=8)
+
+    def test_lan_target_generation_stays_inside_local_24(self):
+        targets = _targets(["192.168.50.23"], [8080])
+        self.assertIn("http://192.168.50.1:8080", targets)
+        self.assertIn("http://192.168.50.254:8080", targets)
+        self.assertNotIn("http://192.168.50.23:8080", targets)
+        self.assertFalse(any("192.168.51." in endpoint for endpoint in targets))
+        self.assertEqual(len(targets), 253)
+
+    def test_lan_scan_accepts_only_rfc1918_ipv4(self):
+        for value in ("10.2.3.4", "172.16.1.1", "172.31.255.2", "192.168.1.2"):
+            self.assertTrue(is_private_lan_ipv4(value), value)
+        for value in ("8.8.8.8", "169.254.1.1", "127.0.0.1", "::1"):
+            self.assertFalse(is_private_lan_ipv4(value), value)
+
+    def test_lan_ports_are_bounded(self):
+        with patch.dict(
+            os.environ,
+            {"SIMPLEOFFICE_FEDERATION_LAN_PORTS": "9090,9091,9092,9093,9094"},
+            clear=False,
+        ):
+            ports = scan_ports()
+        self.assertLessEqual(len(ports), 4)
+        self.assertTrue(all(1 <= port <= 65535 for port in ports))
+
+    def test_lan_scan_remembers_found_peer_disabled(self):
+        profile = {
+            **PROFILE,
+            "base_url": "http://192.168.50.44:8080",
+            "fingerprint": "",
+        }
+        with patch(
+            "app.federation_discovery_lan._targets",
+            return_value=["http://192.168.50.44:8080"],
+        ), patch("app.federation_discovery_lan._probe", return_value=profile), patch(
+            "app.federation_discovery_lan.local_peer_id", return_value="this-phone"
+        ):
+            result = discover_lan(
+                self.root, addresses=["192.168.50.23"], ports=[8080]
+            )
+        self.assertEqual([item["peer_id"] for item in result["peers"]], ["peer-a"])
+        stored = FederationStore(self.root).get_peer("peer-a")
+        self.assertIsNotNone(stored)
+        self.assertFalse(stored["enabled"])
+        self.assertEqual(stored["base_url"], "http://192.168.50.44:8080")
 
     def test_qr_payload_roundtrip(self):
         decoded = decode_peer(encode_peer(PROFILE))

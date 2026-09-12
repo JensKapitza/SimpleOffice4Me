@@ -45,7 +45,11 @@ def _log_rejected(action, exc):
 @bp.get("/.well-known/simpleoffice-federation")
 def well_known():
     try:
-        return jsonify(local_profile(_root()))
+        # A direct request already proves which local address/port was reached.
+        # This fallback enables ad-hoc LAN discovery without requiring a public
+        # Internet URL. Published QR/directory profiles still require their
+        # configured public URL because they call local_profile without it.
+        return jsonify(local_profile(_root(), fallback_base_url=request.host_url))
     except ValueError as exc:
         _log_rejected("profile", exc)
         return jsonify({"error": "federation_profile_unavailable"}), 503
