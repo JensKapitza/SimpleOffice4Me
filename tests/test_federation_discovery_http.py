@@ -28,6 +28,8 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="federation-discovery-test")
         self.app.register_blueprint(bp)
+        self.context = self.app.app_context()
+        self.context.push()
         self.client = self.app.test_client()
         self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
         os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "discovery-test-token"
@@ -38,6 +40,7 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
             os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
         else:
             os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous
+        self.context.pop()
         self.temp.cleanup()
 
     def test_register_publishes_without_disabling_existing_peer(self):
