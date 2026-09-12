@@ -1,12 +1,17 @@
+import json
 import os
 import socket
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.federation_discovery_email import email_hash
-from app.federation_discovery_endpoint import normalize_endpoint, validate_discovery_endpoint
+from app.federation_discovery_endpoint import (
+    fetch_discovery_profile,
+    normalize_endpoint,
+    validate_discovery_endpoint,
+)
 from app.federation_discovery_service import discover_direct
 from app.federation_qr import decode_peer, encode_peer
 from app.federation_rendezvous_store import FederationRendezvousStore
@@ -66,16 +71,29 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_discovery_endpoint("https://peer.example")
 
-    def test_direct_discovery_uses_only_fixed_well_known_path(self):
+    def test_discovery_fetch_pins_connection_to_validated_ip(self):
         resolved = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
+        connection = Mock()
+        response = Mock()
+        response.status = 200
+        response.read.return_value = json.dumps(PROFILE).encode("utf-8")
+        connection.getresponse.return_value = response
         with patch("app.federation_discovery_endpoint.socket.getaddrinfo", return_value=resolved), patch(
-            "app.federation_discovery_service._json_request", return_value=PROFILE
-        ) as request_mock:
+            "app.federation_discovery_endpoint._connection_for", return_value=connection
+        ) as connection_factory:
+            profile = fetch_discovery_profile("https://peer.example", timeout=8)
+        self.assertEqual(profile["peer_id"], "peer-a")
+        connection_factory.assert_called_once_with("https", "8.8.8.8", 443, "peer.example", 8)
+        request_args, request_kwargs = connection.request.call_args
+        self.assertEqual(request_args, ("GET", "/.well-known/simpleoffice-federation"))
+        self.assertEqual(request_kwargs["headers"]["Host"], "peer.example")
+        connection.close.assert_called_once_with()
+
+    def test_direct_discovery_uses_pinned_fetcher(self):
+        with patch("app.federation_discovery_service.fetch_discovery_profile", return_value=PROFILE) as fetcher:
             peer = discover_direct(self.root, "https://peer.example")
         self.assertEqual(peer["peer_id"], "peer-a")
-        request_mock.assert_called_once_with(
-            "https://peer.example/.well-known/simpleoffice-federation", timeout=8
-        )
+        fetcher.assert_called_once_with("https://peer.example", timeout=8)
 
     def test_qr_payload_roundtrip(self):
         decoded = decode_peer(encode_peer(PROFILE))
