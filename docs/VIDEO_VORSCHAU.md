@@ -76,6 +76,17 @@ Beim Öffnen der Vorschau eines Videos wird eine eigene Player-Seite angezeigt. 
 
 Die unveränderte Originaldatei bleibt weiterhin direkt erreichbar. Der Player ist nur eine andere Darstellung desselben Dokumentes.
 
+## Berechtigungen
+
+Leser, die auf das Originaldokument zugreifen dürfen, dürfen auch den Player, die Vorschaubilder und bereits vorhandene Wiedergabevarianten verwenden.
+
+Zwei Aktionen sind bewusst Administratoren vorbehalten:
+
+- Änderung der globalen Anzahl der Vorschaubilder
+- Start einer neuen ffmpeg-Transkodierung
+
+Der Grund ist, dass die Einstellung systemweit wirkt und Transkodierungen erhebliche CPU-, Laufzeit- und Speicherlast auslösen können. Ein Benutzer mit reinem Leserecht soll daher keine beliebigen Konvertierungsjobs starten können.
+
 ## Neu kodierte Varianten
 
 Eine in SimpleOffice4Me erzeugte Transkodierung wird unterhalb des Preview-Caches des Originaldokuments gespeichert. Die erste angebotene Variante ist MP4 mit H.264/AAC bis 720p.
