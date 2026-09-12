@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from app.audio_streamer import (
+    ReceiverSession,
     decoder_command,
     normalize_destinations,
     paplay_command,
@@ -68,6 +70,23 @@ class AudioStreamerTests(unittest.TestCase):
         self.assertIn("--device=simpleoffice_stream", command)
         self.assertIn("--rate=48000", command)
         self.assertIn("--channels=2", command)
+
+    @patch("app.audio_streamer.unload_virtual_microphone")
+    @patch("app.audio_streamer.decoder_command", side_effect=RuntimeError("ffmpeg missing"))
+    @patch("app.audio_streamer.ensure_virtual_microphone", return_value="17")
+    def test_failed_receiver_start_unloads_virtual_microphone(
+        self,
+        _ensure,
+        _decoder,
+        unload,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("app.audio_streamer.tempfile.tempdir", directory):
+                session = ReceiverSession(5004, [], "simpleoffice_stream")
+                with self.assertRaises(RuntimeError):
+                    session.start()
+        unload.assert_called_once_with("17")
+        self.assertEqual(session.module_id, "")
 
     def test_admin_does_not_expose_exception_text(self) -> None:
         source = (ROOT / "app" / "audio_streamer_admin.py").read_text(encoding="utf-8")
