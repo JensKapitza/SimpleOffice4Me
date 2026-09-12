@@ -1,46 +1,89 @@
-"""Shareable federation verification attestations."""
+"""Signed federation verification attestations."""
+import json
 import time
 import uuid
 
 from .federation_core import sanitize_peer_id
+from .federation_identity import FederationIdentity, verify
+from .federation_local_profile import local_peer_id
 from .federation_peer_schema import ensure_schema
 from .federation_store import FederationStore
 from .federation_trust_constants import DIRECT_ONLY, PROPAGATION, TRANSITIVE
 
+SIGNED_FIELDS = (
+    "attestation_id", "verifier_peer_id", "verified_peer_id", "verification_type",
+    "public_key_fingerprint", "propagation", "max_hops", "created_at", "expires_at",
+)
+
+
+def canonical_attestation(value):
+    payload = {field: value.get(field) for field in SIGNED_FIELDS}
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def verify_attestation(value, public_key):
+    if not isinstance(value, dict) or not public_key or not value.get("signature"):
+        return False
+    return verify(public_key, canonical_attestation(value), value["signature"])
+
 
 class FederationAttestationStore:
     def __init__(self, root):
+        self.root = root
         self.store = FederationStore(root)
         ensure_schema(self.store)
 
-    def add(self, verifier_peer_id, verified_peer_id, verification_type,
-            fingerprint="", signature="", propagation=DIRECT_ONLY,
-            max_hops=0, expires_at=None):
-        verifier_peer_id = sanitize_peer_id(verifier_peer_id)
-        verified_peer_id = sanitize_peer_id(verified_peer_id)
+    def add_signed(self, verified_peer_id, verification_type, fingerprint="",
+                   propagation=DIRECT_ONLY, max_hops=0, expires_at=None):
         propagation = str(propagation or DIRECT_ONLY).upper()
         if propagation not in PROPAGATION:
             raise ValueError("invalid attestation propagation")
         max_hops = max(0, min(int(max_hops), 2)) if propagation == TRANSITIVE else 0
-        now = int(time.time())
-        attestation_id = str(uuid.uuid4())
+        identity = FederationIdentity(self.root)
+        public = identity.public_identity()
+        value = {
+            "attestation_id": str(uuid.uuid4()),
+            "verifier_peer_id": local_peer_id(),
+            "verified_peer_id": sanitize_peer_id(verified_peer_id),
+            "verification_type": str(verification_type)[:80],
+            "public_key_fingerprint": public["fingerprint"],
+            "propagation": propagation,
+            "max_hops": max_hops,
+            "created_at": int(time.time()),
+            "expires_at": int(expires_at) if expires_at else None,
+        }
+        value["signature"] = identity.sign(canonical_attestation(value))
+        self._save(value)
+        return value
+
+    def save_verified(self, value, public_key):
+        if not verify_attestation(value, public_key):
+            raise ValueError("invalid federation attestation signature")
+        clean = {field: value.get(field) for field in SIGNED_FIELDS}
+        clean["signature"] = str(value.get("signature") or "")[:1024]
+        clean["verifier_peer_id"] = sanitize_peer_id(clean["verifier_peer_id"])
+        clean["verified_peer_id"] = sanitize_peer_id(clean["verified_peer_id"])
+        clean["propagation"] = str(clean["propagation"] or DIRECT_ONLY).upper()
+        if clean["propagation"] not in PROPAGATION:
+            raise ValueError("invalid attestation propagation")
+        clean["max_hops"] = max(0, min(int(clean["max_hops"] or 0), 2)) if clean["propagation"] == TRANSITIVE else 0
+        self._save(clean)
+        return clean
+
+    def _save(self, value):
         with self.store._db() as db:
             db.execute(
-                """INSERT INTO federation_trust_attestation
+                """INSERT OR REPLACE INTO federation_trust_attestation
                 (attestation_id,verifier_peer_id,verified_peer_id,verification_type,
                  public_key_fingerprint,signature,propagation,max_hops,created_at,expires_at)
                 VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (attestation_id, verifier_peer_id, verified_peer_id,
-                 str(verification_type)[:80], str(fingerprint)[:256],
-                 str(signature)[:1024], propagation, max_hops, now,
-                 int(expires_at) if expires_at else None),
+                (
+                    str(value["attestation_id"]), value["verifier_peer_id"], value["verified_peer_id"],
+                    str(value["verification_type"])[:80], str(value.get("public_key_fingerprint") or "")[:256],
+                    str(value.get("signature") or "")[:1024], value["propagation"], int(value["max_hops"]),
+                    int(value["created_at"]), int(value["expires_at"]) if value.get("expires_at") else None,
+                ),
             )
-        return self.get(attestation_id)
-
-    def get(self, attestation_id):
-        with self.store._db() as db:
-            row = db.execute("SELECT * FROM federation_trust_attestation WHERE attestation_id=?", (str(attestation_id),)).fetchone()
-        return dict(row) if row else None
 
     def export_shareable(self):
         now = int(time.time())
