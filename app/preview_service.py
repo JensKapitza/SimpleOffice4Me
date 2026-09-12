@@ -14,15 +14,19 @@ from typing import Any
 
 from PIL import Image, ImageOps
 
+from .video_settings import (
+    DEFAULT_VIDEO_PREVIEW_FRAMES as VIDEO_PREVIEW_DEFAULT_FRAMES,
+    MAX_VIDEO_PREVIEW_FRAMES as VIDEO_PREVIEW_MAX_FRAMES,
+    MIN_VIDEO_PREVIEW_FRAMES as VIDEO_PREVIEW_MIN_FRAMES,
+    video_preview_frame_count,
+)
+
 
 CACHE_DIR = ".webcache"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp", ".avif", ".heic", ".heif"}
 OFFICE_SUFFIXES = {".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"}
 VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
 SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | {".pdf"}
-VIDEO_PREVIEW_DEFAULT_FRAMES = 10
-VIDEO_PREVIEW_MIN_FRAMES = 1
-VIDEO_PREVIEW_MAX_FRAMES = 30
 VIDEO_TRANSCODE_PROFILES = {"h264-720p"}
 
 
@@ -64,12 +68,7 @@ class PreviewService:
         self.timeout = self._bounded_env("SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS", 45, 5, 300)
         self.max_bytes = self._bounded_env("SIMPLEOFFICE_PREVIEW_MAX_BYTES", 256 * 1024 * 1024, 1024, 2 * 1024 * 1024 * 1024)
         self.max_pixels = self._bounded_env("SIMPLEOFFICE_PREVIEW_MAX_PIXELS", 80_000_000, 1_000_000, 250_000_000)
-        self.video_frame_count = self._bounded_env(
-            "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES",
-            VIDEO_PREVIEW_DEFAULT_FRAMES,
-            VIDEO_PREVIEW_MIN_FRAMES,
-            VIDEO_PREVIEW_MAX_FRAMES,
-        )
+        self.video_frame_count = video_preview_frame_count(self.root)
 
     @staticmethod
     def _bounded_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -104,7 +103,7 @@ class PreviewService:
         if int(video.get("frame_target_count") or 0) != self.video_frame_count:
             return False
         frames = video.get("frames") if isinstance(video.get("frames"), list) else []
-        return bool(frames) and all(
+        return len(frames) == self.video_frame_count and all(
             isinstance(row, dict) and self._safe_cached_relative(str(row.get("path", ""))) is not None
             for row in frames
         )
@@ -142,7 +141,12 @@ class PreviewService:
                     collage.unlink()
                 video = self._publish_video_frames(temporary, destination, conversion.get("video"), metadata)
                 self._prune(document_id, digest)
-                result = self._result(digest, thumbnail, collage if collage.is_file() else None, str(conversion.get("converter", "unknown")))
+                result = self._result(
+                    digest,
+                    thumbnail,
+                    collage if collage.is_file() else None,
+                    str(conversion.get("converter", "unknown")),
+                )
                 if video:
                     result["video"] = video
                 return result
@@ -217,7 +221,7 @@ class PreviewService:
             [
                 ffprobe, "-v", "error", "-select_streams", "v:0",
                 "-show_entries", "stream=codec_name,width,height:format=duration,format_name",
-                "-of", "json", "--", str(source),
+                "-of", "json", "-i", str(source),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -285,8 +289,9 @@ class PreviewService:
                 "timestamp_seconds": float(row.get("timestamp_seconds") or 0.0),
                 "path": str(target.relative_to(self.root)),
             })
-        previous_video = metadata.get("preview", {}).get("video", {})
-        variants = previous_video.get("variants", []) if isinstance(previous_video, dict) else []
+        previous_preview = metadata.get("preview", {}) if isinstance(metadata.get("preview"), dict) else {}
+        previous_video = previous_preview.get("video", {}) if isinstance(previous_preview.get("video"), dict) else {}
+        variants = previous_video.get("variants", []) if previous_preview.get("source_sha256") == metadata.get("sha256") else []
         result = {key: value for key, value in video.items() if key != "frames"}
         result["frames"] = published
         result["frame_count"] = len(published)
@@ -401,14 +406,20 @@ class PreviewService:
         }
 
     def cached_video_frame(self, metadata: dict[str, Any], index: int) -> Path | None:
-        video = metadata.get("preview", {}).get("video", {})
-        frames = video.get("frames", []) if isinstance(video, dict) else []
+        preview = metadata.get("preview", {}) if isinstance(metadata.get("preview"), dict) else {}
+        if preview.get("source_sha256") != metadata.get("sha256"):
+            return None
+        video = preview.get("video", {}) if isinstance(preview.get("video"), dict) else {}
+        frames = video.get("frames", []) if isinstance(video.get("frames"), list) else []
         row = next((item for item in frames if isinstance(item, dict) and int(item.get("index") or 0) == int(index)), None)
         return self._safe_cached_relative(str(row.get("path", ""))) if row else None
 
     def cached_video_variant(self, metadata: dict[str, Any], variant_id: str) -> Path | None:
-        video = metadata.get("preview", {}).get("video", {})
-        variants = video.get("variants", []) if isinstance(video, dict) else []
+        preview = metadata.get("preview", {}) if isinstance(metadata.get("preview"), dict) else {}
+        if preview.get("source_sha256") != metadata.get("sha256"):
+            return None
+        video = preview.get("video", {}) if isinstance(preview.get("video"), dict) else {}
+        variants = video.get("variants", []) if isinstance(video.get("variants"), list) else []
         row = next((item for item in variants if isinstance(item, dict) and str(item.get("variant_id")) == str(variant_id)), None)
         return self._safe_cached_relative(str(row.get("path", ""))) if row else None
 
