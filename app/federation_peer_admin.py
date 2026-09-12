@@ -2,6 +2,7 @@
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
 
 from .federation_admin import admin_required
+from .federation_attestations import FederationAttestationStore
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_local_profile import local_profile
@@ -34,7 +35,7 @@ def dashboard():
             "recommendations": recommendations(_root(), identity["peer_id"]),
         })
     try:
-        own = local_profile()
+        own = local_profile(_root())
         own_qr = encode_peer(own)
     except ValueError:
         own = {}
@@ -46,7 +47,7 @@ def dashboard():
 @admin_required
 def qr_svg():
     try:
-        payload = encode_peer(local_profile())
+        payload = encode_peer(local_profile(_root()))
         return Response(render_qr_svg(payload), content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
     except ValueError as exc:
         return Response(str(exc), status=503, content_type="text/plain")
@@ -102,7 +103,10 @@ def import_qr():
     try:
         profile = decode_peer(request.form.get("payload", ""))
         trust = FederationTrustStore(_root())
-        trust.remember(profile["peer_id"], profile["country"], profile["fingerprint"], "qr")
+        trust.remember(
+            profile["peer_id"], profile["country"], profile["fingerprint"], "qr",
+            profile.get("public_key", ""),
+        )
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
         store.save_peer(
@@ -114,6 +118,9 @@ def import_qr():
             trust.set_trust(
                 profile["peer_id"], "NONE", "VERIFIED_IN_PERSON", "DIRECT_ONLY", 0,
                 metadata={"actor": str(g.user["username"]), "method": "qr_in_person"},
+            )
+            FederationAttestationStore(_root()).replace_signed(
+                profile["peer_id"], "VERIFIED_IN_PERSON", profile["fingerprint"], "DIRECT_ONLY", 0,
             )
             flash(f"Peer {profile['peer_id']} per QR persönlich geprüft; Vertrauen bleibt NONE.")
         else:
@@ -128,15 +135,22 @@ def import_qr():
 def set_trust(peer_id):
     try:
         trust = FederationTrustStore(_root())
+        verification = request.form.get("verification", "KNOWN_UNVERIFIED")
+        propagation = request.form.get("propagation", "DIRECT_ONLY")
+        max_hops = request.form.get("max_hops", 0)
         trust.set_trust(
             peer_id,
             request.form.get("trust_level", "NONE"),
-            request.form.get("verification", "KNOWN_UNVERIFIED"),
-            request.form.get("propagation", "DIRECT_ONLY"),
-            request.form.get("max_hops", 0),
+            verification,
+            propagation,
+            max_hops,
             metadata={"actor": str(g.user["username"])},
         )
-        flash("Vertrauensbeziehung gespeichert.")
+        identity = trust.identity(peer_id) or {}
+        FederationAttestationStore(_root()).replace_signed(
+            peer_id, verification, identity.get("fingerprint", ""), propagation, max_hops,
+        )
+        flash("Vertrauensbeziehung und Verifikationsnachweis gespeichert.")
     except Exception as exc:
         flash(f"Vertrauen konnte nicht gespeichert werden: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
@@ -147,7 +161,10 @@ def set_trust(peer_id):
 def sync_trust(peer_id):
     try:
         result = sync_claims(_root(), peer_id)
-        flash(f"{result['imported']} Trust-Hinweis(e) von {peer_id} übernommen; lokales Vertrauen blieb unverändert.")
+        flash(
+            f"{result['imported']} Trust-Hinweis(e), {result['verified_attestations']} signierte Nachweise übernommen; "
+            f"lokales Vertrauen blieb unverändert."
+        )
     except Exception as exc:
         flash(f"Trust-Hinweise konnten nicht geladen werden: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
