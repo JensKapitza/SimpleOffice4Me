@@ -167,6 +167,8 @@
     });
   };
   const applyMarketplaceMetadata = (data) => {
+    const selectedTitle = cleanText(data.title);
+    if (selectedTitle && title) title.value = selectedTitle;
     applyMetadata(data);
     const overwrite = Boolean(replaceMetadata?.checked);
     const simpleFields = {
