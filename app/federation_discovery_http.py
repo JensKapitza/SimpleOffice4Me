@@ -8,7 +8,7 @@ from .federation_attestations import FederationAttestationStore
 from .federation_directory import directory_profiles
 from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
-from .federation_local_profile import local_profile
+from .federation_local_profile import local_peer_id, local_profile
 from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_peer_profile import peer_profile
 from .federation_rendezvous_messages import FederationRendezvousMessages
@@ -41,7 +41,7 @@ def _directory_authorized(public=False):
 @bp.get("/.well-known/simpleoffice-federation")
 def well_known():
     try:
-        return jsonify(local_profile())
+        return jsonify(local_profile(_root()))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 503
 
@@ -62,7 +62,10 @@ def register():
     try:
         profile = peer_profile(body.get("profile"))
         trust = FederationTrustStore(_root())
-        trust.remember(profile["peer_id"], profile["country"], profile["fingerprint"], "directory-register")
+        trust.remember(
+            profile["peer_id"], profile["country"], profile["fingerprint"],
+            "directory-register", profile.get("public_key", ""),
+        )
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
         store.save_peer(
@@ -117,12 +120,8 @@ def receive_signal():
 def trust_claims():
     if not _authorized():
         return jsonify({"error": "authentication_required"}), 401
-    claims = FederationTrustStore(_root()).shareable_claims()
-    try:
-        verifier = local_profile()["peer_id"]
-        claims = [{**claim, "source_peer": verifier} for claim in claims]
-    except ValueError:
-        pass
+    verifier = local_peer_id()
+    claims = [{**claim, "source_peer": verifier} for claim in FederationTrustStore(_root()).shareable_claims()]
     return jsonify({
         "claims": claims,
         "attestations": FederationAttestationStore(_root()).export_shareable(),
