@@ -41,6 +41,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -50,25 +51,10 @@ public class MainActivity extends Activity {
     private static final String RUNTIME_VERSION = "bundle-version";
     private static final int CAMERA_PERMISSION_REQUEST = 701;
     private static final int FILE_CHOOSER_REQUEST = 702;
-    private static final String NFC_SHIM = "(function(){"
-            + "if(window.NDEFReader||!window.SimpleOfficeAndroid)return;"
-            + "class NativeNDEFReader extends EventTarget{"
-            + "async scan(){"
-            + "const state=String(window.SimpleOfficeAndroid.startNfcScan());"
-            + "if(state!=='ok'){throw new DOMException(state==='disabled'?'NFC ist deaktiviert.':'NFC ist nicht verfügbar.','NotSupportedError');}"
-            + "window.addEventListener('simpleoffice:nfc',(event)=>{"
-            + "const reading=new Event('reading');"
-            + "Object.defineProperty(reading,'serialNumber',{value:String(event.detail||'')});"
-            + "Object.defineProperty(reading,'message',{value:{records:[]}});"
-            + "this.dispatchEvent(reading);"
-            + "},{once:true});"
-            + "}"
-            + "}"
-            + "window.NDEFReader=NativeNDEFReader;"
-            + "})();";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final String nfcBridgeToken = UUID.randomUUID().toString();
     private WebView webView;
     private ProgressBar progress;
     private TextView status;
@@ -148,7 +134,7 @@ public class MainActivity extends Activity {
                     ValueCallback<Uri[]> callback,
                     FileChooserParams params
             ) {
-                if (!isLocalUrl(view.getUrl())) {
+                if (!localPageVisible || !isLocalUrl(view.getUrl())) {
                     callback.onReceiveValue(null);
                     return true;
                 }
@@ -156,6 +142,7 @@ public class MainActivity extends Activity {
                 fileChooserCallback = callback;
                 try {
                     Intent chooser = params.createIntent();
+                    chooser.addCategory(Intent.CATEGORY_OPENABLE);
                     startActivityForResult(chooser, FILE_CHOOSER_REQUEST);
                     return true;
                 } catch (ActivityNotFoundException error) {
@@ -172,7 +159,9 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String host = uri.getHost();
-                if (("127.0.0.1".equals(host) || "localhost".equals(host)) && uri.getPort() == 8765) {
+                if ("http".equalsIgnoreCase(uri.getScheme())
+                        && ("127.0.0.1".equals(host) || "localhost".equals(host))
+                        && uri.getPort() == 8765) {
                     return false;
                 }
                 String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
@@ -193,10 +182,13 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 localPageVisible = isLocalUrl(url);
-                if (localPageVisible) {
-                    mainFrameLoadFailed = false;
-                    showStatus("SimpleOffice4Me wird geladen …", true);
+                if (!localPageVisible) {
+                    stopNfcReader();
+                    denyPendingCameraPermission();
+                    return;
                 }
+                mainFrameLoadFailed = false;
+                showStatus("SimpleOffice4Me wird geladen …", true);
             }
 
             @Override
@@ -204,7 +196,7 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 localPageVisible = isLocalUrl(url);
                 if (localPageVisible) {
-                    view.evaluateJavascript(NFC_SHIM, null);
+                    view.evaluateJavascript(nfcShim(nfcBridgeToken), null);
                     if (!mainFrameLoadFailed) {
                         progress.setVisibility(View.GONE);
                         status.setVisibility(View.GONE);
@@ -218,6 +210,8 @@ public class MainActivity extends Activity {
                 if (request.isForMainFrame()) {
                     mainFrameLoadFailed = true;
                     localPageVisible = false;
+                    stopNfcReader();
+                    denyPendingCameraPermission();
                     showStatus("Seite konnte nicht geladen werden:\n" + error.getDescription(), false);
                 }
             }
@@ -233,8 +227,29 @@ public class MainActivity extends Activity {
         });
     }
 
+    private static String nfcShim(String token) {
+        String quotedToken = org.json.JSONObject.quote(token);
+        return "(function(){"
+                + "if(window.NDEFReader||!window.SimpleOfficeAndroid)return;"
+                + "const bridgeToken=" + quotedToken + ";"
+                + "class NativeNDEFReader extends EventTarget{"
+                + "async scan(){"
+                + "const state=String(window.SimpleOfficeAndroid.startNfcScan(bridgeToken));"
+                + "if(state!=='ok'){throw new DOMException(state==='disabled'?'NFC ist deaktiviert.':'NFC ist nicht verfügbar.','NotSupportedError');}"
+                + "window.addEventListener('simpleoffice:nfc',(event)=>{"
+                + "const reading=new Event('reading');"
+                + "Object.defineProperty(reading,'serialNumber',{value:String(event.detail||'')});"
+                + "Object.defineProperty(reading,'message',{value:{records:[]}});"
+                + "this.dispatchEvent(reading);"
+                + "},{once:true});"
+                + "}"
+                + "}"
+                + "window.NDEFReader=NativeNDEFReader;"
+                + "})();";
+    }
+
     private void handleWebPermissionRequest(PermissionRequest request) {
-        if (!isTrustedLocalOrigin(request.getOrigin()) || !requestsVideo(request)) {
+        if (!localPageVisible || !isTrustedLocalOrigin(request.getOrigin()) || !requestsOnlyVideo(request)) {
             request.deny();
             return;
         }
@@ -242,22 +257,32 @@ public class MainActivity extends Activity {
             request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
             return;
         }
-        if (pendingCameraPermission != null) pendingCameraPermission.deny();
+        denyPendingCameraPermission();
         pendingCameraPermission = request;
         requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
     }
 
-    private static boolean requestsVideo(PermissionRequest request) {
-        for (String resource : request.getResources()) {
-            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) return true;
-        }
-        return false;
+    private static boolean requestsOnlyVideo(PermissionRequest request) {
+        String[] resources = request.getResources();
+        return resources.length == 1 && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0]);
     }
 
     private static boolean isTrustedLocalOrigin(Uri origin) {
         if (origin == null || !"http".equalsIgnoreCase(origin.getScheme())) return false;
         String host = origin.getHost();
         return ("127.0.0.1".equals(host) || "localhost".equals(host)) && origin.getPort() == 8765;
+    }
+
+    private void denyPendingCameraPermission() {
+        PermissionRequest request = pendingCameraPermission;
+        pendingCameraPermission = null;
+        if (request != null) {
+            try {
+                request.deny();
+            } catch (IllegalStateException ignored) {
+                // Chromium already cancelled the request.
+            }
+        }
     }
 
     @Override
@@ -267,13 +292,19 @@ public class MainActivity extends Activity {
         PermissionRequest request = pendingCameraPermission;
         pendingCameraPermission = null;
         if (request == null) return;
-        boolean granted = grantResults.length > 0
+        boolean granted = localPageVisible
+                && grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED
-                && isTrustedLocalOrigin(request.getOrigin());
-        if (granted) {
-            request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-        } else {
-            request.deny();
+                && isTrustedLocalOrigin(request.getOrigin())
+                && requestsOnlyVideo(request);
+        try {
+            if (granted) {
+                request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            } else {
+                request.deny();
+            }
+        } catch (IllegalStateException ignored) {
+            // The page may have navigated while the Android permission dialog was open.
         }
     }
 
@@ -283,7 +314,8 @@ public class MainActivity extends Activity {
             ValueCallback<Uri[]> callback = fileChooserCallback;
             fileChooserCallback = null;
             if (callback != null) {
-                callback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                Uri[] selected = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                callback.onReceiveValue(localPageVisible ? selected : null);
             }
             return;
         }
@@ -292,8 +324,8 @@ public class MainActivity extends Activity {
 
     private final class NativeBridge {
         @JavascriptInterface
-        public String startNfcScan() {
-            if (!localPageVisible) return "blocked";
+        public String startNfcScan(String token) {
+            if (!nfcBridgeToken.equals(token) || !localPageVisible) return "blocked";
             if (nfcAdapter == null) return "unavailable";
             if (!nfcAdapter.isEnabled()) return "disabled";
             mainHandler.post(MainActivity.this::beginNfcScan);
@@ -474,8 +506,20 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        localPageVisible = false;
         stopNfcReader();
+        denyPendingCameraPermission();
+        if (fileChooserCallback != null) {
+            fileChooserCallback.onReceiveValue(null);
+            fileChooserCallback = null;
+        }
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) localPageVisible = isLocalUrl(webView.getUrl());
     }
 
     @Override
@@ -497,10 +541,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         localPageVisible = false;
         stopNfcReader();
-        if (pendingCameraPermission != null) {
-            pendingCameraPermission.deny();
-            pendingCameraPermission = null;
-        }
+        denyPendingCameraPermission();
         if (fileChooserCallback != null) {
             fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = null;
