@@ -294,6 +294,8 @@ from . import datalogger
 app.register_blueprint(datalogger.bp)
 from . import inventory
 app.register_blueprint(inventory.bp)
+from . import inventory_marketplace
+app.register_blueprint(inventory_marketplace.bp)
 from . import library
 app.register_blueprint(library.bp)
 from . import gamification_routes
