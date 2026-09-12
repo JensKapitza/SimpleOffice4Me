@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.revision_history import RevisionHistory
 
@@ -181,6 +182,24 @@ class RevisionHistoryHardeningTest(unittest.TestCase):
             self.assertEqual("error", event["outcome"])
             self.assertEqual("error", event["severity"])
             self.assertEqual("scanner unavailable", event["details"]["error"])
+
+    def test_record_persists_hash_chain_when_git_is_not_installed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            with patch("app.revision_history.shutil.which", return_value=None):
+                revision = history.record(
+                    "contact_updated",
+                    "jens",
+                    "contacts",
+                    "contact-1",
+                    {"contact_id": "contact-1", "display_name": "Test"},
+                )
+
+            event_path = next((history.root / "events").glob("*.json"))
+            event = json.loads(event_path.read_text(encoding="utf-8"))
+            self.assertEqual(event["event_hash"], revision)
+            self.assertFalse((history.root / ".git").exists())
+            self.assertTrue(history.verify_event_chain()["valid"])
 
 
 if __name__ == "__main__":
