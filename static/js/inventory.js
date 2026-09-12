@@ -30,6 +30,7 @@
     find: root.dataset.findUrl,
     lookup: root.dataset.lookupUrl,
     amazon: root.dataset.amazonUrl,
+    marketplace: '/inventory/marketplace/search',
     objects: root.dataset.objectsUrl,
     detailPattern: root.dataset.detailPattern,
   };
@@ -47,7 +48,11 @@
   let lookupCooldown = null;
   let lookupAbort = null;
   let finderAbort = null;
+  let marketplaceAbort = null;
   let objectTypeWasAutoBook = false;
+  let ebayButton = null;
+  let marketplaceResults = null;
+  let actionBar = null;
 
   const setStatus = (text, kind = 'secondary') => {
     if (!status) return;
@@ -64,6 +69,17 @@
       if (parsed.origin !== window.location.origin) return '';
       if (!['http:', 'https:'].includes(parsed.protocol)) return '';
       return parsed.href;
+    } catch (_error) {
+      return '';
+    }
+  };
+  const safeMarketplaceUrl = (value) => {
+    try {
+      const parsed = new URL(String(value || ''));
+      if (parsed.protocol !== 'https:') return '';
+      const host = parsed.hostname.toLowerCase();
+      const allowed = host === 'amazon.de' || host.endsWith('.amazon.de') || host === 'ebay.de' || host.endsWith('.ebay.de');
+      return allowed ? parsed.href : '';
     } catch (_error) {
       return '';
     }
@@ -99,7 +115,8 @@
   const updateMode = () => {
     const book = cleanText(type?.value).toLowerCase() === 'book' || Boolean(cleanText(isbn?.value));
     document.querySelectorAll('.book-only').forEach((element) => { element.hidden = !book; });
-    if (amazonButton) amazonButton.disabled = !book;
+    if (amazonButton) { amazonButton.hidden = false; amazonButton.disabled = false; }
+    if (ebayButton) ebayButton.hidden = false;
   };
   const setBookModeFromIsbn = () => {
     if (!isbn || !type) return;
@@ -149,6 +166,27 @@
       element.value = String(value);
     });
   };
+  const applyMarketplaceMetadata = (data) => {
+    applyMetadata(data);
+    const overwrite = Boolean(replaceMetadata?.checked);
+    const simpleFields = {
+      manufacturer: 'manufacturer', model: 'model', barcode: 'barcode', isbn: 'isbn',
+    };
+    Object.entries(simpleFields).forEach(([key, id]) => {
+      const element = $(id); const value = cleanText(data[key]);
+      if (!element || !value || (!overwrite && cleanText(element.value))) return;
+      element.value = value;
+    });
+    const canonical = normalizeIsbn(isbn?.value);
+    if (canonical && isbn && type) {
+      isbn.value = canonical;
+      if (barcode && !cleanText(barcode.value)) barcode.value = canonical;
+      type.value = 'book'; objectTypeWasAutoBook = true; updateBookLinks(canonical);
+    }
+    if ($('metadata-checked-at')) $('metadata-checked-at').value = new Date().toISOString();
+    updateMode();
+    setStatus(`Daten von ${data.provider === 'ebay' ? 'eBay' : 'Amazon'} übernommen. Bitte kurz prüfen.`, 'success');
+  };
 
   const lookup = async () => {
     if (!isbn || !lookupButton) return;
@@ -176,6 +214,109 @@
     } catch (error) {
       if (error?.name !== 'AbortError') setStatus(`Buchdatenabruf ist fehlgeschlagen.${navigator.onLine === false ? ' Das Gerät ist offline.' : ''}`, 'danger');
     } finally { lookupButton.removeAttribute('aria-busy'); if (!lookupCooldown) lookupButton.disabled = false; }
+  };
+
+  const marketplaceQuery = () => {
+    const canonical = normalizeIsbn(isbn?.value);
+    return canonical || cleanText(barcode?.value) || cleanText(title?.value);
+  };
+  const openMarketplace = (value) => {
+    const target = safeMarketplaceUrl(value);
+    if (!target) { setStatus('Unsicheres Marketplace-Ziel wurde blockiert.', 'danger'); return; }
+    window.open(target, '_blank', 'noopener,noreferrer');
+  };
+  const renderMarketplaceResults = (provider, data) => {
+    if (!marketplaceResults) return;
+    marketplaceResults.replaceChildren();
+    const providerName = provider === 'ebay' ? 'eBay' : 'Amazon';
+    const rows = Array.isArray(data.results) ? data.results.slice(0, 3) : [];
+    if (!rows.length) {
+      const empty = document.createElement('div'); empty.className = 'alert alert-secondary mb-2';
+      empty.textContent = data.configured === false
+        ? `${providerName}-API ist noch nicht konfiguriert. Du kannst die normale Suche öffnen.`
+        : `Keine passenden ${providerName}-Treffer gefunden.`;
+      marketplaceResults.appendChild(empty);
+      const fallback = safeMarketplaceUrl(data.fallback_url);
+      if (fallback) {
+        const open = document.createElement('button'); open.type = 'button'; open.className = 'btn btn-outline-secondary w-100';
+        open.textContent = `${providerName}-Suche öffnen`; open.addEventListener('click', () => openMarketplace(fallback));
+        marketplaceResults.appendChild(open);
+      }
+      marketplaceResults.hidden = false; return;
+    }
+    const heading = document.createElement('div'); heading.className = 'fw-semibold mb-2';
+    heading.textContent = `${providerName}: beste ${rows.length} Treffer`; marketplaceResults.appendChild(heading);
+    const list = document.createElement('div'); list.className = 'list-group';
+    rows.forEach((row, index) => {
+      const item = document.createElement('div'); item.className = 'list-group-item';
+      const top = document.createElement('div'); top.className = 'd-flex justify-content-between gap-2 align-items-start';
+      const text = document.createElement('div'); text.className = 'flex-grow-1';
+      const name = document.createElement('div'); name.className = 'fw-semibold'; name.textContent = cleanText(row.title) || `${providerName}-Treffer ${index + 1}`;
+      text.appendChild(name);
+      if (index === 0) { const badge = document.createElement('span'); badge.className = 'badge text-bg-success ms-2'; badge.textContent = 'Bester Treffer'; name.appendChild(badge); }
+      const details = [cleanText(row.authors), cleanText(row.manufacturer), cleanText(row.categories)].filter(Boolean).join(' · ');
+      if (details) { const meta = document.createElement('div'); meta.className = 'small text-secondary'; meta.textContent = details; text.appendChild(meta); }
+      const price = [cleanText(row.market_price), cleanText(row.currency)].filter(Boolean).join(' ');
+      if (price) { const amount = document.createElement('div'); amount.className = 'small fw-semibold mt-1'; amount.textContent = price; text.appendChild(amount); }
+      top.appendChild(text); item.appendChild(top);
+      const controls = document.createElement('div'); controls.className = 'd-grid d-sm-flex gap-2 mt-2';
+      const take = document.createElement('button'); take.type = 'button'; take.className = `btn ${index === 0 ? 'btn-success' : 'btn-outline-success'} btn-sm`;
+      take.textContent = 'Daten übernehmen'; take.addEventListener('click', () => applyMarketplaceMetadata(row)); controls.appendChild(take);
+      const target = safeMarketplaceUrl(row.url);
+      if (target) { const view = document.createElement('button'); view.type = 'button'; view.className = 'btn btn-outline-secondary btn-sm'; view.textContent = 'Angebot ansehen'; view.addEventListener('click', () => openMarketplace(target)); controls.appendChild(view); }
+      item.appendChild(controls); list.appendChild(item);
+    });
+    marketplaceResults.appendChild(list); marketplaceResults.hidden = false;
+  };
+  const searchMarketplace = async (provider) => {
+    const query = marketplaceQuery();
+    if (!query) { setStatus('Für die Marketplace-Suche zuerst ISBN, Barcode oder Objektname erfassen.', 'warning'); title?.focus(); return; }
+    const button = provider === 'ebay' ? ebayButton : amazonButton;
+    if (marketplaceAbort) marketplaceAbort.abort(); marketplaceAbort = new AbortController();
+    if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+    setStatus(`Suche ${provider === 'ebay' ? 'eBay' : 'Amazon'} nach „${query}“ …`, 'primary');
+    try {
+      const response = await fetch(`${urls.marketplace}?provider=${encodeURIComponent(provider)}&q=${encodeURIComponent(query)}`, {
+        headers: { Accept: 'application/json' }, cache: 'no-store', signal: marketplaceAbort.signal,
+      });
+      const data = await safeJson(response);
+      if (!response.ok && !data.fallback_url) { setStatus(data.error || 'Marketplace-Suche fehlgeschlagen.', 'warning'); return; }
+      renderMarketplaceResults(provider, data);
+      if (Array.isArray(data.results) && data.results.length) setStatus(`${data.results.length} Treffer geladen. Besten Treffer prüfen oder einen der drei auswählen.`, 'success');
+      else if (data.configured === false) setStatus(`${provider === 'ebay' ? 'eBay' : 'Amazon'}-API noch nicht konfiguriert; direkte Suche ist verfügbar.`, 'warning');
+      else setStatus(data.error || 'Keine Marketplace-Treffer gefunden.', 'secondary');
+    } catch (error) {
+      if (error?.name !== 'AbortError') setStatus(`Marketplace-Suche nicht erreichbar.${navigator.onLine === false ? ' Das Gerät ist offline.' : ''}`, 'danger');
+    } finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
+  };
+
+  const prepareMarketplaceUi = () => {
+    if (!saveButton) return;
+    actionBar = saveButton.parentElement;
+    if (!actionBar) return;
+    actionBar.classList.add('flex-column', 'flex-sm-row');
+    actionBar.style.zIndex = '1035';
+    actionBar.style.boxShadow = '0 -0.3rem 0.8rem rgba(0,0,0,.12)';
+    actionBar.style.paddingBottom = 'max(.65rem, env(safe-area-inset-bottom, 0px))';
+    saveButton.classList.add('w-100');
+    if (amazonButton) {
+      amazonButton.classList.remove('book-only'); amazonButton.hidden = false; amazonButton.disabled = false;
+      amazonButton.classList.add('w-100'); amazonButton.innerHTML = '<i class="fab fa-amazon me-2"></i>Amazon Daten suchen';
+    }
+    ebayButton = document.createElement('button'); ebayButton.type = 'button'; ebayButton.id = 'ebay-search';
+    ebayButton.className = 'btn btn-outline-primary w-100'; ebayButton.innerHTML = '<i class="fas fa-tags me-2"></i>eBay Daten suchen';
+    actionBar.appendChild(ebayButton);
+    marketplaceResults = document.createElement('div'); marketplaceResults.id = 'marketplace-results';
+    marketplaceResults.className = 'col-12 border rounded p-2 bg-body mb-2'; marketplaceResults.hidden = true;
+    actionBar.parentElement?.insertBefore(marketplaceResults, actionBar);
+    if (form) form.style.paddingBottom = 'calc(7rem + env(safe-area-inset-bottom, 0px))';
+    ebayButton.addEventListener('click', () => searchMarketplace('ebay'));
+  };
+  const syncActionBarInset = () => {
+    if (!actionBar) return;
+    const viewport = window.visualViewport;
+    const obscured = viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+    actionBar.style.bottom = `${Math.round(obscured)}px`;
   };
 
   const renderFinderMatches = (matches, query) => {
@@ -265,12 +406,7 @@
   $('object-mode')?.addEventListener('click', () => { type.value = 'object'; objectTypeWasAutoBook = false; updateMode(); title.focus(); });
   $('restore-location')?.addEventListener('click', restoreLocation); photo?.addEventListener('change', previewPhoto); recentFilter?.addEventListener('input', filterRecent);
 
-  amazonButton?.addEventListener('click', () => {
-    const q = cleanText(isbn?.value) || cleanText(barcode?.value) || cleanText(title?.value);
-    if (!q) { setStatus('Für die Amazon-Suche zuerst ISBN, Barcode oder Titel erfassen.', 'warning'); return; }
-    const target = safeLocalUrl(`${urls.amazon}?q=${encodeURIComponent(q)}`);
-    if (target) window.open(target, '_blank', 'noopener,noreferrer'); else setStatus('Unsicheres Suchziel wurde blockiert.', 'danger');
-  });
+  amazonButton?.addEventListener('click', () => searchMarketplace('amazon'));
 
   $('start-barcode')?.addEventListener('click', async () => {
     if (!('BarcodeDetector' in window)) { setStatus('BarcodeDetector fehlt. Kennung kann manuell eingetragen werden.', 'warning'); barcode?.focus(); return; }
@@ -309,6 +445,7 @@
 
   form?.addEventListener('submit', () => { rememberLocation(); if (saveButton) { saveButton.disabled = true; saveButton.setAttribute('aria-busy', 'true'); saveButton.textContent = 'Wird gespeichert …'; } });
   window.addEventListener('online', updateConnectivity); window.addEventListener('offline', updateConnectivity);
+  window.addEventListener('resize', syncActionBarInset); window.visualViewport?.addEventListener('resize', syncActionBarInset); window.visualViewport?.addEventListener('scroll', syncActionBarInset);
   window.addEventListener('pagehide', () => { stopCamera(); const old = photoPreview?.dataset.objectUrl; if (old) URL.revokeObjectURL(old); });
-  updateConnectivity(); updateMode(); if (isbn && cleanText(isbn.value)) updateBookLinks(normalizeIsbn(isbn.value));
+  prepareMarketplaceUi(); syncActionBarInset(); updateConnectivity(); updateMode(); if (isbn && cleanText(isbn.value)) updateBookLinks(normalizeIsbn(isbn.value));
 })();
