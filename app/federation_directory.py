@@ -1,12 +1,16 @@
-"""Directory projection for remembered federation peers."""
+"""Directory projection for explicitly published federation peers."""
+from .federation_directory_store import FederationDirectoryStore
 from .federation_trust_store import FederationTrustStore
 
 
 def directory_profiles(root, country=""):
     trust = FederationTrustStore(root)
+    visible = FederationDirectoryStore(root).peer_ids()
     identities = trust.list_identities(country)
     result = []
     for identity in identities:
+        if identity["peer_id"] not in visible:
+            continue
         peer = trust.store.get_peer(identity["peer_id"])
         if not peer:
             continue
