@@ -1,0 +1,1 @@
+document.addEventListener('DOMContentLoaded',()=>{const s=document.getElementById('qr-status');if(s&&!('BarcodeDetector'in window))s.textContent='QR-Erkennung ggf. nicht verfügbar; Payload kann manuell eingefügt werden.';});
