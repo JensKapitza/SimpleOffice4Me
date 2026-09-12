@@ -1,9 +1,4 @@
-import hashlib
 import json
-import os
-import shutil
-import stat
-import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -21,180 +16,128 @@ from app.software_distribution import (
 )
 
 
-def _git(root: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, check=True)
-    return result.stdout.strip()
-
-
-def _repo(root: Path) -> Path:
+def _source(root: Path, *, revision: str, epoch: int, value: str = "v1") -> Path:
     source = root / "source"
     source.mkdir()
-    _git(source, "init", "-b", "main")
-    _git(source, "config", "user.email", "test@example.invalid")
-    _git(source, "config", "user.name", "SimpleOffice Test")
+    (source / "app").mkdir()
+    (source / "app" / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
     (source / "pyproject.toml").write_text('[project]\nname="simpleoffice4me"\nversion="1.2.3"\n', encoding="utf-8")
-    (source / "app.txt").write_text("v1\n", encoding="utf-8")
-    _git(source, "add", ".")
-    _git(source, "commit", "-m", "v1")
+    (source / "app.txt").write_text(value + "\n", encoding="utf-8")
+    (source / ".simpleoffice-release.json").write_text(
+        json.dumps({"revision": revision, "branch": "main", "build_epoch": epoch, "commit_count": epoch}),
+        encoding="utf-8",
+    )
     return source
 
 
-def _commit(root: Path, value: str) -> str:
-    (root / "app.txt").write_text(value + "\n", encoding="utf-8")
-    _git(root, "add", "app.txt")
-    _git(root, "commit", "-m", value)
-    return _git(root, "rev-parse", "HEAD")
+def _advance(source: Path, *, revision: str, epoch: int, value: str) -> None:
+    (source / "app.txt").write_text(value + "\n", encoding="utf-8")
+    (source / ".simpleoffice-release.json").write_text(
+        json.dumps({"revision": revision, "branch": "main", "build_epoch": epoch, "commit_count": epoch}),
+        encoding="utf-8",
+    )
 
 
-def _minimal_release(package: zipfile.ZipFile, *, bundle: bytes = b"not-a-real-bundle") -> None:
-    manifest = {
-        "schema": 1,
-        "release": {"revision": "a" * 40, "branch": "main"},
-        "repository": {"sha256": hashlib.sha256(bundle).hexdigest(), "size": len(bundle)},
-        "wheelhouse": {"included": False, "files": []},
-    }
-    package.writestr("release.json", json.dumps(manifest))
-    package.writestr("repository.bundle", bundle)
-    package.writestr("INSTALL.py", "pass\n")
-
-
-_GIT_TEST_ENV = {
-    "GIT_CONFIG_COUNT": "2",
-    "GIT_CONFIG_KEY_0": "gc.auto",
-    "GIT_CONFIG_VALUE_0": "0",
-    "GIT_CONFIG_KEY_1": "maintenance.auto",
-    "GIT_CONFIG_VALUE_1": "false",
-}
-
-
-@unittest.skipUnless(shutil.which("git"), "git unavailable")
-@mock.patch.dict(os.environ, _GIT_TEST_ENV)
 class SoftwareDistributionTests(unittest.TestCase):
-    def test_release_order_prefers_version_then_commit_count(self):
+    def test_release_order_prefers_version_then_build_identity(self):
         current = {"version": "1.2.3", "commit_count": 10, "build_epoch": 100, "revision": "a"}
         self.assertTrue(is_newer_release({"version": "1.2.4", "commit_count": 1, "build_epoch": 1}, current))
         self.assertTrue(is_newer_release({"version": "1.2.3", "commit_count": 11, "build_epoch": 90}, current))
         self.assertFalse(is_newer_release({"version": "1.2.3", "commit_count": 9, "build_epoch": 200}, current))
+        self.assertTrue(is_newer_release({"version": "1.2.3", "commit_count": 10, "build_epoch": 100, "revision": "b"}, current))
 
-    def test_project_version_reader_remains_python_310_compatible(self):
+    def test_project_version_reader_works_without_git(self):
         with tempfile.TemporaryDirectory() as temp:
-            source = _repo(Path(temp))
+            source = _source(Path(temp), revision="a" * 40, epoch=100)
             self.assertEqual("1.2.3", local_release_info(source)["version"])
 
-    def test_self_deploy_bundle_clones_without_network(self):
+    def test_build_clone_and_inspect_require_no_git_process(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            source = _repo(root)
+            source = _source(root, revision="a" * 40, epoch=100)
             archive = root / "release.zip"
-            built = build_release_archive(archive, root=source)
-            checked = inspect_release_archive(archive)
+            with mock.patch("app.software_distribution_core.subprocess.run", side_effect=AssertionError("external process not expected")):
+                built = build_release_archive(archive, root=source)
+                checked = inspect_release_archive(archive)
+                target = root / "target"
+                result = clone_release_archive(archive, target)
             self.assertEqual(built["archive_sha256"], checked["archive_sha256"])
-            target = root / "target"
-            result = clone_release_archive(archive, target)
+            self.assertEqual("file-payload-v2", built["repository"]["format"])
             self.assertEqual("v1\n", (target / "app.txt").read_text(encoding="utf-8"))
             self.assertEqual("1.2.3", result["release"]["version"])
-            installed = json.loads((target / ".simpleoffice-release.json").read_text(encoding="utf-8"))
-            self.assertEqual(built["release"]["revision"], installed["revision"])
+            self.assertFalse((target / ".git").exists())
 
-    def test_offline_update_fast_forwards_and_rejects_dirty_worktree(self):
+    def test_update_replaces_program_files_and_preserves_runtime_state(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            source = _repo(root)
+            source = _source(root, revision="a" * 40, epoch=100)
             first = root / "first.zip"
             build_release_archive(first, root=source)
             target = root / "target"
             clone_release_archive(first, target)
+            (target / "instance").mkdir()
+            (target / "instance" / "settings.json").write_text("local", encoding="utf-8")
+            (target / ".venv").mkdir()
+            (target / ".venv" / "keep.txt").write_text("venv", encoding="utf-8")
 
-            new_revision = _commit(source, "v2")
+            _advance(source, revision="b" * 40, epoch=200, value="v2")
             second = root / "second.zip"
             build_release_archive(second, root=source)
             result = apply_release_archive(second, root=target, install_dependencies=False)
-            self.assertEqual(new_revision, result["new_revision"])
+            self.assertEqual("b" * 40, result["new_revision"])
             self.assertEqual("v2\n", (target / "app.txt").read_text(encoding="utf-8"))
+            self.assertEqual("local", (target / "instance" / "settings.json").read_text(encoding="utf-8"))
+            self.assertEqual("venv", (target / ".venv" / "keep.txt").read_text(encoding="utf-8"))
+            self.assertFalse((target / ".git").exists())
 
-            (target / "app.txt").write_text("local\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "lokale getrackte Änderungen"):
-                apply_release_archive(second, root=target, install_dependencies=False)
-
-    def test_offline_update_rejects_downgrade(self):
+    def test_update_rejects_downgrade(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            source = _repo(root)
-            old_archive = root / "old.zip"
-            build_release_archive(old_archive, root=source)
+            source = _source(root, revision="a" * 40, epoch=100)
+            old = root / "old.zip"
+            build_release_archive(old, root=source)
             target = root / "target"
-            clone_release_archive(old_archive, target)
-            _commit(source, "v2")
-            new_archive = root / "new.zip"
-            build_release_archive(new_archive, root=source)
-            apply_release_archive(new_archive, root=target, install_dependencies=False)
+            clone_release_archive(old, target)
+            _advance(source, revision="b" * 40, epoch=200, value="v2")
+            new = root / "new.zip"
+            build_release_archive(new, root=source)
+            apply_release_archive(new, root=target, install_dependencies=False)
             with self.assertRaisesRegex(ValueError, "nicht neuer"):
-                apply_release_archive(old_archive, root=target, install_dependencies=False)
+                apply_release_archive(old, root=target, install_dependencies=False)
 
-    def test_offline_update_rejects_divergent_history(self):
+    def test_outer_archive_rejects_unexpected_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            source = _repo(root)
-            first = root / "first.zip"
-            build_release_archive(first, root=source)
-            target = root / "target"
-            clone_release_archive(first, target)
-            _git(target, "config", "user.email", "target@example.invalid")
-            _git(target, "config", "user.name", "Target")
-            (target / "local.txt").write_text("local\n", encoding="utf-8")
-            _git(target, "add", "local.txt")
-            _git(target, "commit", "-m", "local branch")
-
-            _commit(source, "v2")
-            _commit(source, "v3")
-            candidate = root / "candidate.zip"
-            build_release_archive(candidate, root=source)
-            with self.assertRaisesRegex(ValueError, "kein Fast-Forward"):
-                apply_release_archive(candidate, root=target, install_dependencies=False)
-
-    def test_archive_rejects_unexpected_paths(self):
-        with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "bad.zip"
-            with zipfile.ZipFile(archive, "w") as package:
-                _minimal_release(package)
-                package.writestr("../escape", "bad")
+            source = _source(root, revision="a" * 40, epoch=100)
+            good = root / "good.zip"
+            build_release_archive(good, root=source)
+            bad = root / "bad.zip"
+            with zipfile.ZipFile(good, "r") as source_zip, zipfile.ZipFile(bad, "w") as target_zip:
+                for item in source_zip.infolist():
+                    target_zip.writestr(item, source_zip.read(item))
+                target_zip.writestr("../escape", "bad")
             with self.assertRaisesRegex(ValueError, "unsicheren Pfad|unerwarteten Eintrag"):
-                inspect_release_archive(archive)
+                inspect_release_archive(bad)
 
-    def test_archive_rejects_windows_traversal(self):
-        with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "bad-windows.zip"
-            with zipfile.ZipFile(archive, "w") as package:
-                _minimal_release(package)
-                package.writestr("wheelhouse\\..\\escape.whl", "bad")
-            with self.assertRaisesRegex(ValueError, "unsicheren Pfad"):
-                inspect_release_archive(archive)
-
-    def test_archive_rejects_duplicate_entries(self):
-        with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "duplicate.zip"
-            with zipfile.ZipFile(archive, "w") as package:
-                _minimal_release(package)
-                package.writestr("INSTALL.py", "second\n")
-            with self.assertRaisesRegex(ValueError, "doppelte Einträge"):
-                inspect_release_archive(archive)
-
-    def test_archive_rejects_symlink_entries(self):
-        with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "symlink.zip"
-            with zipfile.ZipFile(archive, "w") as package:
-                _minimal_release(package)
-                link = zipfile.ZipInfo("wheelhouse/link.whl")
-                link.create_system = 3
-                link.external_attr = (stat.S_IFLNK | 0o777) << 16
-                package.writestr(link, "../../outside")
-            with self.assertRaisesRegex(ValueError, "symbolischen Link"):
-                inspect_release_archive(archive)
-
-    def test_offer_state_marks_obviously_new_version_available(self):
+    def test_payload_tampering_is_detected(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            store = SoftwareDistributionStore(root / "documents")
+            source = _source(root, revision="a" * 40, epoch=100)
+            good = root / "good.zip"
+            build_release_archive(good, root=source)
+            bad = root / "bad.zip"
+            with zipfile.ZipFile(good, "r") as source_zip, zipfile.ZipFile(bad, "w") as target_zip:
+                for item in source_zip.infolist():
+                    data = source_zip.read(item)
+                    if item.filename == "release-package.zip":
+                        data += b"tampered"
+                    target_zip.writestr(item, data)
+            with self.assertRaisesRegex(ValueError, "Payload-Archiv-Hash"):
+                inspect_release_archive(bad)
+
+    def test_offer_state_marks_new_version_available(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = SoftwareDistributionStore(Path(temp) / "documents")
             offer = store.record_offer(
                 "peer-a",
                 {
@@ -205,13 +148,12 @@ class SoftwareDistributionTests(unittest.TestCase):
             self.assertEqual("available", offer["status"])
             self.assertEqual("peer-a", store.offers()[0]["peer_id"])
 
-    def test_offline_restart_does_not_call_start_script(self):
-        root = Path(__file__).resolve().parents[1]
-        script = (root / "tools" / "self_deploy.py").read_text(encoding="utf-8")
-        restart = script[script.index("def _offline_restart"):script.index("def _install_candidate_dependencies")]
-        self.assertIn('"-m", "tools.launcher", "start"', restart)
-        self.assertNotIn('"start.sh"', restart)
-        self.assertNotIn('"start.bat"', restart)
+    def test_self_deploy_script_contains_no_git_rollback(self):
+        script = (Path(__file__).resolve().parents[1] / "tools" / "self_deploy.py").read_text(encoding="utf-8")
+        self.assertNotIn("git reset", script)
+        self.assertNotIn("git clone", script)
+        self.assertNotIn("git fetch", script)
+        self.assertNotIn("git bundle", script)
 
 
 if __name__ == "__main__":

@@ -1,108 +1,155 @@
-# Git-freies Update von SimpleOffice4Me
+# Git-freies Update, Self-Deploy und Federation-Releases
 
 ## Ziel
 
-Eine installierte SimpleOffice4Me-Anwendung soll **kein lokal installiertes Git benötigen**, um auf einen neuen Programmstand aktualisiert zu werden. Git bleibt ein Entwicklungswerkzeug und kann im Quellrepository weiterhin verwendet werden, ist aber für den normalen Betrieb und das Einspielen eines Updates nicht erforderlich.
+Eine installierte SimpleOffice4Me-Anwendung soll **kein lokal installiertes Git benötigen** – weder für normale Updates noch für Self-Deploy oder die Verteilung eines Releases über Federation. Git bleibt ausschließlich ein mögliches Entwicklungswerkzeug.
 
 ## Warum diese Änderung?
 
-Der bisherige Updatepfad verwendete `git pull --ff-only`. Das ist für eine Entwickler-Arbeitskopie sinnvoll, macht aber jede produktive, portable oder paketierte Installation von einem externen Git-Programm und einer vollständigen `.git`-Arbeitskopie abhängig.
+Der frühere Updatepfad verwendete `git pull --ff-only`, Self-Deploy erzeugte `repository.bundle` und Offline-Updates arbeiteten mit `git clone`, `git fetch`, `git merge` und `git reset`.
 
-Das ist besonders für Desktop-Pakete, Windows-Installationen, AppImages, Docker-Umgebungen und andere vorkonfigurierte Installationen unnötig. Die Anwendung benötigt zum Ausführen weder Git-Historie noch Branch-Operationen.
+Das machte portable, paketierte und produktive Installationen unnötig von einem externen Git-Programm und einer vollständigen `.git`-Arbeitskopie abhängig. Für den Betrieb der Anwendung werden jedoch weder Branches noch Commitobjekte benötigt.
 
-Der neue Updatepfad trennt deshalb klar:
+Die Architektur trennt deshalb jetzt klar:
 
 - **Entwicklung:** Git kann weiterhin verwendet werden.
-- **Installation/Betrieb:** Python und HTTPS reichen für das Anwendungsupdate aus.
-- **Versionsinformation:** wird nach dem Update in `.simpleoffice-release.json` festgehalten.
+- **Installation/Betrieb:** Python, Dateisystem und HTTPS beziehungsweise Federation reichen aus.
+- **Versionsinformation:** wird in `.simpleoffice-release.json` persistiert.
+- **Integrität:** wird durch SHA-256 auf Release-, Payload- und Einzeldateiebene geprüft.
 
-## Ablauf
+## Normaler Online-Updatepfad
 
 `update.sh` beziehungsweise `update.bat`:
 
-1. prüft, ob SimpleOffice4Me aktuell läuft,
+1. prüft, ob SimpleOffice4Me läuft,
 2. stoppt die Anwendung bei Bedarf,
 3. startet `tools/release_updater.py`,
-4. löst den gewünschten GitHub-Ref standardmäßig auf `main` in eine konkrete Commit-ID auf,
-5. lädt genau diesen Stand als HTTPS-ZIP-Archiv,
-6. prüft das Archiv auf Größen-, Pfad- und Symlink-Probleme,
-7. ersetzt ausschließlich den von der Anwendung verwalteten Programmbaum,
-8. schreibt die installierte Version und Revision nach `.simpleoffice-release.json`,
+4. löst standardmäßig `main` auf eine konkrete GitHub-Commit-ID auf,
+5. lädt genau diesen Stand als HTTPS-ZIP,
+6. prüft Archivpfade, Symlinks und Größenlimits,
+7. ersetzt nur den verwalteten Programmbaum,
+8. schreibt `.simpleoffice-release.json`,
 9. startet die Anwendung wieder, wenn sie vorher lief.
 
-Git wird in keinem dieser Schritte benötigt.
+Git wird dafür nicht benötigt.
+
+## Self-Deploy-Releaseformat
+
+Self-Deploy verwendet kein Git-Bundle mehr. Ein Release-ZIP enthält:
+
+- `release.json` – Release-, Plattform- und Integritätsmetadaten,
+- `release-package.zip` – den eigentlichen Programmbaum,
+- `INSTALL.py` – einen Offline-Installer ohne Git-Abhängigkeit,
+- optional `wheelhouse/*.whl` für vollständig offline installierbare Python-Abhängigkeiten.
+
+`release.json` enthält für jede ausgelieferte Programmdatei:
+
+- relativen Pfad,
+- Dateigröße,
+- SHA-256,
+- Dateimodus,
+- zusätzlich einen SHA-256 über die kanonische gesamte Dateiliste (`tree_sha256`),
+- SHA-256 und Größe von `release-package.zip`.
+
+Damit kann ein Zielsystem den Inhalt prüfen, ohne Git-Objekte oder eine Git-Historie interpretieren zu müssen.
+
+## Warum Einzeldatei-Hashes und Baum-Hash?
+
+Nur den äußeren ZIP-Hash zu prüfen schützt den Transport, beschreibt aber nicht, welche konkreten Programmdateien zu einem Release gehören. Das Manifest macht den Inhalt explizit und auditierbar.
+
+Die Kombination aus Einzeldatei-Hash, Payload-Archiv-Hash und Baum-Hash erlaubt:
+
+- beschädigte Einzeldateien zu erkennen,
+- unerwartete zusätzliche Dateien abzulehnen,
+- fehlende Dateien zu erkennen,
+- den vollständigen Programmstand eindeutig zu identifizieren,
+- Releases auch über andere Transportwege als GitHub identisch zu prüfen.
+
+## Federation
+
+Die bestehende Federation musste für den Transport nicht neu erfunden werden. Sie überträgt bereits das vollständige Release-ZIP:
+
+1. der anbietende Peer meldet Release-Version und SHA-256,
+2. der empfangende Peer fordert ein Chunk-Manifest an,
+3. große Release-Dateien werden chunkweise übertragen,
+4. jeder Chunk wird geprüft,
+5. abschließend wird der SHA-256 des vollständigen Release-ZIPs geprüft,
+6. anschließend wird zusätzlich das interne Release-/Payload-Manifest verifiziert.
+
+Der frühere Git-Bundle-Inhalt war innerhalb dieses bereits abgesicherten Transports redundant und wurde entfernt.
+
+Die asymmetrischen Federation-Rechte bleiben erhalten: Ein Peer kann Software anbieten, ohne selbst Software annehmen zu müssen. `software.receive=true` bleibt eine explizite Voraussetzung für eingehende Releases.
+
+## Installation auf einem neuen Rechner
+
+Ein Self-Deploy-Archiv kann ohne Git auf einem neuen Rechner installiert werden. `clone_release_archive()` beziehungsweise `tools/self_deploy.py clone` entpackt den geprüften Payload direkt in einen leeren Zielordner.
+
+Mit `--offline-install` wird zusätzlich eine lokale `.venv` angelegt und ausschließlich aus dem enthaltenen Wheelhouse installiert. Auch dafür wird kein Netzwerk und kein Git benötigt.
+
+## Offline-Update einer vorhandenen Installation
+
+`tools/self_deploy.py update` ersetzt den verwalteten Programmbaum aus dem geprüften Payload. Die Updateentscheidung erfolgt über persistierte Release-Metadaten wie Version, Buildnummer, Buildzeit und Revision statt über Git-Ancestry oder Fast-Forward-Prüfungen.
+
+Das ist absichtlich ein Anwendungs-Release-Modell und kein Quellcode-Merge-Modell: lokale Änderungen am ausgelieferten Programmcode sind kein unterstützter Produktionszustand. Lokale Laufzeit- und Nutzdaten liegen deshalb außerhalb des verwalteten Programmbaums.
 
 ## Schutz lokaler Daten
 
-Der Updater ersetzt Quellcode und mitgelieferte Programmressourcen. Lokale Laufzeitdaten werden ausdrücklich nicht als Teil des Updates behandelt.
-
-Insbesondere bleiben bestehen:
+Nicht als Programmrelease behandelt werden insbesondere:
 
 - `.venv`
 - `instance`
 - `.simpleoffice-history`
 - `.simpleoffice-control`
-- `.git`, falls eine Entwicklerinstallation dennoch eine Git-Arbeitskopie besitzt
+- `.git`, falls eine Entwicklerinstallation trotzdem eines besitzt
 - `node_modules`
 
-Auch die eigentlichen Dokument-/Kundendaten liegen außerhalb des auszutauschenden Programmbaums und werden nicht aus dem Download übernommen.
+Dokumente, Kundendaten und andere Laufzeitdaten werden nicht Bestandteil eines Self-Deploy-Payloads.
 
-## Rollback bei Kopierfehlern
+## Rollback bei Dateisystemfehlern
 
-Vor dem Ersetzen eines verwalteten Programmordners oder einer Programmdatei wird der vorhandene Stand temporär gesichert. Schlägt das Kopieren während des Updates fehl, stellt der Updater die bereits angefassten Programmteile aus diesem temporären Backup wieder her.
+Vor dem Ersetzen vorhandener verwalteter Programmordner oder Dateien wird deren vorheriger Stand temporär gesichert. Schlägt das Kopieren fehl, werden bereits ersetzte Programmteile aus diesem Backup wiederhergestellt.
 
-Damit soll ein Dateisystemfehler nicht zu einer halb aktualisierten Installation führen.
+Der Rollback basiert damit ebenfalls auf dem Dateisystem und nicht mehr auf `git reset --hard`.
 
 ## Schutz gegen unsichere Archive
 
-Der Updater akzeptiert keine beliebigen ZIP-Strukturen. Geprüft werden unter anderem:
+Geprüft werden unter anderem:
 
-- genau ein Projektwurzelverzeichnis,
 - keine absoluten Pfade,
 - keine `..`-Pfadbestandteile,
 - keine symbolischen Links,
+- keine unerwarteten äußeren Release-Dateien,
 - maximale Dateianzahl,
-- maximale Downloadgröße,
-- maximale entpackte Gesamtgröße,
-- Vorhandensein von `pyproject.toml` und `app/`.
+- maximale Release- und Entpackgröße,
+- vollständige Übereinstimmung der Payload-Dateiliste,
+- SHA-256 jeder Payload-Datei,
+- SHA-256 des Payload-ZIPs,
+- SHA-256 des vollständigen Release-ZIPs bei Federation und lokalem Cache.
 
-HTTP wird für den normalen Download nicht akzeptiert. Redirects müssen ebenfalls bei HTTPS bleiben.
+Der normale Netzwerk-Updater akzeptiert ausschließlich HTTPS; Redirects müssen ebenfalls HTTPS bleiben.
 
-## Versionierung
+## Versionierung ohne `.git`
 
-Nach erfolgreichem Update wird `.simpleoffice-release.json` geschrieben. Enthalten sind unter anderem:
+Nach Installation oder Update wird `.simpleoffice-release.json` geschrieben. Darin stehen unter anderem:
 
-- Projektversion aus `pyproject.toml`,
-- konkrete GitHub-Commit-ID des heruntergeladenen Standes,
-- verwendeter Ref, standardmäßig `main`,
-- Build-/Commit-Zeit,
-- Updatezeit,
-- `update_mode = "https-source-archive"`.
+- Projektversion,
+- konkrete Revision beziehungsweise eindeutiger Payload-Stand,
+- Branch/Releasekanal,
+- Buildzeit,
+- Buildnummer, wenn vorhanden,
+- verwendeter Update-Modus.
 
-Damit kann eine Installation ihren Stand auch ohne `.git`-Verzeichnis eindeutig anzeigen.
+Wenn ein Buildsystem eine GitHub-Commit-ID kennt, kann es diese über die bestehenden `SIMPLEOFFICE_BUILD_*`-Metadaten einbringen. Ist keine Commit-ID verfügbar, kann der Hash des ausgelieferten Dateibaums den Release trotzdem eindeutig identifizieren.
 
-## Anderen Ref verwenden
+## Fazit
 
-Standard ist `main`. Für kontrollierte Tests kann vor dem Update beispielsweise ein anderer Branch oder Tag gewählt werden:
+Git ist nach dieser Umstellung keine Laufzeitvoraussetzung mehr für:
 
-```bash
-SIMPLEOFFICE_UPDATE_REF=v1.1.0 ./update.sh
-```
+- `update.sh` / `update.bat`,
+- Self-Deploy-Builds aus einem vollständigen Programmbaum,
+- Installation eines Self-Deploy-Archivs,
+- Offline-Updates,
+- Federation-Releaseübertragung,
+- Rollback bei Kopierfehlern.
 
-Unter Windows kann `SIMPLEOFFICE_UPDATE_REF` entsprechend als Umgebungsvariable gesetzt werden.
-
-## Lokales/offline Update-Archiv
-
-Der Python-Updater kann außerdem direkt mit einem bereits vorhandenen ZIP betrieben werden:
-
-```bash
-python3 tools/release_updater.py --archive /pfad/SimpleOffice4Me.zip --sha256 <sha256>
-```
-
-Die optionale SHA-256-Angabe ermöglicht bei einem extern übertragenen Archiv eine zusätzliche Integritätsprüfung vor dem Einspielen.
-
-## Abgrenzung zum Self-Deploy
-
-Der bestehende Self-Deploy-/Federation-Code besitzt historisch noch Git-Bundle-Funktionen für das Erzeugen und Verteilen bestimmter Releasepakete. Der normale `update.sh`-/`update.bat`-Pfad benötigt diese Funktionen nicht mehr.
-
-Langfristig sollte auch das Self-Deploy-Releaseformat auf ein Git-unabhängiges, manifestbasiertes Quell-/Artefaktpaket umgestellt werden. Diese Änderung kann separat erfolgen, damit der normale Anwendungsupdatepfad bereits jetzt ohne Git funktioniert und das bestehende Federation-Verhalten nicht unnötig gleichzeitig umgebaut wird.
+Git bleibt für Entwickler weiterhin nützlich, ist aber kein Bestandteil des produktiven Updateprotokolls mehr.
