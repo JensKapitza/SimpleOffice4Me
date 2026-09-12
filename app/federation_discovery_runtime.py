@@ -6,6 +6,7 @@ import time
 import click
 from flask import current_app
 
+from .federation_discovery_schedule import claim_due
 from .federation_discovery_service import discover_country
 
 
@@ -27,13 +28,16 @@ def _worker(app):
     if not country:
         return
     while True:
+        interval = configured_interval()
         with app.app_context():
+            root = current_app.config["DOCUMENT_ROOT"]
             try:
-                result = discover_country(current_app.config["DOCUMENT_ROOT"], country)
-                app.logger.info("federation autoscan country=%s peers=%s errors=%s", country, len(result["peers"]), len(result["errors"]))
+                if claim_due(root, "country:" + country, interval):
+                    result = discover_country(root, country)
+                    app.logger.info("federation autoscan country=%s peers=%s errors=%s", country, len(result["peers"]), len(result["errors"]))
             except Exception as exc:
                 app.logger.warning("federation autoscan failed: %s", exc)
-        time.sleep(configured_interval())
+        time.sleep(min(interval, 3600))
 
 
 @click.command("federation-discover")
