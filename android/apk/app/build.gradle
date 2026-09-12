@@ -9,6 +9,22 @@ if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
 }
 def escapedErrorReportUrl = errorReportUrl.replace('\\', '\\\\').replace('"', '\\"')
 
+def androidAbi = (System.getenv('SIMPLEOFFICE_ANDROID_ABI') ?: 'arm64-v8a').trim()
+def pythonRuntimeVersion = (System.getenv('SIMPLEOFFICE_ANDROID_PYTHON') ?: '3.13').trim()
+def androidRuntimeProfiles = [
+    'arm64-v8a': '3.13',
+    'armeabi-v7a': '3.11',
+]
+def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
+if (!expectedPythonVersion) {
+    throw new GradleException("Unsupported Android ABI: ${androidAbi}")
+}
+if (pythonRuntimeVersion != expectedPythonVersion) {
+    throw new GradleException(
+        "Android ABI ${androidAbi} requires Python ${expectedPythonVersion}, got ${pythonRuntimeVersion}"
+    )
+}
+
 android {
     namespace 'de.simpleoffice4me.android'
     compileSdk 36
@@ -22,7 +38,7 @@ android {
         buildConfigField 'String', 'ERROR_REPORT_URL', "\"${escapedErrorReportUrl}\""
 
         ndk {
-            abiFilters 'arm64-v8a'
+            abiFilters androidAbi
         }
     }
 
@@ -55,7 +71,7 @@ dependencies {
 
 chaquopy {
     defaultConfig {
-        version = '3.13'
+        version = pythonRuntimeVersion
         def ciPython = System.getenv('CHAQUOPY_BUILD_PYTHON')
         if (ciPython) {
             buildPython(ciPython)
