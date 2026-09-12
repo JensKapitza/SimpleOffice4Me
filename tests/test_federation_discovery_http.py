@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask
 
@@ -72,6 +73,32 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         second = self.client.get("/federation/v1/discovery/signal", headers=second_headers)
         self.assertEqual(len(first.json["messages"]), 1)
         self.assertEqual(second.json["messages"], [])
+
+    def test_discovery_errors_do_not_expose_exception_text(self):
+        marker = "SECRET_RAW_EXCEPTION"
+        with patch("app.federation_discovery_http.local_profile", side_effect=ValueError(marker)):
+            profile = self.client.get("/.well-known/simpleoffice-federation")
+        self.assertEqual(profile.status_code, 503)
+        self.assertNotIn(marker, profile.get_data(as_text=True))
+        self.assertEqual(profile.json["error"], "federation_profile_unavailable")
+
+        with patch("app.federation_discovery_http.peer_profile", side_effect=ValueError(marker)):
+            registration = self.client.post(
+                "/federation/v1/discovery/register", headers=self.auth, json={"profile": PROFILE}
+            )
+        self.assertEqual(registration.status_code, 400)
+        self.assertNotIn(marker, registration.get_data(as_text=True))
+        self.assertEqual(registration.json["error"], "invalid_registration")
+
+        with patch("app.federation_discovery_http.authenticate_peer", side_effect=ValueError(marker)):
+            sent = self.client.post("/federation/v1/discovery/signal", json={})
+            received = self.client.get("/federation/v1/discovery/signal")
+        self.assertEqual(sent.status_code, 401)
+        self.assertEqual(received.status_code, 401)
+        self.assertNotIn(marker, sent.get_data(as_text=True))
+        self.assertNotIn(marker, received.get_data(as_text=True))
+        self.assertEqual(sent.json["error"], "invalid_signal_request")
+        self.assertEqual(received.json["error"], "invalid_signal_request")
 
     def test_direct_only_trust_is_not_exported(self):
         FederationTrustStore(self.root).set_trust("peer-b", "HIGH", "VERIFIED_IN_PERSON", "DIRECT_ONLY")
