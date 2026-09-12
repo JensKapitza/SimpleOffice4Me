@@ -25,6 +25,7 @@
   const definitions = definitionsNode ? JSON.parse(definitionsNode.textContent || '[]') : [];
   let currentStep = 1;
   let idTouched = false;
+  let currentLayout = '';
 
   const slug = value => String(value || '')
     .toLowerCase()
@@ -139,13 +140,15 @@
 
   function buildDefinition() {
     refreshTitleFields();
-    return {
+    const definition = {
       form_id: idInput.value.trim(),
       name: nameInput.value.trim(),
       description: descriptionInput.value.trim(),
       title_field: titleField.value,
       fields: Array.from(list.querySelectorAll('.form-field-card')).map(fieldFromCard)
     };
+    if (currentLayout) definition.layout = currentLayout;
+    return definition;
   }
 
   function validateStep() {
@@ -219,6 +222,7 @@
     nameInput.value = definition.name || '';
     idInput.value = definition.form_id || '';
     descriptionInput.value = definition.description || '';
+    currentLayout = definition.layout || '';
     idTouched = true;
     list.innerHTML = '';
     (definition.fields || []).forEach(addField);
@@ -226,6 +230,14 @@
     titleField.value = definition.title_field || titleField.value;
     showStep(1);
     document.getElementById('form-wizard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function continueAfterSave() {
+    const targetId = sessionStorage.getItem('simpleoffice-form-open-after-save');
+    if (!targetId) return;
+    const target = document.querySelector(`[data-form-open="${CSS.escape(targetId)}"]`);
+    sessionStorage.removeItem('simpleoffice-form-open-after-save');
+    if (target) window.location.replace(target.href);
   }
 
   nameInput.addEventListener('input', () => {
@@ -237,7 +249,9 @@
   back.addEventListener('click', () => showStep(currentStep - 1));
   form.addEventListener('submit', event => {
     if (!validateStep()) { event.preventDefault(); return; }
-    jsonTarget.value = JSON.stringify(buildDefinition());
+    const definition = buildDefinition();
+    jsonTarget.value = JSON.stringify(definition);
+    sessionStorage.setItem('simpleoffice-form-open-after-save', definition.form_id);
   });
 
   document.querySelectorAll('[data-edit-form]').forEach(button => {
@@ -249,4 +263,5 @@
 
   addField({ label: 'Bezeichnung', key: 'bezeichnung', type: 'text', required: true });
   showStep(1);
+  continueAfterSave();
 })();
