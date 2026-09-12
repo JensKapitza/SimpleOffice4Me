@@ -93,7 +93,10 @@ def import_qr():
         trust.remember(profile["peer_id"], profile["country"], profile["fingerprint"], "qr")
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
-        store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", (existing or {}).get("policy") or {}, False)
+        store.save_peer(
+            profile["peer_id"], profile["label"], profile["base_url"], "",
+            (existing or {}).get("policy") or {}, bool((existing or {}).get("enabled", False)),
+        )
         flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
     except Exception as exc:
         flash(f"QR-Peer konnte nicht übernommen werden: {exc}")
