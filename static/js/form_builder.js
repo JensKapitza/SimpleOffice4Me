@@ -34,13 +34,13 @@
 
   const lines = value => String(value || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
 
-  function defaultFromOptions(options) {
-    const marker = (options || []).find(value => String(value).startsWith('__default__:'));
-    return marker ? marker.slice('__default__:'.length) : '';
+  function markerFromOptions(options, prefix) {
+    const marker = (options || []).find(value => String(value).startsWith(prefix));
+    return marker ? String(marker).slice(prefix.length) : '';
   }
 
   function visibleOptions(options) {
-    return (options || []).filter(value => !String(value).startsWith('__default__:'));
+    return (options || []).filter(value => !String(value).startsWith('__'));
   }
 
   function addField(source = {}) {
@@ -63,9 +63,9 @@
     required.checked = Boolean(source.required);
     options.value = visibleOptions(source.options).join('\n');
     relation.value = source.relation_form || 'contact';
-    defaultInput.value = source.default_value || defaultFromOptions(source.options);
-    placeholder.value = source.placeholder || '';
-    help.value = source.help || '';
+    defaultInput.value = markerFromOptions(source.options, '__default__:');
+    placeholder.value = markerFromOptions(source.options, '__placeholder__:');
+    help.value = markerFromOptions(source.options, '__help__:');
 
     let keyTouched = Boolean(source.key);
     label.addEventListener('input', () => {
@@ -129,11 +129,11 @@
       relation_form: card.querySelector('.field-relation').value
     };
     const defaultValue = card.querySelector('.field-default').value.trim();
-    if (defaultValue) field.options.unshift(`__default__:${defaultValue}`);
     const placeholder = card.querySelector('.field-placeholder').value.trim();
-    if (placeholder) field.placeholder = placeholder;
     const help = card.querySelector('.field-help').value.trim();
-    if (help) field.help = help;
+    if (defaultValue) field.options.unshift(`__default__:${defaultValue}`);
+    if (placeholder) field.options.unshift(`__placeholder__:${placeholder}`);
+    if (help) field.options.unshift(`__help__:${help}`);
     return field;
   }
 
@@ -237,8 +237,7 @@
   back.addEventListener('click', () => showStep(currentStep - 1));
   form.addEventListener('submit', event => {
     if (!validateStep()) { event.preventDefault(); return; }
-    const definition = buildDefinition();
-    jsonTarget.value = JSON.stringify(definition);
+    jsonTarget.value = JSON.stringify(buildDefinition());
   });
 
   document.querySelectorAll('[data-edit-form]').forEach(button => {
