@@ -6,12 +6,13 @@ import sqlite3
 from functools import wraps
 from urllib.parse import urlsplit
 
-from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, g, make_response, redirect, render_template, request, url_for
 
 from .access_control import audit, is_admin
 from .auth import login_required
 from .mini_services import default_config_path
 from .security_controls import protect_value
+from .telephony_numbering import clean_number
 from .telephony_profiles import TelephonyProfileStore
 
 bp = Blueprint("telephony_admin", __name__, url_prefix="/admin/mini-services/telephony")
@@ -37,19 +38,27 @@ def _suggested_host() -> str:
 
 def _render(*, one_time: dict | None = None, status: int = 200):
     store = _store()
-    return render_template(
-        "admin/telephony.html",
-        settings=store.settings(),
-        profiles=store.profiles(),
-        suggested_host=_suggested_host(),
-        one_time=one_time,
-        runtime_ready=False,
-    ), status
+    response = make_response(
+        render_template(
+            "admin/telephony.html",
+            settings=store.settings(),
+            profiles=store.profiles(),
+            suggested_host=_suggested_host(),
+            one_time=one_time,
+            runtime_ready=False,
+        ),
+        status,
+    )
+    if one_time is not None:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 def _new_secret(extension: str) -> tuple[str, str]:
+    number = clean_number(extension, "Nebenstelle")
     secret = secrets.token_urlsafe(24)
-    encrypted = protect_value(secret, f"sip-profile:{extension}")
+    encrypted = protect_value(secret, f"sip-profile:{number}")
     return secret, encrypted
 
 
