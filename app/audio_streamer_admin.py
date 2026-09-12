@@ -37,3 +37,63 @@ def page():
 @admin_required
 def status():
     return jsonify(manager.status())
+
+
+@bp.post("/sender/start")
+@admin_required
+def sender_start():
+    try:
+        data = payload()
+        result = manager.start_sender(
+            source=str(data.get("source") or "default"),
+            backend=str(data.get("backend") or "pulse"),
+            destinations=data.get("destinations"),
+            bitrate_kbps=int(data.get("bitrate_kbps") or 64),
+        )
+    except (ValueError, TypeError, RuntimeError, OSError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    audit("audio_stream_sender_started", "audio_stream", "sender")
+    return jsonify(result), 202
+
+
+@bp.post("/sender/stop")
+@admin_required
+def sender_stop():
+    manager.stop_sender()
+    audit("audio_stream_sender_stopped", "audio_stream", "sender")
+    return jsonify({"stopped": True})
+
+
+@bp.post("/receiver/start")
+@admin_required
+def receiver_start():
+    try:
+        data = payload()
+        result = manager.start_receiver(
+            port=int(data.get("port") or 5004),
+            speaker_devices=data.get("speaker_devices") or [],
+            virtual_microphone=bool(data.get("virtual_microphone", True)),
+            virtual_sink=str(data.get("virtual_sink") or "simpleoffice_stream"),
+        )
+    except (ValueError, TypeError, RuntimeError, OSError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    audit("audio_stream_receiver_started", "audio_stream", "receiver")
+    return jsonify(result), 202
+
+
+@bp.post("/receiver/stop")
+@admin_required
+def receiver_stop():
+    manager.stop_receiver()
+    audit("audio_stream_receiver_stopped", "audio_stream", "receiver")
+    return jsonify({"stopped": True})
+
+
+@bp.get("/receiver.sdp")
+@admin_required
+def receiver_sdp_download():
+    try:
+        content = receiver_sdp(int(request.args.get("port") or 5004))
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return content, 200, {"Content-Type": "application/sdp"}
