@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS federation_rendezvous(
  expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
  PRIMARY KEY(lookup_key,peer_id)
 );
+CREATE TABLE IF NOT EXISTS federation_rendezvous_message(
+ message_id TEXT PRIMARY KEY, sender_peer TEXT NOT NULL, recipient_peer TEXT NOT NULL,
+ kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at INTEGER NOT NULL,
+ expires_at INTEGER NOT NULL, claimed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS federation_rendezvous_message_recipient_idx
+ ON federation_rendezvous_message(recipient_peer,claimed_at,expires_at);
 CREATE TABLE IF NOT EXISTS federation_directory_publish(
  peer_id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
