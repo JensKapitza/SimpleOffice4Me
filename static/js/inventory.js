@@ -234,9 +234,7 @@
     const rows = Array.isArray(data.results) ? data.results.slice(0, 3) : [];
     if (!rows.length) {
       const empty = document.createElement('div'); empty.className = 'alert alert-secondary mb-2';
-      empty.textContent = data.configured === false
-        ? `${providerName}-API ist noch nicht konfiguriert. Du kannst die normale Suche öffnen.`
-        : `Keine passenden ${providerName}-Treffer gefunden.`;
+      empty.textContent = cleanText(data.warning) || `Keine automatisch lesbaren ${providerName}-Treffer gefunden. Die normale Suche kann geöffnet werden.`;
       marketplaceResults.appendChild(empty);
       const fallback = safeMarketplaceUrl(data.fallback_url);
       if (fallback) {
@@ -284,9 +282,12 @@
       const data = await safeJson(response);
       if (!response.ok && !data.fallback_url) { setStatus(data.error || 'Marketplace-Suche fehlgeschlagen.', 'warning'); return; }
       renderMarketplaceResults(provider, data);
-      if (Array.isArray(data.results) && data.results.length) setStatus(`${data.results.length} Treffer geladen. Besten Treffer prüfen oder einen der drei auswählen.`, 'success');
-      else if (data.configured === false) setStatus(`${provider === 'ebay' ? 'eBay' : 'Amazon'}-API noch nicht konfiguriert; direkte Suche ist verfügbar.`, 'warning');
-      else setStatus(data.error || 'Keine Marketplace-Treffer gefunden.', 'secondary');
+      if (Array.isArray(data.results) && data.results.length) {
+        const source = data.source === 'api' ? 'API-Fallback' : 'öffentliche Suche';
+        setStatus(`${data.results.length} Treffer über ${source} geladen. Treffer prüfen und auswählen.`, 'success');
+      } else {
+        setStatus(cleanText(data.warning || data.error) || 'Keine Marketplace-Treffer gefunden.', 'secondary');
+      }
     } catch (error) {
       if (error?.name !== 'AbortError') setStatus(`Marketplace-Suche nicht erreichbar.${navigator.onLine === false ? ' Das Gerät ist offline.' : ''}`, 'danger');
     } finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
