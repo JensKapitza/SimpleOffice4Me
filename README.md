@@ -24,8 +24,29 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 - einfache EÜR-Belegerfassung für Einnahmen und Ausgaben mit Originaldatei,
   Vollständigkeitsprüfung, EUR-/Umsatzsteuerberechnung, Prüfstatus,
   Jahresübersicht und CSV-/ZIP-Übergabe an den Steuerberater
+- Offline-Installer-Cache für fertige Windows-, macOS-, Linux-, Android- und
+  Docker-Artefakte mit Hashprüfung und gezielter Federation-Verteilung
 - zweisprachige Oberfläche in Deutsch und Englisch
 - Audit-, Rechte- und Freigabefunktionen für den gemeinsamen Betrieb
+
+## Aktuelle Architektur-Erweiterung: Offline-Installer
+
+Self-Deploy kann fertige Installationsartefakte jetzt dauerhaft lokal
+vorhalten. Bekannte Federation-Peers erhalten zunächst nur einen Katalog und
+laden anschließend gezielt die tatsächlich benötigten Pakete. Große Dateien
+werden chunkweise übertragen und sowohl blockweise als auch vollständig
+geprüft.
+
+Der Grund ist ein robuster Offline-Betrieb: Ein bereits geprüfter Installer
+soll auch dann verfügbar bleiben, wenn GitHub oder das Internet gerade nicht
+erreichbar sind. Gleichzeitig soll eine Federation nicht automatisch mehrere
+Gigabyte verteilen, nur weil Software grundsätzlich freigegeben ist.
+
+Die unterstützten Formate, das Hash-/Chunk-Modell, GitHub-Actions-Import,
+Offline-Verhalten, Federation-Richtlinien und die Gründe für die einzelnen
+Architekturentscheidungen sind in
+[Neuerungen: Offline-Installer und Software-Verteilung](docs/NEUERUNGEN_OFFLINE_INSTALLER.md)
+beschrieben.
 
 ## Zielbild
 
