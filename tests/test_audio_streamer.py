@@ -139,6 +139,12 @@ class AudioStreamerTests(unittest.TestCase):
         self.assertIn("Audio-Dienst ist auf diesem System nicht verfügbar.", source)
         self.assertIn("Ungültiger RTP-Port.", source)
 
+    def test_page_uses_layout_body_and_main_landmark(self) -> None:
+        source = (ROOT / "templates" / "admin" / "audio_streamer.html").read_text(encoding="utf-8")
+        self.assertIn('{% block body %}', source)
+        self.assertIn('id="main-content"', source)
+        self.assertIn('id="audio-streamer-app"', source)
+
 
 if __name__ == "__main__":
     unittest.main()
