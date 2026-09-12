@@ -20,6 +20,7 @@ from typing import Any
 
 _HOST_RE = re.compile(r"[A-Za-z0-9.-]{1,253}\Z")
 _SESSION_LOCK = threading.RLock()
+_PROCESS_WAIT_SECONDS = 2
 
 
 def _port(value: Any) -> int:
@@ -123,6 +124,40 @@ def paplay_command(device: str = "") -> list[str]:
     return command + ["--raw", "--rate=48000", "--channels=2", "--format=s16le"]
 
 
+def _close_pipe(pipe: Any) -> None:
+    if pipe is None:
+        return
+    try:
+        pipe.close()
+    except (OSError, ValueError):
+        pass
+
+
+def _terminate_process(process: subprocess.Popen | None, *, close_stdin: bool = False, close_stdout: bool = False) -> None:
+    if process is None:
+        return
+    if close_stdin:
+        _close_pipe(process.stdin)
+    try:
+        running = process.poll() is None
+    except OSError:
+        running = False
+    if running:
+        try:
+            process.terminate()
+            process.wait(timeout=_PROCESS_WAIT_SECONDS)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+                process.wait(timeout=_PROCESS_WAIT_SECONDS)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        except OSError:
+            pass
+    if close_stdout:
+        _close_pipe(process.stdout)
+
+
 @dataclass
 class SenderSession:
     process: subprocess.Popen
@@ -143,6 +178,7 @@ class ReceiverSession:
         self.decoder: subprocess.Popen | None = None
         self.players: list[subprocess.Popen] = []
         self.thread: threading.Thread | None = None
+        self._runtime_lock = threading.RLock()
 
     def start(self) -> None:
         devices = list(self.outputs)
@@ -180,46 +216,49 @@ class ReceiverSession:
         decoder = self.decoder
         if decoder is None or decoder.stdout is None:
             return
-        while True:
-            chunk = decoder.stdout.read(3840)
-            if not chunk:
-                break
-            alive: list[subprocess.Popen] = []
-            for player in self.players:
-                if player.poll() is not None or player.stdin is None:
-                    continue
-                try:
-                    player.stdin.write(chunk)
-                    player.stdin.flush()
-                    alive.append(player)
-                except (BrokenPipeError, OSError, ValueError):
-                    continue
-            self.players = alive
-            if not alive:
-                break
+        try:
+            while True:
+                chunk = decoder.stdout.read(3840)
+                if not chunk:
+                    break
+                alive: list[subprocess.Popen] = []
+                for player in self.players:
+                    if player.poll() is not None or player.stdin is None:
+                        continue
+                    try:
+                        player.stdin.write(chunk)
+                        player.stdin.flush()
+                        alive.append(player)
+                    except (BrokenPipeError, OSError, ValueError):
+                        continue
+                self.players = alive
+                if not alive:
+                    break
+        except (OSError, ValueError):
+            pass
+        finally:
+            self._shutdown_runtime()
+
+    def _shutdown_runtime(self) -> None:
+        with self._runtime_lock:
+            players = list(self.players)
+            self.players.clear()
+            decoder = self.decoder
+            self.decoder = None
+            module_id = self.module_id
+            self.module_id = ""
+        for player in players:
+            _terminate_process(player, close_stdin=True)
+        _terminate_process(decoder, close_stdout=True)
+        if module_id:
+            unload_virtual_microphone(module_id)
+        try:
+            self._temp.cleanup()
+        except OSError:
+            pass
 
     def stop(self) -> None:
-        for player in list(self.players):
-            if player.stdin:
-                try:
-                    player.stdin.close()
-                except (OSError, ValueError):
-                    pass
-            if player.poll() is None:
-                try:
-                    player.terminate()
-                except OSError:
-                    pass
-        self.players.clear()
-        if self.decoder and self.decoder.poll() is None:
-            try:
-                self.decoder.terminate()
-            except OSError:
-                pass
-        if self.module_id:
-            unload_virtual_microphone(self.module_id)
-            self.module_id = ""
-        self._temp.cleanup()
+        self._shutdown_runtime()
 
 
 def ensure_virtual_microphone(sink_name: str = "simpleoffice_stream") -> str:
@@ -289,11 +328,8 @@ class LiveAudioManager:
             return self.status()["sender"]
 
     def stop_sender(self) -> None:
-        if self.sender and self.sender.process.poll() is None:
-            try:
-                self.sender.process.terminate()
-            except OSError:
-                pass
+        if self.sender:
+            _terminate_process(self.sender.process)
         self.sender = None
 
     def start_receiver(self, *, port: int, speaker_devices: list[str] | None = None, virtual_microphone: bool = True, virtual_sink: str = "simpleoffice_stream") -> dict[str, Any]:
@@ -326,7 +362,7 @@ class LiveAudioManager:
                 "running": bool(receiver.decoder and receiver.decoder.poll() is None),
                 "port": receiver.port,
                 "speaker_devices": list(receiver.outputs),
-                "virtual_microphone": f"{receiver.virtual_sink}.monitor" if receiver.virtual_sink else "",
+                "virtual_microphone": f"{receiver.virtual_sink}.monitor" if receiver.module_id else "",
             },
         }
 
