@@ -12,14 +12,32 @@ This project is the Android counterpart of the Electron desktop wrapper. Electro
 - SQLite, secrets and application data remain in Android private app storage.
 - Cleartext HTTP is permitted only for localhost/127.0.0.1.
 
-The initial APK targets `arm64-v8a`, Android API 24 or newer. This includes modern ARM64 devices such as the Poco F6 Pro.
+Both APK variants require Android API 24 / Android 7.0 or newer:
+
+- `arm64-v8a`: modern 64-bit ARM devices, using Python 3.13.
+- `armeabi-v7a`: legacy 32-bit ARM devices, using Python 3.11. This is intended for devices such as a Galaxy Tab 3 running an Android 7 ROM when the device userspace is 32-bit.
+
+The two builds are intentionally separate. Keeping ARM32 out of the modern APK avoids increasing the normal package size and lets the current ARM64/Python 3.13 runtime stay unchanged.
 
 ## Build
 
-Requirements: JDK 17, Android SDK 36, Gradle 8.13 and Python 3.13 for the Chaquopy build host.
+Requirements: JDK 17, Android SDK 36 and Gradle 8.13.
+
+The default local build remains ARM64 and uses Python 3.13:
 
 ```bash
 cd android/apk
+export CHAQUOPY_BUILD_PYTHON="$(command -v python3.13)"
+gradle assembleDebug
+```
+
+For ARM32, use a Python 3.11 build interpreter and select the matching runtime profile:
+
+```bash
+cd android/apk
+export SIMPLEOFFICE_ANDROID_ABI=armeabi-v7a
+export SIMPLEOFFICE_ANDROID_PYTHON=3.11
+export CHAQUOPY_BUILD_PYTHON="$(command -v python3.11)"
 gradle assembleDebug
 ```
 
@@ -31,15 +49,19 @@ app/build/outputs/apk/debug/app-debug.apk
 
 A normal `assembleRelease` without a configured release signing key creates an unsigned APK and must not be distributed as an installable package.
 
-GitHub Actions therefore publishes only the verified signed artifact:
+GitHub Actions builds and verifies both architectures independently. The ARM64 artifact name remains unchanged for compatibility, and ARM32 is published separately:
 
 ```text
 simpleoffice4me-android-installable/
   SimpleOffice4Me-Android-arm64.apk
   SimpleOffice4Me-Android-arm64.apk.sha256
+
+simpleoffice4me-android-arm32-installable/
+  SimpleOffice4Me-Android-arm32.apk
+  SimpleOffice4Me-Android-arm32.apk.sha256
 ```
 
-Before upload, CI verifies the APK signature with `apksigner` and validates 16 KiB page/alignment compatibility with `zipalign -P 16`.
+CI verifies that each APK contains only the requested native ABI. It also verifies the APK signature with `apksigner`. ARM64 is checked for 16 KiB native-library alignment, while the Android-7-oriented ARM32 package uses the legacy 4 KiB alignment check.
 
 ## Current Android-specific limits
 
