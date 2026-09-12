@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Audio Mini Service</h1>
+      <p class="text-secondary mb-0">Netzwerk-Audioausgänge, Gruppen und Durchsagen verwalten.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ausgänge</div><div class="fs-3">{{ outputs|length }}</div><div class="small">{{ outputs|selectattr('online')|list|length }} online</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Gruppen</div><div class="fs-3">{{ groups|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Warteschlange</div><div class="fs-3">{{ queue|length }}</div></div></div></div>
+  </div>
+
+  <div class="row g-4">
+    <section class="col-xl-7">
+      <div class="card h-100">
+        <div class="card-header"><strong>Audioausgänge</strong></div>
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Node</th><th>Ausgang</th><th>Name</th><th>Status</th><th>Lautstärke</th></tr></thead><tbody>
+          {% for output in outputs %}<tr><td><code>{{ output.node_id }}</code></td><td><code>{{ output.output_id }}</code></td><td>{{ output.name }}</td><td><span class="badge text-bg-{{ 'success' if output.online else 'secondary' }}">{{ 'online' if output.online else 'offline' }}</span></td><td>{{ output.volume }} %</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Audioausgänge registriert.</td></tr>{% endfor %}
+        </tbody></table></div>
+      </div>
+    </section>
+    <section class="col-xl-5">
+      <div class="card h-100">
+        <div class="card-header"><strong>Gruppen</strong></div>
+        <div class="list-group list-group-flush">
+          {% for group in groups %}<div class="list-group-item"><strong>{{ group.name }}</strong><div class="small text-secondary"><code>{{ group.group_id }}</code> · {{ group.members|join(', ') or 'keine Mitglieder' }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Gruppen.</div>{% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card mt-4">
+    <div class="card-header"><strong>Warteschlange</strong></div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Typ</th><th>Ziele</th><th>Priorität</th><th>Status</th></tr></thead><tbody>
+      {% for item in queue %}<tr><td>{{ item.id }}</td><td>{{ item.kind }}</td><td class="text-break">{{ item.targets|join(', ') }}</td><td>{{ item.priority }}</td><td>{{ item.state }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Keine offenen Audioereignisse.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <p class="small text-secondary mt-3 mb-0">Die vorhandenen JSON-Endpunkte bleiben für Geräte und Automatisierung unverändert verfügbar.</p>
+</main>
+{% endblock %}
