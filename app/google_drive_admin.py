@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import secrets
 from functools import wraps
+from urllib.parse import urlencode
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, session, url_for
 
 from .access_control import audit, has_feature
-from .auth import login_required
+from .auth import GOOGLE_AUTH_URL, _google_config, login_required
 from .db import get_db
 from .google_drive_schema import ensure_google_drive_schema
 from .google_drive_sync import (
@@ -42,6 +44,17 @@ def _connection_status(user_id: int) -> tuple[bool, bool, set[str]]:
     return row is not None, GOOGLE_DRIVE_SCOPE in scopes, scopes
 
 
+@bp.before_app_request
+def finish_google_drive_consent():
+    if request.endpoint != "home" or not session.get("google_drive_oauth_pending") or g.user is None:
+        return None
+    session.pop("google_drive_oauth_pending", None)
+    if GOOGLE_DRIVE_SCOPE in google_scopes(g.user["id"]):
+        flash("Google Drive wurde freigegeben.", "success")
+        return redirect(url_for("google_drive_admin.index"))
+    return None
+
+
 @bp.get("")
 @drive_access_required
 def index():
@@ -72,9 +85,35 @@ def index():
 @bp.post("/connect")
 @drive_access_required
 def connect():
-    session["google_oauth_return_to"] = url_for("google_drive_admin.index")
+    config = _google_config()
+    if config is None:
+        flash("Google OAuth ist noch nicht konfiguriert.", "warning")
+        return redirect(url_for("google_drive_admin.index"))
+    state = secrets.token_urlsafe(32)
+    session["google_oauth_state"] = state
+    session["google_drive_oauth_pending"] = 1
+    scopes = " ".join(
+        (
+            "openid",
+            "email",
+            "profile",
+            "https://www.googleapis.com/auth/contacts.readonly",
+            "https://www.googleapis.com/auth/calendar.readonly",
+            GOOGLE_DRIVE_SCOPE,
+        )
+    )
+    parameters = {
+        "client_id": config["client_id"],
+        "redirect_uri": config["redirect_uri"],
+        "response_type": "code",
+        "scope": scopes,
+        "state": state,
+        "prompt": "consent select_account",
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+    }
     audit("google_drive_connect_started", "integration", "google-drive")
-    return redirect(url_for("auth.google_login", drive="1"))
+    return redirect(f"{GOOGLE_AUTH_URL}?{urlencode(parameters)}")
 
 
 @bp.post("/settings")
@@ -130,12 +169,13 @@ def sync_now():
 @drive_access_required
 def full_rescan():
     ensure_google_drive_schema()
-    get_db().execute(
+    db = get_db()
+    db.execute(
         """UPDATE google_drive_state SET page_token=NULL, last_error='', updated_at=CURRENT_TIMESTAMP
            WHERE user_id=?""",
         (int(g.user["id"]),),
     )
-    get_db().commit()
+    db.commit()
     audit("google_drive_full_rescan_requested", "integration", "google-drive")
     flash("Beim nächsten Sync wird der verwaltete Google-Drive-Ordner vollständig neu abgeglichen.", "info")
     return redirect(url_for("google_drive_admin.index"))
