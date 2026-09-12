@@ -22,7 +22,27 @@ env:
 
 jobs:
   apk:
+    name: APK ${{ matrix.label }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: ARM64
+            abi: arm64-v8a
+            python: '3.13'
+            output: SimpleOffice4Me-Android-arm64.apk
+            artifact: simpleoffice4me-android-installable
+            page-size: '16'
+          - label: ARM32
+            abi: armeabi-v7a
+            python: '3.11'
+            output: SimpleOffice4Me-Android-arm32.apk
+            artifact: simpleoffice4me-android-arm32-installable
+            page-size: '4'
+    env:
+      SIMPLEOFFICE_ANDROID_ABI: ${{ matrix.abi }}
+      SIMPLEOFFICE_ANDROID_PYTHON: ${{ matrix.python }}
     steps:
       - uses: actions/checkout@v7
 
@@ -34,7 +54,7 @@ jobs:
       - name: Set up Chaquopy build Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python }}
 
       - name: Select Chaquopy build interpreter
         shell: bash
@@ -48,7 +68,7 @@ jobs:
         working-directory: android/apk
         run: gradle --no-daemon assembleDebug
 
-      - name: Verify bundled Python runtime assets
+      - name: Verify bundled Python runtime assets and ABI
         shell: bash
         run: |
           set -euo pipefail
@@ -59,8 +79,13 @@ jobs:
           grep -F 'assets/simpleoffice/tools/launcher.py' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/templates/' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/static/' /tmp/apk-files.txt
+          grep -F "lib/${{ matrix.abi }}/" /tmp/apk-files.txt
+          if grep -E 'lib/(arm64-v8a|armeabi-v7a)/' /tmp/apk-files.txt | grep -Fv "lib/${{ matrix.abi }}/"; then
+            echo "APK contains native libraries for an unexpected ABI" >&2
+            exit 1
+          fi
 
-      - name: Verify APK signature and 16 KiB alignment
+      - name: Verify APK signature and native-library alignment
         shell: bash
         run: |
           set -euo pipefail
@@ -70,15 +95,15 @@ jobs:
           test -n "$APKSIGNER" && test -x "$APKSIGNER"
           test -n "$ZIPALIGN" && test -x "$ZIPALIGN"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-          "$ZIPALIGN" -c -P 16 -v 4 "$APK"
+          "$ZIPALIGN" -c -P '${{ matrix.page-size }}' -v 4 "$APK"
           mkdir -p artifacts/android
-          cp "$APK" artifacts/android/SimpleOffice4Me-Android-arm64.apk
-          sha256sum artifacts/android/SimpleOffice4Me-Android-arm64.apk > artifacts/android/SimpleOffice4Me-Android-arm64.apk.sha256
+          cp "$APK" "artifacts/android/${{ matrix.output }}"
+          sha256sum "artifacts/android/${{ matrix.output }}" > "artifacts/android/${{ matrix.output }}.sha256"
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v6
         with:
-          name: simpleoffice4me-android-installable
+          name: ${{ matrix.artifact }}
           path: artifacts/android/*
           if-no-files-found: error
           retention-days: 14
