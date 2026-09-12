@@ -8,6 +8,7 @@ source as the microphone.
 """
 from __future__ import annotations
 
+import atexit
 import ipaddress
 import re
 import shutil
@@ -21,6 +22,7 @@ from typing import Any
 _HOST_RE = re.compile(r"[A-Za-z0-9.-]{1,253}\Z")
 _SESSION_LOCK = threading.RLock()
 _PROCESS_WAIT_SECONDS = 2
+_MAX_STREAM_TARGETS = 16
 
 
 def _port(value: Any) -> int:
@@ -46,6 +48,8 @@ def _host(value: Any) -> str:
 def normalize_destinations(values: Any) -> list[tuple[str, int]]:
     if not isinstance(values, list) or not values:
         raise ValueError("Mindestens ein RTP-Ziel ist erforderlich")
+    if len(values) > _MAX_STREAM_TARGETS:
+        raise ValueError(f"Maximal {_MAX_STREAM_TARGETS} RTP-Ziele pro Stream")
     result: list[tuple[str, int]] = []
     seen: set[tuple[str, int]] = set()
     for item in values:
@@ -55,8 +59,25 @@ def normalize_destinations(values: Any) -> list[tuple[str, int]]:
         if target not in seen:
             seen.add(target)
             result.append(target)
-    if len(result) > 16:
-        raise ValueError("Maximal 16 RTP-Ziele pro Stream")
+    return result
+
+
+def normalize_speaker_devices(values: Any) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        raise ValueError("speaker_devices muss eine Liste sein")
+    if len(values) > _MAX_STREAM_TARGETS:
+        raise ValueError(f"Maximal {_MAX_STREAM_TARGETS} lokale Audio-Ausgaenge")
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        if not isinstance(item, str):
+            raise ValueError("Audio-Ausgang muss Text sein")
+        device = item.strip()[:240]
+        if device and device not in seen:
+            seen.add(device)
+            result.append(device)
     return result
 
 
@@ -247,6 +268,7 @@ class ReceiverSession:
             self.decoder = None
             module_id = self.module_id
             self.module_id = ""
+            self.thread = None
         for player in players:
             _terminate_process(player, close_stdin=True)
         _terminate_process(decoder, close_stdout=True)
@@ -328,14 +350,13 @@ class LiveAudioManager:
             return self.status()["sender"]
 
     def stop_sender(self) -> None:
-        if self.sender:
-            _terminate_process(self.sender.process)
-        self.sender = None
+        with _SESSION_LOCK:
+            if self.sender:
+                _terminate_process(self.sender.process)
+            self.sender = None
 
     def start_receiver(self, *, port: int, speaker_devices: list[str] | None = None, virtual_microphone: bool = True, virtual_sink: str = "simpleoffice_stream") -> dict[str, Any]:
-        if speaker_devices is not None and not isinstance(speaker_devices, list):
-            raise ValueError("speaker_devices muss eine Liste sein")
-        devices = [str(item).strip()[:240] for item in (speaker_devices or []) if str(item).strip()]
+        devices = normalize_speaker_devices(speaker_devices)
         with _SESSION_LOCK:
             self.stop_receiver()
             session = ReceiverSession(port, devices, virtual_sink if virtual_microphone else "")
@@ -344,27 +365,35 @@ class LiveAudioManager:
             return self.status()["receiver"]
 
     def stop_receiver(self) -> None:
-        if self.receiver:
-            self.receiver.stop()
-        self.receiver = None
+        with _SESSION_LOCK:
+            if self.receiver:
+                self.receiver.stop()
+            self.receiver = None
+
+    def stop_all(self) -> None:
+        with _SESSION_LOCK:
+            self.stop_sender()
+            self.stop_receiver()
 
     def status(self) -> dict[str, Any]:
-        sender = self.sender
-        receiver = self.receiver
-        return {
-            "sender": None if sender is None else {
-                "running": sender.process.poll() is None,
-                "source": sender.source,
-                "backend": sender.backend,
-                "destinations": [{"host": host, "port": port} for host, port in sender.destinations],
-            },
-            "receiver": None if receiver is None else {
-                "running": bool(receiver.decoder and receiver.decoder.poll() is None),
-                "port": receiver.port,
-                "speaker_devices": list(receiver.outputs),
-                "virtual_microphone": f"{receiver.virtual_sink}.monitor" if receiver.module_id else "",
-            },
-        }
+        with _SESSION_LOCK:
+            sender = self.sender
+            receiver = self.receiver
+            return {
+                "sender": None if sender is None else {
+                    "running": sender.process.poll() is None,
+                    "source": sender.source,
+                    "backend": sender.backend,
+                    "destinations": [{"host": host, "port": port} for host, port in sender.destinations],
+                },
+                "receiver": None if receiver is None else {
+                    "running": bool(receiver.decoder and receiver.decoder.poll() is None),
+                    "port": receiver.port,
+                    "speaker_devices": list(receiver.outputs),
+                    "virtual_microphone": f"{receiver.virtual_sink}.monitor" if receiver.module_id else "",
+                },
+            }
 
 
 manager = LiveAudioManager()
+atexit.register(manager.stop_all)
