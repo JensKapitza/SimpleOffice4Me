@@ -67,6 +67,8 @@ public class MainActivity extends Activity {
     private boolean nfcScanRequested;
     private volatile boolean localPageVisible;
     private boolean mainFrameLoadFailed;
+    private String pendingBarcodeResult;
+    private String pendingBarcodeStatus;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -188,6 +190,7 @@ public class MainActivity extends Activity {
                 localPageVisible = isLocalUrl(url);
                 if (localPageVisible) {
                     view.evaluateJavascript(nativeShim(nativeBridgeToken), null);
+                    flushPendingBarcodeResult();
                     if (!mainFrameLoadFailed) {
                         progress.setVisibility(View.GONE);
                         status.setVisibility(View.GONE);
@@ -302,7 +305,8 @@ public class MainActivity extends Activity {
             fileChooserCallback = null;
             if (callback != null) {
                 Uri[] selected = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
-                callback.onReceiveValue(localPageVisible ? selected : null);
+                boolean trustedPage = webView != null && isLocalUrl(webView.getUrl());
+                callback.onReceiveValue(trustedPage ? selected : null);
             }
             return;
         }
@@ -347,31 +351,58 @@ public class MainActivity extends Activity {
             return;
         }
         mainHandler.post(() -> {
-            if (!bridgeAllowed(nativeBridgeToken)) return;
-            String quoted = org.json.JSONObject.quote(clean);
-            String script = "(function(value){"
-                    + "const barcode=document.getElementById('barcode');if(!barcode)return;"
-                    + "barcode.value=value;barcode.dispatchEvent(new Event('input',{bubbles:true}));barcode.dispatchEvent(new Event('change',{bubbles:true}));"
-                    + "const compact=String(value).replace(/[^0-9Xx]/g,'').toUpperCase();"
-                    + "const likely=compact.length===10||(compact.length===13&&/^97[89]/.test(compact));"
-                    + "const isbn=document.getElementById('isbn');"
-                    + "if(likely&&isbn){isbn.value=value;isbn.dispatchEvent(new Event('input',{bubbles:true}));const lookup=document.getElementById('lookup-book');if(lookup)lookup.click();}"
-                    + "else{barcode.dispatchEvent(new Event('blur'));const status=document.getElementById('scan-status');if(status){status.className='alert alert-success py-2 small';status.textContent='Barcode erkannt: '+value;}}"
-                    + "})(" + quoted + ");";
-            webView.evaluateJavascript(script, null);
+            if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) {
+                pendingBarcodeResult = clean;
+                pendingBarcodeStatus = null;
+                return;
+            }
+            applyBarcodeToPage(clean);
         });
+    }
+
+    private void applyBarcodeToPage(String clean) {
+        if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) return;
+        String quoted = org.json.JSONObject.quote(clean);
+        String script = "(function(value){"
+                + "const barcode=document.getElementById('barcode');if(!barcode)return;"
+                + "barcode.value=value;barcode.dispatchEvent(new Event('input',{bubbles:true}));barcode.dispatchEvent(new Event('change',{bubbles:true}));"
+                + "const compact=String(value).replace(/[^0-9Xx]/g,'').toUpperCase();"
+                + "const likely=compact.length===10||(compact.length===13&&/^97[89]/.test(compact));"
+                + "const isbn=document.getElementById('isbn');"
+                + "if(likely&&isbn){isbn.value=value;isbn.dispatchEvent(new Event('input',{bubbles:true}));const lookup=document.getElementById('lookup-book');if(lookup)lookup.click();}"
+                + "else{barcode.dispatchEvent(new Event('blur'));const status=document.getElementById('scan-status');if(status){status.className='alert alert-success py-2 small';status.textContent='Barcode erkannt: '+value;}}"
+                + "})(" + quoted + ");";
+        webView.evaluateJavascript(script, null);
     }
 
     private void dispatchBarcodeStatus(String state) {
         mainHandler.post(() -> {
-            if (!bridgeAllowed(nativeBridgeToken)) return;
-            String quoted = org.json.JSONObject.quote(state);
-            String script = "(function(state){const status=document.getElementById('scan-status');if(!status)return;"
-                    + "if(state==='cancelled'){status.className='alert alert-secondary py-2 small';status.textContent='Barcode-Scan abgebrochen.';}"
-                    + "else{status.className='alert alert-warning py-2 small';status.textContent='Barcode konnte nicht gelesen werden. Kennung kann manuell eingetragen werden.';}"
-                    + "})(" + quoted + ");";
-            webView.evaluateJavascript(script, null);
+            if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) {
+                pendingBarcodeStatus = state;
+                return;
+            }
+            applyBarcodeStatusToPage(state);
         });
+    }
+
+    private void applyBarcodeStatusToPage(String state) {
+        if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) return;
+        String quoted = org.json.JSONObject.quote(state);
+        String script = "(function(state){const status=document.getElementById('scan-status');if(!status)return;"
+                + "if(state==='cancelled'){status.className='alert alert-secondary py-2 small';status.textContent='Barcode-Scan abgebrochen.';}"
+                + "else{status.className='alert alert-warning py-2 small';status.textContent='Barcode konnte nicht gelesen werden. Kennung kann manuell eingetragen werden.';}"
+                + "})(" + quoted + ");";
+        webView.evaluateJavascript(script, null);
+    }
+
+    private void flushPendingBarcodeResult() {
+        if (!localPageVisible || webView == null || !isLocalUrl(webView.getUrl())) return;
+        String result = pendingBarcodeResult;
+        String state = pendingBarcodeStatus;
+        pendingBarcodeResult = null;
+        pendingBarcodeStatus = null;
+        if (result != null) applyBarcodeToPage(result);
+        else if (state != null) applyBarcodeStatusToPage(state);
     }
 
     private void beginNfcScan() {
@@ -528,17 +559,16 @@ public class MainActivity extends Activity {
         localPageVisible = false;
         stopNfcReader();
         denyPendingCameraPermission();
-        if (fileChooserCallback != null) {
-            fileChooserCallback.onReceiveValue(null);
-            fileChooserCallback = null;
-        }
         super.onPause();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (webView != null) localPageVisible = isLocalUrl(webView.getUrl());
+        if (webView != null) {
+            localPageVisible = isLocalUrl(webView.getUrl());
+            flushPendingBarcodeResult();
+        }
     }
 
     @Override
@@ -558,6 +588,8 @@ public class MainActivity extends Activity {
         localPageVisible = false;
         stopNfcReader();
         denyPendingCameraPermission();
+        pendingBarcodeResult = null;
+        pendingBarcodeStatus = null;
         if (fileChooserCallback != null) {
             fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = null;
