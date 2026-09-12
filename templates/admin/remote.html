@@ -1,0 +1,32 @@
+{% extends 'layout.html' %}
+{% block title %}Remote{% endblock %}
+{% block content %}
+<div class="container py-4">
+  <h1 class="h3 mb-4">SimpleOffice Remote</h1>
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Agent</strong></div>
+    <div class="card-body">
+      <p class="mb-2">Plattform: {{ agent.platform }}</p>
+      <p class="mb-3">Status: {{ 'Aktiv' if agent.running else ('Installiert' if agent.installed else 'Nicht installiert') }}</p>
+      {% if not agent.installed %}
+      <form method="post" action="{{ url_for('remote_admin.install_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">Installieren</button></form>
+      {% elif agent.running %}
+      <form method="post" action="{{ url_for('remote_admin.stop_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit">Stoppen</button></form>
+      {% else %}
+      <form method="post" action="{{ url_for('remote_admin.start_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-success" type="submit">Starten</button></form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-header"><strong>Veröffentlichte Anwendungen</strong></div>
+    <div class="card-body">
+      {% if apps %}
+      <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Status</th><th></th></tr></thead><tbody>
+      {% for app in apps %}<tr><td>{{ app.label }}</td><td>{{ 'Aktiv' if app.enabled else 'Deaktiviert' }}</td><td class="text-end"><form method="post" action="{{ url_for('remote_admin.remove_app', app_id=app.app_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button></form></td></tr>{% endfor %}
+      </tbody></table></div>
+      {% else %}<p class="text-secondary mb-0">Noch keine Anwendungen veröffentlicht.</p>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
