@@ -3,6 +3,7 @@ from flask import Blueprint, Response, current_app, flash, g, redirect, render_t
 
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
+from .federation_discovery_lan import discover_lan, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_local_profile import local_profile
@@ -45,6 +46,8 @@ def dashboard():
             **identity,
             "label": peer.get("label") or identity["peer_id"],
             "base_url": peer.get("base_url") or "",
+            "enabled": bool(peer.get("enabled", False)),
+            "has_token": bool(peer.get("has_token", False)),
             "trust": trust.get_trust(identity["peer_id"]),
             "recommendations": recommendations(_root(), identity["peer_id"]),
         })
@@ -66,6 +69,23 @@ def qr_svg():
     except ValueError:
         svg = _unavailable_qr_svg()
     return Response(svg, content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+
+
+@bp.post("/discover/lan")
+@admin_required
+def lan():
+    try:
+        ports = scan_ports(request.form.get("port", ""))
+        result = discover_lan(_root(), ports=ports)
+        networks = ", ".join(result["networks"])
+        flash(
+            f"WLAN-Scan abgeschlossen: {len(result['peers'])} SimpleOffice-Gerät(e) gefunden. "
+            f"Netz: {networks}; Ports: {', '.join(str(port) for port in result['ports'])}. "
+            "Gefundene Geräte bleiben bekannt/nicht geprüft und deaktiviert."
+        )
+    except Exception as exc:
+        flash(f"WLAN-Scan fehlgeschlagen: {exc}")
+    return redirect(url_for("federation_peer_admin.dashboard"))
 
 
 @bp.post("/discover/direct")
