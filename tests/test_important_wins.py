@@ -67,10 +67,25 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn("RUNTIME_VERSION", text)
         self.assertIn("mainFrameLoadFailed", text)
 
+    def test_android_wrapper_bridges_camera_nfc_and_file_picker(self):
+        manifest = self.read("android/apk/app/src/main/AndroidManifest.xml")
+        activity = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java")
+        self.assertIn('android.permission.CAMERA', manifest)
+        self.assertIn('android.permission.NFC', manifest)
+        self.assertIn('android.hardware.camera.any', manifest)
+        self.assertIn('android.hardware.nfc', manifest)
+        self.assertIn('WebChromeClient', activity)
+        self.assertIn('PermissionRequest.RESOURCE_VIDEO_CAPTURE', activity)
+        self.assertIn('requestPermissions(new String[]{Manifest.permission.CAMERA}', activity)
+        self.assertIn('addJavascriptInterface(new NativeBridge(), "SimpleOfficeAndroid")', activity)
+        self.assertIn('NfcAdapter.FLAG_READER_NFC_A', activity)
+        self.assertIn('onShowFileChooser', activity)
+        self.assertIn('isTrustedLocalOrigin', activity)
+
     def test_android_version_is_bumped(self):
         text = self.read("android/apk/app/build.gradle")
-        self.assertRegex(text, r"versionCode\s+3\b")
-        self.assertIn("versionName '1.0.2'", text)
+        self.assertRegex(text, r"versionCode\s+4\b")
+        self.assertIn("versionName '1.0.3'", text)
         self.assertIn("buildConfig true", text)
 
 
