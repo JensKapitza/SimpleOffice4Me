@@ -44,6 +44,17 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.context.pop()
         self.temp.cleanup()
 
+    def test_well_known_uses_requested_address_without_public_url(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", None)
+            response = self.client.get(
+                "/.well-known/simpleoffice-federation",
+                base_url="http://192.168.44.20:8080",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["base_url"], "http://192.168.44.20:8080")
+        self.assertTrue(response.json["capabilities"]["lan_discovery"])
+
     def test_register_publishes_without_disabling_existing_peer(self):
         FederationStore(self.root).save_peer("peer-a", "Old", "https://old.example", "", {}, True)
         response = self.client.post(
