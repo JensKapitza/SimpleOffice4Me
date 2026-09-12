@@ -5,6 +5,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from .federation_attestations import FederationAttestationStore
 from .federation_directory import directory_profiles
+from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
 from .federation_local_profile import local_profile
 from .federation_peer_profile import peer_profile
@@ -54,11 +55,16 @@ def register():
         trust.remember(profile["peer_id"], profile["country"], profile["fingerprint"], "directory-register")
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
-        store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", (existing or {}).get("policy") or {}, False)
+        store.save_peer(
+            profile["peer_id"], profile["label"], profile["base_url"], "",
+            (existing or {}).get("policy") or {}, bool((existing or {}).get("enabled", False)),
+        )
+        ttl = body.get("ttl_seconds", 86400)
+        FederationDirectoryStore(_root()).publish(profile["peer_id"], ttl)
         lookup = str(body.get("lookup") or "").strip().casefold()
         result = {"peer_id": profile["peer_id"]}
         if lookup:
-            result.update(FederationRendezvousStore(_root()).register(lookup, profile, body.get("ttl_seconds", 86400)))
+            result.update(FederationRendezvousStore(_root()).register(lookup, profile, ttl))
         return jsonify(result), 201
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
