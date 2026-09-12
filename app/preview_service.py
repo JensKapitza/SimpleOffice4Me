@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -18,6 +20,10 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".b
 OFFICE_SUFFIXES = {".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"}
 VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
 SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | {".pdf"}
+VIDEO_PREVIEW_DEFAULT_FRAMES = 10
+VIDEO_PREVIEW_MIN_FRAMES = 1
+VIDEO_PREVIEW_MAX_FRAMES = 30
+VIDEO_TRANSCODE_PROFILES = {"h264-720p"}
 
 
 def utc_now() -> str:
@@ -31,6 +37,7 @@ def detect_preview_tools() -> dict[str, Any]:
         "pdftoppm": shutil.which("pdftoppm"),
         "libreoffice": shutil.which("libreoffice") or shutil.which("soffice"),
         "ffmpeg": shutil.which("ffmpeg"),
+        "ffprobe": shutil.which("ffprobe"),
     }
     return {
         "detected_at": utc_now(),
@@ -42,6 +49,7 @@ def detect_preview_tools() -> dict[str, Any]:
             "pdf": bool(commands["pdftoppm"]),
             "office": bool(commands["libreoffice"] and commands["pdftoppm"]),
             "video": bool(commands["ffmpeg"]),
+            "video_timeline": bool(commands["ffmpeg"] and commands["ffprobe"]),
         },
     }
 
@@ -56,6 +64,12 @@ class PreviewService:
         self.timeout = self._bounded_env("SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS", 45, 5, 300)
         self.max_bytes = self._bounded_env("SIMPLEOFFICE_PREVIEW_MAX_BYTES", 256 * 1024 * 1024, 1024, 2 * 1024 * 1024 * 1024)
         self.max_pixels = self._bounded_env("SIMPLEOFFICE_PREVIEW_MAX_PIXELS", 80_000_000, 1_000_000, 250_000_000)
+        self.video_frame_count = self._bounded_env(
+            "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES",
+            VIDEO_PREVIEW_DEFAULT_FRAMES,
+            VIDEO_PREVIEW_MIN_FRAMES,
+            VIDEO_PREVIEW_MAX_FRAMES,
+        )
 
     @staticmethod
     def _bounded_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -65,8 +79,35 @@ class PreviewService:
             value = default
         return max(minimum, min(maximum, value))
 
+    @staticmethod
+    def video_frame_positions(duration_seconds: float, frame_count: int) -> list[float]:
+        """Return one midpoint per equally sized segment of the complete video."""
+        duration = max(0.0, float(duration_seconds or 0.0))
+        count = max(1, int(frame_count or 1))
+        if duration <= 0:
+            return [1.0]
+        segment = duration / count
+        return [round(segment * (index + 0.5), 3) for index in range(count)]
+
     def supports(self, path: Path) -> bool:
         return os.environ.get("SIMPLEOFFICE_PREVIEWS", "1").strip().lower() not in {"0", "false", "off"} and path.suffix.lower() in SUPPORTED_SUFFIXES
+
+    def is_current(self, metadata: dict[str, Any]) -> bool:
+        preview = metadata.get("preview", {})
+        if preview.get("status") != "ready" or preview.get("source_sha256") != metadata.get("sha256"):
+            return False
+        if self._safe_cached_relative(str(preview.get("thumbnail", ""))) is None:
+            return False
+        if Path(str(metadata.get("last_path", ""))).suffix.lower() not in VIDEO_SUFFIXES:
+            return True
+        video = preview.get("video", {}) if isinstance(preview.get("video"), dict) else {}
+        if int(video.get("frame_target_count") or 0) != self.video_frame_count:
+            return False
+        frames = video.get("frames") if isinstance(video.get("frames"), list) else []
+        return bool(frames) and all(
+            isinstance(row, dict) and self._safe_cached_relative(str(row.get("path", ""))) is not None
+            for row in frames
+        )
 
     def generate(self, path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         path = path.resolve(strict=True)
@@ -78,18 +119,17 @@ class PreviewService:
             return {"status": "unsupported", "source_sha256": digest}
         if path.stat().st_size > self.max_bytes:
             return {"status": "skipped_limit", "source_sha256": digest}
+        if self.is_current(metadata):
+            return dict(metadata.get("preview", {}))
 
         destination = self.cache / document_id / digest
         thumbnail = destination / "thumbnail.webp"
         collage = destination / "collage.webp"
-        if thumbnail.is_file() and not thumbnail.is_symlink():
-            return self._result(digest, thumbnail, collage if collage.is_file() else None, "cache")
-
         destination.parent.mkdir(parents=True, exist_ok=True)
         try:
             with tempfile.TemporaryDirectory(prefix="preview-", dir=destination.parent) as temporary_name:
                 temporary = Path(temporary_name)
-                converter = self._convert(path, suffix, temporary)
+                conversion = self._convert(path, suffix, temporary)
                 generated_thumbnail = temporary / "thumbnail.webp"
                 if not generated_thumbnail.is_file():
                     return {"status": "unsupported", "source_sha256": digest}
@@ -98,41 +138,160 @@ class PreviewService:
                 generated_collage = temporary / "collage.webp"
                 if generated_collage.is_file():
                     generated_collage.replace(collage)
+                elif collage.exists():
+                    collage.unlink()
+                video = self._publish_video_frames(temporary, destination, conversion.get("video"), metadata)
                 self._prune(document_id, digest)
-                return self._result(digest, thumbnail, collage if collage.is_file() else None, converter)
-        except (OSError, ValueError, subprocess.SubprocessError, Image.DecompressionBombError):
+                result = self._result(digest, thumbnail, collage if collage.is_file() else None, str(conversion.get("converter", "unknown")))
+                if video:
+                    result["video"] = video
+                return result
+        except (OSError, ValueError, subprocess.SubprocessError, Image.DecompressionBombError, json.JSONDecodeError):
             return {"status": "failed", "source_sha256": digest, "error": "conversion_failed"}
 
-    def _convert(self, source: Path, suffix: str, temporary: Path) -> str:
+    def _convert(self, source: Path, suffix: str, temporary: Path) -> dict[str, Any]:
         if suffix in IMAGE_SUFFIXES:
             try:
                 self._thumbnail(source, temporary / "thumbnail.webp")
-                return "pillow"
+                return {"converter": "pillow"}
             except (OSError, ValueError):
                 imagemagick = self.tools["paths"].get("imagemagick")
                 if not imagemagick:
                     raise
                 self._run([imagemagick, str(source), "-auto-orient", "-thumbnail", "1200x1200>", "-quality", "82", str(temporary / "thumbnail.webp")])
-                return "imagemagick"
+                return {"converter": "imagemagick"}
         if suffix == ".pdf":
-            return self._pdf(source, temporary)
+            return {"converter": self._pdf(source, temporary)}
         if suffix in OFFICE_SUFFIXES:
             office = self.tools["paths"].get("libreoffice")
             if not office:
-                return "unavailable"
+                return {"converter": "unavailable"}
             self._run([office, "--headless", "--convert-to", "pdf", "--outdir", str(temporary), "--", str(source)])
             pdfs = list(temporary.glob("*.pdf"))
-            return "libreoffice+" + self._pdf(pdfs[0], temporary) if pdfs else "unavailable"
+            return {"converter": "libreoffice+" + self._pdf(pdfs[0], temporary) if pdfs else "unavailable"}
         if suffix in VIDEO_SUFFIXES:
-            ffmpeg = self.tools["paths"].get("ffmpeg")
-            if not ffmpeg:
-                return "unavailable"
-            frame = temporary / "frame.png"
-            self._run([ffmpeg, "-nostdin", "-v", "error", "-ss", "1", "-i", str(source), "-frames:v", "1", "-vf", "scale=1200:-2", "-y", str(frame)])
-            if frame.is_file():
-                self._thumbnail(frame, temporary / "thumbnail.webp")
-                return "ffmpeg+pillow"
-        return "unavailable"
+            return self._video(source, temporary)
+        return {"converter": "unavailable"}
+
+    def _video(self, source: Path, temporary: Path) -> dict[str, Any]:
+        ffmpeg = self.tools.get("paths", {}).get("ffmpeg")
+        if not ffmpeg:
+            return {"converter": "unavailable"}
+        probe = self._probe_video(source)
+        duration = float(probe.get("duration_seconds") or 0.0)
+        positions = self.video_frame_positions(duration, self.video_frame_count)
+        frame_rows: list[dict[str, Any]] = []
+        frame_paths: list[Path] = []
+        for index, position in enumerate(positions):
+            destination = temporary / f"video-frame-{index + 1:03d}.webp"
+            self._extract_video_frame(source, destination, position)
+            if not destination.is_file():
+                continue
+            frame_paths.append(destination)
+            frame_rows.append({
+                "index": index,
+                "timestamp_seconds": position,
+                "filename": destination.name,
+            })
+        if not frame_paths:
+            return {"converter": "unavailable"}
+        shutil.copyfile(frame_paths[len(frame_paths) // 2], temporary / "thumbnail.webp")
+        self._video_collage(frame_paths, temporary / "collage.webp")
+        return {
+            "converter": "ffmpeg+ffprobe+pillow" if self.tools.get("paths", {}).get("ffprobe") else "ffmpeg+pillow",
+            "video": {
+                **probe,
+                "frame_target_count": self.video_frame_count,
+                "frame_count": len(frame_rows),
+                "frame_interval_seconds": round(duration / self.video_frame_count, 3) if duration > 0 else 0.0,
+                "normalized_timeline": duration > 0,
+                "frames": frame_rows,
+            },
+        }
+
+    def _probe_video(self, source: Path) -> dict[str, Any]:
+        ffprobe = self.tools.get("paths", {}).get("ffprobe")
+        if not ffprobe:
+            return {"duration_seconds": 0.0, "codec": "", "width": 0, "height": 0}
+        result = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=codec_name,width,height:format=duration,format_name",
+                "-of", "json", "--", str(source),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=self.timeout,
+            check=False,
+            env={**os.environ, "HOME": str(self.cache)},
+        )
+        if result.returncode != 0:
+            raise subprocess.SubprocessError("ffprobe returned a non-zero status")
+        payload = json.loads(result.stdout.decode("utf-8"))
+        streams = payload.get("streams") if isinstance(payload.get("streams"), list) else []
+        stream = streams[0] if streams and isinstance(streams[0], dict) else {}
+        format_info = payload.get("format") if isinstance(payload.get("format"), dict) else {}
+        try:
+            duration = max(0.0, float(format_info.get("duration") or 0.0))
+        except (TypeError, ValueError):
+            duration = 0.0
+        return {
+            "duration_seconds": round(duration, 3),
+            "codec": str(stream.get("codec_name") or "")[:40],
+            "width": int(stream.get("width") or 0),
+            "height": int(stream.get("height") or 0),
+            "container": str(format_info.get("format_name") or "")[:120],
+        }
+
+    def _extract_video_frame(self, source: Path, destination: Path, timestamp: float) -> None:
+        ffmpeg = self.tools.get("paths", {}).get("ffmpeg")
+        if not ffmpeg:
+            raise ValueError("ffmpeg ist nicht verfügbar")
+        raw = destination.with_suffix(".png")
+        self._run([
+            ffmpeg, "-nostdin", "-v", "error", "-ss", f"{timestamp:.3f}", "-i", str(source),
+            "-frames:v", "1", "-vf", "scale=960:-2:force_original_aspect_ratio=decrease", "-y", str(raw),
+        ])
+        if raw.is_file():
+            self._thumbnail(raw, destination, size=(640, 640), quality=76)
+            raw.unlink(missing_ok=True)
+
+    def _publish_video_frames(
+        self,
+        temporary: Path,
+        destination: Path,
+        video: Any,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not isinstance(video, dict):
+            return None
+        frame_directory = destination / "frames"
+        if frame_directory.exists() and not frame_directory.is_symlink():
+            shutil.rmtree(frame_directory)
+        frame_directory.mkdir(parents=True, exist_ok=True)
+        published: list[dict[str, Any]] = []
+        for row in video.get("frames", []):
+            if not isinstance(row, dict):
+                continue
+            name = Path(str(row.get("filename", ""))).name
+            source = temporary / name
+            if not source.is_file() or not name.endswith(".webp"):
+                continue
+            target = frame_directory / name
+            source.replace(target)
+            published.append({
+                "index": int(row.get("index") or 0),
+                "timestamp_seconds": float(row.get("timestamp_seconds") or 0.0),
+                "path": str(target.relative_to(self.root)),
+            })
+        previous_video = metadata.get("preview", {}).get("video", {})
+        variants = previous_video.get("variants", []) if isinstance(previous_video, dict) else []
+        result = {key: value for key, value in video.items() if key != "frames"}
+        result["frames"] = published
+        result["frame_count"] = len(published)
+        result["variants"] = [dict(row) for row in variants if isinstance(row, dict)]
+        return result
 
     def _pdf(self, source: Path, temporary: Path) -> str:
         pdftoppm = self.tools["paths"].get("pdftoppm")
@@ -148,12 +307,19 @@ class PreviewService:
             self._collage(pages, temporary / "collage.webp")
         return "pdftoppm+pillow"
 
-    def _thumbnail(self, source: Path, destination: Path) -> None:
+    def _thumbnail(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        size: tuple[int, int] = (1200, 1200),
+        quality: int = 82,
+    ) -> None:
         Image.MAX_IMAGE_PIXELS = self.max_pixels
         with Image.open(source) as opened:
             image = ImageOps.exif_transpose(opened).convert("RGB")
-            image.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
-            image.save(destination, "WEBP", quality=82, method=4)
+            image.thumbnail(size, Image.Resampling.LANCZOS)
+            image.save(destination, "WEBP", quality=quality, method=4)
 
     def _collage(self, pages: list[Path], destination: Path) -> None:
         opened = []
@@ -173,13 +339,108 @@ class PreviewService:
             for image in opened:
                 image.close()
 
+    def _video_collage(self, frames: list[Path], destination: Path) -> None:
+        opened: list[Image.Image] = []
+        columns = min(5, max(1, len(frames)))
+        cell_width, cell_height = 320, 190
+        try:
+            for path in frames:
+                with Image.open(path) as source:
+                    image = source.convert("RGB")
+                    image.thumbnail((cell_width - 8, cell_height - 8), Image.Resampling.LANCZOS)
+                    opened.append(image.copy())
+            rows = (len(opened) + columns - 1) // columns
+            canvas = Image.new("RGB", (columns * cell_width, max(1, rows) * cell_height), "#111827")
+            for index, image in enumerate(opened):
+                x = (index % columns) * cell_width + (cell_width - image.width) // 2
+                y = (index // columns) * cell_height + (cell_height - image.height) // 2
+                canvas.paste(image, (x, y))
+            canvas.save(destination, "WEBP", quality=76, method=4)
+        finally:
+            for image in opened:
+                image.close()
+
+    def transcode_video(self, source: Path, metadata: dict[str, Any], actor: str, profile: str = "h264-720p") -> dict[str, Any]:
+        profile = str(profile or "").strip().lower()
+        if profile not in VIDEO_TRANSCODE_PROFILES:
+            raise ValueError("Unbekanntes Video-Profil")
+        source = source.resolve(strict=True)
+        source.relative_to(self.root)
+        if source.suffix.lower() not in VIDEO_SUFFIXES or source.is_symlink():
+            raise ValueError("Dokument ist kein unterstütztes Video")
+        ffmpeg = self.tools.get("paths", {}).get("ffmpeg")
+        if not ffmpeg:
+            raise ValueError("ffmpeg ist nicht verfügbar")
+        document_id = str(metadata.get("document_id", ""))
+        digest = str(metadata.get("sha256", ""))
+        if not document_id or not digest:
+            raise ValueError("Videometadaten sind unvollständig")
+        target_directory = self.cache / document_id / digest / "variants"
+        target_directory.mkdir(parents=True, exist_ok=True)
+        target = target_directory / f"{profile}.mp4"
+        temporary = target.with_suffix(".tmp.mp4")
+        self._run([
+            ffmpeg, "-nostdin", "-v", "error", "-i", str(source),
+            "-map", "0:v:0", "-map", "0:a?", "-vf", "scale=1280:-2:force_original_aspect_ratio=decrease",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-y", str(temporary),
+        ])
+        if not temporary.is_file():
+            raise ValueError("Transkodierung hat keine Ausgabedatei erzeugt")
+        temporary.replace(target)
+        return {
+            "variant_id": profile,
+            "label": "MP4 · H.264/AAC · max. 720p",
+            "kind": "transcode",
+            "path": str(target.relative_to(self.root)),
+            "sha256": self._sha256(target),
+            "size": target.stat().st_size,
+            "created_at": utc_now(),
+            "created_by": str(actor or "")[:160],
+            "derived_from_sha256": digest,
+        }
+
+    def cached_video_frame(self, metadata: dict[str, Any], index: int) -> Path | None:
+        video = metadata.get("preview", {}).get("video", {})
+        frames = video.get("frames", []) if isinstance(video, dict) else []
+        row = next((item for item in frames if isinstance(item, dict) and int(item.get("index") or 0) == int(index)), None)
+        return self._safe_cached_relative(str(row.get("path", ""))) if row else None
+
+    def cached_video_variant(self, metadata: dict[str, Any], variant_id: str) -> Path | None:
+        video = metadata.get("preview", {}).get("video", {})
+        variants = video.get("variants", []) if isinstance(video, dict) else []
+        row = next((item for item in variants if isinstance(item, dict) and str(item.get("variant_id")) == str(variant_id)), None)
+        return self._safe_cached_relative(str(row.get("path", ""))) if row else None
+
     def _run(self, command: list[str]) -> None:
-        result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=self.timeout, check=False, env={**os.environ, "HOME": str(self.cache)})
+        result = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=self.timeout,
+            check=False,
+            env={**os.environ, "HOME": str(self.cache)},
+        )
         if result.returncode != 0:
             raise subprocess.SubprocessError("converter returned a non-zero status")
 
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
     def _result(self, digest: str, thumbnail: Path, collage: Path | None, converter: str) -> dict[str, Any]:
-        result = {"status": "ready", "source_sha256": digest, "generated_at": utc_now(), "converter": converter, "thumbnail": str(thumbnail.relative_to(self.root))}
+        result = {
+            "status": "ready",
+            "source_sha256": digest,
+            "generated_at": utc_now(),
+            "converter": converter,
+            "thumbnail": str(thumbnail.relative_to(self.root)),
+        }
         if collage:
             result["collage"] = str(collage.relative_to(self.root))
         return result
@@ -190,11 +451,7 @@ class PreviewService:
             if entry.name != current_digest and entry.is_dir() and not entry.is_symlink():
                 shutil.rmtree(entry, ignore_errors=True)
 
-    def cached_path(self, metadata: dict[str, Any], variant: str = "thumbnail") -> Path | None:
-        preview = metadata.get("preview", {})
-        if preview.get("status") != "ready" or preview.get("source_sha256") != metadata.get("sha256"):
-            return None
-        relative = str(preview.get(variant, ""))
+    def _safe_cached_relative(self, relative: str) -> Path | None:
         if not relative:
             return None
         candidate = self.root / relative
@@ -203,3 +460,13 @@ class PreviewService:
         except (OSError, ValueError):
             return None
         return candidate if candidate.is_file() and not candidate.is_symlink() else None
+
+    def cached_path(self, metadata: dict[str, Any], variant: str = "thumbnail") -> Path | None:
+        preview = metadata.get("preview", {})
+        if preview.get("status") != "ready" or preview.get("source_sha256") != metadata.get("sha256"):
+            return None
+        if Path(str(metadata.get("last_path", ""))).suffix.lower() in VIDEO_SUFFIXES:
+            video = preview.get("video", {}) if isinstance(preview.get("video"), dict) else {}
+            if int(video.get("frame_target_count") or 0) != self.video_frame_count:
+                return None
+        return self._safe_cached_relative(str(preview.get(variant, "")))
