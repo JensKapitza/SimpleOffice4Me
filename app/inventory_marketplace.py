@@ -1,9 +1,9 @@
-"""Optional marketplace metadata lookup for fast inventory capture.
+"""User-triggered marketplace metadata lookup for fast inventory capture.
 
-Amazon Product Advertising API and eBay Browse API are used only when their
-credentials are explicitly configured.  No marketplace credential is stored in
-inventory data or sent to the browser.  Without credentials the API returns a
-safe public search URL so capture still remains useful.
+Public Amazon/eBay search pages are queried only after an authenticated user
+explicitly starts a marketplace search. Official APIs remain optional fallbacks
+when credentials are configured. The implementation never follows arbitrary
+hosts and never attempts to bypass provider protection pages.
 """
 from __future__ import annotations
 
@@ -13,12 +13,14 @@ import hmac
 import http.client
 import json
 import os
+import re
 import ssl
 import time
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urljoin, urlsplit
 
+from bs4 import BeautifulSoup
 from flask import Blueprint, g, jsonify, request
 
 from .auth import login_required
@@ -31,6 +33,11 @@ HTTP_TIMEOUT_SECONDS = 8
 MAX_RESULTS = 3
 EBAY_TOKEN_SKEW_SECONDS = 60
 _EBAY_TOKEN_CACHE: dict[str, Any] = {"token": "", "expires_at": 0.0}
+_PUBLIC_HOSTS = {"amazon": "www.amazon.de", "ebay": "www.ebay.de"}
+_PUBLIC_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) "
+    "Gecko/20100101 Firefox/140.0"
+)
 
 
 def _clean(value: Any, limit: int = 500) -> str:
@@ -97,6 +104,179 @@ def provider_status() -> dict[str, bool]:
     }
 
 
+def _public_path(provider: str, query: str) -> str:
+    encoded = quote(query, safe="")
+    if provider == "amazon":
+        return "/s?k=" + encoded
+    if provider == "ebay":
+        return "/sch/i.html?_nkw=" + encoded
+    raise ValueError("Unbekannter Marketplace")
+
+
+def _html_request(provider: str, query: str) -> str:
+    """Fetch one public search page without following redirects or protection pages."""
+    host = _PUBLIC_HOSTS.get(provider)
+    if not host:
+        raise ValueError("Unbekannter Marketplace")
+    connection = http.client.HTTPSConnection(
+        host,
+        443,
+        timeout=HTTP_TIMEOUT_SECONDS,
+        context=ssl.create_default_context(),
+    )
+    try:
+        connection.request(
+            "GET",
+            _public_path(provider, query),
+            headers={
+                "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+                "Accept-Language": "de-DE,de;q=0.9,en;q=0.5",
+                "Cache-Control": "no-cache",
+                "User-Agent": _PUBLIC_USER_AGENT,
+            },
+        )
+        response = connection.getresponse()
+        data = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(data) > MAX_RESPONSE_BYTES:
+            raise ValueError("Marketplace-Seite ist zu groß")
+        if response.status in {301, 302, 303, 307, 308}:
+            raise ValueError("Marketplace hat die öffentliche Suche umgeleitet")
+        if response.status in {403, 429}:
+            raise ValueError("Marketplace blockiert den direkten Abruf derzeit")
+        if response.status != 200:
+            raise ValueError(f"Marketplace antwortet mit HTTP {response.status}")
+    except (OSError, TimeoutError, http.client.HTTPException) as exc:
+        raise ValueError("Marketplace ist derzeit nicht erreichbar") from exc
+    finally:
+        connection.close()
+    text = data.decode("utf-8", errors="replace")
+    lowered = text.lower()
+    protection_markers = (
+        "robot check",
+        "enter the characters you see below",
+        "captcha",
+        "automatisierte zugriffe",
+    )
+    if any(marker in lowered for marker in protection_markers):
+        raise ValueError("Marketplace zeigt eine Schutzseite; normale Suche kann geöffnet werden")
+    return text
+
+
+def _safe_result_url(provider: str, value: Any) -> str:
+    base = f"https://{_PUBLIC_HOSTS[provider]}/"
+    target = urljoin(base, str(value or ""))
+    parsed = urlsplit(target)
+    host = (parsed.hostname or "").lower()
+    root = "amazon.de" if provider == "amazon" else "ebay.de"
+    if parsed.scheme != "https" or not (host == root or host.endswith("." + root)):
+        return ""
+    if parsed.username or parsed.password:
+        return ""
+    return target[:1000]
+
+
+def _price_parts(value: Any) -> tuple[str, str]:
+    text = _clean(value, 120)
+    currency = "EUR" if "€" in text or "eur" in text.lower() else ""
+    match = re.search(r"(?<!\d)(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?)(?!\d)", text)
+    if not match:
+        return "", currency
+    amount = match.group(1)
+    if "," in amount:
+        amount = amount.replace(".", "").replace(",", ".")
+    return amount, currency
+
+
+def _public_result(
+    provider: str,
+    title: Any,
+    url: Any,
+    *,
+    price: Any = "",
+    external_id: Any = "",
+) -> dict[str, Any] | None:
+    clean_title = _clean(title, 300)
+    clean_url = _safe_result_url(provider, url)
+    if not clean_title or not clean_url:
+        return None
+    amount, currency = _price_parts(price)
+    provider_name = "Amazon" if provider == "amazon" else "eBay"
+    return {
+        "provider": provider,
+        "title": clean_title,
+        "authors": "",
+        "manufacturer": "",
+        "model": "",
+        "categories": "",
+        "description": "",
+        "isbn": "",
+        "barcode": "",
+        "market_price": amount,
+        "currency": currency,
+        "price_source": provider_name if amount else "",
+        "metadata_source": f"{provider_name} öffentliche Suche",
+        "external_id": _clean(external_id, 120),
+        "url": clean_url,
+    }
+
+
+def parse_amazon_html(html: str) -> list[dict[str, Any]]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    results: list[dict[str, Any]] = []
+    for row in soup.select('[data-component-type="s-search-result"]'):
+        title_node = row.select_one("h2 a span") or row.select_one("h2 span")
+        link_node = row.select_one("h2 a[href]") or row.select_one("a.a-link-normal[href]")
+        if not title_node or not link_node:
+            continue
+        price_node = row.select_one(".a-price .a-offscreen")
+        result = _public_result(
+            "amazon",
+            title_node.get_text(" ", strip=True),
+            link_node.get("href"),
+            price=price_node.get_text(" ", strip=True) if price_node else "",
+            external_id=row.get("data-asin"),
+        )
+        if result:
+            results.append(result)
+        if len(results) >= MAX_RESULTS:
+            break
+    return results
+
+
+def parse_ebay_html(html: str) -> list[dict[str, Any]]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    results: list[dict[str, Any]] = []
+    for row in soup.select("li.s-item, div.s-item"):
+        title_node = row.select_one(".s-item__title")
+        link_node = row.select_one("a.s-item__link[href]")
+        if not title_node or not link_node:
+            continue
+        title = _clean(title_node.get_text(" ", strip=True), 300)
+        title = re.sub(r"^(?:Neues Angebot|New Listing)\s*", "", title, flags=re.IGNORECASE)
+        if not title or title.lower() in {"shop on ebay", "auf ebay shoppen"}:
+            continue
+        price_node = row.select_one(".s-item__price")
+        url = link_node.get("href")
+        item_match = re.search(r"/itm/(?:[^/?#]+/)?(\d+)", str(url or ""))
+        result = _public_result(
+            "ebay",
+            title,
+            url,
+            price=price_node.get_text(" ", strip=True) if price_node else "",
+            external_id=item_match.group(1) if item_match else "",
+        )
+        if result:
+            results.append(result)
+        if len(results) >= MAX_RESULTS:
+            break
+    return results
+
+
+def _public_search(provider: str, query: str) -> list[dict[str, Any]]:
+    html = _html_request(provider, query)
+    return parse_amazon_html(html) if provider == "amazon" else parse_ebay_html(html)
+
+
 def _amazon_signing_key(secret: str, day: str, region: str, service: str) -> bytes:
     date_key = hmac.new(("AWS4" + secret).encode(), day.encode(), hashlib.sha256).digest()
     region_key = hmac.new(date_key, region.encode(), hashlib.sha256).digest()
@@ -147,9 +327,7 @@ def _amazon_request(query: str) -> dict[str, Any]:
     )
     signed_headers = "content-encoding;content-type;host;x-amz-date;x-amz-target"
     payload_hash = hashlib.sha256(body).hexdigest()
-    canonical_request = "\n".join(
-        ("POST", path, "", canonical_headers, signed_headers, payload_hash)
-    )
+    canonical_request = "\n".join(("POST", path, "", canonical_headers, signed_headers, payload_hash))
     scope = f"{day}/{region}/{service}/aws4_request"
     string_to_sign = "\n".join(
         ("AWS4-HMAC-SHA256", amz_date, scope, hashlib.sha256(canonical_request.encode()).hexdigest())
@@ -334,6 +512,11 @@ def parse_ebay_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return results
 
 
+def _api_search(provider: str, query: str) -> list[dict[str, Any]]:
+    payload = _amazon_request(query) if provider == "amazon" else _ebay_request(query)
+    return parse_amazon_results(payload) if provider == "amazon" else parse_ebay_results(payload)
+
+
 def search_marketplace(provider: str, query: str) -> dict[str, Any]:
     provider = provider.strip().lower()
     query = _clean(query, 200)
@@ -341,17 +524,36 @@ def search_marketplace(provider: str, query: str) -> dict[str, Any]:
         raise ValueError("Unbekannter Marketplace")
     if not query:
         raise ValueError("Suchbegriff fehlt")
-    configured = provider_status()[provider]
+
+    api_configured = provider_status()[provider]
     fallback = _amazon_fallback(query) if provider == "amazon" else _ebay_fallback(query)
-    if not configured:
-        return {"provider": provider, "configured": False, "results": [], "fallback_url": fallback}
-    payload = _amazon_request(query) if provider == "amazon" else _ebay_request(query)
-    results = parse_amazon_results(payload) if provider == "amazon" else parse_ebay_results(payload)
+    warnings: list[str] = []
+    results: list[dict[str, Any]] = []
+    source = "public_page"
+
+    try:
+        results = _public_search(provider, query)
+        if not results:
+            warnings.append("Öffentliche Suche enthielt keine auslesbaren Treffer")
+    except ValueError as exc:
+        warnings.append(_clean(exc, 240))
+
+    if not results and api_configured:
+        source = "api"
+        try:
+            results = _api_search(provider, query)
+        except ValueError as exc:
+            warnings.append(_clean(exc, 240))
+
     return {
         "provider": provider,
-        "configured": True,
+        "configured": api_configured,
+        "api_configured": api_configured,
+        "public_lookup": True,
+        "source": source,
         "results": results[:MAX_RESULTS],
         "fallback_url": fallback,
+        "warning": " · ".join(dict.fromkeys(warnings)),
     }
 
 
