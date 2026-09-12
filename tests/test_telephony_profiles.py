@@ -50,6 +50,41 @@ class TelephonyProfileStoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.create_profile("111", "Bad secret", "plaintext")
 
+    def test_sip_hosts_reject_urls_credentials_paths_and_embedded_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = TelephonyProfileStore(directory)
+            for host in (
+                "https://pbx.example.test",
+                "user@pbx.example.test",
+                "pbx.example.test/path",
+                "pbx.example.test:5060",
+            ):
+                with self.subTest(host=host), self.assertRaises(ValueError):
+                    store.save_settings(
+                        registrar_host=host,
+                        registrar_port=5060,
+                        transport="udp",
+                        realm="simpleoffice.local",
+                    )
+
+    def test_ipv6_host_is_formatted_safely_in_sip_uri(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = TelephonyProfileStore(directory)
+            store.save_settings(
+                registrar_host="2001:db8::10",
+                registrar_port=5061,
+                transport="tls",
+                realm="simpleoffice.local",
+            )
+            store.create_profile("120", "IPv6", "enc:v1:ipv6")
+            self.assertEqual(store.setup_values("120")["sip_uri"], "sip:120@[2001:db8::10]")
+
+    def test_delete_missing_profile_fails_instead_of_reporting_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = TelephonyProfileStore(directory)
+            with self.assertRaises(KeyError):
+                store.delete_profile("999")
+
 
 if __name__ == "__main__":
     unittest.main()
