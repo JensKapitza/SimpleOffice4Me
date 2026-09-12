@@ -7,6 +7,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from app.preview_service import PreviewService
+from app.video_settings import save_video_preview_frame_count, video_preview_frame_count
 
 
 class VideoPreviewServiceTest(unittest.TestCase):
@@ -35,6 +36,15 @@ class VideoPreviewServiceTest(unittest.TestCase):
                 self.assertEqual(18, PreviewService(temp, self._tools()).video_frame_count)
             with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "999"}):
                 self.assertEqual(30, PreviewService(temp, self._tools()).video_frame_count)
+
+    def test_saved_frame_count_overrides_deployment_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "18"}):
+                self.assertEqual(18, video_preview_frame_count(root))
+                self.assertEqual(7, save_video_preview_frame_count(root, 7, "tester"))
+                self.assertEqual(7, video_preview_frame_count(root))
+                self.assertEqual(7, PreviewService(root, self._tools()).video_frame_count)
 
     def test_generate_publishes_ten_frames_and_video_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -126,8 +136,30 @@ class VideoPreviewServiceTest(unittest.TestCase):
             self.assertEqual(b"original", source.read_bytes())
             self.assertIsNotNone(service.cached_video_variant({
                 **metadata,
-                "preview": {"video": {"variants": [variant]}},
+                "preview": {
+                    "status": "ready",
+                    "source_sha256": "b" * 64,
+                    "video": {"variants": [variant]},
+                },
             }, "h264-720p"))
+
+    def test_cached_variant_is_rejected_after_original_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cached = root / ".webcache" / "v" / ("a" * 64) / "variants" / "h264-720p.mp4"
+            cached.parent.mkdir(parents=True)
+            cached.write_bytes(b"variant")
+            metadata = {
+                "document_id": "v",
+                "sha256": "b" * 64,
+                "last_path": "movie.mp4",
+                "preview": {
+                    "status": "ready",
+                    "source_sha256": "a" * 64,
+                    "video": {"variants": [{"variant_id": "h264-720p", "path": str(cached.relative_to(root))}]},
+                },
+            }
+            self.assertIsNone(PreviewService(root, self._tools()).cached_video_variant(metadata, "h264-720p"))
 
 
 if __name__ == "__main__":
