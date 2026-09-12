@@ -12,7 +12,7 @@ Ein gefundener Peer wird deshalb standardmäßig als **bekannt, aber nicht gepr�
 ## Discovery-Wege
 
 - **Land**: Abfrage konfigurierter Bootstrap-/Directory-Peers mit ISO-Ländercode, z. B. `DE`.
-- **IP / Hostname / URL**: Direkter Abruf von `/.well-known/simpleoffice-federation`.
+- **IP / Hostname / URL**: Direkter Abruf von `/.well-known/simpleoffice-federation`. Als Eingabe wird nur eine Server-Basis-URL akzeptiert; Pfad, Query, Fragment und eingebettete Zugangsdaten sind unzulässig.
 - **E-Mail**: Die normalisierte E-Mail wird lokal mit SHA-256 gehasht. Nur der Hash wird als Rendezvous-Lookup übertragen.
 - **QR-Code**: Das öffentliche Peer-Profil wird als `sofp://peer/...` ausgetauscht. QR-Import bedeutet zunächst nur `KNOWN_UNVERIFIED`.
 
@@ -67,6 +67,8 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 - `SIMPLEOFFICE_FEDERATION_FINGERPRINT` – öffentlicher Fingerprint der Instanz/Identität.
 - `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` – kommaseparierte Directory-/Bootstrap-URLs.
 - `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1` – erlaubt öffentliche Leseabfragen des Directorys. Registrierung/Rendezvous bleiben authentifiziert.
+- `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1` – erlaubt bei der manuellen direkten Discovery bewusst RFC1918-/ULA-Ziele für LAN/VPN. Standardmäßig sind private Ziele gesperrt.
+- `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK=1` – erlaubt Loopback-Ziele für lokale Entwicklung/Integrationstests. Standardmäßig ist Loopback gesperrt.
 - `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY=DE` – aktiviert automatisches Land-Discovery.
 - `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` – Intervall, mindestens eine Stunde; Standard 21600 Sekunden.
 
@@ -90,6 +92,9 @@ Dort können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht,
 
 - Discovery vergibt keine Datenrechte.
 - Neue Discovery-Peers sind deaktiviert.
+- Direkte Discovery rekonstruiert eine kanonische Server-Basis-URL und ruft ausschließlich den festen Well-Known-Pfad ab.
+- Loopback, Link-Local, Multicast, unspezifizierte und reservierte Netzwerkziele sind standardmäßig gesperrt; Link-Local-Ziele wie Cloud-Metadata-Endpunkte bleiben auch bei aktivierter LAN/VPN-Freigabe gesperrt.
+- Private RFC1918-/ULA-Ziele sind für manuelle direkte Discovery nur nach explizitem serverseitigem Opt-in zugelassen.
 - `DIRECT_ONLY` wird nie als Trust-Claim exportiert.
 - E-Mail-Lookups übertragen keine Klartext-E-Mail.
 - Rendezvous-Nachrichten sind kurzlebig und werden nur einmal ausgeliefert.
