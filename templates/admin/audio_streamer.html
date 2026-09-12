@@ -1,7 +1,8 @@
 {% extends "layout.html" %}
 {% block title %}Audio-Streamer · SimpleOffice4Me{% endblock %}
 {% block body %}
-<div id="audio-streamer-app" class="container py-3" style="max-width: 980px;" data-base-url="{{ url_for('audio_streamer_admin.page') }}">
+<main id="main-content" class="container py-3" style="max-width: 980px;">
+<div id="audio-streamer-app" data-base-url="{{ url_for('audio_streamer_admin.page') }}">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
       <h1 class="h3 mb-1">Live Audio-Streamer</h1>
@@ -37,5 +38,6 @@
     </div>
   </div>
 </div>
+</main>
 <script src="{{ url_for('static', filename='js/audio_streamer.js') }}" data-module="static/js/audio_streamer.js" defer></script>
 {% endblock %}
