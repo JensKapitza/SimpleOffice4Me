@@ -1,0 +1,23 @@
+main[data-rental-entry] .form-label { font-size: .9rem; font-weight: 700; }
+main[data-rental-entry] .form-text { line-height: 1.35; }
+main[data-rental-entry] [data-rental-period] { white-space: nowrap; }
+
+@media (max-width: 767px) {
+  main[data-rental-entry] { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+  main[data-rental-entry] aside .card { margin-bottom: 1rem !important; }
+  main[data-rental-entry] .card-body { padding: 1rem; }
+  main[data-rental-entry] form.row { --bs-gutter-x: .75rem; --bs-gutter-y: .85rem; }
+  main[data-rental-entry] .form-control,
+  main[data-rental-entry] .form-select { min-height: 3rem; }
+  main[data-rental-entry] .btn-primary.w-100,
+  main[data-rental-entry] .btn-outline-primary.w-100,
+  main[data-rental-entry] .btn-success.w-100 { min-height: 3.15rem; }
+  main[data-rental-entry] .table-responsive > .table { min-width: 48rem; }
+}
+
+@media (max-width: 420px) {
+  main[data-rental-entry] .col-6,
+  main[data-rental-entry] .col-7,
+  main[data-rental-entry] .col-5 { width: 100%; }
+  main[data-rental-entry] [data-rental-period] { flex: 1 1 auto; }
+}
