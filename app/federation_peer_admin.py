@@ -109,7 +109,15 @@ def import_qr():
             profile["peer_id"], profile["label"], profile["base_url"], "",
             (existing or {}).get("policy") or {}, bool((existing or {}).get("enabled", False)),
         )
-        flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
+        personally_verified = request.form.get("verify_in_person") == "1"
+        if personally_verified:
+            trust.set_trust(
+                profile["peer_id"], "NONE", "VERIFIED_IN_PERSON", "DIRECT_ONLY", 0,
+                metadata={"actor": str(g.user["username"]), "method": "qr_in_person"},
+            )
+            flash(f"Peer {profile['peer_id']} per QR persönlich geprüft; Vertrauen bleibt NONE.")
+        else:
+            flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
     except Exception as exc:
         flash(f"QR-Peer konnte nicht übernommen werden: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
