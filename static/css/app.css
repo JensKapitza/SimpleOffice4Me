@@ -84,7 +84,18 @@ a { text-underline-offset: .16em; }
   .app-navbar .navigation-actions { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; }
   .app-navbar .navbar-brand { margin-top: .1rem; }
 }
-@media (max-width: 767px) { .container, .container-xl { padding-inline: 1rem; } .card { border-radius: .7rem; } .calendar-day { min-height: 5.75rem; padding: .25rem; } .calendar-weekday { font-size: .62rem; padding: .35rem .05rem; } .calendar-event { font-size: .63rem; padding: .12rem; } .table-responsive { border: 1px solid var(--so-border); border-radius: .7rem; } .btn-group { flex-wrap: wrap; gap: .4rem; } }
+@media (max-width: 767px) {
+  .container, .container-xl { padding-inline: 1rem; }
+  .card { border-radius: .7rem; }
+  .calendar-day { min-height: 5.75rem; padding: .25rem; }
+  .calendar-weekday { font-size: .62rem; padding: .35rem .05rem; }
+  .calendar-event { font-size: .63rem; padding: .12rem; }
+  .table-responsive { border: 1px solid var(--so-border); border-radius: .7rem; -webkit-overflow-scrolling: touch; }
+  .table-responsive > .table { min-width: 42rem; }
+  .table-responsive th, .table-responsive td { overflow-wrap: normal; word-break: normal; }
+  .table-responsive .btn { white-space: nowrap; }
+  .btn-group { flex-wrap: wrap; gap: .4rem; }
+}
 @media (max-width: 575.98px) {
   body { padding-bottom: env(safe-area-inset-bottom); }
   main.container, main.container-xl { padding-inline: .75rem; }
