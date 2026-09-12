@@ -11,12 +11,13 @@ Ein gefundener Peer wird deshalb standardmäßig als **bekannt, aber nicht gepr�
 
 ## Discovery-Wege
 
+- **WLAN/LAN**: Benutzerstart über „WLAN scannen“. Es werden ausschließlich private RFC1918-IPv4-Adressen im lokalen `/24` geprüft, standardmäßig auf dem SimpleOffice-Port 8080. Abgerufen wird nur `/.well-known/simpleoffice-federation`. Gefundene Peers werden deaktiviert als `KNOWN_UNVERIFIED` gespeichert.
 - **Land**: Abfrage konfigurierter Bootstrap-/Directory-Peers mit ISO-Ländercode, z. B. `DE`.
 - **IP / Hostname / URL**: Direkter Abruf von `/.well-known/simpleoffice-federation`. Als Eingabe wird nur eine Server-Basis-URL akzeptiert; Pfad, Query, Fragment und eingebettete Zugangsdaten sind unzulässig.
 - **E-Mail**: Die normalisierte E-Mail wird lokal mit SHA-256 gehasht. Nur der Hash wird als Rendezvous-Lookup übertragen.
 - **QR-Code**: Das öffentliche Peer-Profil wird als `sofp://peer/...` ausgetauscht. QR-Import bedeutet zunächst nur `KNOWN_UNVERIFIED`.
 
-Es findet bewusst **kein flächendeckender Internet-Portscan** statt. Land-Discovery läuft über Bootstrap-/Directory-Knoten und kann später durch weitere regionale Verzeichnisse ergänzt werden.
+Es findet bewusst **kein flächendeckender Internet-Portscan** statt. Der WLAN-Scan bleibt auf das lokale `/24` begrenzt. Land-Discovery läuft über Bootstrap-/Directory-Knoten.
 
 ## Verifikationszustände
 
@@ -49,7 +50,7 @@ Importierte Trust-Hinweise bleiben Empfehlungen. Nur eine lokale Entscheidung er
 
 ## Directory-Privacy
 
-Ein Directory veröffentlicht nur Peers, die sich **explizit registriert** haben. Peers, die lokal per QR, direkter URL oder fremdem Directory gefunden wurden, werden nicht automatisch weiterveröffentlicht.
+Ein Directory veröffentlicht nur Peers, die sich **explizit registriert** haben. Peers, die lokal per WLAN, QR, direkter URL oder fremdem Directory gefunden wurden, werden nicht automatisch weiterveröffentlicht.
 
 ## NAT und Vermittlung
 
@@ -61,14 +62,16 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 
 - `SIMPLEOFFICE_FEDERATION_TOKEN` – bestehende Federation-Authentifizierung.
 - `SIMPLEOFFICE_FEDERATION_PEER_ID` – stabile lokale Peer-ID.
-- `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` – von anderen Peers erreichbare URL.
+- `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` – von anderen Peers erreichbare URL für veröffentlichte Profile/QR. Für einen direkten WLAN-Well-Known-Aufruf wird die tatsächlich angesprochene lokale Adresse verwendet, wenn keine Public-URL gesetzt ist.
 - `SIMPLEOFFICE_FEDERATION_LABEL` – Anzeigename.
 - `SIMPLEOFFICE_FEDERATION_COUNTRY` – ISO-3166 Alpha-2 Land.
 - `SIMPLEOFFICE_FEDERATION_FINGERPRINT` – öffentlicher Fingerprint der Instanz/Identität.
 - `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` – kommaseparierte Directory-/Bootstrap-URLs.
 - `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1` – erlaubt öffentliche Leseabfragen des Directorys. Registrierung/Rendezvous bleiben authentifiziert.
-- `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1` – erlaubt bei der manuellen direkten Discovery bewusst RFC1918-/ULA-Ziele für LAN/VPN. Standardmäßig sind private Ziele gesperrt.
+- `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1` – erlaubt bei der manuellen direkten Discovery bewusst RFC1918-/ULA-Ziele für LAN/VPN. Der spezielle WLAN-Scan benötigt dieses globale Opt-in nicht, weil er intern auf RFC1918 + lokales `/24` + festen Well-Known-Pfad begrenzt ist.
 - `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK=1` – erlaubt Loopback-Ziele für lokale Entwicklung/Integrationstests. Standardmäßig ist Loopback gesperrt.
+- `SIMPLEOFFICE_FEDERATION_LAN_ADDRESS` – optional eine oder mehrere kommaseparierte lokale IPv4-Adressen, falls die aktive WLAN-Adresse nicht automatisch erkannt wird.
+- `SIMPLEOFFICE_FEDERATION_LAN_PORTS` – optionale zusätzliche lokale SimpleOffice-Ports; maximal vier Ports werden geprüft.
 - `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY=DE` – aktiviert automatisches Land-Discovery.
 - `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` – Intervall, mindestens eine Stunde; Standard 21600 Sekunden.
 
@@ -86,14 +89,28 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 
 `/admin/federation/peer-discovery`
 
-Dort können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht, persönliche Prüfungen bestätigt, Trust-Level gesetzt und die Weitergabe jeder Trust-Beziehung einzeln festgelegt werden.
+Dort gibt es als ersten Schnellweg **„Geräte im WLAN suchen“**. Außerdem können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht, persönliche Prüfungen bestätigt, Trust-Level gesetzt und die Weitergabe jeder Trust-Beziehung einzeln festgelegt werden.
+
+## WLAN-Scan im Detail
+
+Der Scan ist ausdrücklich ein lokaler Komfortmechanismus für z. B. Handy → Handy im selben WLAN:
+
+1. Lokale private IPv4-Adresse bestimmen.
+2. Das zugehörige `/24` bilden, z. B. `192.168.178.0/24`.
+3. Nur den bzw. die konfigurierten SimpleOffice-Ports prüfen.
+4. Nur `/.well-known/simpleoffice-federation` abrufen.
+5. Antwortprofil validieren und unter der tatsächlich erreichbaren LAN-URL speichern.
+6. Peer bleibt deaktiviert, unverified und ohne Datenrechte.
+
+Damit wird kein fremdes Internetnetz durchsucht und Link-Local/Cloud-Metadata-Ziele bleiben gesperrt.
 
 ## Sicherheitsregeln
 
 - Discovery vergibt keine Datenrechte.
 - Neue Discovery-Peers sind deaktiviert.
+- WLAN-Discovery ist benutzerinitiiert und auf RFC1918 + lokales `/24` begrenzt.
 - Direkte Discovery rekonstruiert eine kanonische Server-Basis-URL und ruft ausschließlich den festen Well-Known-Pfad ab.
-- Loopback, Link-Local, Multicast, unspezifizierte und reservierte Netzwerkziele sind standardmäßig gesperrt; Link-Local-Ziele wie Cloud-Metadata-Endpunkte bleiben auch bei aktivierter LAN/VPN-Freigabe gesperrt.
+- Loopback, Link-Local, Multicast, unspezifizierte und reservierte Netzwerkziele sind standardmäßig gesperrt; Link-Local-Ziele wie Cloud-Metadata-Endpunkte bleiben auch beim WLAN-Scan gesperrt.
 - Private RFC1918-/ULA-Ziele sind für manuelle direkte Discovery nur nach explizitem serverseitigem Opt-in zugelassen.
 - `DIRECT_ONLY` wird nie als Trust-Claim exportiert.
 - E-Mail-Lookups übertragen keine Klartext-E-Mail.
