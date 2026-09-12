@@ -128,7 +128,9 @@
   }
 
   function csvCell(value) {
-    const text = String(value ?? '').replace(/"/g, '""');
+    let text = String(value ?? '');
+    if (/^[=+\-@]/.test(text)) text = `'${text}`;
+    text = text.replace(/"/g, '""');
     return `"${text}"`;
   }
 
