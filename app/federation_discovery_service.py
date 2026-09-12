@@ -16,6 +16,10 @@ def bootstrap_urls():
     return [normalize_endpoint(value) for value in raw.split(",") if value.strip()]
 
 
+def bootstrap_token():
+    return os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
+
+
 def _remember(root, profile, source):
     profile = peer_profile(profile)
     trust = FederationTrustStore(root)
@@ -40,6 +44,7 @@ def discover_direct(root, endpoint):
 
 def discover_country(root, country, urls=None, token=""):
     country = normalize_country(country)
+    token = token or bootstrap_token()
     found = {}
     errors = {}
     for base in urls or bootstrap_urls():
@@ -56,6 +61,7 @@ def discover_country(root, country, urls=None, token=""):
 
 def discover_email(root, email, urls=None, token=""):
     key = email_hash(email)
+    token = token or bootstrap_token()
     found = {}
     errors = {}
     for base in urls or bootstrap_urls():
