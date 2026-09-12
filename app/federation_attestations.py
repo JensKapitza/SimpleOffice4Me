@@ -33,6 +33,22 @@ class FederationAttestationStore:
         self.store = FederationStore(root)
         ensure_schema(self.store)
 
+    def replace_signed(self, verified_peer_id, verification_type, fingerprint="",
+                       propagation=DIRECT_ONLY, max_hops=0, expires_at=None):
+        verified_peer_id = sanitize_peer_id(verified_peer_id)
+        verifier = local_peer_id()
+        with self.store._db() as db:
+            db.execute(
+                "DELETE FROM federation_trust_attestation WHERE verifier_peer_id=? AND verified_peer_id=?",
+                (verifier, verified_peer_id),
+            )
+        if str(verification_type).upper() == "KNOWN_UNVERIFIED":
+            return None
+        return self.add_signed(
+            verified_peer_id, verification_type, fingerprint,
+            propagation, max_hops, expires_at,
+        )
+
     def add_signed(self, verified_peer_id, verification_type, fingerprint="",
                    propagation=DIRECT_ONLY, max_hops=0, expires_at=None):
         propagation = str(propagation or DIRECT_ONLY).upper()
