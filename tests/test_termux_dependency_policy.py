@@ -78,6 +78,11 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertIn("android/install-termux-argon2.sh", script)
         self.assertIn("pip check", script)
 
+    def test_android_apk_runtime_keeps_pillow_for_image_features(self):
+        gradle = (ROOT / "android" / "apk" / "app" / "build.gradle").read_text(encoding="utf-8")
+        self.assertIn("install 'Pillow==11.0.0'", gradle)
+        self.assertEqual(gradle.count("install 'Pillow==11.0.0'"), 1)
+
     def test_project_declares_python_tzdata_fallback(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('"tzdata>=2024.1"', pyproject)
