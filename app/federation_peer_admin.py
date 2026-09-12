@@ -20,6 +20,20 @@ def _root():
     return current_app.config["DOCUMENT_ROOT"]
 
 
+def _unavailable_qr_svg() -> str:
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" '
+        'role="img" aria-label="Federation QR nicht verfügbar">'
+        '<rect width="240" height="240" fill="white"/>'
+        '<rect x="1" y="1" width="238" height="238" fill="none" stroke="#adb5bd" stroke-width="2"/>'
+        '<text x="120" y="112" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#495057">'
+        'QR nicht verfügbar</text>'
+        '<text x="120" y="134" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6c757d">'
+        'Public-URL konfigurieren</text>'
+        '</svg>'
+    )
+
+
 @bp.get("")
 @admin_required
 def dashboard():
@@ -48,9 +62,10 @@ def dashboard():
 def qr_svg():
     try:
         payload = encode_peer(local_profile(_root()))
-        return Response(render_qr_svg(payload), content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
-    except ValueError as exc:
-        return Response(str(exc), status=503, content_type="text/plain")
+        svg = render_qr_svg(payload)
+    except ValueError:
+        svg = _unavailable_qr_svg()
+    return Response(svg, content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 
 @bp.post("/discover/direct")
