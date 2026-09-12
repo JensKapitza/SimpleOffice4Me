@@ -1,9 +1,13 @@
+import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.federation_discovery_email import email_hash
-from app.federation_discovery_endpoint import normalize_endpoint
+from app.federation_discovery_endpoint import normalize_endpoint, validate_discovery_endpoint
+from app.federation_discovery_service import discover_direct
 from app.federation_qr import decode_peer, encode_peer
 from app.federation_rendezvous_store import FederationRendezvousStore
 
@@ -31,6 +35,47 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
 
     def test_endpoint_defaults_to_https(self):
         self.assertEqual(normalize_endpoint("peer.example"), "https://peer.example")
+
+    def test_endpoint_rejects_non_base_url_components(self):
+        for value in (
+            "https://peer.example/admin",
+            "https://peer.example?next=http://127.0.0.1",
+            "https://peer.example#internal",
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                normalize_endpoint(value)
+
+    def test_direct_discovery_blocks_loopback_and_link_local(self):
+        with self.assertRaises(ValueError):
+            validate_discovery_endpoint("http://127.0.0.1:8080")
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS": "1"}, clear=False):
+            with self.assertRaises(ValueError):
+                validate_discovery_endpoint("http://169.254.169.254")
+
+    def test_direct_discovery_private_target_requires_opt_in(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS", None)
+            with self.assertRaises(ValueError):
+                validate_discovery_endpoint("https://10.20.30.40")
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS": "1"}, clear=False):
+            self.assertEqual(validate_discovery_endpoint("https://10.20.30.40"), "https://10.20.30.40")
+
+    def test_direct_discovery_rejects_dns_resolution_to_link_local(self):
+        resolved = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))]
+        with patch("app.federation_discovery_endpoint.socket.getaddrinfo", return_value=resolved):
+            with self.assertRaises(ValueError):
+                validate_discovery_endpoint("https://peer.example")
+
+    def test_direct_discovery_uses_only_fixed_well_known_path(self):
+        resolved = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
+        with patch("app.federation_discovery_endpoint.socket.getaddrinfo", return_value=resolved), patch(
+            "app.federation_discovery_service._json_request", return_value=PROFILE
+        ) as request_mock:
+            peer = discover_direct(self.root, "https://peer.example")
+        self.assertEqual(peer["peer_id"], "peer-a")
+        request_mock.assert_called_once_with(
+            "https://peer.example/.well-known/simpleoffice-federation", timeout=8
+        )
 
     def test_qr_payload_roundtrip(self):
         decoded = decode_peer(encode_peer(PROFILE))
