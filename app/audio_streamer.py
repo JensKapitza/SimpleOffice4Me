@@ -192,7 +192,7 @@ class ReceiverSession:
                     player.stdin.write(chunk)
                     player.stdin.flush()
                     alive.append(player)
-                except (BrokenPipeError, OSError):
+                except (BrokenPipeError, OSError, ValueError):
                     continue
             self.players = alive
             if not alive:
@@ -203,7 +203,7 @@ class ReceiverSession:
             if player.stdin:
                 try:
                     player.stdin.close()
-                except OSError:
+                except (OSError, ValueError):
                     pass
             if player.poll() is None:
                 try:
@@ -229,11 +229,17 @@ def ensure_virtual_microphone(sink_name: str = "simpleoffice_stream") -> str:
     pactl = shutil.which("pactl")
     if not pactl:
         raise RuntimeError("pactl fehlt; PipeWire-Pulse oder PulseAudio installieren")
-    result = subprocess.run(
-        [pactl, "load-module", "module-null-sink", f"sink_name={name}",
-         "sink_properties=device.description=SimpleOffice4Me_Stream"],
-        check=True, capture_output=True, text=True, timeout=5,
-    )
+    try:
+        result = subprocess.run(
+            [pactl, "load-module", "module-null-sink", f"sink_name={name}",
+             "sink_properties=device.description=SimpleOffice4Me_Stream"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("Virtuelles Mikrofon konnte nicht erstellt werden") from exc
     module_id = result.stdout.strip()
     if not module_id.isdigit():
         raise RuntimeError("Virtuelles Mikrofon konnte nicht erstellt werden")
@@ -264,8 +270,22 @@ class LiveAudioManager:
         targets = normalize_destinations(destinations)
         with _SESSION_LOCK:
             self.stop_sender()
-            process = subprocess.Popen(sender_command(source=source, backend=backend, destinations=targets, bitrate_kbps=bitrate_kbps), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.sender = SenderSession(process=process, source=source, backend=backend, destinations=targets)
+            process = subprocess.Popen(
+                sender_command(
+                    source=source,
+                    backend=backend,
+                    destinations=targets,
+                    bitrate_kbps=bitrate_kbps,
+                ),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.sender = SenderSession(
+                process=process,
+                source=source,
+                backend=backend,
+                destinations=targets,
+            )
             return self.status()["sender"]
 
     def stop_sender(self) -> None:
