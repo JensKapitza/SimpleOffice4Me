@@ -7,6 +7,7 @@ from pathlib import Path
 
 from flask import abort, flash, redirect, render_template, request, send_file, url_for
 
+from .access_control import is_admin
 from .documents_core import *  # noqa: F401,F403
 from .preview_service import PreviewService, VIDEO_SUFFIXES, detect_preview_tools
 from .safe_paths import resolve_file_under
@@ -25,6 +26,11 @@ def _video_source(document: dict) -> Path:
         return resolve_file_under(_store().root, str(document.get("last_path", "")))
     except (OSError, ValueError):
         abort(404)
+
+
+def _require_video_admin() -> None:
+    if not is_admin(g.user):
+        abort(403)
 
 
 @bp.before_request
@@ -80,6 +86,7 @@ def video_player(document_id: str):
         thumbnail_url=url_for("documents.document_thumbnail", document_id=document_id),
         ffmpeg_available=bool(detect_preview_tools()["commands"].get("ffmpeg")),
         video_preview_frame_count=video_preview_frame_count(_store().root),
+        can_manage_video=is_admin(g.user),
     )
 
 
@@ -87,6 +94,7 @@ def video_player(document_id: str):
 @login_required
 def save_video_settings(document_id: str):
     _video_document(document_id)
+    _require_video_admin()
     try:
         count = save_video_preview_frame_count(
             _store().root,
@@ -130,6 +138,7 @@ def video_variant(document_id: str, variant_id: str):
 @login_required
 def transcode_video(document_id: str):
     document = _video_document(document_id)
+    _require_video_admin()
     actor = str(g.user["username"])
     try:
         service = PreviewService(_store().root, detect_preview_tools())
