@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from app.audio_streamer import (
@@ -10,6 +11,9 @@ from app.audio_streamer import (
     receiver_sdp,
     sender_command,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class AudioStreamerTests(unittest.TestCase):
@@ -64,6 +68,13 @@ class AudioStreamerTests(unittest.TestCase):
         self.assertIn("--device=simpleoffice_stream", command)
         self.assertIn("--rate=48000", command)
         self.assertIn("--channels=2", command)
+
+    def test_admin_does_not_expose_exception_text(self) -> None:
+        source = (ROOT / "app" / "audio_streamer_admin.py").read_text(encoding="utf-8")
+        self.assertNotIn('"error": str(exc)', source)
+        self.assertIn('"error_type": type(exc).__name__', source)
+        self.assertIn("Audio-Dienst ist auf diesem System nicht verfügbar.", source)
+        self.assertIn("Ungültiger RTP-Port.", source)
 
 
 if __name__ == "__main__":
