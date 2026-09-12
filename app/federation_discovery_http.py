@@ -38,12 +38,17 @@ def _directory_authorized(public=False):
     return _authorized()
 
 
+def _log_rejected(action, exc):
+    current_app.logger.warning("Federation discovery %s rejected (%s)", action, type(exc).__name__)
+
+
 @bp.get("/.well-known/simpleoffice-federation")
 def well_known():
     try:
         return jsonify(local_profile(_root()))
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 503
+        _log_rejected("profile", exc)
+        return jsonify({"error": "federation_profile_unavailable"}), 503
 
 
 @bp.get("/federation/v1/discovery/peers")
@@ -80,7 +85,8 @@ def register():
             result.update(FederationRendezvousStore(_root()).register(lookup, profile, ttl))
         return jsonify(result), 201
     except (TypeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        _log_rejected("registration", exc)
+        return jsonify({"error": "invalid_registration"}), 400
 
 
 @bp.get("/federation/v1/discovery/resolve")
@@ -104,7 +110,8 @@ def send_signal():
         )
         return jsonify(result), 201
     except (TypeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 401
+        _log_rejected("signal send", exc)
+        return jsonify({"error": "invalid_signal_request"}), 401
 
 
 @bp.get("/federation/v1/discovery/signal")
@@ -113,7 +120,8 @@ def receive_signal():
         recipient_peer = authenticate_peer(_root(), request)
         return jsonify({"messages": FederationRendezvousMessages(_root()).receive(recipient_peer)})
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 401
+        _log_rejected("signal receive", exc)
+        return jsonify({"error": "invalid_signal_request"}), 401
 
 
 @bp.get("/federation/v1/discovery/trust-claims")
