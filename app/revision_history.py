@@ -1,4 +1,4 @@
-"""Git-backed, tamper-evident revision trail for metadata and configuration."""
+"""Tamper-evident revision trail with optional Git-backed history."""
 
 from __future__ import annotations
 
@@ -275,7 +275,7 @@ def _chain_state(chain: dict[str, Any]) -> tuple[int, str]:
 
 
 class RevisionHistory:
-    """A local Git repository with one attributable, tamper-evident commit per write action."""
+    """A tamper-evident local event chain, additionally committed to Git when available."""
 
     def __init__(self, document_root: Path):
         self.root = Path(document_root).expanduser().resolve() / ".simpleoffice-history"
@@ -295,14 +295,14 @@ class RevisionHistory:
             raise ValueError("a bounded audit key is required")
         if not isinstance(snapshot, dict):
             raise ValueError("audit snapshot must be an object")
-        if shutil.which("git") is None:
-            raise RuntimeError("git is required for the revision history")
 
+        git_available = shutil.which("git") is not None
         category_component = _path_component(category)
         key_component = _path_component(key)
         self.root.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.root / ".simpleoffice-write.lock"):
-            self._git("init", "--quiet")
+            if git_available:
+                self._git("init", "--quiet")
             snapshot_path = self.root / "snapshots" / category_component / f"{key_component}.json"
             chain_path = self.root / "event-chain.json"
             previous_snapshot = _read_json_strict(snapshot_path)
@@ -360,6 +360,9 @@ class RevisionHistory:
                     "updated_at": at,
                 },
             )
+
+            if not git_available:
+                return str(event["event_hash"])
 
             self._git("add", "snapshots", "events", "event-chain.json")
             changed = subprocess.run(
