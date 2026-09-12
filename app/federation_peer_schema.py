@@ -2,8 +2,8 @@
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS federation_peer_identity(
  peer_id TEXT PRIMARY KEY, country TEXT NOT NULL DEFAULT '',
- fingerprint TEXT NOT NULL DEFAULT '', discovery_source TEXT NOT NULL DEFAULT '',
- verification_state TEXT NOT NULL DEFAULT 'KNOWN_UNVERIFIED',
+ fingerprint TEXT NOT NULL DEFAULT '', public_key TEXT NOT NULL DEFAULT '',
+ discovery_source TEXT NOT NULL DEFAULT '', verification_state TEXT NOT NULL DEFAULT 'KNOWN_UNVERIFIED',
  first_seen_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS federation_trust_edge(
@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS federation_discovery_state(
 );
 """
 
+
 def ensure_schema(store):
     with store._db() as db:
         db.executescript(SCHEMA)
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(federation_peer_identity)").fetchall()}
+        if "public_key" not in columns:
+            db.execute("ALTER TABLE federation_peer_identity ADD COLUMN public_key TEXT NOT NULL DEFAULT ''")
