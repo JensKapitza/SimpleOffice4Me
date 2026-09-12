@@ -5,8 +5,9 @@ from .documents_core import *  # noqa: F401,F403
 from . import documents_routes_content as _routes_1
 from . import documents_routes_workflows as _routes_2
 from . import documents_routes_admin as _routes_3
+from . import documents_routes_video as _routes_4
 
-_route_modules = (_routes_1, _routes_2, _routes_3,)
+_route_modules = (_routes_1, _routes_2, _routes_3, _routes_4,)
 # Functions keep the globals of their defining route module. Mirror route names
 # between those modules so the rare direct cross-route call remains compatible.
 for _target in _route_modules:
