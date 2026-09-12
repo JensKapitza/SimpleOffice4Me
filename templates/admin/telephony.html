@@ -1,0 +1,126 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">IP-Telefonie</h1>
+      <p class="text-secondary mb-0">Nebenstellen und Zugangsdaten fuer Softphones und SIP-Tischtelefone vorbereiten.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
+  </div>
+
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="alert {{ 'alert-danger' if category == 'error' else 'alert-info' }}">{{ message }}</div>
+  {% endfor %}
+
+  {% if not runtime_ready %}
+  <div class="alert alert-warning">
+    <strong>SIP-Dienst noch nicht aktiv:</strong> Der Assistent verwaltet bereits Nebenstellen und sichere Zugangsdaten. Der interne SIP-Registrar/Proxy ist im aktuellen Stand aber noch nicht gestartet. Die angezeigten Konten sind deshalb vorbereitet, koennen sich aber erst nach Aktivierung des SIP-Dienstes registrieren.
+  </div>
+  {% endif %}
+
+  {% if one_time %}
+  <section class="card border-success mb-4">
+    <div class="card-header bg-success-subtle"><strong>Zugangsdaten jetzt uebernehmen</strong></div>
+    <div class="card-body">
+      <p class="mb-3">Das Passwort wird nur fuer diese Einrichtung angezeigt. Spaeter kann ein neues Passwort erzeugt werden.</p>
+      <div class="row g-3">
+        <div class="col-md-3"><div class="small text-secondary">Nebenstelle / Benutzer</div><code class="fs-6">{{ one_time.extension }}</code></div>
+        <div class="col-md-3"><div class="small text-secondary">SIP-Server</div><code class="fs-6">{{ one_time.registrar_host or 'noch konfigurieren' }}</code></div>
+        <div class="col-md-2"><div class="small text-secondary">Port</div><code class="fs-6">{{ one_time.registrar_port }}</code></div>
+        <div class="col-md-2"><div class="small text-secondary">Transport</div><code class="fs-6">{{ one_time.transport|upper }}</code></div>
+        <div class="col-md-12"><label class="form-label">Passwort</label><div class="input-group"><input id="sip-one-time-password" class="form-control font-monospace" value="{{ one_time.password }}" readonly><button class="btn btn-outline-secondary" type="button" data-copy="#sip-one-time-password">Kopieren</button></div></div>
+        {% if one_time.sip_uri %}<div class="col-md-12"><div class="small text-secondary">SIP-Adresse</div><code>{{ one_time.sip_uri }}</code></div>{% endif %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <div class="row g-4 mb-4">
+    <section class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header"><strong>SIP-Serverdaten</strong></div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('telephony_admin.save_settings') }}" class="row g-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-6"><label class="form-label">Server / DNS-Name</label><input class="form-control" name="registrar_host" value="{{ settings.registrar_host }}" placeholder="{{ suggested_host or 'pbx.home.arpa' }}" required><div class="form-text">Von Telefonen erreichbarer DNS-Name oder IP-Adresse.</div></div>
+            <div class="col-md-3"><label class="form-label">Port</label><input class="form-control" type="number" name="registrar_port" value="{{ settings.registrar_port }}" min="1" max="65535" required></div>
+            <div class="col-md-3"><label class="form-label">Transport</label><select class="form-select" name="transport"><option value="udp" {% if settings.transport == 'udp' %}selected{% endif %}>UDP</option><option value="tcp" {% if settings.transport == 'tcp' %}selected{% endif %}>TCP</option><option value="tls" {% if settings.transport == 'tls' %}selected{% endif %}>TLS</option></select></div>
+            <div class="col-md-6"><label class="form-label">SIP-Realm</label><input class="form-control" name="realm" value="{{ settings.realm }}" required></div>
+            <div class="col-md-6"><label class="form-label">STUN optional</label><input class="form-control" name="stun_server" value="{{ settings.stun_server }}" placeholder="stun.example.net"></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Serverdaten speichern</button></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header"><strong>Empfohlener Softphone-Client</strong></div>
+        <div class="card-body">
+          <h2 class="h4">Linphone</h2>
+          <p>Eine Empfehlung fuer Handy und PC: Android, iOS, Windows, macOS und Linux. Fuer SimpleOffice wird ein <strong>Third-Party SIP Account</strong> verwendet.</p>
+          <a class="btn btn-outline-primary" href="https://www.linphone.org/en/download/" target="_blank" rel="noopener noreferrer">Linphone herunterladen</a>
+          <hr>
+          <ol class="small mb-0">
+            <li>Linphone installieren und <strong>Third-Party SIP Account</strong> waehlen.</li>
+            <li>Nebenstelle als Benutzername und Auth-ID eintragen.</li>
+            <li>Server, Port und Transport von dieser Seite uebernehmen.</li>
+            <li>Das einmalig angezeigte SIP-Passwort eintragen.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>Neue Nebenstelle</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('telephony_admin.create_profile') }}" class="row g-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-3"><label class="form-label">Nebenstelle</label><input class="form-control" name="extension" inputmode="numeric" pattern="[0-9]{1,12}" placeholder="101" required></div>
+        <div class="col-md-5"><label class="form-label">Name</label><input class="form-control" name="display_name" placeholder="Buero Jens" maxlength="200"></div>
+        <div class="col-md-4"><label class="form-label">Geraetetyp</label><select class="form-select" name="device_kind"><option value="softphone">Softphone (Linphone)</option><option value="deskphone">IP-Tischtelefon</option><option value="doorphone">Tuertelefon</option><option value="other">Sonstiges SIP-Geraet</option></select></div>
+        <div class="col-12"><button class="btn btn-success" type="submit">Telefon hinzufuegen</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center"><strong>Nebenstellen</strong><span class="badge text-bg-secondary">{{ profiles|length }}</span></div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead><tr><th>Nebenstelle</th><th>Name</th><th>Typ</th><th>SIP-Adresse</th><th class="text-end">Aktionen</th></tr></thead>
+        <tbody>
+          {% for profile in profiles %}
+          <tr>
+            <td><code>{{ profile.extension }}</code></td>
+            <td>{{ profile.display_name }}</td>
+            <td>{{ profile.device_kind }}</td>
+            <td>{% if settings.registrar_host %}<code>sip:{{ profile.extension }}@{{ settings.registrar_host }}</code>{% else %}<span class="text-secondary">Server noch konfigurieren</span>{% endif %}</td>
+            <td class="text-end"><div class="d-inline-flex gap-2">
+              <form method="post" action="{{ url_for('telephony_admin.rotate_secret', extension=profile.extension) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Passwort neu</button></form>
+              <form method="post" action="{{ url_for('telephony_admin.delete_profile', extension=profile.extension) }}" onsubmit="return confirm('Nebenstelle wirklich loeschen?')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Loeschen</button></form>
+            </div></td>
+          </tr>
+          {% else %}<tr><td colspan="5" class="text-secondary">Noch keine Nebenstelle angelegt.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header"><strong>Generisches SIP-Tischtelefon</strong></div>
+    <div class="card-body"><p class="mb-2">Bei Yealink, Snom, Grandstream und anderen SIP-Telefonen heissen die Felder leicht unterschiedlich. Inhaltlich werden verwendet:</p><dl class="row mb-0"><dt class="col-sm-4">User / Extension / Auth ID</dt><dd class="col-sm-8">Nebenstelle, z. B. <code>101</code></dd><dt class="col-sm-4">Registrar / Domain</dt><dd class="col-sm-8">SIP-Server von oben</dd><dt class="col-sm-4">Port / Transport</dt><dd class="col-sm-8">Werte von oben</dd><dt class="col-sm-4">Password</dt><dd class="col-sm-8">Beim Anlegen oder Rotieren einmalig angezeigtes Passwort</dd><dt class="col-sm-4">Outbound Proxy</dt><dd class="col-sm-8">leer, solange SimpleOffice keinen separaten Proxy vorgibt</dd></dl></div>
+  </section>
+</main>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function (button) {
+  button.addEventListener('click', function () {
+    var input = document.querySelector(button.getAttribute('data-copy'));
+    if (input) navigator.clipboard.writeText(input.value);
+  });
+});
+</script>
+{% endblock %}
