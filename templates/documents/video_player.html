@@ -54,6 +54,20 @@
   </div>
 
   <div class="card mb-4 shadow-sm">
+    <div class="card-header"><strong>Vorschau-Einstellung</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('documents.save_video_settings', document_id=document.document_id) }}" class="row g-2 align-items-end">
+        <div class="col-sm-5 col-lg-3">
+          <label class="form-label" for="video-preview-frame-count">Bilder je Video</label>
+          <input id="video-preview-frame-count" class="form-control" type="number" min="1" max="30" step="1" inputmode="numeric" name="frame_count" value="{{ video_preview_frame_count }}" required>
+        </div>
+        <div class="col-sm-auto"><button type="submit" class="btn btn-outline-primary">Standard speichern</button></div>
+      </form>
+      <div class="form-text mt-2">Globaler Wert für neue und neu erzeugte Video-Vorschauen. Standard ist 10. Nach einer Änderung werden bestehende Bildserien beim nächsten Indexlauf neu erzeugt.</div>
+    </div>
+  </div>
+
+  <div class="card mb-4 shadow-sm">
     <div class="card-header"><strong>Wiedergabevarianten</strong></div>
     <div class="card-body">
       <p class="text-secondary">Neu kodierte Fassungen bleiben technische Ableitungen dieses Videos. Sie erscheinen nicht als eigenständige Dokumente im Dateiindex.</p>
