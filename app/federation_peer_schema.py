@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS federation_rendezvous(
  expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
  PRIMARY KEY(lookup_key,peer_id)
 );
+CREATE TABLE IF NOT EXISTS federation_directory_publish(
+ peer_id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS federation_pairing_token(
  token_hash TEXT PRIMARY KEY, peer_id TEXT NOT NULL, expires_at INTEGER NOT NULL,
  claimed_at INTEGER, created_at INTEGER NOT NULL
