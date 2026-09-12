@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +9,7 @@ from unittest.mock import patch
 from app.audio_streamer import (
     ReceiverSession,
     decoder_command,
+    ensure_virtual_microphone,
     normalize_destinations,
     paplay_command,
     receiver_sdp,
@@ -75,6 +77,12 @@ class AudioStreamerTests(unittest.TestCase):
         self.assertIn("--device=simpleoffice_stream", command)
         self.assertIn("--rate=48000", command)
         self.assertIn("--channels=2", command)
+
+    @patch("app.audio_streamer.subprocess.run", side_effect=subprocess.TimeoutExpired("pactl", 5))
+    @patch("app.audio_streamer.shutil.which", return_value="/usr/bin/pactl")
+    def test_virtual_microphone_runtime_failure_is_wrapped(self, _which, _run) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Virtuelles Mikrofon konnte nicht erstellt werden"):
+            ensure_virtual_microphone("simpleoffice_stream")
 
     @patch("app.audio_streamer.unload_virtual_microphone")
     @patch("app.audio_streamer.decoder_command", side_effect=RuntimeError("ffmpeg missing"))
