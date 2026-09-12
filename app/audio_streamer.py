@@ -141,21 +141,35 @@ class ReceiverSession:
 
     def start(self) -> None:
         devices = list(self.outputs)
-        if self.virtual_sink:
-            self.module_id = ensure_virtual_microphone(self.virtual_sink)
-            devices.append(self.virtual_sink)
-        if not devices:
-            raise ValueError("Mindestens Lautsprecher oder virtuelles Mikrofon aktivieren")
-        self.decoder = subprocess.Popen(decoder_command(self.sdp_path), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        assert self.decoder.stdout is not None
         try:
+            if self.virtual_sink:
+                self.module_id = ensure_virtual_microphone(self.virtual_sink)
+                devices.append(self.virtual_sink)
+            if not devices:
+                raise ValueError("Mindestens Lautsprecher oder virtuelles Mikrofon aktivieren")
+            self.decoder = subprocess.Popen(
+                decoder_command(self.sdp_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            assert self.decoder.stdout is not None
             for device in devices:
-                self.players.append(subprocess.Popen(paplay_command(device), stdin=subprocess.PIPE, stderr=subprocess.DEVNULL))
+                self.players.append(
+                    subprocess.Popen(
+                        paplay_command(device),
+                        stdin=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                    )
+                )
+            self.thread = threading.Thread(
+                target=self._fanout,
+                name="simpleoffice-audio-fanout",
+                daemon=True,
+            )
+            self.thread.start()
         except Exception:
             self.stop()
             raise
-        self.thread = threading.Thread(target=self._fanout, name="simpleoffice-audio-fanout", daemon=True)
-        self.thread.start()
 
     def _fanout(self) -> None:
         decoder = self.decoder
@@ -187,10 +201,16 @@ class ReceiverSession:
                 except OSError:
                     pass
             if player.poll() is None:
-                player.terminate()
+                try:
+                    player.terminate()
+                except OSError:
+                    pass
         self.players.clear()
         if self.decoder and self.decoder.poll() is None:
-            self.decoder.terminate()
+            try:
+                self.decoder.terminate()
+            except OSError:
+                pass
         if self.module_id:
             unload_virtual_microphone(self.module_id)
             self.module_id = ""
@@ -218,7 +238,16 @@ def ensure_virtual_microphone(sink_name: str = "simpleoffice_stream") -> str:
 def unload_virtual_microphone(module_id: str) -> None:
     pactl = shutil.which("pactl")
     if pactl and str(module_id).isdigit():
-        subprocess.run([pactl, "unload-module", str(module_id)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        try:
+            subprocess.run(
+                [pactl, "unload-module", str(module_id)],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 class LiveAudioManager:
@@ -236,10 +265,15 @@ class LiveAudioManager:
 
     def stop_sender(self) -> None:
         if self.sender and self.sender.process.poll() is None:
-            self.sender.process.terminate()
+            try:
+                self.sender.process.terminate()
+            except OSError:
+                pass
         self.sender = None
 
     def start_receiver(self, *, port: int, speaker_devices: list[str] | None = None, virtual_microphone: bool = True, virtual_sink: str = "simpleoffice_stream") -> dict[str, Any]:
+        if speaker_devices is not None and not isinstance(speaker_devices, list):
+            raise ValueError("speaker_devices muss eine Liste sein")
         devices = [str(item).strip()[:240] for item in (speaker_devices or []) if str(item).strip()]
         with _SESSION_LOCK:
             self.stop_receiver()
