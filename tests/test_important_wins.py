@@ -92,11 +92,26 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn('NfcAdapter.FLAG_READER_NFC_A', activity)
         self.assertIn('onShowFileChooser', activity)
         self.assertIn('isTrustedLocalOrigin', activity)
+        self.assertIn('requestsOnlyVideo', activity)
+        self.assertIn('nativeBridgeToken.equals(token)', activity)
+
+    def test_android_has_native_barcode_fallback(self):
+        manifest = self.read("android/apk/app/src/main/AndroidManifest.xml")
+        gradle = self.read("android/apk/app/build.gradle")
+        activity = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java")
+        self.assertIn('play-services-code-scanner:16.1.0', gradle)
+        self.assertIn('android:value="barcode_ui"', manifest)
+        self.assertIn('GmsBarcodeScanning.getClient(this)', activity)
+        self.assertIn('startBarcodeScan(String token)', activity)
+        self.assertIn("event.target.closest('#start-barcode')", activity)
+        self.assertIn("if(!trigger||('BarcodeDetector' in window))return", activity)
+        self.assertIn("document.getElementById('barcode')", activity)
+        self.assertIn("document.getElementById('lookup-book')", activity)
 
     def test_android_version_is_bumped(self):
         text = self.read("android/apk/app/build.gradle")
-        self.assertRegex(text, r"versionCode\s+4\b")
-        self.assertIn("versionName '1.0.3'", text)
+        self.assertRegex(text, r"versionCode\s+5\b")
+        self.assertIn("versionName '1.0.4'", text)
         self.assertIn("buildConfig true", text)
 
 
