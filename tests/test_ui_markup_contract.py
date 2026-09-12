@@ -12,6 +12,25 @@ STATIC_ID = re.compile(r"\bid\s*=\s*[\"']([^\"'{}]+)[\"']", re.IGNORECASE)
 BLANK_LINK = re.compile(r"<a\b[^>]*\btarget\s*=\s*[\"']_blank[\"'][^>]*>", re.IGNORECASE)
 
 
+def _duplicate_static_ids(text: str) -> list[str]:
+    positions: dict[str, list[int]] = {}
+    for match in STATIC_ID.finditer(text):
+        positions.setdefault(match.group(1), []).append(match.start())
+    duplicates = []
+    for value, offsets in positions.items():
+        if len(offsets) < 2:
+            continue
+        simultaneous = False
+        for left, right in zip(offsets, offsets[1:]):
+            between = text[left:right]
+            if "{% else %}" not in between and "{% elif " not in between:
+                simultaneous = True
+                break
+        if simultaneous:
+            duplicates.append(value)
+    return sorted(duplicates)
+
+
 class UiMarkupContractTests(unittest.TestCase):
     @staticmethod
     def _templates():
@@ -24,12 +43,10 @@ class UiMarkupContractTests(unittest.TestCase):
                 broken.append(str(path.relative_to(ROOT)))
         self.assertEqual([], broken, f"Merge-Konfliktmarker in UI-Templates: {broken}")
 
-    def test_static_html_ids_are_unique_per_template(self):
+    def test_static_html_ids_are_unique_per_render_branch(self):
         broken = []
         for path in self._templates():
-            text = path.read_text(encoding="utf-8")
-            ids = STATIC_ID.findall(text)
-            duplicates = sorted({value for value in ids if ids.count(value) > 1})
+            duplicates = _duplicate_static_ids(path.read_text(encoding="utf-8"))
             if duplicates:
                 broken.append(f"{path.relative_to(ROOT)}: {', '.join(duplicates)}")
         self.assertEqual([], broken, "Doppelte statische HTML-IDs:\n" + "\n".join(broken))
