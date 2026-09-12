@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Mini Services</h1>
+      <p class="text-secondary mb-0">Lokale Infrastruktur- und Netzwerkdienste zentral verwalten.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Fehler / Audit</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzer</a>
+    </div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="row g-3">
+    <div class="col-sm-6 col-xl-3">
+      <article class="card h-100">
+        <div class="card-body d-flex flex-column">
+          <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-network-wired me-2" aria-hidden="true"></i>DHCP / DNS</h2><span class="badge text-bg-{{ 'success' if status.dhcp_running or status.dns_running else 'secondary' }} align-self-start">{{ 'läuft' if status.dhcp_running or status.dns_running else 'bereit' }}</span></div>
+          <p class="text-secondary small">Adressvergabe, lokales DNS, Blocklisten, Leases und Netzwerkoptionen.</p>
+          <div class="small mb-3">DHCP: <strong>{{ 'an' if config.dhcp.enabled else 'aus' }}</strong> · DNS: <strong>{{ 'an' if config.dns.enabled else 'aus' }}</strong></div>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('mini_services_admin.network') }}">Netzwerkdienste öffnen</a>
+        </div>
+      </article>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <article class="card h-100">
+        <div class="card-body d-flex flex-column">
+          <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-phone-volume me-2" aria-hidden="true"></i>SIP / Telefonie</h2><span class="badge text-bg-primary align-self-start">Mini Service</span></div>
+          <p class="text-secondary small">SIP-Zugangsdaten, Nebenstellen, Registrar, Transport und Softphone-Einrichtung.</p>
+          <p class="small mb-3">Die Telefonie-Oberfläche ist Teil der Mini Services und nicht mehr nur über einen separaten Admin-Link erreichbar.</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('telephony_admin.index') }}">SIP-Service öffnen</a>
+        </div>
+      </article>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <article class="card h-100">
+        <div class="card-body d-flex flex-column">
+          <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-ethernet me-2" aria-hidden="true"></i>Network Boot</h2><span class="badge text-bg-primary align-self-start">Mini Service</span></div>
+          <p class="text-secondary small">PXE-/Boot-Inhalte und Federation-Rollen für anbietende und speichernde Peers.</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('network_boot_admin.index') }}">Network Boot öffnen</a>
+        </div>
+      </article>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <article class="card h-100">
+        <div class="card-body d-flex flex-column">
+          <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-volume-high me-2" aria-hidden="true"></i>Audio</h2><span class="badge text-bg-secondary align-self-start">API</span></div>
+          <p class="text-secondary small">Netzwerk-Audioausgänge, Gruppen, Durchsagen und Warteschlange.</p>
+          <a class="btn btn-outline-primary mt-auto" href="{{ url_for('audio_output_admin.status') }}">Audio-Status öffnen</a>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <section class="card mt-4">
+    <div class="card-body">
+      <h2 class="h5">Dienststatus</h2>
+      <div class="row g-2 small">
+        <div class="col-md-4"><span class="text-secondary">Worker:</span> <strong>{{ status.state or 'unbekannt' }}</strong>{% if status.pid %} · PID {{ status.pid }}{% endif %}</div>
+        <div class="col-md-4"><span class="text-secondary">DHCP:</span> <strong>{{ 'läuft' if status.dhcp_running else ('konfiguriert' if config.dhcp.enabled else 'aus') }}</strong></div>
+        <div class="col-md-4"><span class="text-secondary">DNS:</span> <strong>{{ 'läuft' if status.dns_running else ('konfiguriert' if config.dns.enabled else 'aus') }}</strong></div>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}
