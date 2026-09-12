@@ -177,11 +177,13 @@ from . import app as _flask_app
 from .audio_output_admin import bp as _audio_output_admin_bp
 from .network_boot_admin import bp as _network_boot_admin_bp
 from .network_boot_http import bp as _network_boot_http_bp, federation_bp as _network_boot_federation_bp
+from .telephony_admin import bp as _telephony_admin_bp
 for _service_bp in (
     _network_boot_admin_bp,
     _network_boot_http_bp,
     _network_boot_federation_bp,
     _audio_output_admin_bp,
+    _telephony_admin_bp,
 ):
     if _service_bp.name not in _flask_app.blueprints:
         _flask_app.register_blueprint(_service_bp)
