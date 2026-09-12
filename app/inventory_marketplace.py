@@ -152,10 +152,10 @@ def _html_request(provider: str, query: str) -> str:
     text = data.decode("utf-8", errors="replace")
     lowered = text.lower()
     protection_markers = (
-        "robot check",
         "enter the characters you see below",
-        "captcha",
-        "automatisierte zugriffe",
+        "sorry, we just need to make sure you're not a robot",
+        "pardon our interruption",
+        "robot check",
     )
     if any(marker in lowered for marker in protection_markers):
         raise ValueError("Marketplace zeigt eine Schutzseite; normale Suche kann geöffnet werden")
