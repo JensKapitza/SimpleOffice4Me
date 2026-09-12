@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 
@@ -42,7 +43,7 @@ class TelephonyProfileStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = TelephonyProfileStore(directory)
             store.create_profile("110", "Desk", "enc:v1:one", device_kind="deskphone")
-            with self.assertRaises(Exception):
+            with self.assertRaises(sqlite3.IntegrityError):
                 store.create_profile("110", "Duplicate", "enc:v1:two")
             with self.assertRaises(ValueError):
                 store.create_profile("abc", "Bad", "enc:v1:three")
