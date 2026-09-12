@@ -17,8 +17,8 @@ android {
         applicationId 'de.simpleoffice4me.android'
         minSdk 24
         targetSdk 36
-        versionCode 4
-        versionName '1.0.3'
+        versionCode 5
+        versionName '1.0.4'
         buildConfigField 'String', 'ERROR_REPORT_URL', "\"${escapedErrorReportUrl}\""
 
         ndk {
@@ -49,6 +49,10 @@ android {
     }
 }
 
+dependencies {
+    implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
+}
+
 chaquopy {
     defaultConfig {
         version = '3.13'
@@ -63,7 +67,6 @@ chaquopy {
             install 'argon2-cffi==23.1.0'
             install 'beautifulsoup4==4.14.2'
             install 'defusedxml==0.7.1'
-            install 'Pillow==11.0.0'
             install 'reportlab==4.2.5'
             install 'pypdf==6.1.1'
             install 'cryptography==42.0.8'
