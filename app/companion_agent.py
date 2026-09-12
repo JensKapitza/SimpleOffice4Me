@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -84,7 +85,16 @@ def start(root: str | Path) -> dict[str, Any]:
     if current["running"]:
         return current
     root_path = Path(root).expanduser().resolve()
-    command = [sys.executable, "-m", "tools.background_worker", "--root", str(root_path)]
+    instance_token = secrets.token_urlsafe(24)
+    command = [
+        sys.executable,
+        "-m",
+        "tools.background_worker",
+        "--root",
+        str(root_path),
+        "--token",
+        instance_token,
+    ]
     kwargs: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
