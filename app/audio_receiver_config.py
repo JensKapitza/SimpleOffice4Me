@@ -14,7 +14,7 @@ class AudioReceiver:
     target: str
     name: str
     enabled: bool = True
-    bind: str = "0.0.0.0"
+    bind: str = "127.0.0.1"
     port: int = 0
 
     def to_dict(self) -> dict[str, Any]:
@@ -38,7 +38,7 @@ def normalize_receiver(value: dict[str, Any]) -> AudioReceiver:
         raise ValueError("Unbekannter Receiver-Typ")
     target = _clean_id(value.get("target"), "target")
     name = " ".join(str(value.get("name") or receiver_id).split())[:200]
-    bind = str(value.get("bind") or "0.0.0.0").strip()[:200]
+    bind = str(value.get("bind") or "127.0.0.1").strip()[:200]
     port = int(value.get("port") or 0)
     if port < 0 or port > 65535:
         raise ValueError("Port ist ungueltig")
