@@ -20,6 +20,7 @@ def directory_profiles(root, country=""):
             "base_url": peer.get("base_url") or "",
             "country": identity.get("country") or "",
             "fingerprint": identity.get("fingerprint") or "",
+            "public_key": identity.get("public_key") or "",
             "capabilities": {},
         })
     return result
