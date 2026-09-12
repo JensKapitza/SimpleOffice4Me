@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,11 @@ from .file_lock import exclusive_file_lock
 SCHEMA_VERSION = 1
 MAX_DEVICES = 1000
 MAX_SESSIONS = 5000
-SESSION_STATES = {"requested", "accepted", "active", "suspended", "ended", "failed", "rejected"}
+ONLINE_TTL_SECONDS = 30
+SESSION_STATES = {
+    "requested", "accepted", "connecting", "active", "disconnected",
+    "suspended", "resuming", "ended", "failed", "rejected",
+}
 SESSION_TYPES = {"desktop", "remote_app", "support"}
 
 
@@ -28,6 +32,20 @@ def _now() -> str:
 
 def _text(value: Any, limit: int = 240) -> str:
     return " ".join(str(value or "").replace("\x00", "").split())[:limit]
+
+
+def _is_recent(value: Any, *, ttl_seconds: int = ONLINE_TTL_SECONDS) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    age = datetime.now(timezone.utc) - stamp.astimezone(timezone.utc)
+    return timedelta(0) <= age <= timedelta(seconds=max(1, int(ttl_seconds)))
 
 
 class RemoteHubStore:
@@ -61,11 +79,19 @@ class RemoteHubStore:
             except OSError:
                 pass
 
+    @staticmethod
+    def _device_view(row: dict[str, Any]) -> dict[str, Any]:
+        result = dict(row)
+        result["online"] = bool(result.get("enabled", True)) and _is_recent(result.get("last_seen_at"))
+        return result
+
     def devices(self) -> list[dict[str, Any]]:
-        return sorted(self._read()["devices"], key=lambda row: (_text(row.get("favorite"), 10) != "True", _text(row.get("label"), 160).casefold()))
+        rows = [self._device_view(row) for row in self._read()["devices"]]
+        return sorted(rows, key=lambda row: (not bool(row.get("favorite")), _text(row.get("label"), 160).casefold()))
 
     def get_device(self, device_id: str) -> dict[str, Any] | None:
-        return next((row for row in self._read()["devices"] if row.get("device_id") == device_id), None)
+        row = next((row for row in self._read()["devices"] if row.get("device_id") == device_id), None)
+        return self._device_view(row) if row is not None else None
 
     def upsert_device(self, *, device_id: str = "", label: str, platform: str, mode: str = "consent", tags=(), favorite: bool = False, enabled: bool = True) -> dict[str, Any]:
         label = _text(label, 160)
@@ -89,26 +115,11 @@ class RemoteHubStore:
             if row is None:
                 if len(data["devices"]) >= MAX_DEVICES:
                     raise ValueError("Maximale Geräteanzahl erreicht")
-                row = {
-                    "device_id": str(uuid.uuid4()),
-                    "created_at": now,
-                    "last_seen_at": "",
-                    "agent_version": "",
-                    "online": False,
-                    "allowed_user_ids": [],
-                }
+                row = {"device_id": str(uuid.uuid4()), "created_at": now, "last_seen_at": "", "agent_version": "", "allowed_user_ids": []}
                 data["devices"].append(row)
-            row.update({
-                "label": label,
-                "platform": platform,
-                "mode": mode,
-                "tags": clean_tags[:50],
-                "favorite": bool(favorite),
-                "enabled": bool(enabled),
-                "updated_at": now,
-            })
+            row.update({"label": label, "platform": platform, "mode": mode, "tags": clean_tags[:50], "favorite": bool(favorite), "enabled": bool(enabled), "updated_at": now})
             self._save(data)
-            return dict(row)
+            return self._device_view(row)
 
     def set_device_users(self, device_id: str, user_ids) -> dict[str, Any]:
         users = []
@@ -127,7 +138,14 @@ class RemoteHubStore:
             row["allowed_user_ids"] = users[:250]
             row["updated_at"] = _now()
             self._save(data)
-            return dict(row)
+            return self._device_view(row)
+
+    def user_can_access(self, device_id: str, user_id: int) -> bool:
+        device = self.get_device(device_id)
+        if device is None or not device.get("enabled", True):
+            return False
+        allowed = {int(value) for value in device.get("allowed_user_ids", []) if str(value).isdigit()}
+        return int(user_id) in allowed
 
     def heartbeat(self, device_id: str, *, agent_version: str = "", platform: str = "") -> dict[str, Any]:
         with exclusive_file_lock(self.lock):
@@ -139,9 +157,8 @@ class RemoteHubStore:
                 raise ValueError("Plattform stimmt nicht mit der Gerätefreigabe überein")
             row["last_seen_at"] = _now()
             row["agent_version"] = _text(agent_version, 80)
-            row["online"] = True
             self._save(data)
-            return dict(row)
+            return self._device_view(row)
 
     def sessions(self, *, limit: int = 100) -> list[dict[str, Any]]:
         rows = sorted(self._read()["sessions"], key=lambda row: str(row.get("created_at", "")), reverse=True)
@@ -157,27 +174,12 @@ class RemoteHubStore:
         device = self.get_device(device_id)
         if device is None or not device.get("enabled", True):
             raise ValueError("Gerät ist nicht verfügbar")
-        allowed = [int(value) for value in device.get("allowed_user_ids", []) if str(value).isdigit()]
-        if allowed and int(actor_id) not in allowed:
+        if not self.user_can_access(device_id, actor_id):
             raise PermissionError("Benutzer hat keine Freigabe für dieses Gerät")
         if session_type == "remote_app" and not app_id:
             raise ValueError("Remote-App-Sitzungen benötigen eine veröffentlichte Anwendung")
         now = _now()
-        row = {
-            "session_id": str(uuid.uuid4()),
-            "device_id": device_id,
-            "device_label": device.get("label", ""),
-            "actor_id": int(actor_id),
-            "actor_name": _text(actor_name, 160),
-            "session_type": session_type,
-            "app_id": _text(app_id, 80),
-            "state": "requested",
-            "created_at": now,
-            "updated_at": now,
-            "ended_at": "",
-            "notes": "",
-            "connection": {},
-        }
+        row = {"session_id": str(uuid.uuid4()), "device_id": device_id, "device_label": device.get("label", ""), "actor_id": int(actor_id), "actor_name": _text(actor_name, 160), "session_type": session_type, "app_id": _text(app_id, 80), "state": "requested", "created_at": now, "updated_at": now, "ended_at": "", "notes": "", "connection": {}}
         with exclusive_file_lock(self.lock):
             data = self._read()
             data["sessions"].append(row)
