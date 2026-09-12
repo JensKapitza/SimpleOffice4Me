@@ -274,7 +274,10 @@ def init_app(app: Any) -> None:
     app.cli.add_command(retention_status_command)
     app.cli.add_command(retention_cleanup_command)
     app.cli.add_command(search_documents_command)
-    from . import chat_policy_admin, chat_routes, federation_chat_http
+    from . import chat_policy_admin, chat_routes, federation_chat_http, google_drive_admin, google_drive_schema
+    google_drive_schema.init_app(app)
+    if "google_drive_admin" not in app.blueprints:
+        app.register_blueprint(google_drive_admin.bp)
     if "chat" not in app.blueprints:
         app.register_blueprint(chat_routes.bp)
     if "federation_chat" not in app.blueprints:
