@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -6,6 +7,7 @@ from pathlib import Path
 from flask import Flask
 
 from app.federation_discovery_http import bp
+from app.federation_peer_auth import headers as peer_headers
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 
@@ -51,13 +53,20 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertEqual([row["peer_id"] for row in listed.json["peers"]], ["peer-a"])
 
     def test_signal_mailbox_is_single_delivery(self):
-        sent = self.client.post(
-            "/federation/v1/discovery/signal", headers=self.auth,
-            json={"sender_peer": "peer-a", "recipient_peer": "peer-b", "kind": "connect", "payload": {"url": "https://a.example"}},
-        )
+        store = FederationStore(self.root)
+        store.save_peer("peer-a", "A", "https://a.example", "token-a", {}, True)
+        store.save_peer("peer-b", "B", "https://b.example", "token-b", {}, True)
+        payload = {"recipient_peer": "peer-b", "kind": "connect", "payload": {"url": "https://a.example"}}
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        send_headers = peer_headers("peer-a", "token-a", "POST", "/federation/v1/discovery/signal", body)
+        send_headers["Content-Type"] = "application/json"
+        sent = self.client.post("/federation/v1/discovery/signal", headers=send_headers, data=body)
         self.assertEqual(sent.status_code, 201)
-        first = self.client.get("/federation/v1/discovery/signal?peer_id=peer-b", headers=self.auth)
-        second = self.client.get("/federation/v1/discovery/signal?peer_id=peer-b", headers=self.auth)
+
+        first_headers = peer_headers("peer-b", "token-b", "GET", "/federation/v1/discovery/signal")
+        first = self.client.get("/federation/v1/discovery/signal", headers=first_headers)
+        second_headers = peer_headers("peer-b", "token-b", "GET", "/federation/v1/discovery/signal")
+        second = self.client.get("/federation/v1/discovery/signal", headers=second_headers)
         self.assertEqual(len(first.json["messages"]), 1)
         self.assertEqual(second.json["messages"], [])
 
