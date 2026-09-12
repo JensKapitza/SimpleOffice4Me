@@ -1,6 +1,8 @@
 """Persistent SIP extension profiles for the Mini Services telephony assistant."""
 from __future__ import annotations
 
+import ipaddress
+import re
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -10,17 +12,30 @@ from typing import Iterator
 from .telephony_numbering import clean_number
 
 ALLOWED_TRANSPORTS = {"udp", "tcp", "tls"}
+_HOST_LABEL_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
 
 
 def _now() -> int:
     return int(time.time())
 
 
-def _clean_host(value: str) -> str:
+def _clean_host(value: str, *, allow_empty: bool = False) -> str:
     host = str(value or "").strip()
-    if not host or len(host) > 253 or any(ch.isspace() for ch in host):
+    if not host:
+        if allow_empty:
+            return ""
         raise ValueError("SIP-Server ist ungueltig")
-    return host
+    if len(host) > 253 or any(ch.isspace() for ch in host):
+        raise ValueError("SIP-Server ist ungueltig")
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    labels = host.rstrip(".").split(".")
+    if not labels or any(not _HOST_LABEL_RE.fullmatch(label) for label in labels):
+        raise ValueError("SIP-Server ist ungueltig")
+    return host.rstrip(".")
 
 
 def _clean_transport(value: str) -> str:
@@ -93,7 +108,7 @@ class TelephonyProfileStore:
             raise ValueError("SIP-Port muss zwischen 1 und 65535 liegen")
         clean_transport = _clean_transport(transport)
         clean_realm = _clean_host(realm)
-        clean_stun = str(stun_server or "").strip()[:253]
+        clean_stun = _clean_host(stun_server, allow_empty=True)
         values = {
             "registrar_host": host,
             "registrar_port": str(port),
@@ -171,15 +186,18 @@ class TelephonyProfileStore:
     def delete_profile(self, extension: str) -> None:
         number = clean_number(extension, "Nebenstelle")
         with self._db() as db:
-            db.execute("DELETE FROM telephony_profile WHERE extension=?", (number,))
+            cursor = db.execute("DELETE FROM telephony_profile WHERE extension=?", (number,))
+            if cursor.rowcount != 1:
+                raise KeyError("Nebenstelle nicht gefunden")
 
     def setup_values(self, extension: str) -> dict:
         profile = self.profile(extension)
         settings = self.settings()
         host = settings["registrar_host"]
+        uri_host = f"[{host}]" if ":" in host else host
         return {
             **profile,
             **settings,
-            "sip_uri": f"sip:{profile['extension']}@{host}" if host else "",
+            "sip_uri": f"sip:{profile['extension']}@{uri_host}" if host else "",
             "runtime_ready": False,
         }
