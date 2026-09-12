@@ -10,6 +10,7 @@ from flask import abort, flash, redirect, render_template, request, send_file, u
 from .documents_core import *  # noqa: F401,F403
 from .preview_service import PreviewService, VIDEO_SUFFIXES, detect_preview_tools
 from .safe_paths import resolve_file_under
+from .video_settings import save_video_preview_frame_count, video_preview_frame_count
 
 
 def _video_document(document_id: str) -> dict:
@@ -30,6 +31,8 @@ def _video_source(document: dict) -> Path:
 def open_video_previews_in_player():
     """Keep the historic preview URL but show a player for videos by default."""
     if request.endpoint != "documents.image_preview" or request.args.get("raw") == "1":
+        return None
+    if getattr(g, "user", None) is None:
         return None
     document_id = str((request.view_args or {}).get("document_id") or "")
     if not document_id:
@@ -76,7 +79,27 @@ def video_player(document_id: str):
         mime=mimetypes.guess_type(str(document.get("last_path", "")))[0] or "video/mp4",
         thumbnail_url=url_for("documents.document_thumbnail", document_id=document_id),
         ffmpeg_available=bool(detect_preview_tools()["commands"].get("ffmpeg")),
+        video_preview_frame_count=video_preview_frame_count(_store().root),
     )
+
+
+@bp.post("/<document_id>/video/settings")
+@login_required
+def save_video_settings(document_id: str):
+    _video_document(document_id)
+    try:
+        count = save_video_preview_frame_count(
+            _store().root,
+            request.form.get("frame_count", "10"),
+            str(g.user["username"]),
+        )
+        flash(
+            f"Video-Vorschau auf {count} Bilder eingestellt. "
+            "Vorhandene Videos werden beim nächsten Indexlauf mit dieser Anzahl neu aufgebaut."
+        )
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.video_player", document_id=document_id))
 
 
 @bp.get("/<document_id>/video/frames/<int:index>")
