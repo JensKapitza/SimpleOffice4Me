@@ -20,7 +20,7 @@
     <section class="col-xl-7">
       <div class="card h-100">
         <div class="card-header"><strong>Audioausgänge</strong></div>
-        <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Node</th><th>Ausgang</th><th>Name</th><th>Status</th><th>Lautstärke</th></tr></thead><tbody>
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Node</th><th scope="col">Ausgang</th><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Lautstärke</th></tr></thead><tbody>
           {% for output in outputs %}<tr><td><code>{{ output.node_id }}</code></td><td><code>{{ output.output_id }}</code></td><td>{{ output.name }}</td><td><span class="badge text-bg-{{ 'success' if output.online else 'secondary' }}">{{ 'online' if output.online else 'offline' }}</span></td><td>{{ output.volume }} %</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Audioausgänge registriert.</td></tr>{% endfor %}
         </tbody></table></div>
       </div>
@@ -37,7 +37,7 @@
 
   <section class="card mt-4">
     <div class="card-header"><strong>Warteschlange</strong></div>
-    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>ID</th><th>Typ</th><th>Ziele</th><th>Priorität</th><th>Status</th></tr></thead><tbody>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">ID</th><th scope="col">Typ</th><th scope="col">Ziele</th><th scope="col">Priorität</th><th scope="col">Status</th></tr></thead><tbody>
       {% for item in queue %}<tr><td>{{ item.id }}</td><td>{{ item.kind }}</td><td class="text-break">{{ item.targets|join(', ') }}</td><td>{{ item.priority }}</td><td>{{ item.state }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Keine offenen Audioereignisse.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
