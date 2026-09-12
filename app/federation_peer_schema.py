@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS federation_trust_attestation(
  verified_peer_id TEXT NOT NULL, verification_type TEXT NOT NULL,
  public_key_fingerprint TEXT NOT NULL DEFAULT '', signature TEXT NOT NULL DEFAULT '',
  propagation TEXT NOT NULL DEFAULT 'DIRECT_ONLY', max_hops INTEGER NOT NULL DEFAULT 0,
+ relay_hops_remaining INTEGER NOT NULL DEFAULT 0,
  created_at INTEGER NOT NULL, expires_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS federation_rendezvous(
@@ -46,9 +47,14 @@ CREATE TABLE IF NOT EXISTS federation_discovery_state(
 """
 
 
+def _ensure_column(db, table, name, definition):
+    columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    if name not in columns:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
 def ensure_schema(store):
     with store._db() as db:
         db.executescript(SCHEMA)
-        columns = {row["name"] for row in db.execute("PRAGMA table_info(federation_peer_identity)").fetchall()}
-        if "public_key" not in columns:
-            db.execute("ALTER TABLE federation_peer_identity ADD COLUMN public_key TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "federation_peer_identity", "public_key", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "federation_trust_attestation", "relay_hops_remaining", "INTEGER NOT NULL DEFAULT 0")
