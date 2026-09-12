@@ -8,6 +8,7 @@ from .federation_directory import directory_profiles
 from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
 from .federation_local_profile import local_profile
+from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_peer_profile import peer_profile
 from .federation_rendezvous_messages import FederationRendezvousMessages
 from .federation_rendezvous_store import FederationRendezvousStore
@@ -83,37 +84,38 @@ def resolve():
 
 @bp.post("/federation/v1/discovery/signal")
 def send_signal():
-    if not _allowed(public=False):
-        return jsonify({"error": "authentication_required"}), 401
-    body = request.get_json(silent=True) or {}
     try:
+        sender_peer = authenticate_peer(_root(), request)
+        body = request.get_json(silent=True) or {}
         result = FederationRendezvousMessages(_root()).send(
-            body.get("sender_peer", ""), body.get("recipient_peer", ""),
-            body.get("kind", "signal"), body.get("payload") or {}, body.get("ttl_seconds", 600),
+            sender_peer, body.get("recipient_peer", ""), body.get("kind", "signal"),
+            body.get("payload") or {}, body.get("ttl_seconds", 600),
         )
         return jsonify(result), 201
     except (TypeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": str(exc)}), 401
 
 
 @bp.get("/federation/v1/discovery/signal")
 def receive_signal():
-    if not _allowed(public=False):
-        return jsonify({"error": "authentication_required"}), 401
-    peer_id = request.args.get("peer_id", "").strip()
-    if not peer_id:
-        return jsonify({"error": "peer_id_required"}), 400
     try:
-        return jsonify({"messages": FederationRendezvousMessages(_root()).receive(peer_id)})
+        recipient_peer = authenticate_peer(_root(), request)
+        return jsonify({"messages": FederationRendezvousMessages(_root()).receive(recipient_peer)})
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": str(exc)}), 401
 
 
 @bp.get("/federation/v1/discovery/trust-claims")
 def trust_claims():
     if not _allowed(public=False):
         return jsonify({"error": "authentication_required"}), 401
+    claims = FederationTrustStore(_root()).shareable_claims()
+    try:
+        verifier = local_profile()["peer_id"]
+        claims = [{**claim, "source_peer": verifier} for claim in claims]
+    except ValueError:
+        pass
     return jsonify({
-        "claims": FederationTrustStore(_root()).shareable_claims(),
+        "claims": claims,
         "attestations": FederationAttestationStore(_root()).export_shareable(),
     })
