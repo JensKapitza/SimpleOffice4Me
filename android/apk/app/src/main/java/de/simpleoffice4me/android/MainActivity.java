@@ -53,10 +53,12 @@ public class MainActivity extends Activity {
     private static final String RUNTIME_VERSION = "bundle-version";
     private static final int CAMERA_PERMISSION_REQUEST = 701;
     private static final int FILE_CHOOSER_REQUEST = 702;
+    private static final int AUDIO_PERMISSION_REQUEST = 703;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final String nativeBridgeToken = UUID.randomUUID().toString();
+    private final AndroidAudioStreamer audioStreamer = new AndroidAudioStreamer();
     private WebView webView;
     private ProgressBar progress;
     private TextView status;
@@ -69,6 +71,8 @@ public class MainActivity extends Activity {
     private boolean mainFrameLoadFailed;
     private String pendingBarcodeResult;
     private String pendingBarcodeStatus;
+    private String pendingAudioTargets;
+    private int pendingAudioBitrate = 64;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -226,6 +230,13 @@ public class MainActivity extends Activity {
         return "(function(){"
                 + "if(!window.SimpleOfficeAndroid)return;"
                 + "const bridgeToken=" + quotedToken + ";"
+                + "window.SimpleOfficeNativeAudio={"
+                + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
+                + "startSender:(targets,bitrate)=>String(window.SimpleOfficeAndroid.startAudioSender(bridgeToken,JSON.stringify(targets||[]),Number(bitrate||64))),"
+                + "stopSender:()=>String(window.SimpleOfficeAndroid.stopAudioSender(bridgeToken)),"
+                + "startReceiver:(port)=>String(window.SimpleOfficeAndroid.startAudioReceiver(bridgeToken,Number(port||5004))),"
+                + "stopReceiver:()=>String(window.SimpleOfficeAndroid.stopAudioReceiver(bridgeToken))};"
+                + "window.dispatchEvent(new Event('simpleoffice:native-audio-ready'));"
                 + "if(!window.NDEFReader){class NativeNDEFReader extends EventTarget{async scan(){"
                 + "const state=String(window.SimpleOfficeAndroid.startNfcScan(bridgeToken));"
                 + "if(state!=='ok')throw new DOMException(state==='disabled'?'NFC ist deaktiviert.':'NFC ist nicht verfügbar.','NotSupportedError');"
@@ -284,6 +295,18 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == AUDIO_PERMISSION_REQUEST) {
+            String targets = pendingAudioTargets;
+            pendingAudioTargets = null;
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted && targets != null && webView != null && isLocalUrl(webView.getUrl())) {
+                String result = audioStreamer.startSender(targets, pendingAudioBitrate);
+                dispatchNativeAudioStatus("ok".equals(result) ? "" : "Android-Audiosender konnte nicht gestartet werden.");
+            } else {
+                dispatchNativeAudioStatus("Mikrofonberechtigung wurde nicht erteilt.");
+            }
+            return;
+        }
         if (requestCode != CAMERA_PERMISSION_REQUEST) return;
         PermissionRequest request = pendingCameraPermission;
         pendingCameraPermission = null;
@@ -329,10 +352,68 @@ public class MainActivity extends Activity {
             mainHandler.post(MainActivity.this::beginBarcodeScan);
             return "ok";
         }
+
+        @JavascriptInterface
+        public String audioStatus(String token) {
+            return bridgeAllowed(token) ? audioStreamer.statusJson() : "{\"platform\":\"blocked\"}";
+        }
+
+        @JavascriptInterface
+        public String startAudioSender(String token, String targetsJson, int bitrateKbps) {
+            if (!bridgeAllowed(token)) return "blocked";
+            if (!AndroidAudioStreamer.opusEncoderAvailable()) return "unsupported";
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                pendingAudioTargets = targetsJson;
+                pendingAudioBitrate = Math.max(16, Math.min(bitrateKbps, 256));
+                mainHandler.post(() -> requestPermissions(
+                        new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION_REQUEST));
+                return "permission";
+            }
+            String result = audioStreamer.startSender(targetsJson, bitrateKbps);
+            dispatchNativeAudioStatus("ok".equals(result) ? "" : "Android-Audiosender konnte nicht gestartet werden.");
+            return result;
+        }
+
+        @JavascriptInterface
+        public String stopAudioSender(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            pendingAudioTargets = null;
+            audioStreamer.stopSender();
+            dispatchNativeAudioStatus("");
+            return "ok";
+        }
+
+        @JavascriptInterface
+        public String startAudioReceiver(String token, int port) {
+            if (!bridgeAllowed(token)) return "blocked";
+            String result = audioStreamer.startReceiver(port);
+            dispatchNativeAudioStatus("ok".equals(result) ? "" : "Android-Audioempfang konnte nicht gestartet werden.");
+            return result;
+        }
+
+        @JavascriptInterface
+        public String stopAudioReceiver(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            audioStreamer.stopReceiver();
+            dispatchNativeAudioStatus("");
+            return "ok";
+        }
     }
 
     private boolean bridgeAllowed(String token) {
         return nativeBridgeToken.equals(token) && localPageVisible && webView != null && isLocalUrl(webView.getUrl());
+    }
+
+    private void dispatchNativeAudioStatus(String message) {
+        mainHandler.post(() -> {
+            if (webView == null || !isLocalUrl(webView.getUrl())) return;
+            String statusJson = org.json.JSONObject.quote(audioStreamer.statusJson());
+            String messageJson = org.json.JSONObject.quote(message == null ? "" : message);
+            webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('simpleoffice:native-audio-status',{detail:{status:JSON.parse("
+                            + statusJson + "),message:" + messageJson + "}}));",
+                    null);
+        });
     }
 
     private void beginBarcodeScan() {
@@ -588,6 +669,8 @@ public class MainActivity extends Activity {
         localPageVisible = false;
         stopNfcReader();
         denyPendingCameraPermission();
+        pendingAudioTargets = null;
+        audioStreamer.stopAll();
         pendingBarcodeResult = null;
         pendingBarcodeStatus = null;
         if (fileChooserCallback != null) {
