@@ -1,13 +1,15 @@
 """Admin routes for federation discovery and directed trust."""
-from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
 
 from .federation_admin import admin_required
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_local_profile import local_profile
 from .federation_qr import decode_peer, encode_peer
+from .federation_qr_image import render_qr_svg
 from .federation_store import FederationStore
 from .federation_trust_eval import recommendations
+from .federation_trust_exchange import sync_claims
 from .federation_trust_store import FederationTrustStore
 
 bp = Blueprint("federation_peer_admin", __name__, url_prefix="/admin/federation/peer-discovery")
@@ -38,6 +40,16 @@ def dashboard():
         own = {}
         own_qr = ""
     return render_template("admin/federation_peer_discovery.html", peers=peers, own=own, own_qr=own_qr)
+
+
+@bp.get("/qr.svg")
+@admin_required
+def qr_svg():
+    try:
+        payload = encode_peer(local_profile())
+        return Response(render_qr_svg(payload), content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+    except ValueError as exc:
+        return Response(str(exc), status=503, content_type="text/plain")
 
 
 @bp.post("/discover/direct")
@@ -119,4 +131,15 @@ def set_trust(peer_id):
         flash("Vertrauensbeziehung gespeichert.")
     except Exception as exc:
         flash(f"Vertrauen konnte nicht gespeichert werden: {exc}")
+    return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/trust/<peer_id>/sync")
+@admin_required
+def sync_trust(peer_id):
+    try:
+        result = sync_claims(_root(), peer_id)
+        flash(f"{result['imported']} Trust-Hinweis(e) von {peer_id} übernommen; lokales Vertrauen blieb unverändert.")
+    except Exception as exc:
+        flash(f"Trust-Hinweise konnten nicht geladen werden: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
