@@ -1,7 +1,7 @@
 """Client helpers for an authenticated shared federation rendezvous node."""
 import json
 
-from .federation_local_profile import local_profile
+from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_headers
 from .federation_store import FederationStore
 from .federation_worker import _request
@@ -12,7 +12,7 @@ def _relay(root, relay_peer_id):
     relay = store.get_peer(relay_peer_id)
     if not relay or not relay.get("enabled"):
         raise ValueError("rendezvous peer is not enabled")
-    return store, relay, store.peer_token(relay_peer_id), local_profile()["peer_id"]
+    return store, relay, store.peer_token(relay_peer_id), local_peer_id()
 
 
 def send_signal(root, relay_peer_id, recipient_peer, payload, kind="connect", ttl_seconds=600):
