@@ -20,19 +20,23 @@ class FederationTrustStore:
         self.store = FederationStore(root)
         ensure_schema(self.store)
 
-    def remember(self, peer_id, country="", fingerprint="", source=""):
+    def remember(self, peer_id, country="", fingerprint="", source="", public_key=""):
         peer_id = sanitize_peer_id(peer_id)
         now = int(time.time())
         with self.store._db() as db:
             db.execute(
                 """INSERT INTO federation_peer_identity
-                (peer_id,country,fingerprint,discovery_source,first_seen_at,updated_at)
-                VALUES(?,?,?,?,?,?) ON CONFLICT(peer_id) DO UPDATE SET
+                (peer_id,country,fingerprint,public_key,discovery_source,first_seen_at,updated_at)
+                VALUES(?,?,?,?,?,?,?) ON CONFLICT(peer_id) DO UPDATE SET
                 country=CASE WHEN excluded.country<>'' THEN excluded.country ELSE country END,
                 fingerprint=CASE WHEN excluded.fingerprint<>'' THEN excluded.fingerprint ELSE fingerprint END,
+                public_key=CASE WHEN excluded.public_key<>'' THEN excluded.public_key ELSE public_key END,
                 discovery_source=CASE WHEN excluded.discovery_source<>'' THEN excluded.discovery_source ELSE discovery_source END,
                 updated_at=excluded.updated_at""",
-                (peer_id, str(country)[:2].upper(), str(fingerprint)[:256], str(source)[:160], now, now),
+                (
+                    peer_id, str(country)[:2].upper(), str(fingerprint)[:256], str(public_key)[:512],
+                    str(source)[:160], now, now,
+                ),
             )
         return self.identity(peer_id)
 
