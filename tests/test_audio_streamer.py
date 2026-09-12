@@ -12,6 +12,7 @@ from app.audio_streamer import (
     decoder_command,
     ensure_virtual_microphone,
     normalize_destinations,
+    normalize_speaker_devices,
     paplay_command,
     receiver_sdp,
     sender_command,
@@ -22,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AudioStreamerTests(unittest.TestCase):
-    def test_destinations_are_validated_and_deduplicated(self) -> None:
+    def test_destinations_are_validated_deduplicated_and_bounded(self) -> None:
         values = [
             {"host": "192.168.1.20", "port": 5004},
             {"host": "192.168.1.20", "port": 5004},
@@ -36,6 +37,20 @@ class AudioStreamerTests(unittest.TestCase):
             normalize_destinations([{"host": "x;touch /tmp/pwn", "port": 5004}])
         with self.assertRaises(ValueError):
             normalize_destinations([{"host": "127.0.0.1", "port": 22}])
+        with self.assertRaises(ValueError):
+            normalize_destinations([{"host": "127.0.0.1", "port": 5004}] * 17)
+
+    def test_speaker_devices_are_deduplicated_and_bounded(self) -> None:
+        self.assertEqual(
+            normalize_speaker_devices(["sink-a", " sink-b ", "sink-a", ""]),
+            ["sink-a", "sink-b"],
+        )
+        with self.assertRaises(ValueError):
+            normalize_speaker_devices("sink-a")
+        with self.assertRaises(ValueError):
+            normalize_speaker_devices(["sink"] * 17)
+        with self.assertRaises(ValueError):
+            normalize_speaker_devices([123])
 
     @patch("app.audio_streamer.shutil.which", return_value="/usr/bin/ffmpeg")
     def test_sender_uses_opus_low_delay_rtp_without_shell(self, _which) -> None:
