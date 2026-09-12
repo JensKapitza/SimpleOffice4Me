@@ -1,7 +1,7 @@
 """Administrator endpoints for network audio outputs and announcements."""
 from __future__ import annotations
 
-from flask import Blueprint, abort, g, jsonify, request
+from flask import Blueprint, abort, g, jsonify, render_template, request
 
 from .access_control import audit, is_admin
 from .audio_output_store import AudioOutputStore, DEFAULT_PRESETS
@@ -37,6 +37,19 @@ def _json() -> dict:
 def status():
     store = _store()
     return jsonify({"outputs": store.outputs(), "groups": store.groups(), "presets": DEFAULT_PRESETS, "queue": store.pending(100)})
+
+
+@bp.get("/ui")
+@admin_required
+def index():
+    store = _store()
+    return render_template(
+        "admin/audio_output.html",
+        outputs=store.outputs(),
+        groups=store.groups(),
+        presets=DEFAULT_PRESETS,
+        queue=store.pending(100),
+    )
 
 
 @bp.post("/outputs")
