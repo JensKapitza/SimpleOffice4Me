@@ -1,4 +1,5 @@
 """HTTP endpoints for federation discovery and rendezvous."""
+import hmac
 import os
 
 from flask import Blueprint, current_app, jsonify, request
@@ -26,8 +27,15 @@ def _public_directory():
     return os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY", "0").strip().casefold() in {"1", "true", "yes", "on"}
 
 
-def _allowed(public=False):
-    return (public and _public_directory()) or _authorized()
+def _directory_authorized(public=False):
+    if public and _public_directory():
+        return True
+    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
+    supplied = request.headers.get("Authorization", "")
+    supplied = supplied[7:].strip() if supplied.startswith("Bearer ") else ""
+    if expected and supplied and hmac.compare_digest(expected, supplied):
+        return True
+    return _authorized()
 
 
 @bp.get("/.well-known/simpleoffice-federation")
@@ -40,7 +48,7 @@ def well_known():
 
 @bp.get("/federation/v1/discovery/peers")
 def peers():
-    if not _allowed(public=True):
+    if not _directory_authorized(public=True):
         return jsonify({"error": "authentication_required"}), 401
     country = request.args.get("country", "").strip().upper()[:2]
     return jsonify({"peers": directory_profiles(_root(), country)})
@@ -48,7 +56,7 @@ def peers():
 
 @bp.post("/federation/v1/discovery/register")
 def register():
-    if not _allowed(public=False):
+    if not _directory_authorized():
         return jsonify({"error": "authentication_required"}), 401
     body = request.get_json(silent=True) or {}
     try:
@@ -74,7 +82,7 @@ def register():
 
 @bp.get("/federation/v1/discovery/resolve")
 def resolve():
-    if not _allowed(public=False):
+    if not _directory_authorized():
         return jsonify({"error": "authentication_required"}), 401
     lookup = request.args.get("lookup", "").strip().casefold()
     if not lookup:
@@ -107,7 +115,7 @@ def receive_signal():
 
 @bp.get("/federation/v1/discovery/trust-claims")
 def trust_claims():
-    if not _allowed(public=False):
+    if not _authorized():
         return jsonify({"error": "authentication_required"}), 401
     claims = FederationTrustStore(_root()).shareable_claims()
     try:
