@@ -76,6 +76,7 @@ class FederationAttestationStore:
             "expires_at": int(expires_at) if expires_at else None,
         }
         value["signature"] = identity.sign(canonical_attestation(value))
+        value["relay_hops_remaining"] = max_hops
         self._save(value)
         return value
 
@@ -90,6 +91,8 @@ class FederationAttestationStore:
         if clean["propagation"] not in PROPAGATION:
             raise ValueError("invalid attestation propagation")
         clean["max_hops"] = max(0, min(int(clean["max_hops"] or 0), 2)) if clean["propagation"] == TRANSITIVE else 0
+        remaining = int(value.get("relay_hops_remaining", 0) or 0)
+        clean["relay_hops_remaining"] = max(0, min(remaining, clean["max_hops"]))
         self._save(clean)
         return clean
 
@@ -98,18 +101,20 @@ class FederationAttestationStore:
             db.execute(
                 """INSERT OR REPLACE INTO federation_trust_attestation
                 (attestation_id,verifier_peer_id,verified_peer_id,verification_type,
-                 public_key_fingerprint,signature,propagation,max_hops,created_at,expires_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                 public_key_fingerprint,signature,propagation,max_hops,relay_hops_remaining,
+                 created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     str(value["attestation_id"]), value["verifier_peer_id"], value["verified_peer_id"],
                     str(value["verification_type"])[:80], str(value.get("public_key_fingerprint") or "")[:256],
                     str(value.get("signature") or "")[:1024], value["propagation"], int(value["max_hops"]),
-                    int(value["created_at"]), int(value["expires_at"]) if value.get("expires_at") else None,
+                    int(value.get("relay_hops_remaining", 0)), int(value["created_at"]),
+                    int(value["expires_at"]) if value.get("expires_at") else None,
                 ),
             )
 
     def export_shareable(self):
         now = int(time.time())
+        local = local_peer_id()
         with self.store._db() as db:
             rows = db.execute(
                 """SELECT * FROM federation_trust_attestation
@@ -117,4 +122,13 @@ class FederationAttestationStore:
                 ORDER BY created_at DESC""",
                 (now,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            if item["verifier_peer_id"] == local:
+                item["relay_hops_remaining"] = item["max_hops"] if item["propagation"] == TRANSITIVE else 0
+                result.append(item)
+            elif item["propagation"] == TRANSITIVE and item["relay_hops_remaining"] > 0:
+                item["relay_hops_remaining"] -= 1
+                result.append(item)
+        return result
