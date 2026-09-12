@@ -66,6 +66,98 @@
   const searchInputs = () => Array.from(document.querySelectorAll(searchSelector))
     .filter((input) => !input.disabled && input.offsetParent !== null);
 
+  const humanizeFieldName = (name) => String(name || "")
+    .replace(/[_\-.]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
+
+  const helpOverrides = {
+    email: "E-Mail-Adresse, die für diesen Eintrag verwendet wird.",
+    phone: "Telefonnummer für diesen Kontakt oder Vorgang.",
+    telephone: "Telefonnummer für diesen Kontakt oder Vorgang.",
+    password: "Passwort für diesen Zugang. Nicht in Notizen oder anderen Freitextfeldern speichern.",
+    username: "Benutzername, mit dem sich die Person oder das Gerät anmeldet.",
+    name: "Bezeichnung, unter der dieser Eintrag angezeigt wird.",
+    title: "Kurzer, eindeutiger Titel des Eintrags.",
+    description: "Zusätzliche Beschreibung. Nur Informationen eintragen, die für diesen Vorgang relevant sind.",
+    date: "Datum für diesen Vorgang.",
+    start: "Startzeit oder Startdatum des Vorgangs.",
+    end: "Endzeit oder Enddatum des Vorgangs.",
+    due: "Fälligkeit. Ab diesem Zeitpunkt sollte der Vorgang erledigt sein.",
+    status: "Aktueller Bearbeitungsstand dieses Eintrags.",
+    priority: "Priorität dieses Eintrags. Höhere Priorität bedeutet wichtigere oder dringendere Bearbeitung.",
+    search: "Suchbegriff eingeben. Die Treffer werden anhand der verfügbaren Daten gefiltert.",
+    q: "Suchbegriff eingeben. Die Treffer werden anhand der verfügbaren Daten gefiltert.",
+  };
+
+  const fieldLabel = (control) => {
+    if (!(control instanceof HTMLElement)) return null;
+    if (control.id) {
+      const explicit = document.querySelector(`label[for="${CSS.escape(control.id)}"]`);
+      if (explicit instanceof HTMLLabelElement) return explicit;
+    }
+    const wrapped = control.closest("label");
+    if (wrapped instanceof HTMLLabelElement) return wrapped;
+    const container = control.closest(".mb-3, .form-group, .col, [class*='col-'], .input-group");
+    return container?.querySelector(":scope > label.form-label, :scope > label") || null;
+  };
+
+  const fieldHelpText = (control, label) => {
+    const explicit = String(control.dataset.help || "").trim();
+    if (explicit) return explicit;
+    const key = String(control.name || control.id || "").toLowerCase();
+    if (helpOverrides[key]) return helpOverrides[key];
+    const matchingKey = Object.keys(helpOverrides).find((candidate) => key.includes(candidate));
+    if (matchingKey) return helpOverrides[matchingKey];
+    const labelText = String(label?.textContent || control.getAttribute("aria-label") || "").replace(/\s*\?\s*$/, "").trim();
+    const friendly = labelText || humanizeFieldName(control.name || control.id) || "Dieses Feld";
+    if (control instanceof HTMLSelectElement) return `${friendly}: gewünschte Option auswählen.`;
+    if (control instanceof HTMLTextAreaElement) return `${friendly}: passende Informationen als Text eintragen.`;
+    if (control instanceof HTMLInputElement) {
+      if (control.type === "checkbox") return `${friendly}: aktivieren, wenn diese Option gelten soll.`;
+      if (control.type === "radio") return `${friendly}: diese Auswahl verwenden.`;
+      if (control.type === "file") return `${friendly}: passende Datei vom Gerät auswählen.`;
+      if (control.type === "number") return `${friendly}: gültigen Zahlenwert eintragen.`;
+      if (control.type === "date" || control.type === "datetime-local" || control.type === "time") return `${friendly}: passenden Zeitpunkt auswählen.`;
+    }
+    return `${friendly}: passenden Wert eintragen.`;
+  };
+
+  let fieldHelpCounter = 0;
+  const enhanceFieldHelp = (control) => {
+    if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement)) return;
+    if (["hidden", "submit", "button", "reset", "image"].includes(control.type) || control.dataset.noHelp === "true") return;
+    if (control.dataset.soHelpReady === "1") return;
+    control.dataset.soHelpReady = "1";
+    const label = fieldLabel(control);
+    const helpText = fieldHelpText(control, label);
+    if (!helpText) return;
+    fieldHelpCounter += 1;
+    const helpId = `so-field-help-${fieldHelpCounter}`;
+    const help = document.createElement("span");
+    help.className = "so-field-help d-inline-flex align-items-center justify-content-center ms-1";
+    help.id = helpId;
+    help.tabIndex = 0;
+    help.setAttribute("role", "button");
+    help.setAttribute("aria-label", `Hilfe: ${helpText}`);
+    help.setAttribute("data-bs-toggle", "tooltip");
+    help.setAttribute("data-bs-placement", "top");
+    help.setAttribute("title", helpText);
+    help.textContent = "?";
+    if (label) label.append(help);
+    else {
+      const anchor = control.closest(".input-group") || control;
+      anchor.insertAdjacentElement("afterend", help);
+      if (!control.hasAttribute("aria-label")) {
+        control.setAttribute("aria-label", humanizeFieldName(control.name || control.id) || "Eingabefeld");
+      }
+    }
+    const describedBy = new Set((control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+    describedBy.add(helpId);
+    control.setAttribute("aria-describedby", Array.from(describedBy).join(" "));
+    if (window.bootstrap?.Tooltip) window.bootstrap.Tooltip.getOrCreateInstance(help);
+  };
+
   let feedbackCounter = 0;
   const connectInvalidFeedback = (control) => {
     if (!(control instanceof HTMLElement)) return;
@@ -130,6 +222,7 @@
   const enhance = (root = document) => {
     root.querySelectorAll?.('a[target="_blank"]').forEach(enhanceLink);
     root.querySelectorAll?.(searchSelector).forEach(normalizeSearch);
+    root.querySelectorAll?.("input, select, textarea").forEach(enhanceFieldHelp);
     root.querySelectorAll?.("[required]").forEach((control) => {
       if (!control.hasAttribute("aria-required")) control.setAttribute("aria-required", "true");
       connectInvalidFeedback(control);
