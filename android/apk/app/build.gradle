@@ -67,6 +67,7 @@ chaquopy {
             install 'argon2-cffi==23.1.0'
             install 'beautifulsoup4==4.14.2'
             install 'defusedxml==0.7.1'
+            install 'Pillow==11.0.0'
             install 'reportlab==4.2.5'
             install 'pypdf==6.1.1'
             install 'cryptography==42.0.8'
