@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import functools
-import os
 import platform
+import secrets
 import shutil
 import subprocess
+import threading
+import time
 from typing import Any
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import audit
 from .auth import login_required
@@ -16,6 +18,10 @@ from .auth import login_required
 
 bp = Blueprint("screen", __name__, url_prefix="/screen")
 _WINDOWS_CAPABILITY = "App.WirelessDisplay.Connect~~~~0.0.1.0"
+_SESSION_TTL_SECONDS = 1800
+_MAX_SIGNAL_MESSAGES = 256
+_sessions_lock = threading.RLock()
+_sessions: dict[str, dict[str, Any]] = {}
 
 
 def _system() -> str:
@@ -31,13 +37,7 @@ def _flatpak_network_displays() -> bool:
     if not flatpak:
         return False
     try:
-        result = subprocess.run(
-            [flatpak, "info", "org.gnome.NetworkDisplays"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=4,
-            check=False,
-        )
+        result = subprocess.run([flatpak, "info", "org.gnome.NetworkDisplays"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4, check=False)
     except (OSError, subprocess.SubprocessError):
         return False
     return result.returncode == 0
@@ -51,19 +51,7 @@ def _windows_wireless_display_state() -> str:
     if not dism:
         return "unknown"
     try:
-        result = subprocess.run(
-            [
-                dism,
-                "/Online",
-                "/Get-CapabilityInfo",
-                f"/CapabilityName:{_WINDOWS_CAPABILITY}",
-                "/English",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=12,
-            check=False,
-        )
+        result = subprocess.run([dism, "/Online", "/Get-CapabilityInfo", f"/CapabilityName:{_WINDOWS_CAPABILITY}", "/English"], capture_output=True, text=True, timeout=12, check=False)
     except (OSError, subprocess.SubprocessError):
         return "unknown"
     text = (result.stdout + "\n" + result.stderr).casefold()
@@ -80,22 +68,15 @@ def platform_status() -> dict[str, Any]:
     miracle_sink = shutil.which("miracle-sinkctl")
     miracle_wifi = shutil.which("miracle-wifid")
     return {
-        "platform": system or "unknown",
-        "browser_capture": True,
+        "platform": system or "unknown", "browser_capture": True, "webrtc": True,
         "android_native": _android_client(),
-        "windows": {
-            "available": system == "windows",
-            "wireless_display": _windows_wireless_display_state(),
-        },
+        "windows": {"available": system == "windows", "wireless_display": _windows_wireless_display_state()},
         "linux": {
-            "available": system == "linux",
-            "gnome_network_displays": bool(native_gnome),
+            "available": system == "linux", "gnome_network_displays": bool(native_gnome),
             "gnome_network_displays_path": native_gnome or "",
             "gnome_network_displays_flatpak": _flatpak_network_displays() if system == "linux" else False,
-            "miracle_sinkctl": bool(miracle_sink),
-            "miracle_sinkctl_path": miracle_sink or "",
-            "miracle_wifid": bool(miracle_wifi),
-            "miracle_wifid_path": miracle_wifi or "",
+            "miracle_sinkctl": bool(miracle_sink), "miracle_sinkctl_path": miracle_sink or "",
+            "miracle_wifid": bool(miracle_wifi), "miracle_wifid_path": miracle_wifi or "",
         },
     }
 
@@ -104,12 +85,7 @@ def _open_windows_uri(uri: str) -> None:
     explorer = shutil.which("explorer.exe") or shutil.which("explorer")
     if not explorer:
         raise RuntimeError("Windows Explorer wurde nicht gefunden")
-    subprocess.Popen(
-        [explorer, uri],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    subprocess.Popen([explorer, uri], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _launch_linux_sender() -> None:
@@ -123,36 +99,18 @@ def _launch_linux_sender() -> None:
         command = [flatpak, "run", "org.gnome.NetworkDisplays"]
     else:
         raise RuntimeError("GNOME Network Displays ist nicht installiert")
-    subprocess.Popen(
-        command,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def _launch_linux_receiver_control() -> None:
     sinkctl = shutil.which("miracle-sinkctl")
     if not sinkctl:
         raise RuntimeError("MiracleCast (miracle-sinkctl) ist nicht installiert")
-    terminals = (
-        ("x-terminal-emulator", ["-e"]),
-        ("kgx", ["--"]),
-        ("gnome-terminal", ["--"]),
-        ("konsole", ["-e"]),
-        ("xterm", ["-e"]),
-    )
+    terminals = (("x-terminal-emulator", ["-e"]), ("kgx", ["--"]), ("gnome-terminal", ["--"]), ("konsole", ["-e"]), ("xterm", ["-e"]))
     for name, prefix in terminals:
         terminal = shutil.which(name)
         if terminal:
-            subprocess.Popen(
-                [terminal, *prefix, sinkctl, "--uibc"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            subprocess.Popen([terminal, *prefix, sinkctl, "--uibc"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             return
     raise RuntimeError("Kein Terminal zum Starten von miracle-sinkctl gefunden")
 
@@ -174,6 +132,39 @@ def _perform_action(action: str) -> str:
     raise ValueError("Diese Bildschirm-Aktion ist auf diesem System nicht verfügbar")
 
 
+def _actor_id() -> str:
+    user = getattr(g, "user", None)
+    if user is None:
+        return ""
+    for key in ("id", "username"):
+        try:
+            value = user[key]
+        except (KeyError, TypeError):
+            continue
+        if value is not None:
+            return str(value)
+    return ""
+
+
+def _purge_sessions() -> None:
+    now = time.time()
+    for key in [key for key, value in _sessions.items() if now - float(value["updated_at"]) > _SESSION_TTL_SECONDS]:
+        _sessions.pop(key, None)
+
+
+def _new_join_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    for _ in range(50):
+        code = "".join(secrets.choice(alphabet) for _ in range(8))
+        if all(value.get("join_code") != code for value in _sessions.values()):
+            return code
+    raise RuntimeError("Keine freie Session-Kennung verfügbar")
+
+
+def _snapshot(session_id: str, value: dict[str, Any]) -> dict[str, Any]:
+    return {"session_id": session_id, "join_code": value["join_code"], "created_at": value["created_at"], "updated_at": value["updated_at"], "connected": bool(value.get("connected")), "closed": bool(value.get("closed"))}
+
+
 @bp.get("")
 @login_required
 def index():
@@ -189,21 +180,112 @@ def status():
 @bp.post("/action/<action>")
 @login_required
 def action(action: str):
-    allowed = {"windows-send", "windows-receive", "linux-send", "linux-receive"}
-    if action not in allowed:
-        return ("Unbekannte Bildschirm-Aktion", 404)
+    if action not in {"windows-send", "windows-receive", "linux-send", "linux-receive"}:
+        abort(404)
     try:
         message = _perform_action(action)
     except (OSError, RuntimeError, ValueError) as exc:
-        audit(
-            "screen_platform_action",
-            "screen",
-            action,
-            outcome="failure",
-            detail={"platform": _system(), "error_type": type(exc).__name__},
-        )
+        audit("screen_platform_action", "screen", action, outcome="failure", detail={"platform": _system(), "error_type": type(exc).__name__})
         flash(str(exc))
     else:
         audit("screen_platform_action", "screen", action, detail={"platform": _system()})
         flash(message)
     return redirect(url_for("screen.index"))
+
+
+@bp.post("/api/sessions")
+@login_required
+def create_session():
+    now = time.time()
+    with _sessions_lock:
+        _purge_sessions()
+        session_id = secrets.token_urlsafe(18)
+        _sessions[session_id] = {"owner": _actor_id(), "join_code": _new_join_code(), "created_at": now, "updated_at": now, "connected": False, "closed": False, "sequence": 0, "messages": []}
+        snapshot = _snapshot(session_id, _sessions[session_id])
+    audit("screen_session_created", "screen_session", session_id)
+    return jsonify({"schema": 1, "session": snapshot}), 201
+
+
+@bp.get("/api/join/<code>")
+@login_required
+def resolve_session(code: str):
+    normalized = str(code or "").strip().upper()[:16]
+    with _sessions_lock:
+        _purge_sessions()
+        for session_id, value in _sessions.items():
+            if value["join_code"] == normalized and not value.get("closed"):
+                return jsonify({"schema": 1, "session": _snapshot(session_id, value)})
+    abort(404)
+
+
+def _authorized(value: dict[str, Any], role: str, code: str) -> bool:
+    return (role == "sender" and value["owner"] == _actor_id()) or (role == "receiver" and code == value["join_code"])
+
+
+@bp.get("/api/sessions/<session_id>/signals")
+@login_required
+def signals(session_id: str):
+    role = str(request.args.get("role") or "").strip().casefold()
+    code = str(request.args.get("code") or "").strip().upper()
+    try:
+        after = max(0, int(request.args.get("after") or 0))
+    except ValueError:
+        abort(400)
+    if role not in {"sender", "receiver"}:
+        abort(400)
+    with _sessions_lock:
+        _purge_sessions()
+        value = _sessions.get(session_id)
+        if value is None or value.get("closed"):
+            abort(404)
+        if not _authorized(value, role, code):
+            abort(403)
+        messages = [item for item in value["messages"] if int(item["seq"]) > after and item["from"] != role]
+        return jsonify({"schema": 1, "messages": messages, "last_sequence": int(value["sequence"]), "connected": bool(value.get("connected"))})
+
+
+@bp.post("/api/sessions/<session_id>/signals")
+@login_required
+def post_signal(session_id: str):
+    body = request.get_json(silent=True) or {}
+    role = str(body.get("role") or "").strip().casefold()
+    kind = str(body.get("type") or "").strip().casefold()
+    code = str(body.get("code") or "").strip().upper()
+    payload = body.get("payload")
+    if role not in {"sender", "receiver"} or kind not in {"offer", "answer", "ice", "ready", "bye"}:
+        abort(400)
+    if len(str(payload)) > 128000:
+        abort(413)
+    with _sessions_lock:
+        _purge_sessions()
+        value = _sessions.get(session_id)
+        if value is None or value.get("closed"):
+            abort(404)
+        if not _authorized(value, role, code):
+            abort(403)
+        value["sequence"] += 1
+        value["updated_at"] = time.time()
+        if kind in {"answer", "ready"}:
+            value["connected"] = True
+        if kind == "bye":
+            value["closed"] = True
+        value["messages"].append({"seq": value["sequence"], "from": role, "type": kind, "payload": payload})
+        value["messages"] = value["messages"][-_MAX_SIGNAL_MESSAGES:]
+        sequence = value["sequence"]
+    return jsonify({"schema": 1, "accepted": True, "sequence": sequence})
+
+
+@bp.delete("/api/sessions/<session_id>")
+@login_required
+def close_session(session_id: str):
+    code = str(request.args.get("code") or "").strip().upper()
+    with _sessions_lock:
+        value = _sessions.get(session_id)
+        if value is None:
+            return jsonify({"schema": 1, "closed": True})
+        if value["owner"] != _actor_id() and code != value["join_code"]:
+            abort(403)
+        value["closed"] = True
+        value["updated_at"] = time.time()
+    audit("screen_session_closed", "screen_session", session_id)
+    return jsonify({"schema": 1, "closed": True})
