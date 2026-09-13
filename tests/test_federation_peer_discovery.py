@@ -113,6 +113,21 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         self.assertEqual(peer["peer_id"], "peer-a")
         fetcher.assert_called_once_with("https://peer.example", timeout=8)
 
+    def test_direct_discovery_allows_explicit_rfc1918_ip(self):
+        local_profile = {**PROFILE, "base_url": "http://192.168.1.23:8080", "fingerprint": ""}
+        with patch("app.federation_discovery_service.fetch_discovery_profile", return_value=local_profile) as fetcher:
+            peer = discover_direct(self.root, "http://192.168.1.23:8080")
+        self.assertEqual(peer["peer_id"], "peer-a")
+        fetcher.assert_called_once_with(
+            "http://192.168.1.23:8080", timeout=8, allow_private=True
+        )
+        self.assertFalse(FederationStore(self.root).get_peer("peer-a")["enabled"])
+
+    def test_direct_discovery_does_not_allow_private_hostname_implicitly(self):
+        with patch("app.federation_discovery_service.fetch_discovery_profile", return_value=PROFILE) as fetcher:
+            discover_direct(self.root, "http://printer.home.arpa:8080")
+        fetcher.assert_called_once_with("http://printer.home.arpa:8080", timeout=8)
+
     def test_lan_target_generation_stays_inside_local_24(self):
         targets = _targets(["192.168.50.23"], [8080])
         self.assertIn("http://192.168.50.1:8080", targets)
