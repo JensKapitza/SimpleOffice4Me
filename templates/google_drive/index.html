@@ -15,7 +15,7 @@
   {% elif android_result == 'synced' %}
     <div class="alert alert-success" role="status">Google Drive wurde über die native Android-Autorisierung abgeglichen.</div>
   {% elif android_result == 'cancelled' %}
-    <div class="alert alert-info" role="status">Google-Drive-Freigabe wurde abgebrochen. Es wurden keine neuen Rechte übernommen.</div>
+    <div class="alert alert-info" role="status" aria-live="polite">Google-Drive-Freigabe wurde abgebrochen. Es wurden keine neuen Rechte übernommen.</div>
   {% elif android_result == 'unavailable' %}
     <div class="alert alert-warning" role="alert">Native Google-Autorisierung ist auf diesem Android-Gerät nicht verfügbar. Bitte Google Play-Dienste und die Android-OAuth-Konfiguration prüfen.</div>
   {% elif android_result == 'error' %}
@@ -23,7 +23,7 @@
   {% endif %}
 
   {% for category, message in get_flashed_messages(with_categories=true) %}
-    <div class="alert {{ 'alert-danger' if category == 'danger' else 'alert-warning' if category == 'warning' else 'alert-success' if category == 'success' else 'alert-info' }}">{{ message }}</div>
+    <div class="alert {{ 'alert-danger' if category == 'danger' else 'alert-warning' if category == 'warning' else 'alert-success' if category == 'success' else 'alert-info' }}" role="status" aria-live="polite">{{ message }}</div>
   {% endfor %}
 
   {% if not google_configured and not android_client %}
