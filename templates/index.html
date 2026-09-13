@@ -1,46 +1,24 @@
 {% extends "layout.html" %}
-
+{% block title %}SimpleOffice4Me{% endblock %}
 {% block body %}
- <hr />
+<main id="main-content" class="container-xl py-4 py-md-5">
+  <section class="text-center mb-5">
+    <div class="display-5 mb-2"><i class="fas fa-box-archive" aria-hidden="true"></i></div>
+    <h1 class="display-6 fw-semibold">SimpleOffice4Me</h1>
+    <p class="lead text-secondary mx-auto" style="max-width:48rem;">Dokumente, Aufgaben, Kontakte, Kalender und Inventar an einem Ort verwalten.</p>
+    <a class="btn btn-primary btn-lg" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-gauge me-2" aria-hidden="true"></i>Zur Übersicht</a>
+  </section>
 
- <span class="fa fa-user"></span>
-{% endblock %}
-
-
-{% block header%}
-{% endblock %}
- 
-   
-{% block footer%}
-
-
-<table class="table">
-    <thead>
-      <tr>
-        <th scope="col">#</th>
-        <th scope="col">First</th>
-        <th scope="col">Last</th>
-        <th scope="col">Handle</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <th scope="row">1</th>
-        <td>Maäöǘrk</td>
-        <td>Otto</td>
-        <td>@mdo</td>
-      </tr>
-      <tr>
-        <th scope="row">2</th>
-        <td>Jacob</td>
-        <td>Thornton</td>
-        <td>@fat</td>
-      </tr>
-      <tr  class="table-primary">
-        <th scope="row">3</th>
-        <td colspan="2">Larry the Bird</td>
-        <td>@twitter</td>
-      </tr>
-    </tbody>
-  </table>
+  <section aria-labelledby="quick-links-title">
+    <h2 class="h4 text-center mb-3" id="quick-links-title">Schnellzugriffe</h2>
+    <div class="row g-3 justify-content-center">
+      <div class="col-6 col-md-4 col-lg-2"><a class="card h-100 text-decoration-none text-reset shadow-sm" href="{{ url_for('documents.index') }}"><div class="card-body text-center"><i class="fas fa-folder-open fa-2x mb-2" aria-hidden="true"></i><div class="fw-semibold">Dokumente</div></div></a></div>
+      <div class="col-6 col-md-4 col-lg-2"><a class="card h-100 text-decoration-none text-reset shadow-sm" href="{{ url_for('documents.document_search') }}"><div class="card-body text-center"><i class="fas fa-magnifying-glass fa-2x mb-2" aria-hidden="true"></i><div class="fw-semibold">Suchen</div></div></a></div>
+      <div class="col-6 col-md-4 col-lg-2"><a class="card h-100 text-decoration-none text-reset shadow-sm" href="{{ url_for('tasks.board') }}"><div class="card-body text-center"><i class="fas fa-list-check fa-2x mb-2" aria-hidden="true"></i><div class="fw-semibold">Aufgaben</div></div></a></div>
+      <div class="col-6 col-md-4 col-lg-2"><a class="card h-100 text-decoration-none text-reset shadow-sm" href="{{ url_for('documents.calendar') }}"><div class="card-body text-center"><i class="fas fa-calendar-days fa-2x mb-2" aria-hidden="true"></i><div class="fw-semibold">Kalender</div></div></a></div>
+      <div class="col-6 col-md-4 col-lg-2"><a class="card h-100 text-decoration-none text-reset shadow-sm" href="{{ url_for('documents.contacts') }}"><div class="card-body text-center"><i class="fas fa-address-book fa-2x mb-2" aria-hidden="true"></i><div class="fw-semibold">Kontakte</div></div></a></div>
+      <div class="col-6 col-md-4 col-lg-2"><a class="card h-100 text-decoration-none text-reset shadow-sm" href="{{ url_for('inventory.index') }}"><div class="card-body text-center"><i class="fas fa-barcode fa-2x mb-2" aria-hidden="true"></i><div class="fw-semibold">Inventar</div></div></a></div>
+    </div>
+  </section>
+</main>
 {% endblock %}
