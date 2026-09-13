@@ -10,6 +10,7 @@ import threading
 import time
 from pathlib import Path
 
+from simpleoffice_dhcp_profiles import ProfileDhcpService, load_profiles, profiles_path
 from simpleoffice_mini_services import (
     DnsService,
     default_config_path,
@@ -33,7 +34,8 @@ class Worker:
     def __init__(self, config_path: Path):
         self.config_path = config_path
         self.stop_event = threading.Event()
-        self.dhcp: BootAwareDhcpService | None = None
+        self.dhcp: list[BootAwareDhcpService] = []
+        self.dhcp_profiles: list[dict[str, object]] = []
         self.dns: DnsService | None = None
         self.tftp: TftpService | None = None
         self.sip: SipRegistrarService | None = None
@@ -43,7 +45,7 @@ class Worker:
         self.events: list[dict[str, object]] = []
         self.started_at = time.time()
         self.config: dict[str, object] = {}
-        self.config_signature: tuple[int, int, int, int] = (-1, -1, -1, -1)
+        self.config_signature: tuple[int, int, int, int, int] = (-1, -1, -1, -1, -1)
         self.next_blocklist_refresh = time.monotonic() + 5
 
     def event(self, row: dict[str, object]) -> None:
@@ -57,17 +59,19 @@ class Worker:
         except OSError:
             return -1
 
-    def _signature(self) -> tuple[int, int, int, int]:
+    def _signature(self) -> tuple[int, int, int, int, int]:
         return (
             self._mtime(self.config_path),
+            self._mtime(profiles_path(self.config_path)),
             self._mtime(boot_settings_path(self.config_path)),
             self._mtime(gateway_settings_path(self.config_path)),
             self._mtime(telephony_db_path(self.config_path)),
         )
 
     def _stop_network_services(self, *, disable_routing: bool = True) -> None:
-        if self.dhcp is not None:
-            self.dhcp.stop(); self.dhcp = None
+        for service in self.dhcp:
+            service.stop()
+        self.dhcp = []
         if self.dns is not None:
             self.dns.stop(); self.dns = None
         if self.tftp is not None:
@@ -99,6 +103,7 @@ class Worker:
         config = load_config(self.config_path)
         dhcp = config["dhcp"]
         dns = config["dns"]
+        profiles = load_profiles(self.config_path, dhcp)
         boot = load_boot_settings(self.config_path)
         gateway = load_gateway_settings(self.config_path)
         gateway["internal_network"] = dhcp["network"]
@@ -113,14 +118,20 @@ class Worker:
                 self.dns = DnsService(dns, self.config_path, self.event)
                 self.dns.start(); started.append("dns")
             if dhcp.get("enabled"):
-                self.dhcp = BootAwareDhcpService(dhcp, self.config_path, self.event)
-                self.dhcp.start(); started.append("dhcp")
+                service = BootAwareDhcpService(dhcp, self.config_path, self.event)
+                service.start(); self.dhcp.append(service); started.append("dhcp:default")
+            for profile in profiles:
+                if not profile.get("enabled"):
+                    continue
+                service = ProfileDhcpService(profile, self.config_path, str(profile["id"]), self.event)
+                service.start(); self.dhcp.append(service); started.append(f"dhcp:{profile['id']}")
             if boot.get("enabled") and boot.get("tftp_enabled"):
                 self.tftp = TftpService(boot, self.config_path, self.event)
                 self.tftp.start(); started.append("tftp")
         except Exception:
-            if self.dhcp is not None:
-                self.dhcp.stop(); self.dhcp = None
+            for service in self.dhcp:
+                service.stop()
+            self.dhcp = []
             if self.dns is not None:
                 self.dns.stop(); self.dns = None
             if self.tftp is not None:
@@ -143,6 +154,7 @@ class Worker:
             self.event({"service": "gateway", "action": "apply_failed", "error": type(exc).__name__, "message": str(exc)[:300]})
 
         self.config = config
+        self.dhcp_profiles = profiles
         self.config_signature = self._signature()
         self.next_blocklist_refresh = time.monotonic() + 5
         self.event({"service": "worker", "action": "configuration_loaded", "started": started})
@@ -181,13 +193,22 @@ class Worker:
 
     def write_status(self, state: str) -> None:
         sip_status = self.sip.status() if self.sip is not None else self.sip_status
+        primary = self.config.get("dhcp", {}) if isinstance(self.config, dict) else {}
+        instances = []
+        if isinstance(primary, dict) and primary.get("enabled"):
+            instances.append({"id": "default", "interface": primary.get("interface", ""), "network": primary.get("network", "")})
+        instances.extend(
+            {"id": row.get("id"), "interface": row.get("interface", ""), "network": row.get("network", "")}
+            for row in self.dhcp_profiles if row.get("enabled")
+        )
         write_status(
             {
                 "state": state,
                 "pid": os.getpid(),
                 "started_at": self.started_at,
                 "uptime_seconds": max(0, int(time.time() - self.started_at)),
-                "dhcp_running": self.dhcp is not None,
+                "dhcp_running": bool(self.dhcp),
+                "dhcp_instances": instances,
                 "dns_running": self.dns is not None,
                 "tftp_running": self.tftp is not None,
                 "sip_running": self.sip is not None,

@@ -1,0 +1,60 @@
+<section class="border rounded p-3 mt-4" aria-labelledby="dhcp-profiles-heading">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div><h3 class="h5 mb-1" id="dhcp-profiles-heading">Zusätzliche DHCP-Netze</h3><p class="small text-secondary mb-0">Pro Interface kann ein eigener DHCP-Dienst mit eigenem Netz und Pool laufen. Erweiterte Optionen werden von der Hauptkonfiguration übernommen.</p></div>
+    <button class="btn btn-sm btn-outline-primary" type="button" id="dhcp-profile-add"><i class="fas fa-plus me-1" aria-hidden="true"></i>DHCP-Netz hinzufügen</button>
+  </div>
+  <div id="dhcp-profile-list" class="vstack gap-3">
+    {% for profile in dhcp_profiles %}
+    <div class="card dhcp-profile-card"><div class="card-body"><div class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="form-label">Profil-ID</label><input class="form-control" name="dhcp_profile_id" value="{{ profile.id }}" required pattern="[A-Za-z0-9_.-]{1,48}"></div>
+      <div class="col-md-2"><label class="form-label">Status</label><select class="form-select" name="dhcp_profile_enabled"><option value="1" {% if profile.enabled %}selected{% endif %}>aktiv</option><option value="0" {% if not profile.enabled %}selected{% endif %}>aus</option></select></div>
+      <div class="col-md-2"><label class="form-label">Interface</label><input class="form-control" name="dhcp_profile_interface" value="{{ profile.interface }}" list="network-interface-list" required></div>
+      <div class="col-md-2"><label class="form-label">Bind-IP</label><input class="form-control" name="dhcp_profile_bind" value="{{ profile.bind }}" required></div>
+      <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" name="dhcp_profile_port" type="number" min="1" max="65535" value="{{ profile.port }}" required></div>
+      <div class="col-md-2 d-grid"><button class="btn btn-outline-danger dhcp-profile-remove" type="button">Entfernen</button></div>
+      <div class="col-md-3"><label class="form-label">Server-IP</label><input class="form-control" name="dhcp_profile_server_ip" value="{{ profile.server_ip }}" required></div>
+      <div class="col-md-3"><label class="form-label">Netz</label><input class="form-control" name="dhcp_profile_network" value="{{ profile.network }}" placeholder="10.20.0.0/24" required></div>
+      <div class="col-md-3"><label class="form-label">Pool von</label><input class="form-control" name="dhcp_profile_pool_start" value="{{ profile.pool_start }}" required></div>
+      <div class="col-md-3"><label class="form-label">Pool bis</label><input class="form-control" name="dhcp_profile_pool_end" value="{{ profile.pool_end }}" required></div>
+      <div class="col-md-6"><label class="form-label">Gateway(s)</label><input class="form-control" name="dhcp_profile_routers" value="{{ profile.routers|join(', ') }}"></div>
+      <div class="col-md-6"><label class="form-label">DNS-Server</label><input class="form-control" name="dhcp_profile_dns_servers" value="{{ profile.dns_servers|join(', ') }}"></div>
+    </div></div></div>
+    {% endfor %}
+  </div>
+  <p class="small text-secondary mt-3 mb-0">Hinweis: Mehrere aktive DHCP-Profile benötigen passende IPs auf den Interfaces. Routing zwischen den Netzen ist davon getrennt und wird oben als IPv4-Forwarding-Status angezeigt.</p>
+</section>
+
+<template id="dhcp-profile-template">
+  <div class="card dhcp-profile-card"><div class="card-body"><div class="row g-2 align-items-end">
+    <div class="col-md-2"><label class="form-label">Profil-ID</label><input class="form-control" name="dhcp_profile_id" placeholder="lan2" required pattern="[A-Za-z0-9_.-]{1,48}"></div>
+    <div class="col-md-2"><label class="form-label">Status</label><select class="form-select" name="dhcp_profile_enabled"><option value="1">aktiv</option><option value="0">aus</option></select></div>
+    <div class="col-md-2"><label class="form-label">Interface</label><input class="form-control" name="dhcp_profile_interface" list="network-interface-list" required></div>
+    <div class="col-md-2"><label class="form-label">Bind-IP</label><input class="form-control" name="dhcp_profile_bind" placeholder="10.20.0.1" required></div>
+    <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" name="dhcp_profile_port" type="number" min="1" max="65535" value="67" required></div>
+    <div class="col-md-2 d-grid"><button class="btn btn-outline-danger dhcp-profile-remove" type="button">Entfernen</button></div>
+    <div class="col-md-3"><label class="form-label">Server-IP</label><input class="form-control" name="dhcp_profile_server_ip" placeholder="10.20.0.1" required></div>
+    <div class="col-md-3"><label class="form-label">Netz</label><input class="form-control" name="dhcp_profile_network" placeholder="10.20.0.0/24" required></div>
+    <div class="col-md-3"><label class="form-label">Pool von</label><input class="form-control" name="dhcp_profile_pool_start" placeholder="10.20.0.20" required></div>
+    <div class="col-md-3"><label class="form-label">Pool bis</label><input class="form-control" name="dhcp_profile_pool_end" placeholder="10.20.0.200" required></div>
+    <div class="col-md-6"><label class="form-label">Gateway(s)</label><input class="form-control" name="dhcp_profile_routers" placeholder="10.20.0.1"></div>
+    <div class="col-md-6"><label class="form-label">DNS-Server</label><input class="form-control" name="dhcp_profile_dns_servers" placeholder="10.20.0.1"></div>
+  </div></div></div>
+</template>
+<script>
+(() => {
+  const list = document.getElementById('dhcp-profile-list');
+  const template = document.getElementById('dhcp-profile-template');
+  const add = document.getElementById('dhcp-profile-add');
+  if (!list || !template || !add) return;
+  const bindRemove = root => root.querySelectorAll('.dhcp-profile-remove').forEach(button => {
+    button.onclick = () => button.closest('.dhcp-profile-card')?.remove();
+  });
+  bindRemove(document);
+  add.addEventListener('click', () => {
+    const fragment = template.content.cloneNode(true);
+    bindRemove(fragment);
+    list.appendChild(fragment);
+    list.querySelector('.dhcp-profile-card:last-child input')?.focus();
+  });
+})();
+</script>

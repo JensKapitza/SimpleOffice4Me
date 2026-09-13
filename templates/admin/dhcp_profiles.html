@@ -1,0 +1,54 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">DHCP-Netze pro Interface</h1>
+      <p class="text-secondary mb-0">Mehrere getrennte DHCP-Server auf unterschiedlichen Schnittstellen und IPv4-Netzen betreiben.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.network') }}">DHCP / DNS</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
+    </div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="row g-3 mb-4">
+    <div class="col-lg-7">
+      <section class="card h-100">
+        <div class="card-header"><strong>Gefundene Schnittstellen</strong></div>
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Interface</th><th scope="col">Status</th><th scope="col">IPv4 / Netz</th></tr></thead><tbody>{% for iface in interfaces %}<tr><td><code>{{ iface.name }}</code></td><td><span class="badge text-bg-{{ 'success' if iface.state == 'up' else 'secondary' }}">{{ iface.state }}</span></td><td>{% for address in iface.ipv4 %}<code class="me-2">{{ address }}</code>{% else %}<span class="text-secondary">keine IPv4-Adresse</span>{% endfor %}</td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Keine Schnittstellen erkannt.</td></tr>{% endfor %}</tbody></table></div>
+      </section>
+    </div>
+    <div class="col-lg-5">
+      <section class="card h-100">
+        <div class="card-header"><strong>Routing zwischen Netzen</strong></div>
+        <div class="card-body">
+          <p><span class="badge text-bg-{{ 'success' if routing.enabled else 'warning' if routing.known else 'secondary' }}">IPv4-Forwarding {{ 'aktiv' if routing.enabled else 'aus' if routing.known else 'unbekannt' }}</span></p>
+          <p class="small text-secondary">DHCP funktioniert je Interface auch ohne Routing. Sollen Clients zwischen Netzen oder ins WAN geroutet werden, muss zusätzlich IP-Forwarding und gegebenenfalls NAT/Firewall passend konfiguriert sein.</p>
+          {% if not routing.enabled and routing.temporary_command %}<div class="small">Aktivieren: <code class="text-break">{{ routing.temporary_command }}</code></div>{% endif %}
+          {% if not routing.enabled and routing.persistent_command %}<div class="small mt-2">Dauerhaft: <code class="text-break">{{ routing.persistent_command }}</code></div>{% endif %}
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="alert alert-secondary small">
+    Der bisherige DHCP-Server bleibt das Hauptprofil. Zusätzliche Profile laufen mit eigenen Sockets und eigenen Lease-Dateien. Ein Profil erhält erst dann Clients, wenn das gewählte Interface die passende Server-IP/Netzkonfiguration besitzt und UDP-Port 67 durch die lokale Firewall zugelassen ist.
+  </div>
+
+  <form method="post" action="{{ url_for('mini_services_admin.save_dhcp_profiles') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <datalist id="network-interface-list">{% for iface in interfaces %}<option value="{{ iface.name }}">{{ iface.ipv4|join(', ') or iface.state }}</option>{% endfor %}</datalist>
+    {% include "admin/_dhcp_profiles.html" %}
+    <button class="btn btn-primary btn-lg mt-3" type="submit">DHCP-Netze speichern</button>
+  </form>
+
+  <section class="card mt-4">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><strong>Leases aller DHCP-Netze</strong><span class="small text-secondary">{{ leases|length }} Eintrag/Einträge</span></div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Profil</th><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Hostname</th><th scope="col">Status</th></tr></thead><tbody>{% for lease in leases %}<tr><td><code>{{ lease.dhcp_profile }}</code></td><td><code>{{ lease.ip }}</code></td><td><code>{{ lease.mac }}</code></td><td>{{ lease.hostname or '—' }}</td><td>{{ lease.state }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine DHCP-Leases.</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+</main>
+{% endblock %}
