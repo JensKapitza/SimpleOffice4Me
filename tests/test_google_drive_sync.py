@@ -11,6 +11,9 @@ from app.google_drive_sync import safe_drive_name, sync_decision
 from app.google_tokens import GOOGLE_DRIVE_SCOPE
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class GoogleDriveSyncTests(unittest.TestCase):
     def test_drive_scope_is_least_privilege_file_scope(self):
         self.assertEqual("https://www.googleapis.com/auth/drive.file", GOOGLE_DRIVE_SCOPE)
@@ -76,7 +79,40 @@ class GoogleDriveSyncTests(unittest.TestCase):
                 connection.close()
             self.assertIn("google_drive_state", tables)
             self.assertIn("google_drive_link", tables)
+            self.assertNotIn("google_drive_oauth_handoff", tables)
             self.assertIn("google_drive_link_local", indexes)
+
+    def test_android_token_handoff_is_loopback_session_and_scope_bound(self):
+        source = (ROOT / "app" / "google_drive_admin.py").read_text(encoding="utf-8")
+        self.assertIn('@bp.post("/android-token")', source)
+        self.assertIn('request.remote_addr not in {"127.0.0.1", "::1"}', source)
+        self.assertIn('ANDROID_USER_AGENT_TOKEN = "SimpleOffice4Me-Android/"', source)
+        self.assertIn('MAX_ANDROID_TOKEN_BYTES = 8192', source)
+        self.assertIn('MAX_ANDROID_TOKEN_REQUEST_BYTES = 16 * 1024', source)
+        self.assertIn('action not in ANDROID_ACTIONS', source)
+        self.assertIn('GOOGLE_DRIVE_SCOPE not in scopes', source)
+        self.assertIn('"expires_in": 3000', source)
+        self.assertIn('_store_drive_token(', source)
+        self.assertIn('sync_google_drive(g.user["id"]', source)
+        self.assertNotIn("google_drive_oauth_handoff", source)
+        self.assertNotIn("code_verifier", source)
+
+    def test_android_authorization_is_native_and_never_custom_scheme_token_transport(self):
+        java = (ROOT / "android" / "apk" / "app" / "src" / "main" / "java" / "de" / "simpleoffice4me" / "android" / "AndroidGoogleAuthorization.java").read_text(encoding="utf-8")
+        gradle = (ROOT / "android" / "apk" / "app" / "build.gradle").read_text(encoding="utf-8")
+        self.assertIn("play-services-auth:21.6.0", gradle)
+        self.assertIn("AuthorizationRequest.builder()", java)
+        self.assertIn("setRequestedScopes(Arrays.asList(new Scope(DRIVE_SCOPE)))", java)
+        self.assertIn("Identity.getAuthorizationClient(activity)", java)
+        self.assertIn("result.getAccessToken()", java)
+        self.assertIn("result.getGrantedScopes()", java)
+        self.assertIn("/settings/google-drive/android-token", java)
+        self.assertIn('setRequestProperty("X-CSRF-Token", csrf)', java)
+        self.assertIn('setRequestProperty("Cookie", cookie)', java)
+        self.assertIn("connection.setInstanceFollowRedirects(false)", java)
+        self.assertNotIn("simpleoffice4me://", java)
+        self.assertNotIn("requestOfflineAccess", java)
+        self.assertFalse((ROOT / "app" / "google_drive_oauth_handoff.py").exists())
 
 
 if __name__ == "__main__":

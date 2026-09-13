@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from urllib.parse import urlencode
 
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, session, url_for
 
 from .access_control import audit, has_feature
 from .auth import GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL, _google_config, _google_json_request, login_required
@@ -25,6 +25,11 @@ from .google_tokens import GOOGLE_DRIVE_SCOPE, google_scopes
 from .security_controls import protect_value, unprotect_value
 
 bp = Blueprint("google_drive_admin", __name__, url_prefix="/settings/google-drive")
+ANDROID_USER_AGENT_TOKEN = "SimpleOffice4Me-Android/"
+ANDROID_RESULTS = frozenset({"connected", "synced", "cancelled", "error", "unavailable"})
+ANDROID_ACTIONS = frozenset({"connect", "sync"})
+MAX_ANDROID_TOKEN_BYTES = 8192
+MAX_ANDROID_TOKEN_REQUEST_BYTES = 16 * 1024
 
 
 def drive_access_required(view):
@@ -37,6 +42,10 @@ def drive_access_required(view):
     return wrapped_view
 
 
+def _is_android_request() -> bool:
+    return ANDROID_USER_AGENT_TOKEN in str(request.headers.get("User-Agent", ""))
+
+
 def _connection_status(user_id: int) -> tuple[bool, bool, set[str]]:
     row = get_db().execute(
         "SELECT 1 FROM oauth_token WHERE provider='google' AND user_id=?",
@@ -44,6 +53,12 @@ def _connection_status(user_id: int) -> tuple[bool, bool, set[str]]:
     ).fetchone()
     scopes = google_scopes(user_id) if row else set()
     return row is not None, GOOGLE_DRIVE_SCOPE in scopes, scopes
+
+
+def _merged_scopes(previous: str, current: str) -> str:
+    values = {value for value in str(previous or "").split() if value}
+    values.update(value for value in str(current or "").split() if value)
+    return " ".join(sorted(values))
 
 
 def _store_drive_token(user_id: int, token: dict, requested_scopes: str) -> None:
@@ -61,7 +76,8 @@ def _store_drive_token(user_id: int, token: dict, requested_scopes: str) -> None
         previous_refresh = unprotect_value(str(previous["refresh_token"] or ""), "google-oauth")
         previous_scopes = str(previous["scopes"] or "")
     refresh_token = str(token.get("refresh_token", "")).strip() or previous_refresh
-    scopes = str(token.get("scope", "")).strip() or requested_scopes or previous_scopes
+    returned_scopes = str(token.get("scope", "")).strip() or requested_scopes
+    scopes = _merged_scopes(previous_scopes, returned_scopes)
     expires_at = (
         datetime.now(timezone.utc)
         + timedelta(seconds=max(60, int(token.get("expires_in", 3600) or 3600)))
@@ -161,6 +177,9 @@ def index():
     for item in links:
         status = str(item.get("status", "pending"))
         counts[status] = counts.get(status, 0) + 1
+    android_result = str(request.args.get("android", "")).strip().casefold()
+    if android_result not in ANDROID_RESULTS:
+        android_result = ""
     return render_template(
         "google_drive/index.html",
         drive_state=state,
@@ -174,12 +193,21 @@ def index():
             and current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET")
         ),
         local_sync_folder=LOCAL_SYNC_FOLDER,
+        android_result=android_result,
+        android_client=_is_android_request(),
     )
 
 
 @bp.post("/connect")
 @drive_access_required
 def connect():
+    if _is_android_request():
+        flash(
+            "Die Android-App verwendet die native Google-Autorisierung. "
+            "Wenn diese Meldung erscheint, bitte Google Play-Dienste prüfen und erneut versuchen.",
+            "warning",
+        )
+        return redirect(url_for("google_drive_admin.index", android="unavailable"))
     config = _google_config()
     if config is None:
         flash("Google OAuth ist noch nicht konfiguriert.", "warning")
@@ -208,8 +236,62 @@ def connect():
         "access_type": "offline",
         "include_granted_scopes": "true",
     }
-    audit("google_drive_connect_started", "integration", "google-drive")
+    audit("google_drive_connect_started", "integration", "google-drive", detail={"android": False})
     return redirect(f"{GOOGLE_AUTH_URL}?{urlencode(parameters)}")
+
+
+@bp.post("/android-token")
+@drive_access_required
+def android_token():
+    if request.remote_addr not in {"127.0.0.1", "::1"} or not _is_android_request():
+        abort(403, description="Android token handoff is local-only")
+    if request.content_length is not None and request.content_length > MAX_ANDROID_TOKEN_REQUEST_BYTES:
+        abort(413)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        abort(400, description="Invalid Android authorization payload")
+    action = str(payload.get("action", "")).strip().casefold()
+    access_token = str(payload.get("access_token", "")).strip()
+    raw_scopes = payload.get("scopes", [])
+    if action not in ANDROID_ACTIONS or not (20 <= len(access_token) <= MAX_ANDROID_TOKEN_BYTES):
+        abort(400, description="Invalid Android authorization payload")
+    if not isinstance(raw_scopes, list) or len(raw_scopes) > 16:
+        abort(400, description="Invalid Android authorization scopes")
+    scopes = {
+        str(value).strip()
+        for value in raw_scopes
+        if isinstance(value, str) and 0 < len(value.strip()) <= 512
+    }
+    if GOOGLE_DRIVE_SCOPE not in scopes:
+        abort(403, description="Google Drive scope was not granted")
+    try:
+        scope_string = " ".join(sorted(scopes))
+        _store_drive_token(
+            g.user["id"],
+            {"access_token": access_token, "expires_in": 3000, "scope": scope_string},
+            scope_string,
+        )
+        audit(
+            "google_drive_android_authorized", "integration", "google-drive",
+            detail={"action": action, "scope_count": len(scopes)},
+        )
+        if action == "sync":
+            result = sync_google_drive(g.user["id"], str(g.user["username"]))
+            return jsonify({
+                "ok": True,
+                "action": "sync",
+                "uploaded": int(result.get("uploaded", 0)),
+                "downloaded": int(result.get("downloaded", 0)),
+                "conflicts": int(result.get("conflicts", 0)),
+            })
+        return jsonify({"ok": True, "action": "connect"})
+    except Exception as exc:
+        current_app.logger.exception("Native Android Google Drive authorization failed")
+        audit(
+            "google_drive_android_authorized", "integration", "google-drive", outcome="failure",
+            detail={"action": action, "error_type": type(exc).__name__},
+        )
+        return jsonify({"ok": False, "error": "google_drive_authorization_failed"}), 502
 
 
 @bp.post("/settings")

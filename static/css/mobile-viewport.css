@@ -1,0 +1,31 @@
+:root {
+  --so-keyboard-inset: 0px;
+  --so-visual-viewport-height: 100vh;
+}
+
+@media (max-width: 991.98px) {
+  html {
+    scroll-padding-bottom: calc(var(--so-keyboard-inset) + max(1rem, env(safe-area-inset-bottom)));
+  }
+
+  input,
+  textarea,
+  select,
+  [contenteditable="true"] {
+    scroll-margin-bottom: calc(var(--so-keyboard-inset) + 1rem);
+  }
+
+  /* Inline bottom values, such as the dedicated inventory logic, keep their
+     higher priority and are therefore not overridden by this global fallback. */
+  html[data-so-keyboard-open="1"] .sticky-bottom {
+    bottom: var(--so-keyboard-inset);
+  }
+
+  html[data-so-keyboard-open="1"] .modal-dialog-scrollable {
+    max-height: calc(var(--so-visual-viewport-height) - 1rem);
+  }
+
+  html[data-so-keyboard-open="1"] .offcanvas-bottom {
+    bottom: var(--so-keyboard-inset);
+  }
+}

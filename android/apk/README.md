@@ -19,6 +19,16 @@ Both APK variants require Android API 24 / Android 7.0 or newer:
 
 The two builds are intentionally separate. Keeping ARM32 out of the modern APK avoids increasing the normal package size and lets the current ARM64/Python 3.13 runtime stay unchanged.
 
+## Native Android integration
+
+The APK is also an Android share target for single and multiple files. Shared `content://` files are passed to the existing SimpleOffice document upload form and still require the normal user confirmation before import.
+
+Downloads from the local authenticated WebView use Android's Storage Access Framework, so the user chooses the destination without a broad storage permission. Saved documents can then be opened with another Android app.
+
+A fixed `simpleoffice4me://open/...` deep-link namespace supports navigation to selected SimpleOffice screens. The mapping is an allowlist rather than an arbitrary internal URL launcher.
+
+Lifecycle handling pauses and resumes the WebView together with the Android activity, which is especially useful on older tablets. Details, security boundaries and examples are documented in `docs/ANDROID_INTEGRATION.md`.
+
 ## Build
 
 Requirements: JDK 17, Android SDK 36 and Gradle 8.13.

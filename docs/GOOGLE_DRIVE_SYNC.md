@@ -30,23 +30,13 @@ an. Dieser Scope erlaubt der Anwendung den Zugriff auf Dateien, die von SimpleOf
 
 Das ist bewusst enger als `drive` oder `drive.readonly` und reduziert sowohl Datenschutzrisiken als auch den Umfang einer möglichen Google-Verifizierung.
 
-## Vorhandene Google-Anbindung
+## Zwei Autorisierungswege
 
-Die Anwendung hatte bereits Google OAuth für Anmeldung, Google People und Google Calendar. Die Drive-Anbindung verwendet dieselben verschlüsselt gespeicherten OAuth-Token. Neu ist ein gemeinsamer Token-Refresh-Service (`app/google_tokens.py`), damit ein späterer Sync nicht davon abhängt, dass sich der Benutzer gerade neu bei Google angemeldet hat.
+### Browser/Server
 
-Access- und Refresh-Tokens werden weiterhin mit der vorhandenen SimpleOffice-Schutzfunktion verschlüsselt in SQLite gespeichert. Refresh-Tokens werden nicht an Browser oder Frontend ausgeliefert.
+Die normale Browser-Version verwendet weiterhin den vorhandenen Google-Web-OAuth-Client und `/auth/google/callback`. Dieser Weg kann einen Refresh-Token erhalten und eignet sich damit für länger laufende serverseitige Nutzung.
 
-## Einrichtung in Google Cloud
-
-1. In der Google Cloud Console ein Projekt auswählen oder anlegen.
-2. **Google Drive API** aktivieren.
-3. Für den vorhandenen OAuth-Webclient dieselbe Callback-URL verwenden, die bereits für die Google-Anmeldung konfiguriert ist, typischerweise:
-
-```text
-https://<simpleoffice-host>/auth/google/callback
-```
-
-4. SimpleOffice konfigurieren. Unterstützt werden entweder Umgebungsvariablen:
+Konfiguration:
 
 ```text
 SIMPLEOFFICE_GOOGLE_CLIENT_ID=...
@@ -54,15 +44,48 @@ SIMPLEOFFICE_GOOGLE_CLIENT_SECRET=...
 SIMPLEOFFICE_GOOGLE_REDIRECT_URI=https://<simpleoffice-host>/auth/google/callback
 ```
 
-oder eine Google-OAuth-JSON-Datei:
+Alternativ kann eine geschützte Google-OAuth-JSON-Datei über `SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE` verwendet werden.
+
+### Android-APK
+
+Die APK verwendet **keinen** lokalen Browser-Callback und keinen Token-Transport über ein Custom Scheme. Google-Autorisierung läuft nativ über Google Identity Services `AuthorizationClient` aus `play-services-auth`.
+
+Für die APK muss in Google Cloud ein Android-OAuth-Client für die Paketkennung
 
 ```text
-SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE=/geschuetzter/pfad/client_secret.json
+de.simpleoffice4me.android
 ```
 
-5. In SimpleOffice **Drive** öffnen und **Google verbinden** bzw. **Google Drive neu freigeben** wählen.
+und den SHA-Fingerprint der verwendeten Signatur angelegt werden. Debug-/Testsignatur und Produktionssignatur benötigen entsprechend passende Einträge. Außerdem muss die Google Drive API aktiviert sein.
 
-Die Drive-Seite startet eine inkrementelle OAuth-Freigabe und verwendet anschließend den bereits bestehenden `/auth/google/callback`. Deshalb ist keine zweite Callback-URL erforderlich.
+Die APK fordert nativ nur `drive.file` an. Ein Web-Client-Secret wird nicht in die APK eingebettet.
+
+## Native Android-Autorisierung im Detail
+
+1. Der Benutzer ist bereits in der lokalen SimpleOffice-WebView angemeldet.
+2. **Google verbinden** oder **Jetzt synchronisieren** wird in der APK abgefangen.
+3. Die WebView übergibt ausschließlich Aktion (`connect`/`sync`) und den aktuellen CSRF-Token an die bereits abgesicherte lokale JavaScript-Bridge.
+4. `AndroidGoogleAuthorization` baut eine `AuthorizationRequest` mit genau `drive.file` und startet `Identity.getAuthorizationClient(...).authorize(...)`.
+5. Google Play Services zeigt bei Bedarf die native Einwilligung an.
+6. Das Access-Token bleibt ausschließlich in Java. Es wird weder JavaScript noch einem Android-Intent oder Deep Link übergeben.
+7. Java sendet das Token per POST an:
+
+```text
+http://127.0.0.1:8765/settings/google-drive/android-token
+```
+
+8. Der POST enthält das bestehende WebView-Session-Cookie und `X-CSRF-Token`.
+9. Flask akzeptiert die Übergabe nur von Loopback, nur mit dem APK-User-Agent, nur für `connect`/`sync`, nur mit gewährtem `drive.file` und nur für den bereits angemeldeten SimpleOffice-Benutzer mit `documents`- und `sync`-Rechten.
+10. Das Access-Token wird mit der bestehenden SimpleOffice-Verschlüsselung in SQLite gespeichert. Ein vorhandener Refresh-Token aus dem Browser-OAuth wird dabei nicht entfernt.
+11. Bei `sync` startet direkt der normale Drive-Abgleich. Danach lädt die APK die lokale Drive-Seite mit einem festen Status (`connected`, `synced`, `cancelled`, `error` oder `unavailable`) neu.
+
+Die Android-App holt vor manuellen Drive-Aktionen erneut eine native Google-Autorisierung. Für unbeaufsichtigten Hintergrund-Sync ohne Benutzerinteraktion ist weiterhin ein serverseitiger OAuth-Weg mit Refresh-Token und öffentlich erreichbarem HTTPS-Callback erforderlich. SimpleOffice versucht nicht, diese Einschränkung mit Loopback-Callbacks oder Custom-Scheme-Tokens zu umgehen.
+
+## Token-Speicherung
+
+Access- und Refresh-Tokens werden mit der vorhandenen SimpleOffice-Schutzfunktion verschlüsselt in SQLite gespeichert. Refresh-Tokens werden nicht an Browser oder Frontend ausgeliefert.
+
+Ein nativ von Android geliefertes Access-Token ersetzt den aktuell verwendeten Access-Token, lässt einen bereits vorhandenen Refresh-Token aber bestehen. Die bekannte Scope-Menge wird zusammengeführt, damit eine vorherige Browser-Freigabe für Kontakte/Kalender nicht durch eine reine Drive-Autorisierung aus der APK aus den Metadaten verschwindet.
 
 ## Sync-Richtungen
 
@@ -99,7 +122,7 @@ Die SQLite-Tabelle `google_drive_state` speichert unter anderem:
 - letzte erfolgreich synchronisierte Google-Version,
 - Status und Fehlermeldung.
 
-Dadurch wird eine neu kodierte oder anderweitig binär veränderte Datei nicht nur anhand ihres Dateinamens erkannt.
+Für Android ist keine zusätzliche OAuth-Handoff-Tabelle erforderlich. Die Autorisierung wird von Google Play Services durchgeführt; die Übergabe an Flask ist an die bereits bestehende lokale Session und CSRF-Prüfung gebunden.
 
 ## Inkrementeller Abgleich
 
@@ -166,9 +189,24 @@ Dateinamen aus Google Drive werden vor der lokalen Verwendung bereinigt. Pfadtre
 
 Remote-Dateien werden ausschließlich unterhalb von `GoogleDrive/` geschrieben. Die vorhandene DocumentStore-Pfadsicherheit und revisionsfähige Inhaltsersetzung bleibt dabei erhalten.
 
+Für den Android-Token-Endpunkt gelten zusätzlich:
+
+- nur Loopback (`127.0.0.1`/`::1`),
+- bestehende SimpleOffice-Sitzung erforderlich,
+- globale CSRF-Prüfung plus expliziter `X-CSRF-Token`,
+- APK-User-Agent erforderlich,
+- JSON-Body maximal 16 KiB,
+- Access-Token maximal 8192 Zeichen,
+- Scope-Liste maximal 16 Einträge,
+- `drive.file` muss enthalten sein,
+- Aktion ausschließlich `connect` oder `sync`,
+- keine Tokenwerte in Audit-Details oder Antworten.
+
 ## UI und Android
 
 Die Drive-Seite ist über **Drive** in der Hauptnavigation erreichbar. Aktionsbuttons verwenden flexible Zeilen und zusätzliche `safe-area-inset-bottom`-Reserve, damit sie auf Android-Geräten nicht hinter der Systemnavigation verschwinden.
+
+In der APK werden **Google verbinden** und **Jetzt synchronisieren** nativ autorisiert. Normale Browser verwenden weiterhin den Web-OAuth- beziehungsweise gespeicherten Server-Token-Weg.
 
 ## Aktuelle bewusste Grenzen
 
@@ -177,5 +215,6 @@ Die Drive-Seite ist über **Drive** in der Hauptnavigation erreichbar. Aktionsbu
 - Kein Google Picker für beliebige bestehende Drive-Dateien; der Standard bleibt der app-verwaltete Ordner.
 - Dateien über dem konfigurierten Limit werden markiert und übersprungen.
 - Konflikte werden sichtbar gemacht, aber noch nicht in einem Drei-Wege-Merge aufgelöst.
+- Native Android-Drive-Autorisierung benötigt Google Play Services. Auf Google-freien ROMs bleibt der restliche SimpleOffice-Funktionsumfang verfügbar, Drive muss dort über einen serverseitig autorisierten Token oder später eine alternative Integration genutzt werden.
 
-Diese Grenzen sind Absicht: Die erste Implementierung priorisiert Datenverlustschutz und minimale Google-Berechtigungen vor maximal aggressiver Spiegelung.
+Diese Grenzen sind Absicht: Die Implementierung priorisiert Datenverlustschutz, minimale Google-Berechtigungen und nachvollziehbare Authentisierungsgrenzen vor maximal aggressiver Spiegelung.
