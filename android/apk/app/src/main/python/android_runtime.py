@@ -4,11 +4,14 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from wsgiref.simple_server import make_server, WSGIServer, WSGIRequestHandler
 
 _SERVER = None
 _THREAD = None
+MAX_SERVER_WORKERS = 6
+MAX_PENDING_REQUESTS = 12
 
 
 class QuietRequestHandler(WSGIRequestHandler):
@@ -16,8 +19,41 @@ class QuietRequestHandler(WSGIRequestHandler):
         return
 
 
-class ReuseServer(WSGIServer):
+class PooledServer(WSGIServer):
+    """Small bounded request pool suited to an embedded mobile WebView."""
+
     allow_reuse_address = True
+    request_queue_size = MAX_PENDING_REQUESTS
+
+    def __init__(self, *args, **kwargs):
+        self._request_slots = threading.BoundedSemaphore(MAX_PENDING_REQUESTS)
+        self._request_pool = ThreadPoolExecutor(
+            max_workers=MAX_SERVER_WORKERS,
+            thread_name_prefix="simpleoffice-http",
+        )
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        self._request_slots.acquire()
+        try:
+            future = self._request_pool.submit(self._process_request, request, client_address)
+        except Exception:
+            self._request_slots.release()
+            self.shutdown_request(request)
+            raise
+        future.add_done_callback(lambda _future: self._request_slots.release())
+
+    def _process_request(self, request, client_address):
+        try:
+            self.finish_request(request, client_address)
+        except Exception:
+            self.handle_error(request, client_address)
+        finally:
+            self.shutdown_request(request)
+
+    def server_close(self):
+        super().server_close()
+        self._request_pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _configure_environment(runtime_root: Path, error_report_url: str = "") -> None:
@@ -26,6 +62,7 @@ def _configure_environment(runtime_root: Path, error_report_url: str = "") -> No
         sys.path.insert(0, str(runtime_root))
 
     os.environ["SIMPLEOFFICE_DESKTOP"] = "0"
+    os.environ["SIMPLEOFFICE_ANDROID"] = "1"
     os.environ["SIMPLEOFFICE_HOST"] = "127.0.0.1"
     os.environ["SIMPLEOFFICE_PORT"] = "8765"
     os.environ["SIMPLEOFFICE_DOCUMENT_ROOT"] = str(runtime_root / "database" / "documents")
@@ -83,7 +120,7 @@ def start(runtime_root: str, error_report_url: str = "") -> bool:
             "127.0.0.1",
             8765,
             app,
-            server_class=ReuseServer,
+            server_class=PooledServer,
             handler_class=QuietRequestHandler,
         )
     except Exception as exc:

@@ -61,6 +61,9 @@ public class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final String nativeBridgeToken = UUID.randomUUID().toString();
     private final AndroidAudioStreamer audioStreamer = new AndroidAudioStreamer();
+    private final AndroidIntentRouter intentRouter = new AndroidIntentRouter();
+    private AndroidDownloadHandler downloadHandler;
+    private AndroidGoogleAuthorization googleAuthorization;
     private WebView webView;
     private ProgressBar progress;
     private TextView status;
@@ -81,8 +84,23 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         pendingWebState = savedInstanceState;
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
+        intentRouter.accept(getIntent());
+        downloadHandler = new AndroidDownloadHandler(this);
+        googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
         buildUi();
         executor.execute(this::prepareAndStartBackend);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        intentRouter.accept(intent);
+        if (webView != null && isLocalUrl(webView.getUrl())) {
+            if (!navigateToPendingIntent(webView, webView.getUrl())) {
+                injectPendingShareUi(webView, webView.getUrl());
+            }
+        }
     }
 
     private void buildUi() {
@@ -118,6 +136,7 @@ public class MainActivity extends Activity {
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(true);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setUserAgentString(settings.getUserAgentString()
                 + " SimpleOffice4Me-Android/" + BuildConfig.VERSION_NAME);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
@@ -145,7 +164,16 @@ public class MainActivity extends Activity {
                     callback.onReceiveValue(null);
                     return true;
                 }
-                if (fileChooserCallback != null) fileChooserCallback.onReceiveValue(null);
+                if (fileChooserCallback != null) {
+                    fileChooserCallback.onReceiveValue(null);
+                    fileChooserCallback = null;
+                }
+                if (intentRouter.hasPendingSharedFiles() && isDocumentsIndexUrl(view.getUrl())) {
+                    Uri[] shared = intentRouter.consumeSharedFiles();
+                    callback.onReceiveValue(shared);
+                    showSharedFilesSelected(shared.length);
+                    return true;
+                }
                 fileChooserCallback = callback;
                 try {
                     startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
@@ -153,7 +181,7 @@ public class MainActivity extends Activity {
                 } catch (ActivityNotFoundException error) {
                     fileChooserCallback = null;
                     callback.onReceiveValue(null);
-                    showStatus("Keine App zum Auswählen eines Fotos gefunden.", false);
+                    showStatus("Keine App zum Auswählen einer Datei gefunden.", false);
                     return true;
                 }
             }
@@ -170,11 +198,7 @@ public class MainActivity extends Activity {
                 String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
                 if ("http".equals(scheme) || "https".equals(scheme)
                         || "mailto".equals(scheme) || "tel".equals(scheme)) {
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
-                    } catch (ActivityNotFoundException error) {
-                        showStatus("Keine passende App für diesen Link gefunden.", false);
-                    }
+                    openExternalUri(uri);
                 } else {
                     showStatus("Externer Link mit nicht unterstütztem Schema blockiert: " + scheme, false);
                 }
@@ -201,6 +225,8 @@ public class MainActivity extends Activity {
                 if (localPageVisible) {
                     view.evaluateJavascript(nativeShim(nativeBridgeToken), null);
                     flushPendingBarcodeResult();
+                    if (navigateToPendingIntent(view, url)) return;
+                    injectPendingShareUi(view, url);
                     if (!mainFrameLoadFailed) {
                         progress.setVisibility(View.GONE);
                         status.setVisibility(View.GONE);
@@ -232,6 +258,85 @@ public class MainActivity extends Activity {
                 }
             }
         });
+
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            if (downloadHandler != null && downloadHandler.begin(url, userAgent, contentDisposition, mimeType)) return;
+            try {
+                openExternalUri(Uri.parse(url));
+            } catch (Exception error) {
+                showStatus("Download-Link konnte nicht geöffnet werden.", false);
+            }
+        });
+    }
+
+    private void openExternalUri(Uri uri) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (ActivityNotFoundException error) {
+            showStatus("Keine passende App für diesen Link gefunden.", false);
+        }
+    }
+
+    private boolean navigateToPendingIntent(WebView view, String currentUrl) {
+        if (!intentRouter.hasPendingNavigation() || !isLocalUrl(currentUrl)) return false;
+        String currentPath = Uri.parse(currentUrl).getPath();
+        if (currentPath != null && currentPath.startsWith("/auth/")) return false;
+        String target = intentRouter.pendingNavigationPath();
+        if (samePath(currentPath, target)) {
+            intentRouter.clearPendingNavigation();
+            return false;
+        }
+        intentRouter.clearPendingNavigation();
+        view.loadUrl(localUrl(target));
+        return true;
+    }
+
+    private static boolean samePath(String first, String second) {
+        if (first == null || second == null) return false;
+        return trimTrailingSlash(first).equals(trimTrailingSlash(second));
+    }
+
+    private static String trimTrailingSlash(String value) {
+        return value.length() > 1 && value.endsWith("/")
+                ? value.substring(0, value.length() - 1) : value;
+    }
+
+    private static String localUrl(String path) {
+        if (path == null || path.isEmpty() || "/".equals(path)) return LOCAL_URL;
+        return LOCAL_URL + (path.startsWith("/") ? path.substring(1) : path);
+    }
+
+    private static boolean isDocumentsIndexUrl(String value) {
+        if (!isLocalUrl(value)) return false;
+        String path = Uri.parse(value).getPath();
+        return "/documents".equals(trimTrailingSlash(path == null ? "" : path));
+    }
+
+    private void injectPendingShareUi(WebView view, String url) {
+        if (!intentRouter.hasPendingSharedFiles() || !isLocalUrl(url)) return;
+        String path = Uri.parse(url).getPath();
+        if (path != null && path.startsWith("/auth/")) return;
+        int count = intentRouter.pendingSharedFileCount();
+        String script = "(function(count){"
+                + "let box=document.getElementById('android-share-import');if(box)box.remove();"
+                + "const root=document.getElementById('main-content')||document.querySelector('main')||document.body;if(!root)return;"
+                + "box=document.createElement('div');box.id='android-share-import';box.className='alert alert-primary d-flex flex-wrap align-items-center justify-content-between gap-2';"
+                + "const text=document.createElement('span');text.textContent='Android hat '+count+' Datei(en) an SimpleOffice geteilt.';"
+                + "const button=document.createElement('button');button.type='button';button.className='btn btn-sm btn-primary';"
+                + "const input=document.querySelector('input[type=file][name=files]');"
+                + "if(input){button.textContent='Dateien übernehmen';button.addEventListener('click',()=>input.click());}"
+                + "else{button.textContent='Zu Dokumenten';button.addEventListener('click',()=>{window.location.href='/documents';});}"
+                + "box.append(text,button);root.insertBefore(box,root.firstChild);"
+                + "})(" + count + ");";
+        view.evaluateJavascript(script, null);
+    }
+
+    private void showSharedFilesSelected(int count) {
+        if (webView == null || !isLocalUrl(webView.getUrl())) return;
+        String script = "(function(count){const box=document.getElementById('android-share-import');if(!box)return;"
+                + "box.className='alert alert-success';box.textContent=count+' Android-Datei(en) sind ausgewählt. Mit Vollständig importieren bestätigen.';"
+                + "})(" + count + ");";
+        webView.evaluateJavascript(script, null);
     }
 
     private static String nativeShim(String token) {
@@ -246,6 +351,7 @@ public class MainActivity extends Activity {
                 + "startReceiver:(port)=>String(window.SimpleOfficeAndroid.startAudioReceiver(bridgeToken,Number(port||5004))),"
                 + "stopReceiver:()=>String(window.SimpleOfficeAndroid.stopAudioReceiver(bridgeToken))};"
                 + audioUiShim()
+                + googleDriveUiShim()
                 + "window.dispatchEvent(new Event('simpleoffice:native-audio-ready'));"
                 + "if(!window.NDEFReader){class NativeNDEFReader extends EventTarget{async scan(){"
                 + "const state=String(window.SimpleOfficeAndroid.startNfcScan(bridgeToken));"
@@ -264,6 +370,23 @@ public class MainActivity extends Activity {
                 + "status.textContent=state==='ok'?'Android-Scanner wird geöffnet …':'Nativer Scanner ist nicht verfügbar. Kennung bitte manuell eingeben.';}"
                 + "},true);"
                 + "})();";
+    }
+
+    private static String googleDriveUiShim() {
+        return "document.addEventListener('submit',function(event){"
+                + "const form=event.target;if(!(form instanceof HTMLFormElement))return;let path='';"
+                + "try{path=new URL(form.action,window.location.href).pathname;}catch(error){return;}"
+                + "if(path!=='/settings/google-drive/connect'&&path!=='/settings/google-drive/sync')return;"
+                + "event.preventDefault();event.stopImmediatePropagation();"
+                + "const action=path.endsWith('/sync')?'sync':'connect';"
+                + "const csrf=document.querySelector('meta[name=csrf-token]')?.content||'';"
+                + "const root=document.getElementById('main-content')||document.querySelector('main')||document.body;"
+                + "let notice=document.getElementById('android-google-drive-status');"
+                + "if(!notice){notice=document.createElement('div');notice.id='android-google-drive-status';root.insertBefore(notice,root.firstChild);}"
+                + "notice.className='alert alert-primary';notice.textContent='Google-Berechtigung wird auf Android geprüft …';"
+                + "const result=String(window.SimpleOfficeAndroid.authorizeGoogleDrive(bridgeToken,action,csrf));"
+                + "if(result!=='ok'){notice.className='alert alert-warning';notice.textContent=result==='busy'?'Eine Google-Autorisierung läuft bereits.':'Native Google-Autorisierung ist nicht verfügbar.';}"
+                + "},true);";
     }
 
     private static String audioUiShim() {
@@ -367,6 +490,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (googleAuthorization != null && googleAuthorization.onActivityResult(requestCode, resultCode, data)) return;
+        if (downloadHandler != null && downloadHandler.onActivityResult(requestCode, resultCode, data)) return;
         if (requestCode == FILE_CHOOSER_REQUEST) {
             ValueCallback<Uri[]> callback = fileChooserCallback;
             fileChooserCallback = null;
@@ -394,6 +519,17 @@ public class MainActivity extends Activity {
         public String startBarcodeScan(String token) {
             if (!bridgeAllowed(token)) return "blocked";
             mainHandler.post(MainActivity.this::beginBarcodeScan);
+            return "ok";
+        }
+
+        @JavascriptInterface
+        public String authorizeGoogleDrive(String token, String action, String csrfToken) {
+            if (!bridgeAllowed(token)) return "blocked";
+            String normalizedAction = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
+            String csrf = csrfToken == null ? "" : csrfToken.trim();
+            if (!("connect".equals(normalizedAction) || "sync".equals(normalizedAction))) return "invalid";
+            if (csrf.length() < 32 || csrf.length() > 256 || googleAuthorization == null) return "invalid";
+            mainHandler.post(() -> googleAuthorization.authorize(normalizedAction, csrf));
             return "ok";
         }
 
@@ -460,6 +596,18 @@ public class MainActivity extends Activity {
 
     private boolean bridgeAllowed(String token) {
         return nativeBridgeToken.equals(token) && localPageVisible;
+    }
+
+    private void handleGoogleAuthorizationResult(String action, String result) {
+        if (webView == null) return;
+        String statusResult;
+        if ("connected".equals(result) || "synced".equals(result)
+                || "cancelled".equals(result) || "unavailable".equals(result)) {
+            statusResult = result;
+        } else {
+            statusResult = "error";
+        }
+        webView.loadUrl(localUrl("/settings/google-drive?android=" + statusResult));
     }
 
     private void dispatchNativeAudioStatus(String message) {
@@ -637,7 +785,8 @@ public class MainActivity extends Activity {
                 if (webView == null) return;
                 Bundle state = pendingWebState;
                 pendingWebState = null;
-                if (state != null && webView.restoreState(state) != null) return;
+                if (!intentRouter.hasPendingNavigation()
+                        && state != null && webView.restoreState(state) != null) return;
                 webView.loadUrl(LOCAL_URL);
             });
         } catch (Exception error) {
@@ -705,6 +854,10 @@ public class MainActivity extends Activity {
         localPageVisible = false;
         stopNfcReader();
         denyPendingCameraPermission();
+        if (webView != null) {
+            webView.onPause();
+            webView.pauseTimers();
+        }
         super.onPause();
     }
 
@@ -712,8 +865,13 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) {
+            webView.resumeTimers();
+            webView.onResume();
             localPageVisible = isLocalUrl(webView.getUrl());
-            flushPendingBarcodeResult();
+            if (localPageVisible && !navigateToPendingIntent(webView, webView.getUrl())) {
+                flushPendingBarcodeResult();
+                injectPendingShareUi(webView, webView.getUrl());
+            }
         }
     }
 
@@ -741,6 +899,14 @@ public class MainActivity extends Activity {
         if (fileChooserCallback != null) {
             fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = null;
+        }
+        if (googleAuthorization != null) {
+            googleAuthorization.close();
+            googleAuthorization = null;
+        }
+        if (downloadHandler != null) {
+            downloadHandler.close();
+            downloadHandler = null;
         }
         if (webView != null) {
             webView.removeJavascriptInterface("SimpleOfficeAndroid");

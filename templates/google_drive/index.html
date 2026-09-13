@@ -10,14 +10,30 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('documents.settings') }}">Einstellungen</a>
   </div>
 
+  {% if android_result == 'connected' %}
+    <div class="alert alert-success" role="status">Google Drive wurde über die native Android-Autorisierung verbunden.</div>
+  {% elif android_result == 'synced' %}
+    <div class="alert alert-success" role="status">Google Drive wurde über die native Android-Autorisierung abgeglichen.</div>
+  {% elif android_result == 'cancelled' %}
+    <div class="alert alert-info" role="status">Google-Drive-Freigabe wurde abgebrochen. Es wurden keine neuen Rechte übernommen.</div>
+  {% elif android_result == 'unavailable' %}
+    <div class="alert alert-warning" role="alert">Native Google-Autorisierung ist auf diesem Android-Gerät nicht verfügbar. Bitte Google Play-Dienste und die Android-OAuth-Konfiguration prüfen.</div>
+  {% elif android_result == 'error' %}
+    <div class="alert alert-danger" role="alert">Google Drive konnte über Android nicht autorisiert werden. Bitte erneut versuchen.</div>
+  {% endif %}
+
   {% for category, message in get_flashed_messages(with_categories=true) %}
     <div class="alert {{ 'alert-danger' if category == 'danger' else 'alert-warning' if category == 'warning' else 'alert-success' if category == 'success' else 'alert-info' }}">{{ message }}</div>
   {% endfor %}
 
-  {% if not google_configured %}
+  {% if not google_configured and not android_client %}
     <div class="alert alert-warning">
       <strong>Google OAuth ist noch nicht konfiguriert.</strong>
       Client-ID und Client-Secret müssen wie in <code>docs/GOOGLE_DRIVE_SYNC.md</code> beschrieben eingerichtet werden.
+    </div>
+  {% elif android_client %}
+    <div class="alert alert-secondary small">
+      Die APK verwendet Google Play Services mit dem Android-OAuth-Client und fordert nur <code>drive.file</code> an. Ein Google-Web-Client-Secret wird dafür nicht in die APK eingebettet.
     </div>
   {% endif %}
 
@@ -41,7 +57,7 @@
           </dl>
           <form method="post" action="{{ url_for('google_drive_admin.connect') }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-outline-primary" type="submit" {% if not google_configured %}disabled{% endif %}>
+            <button class="btn btn-outline-primary" type="submit" {% if not google_configured and not android_client %}disabled{% endif %}>
               {{ 'Google Drive neu freigeben' if google_connected else 'Google verbinden' }}
             </button>
           </form>
