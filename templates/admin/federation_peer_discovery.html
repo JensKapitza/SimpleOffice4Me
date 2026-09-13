@@ -5,6 +5,35 @@
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3"><div><h1 class="h3 mb-1">Federation Peer Discovery</h1><p class="text-secondary mb-0">Geräte finden, anschließend getrennt prüfen, vertrauen und für Daten freigeben.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Zur Federation</a></div>
 {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
+<section class="card mb-3 {{ 'border-success' if lan_receive.active else 'border-secondary' }}">
+  <div class="card-body">
+    <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center">
+      <div>
+        <h2 class="h4 mb-1"><i class="fas fa-mobile-screen-button me-2" aria-hidden="true"></i>Auf diesem Gerät empfangen</h2>
+        <p class="text-secondary mb-2">Aktiviere den Empfang nur dann, wenn ein anderes Gerät im gleichen WLAN Daten an dieses SimpleOffice senden soll.</p>
+        {% if lan_receive.active %}
+          <span class="badge text-bg-success">Empfang vorgemerkt</span>
+          <span class="small text-secondary ms-1">Automatisches Ende nach spätestens 15 Minuten.</span>
+        {% else %}
+          <span class="badge text-bg-secondary">Aus</span>
+          <span class="small text-secondary ms-1">Kein dauerhafter Empfangsmodus.</span>
+        {% endif %}
+      </div>
+      {% if lan_receive.active %}
+      <form method="post" action="{{ url_for('federation_peer_admin.stop_receive') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-danger" type="submit">Empfang beenden</button>
+      </form>
+      {% else %}
+      <form method="post" action="{{ url_for('federation_peer_admin.start_receive') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-success" type="submit"><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>15 Minuten empfangsbereit</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
 <section class="card border-primary mb-3">
   <div class="card-body">
     <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
