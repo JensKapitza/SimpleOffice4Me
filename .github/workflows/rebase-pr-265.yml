@@ -1,0 +1,198 @@
+name: Rebase PR 265
+
+on:
+  pull_request:
+    branches:
+      - temp-rebase-265
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebase:
+    if: github.event.pull_request.number == 265
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/android-native-integration
+          fetch-depth: 0
+
+      - name: Rebuild Android PR on current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          OLD_HEAD=7e273c2684275b9e718e5098a50ef643a0bec9d7
+          BRANCH=feature/android-native-integration
+          TMP=$(mktemp -d)
+
+          git fetch origin main
+
+          files=(
+            android/apk/README.md
+            android/apk/app/build.gradle
+            android/apk/app/src/main/AndroidManifest.xml
+            android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidDownloadHandler.java
+            android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidGoogleAuthorization.java
+            android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidIntentRouter.java
+            android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java
+            android/apk/app/src/main/java/de/simpleoffice4me/android/NavigationActivity.java
+            android/apk/app/src/main/python/android_runtime.py
+            app/google_drive_admin.py
+            docs/ANDROID_INTEGRATION.md
+            docs/GOOGLE_DRIVE_SYNC.md
+            static/css/mobile-viewport.css
+            static/js/mobile_viewport.js
+            templates/google_drive/index.html
+            tests/test_android_native_integration.py
+            tests/test_android_runtime.py
+            tests/test_google_drive_sync.py
+            tests/test_mobile_viewport.py
+          )
+          for f in "${files[@]}"; do
+            mkdir -p "$TMP/$(dirname "$f")"
+            git show "$OLD_HEAD:$f" > "$TMP/$f"
+          done
+
+          git reset --hard origin/main
+
+          for f in "${files[@]}"; do
+            case "$f" in
+              android/apk/app/src/main/AndroidManifest.xml|android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java)
+                ;;
+              *)
+                mkdir -p "$(dirname "$f")"
+                cp "$TMP/$f" "$f"
+                ;;
+            esac
+          done
+
+          cat > android/apk/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.NFC" />
+              <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+              <uses-feature android:name="android.hardware.microphone" android:required="false" />
+              <uses-feature android:name="android.hardware.nfc" android:required="false" />
+              <application android:allowBackup="true" android:label="SimpleOffice4Me" android:networkSecurityConfig="@xml/network_security_config" android:usesCleartextTraffic="false" android:theme="@style/AppTheme">
+                  <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />
+                  <activity android:name=".SipCallActivity" android:exported="true" android:noHistory="true" android:excludeFromRecents="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="https" android:host="sip.simpleoffice.local" android:path="/call" />
+                      </intent-filter>
+                  </activity>
+                  <activity android:name=".NavigationActivity" android:exported="true" android:launchMode="singleTop" android:configChanges="keyboardHidden|orientation|screenSize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.SEND" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:mimeType="*/*" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.SEND_MULTIPLE" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:mimeType="*/*" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:scheme="content" android:mimeType="*/*" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="simpleoffice4me" android:host="open" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cp "$TMP/android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java" android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java')
+          s = p.read_text(encoding='utf-8')
+          old = '''    private boolean bridgeAllowed(String token) {
+                  return nativeBridgeToken.equals(token)
+                          && localPageVisible
+                          && webView != null
+                          && isLocalUrl(webView.getUrl());
+              }'''
+          new = '''    private boolean bridgeAllowed(String token) {
+                  return nativeBridgeToken.equals(token) && localPageVisible;
+              }'''
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+
+          def wrap(method, next_method, message):
+              global s
+              pat = re.compile(
+                  rf'(        public String {method}\([^\n]+\) \{{\n            if \(!bridgeAllowed\(token\)\) return "blocked";\n)(.*?)(\n        \}}\n\n        @JavascriptInterface\n        public String {next_method})',
+                  re.S,
+              )
+              m = pat.search(s)
+              assert m, method
+              body = '\n'.join('    ' + line if line else line for line in m.group(2).split('\n'))
+              repl = (m.group(1) + '            try {\n' + body + '\n'
+                      '            } catch (RuntimeException error) {\n'
+                      f'                dispatchNativeAudioStatus("{message}");\n'
+                      '                return "runtime-error";\n'
+                      '            }' + m.group(3))
+              s = s[:m.start()] + repl + s[m.end():]
+
+          wrap('startAudioSender', 'stopAudioSender', 'Android-Audiosender konnte nicht gestartet werden.')
+          wrap('startAudioReceiver', 'stopAudioReceiver', 'Android-Audioempfang konnte nicht gestartet werden.')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('templates/layout.html')
+          s = p.read_text(encoding='utf-8')
+          css = "  <link rel=\"stylesheet\" href=\"{{ url_for('static', filename='css/mobile-viewport.css') }}\">\n"
+          js = "  <script src=\"{{ url_for('static', filename='js/mobile_viewport.js') }}\"></script>\n"
+          if 'css/mobile-viewport.css' not in s:
+              needle = "  <link rel=\"stylesheet\" href=\"{{ url_for('static', filename='css/quality-wins.css') }}\">\n"
+              assert needle in s
+              s = s.replace(needle, needle + css, 1)
+          if 'js/mobile_viewport.js' not in s:
+              needle = "  <script src=\"{{ url_for('static', filename='js/global_quickwins.js') }}\"></script>\n"
+              assert needle in s
+              s = s.replace(needle, needle + js, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+
+          git checkout origin/main -- tests/test_important_wins.py
+
+          python3 tests/test_android_native_integration.py
+          python3 tests/test_android_runtime.py
+          python3 tests/test_mobile_viewport.py
+          python3 tests/test_important_wins.py
+
+          grep -q 'android:name=".SipCallActivity"' android/apk/app/src/main/AndroidManifest.xml
+          grep -q 'android:name=".NavigationActivity"' android/apk/app/src/main/AndroidManifest.xml
+          grep -q 'global_quickwins.js' templates/layout.html
+          grep -q 'mobile_viewport.js' templates/layout.html
+          grep -q 'return nativeBridgeToken.equals(token) && localPageVisible;' android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java
+          test "$(grep -c 'return "runtime-error";' android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java)" -ge 2
+
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Rebase Android native integration onto main"
+          git push --force-with-lease origin HEAD:"$BRANCH"
