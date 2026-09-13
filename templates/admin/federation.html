@@ -4,7 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div><h1 class="h2 mb-1">Federation / SOFP</h1><p class="text-secondary mb-0">Dokumente senden, Remote-Indizes offline halten und Downloads dynamisch priorisieren.</p></div>
-    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}">Dokumente</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.replication') }}">Speicher</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Audit</a></div>
+    <div class="d-flex flex-wrap gap-2"><a class="btn btn-primary" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Netzwerk scannen</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}">Dokumente</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.replication') }}">Speicher</a><a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Audit</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
