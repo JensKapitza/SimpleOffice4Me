@@ -24,8 +24,22 @@
     <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Worker</div><div class="fs-5 fw-semibold">{{ status.state or 'unbekannt' }}</div><div class="small text-secondary">{% if status.pid %}PID {{ status.pid }} · {{ status.uptime_seconds or 0 }} s{% endif %}</div></div></div></div>
     <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">DHCP</div><div class="fs-5 fw-semibold">{{ 'läuft' if status.dhcp_running else ('konfiguriert' if config.dhcp.enabled else 'aus') }}</div><div class="small text-secondary">{{ config.dhcp.network }} · {{ leases|length }} Lease(s)</div></div></div></div>
     <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">DNS</div><div class="fs-5 fw-semibold">{{ 'läuft' if status.dns_running else ('konfiguriert' if config.dns.enabled else 'aus') }}</div><div class="small text-secondary">Port {{ config.dns.port }} · {{ config.dns.upstreams|length }} Upstream(s)</div></div></div></div>
-    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ad-Blockliste</div><div class="fs-5 fw-semibold">{{ blocklist.domains or 0 }} Domains</div><div class="small text-secondary">{{ blocklist.updated_at or 'noch nicht geladen' }}</div></div></div></div>
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">IPv4-Routing</div><div class="fs-5 fw-semibold"><span class="badge text-bg-{{ 'success' if routing.enabled else 'warning' if routing.known else 'secondary' }}">{{ 'aktiv' if routing.enabled else 'aus' if routing.known else 'unbekannt' }}</span></div><div class="small text-secondary">{{ routing.platform }}</div></div></div></div>
   </div>
+
+  <section class="card mb-4" aria-labelledby="network-diagnostics-heading">
+    <div class="card-header"><strong id="network-diagnostics-heading">Netzwerkschnittstellen &amp; Routing</strong></div>
+    <div class="card-body">
+      <div class="table-responsive mb-3"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Interface</th><th scope="col">Status</th><th scope="col">IPv4 / Netz</th></tr></thead><tbody>{% for iface in interfaces %}<tr><td><code>{{ iface.name }}</code></td><td><span class="badge text-bg-{{ 'success' if iface.state == 'up' else 'secondary' }}">{{ iface.state }}</span></td><td>{% for address in iface.ipv4 %}<code class="me-2">{{ address }}</code>{% else %}<span class="text-secondary">keine IPv4-Adresse erkannt</span>{% endfor %}</td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Keine Schnittstelleninformationen verfügbar.</td></tr>{% endfor %}</tbody></table></div>
+      {% if routing.enabled %}
+        <div class="alert alert-success mb-0" role="status"><strong>IPv4-Forwarding ist aktiviert.</strong> Das Betriebssystem kann Pakete zwischen Netzen weiterleiten. Ob NAT/Firewallregeln passen, hängt zusätzlich von der Gateway-Konfiguration ab.</div>
+      {% elif routing.known %}
+        <div class="alert alert-warning mb-0" role="status"><strong>IPv4-Forwarding ist nicht aktiviert.</strong> Für Routing zwischen DHCP-Netzen bzw. zu einem WAN muss es aktiviert werden.{% if routing.temporary_command %}<div class="mt-2"><span class="small text-secondary">Temporär:</span> <code>{{ routing.temporary_command }}</code></div>{% endif %}{% if routing.persistent_command %}<div class="mt-1"><span class="small text-secondary">Dauerhaft:</span> <code class="text-break">{{ routing.persistent_command }}</code></div>{% endif %}</div>
+      {% else %}
+        <div class="alert alert-secondary mb-0" role="status"><strong>Routing-Status konnte nicht automatisch bestimmt werden.</strong>{% if routing.temporary_command %} Prüfen/aktivieren kannst du es z. B. mit <code>{{ routing.temporary_command }}</code>.{% endif %}</div>
+      {% endif %}
+    </div>
+  </section>
 
   <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
     <span class="badge text-bg-secondary">Worker wird von systemd verwaltet</span>
@@ -40,7 +54,7 @@
         <div id="dhcp-config" class="accordion-collapse collapse show"><div class="accordion-body">
           <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="dhcp_enabled" value="1" id="dhcp-enabled" {% if config.dhcp.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="dhcp-enabled">DHCP-Server aktivieren</label></div>
           <div class="row g-3">
-            <div class="col-md-3"><label class="form-label">Interface</label><input class="form-control" name="dhcp_interface" value="{{ config.dhcp.interface }}" placeholder="z.B. eth0"></div>
+            <div class="col-md-3"><label class="form-label" for="dhcp-interface">Interface</label><input class="form-control" id="dhcp-interface" name="dhcp_interface" value="{{ config.dhcp.interface }}" list="network-interface-list" placeholder="z. B. eth0" autocomplete="off"><datalist id="network-interface-list">{% for iface in interfaces %}<option value="{{ iface.name }}">{{ iface.ipv4|join(', ') or iface.state }}</option>{% endfor %}</datalist><div class="form-text">Freitext bleibt möglich; erkannte Interfaces werden vorgeschlagen.</div></div>
             <div class="col-md-3"><label class="form-label">Bind-Adresse</label><input class="form-control" name="dhcp_bind" value="{{ config.dhcp.bind }}"></div>
             <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" type="number" name="dhcp_port" value="{{ config.dhcp.port }}" min="1" max="65535"></div>
             <div class="col-md-4"><label class="form-label">Server-IP</label><input class="form-control" name="server_ip" value="{{ config.dhcp.server_ip }}" required></div>
