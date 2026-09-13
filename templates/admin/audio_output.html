@@ -19,9 +19,9 @@
   <div class="row g-4">
     <section class="col-xl-7">
       <div class="card h-100">
-        <div class="card-header"><strong>Audioausgänge</strong></div>
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><strong>Audioausgänge</strong>{% if outputs %}<div class="d-flex flex-wrap align-items-center gap-2"><span class="badge text-bg-secondary" id="audio-output-filter-count">{{ outputs|length }}</span><label class="visually-hidden" for="audio-output-filter">Audioausgänge filtern</label><input class="form-control form-control-sm" id="audio-output-filter" type="search" autocomplete="off" placeholder="Node, Ausgang oder Name" style="min-width:15rem"><select class="form-select form-select-sm" id="audio-output-status-filter" aria-label="Audiostatus filtern" style="width:auto"><option value="all">Alle</option><option value="online">Online</option><option value="offline">Offline</option></select></div>{% endif %}</div>
         <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Node</th><th scope="col">Ausgang</th><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Lautstärke</th></tr></thead><tbody>
-          {% for output in outputs %}<tr><td><code>{{ output.node_id }}</code></td><td><code>{{ output.output_id }}</code></td><td>{{ output.name }}</td><td><span class="badge text-bg-{{ 'success' if output.online else 'secondary' }}">{{ 'online' if output.online else 'offline' }}</span></td><td>{{ output.volume }} %</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Audioausgänge registriert.</td></tr>{% endfor %}
+          {% for output in outputs %}<tr data-audio-output-row data-status="{{ 'online' if output.online else 'offline' }}" data-search="{{ (output.node_id ~ ' ' ~ output.output_id ~ ' ' ~ output.name ~ ' ' ~ output.device ~ ' ' ~ output.volume)|lower }}"><td><code>{{ output.node_id }}</code></td><td><code>{{ output.output_id }}</code></td><td>{{ output.name }}</td><td><span class="badge text-bg-{{ 'success' if output.online else 'secondary' }}">{{ 'online' if output.online else 'offline' }}</span></td><td>{{ output.volume }} %</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Audioausgänge registriert.</td></tr>{% endfor %}<tr id="audio-output-filter-empty" hidden><td colspan="5" class="text-secondary py-3 text-center">Kein Audioausgang passt zum Filter.</td></tr>
         </tbody></table></div>
       </div>
     </section>
@@ -43,5 +43,6 @@
   </section>
 
   <p class="small text-secondary mt-3 mb-0">Die vorhandenen JSON-Endpunkte bleiben für Geräte und Automatisierung unverändert verfügbar.</p>
+  <script>(()=>{const text=document.getElementById('audio-output-filter');const status=document.getElementById('audio-output-status-filter');if(!text||!status)return;const rows=[...document.querySelectorAll('[data-audio-output-row]')];const count=document.getElementById('audio-output-filter-count');const empty=document.getElementById('audio-output-filter-empty');const apply=()=>{const q=text.value.trim().toLocaleLowerCase();const wanted=status.value;let visible=0;rows.forEach(row=>{const matchesText=!q||(row.dataset.search||'').includes(q);const matchesStatus=wanted==='all'||row.dataset.status===wanted;const show=matchesText&&matchesStatus;row.hidden=!show;if(show)visible+=1;});count.textContent=String(visible);empty.hidden=visible!==0||rows.length===0;};text.addEventListener('input',apply);status.addEventListener('change',apply);apply();})();</script>
 </main>
 {% endblock %}
