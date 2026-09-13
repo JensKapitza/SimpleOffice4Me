@@ -25,6 +25,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome-7.3.1/css/all.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/quality-wins.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-viewport.css') }}">
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   {% block script %}{% endblock %}
 </head>
@@ -66,7 +67,7 @@
   <script>window.SimpleOfficeTranslations = {{ ui_literal_translations|tojson }};</script>
   <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
   <script src="{{ url_for('static', filename='js/global_ui.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/global_quickwins.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/mobile_viewport.js') }}"></script>
   <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
   {% if license_ui.state.bad_client %}<script>(() => { const key = 'simpleoffice-license-blocked-{{ license_ui.state.updated_at|default(0) }}'; if (!sessionStorage.getItem(key)) { sessionStorage.setItem(key, '1'); const el = document.getElementById('licenseBlockedModal'); if (el && window.bootstrap) new bootstrap.Modal(el).show(); } })();</script>{% endif %}
 </body>

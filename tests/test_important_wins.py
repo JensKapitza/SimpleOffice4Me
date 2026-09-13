@@ -128,21 +128,6 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn('MAX_TARGETS = 16', coordinator)
         self.assertIn('Build.VERSION_CODES.Q', coordinator)
 
-    def test_android_javascript_bridge_is_thread_safe(self):
-        activity = self.read("android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java")
-        match = re.search(
-            r"private boolean bridgeAllowed\(String token\) \{(?P<body>.*?)\n    \}",
-            activity,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(match)
-        body = match.group("body")
-        self.assertIn("nativeBridgeToken.equals(token)", body)
-        self.assertIn("localPageVisible", body)
-        self.assertNotIn("webView", body)
-        self.assertNotIn("getUrl", body)
-        self.assertIn('return "runtime-error";', activity)
-
     def test_android_version_is_bumped(self):
         text = self.read("android/apk/app/build.gradle")
         self.assertRegex(text, r"versionCode\s+7\b")

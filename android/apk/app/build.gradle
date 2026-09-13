@@ -16,6 +16,8 @@ def androidRuntimeProfiles = [
     'armeabi-v7a': '3.11',
 ]
 def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
+def appVersionCode = 7
+def appVersionName = '1.0.6'
 if (!expectedPythonVersion) {
     throw new GradleException("Unsupported Android ABI: ${androidAbi}")
 }
@@ -66,6 +68,7 @@ android {
 }
 
 dependencies {
+    implementation 'com.google.android.gms:play-services-auth:21.6.0'
     implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
 }
 
@@ -102,6 +105,20 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
         include 'simpleoffice_*.py'
         exclude '**/__pycache__/**'
         exclude '**/*.pyc'
+    }
+    doLast {
+        def architecture = androidAbi == 'armeabi-v7a' ? 'ARM32' : androidAbi == 'arm64-v8a' ? 'ARM64' : androidAbi
+        def metadata = file("$buildDir/generated/simpleofficeAssets/simpleoffice/static/android-build.json")
+        metadata.parentFile.mkdirs()
+        metadata.text = groovy.json.JsonOutput.toJson([
+            version: appVersionName,
+            version_code: appVersionCode,
+            abi: androidAbi,
+            architecture: architecture,
+            python: pythonRuntimeVersion,
+            min_sdk: 24,
+            target_sdk: 36,
+        ])
     }
 }
 
