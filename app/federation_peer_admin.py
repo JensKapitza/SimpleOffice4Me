@@ -6,6 +6,7 @@ from .federation_attestations import FederationAttestationStore
 from .federation_discovery_lan import discover_lan, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
+from .federation_lan_receive_state import LanReceiveState
 from .federation_local_profile import local_profile
 from .federation_qr import decode_peer, encode_peer
 from .federation_qr_image import render_qr_svg
@@ -19,6 +20,10 @@ bp = Blueprint("federation_peer_admin", __name__, url_prefix="/admin/federation/
 
 def _root():
     return current_app.config["DOCUMENT_ROOT"]
+
+
+def _receive_state():
+    return LanReceiveState(_root())
 
 
 def _unavailable_qr_svg() -> str:
@@ -57,7 +62,29 @@ def dashboard():
     except ValueError:
         own = {}
         own_qr = ""
-    return render_template("admin/federation_peer_discovery.html", peers=peers, own=own, own_qr=own_qr)
+    return render_template(
+        "admin/federation_peer_discovery.html",
+        peers=peers,
+        own=own,
+        own_qr=own_qr,
+        lan_receive=_receive_state().status(),
+    )
+
+
+@bp.post("/receive/start")
+@admin_required
+def start_receive():
+    state = _receive_state().start()
+    flash(f"WLAN-Empfang für 15 Minuten vorgemerkt. Ablauf: {state['expires_at']}.")
+    return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/receive/stop")
+@admin_required
+def stop_receive():
+    _receive_state().stop()
+    flash("WLAN-Empfang beendet.")
+    return redirect(url_for("federation_peer_admin.dashboard"))
 
 
 @bp.get("/qr.svg")
