@@ -1,37 +1,34 @@
 {% extends "layout.html" %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/attachment-selection.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}<main id="main-content" class="container-xl py-4">
-<div class="d-flex justify-content-between align-items-start gap-3">
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
 <div>
 <a href="{{ url_for('documents.detail', document_id=document.document_id) }}">← Dokument</a>
 <h1 class="h3 mt-3">E-Mail und Anhänge</h1>
 </div>
-<a class="btn btn-primary" href="{{ url_for('contact_audit.eml_preview', document_id=document.document_id) }}">
-<i class="fas fa-envelope-open-text me-1">
-</i>Mail vollständig lesen</a>
+<a class="btn btn-primary" href="{{ url_for('contact_audit.eml_preview', document_id=document.document_id) }}"><i class="fas fa-envelope-open-text me-1" aria-hidden="true"></i>Mail vollständig lesen</a>
 </div>
-<div class="alert alert-warning">
+<div class="alert alert-warning" role="status">
 <strong>Noch wurde nichts extrahiert.</strong> Prüfe Dateiname, Typ und Größe. Erst „Ausgewählte Anhänge prüfen und übernehmen“ schreibt Dateien in die Quarantäne, scannt sie mit ClamAV und gibt ausschließlich saubere Dateien als Dokumente frei.</div>
 {% if safe_attachments %}<section class="card mb-4"><div class="card-header">{{ 'Released attachments' if g.language == 'en' else 'Bereits freigegebene Anhänge' }}</div><div class="list-group list-group-flush">{% for item in safe_attachments %}<a class="list-group-item list-group-item-action d-flex justify-content-between gap-3" href="{{ url_for('documents.detail', document_id=item.document_id) }}"><span><strong>{{ item.last_path.rsplit('/', 1)[-1] }}</strong><br><small class="text-success">{{ 'ClamAV clean; decoded preview is enabled.' if g.language == 'en' else 'ClamAV sauber; dekodierte Vorschau ist freigegeben.' }}</small></span><span aria-hidden="true">→</span></a>{% endfor %}</div></section>{% endif %}
 <dl class="row">
-<dt class="col-sm-3">Original</dt>
-<dd class="col-sm-9 text-break">{{ document.last_path }}</dd>
-<dt class="col-sm-3">Betreff</dt>
-<dd class="col-sm-9">{{ manifest.message.subject or '—' }}</dd>
-<dt class="col-sm-3">Absenderangabe</dt>
-<dd class="col-sm-9">{{ manifest.message.from or '—' }}</dd>
-<dt class="col-sm-3">Vorschau gültig bis</dt>
-<dd class="col-sm-9">{{ manifest.expires_at }}</dd>
+<dt class="col-sm-3">Original</dt><dd class="col-sm-9 text-break">{{ document.last_path }}</dd>
+<dt class="col-sm-3">Betreff</dt><dd class="col-sm-9">{{ manifest.message.subject or '—' }}</dd>
+<dt class="col-sm-3">Absenderangabe</dt><dd class="col-sm-9 text-break">{{ manifest.message.from or '—' }}</dd>
+<dt class="col-sm-3">Vorschau gültig bis</dt><dd class="col-sm-9">{{ manifest.expires_at }}</dd>
 </dl>
-<form method="post">
+<form method="post" id="attachment-review-form">
 <input type="hidden" name="manifest_id" value="{{ manifest.manifest_id }}">
-<div class="list-group mb-3">{% for item in manifest.attachments %}<label class="list-group-item d-flex gap-3">
-<input class="form-check-input" type="checkbox" name="parts" value="{{ item.part }}">
-<span>
-<strong>{{ item.filename }}</strong>
-<br>
-<small class="text-secondary">{{ item.content_type }} · {{ item.size }} Bytes · SHA-256 <code>{{ item.sha256[:16] }}…</code> · MIME-Teil {{ item.part }}</small>
-</span>
-</label>{% else %}<div class="list-group-item text-secondary">Keine MIME-Anhänge gefunden.</div>{% endfor %}</div>{% if manifest.attachments %}<button type="submit" class="btn btn-danger">Ausgewählte Anhänge prüfen und übernehmen</button>{% endif %}</form>
+{% if manifest.attachments %}<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+<div class="btn-group btn-group-sm" role="group" aria-label="Anhänge auswählen"><button type="button" class="btn btn-outline-secondary" id="attachment-select-all">Alle auswählen</button><button type="button" class="btn btn-outline-secondary" id="attachment-select-none">Auswahl leeren</button></div>
+<span class="badge text-bg-secondary" id="attachment-selection-count" aria-live="polite">0 ausgewählt</span>
+</div>{% endif %}
+<div class="list-group mb-3">{% for item in manifest.attachments %}<label class="list-group-item d-flex gap-3 align-items-start attachment-option">
+<input class="form-check-input mt-1 attachment-select" type="checkbox" name="parts" value="{{ item.part }}">
+<span class="min-w-0"><strong class="text-break">{{ item.filename }}</strong><br><small class="text-secondary text-break">{{ item.content_type }} · {{ item.size }} Bytes · SHA-256 <code>{{ item.sha256[:16] }}…</code> · MIME-Teil {{ item.part }}</small></span>
+</label>{% else %}<div class="list-group-item text-secondary">Keine MIME-Anhänge gefunden.</div>{% endfor %}</div>
+{% if manifest.attachments %}<button type="submit" class="btn btn-danger" id="attachment-review-submit" disabled>Ausgewählte Anhänge prüfen und übernehmen</button><div class="form-text mt-2">Ausgewählte Dateien werden nicht direkt geöffnet, sondern zuerst in Quarantäne geschrieben und geprüft.</div>{% endif %}
+</form>
 <p class="small text-secondary mt-3">Die unveränderte EML-Datei bleibt erhalten. Dateinamen sind Metadaten und werden nicht als vertrauenswürdig behandelt.</p>
 </main>{% endblock %}
