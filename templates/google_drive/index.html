@@ -120,8 +120,9 @@
   <section class="card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
       <strong>Verknüpfte Drive-Objekte</strong>
-      <div class="d-flex flex-wrap gap-1">
-        {% for status, count in drive_counts.items() %}<span class="badge text-bg-secondary">{{ status }}: {{ count }}</span>{% endfor %}
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <div class="d-flex flex-wrap gap-1">{% for status, count in drive_counts.items() %}<span class="badge text-bg-secondary">{{ status }}: {{ count }}</span>{% endfor %}</div>
+        {% if drive_links %}<span class="badge text-bg-dark" id="drive-link-filter-count">{{ drive_links|length }}</span><label class="visually-hidden" for="drive-link-filter">Drive-Objekte filtern</label><input class="form-control form-control-sm" id="drive-link-filter" type="search" autocomplete="off" placeholder="Name, Pfad oder Typ" style="min-width:15rem"><select class="form-select form-select-sm" id="drive-link-status-filter" aria-label="Drive-Status filtern" style="width:auto"><option value="all">Alle Status</option>{% for status in drive_counts.keys() %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select>{% endif %}
       </div>
     </div>
     <div class="table-responsive">
@@ -129,7 +130,7 @@
         <thead><tr><th scope="col">Name</th><th scope="col">Lokal</th><th scope="col">Typ</th><th scope="col">Status</th><th scope="col">Letzter Sync</th><th scope="col">Google</th></tr></thead>
         <tbody>
           {% for item in drive_links %}
-          <tr>
+          <tr data-drive-link-row data-status="{{ item.status }}" data-search="{{ ((item.remote_name or item.drive_file_id) ~ ' ' ~ (item.local_relative_path or '') ~ ' ' ~ item.mime_type ~ ' ' ~ item.status ~ ' ' ~ (item.last_error or ''))|lower }}">
             <td>{{ item.remote_name or item.drive_file_id }}</td>
             <td>{% if item.local_relative_path %}<code>{{ item.local_relative_path }}</code>{% else %}<span class="text-secondary">nur Cloud</span>{% endif %}</td>
             <td><span class="small">{{ item.mime_type }}</span></td>
@@ -146,9 +147,11 @@
           {% else %}
           <tr><td colspan="6" class="text-secondary">Noch keine Drive-Objekte synchronisiert.</td></tr>
           {% endfor %}
+          <tr id="drive-link-filter-empty" hidden><td colspan="6" class="text-secondary py-4 text-center">Keine Drive-Objekte passen zum Filter.</td></tr>
         </tbody>
       </table>
     </div>
   </section>
+  <script>(()=>{const text=document.getElementById('drive-link-filter');const status=document.getElementById('drive-link-status-filter');if(!text||!status)return;const rows=[...document.querySelectorAll('[data-drive-link-row]')];const count=document.getElementById('drive-link-filter-count');const empty=document.getElementById('drive-link-filter-empty');const apply=()=>{const q=text.value.trim().toLocaleLowerCase();const wanted=status.value;let visible=0;rows.forEach(row=>{const matchesText=!q||(row.dataset.search||'').includes(q);const matchesStatus=wanted==='all'||row.dataset.status===wanted;const show=matchesText&&matchesStatus;row.hidden=!show;if(show)visible+=1;});count.textContent=String(visible);empty.hidden=visible!==0||rows.length===0;};text.addEventListener('input',apply);status.addEventListener('change',apply);apply();})();</script>
 </main>
 {% endblock %}
