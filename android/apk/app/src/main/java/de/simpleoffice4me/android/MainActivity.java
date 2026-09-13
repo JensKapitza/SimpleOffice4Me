@@ -407,18 +407,23 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String startAudioSender(String token, String targetsJson, int bitrateKbps) {
             if (!bridgeAllowed(token)) return "blocked";
-            if (!AndroidAudioStreamer.opusEncoderAvailable()) return "unsupported";
-            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                pendingAudioTargets = targetsJson;
-                pendingAudioBitrate = Math.max(16, Math.min(bitrateKbps, 256));
-                mainHandler.post(() -> requestPermissions(
-                        new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION_REQUEST));
-                return "permission";
+            try {
+                if (!AndroidAudioStreamer.opusEncoderAvailable()) return "unsupported";
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    pendingAudioTargets = targetsJson;
+                    pendingAudioBitrate = Math.max(16, Math.min(bitrateKbps, 256));
+                    mainHandler.post(() -> requestPermissions(
+                            new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION_REQUEST));
+                    return "permission";
+                }
+                String result = audioStreamer.startSender(targetsJson, bitrateKbps);
+                dispatchNativeAudioStatus(
+                        "ok".equals(result) ? "" : "Android-Audiosender konnte nicht gestartet werden.");
+                return result;
+            } catch (RuntimeException error) {
+                dispatchNativeAudioStatus("Android-Audiosender konnte nicht gestartet werden.");
+                return "runtime-error";
             }
-            String result = audioStreamer.startSender(targetsJson, bitrateKbps);
-            dispatchNativeAudioStatus(
-                    "ok".equals(result) ? "" : "Android-Audiosender konnte nicht gestartet werden.");
-            return result;
         }
 
         @JavascriptInterface
@@ -433,10 +438,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String startAudioReceiver(String token, int port) {
             if (!bridgeAllowed(token)) return "blocked";
-            String result = audioStreamer.startReceiver(port);
-            dispatchNativeAudioStatus(
-                    "ok".equals(result) ? "" : "Android-Audioempfang konnte nicht gestartet werden.");
-            return result;
+            try {
+                String result = audioStreamer.startReceiver(port);
+                dispatchNativeAudioStatus(
+                        "ok".equals(result) ? "" : "Android-Audioempfang konnte nicht gestartet werden.");
+                return result;
+            } catch (RuntimeException error) {
+                dispatchNativeAudioStatus("Android-Audioempfang konnte nicht gestartet werden.");
+                return "runtime-error";
+            }
         }
 
         @JavascriptInterface
@@ -449,10 +459,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean bridgeAllowed(String token) {
-        return nativeBridgeToken.equals(token)
-                && localPageVisible
-                && webView != null
-                && isLocalUrl(webView.getUrl());
+        return nativeBridgeToken.equals(token) && localPageVisible;
     }
 
     private void dispatchNativeAudioStatus(String message) {
