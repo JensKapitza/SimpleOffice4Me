@@ -122,7 +122,10 @@ def direct():
         peer = discover_direct(_root(), request.form.get("endpoint", ""))
         flash(f"Peer {peer['peer_id']} gefunden und als bekannt/nicht geprüft gespeichert.")
     except Exception as exc:
-        flash(f"Direkte Peer-Suche fehlgeschlagen: {exc}")
+        flash(
+            f"Direkte Peer-Suche fehlgeschlagen: {exc}. "
+            "Prüfe, ob der Dienst auf dieser IP und diesem Port läuft und ob eine Firewall die Verbindung blockiert."
+        )
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
