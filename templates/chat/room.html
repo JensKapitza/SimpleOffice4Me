@@ -2,20 +2,41 @@
 {% block title %}{{ room.title }} · Chat{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-3 chat-page">
+<main id="main-content" class="container-xl py-3 chat-page" data-chat-fragment-url="{{ url_for('chat.messages_fragment', room_id=room.room_id) }}">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-    <div class="min-w-0">
+    <div class="min-w-0 flex-grow-1">
       <a class="small text-decoration-none" href="{{ url_for('chat.index') }}">← Chats</a>
       <h1 class="h3 mb-1 text-truncate">{{ room.title }}</h1>
       <div class="d-flex flex-wrap gap-1" aria-label="Chat-Teilnehmer">
         {% for p in participants %}
-          <span class="badge rounded-pill text-bg-light border text-secondary fw-normal">
-            <i class="fas {{ 'fa-cloud' if p.participant_kind == 'remote' else 'fa-user' }} me-1" aria-hidden="true"></i>{{ p.username }}{% if p.participant_kind == 'remote' %}@{{ p.peer_id }}{% endif %}
-          </span>
+          <span class="badge rounded-pill text-bg-light border text-secondary fw-normal"><i class="fas {{ 'fa-cloud' if p.participant_kind == 'remote' else 'fa-user' }} me-1" aria-hidden="true"></i>{{ p.username }}{% if p.participant_kind == 'remote' %}@{{ p.peer_id }}{% endif %}</span>
         {% endfor %}
       </div>
     </div>
-    {% if room.remote_peer_id %}<span class="badge text-bg-secondary"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>{{ room.remote_peer_id }}</span>{% endif %}
+    <div class="d-flex flex-wrap gap-1 align-items-center">
+      {% if room.remote_peer_id %}<span class="badge text-bg-secondary"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>{{ room.remote_peer_id }}</span>{% endif %}
+      {% if may_send and call_targets %}
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fas fa-phone me-1" aria-hidden="true"></i>Anrufen</button>
+          <div class="dropdown-menu dropdown-menu-end p-2" style="min-width:18rem">
+            {% if not call_settings.sip_ready %}<div class="small text-warning-emphasis px-2 pb-2">SIP-Server noch nicht gesetzt. Telefonie nutzt sonst automatisch Port 5060/UDP.</div>{% endif %}
+            {% for target in call_targets %}
+              <div class="small fw-semibold px-2 pt-1">{{ target.label or target.username }}</div>
+              <div class="d-flex gap-1 px-2 pb-2">
+                <form class="chat-call-form" method="post" action="{{ url_for('chat.start_call', room_id=room.room_id) }}" data-sip-uri="{{ target.sip_uri }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="target" value="{{ target.username }}"><input type="hidden" name="call_type" value="audio">
+                  <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-phone me-1" aria-hidden="true"></i>Audio</button>
+                </form>
+                <form class="chat-call-form" method="post" action="{{ url_for('chat.start_call', room_id=room.room_id) }}" data-sip-uri="{{ target.sip_uri }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="target" value="{{ target.username }}"><input type="hidden" name="call_type" value="video">
+                  <button class="btn btn-sm btn-outline-success" type="submit"><i class="fas fa-video me-1" aria-hidden="true"></i>Video</button>
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
   </div>
 
   <section id="chat-scroll" class="border rounded-3 bg-body-tertiary p-2 p-md-3 mb-3 overflow-auto" style="min-height:18rem;max-height:calc(100vh - 22rem);" aria-label="Nachrichten">
@@ -23,57 +44,49 @@
   </section>
 
   {% if may_send %}
+    <div id="chat-reply-preview" class="alert alert-secondary py-2 px-3 d-none mb-2" role="status" aria-live="polite"><div class="d-flex justify-content-between gap-2"><div class="min-w-0"><strong id="chat-reply-sender"></strong><div id="chat-reply-text" class="small text-truncate"></div></div><button id="chat-reply-cancel" class="btn-close" type="button" aria-label="Antwort abbrechen"></button></div></div>
+
+    <details class="card mb-2" id="chat-share-panel">
+      <summary class="card-header"><i class="fas fa-share-nodes me-1" aria-hidden="true"></i>Aus SimpleOffice teilen</summary>
+      <div class="card-body">
+        <p class="small text-secondary">Kontakt, Aufgabe, Termin oder vorhandenes Dokument direkt als Chat-Karte teilen. Dokumente werden bei Federation als Anhang mit übertragen.</p>
+        <div class="row g-2">
+          {% for kind, label, icon in [('contact','Kontakt','fa-address-card'),('task','Aufgabe','fa-list-check'),('event','Termin','fa-calendar-days'),('document','Dokument','fa-file-lines')] %}
+            <div class="col-12 col-lg-6">
+              <form class="border rounded-3 p-2 chat-share-form" method="post" action="{{ url_for('chat.share_object', room_id=room.room_id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="{{ kind }}"><input class="chat-share-reply" type="hidden" name="reply_to" value="">
+                <label class="form-label small fw-semibold" for="share-{{ kind }}"><i class="fas {{ icon }} me-1" aria-hidden="true"></i>{{ label }}</label>
+                <div class="input-group">
+                  <select class="form-select" id="share-{{ kind }}" name="object_id" required><option value="">{{ label }} auswählen …</option>{% for item in share_choices[kind] %}<option value="{{ item.id }}">{{ item.label }}</option>{% endfor %}</select>
+                  <button class="btn btn-outline-primary" type="submit">Teilen</button>
+                </div>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </details>
+
     <form id="chat-compose" class="card shadow-sm position-sticky bottom-0" method="post" enctype="multipart/form-data" action="{{ url_for('chat.post_message', room_id=room.room_id) }}">
       <div class="card-body p-2 p-md-3">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input id="chat-reply-to" type="hidden" name="reply_to" value="">
         <label class="visually-hidden" for="chat-body">Nachricht</label>
         <textarea class="form-control mb-2" id="chat-body" name="body" rows="2" maxlength="20000" placeholder="Nachricht schreiben …" autocomplete="off"></textarea>
         <div class="d-flex flex-wrap gap-2 align-items-center">
           <label class="btn btn-outline-secondary btn-sm mb-0" for="chat-files"><i class="fas fa-paperclip me-1" aria-hidden="true"></i>Dateien</label>
           <input class="visually-hidden" id="chat-files" type="file" name="attachments" multiple>
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#quick-share" aria-expanded="false" aria-controls="quick-share"><i class="fas fa-plus me-1" aria-hidden="true"></i>Teilen</button>
           <span id="chat-file-status" class="small text-secondary flex-grow-1" aria-live="polite">Keine Datei gewählt</span>
-          <label class="form-check mb-0 me-2" title="Anhänge nur für Teilnehmer und Administratoren sichtbar machen">
-            <input class="form-check-input" type="checkbox" name="private_files" value="1" checked>
-            <span class="form-check-label small">privat</span>
-          </label>
+          <label class="form-check mb-0 me-2" title="Anhänge nur für Teilnehmer und Administratoren sichtbar machen"><input class="form-check-input" type="checkbox" name="private_files" value="1" checked><span class="form-check-label small">privat</span></label>
           <button class="btn btn-primary" type="submit"><i class="fas fa-paper-plane me-1" aria-hidden="true"></i>Senden</button>
         </div>
-        <div class="form-text d-none d-md-block">Strg+Enter sendet die Nachricht.</div>
+        <div class="collapse mt-2" id="quick-share"><a class="btn btn-sm btn-light border" href="#chat-share-panel" data-open-share><i class="fas fa-address-card me-1" aria-hidden="true"></i>Kontakt / Aufgabe / Termin / Dokument auswählen</a></div>
+        <div class="form-text d-none d-md-block">Strg+Enter sendet · Antworten, Reaktionen und Lesestatus sind direkt an der Nachricht.</div>
       </div>
     </form>
   {% else %}
     <div class="alert alert-info mt-3" role="status" aria-live="polite">Du siehst diesen Chat als Administrator. Schreiben können nur eingetragene Teilnehmer.</div>
   {% endif %}
 </main>
-<script>
-(()=>{
-  const target=document.getElementById('chat-messages');
-  const scroll=document.getElementById('chat-scroll');
-  const files=document.getElementById('chat-files');
-  const fileStatus=document.getElementById('chat-file-status');
-  const body=document.getElementById('chat-body');
-  const form=document.getElementById('chat-compose');
-  const url={{ url_for('chat.messages_fragment', room_id=room.room_id)|tojson }};
-  let lastHtml=target ? target.innerHTML : '';
-  const nearBottom=()=>!scroll || scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<120;
-  const toBottom=()=>{if(scroll)scroll.scrollTop=scroll.scrollHeight;};
-  toBottom();
-  if(files&&fileStatus){files.addEventListener('change',()=>{const count=files.files.length;fileStatus.textContent=count?`${count} Datei${count===1?'':'en'} gewählt`:'Keine Datei gewählt';});}
-  if(body&&form){body.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.ctrlKey){event.preventDefault();form.requestSubmit();}});}
-  if(!target)return;
-  setInterval(async()=>{
-    if(document.hidden)return;
-    try{
-      const keepBottom=nearBottom();
-      const response=await fetch(url,{headers:{'Accept':'text/html'},cache:'no-store'});
-      if(!response.ok)return;
-      const html=await response.text();
-      if(html===lastHtml)return;
-      target.innerHTML=html;
-      lastHtml=html;
-      if(keepBottom)toBottom();
-    }catch(_error){}
-  },3000);
-})();
-</script>
+<script src="{{ url_for('static', filename='js/chat_room.js') }}"></script>
 {% endblock %}

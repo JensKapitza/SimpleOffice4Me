@@ -1,4 +1,4 @@
-"""Receive signed stage-1 chat messages, action preflights and attachment copies."""
+"""Receive signed chat messages, interactions, action preflights and attachment copies."""
 from __future__ import annotations
 
 import json
@@ -6,6 +6,7 @@ import uuid
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .chat_documents import save_attachment
+from .chat_features import ChatFeatureStore
 from .chat_federation_auth import authenticate_request
 from .chat_policy import action_allowed, action_for_message_type, record_policy_notice
 from .chat_store import ChatStore
@@ -15,10 +16,14 @@ from .federation_store import FederationStore
 bp = Blueprint("federation_chat", __name__, url_prefix="/federation/v1/chat")
 MAX_EVENT_BYTES = 1024 * 1024
 MAX_POLICY_BYTES = 64 * 1024
+MAX_INTERACTION_BYTES = 64 * 1024
+
 
 def _root(): return current_app.config["DOCUMENT_ROOT"]
 def _chat(): return ChatStore(_root())
+def _features(): return ChatFeatureStore(_root())
 def _federation(): return FederationStore(_root())
+
 
 def _active_users(usernames: list[str]) -> list[str]:
     wanted=sorted({str(x or "").strip() for x in usernames if str(x or "").strip()})
@@ -28,12 +33,15 @@ def _active_users(usernames: list[str]) -> list[str]:
     if found != wanted: raise ValueError("Unbekannte oder deaktivierte Chat-Teilnehmer: " + ", ".join(sorted(set(wanted)-set(found))))
     return found
 
+
 def _admins() -> list[str]:
     return [str(r["username"]) for r in get_db().execute("SELECT username FROM user WHERE is_admin=1 AND is_disabled=0 ORDER BY username").fetchall()]
+
 
 def _uuid(value: str, label: str) -> str:
     try: return str(uuid.UUID(str(value)))
     except (ValueError,TypeError,AttributeError) as exc: raise ValueError(f"Ungültige {label}") from exc
+
 
 def _authenticated_payload(kind: str, max_bytes: int):
     payload=request.get_data(cache=True)
@@ -41,6 +49,7 @@ def _authenticated_payload(kind: str, max_bytes: int):
     peer,proof=authenticate_request(_federation(),request.headers,payload)
     if proof.kind != kind: raise ValueError("Chat-Request-Typ passt nicht zum Endpunkt")
     return peer,proof,payload
+
 
 @bp.post("/actions/preflight")
 def action_preflight():
@@ -64,6 +73,7 @@ def action_preflight():
         return jsonify({"ok":True,"allowed":True,"action":action}),200
     except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError):
         return jsonify({"error":"invalid_chat_policy_preflight"}),400
+
 
 @bp.post("/events")
 def receive_event():
@@ -91,6 +101,41 @@ def receive_event():
         return jsonify({"ok":True,"room_id":room_id,"message_id":message_id}),201
     except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError): return jsonify({"error":"invalid_chat_event"}),400
 
+
+@bp.post("/interactions")
+def receive_interaction():
+    try:
+        peer,proof,payload=_authenticated_payload("interaction",MAX_INTERACTION_BYTES); data=json.loads(payload.decode("utf-8"))
+        if not isinstance(data,dict) or data.get("schema") != 1: raise ValueError("Nicht unterstützte Chat-Interaktion")
+        action=str(data.get("action") or "").strip().casefold(); room_id=_uuid(data.get("room_id","") ,"Chat-ID"); actor=str(data.get("actor") or "").strip()
+        chat=_chat(); room=chat.room(room_id)
+        if room.get("remote_peer_id") != peer["peer_id"]: raise PermissionError("Interaktion stammt nicht vom gebundenen Federation-Peer")
+        features=_features()
+        if action == "reaction":
+            message_id=_uuid(data.get("message_id","") ,"Nachrichten-ID"); target=chat.message(message_id)
+            if target["room_id"] != room_id: raise ValueError("Nachricht gehört nicht zum angegebenen Chat")
+            if proof.resource_id != message_id: raise ValueError("Signierte Ressourcen-ID passt nicht zur Reaktion")
+            features.set_remote_reaction(message_id,peer["peer_id"],actor,str(data.get("emoji") or ""),bool(data.get("active")))
+        elif action == "read":
+            if proof.resource_id != room_id: raise ValueError("Signierte Ressourcen-ID passt nicht zum Lesestatus")
+            last_message_id=str(data.get("last_message_id") or "").strip()
+            if last_message_id:
+                last_message_id=_uuid(last_message_id,"Nachrichten-ID")
+                if chat.message(last_message_id)["room_id"] != room_id: raise ValueError("Lesestatus verweist auf einen anderen Chat")
+            features.mark_remote_read(room_id,peer["peer_id"],actor,last_message_id)
+        elif action == "retract":
+            message_id=_uuid(data.get("message_id","") ,"Nachrichten-ID"); target=chat.message(message_id)
+            if target["room_id"] != room_id: raise ValueError("Nachricht gehört nicht zum angegebenen Chat")
+            if proof.resource_id != message_id: raise ValueError("Signierte Ressourcen-ID passt nicht zum Zurückziehen")
+            features.retract_remote(message_id,peer["peer_id"],actor)
+        else:
+            raise ValueError("Unbekannte Chat-Interaktion")
+        _federation().record_event("chat_interaction_received",peer_id=peer["peer_id"],detail={"room_id":room_id,"action":action,"actor":actor})
+        return jsonify({"ok":True,"action":action}),200
+    except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError):
+        return jsonify({"error":"invalid_chat_interaction"}),400
+
+
 @bp.post("/attachments/<attachment_id>")
 def receive_attachment(attachment_id: str):
     try:
@@ -104,6 +149,7 @@ def receive_attachment(attachment_id: str):
         chat.set_attachment_document(attachment_id,document["document_id"]); _federation().record_event("chat_attachment_received",peer_id=peer["peer_id"],detail={"attachment_id":attachment_id,"document_id":document["document_id"]})
         return jsonify({"ok":True,"attachment_id":attachment_id,"document_id":document["document_id"]}),201
     except (ValueError,PermissionError,OSError,RuntimeError): return jsonify({"error":"invalid_chat_attachment"}),400
+
 
 @bp.get("/health")
 def health(): return Response("chat federation endpoint\n",200,{"Content-Type":"text/plain; charset=utf-8","Cache-Control":"no-store"})

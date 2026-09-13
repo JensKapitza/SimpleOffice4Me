@@ -10,10 +10,11 @@ from flask import Blueprint, abort, flash, g, make_response, redirect, render_te
 
 from .access_control import audit, is_admin
 from .auth import login_required
-from .mini_services import default_config_path
-from .security_controls import protect_value
+from .mini_services import default_config_path, read_status
+from .security_controls import protect_value, unprotect_value
 from .telephony_numbering import clean_number
-from .telephony_profiles import TelephonyProfileStore
+from .telephony_profiles import TelephonyProfileStore, sip_digest_ha1
+from simpleoffice_sip_runtime import effective_sip_settings
 
 bp = Blueprint("telephony_admin", __name__, url_prefix="/admin/mini-services/telephony")
 
@@ -36,16 +37,37 @@ def _suggested_host() -> str:
     return str(urlsplit(request.host_url).hostname or "")[:253]
 
 
+def _backfill_digest_verifiers(store: TelephonyProfileStore) -> None:
+    """Upgrade profiles created before the built-in registrar existed."""
+    realm = str(store.settings().get("realm") or "simpleoffice.local")
+    for profile in store.profiles():
+        if profile.get("registrar_ready"):
+            continue
+        extension = str(profile["extension"])
+        try:
+            password = unprotect_value(store.encrypted_secret(extension), f"sip-profile:{extension}")
+            digest = sip_digest_ha1(extension, realm, password)
+            store.rotate_secret(extension, store.encrypted_secret(extension), digest_ha1=digest)
+        except (KeyError, RuntimeError, TypeError, ValueError):
+            continue
+
+
 def _render(*, one_time: dict | None = None, status: int = 200):
     store = _store()
+    _backfill_digest_verifiers(store)
+    worker = read_status(default_config_path())
+    effective = effective_sip_settings(default_config_path())
+    settings = store.settings()
     response = make_response(
         render_template(
             "admin/telephony.html",
-            settings=store.settings(),
+            settings=settings,
+            effective_settings=effective,
             profiles=store.profiles(),
             suggested_host=_suggested_host(),
             one_time=one_time,
-            runtime_ready=False,
+            runtime_ready=bool(worker.get("sip_running")),
+            sip_status=worker.get("sip") if isinstance(worker.get("sip"), dict) else {},
         ),
         status,
     )
@@ -55,11 +77,13 @@ def _render(*, one_time: dict | None = None, status: int = 200):
     return response
 
 
-def _new_secret(extension: str) -> tuple[str, str]:
+def _new_secret(extension: str) -> tuple[str, str, str]:
     number = clean_number(extension, "Nebenstelle")
     secret = secrets.token_urlsafe(24)
     encrypted = protect_value(secret, f"sip-profile:{number}")
-    return secret, encrypted
+    realm = str(_store().settings().get("realm") or "simpleoffice.local")
+    digest = sip_digest_ha1(number, realm, secret)
+    return secret, encrypted, digest
 
 
 def _credentials(extension: str, password: str) -> dict:
@@ -89,16 +113,16 @@ def save_settings():
             realm=request.form.get("realm", "simpleoffice.local"),
             stun_server=request.form.get("stun_server", ""),
         )
-    except (TypeError, ValueError):
-        flash("Telefonie-Einstellungen sind ungueltig.", "error")
+    except (TypeError, ValueError) as exc:
+        flash(f"Telefonie-Einstellungen sind ungueltig: {exc}", "error")
         return redirect(url_for("telephony_admin.index"))
     audit(
         "telephony_settings_updated",
         "service",
         "sip",
-        detail={"host": settings["registrar_host"], "port": settings["registrar_port"], "transport": settings["transport"]},
+        detail={"host": settings["registrar_host"] or "auto", "port": settings["registrar_port"], "transport": settings["transport"]},
     )
-    flash("Telefonie-Einstellungen gespeichert.", "success")
+    flash("Telefonie-Einstellungen gespeichert. Leer gelassener Server bedeutet Automatik.", "success")
     return redirect(url_for("telephony_admin.index"))
 
 
@@ -107,12 +131,13 @@ def save_settings():
 def create_profile():
     extension = str(request.form.get("extension", "")).strip()
     try:
-        password, encrypted = _new_secret(extension)
+        password, encrypted, digest = _new_secret(extension)
         profile = _store().create_profile(
             extension,
             request.form.get("display_name", ""),
             encrypted,
             device_kind=request.form.get("device_kind", "softphone"),
+            digest_ha1=digest,
         )
         credentials = _credentials(profile["extension"], password)
     except sqlite3.IntegrityError:
@@ -129,8 +154,8 @@ def create_profile():
 @admin_required
 def rotate_secret(extension: str):
     try:
-        password, encrypted = _new_secret(extension)
-        profile = _store().rotate_secret(extension, encrypted)
+        password, encrypted, digest = _new_secret(extension)
+        profile = _store().rotate_secret(extension, encrypted, digest_ha1=digest)
         credentials = _credentials(profile["extension"], password)
     except (KeyError, TypeError, ValueError):
         abort(404)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dedicated DHCP/DNS/TFTP/routing worker for SimpleOffice4Me Mini Services."""
+"""Dedicated DHCP/DNS/TFTP/routing/SIP worker for SimpleOffice4Me Mini Services."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from simpleoffice_network_gateway_runtime import (
     gateway_settings_path,
     load_gateway_settings,
 )
+from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path
 
 
 class Worker:
@@ -35,12 +36,14 @@ class Worker:
         self.dhcp: BootAwareDhcpService | None = None
         self.dns: DnsService | None = None
         self.tftp: TftpService | None = None
+        self.sip: SipRegistrarService | None = None
+        self.sip_status: dict[str, object] = {}
         self.gateway_active = False
         self.gateway_status: dict[str, object] = {}
         self.events: list[dict[str, object]] = []
         self.started_at = time.time()
         self.config: dict[str, object] = {}
-        self.config_signature: tuple[int, int, int] = (-1, -1, -1)
+        self.config_signature: tuple[int, int, int, int] = (-1, -1, -1, -1)
         self.next_blocklist_refresh = time.monotonic() + 5
 
     def event(self, row: dict[str, object]) -> None:
@@ -54,11 +57,12 @@ class Worker:
         except OSError:
             return -1
 
-    def _signature(self) -> tuple[int, int, int]:
+    def _signature(self) -> tuple[int, int, int, int]:
         return (
             self._mtime(self.config_path),
             self._mtime(boot_settings_path(self.config_path)),
             self._mtime(gateway_settings_path(self.config_path)),
+            self._mtime(telephony_db_path(self.config_path)),
         )
 
     def _stop_network_services(self, *, disable_routing: bool = True) -> None:
@@ -68,12 +72,27 @@ class Worker:
             self.dns.stop(); self.dns = None
         if self.tftp is not None:
             self.tftp.stop(); self.tftp = None
+        if self.sip is not None:
+            self.sip.stop(); self.sip = None
         if disable_routing and self.gateway_active:
             try:
                 disable_gateway(load_gateway_settings(self.config_path))
             except Exception as exc:
                 self.event({"service": "gateway", "action": "disable_failed", "error": type(exc).__name__, "message": str(exc)[:300]})
             self.gateway_active = False
+
+    def _start_sip(self, started: list[str]) -> None:
+        self.sip_status = {}
+        try:
+            service = SipRegistrarService(self.config_path, self.event)
+            service.start()
+            self.sip = service
+            self.sip_status = service.status()
+            started.append("sip")
+        except Exception as exc:
+            self.sip = None
+            self.sip_status = {"running": False, "error": str(exc)[:500], "error_type": type(exc).__name__}
+            self.event({"service": "sip", "action": "start_failed", "error": type(exc).__name__, "message": str(exc)[:300]})
 
     def _load_network_services(self) -> None:
         self._stop_network_services()
@@ -84,6 +103,10 @@ class Worker:
         gateway = load_gateway_settings(self.config_path)
         gateway["internal_network"] = dhcp["network"]
         started: list[str] = []
+
+        # SIP is automatic but intentionally isolated: a phone/PBX already using
+        # 5060 must not take DHCP, DNS, TFTP or routing down with it.
+        self._start_sip(started)
 
         try:
             if dns.get("enabled"):
@@ -96,7 +119,12 @@ class Worker:
                 self.tftp = TftpService(boot, self.config_path, self.event)
                 self.tftp.start(); started.append("tftp")
         except Exception:
-            self._stop_network_services()
+            if self.dhcp is not None:
+                self.dhcp.stop(); self.dhcp = None
+            if self.dns is not None:
+                self.dns.stop(); self.dns = None
+            if self.tftp is not None:
+                self.tftp.stop(); self.tftp = None
             raise
 
         try:
@@ -152,6 +180,7 @@ class Worker:
         self.write_status("stopped")
 
     def write_status(self, state: str) -> None:
+        sip_status = self.sip.status() if self.sip is not None else self.sip_status
         write_status(
             {
                 "state": state,
@@ -161,6 +190,8 @@ class Worker:
                 "dhcp_running": self.dhcp is not None,
                 "dns_running": self.dns is not None,
                 "tftp_running": self.tftp is not None,
+                "sip_running": self.sip is not None,
+                "sip": sip_status,
                 "gateway_running": self.gateway_active,
                 "gateway": self.gateway_status,
                 "config_signature": list(self.config_signature),
@@ -172,7 +203,7 @@ class Worker:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SimpleOffice4Me DHCP/DNS/TFTP/Routing Mini Services")
+    parser = argparse.ArgumentParser(description="SimpleOffice4Me DHCP/DNS/TFTP/Routing/SIP Mini Services")
     parser.add_argument("--config", default=str(default_config_path()))
     args = parser.parse_args()
     worker = Worker(Path(args.config))
