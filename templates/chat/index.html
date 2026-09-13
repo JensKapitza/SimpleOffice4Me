@@ -9,11 +9,15 @@
   </div>
   <div class="row g-3">
     <section class="col-xl-8" aria-labelledby="chat-list-heading">
-      <h2 id="chat-list-heading" class="visually-hidden">Chats</h2>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h2 id="chat-list-heading" class="h5 mb-0">Chats</h2>
+        {% if rooms %}<div class="d-flex align-items-center gap-2"><span class="badge text-bg-secondary" id="chat-filter-count">{{ rooms|length }}</span><label class="visually-hidden" for="chat-filter">Chats filtern</label><input class="form-control form-control-sm" id="chat-filter" type="search" autocomplete="off" placeholder="Titel oder Teilnehmer" style="min-width:15rem"></div>{% endif %}
+      </div>
       {% if rooms %}
         <div class="list-group shadow-sm">
           {% for room in rooms %}
-            <a class="list-group-item list-group-item-action py-3" href="{{ url_for('chat.room', room_id=room.room_id) }}">
+            {% set search_text = room.title ~ ' ' ~ (room.participants|map(attribute='username')|join(' ')) ~ ' ' ~ (room.remote_peer_id or '') %}
+            <a class="list-group-item list-group-item-action py-3" data-chat-row data-search="{{ search_text|lower }}" href="{{ url_for('chat.room', room_id=room.room_id) }}">
               <div class="d-flex justify-content-between align-items-start gap-3">
                 <div class="min-w-0">
                   <strong class="d-block text-truncate">{{ room.title }}</strong>
@@ -26,6 +30,7 @@
             </a>
           {% endfor %}
         </div>
+        <div id="chat-filter-empty" class="alert alert-secondary mt-2" hidden>Keine Chats passen zum Filter.</div>
       {% else %}
         <div class="card border-0 bg-body-tertiary shadow-sm">
           <div class="card-body text-center py-4 py-md-5 px-3">
@@ -53,5 +58,6 @@
       </div>
     </aside>
   </div>
+  <script>(()=>{const input=document.getElementById('chat-filter');if(!input)return;const rows=[...document.querySelectorAll('[data-chat-row]')];const count=document.getElementById('chat-filter-count');const empty=document.getElementById('chat-filter-empty');const apply=()=>{const q=input.value.trim().toLocaleLowerCase();let visible=0;rows.forEach(row=>{const show=!q||(row.dataset.search||'').includes(q);row.hidden=!show;if(show)visible+=1;});count.textContent=String(visible);empty.hidden=visible!==0;};input.addEventListener('input',apply);apply();})();</script>
 </main>
 {% endblock %}
