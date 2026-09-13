@@ -2,46 +2,80 @@
 {% for message in messages %}
   {% set own = message.sender_kind == 'local' and message.sender_username == g.user['username'] %}
   {% set system = message.message_type == 'system' %}
+  {% set share = message.payload.get('share', {}) if message.payload is mapping else {} %}
+  {% set reply = message.payload.get('reply', {}) if message.payload is mapping else {} %}
+  {% set forwarded = message.payload.get('forwarded_from', {}) if message.payload is mapping else {} %}
   <article class="{% if system %}text-center{% else %}d-flex {{ 'justify-content-end' if own else 'justify-content-start' }}{% endif %}" id="message-{{ message.message_id }}">
     {% if system %}
       <div class="badge rounded-pill text-bg-light border text-secondary fw-normal px-3 py-2">{{ message.body }}</div>
     {% else %}
-      <div class="card shadow-sm chat-bubble {{ 'border-primary-subtle' if own else '' }}" style="max-width:min(46rem,92%);">
+      <div class="card shadow-sm chat-bubble {{ 'border-primary-subtle' if own else '' }}" style="max-width:min(46rem,94%);min-width:min(18rem,86%);">
         <div class="card-body py-2 px-3">
           <div class="d-flex justify-content-between gap-3 small text-secondary mb-1">
             <span><strong class="text-body">{{ message.sender_label or message.sender_username }}</strong>{% if message.sender_peer_id %}@{{ message.sender_peer_id }}{% endif %}</span>
             <time datetime="{{ message.created_at }}">{{ message.created_display }}</time>
           </div>
-          {% if message.message_type != 'text' %}<div class="small text-secondary mb-1"><i class="fas fa-wand-magic-sparkles me-1" aria-hidden="true"></i>{{ message.message_type }}</div>{% endif %}
-          {% if message.body %}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ message.body }}</div>{% endif %}
-          {% if message.attachments %}
-            <div class="vstack gap-1 mt-2">
-              {% for file in message.attachments %}
-                <a class="btn btn-sm btn-outline-secondary text-start" href="{{ url_for('chat.attachment', attachment_id=file.attachment_id) }}">
-                  <i class="fas fa-paperclip me-1" aria-hidden="true"></i>{{ file.filename }}
-                  <span class="text-secondary">({{ (file.size / 1024)|round(1) }} KiB{% if file.visibility == 'chat' %}, privat{% endif %})</span>
-                  {% if file.state != 'ready' %}<span class="ms-1">· Übertragung ausstehend</span>{% endif %}
-                </a>
-              {% endfor %}
+
+          {% if message.retracted %}
+            <div class="text-secondary fst-italic"><i class="fas fa-ban me-1" aria-hidden="true"></i>Nachricht wurde zurückgezogen.</div>
+          {% else %}
+            {% if forwarded %}<div class="small text-secondary mb-1"><i class="fas fa-share me-1" aria-hidden="true"></i>Weitergeleitet von {{ forwarded.sender or 'Chat' }}</div>{% endif %}
+            {% if reply %}
+              <div class="border-start border-3 ps-2 py-1 mb-2 small bg-body-tertiary rounded-end">
+                <strong>{{ reply.sender }}</strong><div class="text-secondary text-truncate">{{ reply.body or 'Nachricht' }}</div>
+              </div>
+            {% endif %}
+
+            {% if share and share.kind == 'contact' %}
+              <div class="border rounded-3 p-3 mb-2 bg-body-tertiary">
+                <div class="d-flex gap-2 align-items-start"><i class="fas fa-address-card fa-lg mt-1" aria-hidden="true"></i><div class="min-w-0"><strong>{{ share.title }}</strong>{% if share.subtitle %}<div class="text-secondary small">{{ share.subtitle }}</div>{% endif %}</div></div>
+                <div class="d-flex flex-wrap gap-2 mt-2">{% if share.phone %}<a class="btn btn-sm btn-outline-primary" href="tel:{{ share.phone }}"><i class="fas fa-phone me-1" aria-hidden="true"></i>{{ share.phone }}</a>{% endif %}{% if share.email %}<a class="btn btn-sm btn-outline-secondary" href="mailto:{{ share.email }}"><i class="fas fa-envelope me-1" aria-hidden="true"></i>{{ share.email }}</a>{% endif %}</div>
+              </div>
+            {% elif share and share.kind == 'task' %}
+              <div class="border rounded-3 p-3 mb-2 bg-body-tertiary"><div class="d-flex gap-2"><i class="fas fa-list-check mt-1" aria-hidden="true"></i><div><strong>{{ share.title }}</strong><div class="small text-secondary">{{ 'Erledigt' if share.done else (share.status or 'Offen') }}{% if share.due %} · fällig {{ share.due }}{% endif %}{% if share.priority %} · Priorität {{ share.priority }}{% endif %}</div></div></div></div>
+            {% elif share and share.kind == 'event' %}
+              <div class="border rounded-3 p-3 mb-2 bg-body-tertiary"><div class="d-flex gap-2"><i class="fas fa-calendar-days mt-1" aria-hidden="true"></i><div><strong>{{ share.title }}</strong><div class="small text-secondary">{{ share.start }}{% if share.end %} – {{ share.end }}{% endif %}{% if share.location %}<br><i class="fas fa-location-dot me-1" aria-hidden="true"></i>{{ share.location }}{% endif %}</div></div></div></div>
+            {% elif share and share.kind == 'document' %}
+              <div class="border rounded-3 p-3 mb-2 bg-body-tertiary"><div class="d-flex gap-2"><i class="fas fa-file-lines mt-1" aria-hidden="true"></i><div class="min-w-0"><strong class="text-break">{{ share.title }}</strong>{% if share.tags %}<div class="mt-1">{% for tag in share.tags %}<span class="badge text-bg-light border me-1">{{ tag }}</span>{% endfor %}</div>{% endif %}</div></div></div>
+            {% elif share and share.kind == 'call' %}
+              <div class="border rounded-3 p-3 mb-2 bg-body-tertiary"><div class="d-flex gap-2 align-items-center"><i class="fas {{ 'fa-video' if share.call_type == 'video' else 'fa-phone' }} fa-lg" aria-hidden="true"></i><div><strong>{{ 'Videoanruf' if share.call_type == 'video' else 'Audioanruf' }}</strong><div class="small text-secondary">{{ message.sender_username }} → {{ share.target }}</div></div></div>{% if share.sip_uri %}<a class="btn btn-sm btn-success mt-2" href="{{ share.sip_uri }}"><i class="fas {{ 'fa-video' if share.call_type == 'video' else 'fa-phone' }} me-1" aria-hidden="true"></i>{{ 'Video/SIP öffnen' if share.call_type == 'video' else 'SIP-Anruf öffnen' }}</a>{% endif %}</div>
+            {% elif message.message_type != 'text' %}
+              <div class="small text-secondary mb-1"><i class="fas fa-wand-magic-sparkles me-1" aria-hidden="true"></i>{{ message.message_type }}</div>
+            {% endif %}
+
+            {% if message.body %}<div style="white-space:pre-wrap;overflow-wrap:anywhere">{{ message.body }}</div>{% endif %}
+            {% if message.attachments %}
+              <div class="vstack gap-2 mt-2">
+                {% for file in message.attachments %}
+                  {% if file.state == 'ready' and file.mime_type.startswith('image/') %}<a href="{{ url_for('chat.attachment', attachment_id=file.attachment_id) }}"><img class="img-fluid rounded border" style="max-height:24rem;object-fit:contain" src="{{ url_for('chat.attachment_preview', attachment_id=file.attachment_id) }}" alt="{{ file.filename }}" loading="lazy" decoding="async"></a>{% endif %}
+                  {% if file.state == 'ready' and file.mime_type.startswith('audio/') %}<audio class="w-100" controls preload="metadata" src="{{ url_for('chat.attachment_preview', attachment_id=file.attachment_id) }}">Audio kann nicht wiedergegeben werden.</audio>{% endif %}
+                  {% if file.state == 'ready' and file.mime_type.startswith('video/') %}<video class="w-100 rounded border" style="max-height:26rem" controls preload="metadata" src="{{ url_for('chat.attachment_preview', attachment_id=file.attachment_id) }}">Video kann nicht wiedergegeben werden.</video>{% endif %}
+                  <a class="btn btn-sm btn-outline-secondary text-start" href="{{ url_for('chat.attachment', attachment_id=file.attachment_id) }}"><i class="fas fa-paperclip me-1" aria-hidden="true"></i>{{ file.filename }} <span class="text-secondary">({{ (file.size / 1024)|round(1) }} KiB{% if file.visibility == 'chat' %}, privat{% endif %})</span>{% if file.state != 'ready' %}<span class="ms-1">· Übertragung ausstehend</span>{% endif %}</a>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endif %}
+
+          {% if not message.retracted and message.reactions %}<div class="d-flex flex-wrap gap-1 mt-2">{% for reaction in message.reactions %}<span class="badge rounded-pill text-bg-light border" title="{{ reaction.users }}">{{ reaction.emoji }} {{ reaction.count }}</span>{% endfor %}</div>{% endif %}
+
+          {% if may_send and not message.retracted %}
+            <div class="d-flex flex-wrap gap-2 mt-2 align-items-center">
+              <button class="btn btn-sm btn-link text-secondary p-0 chat-reply" type="button" data-message-id="{{ message.message_id }}" data-sender="{{ message.sender_label or message.sender_username }}" data-body="{{ (message.body or share.title or 'Nachricht')|e }}"><i class="fas fa-reply me-1" aria-hidden="true"></i>Antworten</button>
+              <div class="dropdown"><button class="btn btn-sm btn-link text-secondary p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Reagieren</button><div class="dropdown-menu p-1">{% for emoji in reactions %}<form class="d-inline" method="post" action="{{ url_for('chat.react', message_id=message.message_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm" type="submit" name="emoji" value="{{ emoji }}" title="Mit {{ emoji }} reagieren">{{ emoji }}</button></form>{% endfor %}</div></div>
+              {% if forward_rooms %}<div class="dropdown"><button class="btn btn-sm btn-link text-secondary p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fas fa-share me-1" aria-hidden="true"></i>Weiterleiten</button><div class="dropdown-menu dropdown-menu-end p-1">{% for target_room in forward_rooms %}<form method="post" action="{{ url_for('chat.forward_message', message_id=message.message_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="target_room_id" value="{{ target_room.room_id }}"><button class="dropdown-item" type="submit">{{ target_room.title }}</button></form>{% endfor %}</div></div>{% endif %}
+              {% if own %}<form class="ms-auto" method="post" action="{{ url_for('chat.retract_message', message_id=message.message_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-link text-danger p-0" type="submit" title="Nachricht zurückziehen"><i class="fas fa-trash-can" aria-hidden="true"></i><span class="visually-hidden">Nachricht zurückziehen</span></button></form>{% endif %}
             </div>
           {% endif %}
+
           {% for delivery in message.deliveries %}
             {% set policy_denied = delivery.error.startswith('policy_denied:') %}
             <div class="small mt-2 {% if policy_denied %}text-warning-emphasis{% elif delivery.status == 'failed' %}text-danger{% else %}text-secondary{% endif %}">
-              {% if delivery.status == 'complete' %}<i class="fas fa-check-double me-1" aria-hidden="true"></i>zugestellt
-              {% elif delivery.status == 'sending' %}<i class="fas fa-paper-plane me-1" aria-hidden="true"></i>wird gesendet
-              {% elif policy_denied %}<i class="fas fa-shield-halved me-1" aria-hidden="true"></i>durch Serverregel abgelehnt
-              {% elif delivery.status == 'failed' %}<i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>Zustellung fehlgeschlagen
-              {% else %}{{ delivery.status }}{% endif %}
+              {% if delivery.status == 'complete' %}<i class="fas fa-check-double me-1" aria-hidden="true"></i>zugestellt{% elif delivery.status == 'sending' %}<i class="fas fa-paper-plane me-1" aria-hidden="true"></i>wird gesendet{% elif policy_denied %}<i class="fas fa-shield-halved me-1" aria-hidden="true"></i>durch Serverregel abgelehnt{% elif delivery.status == 'failed' %}<i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>Zustellung fehlgeschlagen{% else %}{{ delivery.status }}{% endif %}
               {% if delivery.peer_id %}<span class="text-secondary">· {{ delivery.peer_id }}</span>{% endif %}
-              {% if delivery.status == 'failed' and not policy_denied and may_send %}
-                <form class="d-inline" method="post" action="{{ url_for('chat.retry_message', message_id=message.message_id) }}">
-                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-link btn-sm p-0 ms-1" type="submit">erneut senden</button>
-                </form>
-              {% endif %}
+              {% if delivery.status == 'failed' and not policy_denied and may_send %}<form class="d-inline" method="post" action="{{ url_for('chat.retry_message', message_id=message.message_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-link btn-sm p-0 ms-1" type="submit">erneut senden</button></form>{% endif %}
             </div>
           {% endfor %}
+          {% if own and message.read_by %}<div class="small text-secondary mt-1"><i class="fas fa-check-double me-1" aria-hidden="true"></i>gelesen von {{ message.read_by|join(', ') }}</div>{% endif %}
         </div>
       </div>
     {% endif %}

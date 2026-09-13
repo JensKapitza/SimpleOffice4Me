@@ -1,4 +1,4 @@
-"""Synchronous sender for stage-1 federated chat events and attachments."""
+"""Synchronous sender for federated chat events, interactions and attachments."""
 from __future__ import annotations
 
 import hashlib
@@ -226,3 +226,38 @@ def send_message(root: str | Path, message_id: str) -> dict[str, Any]:
         chat.mark_delivery(message_id, peer_id, "failed", str(exc))
         federation.record_event("chat_message_failed", peer_id=peer_id, detail={"message_id": message_id, "error": str(exc)[:500]})
         raise
+
+
+def send_interaction(root: str | Path, room_id: str, actor: str, action: str, **values: Any) -> dict[str, Any]:
+    """Synchronize reaction/read/retract state without creating a visible message."""
+    chat = ChatStore(root)
+    room = chat.room(room_id)
+    peer_id = str(room.get("remote_peer_id") or "")
+    if not peer_id:
+        return {"federated": False, "status": "local"}
+    if not chat.is_participant(room_id, actor):
+        raise PermissionError("Nur lokale Chat-Teilnehmer dürfen Interaktionen synchronisieren")
+    action = str(action or "").strip().casefold()
+    if action not in {"reaction", "read", "retract"}:
+        raise ValueError("Unbekannte Chat-Interaktion")
+    federation = FederationStore(root)
+    peer = federation.get_peer(peer_id)
+    if not peer or not _chat_send_allowed(peer):
+        raise ValueError("Federation-Peer erlaubt keinen Chat-Versand")
+    data = {"schema": 1, "room_id": room_id, "actor": actor, "action": action, **values}
+    resource_id = room_id if action == "read" else str(values.get("message_id") or "")
+    if not resource_id:
+        raise ValueError("Chat-Interaktion benötigt eine Ressourcen-ID")
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    status, response = _request(
+        _endpoint(peer, "interactions"),
+        payload,
+        "application/json; charset=utf-8",
+        _proof("interaction", resource_id, payload),
+        federation.peer_token(peer_id),
+        return_http_error=True,
+    )
+    if status < 200 or status >= 300 or response.get("ok") is not True:
+        raise ValueError(f"Federation-Chat-Interaktion fehlgeschlagen (HTTP {status})")
+    federation.record_event("chat_interaction_sent", peer_id=peer_id, detail={"room_id": room_id, "action": action, "actor": actor})
+    return {"federated": True, "status": "complete", "action": action}
