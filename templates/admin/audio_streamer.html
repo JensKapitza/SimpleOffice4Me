@@ -30,8 +30,21 @@
       <div class="card h-100"><div class="card-header fw-semibold">Receiver – Audio empfangen</div><div class="card-body">
         <label class="form-label" for="receiver-port">RTP-Port</label>
         <input class="form-control mb-3" id="receiver-port" type="number" min="1024" max="65535" value="5004">
-        <label class="form-label" for="speaker-device">Lokaler Lautsprecher</label>
-        <input class="form-control mb-3" id="speaker-device" placeholder="leer = keine lokale Wiedergabe" autocomplete="off">
+
+        <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+          <div class="flex-grow-1">
+            <label class="form-label" for="speaker-search">Lokale Audio-Ausgänge</label>
+            <input class="form-control" id="speaker-search" type="search" placeholder="Ausgänge suchen …" autocomplete="off">
+          </div>
+          <button class="btn btn-outline-primary" id="speaker-scan" type="button">Ausgänge scannen</button>
+        </div>
+        <select class="form-select mb-2" id="speaker-select">
+          <option value="">Keine lokale Wiedergabe</option>
+        </select>
+        <div id="speaker-scan-status" class="form-text mb-3" aria-live="polite">Noch nicht gescannt.</div>
+
+        <label class="form-label" for="speaker-device">Manueller Ausgang</label>
+        <input class="form-control mb-3" id="speaker-device" placeholder="optional: Sink-ID manuell eingeben" autocomplete="off">
         <div class="form-check mb-2"><input class="form-check-input" id="virtual-microphone" type="checkbox" checked><label class="form-check-label" for="virtual-microphone">Virtuelles Mikrofon bereitstellen</label></div>
         <div class="d-flex flex-wrap gap-2"><button class="btn btn-success" id="receiver-start" type="button">Receiver starten</button><button class="btn btn-outline-danger" id="receiver-stop" type="button">Receiver stoppen</button><a class="btn btn-outline-secondary" id="sdp-download" href="{{ url_for('audio_streamer_admin.receiver_sdp_download') }}?port=5004">SDP für VLC/Tablet</a></div>
       </div></div>
