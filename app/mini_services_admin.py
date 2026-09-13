@@ -6,6 +6,12 @@ import json
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 
+from simpleoffice_dhcp_profiles import (
+    clear_profile_leases,
+    load_profiles,
+    read_profile_leases,
+    save_profiles,
+)
 from .access_control import audit, is_admin
 from .auth import login_required
 from .mini_services import (
@@ -50,12 +56,57 @@ def _json_rows(name: str) -> list[dict]:
     return value
 
 
+def _submitted_dhcp_profiles(previous: list[dict]) -> list[dict]:
+    ids = request.form.getlist("dhcp_profile_id")
+    columns = {
+        name: request.form.getlist(name)
+        for name in (
+            "dhcp_profile_enabled", "dhcp_profile_interface", "dhcp_profile_bind",
+            "dhcp_profile_port", "dhcp_profile_server_ip", "dhcp_profile_network",
+            "dhcp_profile_pool_start", "dhcp_profile_pool_end",
+            "dhcp_profile_routers", "dhcp_profile_dns_servers",
+        )
+    }
+    previous_by_id = {str(row.get("id")): row for row in previous}
+
+    def value(name: str, index: int, fallback=""):
+        values = columns[name]
+        return values[index] if index < len(values) else fallback
+
+    rows = []
+    for index, raw_id in enumerate(ids):
+        profile_id = raw_id.strip()
+        if not profile_id:
+            continue
+        old = previous_by_id.get(profile_id, {})
+        rows.append({
+            **old,
+            "id": profile_id,
+            "enabled": value("dhcp_profile_enabled", index, "0") == "1",
+            "interface": value("dhcp_profile_interface", index, old.get("interface", "")),
+            "bind": value("dhcp_profile_bind", index, old.get("bind", "127.0.0.1")),
+            "port": value("dhcp_profile_port", index, old.get("port", 67)),
+            "server_ip": value("dhcp_profile_server_ip", index, old.get("server_ip", "")),
+            "network": value("dhcp_profile_network", index, old.get("network", "")),
+            "pool_start": value("dhcp_profile_pool_start", index, old.get("pool_start", "")),
+            "pool_end": value("dhcp_profile_pool_end", index, old.get("pool_end", "")),
+            "routers": _csv(value("dhcp_profile_routers", index, ",".join(old.get("routers", [])))),
+            "dns_servers": _csv(value("dhcp_profile_dns_servers", index, ",".join(old.get("dns_servers", [])))),
+        })
+    return rows
+
+
 def _network_context():
     path = default_config_path()
+    config = load_config(path)
+    profiles = load_profiles(path, config["dhcp"])
+    leases = [{**row, "dhcp_profile": "default"} for row in read_leases(path)]
+    leases.extend(read_profile_leases(path, profiles))
     return {
-        "config": load_config(path),
+        "config": config,
+        "dhcp_profiles": profiles,
         "status": read_status(path),
-        "leases": read_leases(path),
+        "leases": leases,
         "dns_queries": tail_dns_log(path, 200),
         "blocklist": read_blocklist_meta(path),
         "config_path": str(path),
@@ -72,6 +123,7 @@ def index():
         "admin/mini_services_hub.html",
         config=context["config"],
         status=context["status"],
+        dhcp_profiles=context["dhcp_profiles"],
     )
 
 
@@ -79,6 +131,35 @@ def index():
 @admin_required
 def network():
     return render_template("admin/mini_services.html", **_network_context())
+
+
+@bp.get("/dhcp-profiles")
+@admin_required
+def dhcp_profiles():
+    context = _network_context()
+    return render_template("admin/dhcp_profiles.html", **context)
+
+
+@bp.post("/dhcp-profiles/save")
+@admin_required
+def save_dhcp_profiles():
+    path = default_config_path()
+    config = load_config(path)
+    previous = load_profiles(path, config["dhcp"])
+    try:
+        rows = _submitted_dhcp_profiles(previous)
+        profiles = save_profiles(rows, path, config["dhcp"])
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        flash(f"DHCP-Netze wurden nicht gespeichert: {exc}")
+        return redirect(url_for("mini_services_admin.dhcp_profiles"))
+    audit(
+        "mini_dhcp_profiles_updated",
+        "service",
+        "dhcp",
+        detail={"profiles": len(profiles), "enabled": sum(1 for row in profiles if row.get("enabled"))},
+    )
+    flash("Zusätzliche DHCP-Netze gespeichert. Der Worker übernimmt die Änderung automatisch.")
+    return redirect(url_for("mini_services_admin.dhcp_profiles"))
 
 
 @bp.post("/save")
@@ -141,6 +222,9 @@ def save():
         if not isinstance(candidate["dhcp"]["custom_options"], dict):
             raise ValueError("custom_options muss ein JSON-Objekt sein")
         clean = save_config(candidate, path)
+        # Existing additional profiles must remain valid when the primary DHCP
+        # configuration changes. Loading performs the full cross-check.
+        load_profiles(path, clean["dhcp"])
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         flash(f"Mini Services wurden nicht gespeichert: {exc}")
         return redirect(url_for("mini_services_admin.network"))
@@ -181,9 +265,13 @@ def clear_query_log():
 @bp.post("/leases/clear")
 @admin_required
 def clear_dhcp_leases():
-    clear_leases(default_config_path())
+    path = default_config_path()
+    config = load_config(path)
+    profiles = load_profiles(path, config["dhcp"])
+    clear_leases(path)
+    clear_profile_leases(path, profiles)
     audit("mini_dhcp_leases_cleared", "service", "dhcp")
-    flash("DHCP-Leases wurden geleert. Aktive Clients können anschließend neue Leases anfordern.")
+    flash("DHCP-Leases aller DHCP-Profile wurden geleert. Aktive Clients können anschließend neue Leases anfordern.")
     return redirect(url_for("mini_services_admin.network"))
 
 
