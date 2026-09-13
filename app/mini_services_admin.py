@@ -20,6 +20,7 @@ from .mini_services import (
     save_config,
     tail_dns_log,
 )
+from .network_system_status import ipv4_routing_status, network_interfaces
 
 
 bp = Blueprint("mini_services_admin", __name__, url_prefix="/admin/mini-services")
@@ -58,6 +59,8 @@ def _network_context():
         "dns_queries": tail_dns_log(path, 200),
         "blocklist": read_blocklist_meta(path),
         "config_path": str(path),
+        "interfaces": network_interfaces(),
+        "routing": ipv4_routing_status(),
     }
 
 
