@@ -4,6 +4,7 @@ from __future__ import annotations
 from flask import Blueprint, abort, g, jsonify, render_template, request
 
 from .access_control import audit, is_admin
+from .audio_output_discovery import discover_speaker_outputs
 from .audio_streamer import manager, receiver_sdp
 from .auth import login_required
 
@@ -45,6 +46,24 @@ def page():
 @admin_required
 def status():
     return jsonify(manager.status())
+
+
+@bp.get("/outputs")
+@admin_required
+def outputs():
+    try:
+        result = discover_speaker_outputs()
+    except RuntimeError as exc:
+        audit(
+            "audio_output_discovery_failed",
+            "audio_stream",
+            "outputs",
+            outcome="failure",
+            detail={"error_type": type(exc).__name__},
+        )
+        return _runtime_error()
+    audit("audio_output_discovery", "audio_stream", "outputs", detail={"count": len(result)})
+    return jsonify({"outputs": result})
 
 
 @bp.post("/sender/start")
