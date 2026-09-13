@@ -32,6 +32,12 @@ jobs:
       - name: Run Microsoft Security DevOps
         uses: microsoft/security-devops-action@241d09d34a00dc03aad8b1e8cf988a6f66ecd3f5
         id: msdo
+        with:
+          # Bandit is intentionally omitted here. The MSDO Windows package can
+          # currently fail before scanning because its generated Bandit launcher
+          # path exceeds the Windows process path limit. Python code is still
+          # scanned with Bandit in security-quickwins.yml.
+          tools: checkov,eslint,templateanalyzer,terrascan,trivy
 
       - name: Upload security scan results
         uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
