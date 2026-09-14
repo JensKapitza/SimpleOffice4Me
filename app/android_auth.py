@@ -1,9 +1,9 @@
 """Native local authentication for the embedded Android application.
 
-The Android APK is a local application.  It must never expose the browser login
-screen during normal startup.  A short-lived native bootstrap secret is passed
+The Android APK is a local application. It must never expose the browser login
+screen during normal startup. A short-lived native bootstrap secret is passed
 from the Android process to the embedded Python runtime and is accepted only on
-loopback.  The selected Android Google account is used as a local identity; no
+loopback. The selected Android Google account is used as a local identity; no
 Google OAuth token is required for this flow.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import secrets
 
-from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, request, url_for
+from flask import Blueprint, abort, flash, g, jsonify, redirect, request, url_for
 
 from .access_control import audit
 from .auth import _google_username, _login_user, login_required
@@ -22,7 +22,6 @@ from .security_controls import clear_login_failures, csrf_token, login_retry_aft
 
 bp = Blueprint("android_auth", __name__, url_prefix="/auth/android")
 ANDROID_TOKEN_HEADER = "X-SimpleOffice-Android-Token"
-ANDROID_IDENTITY_TABLE = "android_local_account"
 
 
 def _android_mode() -> bool:
@@ -49,7 +48,7 @@ def _require_native_request() -> None:
 
 def _ensure_table(db) -> None:
     db.execute(
-        f"""CREATE TABLE IF NOT EXISTS {ANDROID_IDENTITY_TABLE} (
+        """CREATE TABLE IF NOT EXISTS android_local_account (
             user_id INTEGER PRIMARY KEY,
             identity TEXT NOT NULL UNIQUE,
             account_email TEXT,
@@ -78,10 +77,10 @@ def _android_user(*, create: bool) -> tuple[object | None, object | None]:
     _ensure_table(db)
     identity, email = _identity_key()
     linked = db.execute(
-        f"""SELECT user.*, android.password_enabled, android.account_email
-            FROM {ANDROID_IDENTITY_TABLE} AS android
-            JOIN user ON user.id = android.user_id
-            WHERE android.identity = ?""",
+        """SELECT user.*, android.password_enabled, android.account_email
+           FROM android_local_account AS android
+           JOIN user ON user.id = android.user_id
+           WHERE android.identity = ?""",
         (identity,),
     ).fetchone()
     if linked is not None or not create:
@@ -115,23 +114,23 @@ def _android_user(*, create: bool) -> tuple[object | None, object | None]:
         user = db.execute("SELECT * FROM user WHERE username = ?", (username,)).fetchone()
         password_enabled = 0
     else:
-        # A manually managed local account keeps its existing password.  Google
+        # A manually managed local account keeps its existing password. Google
         # OAuth accounts historically contain an intentionally unknown random
         # password and therefore start unlocked in the native local app.
         password_enabled = 0 if str(user["profile_source"] or "") in {"google", "android-google"} else 1
 
     db.execute(
-        f"""INSERT INTO {ANDROID_IDENTITY_TABLE}
+        """INSERT INTO android_local_account
                (user_id, identity, account_email, password_enabled, updated_at)
            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)""",
         (user["id"], identity, email or None, password_enabled),
     )
     db.commit()
     linked = db.execute(
-        f"""SELECT user.*, android.password_enabled, android.account_email
-            FROM {ANDROID_IDENTITY_TABLE} AS android
-            JOIN user ON user.id = android.user_id
-            WHERE android.identity = ?""",
+        """SELECT user.*, android.password_enabled, android.account_email
+           FROM android_local_account AS android
+           JOIN user ON user.id = android.user_id
+           WHERE android.identity = ?""",
         (identity,),
     ).fetchone()
     return linked, user
@@ -141,7 +140,7 @@ def _account_for_user(user_id: int):
     db = get_db()
     _ensure_table(db)
     return db.execute(
-        f"SELECT * FROM {ANDROID_IDENTITY_TABLE} WHERE user_id = ?",
+        "SELECT * FROM android_local_account WHERE user_id = ?",
         (user_id,),
     ).fetchone()
 
@@ -246,7 +245,9 @@ def password():
             (hash_password(secrets.token_urlsafe(48)), g.user["id"]),
         )
         db.execute(
-            f"UPDATE {ANDROID_IDENTITY_TABLE} SET password_enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+            """UPDATE android_local_account
+               SET password_enabled = 0, updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = ?""",
             (g.user["id"],),
         )
         db.commit()
@@ -273,7 +274,9 @@ def password():
         (hash_password(new_password), g.user["id"]),
     )
     db.execute(
-        f"UPDATE {ANDROID_IDENTITY_TABLE} SET password_enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+        """UPDATE android_local_account
+           SET password_enabled = 1, updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = ?""",
         (g.user["id"],),
     )
     db.commit()
