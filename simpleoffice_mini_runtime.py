@@ -103,12 +103,16 @@ class LeaseStore:
         self.release(client_key)
 
 
-class DhcpService:
+from simpleoffice_service_lifecycle import BoundedTasks, DatagramLifecycle
+
+
+class DhcpService(DatagramLifecycle):
     def __init__(self, config: dict[str, Any], config_path: Path, event: Callable[[dict[str, Any]], None] | None = None):
         self.config = config
         self.config_path = config_path
         self.event = event or (lambda _row: None)
         self.stop_event = threading.Event()
+        self.lifecycle_lock = threading.RLock()
         self.socket: socket.socket | None = None
         self.thread: threading.Thread | None = None
         self.leases = LeaseStore(leases_path(config_path))
@@ -119,27 +123,8 @@ class DhcpService:
         self.reserved_ips = {item["ip"] for item in config["reservations"]}
         self.exclusions = set(config["exclusions"]) | {self.server_ip}
 
-    def start(self) -> None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        if self.config.get("interface") and hasattr(socket, "SO_BINDTODEVICE"):
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, self.config["interface"].encode() + b"\0")
-        sock.bind((self.config["bind"], int(self.config["port"])))
-        sock.settimeout(1.0)
-        self.socket = sock
-        self.thread = threading.Thread(target=self._loop, name="simpleoffice-dhcp", daemon=True)
-        self.thread.start()
-
-    def stop(self) -> None:
-        self.stop_event.set()
-        if self.socket is not None:
-            try:
-                self.socket.close()
-            except OSError:
-                pass
-        if self.thread is not None:
-            self.thread.join(timeout=3)
+    def _bind_options(self):
+        return (self.config["bind"], int(self.config["port"])), "simpleoffice-dhcp", self.config.get("interface", ""), True
 
     def _loop(self) -> None:
         assert self.socket is not None
@@ -569,6 +554,8 @@ class DnsService:
         self.config_path = config_path
         self.event = event or (lambda _row: None)
         self.stop_event = threading.Event()
+        self.lifecycle_lock = threading.RLock()
+        self.tasks = BoundedTasks(32)
         self.sockets: list[socket.socket] = []
         self.threads: list[threading.Thread] = []
         self.cache = DnsCache(int(config.get("cache_max_entries", 10000)))
@@ -589,6 +576,20 @@ class DnsService:
         return result
 
     def start(self) -> None:
+        from simpleoffice_service_lifecycle import service_health
+        with self.lifecycle_lock:
+            if service_health(self):
+                return
+            self.stop()
+            self.tasks.reset()
+            self.stop_event.clear()
+            try:
+                self._start_listeners()
+            except Exception:
+                self.stop()
+                raise
+
+    def _start_listeners(self) -> None:
         for bind in self.config["bind"]:
             bind_address = _ip(bind)
             if bind_address.is_unspecified:
@@ -596,15 +597,15 @@ class DnsService:
             bind = str(bind_address)
             family = socket.AF_INET6 if bind_address.version == 6 else socket.AF_INET
             udp = socket.socket(family, socket.SOCK_DGRAM)
-            udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sockets.append(udp)
             udp.bind((bind, int(self.config["port"])))
             udp.settimeout(1.0)
             tcp = socket.socket(family, socket.SOCK_STREAM)
+            self.sockets.append(tcp)
             tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             tcp.bind((bind, int(self.config["port"])))
             tcp.listen(64)
             tcp.settimeout(1.0)
-            self.sockets.extend((udp, tcp))
             udp_thread = threading.Thread(target=self._udp_loop, args=(udp,), name=f"simpleoffice-dns-udp-{bind}", daemon=True)
             tcp_thread = threading.Thread(target=self._tcp_loop, args=(tcp,), name=f"simpleoffice-dns-tcp-{bind}", daemon=True)
             self.threads.extend((udp_thread, tcp_thread))
@@ -612,14 +613,18 @@ class DnsService:
             tcp_thread.start()
 
     def stop(self) -> None:
-        self.stop_event.set()
-        for sock in self.sockets:
-            try:
+        with self.lifecycle_lock:
+            self.stop_event.set()
+            for sock in self.sockets:
                 sock.close()
-            except OSError:
-                pass
-        for thread in self.threads:
-            thread.join(timeout=3)
+            for thread in self.threads:
+                if thread.ident is not None:
+                    thread.join(timeout=3)
+            if any(thread.is_alive() for thread in self.threads):
+                raise RuntimeError("DNS-Listener wurde nicht rechtzeitig beendet")
+            self.sockets.clear()
+            self.threads.clear()
+            self.tasks.stop()
 
     def _udp_loop(self, sock: socket.socket) -> None:
         while not self.stop_event.is_set():
@@ -629,7 +634,7 @@ class DnsService:
                 continue
             except OSError:
                 break
-            threading.Thread(target=self._handle_udp, args=(sock, query, client), daemon=True).start()
+            self.tasks.submit(self._handle_udp, sock, query, client)
 
     def _handle_udp(self, sock: socket.socket, query: bytes, client: tuple[Any, ...]) -> None:
         response = self.resolve(query, str(client[0]), tcp_client=False)
@@ -647,7 +652,15 @@ class DnsService:
                 continue
             except OSError:
                 break
-            threading.Thread(target=self._handle_tcp, args=(connection, client), daemon=True).start()
+            if not self.tasks.submit(self._tracked_tcp, connection, client):
+                connection.close()
+
+    def _tracked_tcp(self, connection, client):
+        try:
+            with self.tasks.track(connection):
+                self._handle_tcp(connection, client)
+        except OSError:
+            connection.close()
 
     def _handle_tcp(self, connection: socket.socket, client: tuple[Any, ...]) -> None:
         with connection:

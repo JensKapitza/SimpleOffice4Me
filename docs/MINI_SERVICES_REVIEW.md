@@ -5,6 +5,36 @@ Arbeits- und Abnahmematrix, keine pauschale Produktionsfreigabe. Ein grüner
 Build ersetzt weder Hardwaretests noch eine Prüfung der tatsächlich nutzbaren
 Ende-zu-Ende-Funktion. Keine neue Drittanbieterabhängigkeit ist vorgesehen.
 
+## Umsetzungspaket 1: Netzwerk-Laufzeit
+
+Der vorhandene Worker bleibt Eigentümer der fünf Netzwerkdienste. Seine
+Reload-/Fehlerpfade wurden gezielt vereinheitlicht: effektive Konfigurationen
+werden vor dem Stop validiert, unveränderte Dienste bleiben unangetastet und
+Startfehler sind je Dienst isoliert. Gemeinsame Lifecycle-Primitiven ersetzen
+die drei praktisch gleichen UDP-Start-/Stop-Implementierungen, keine Protokolle.
+
+- DHCP/TFTP/SIP: serialisierte, idempotente Starts; Socket-Aufräumen bei Fehler;
+  kein UDP-Port-Sharing; Restart derselben Instanz möglich.
+- DNS: partieller TCP/UDP-Start räumt alle Sockets auf; maximal 32 gleichzeitige
+  Anfragen, TFTP maximal 16 Transfers; keine unbegrenzte Submission-Queue.
+- Worker: strukturierte Einzelzustände, Health aus Socket **und** Listener,
+  Startwiederholungen nach 2/4/8/16/32 Sekunden, danach expliziter Eingriff nötig.
+  Konfigurationsänderungen setzen das Budget zurück. Fehleralter bleibt erhalten.
+- Status-Heartbeat alle zwei Sekunden; nach 30 Sekunden keine Behauptung
+  „läuft“ mehr. Gateway-Regelanwendung ist ausdrücklich kein Datenpfad-Healthcheck.
+- Blocklist-Download blockiert nicht mehr den Heartbeat; Stop verhindert weitere
+  Downloads und Veröffentlichung nach Abbruch. Laufender HTTP-Aufruf bleibt bis
+  zum vorhandenen Socket-Timeout begrenzt; keine neue Dependency.
+- Atomare private Dateien mit zufälligem exklusivem Temporärnamen. Standardpfad
+  im Repository; existierende Alt-Konfiguration eine Ebene darüber wird weiter
+  verwendet, solange am korrekten Pfad keine existiert. Migration muss das ganze
+  zugehörige State-Verzeichnis erhalten oder explizit den Konfigurationspfad setzen.
+
+Nachweis: `tests/test_mini_lifecycle.py` enthält echte unprivilegierte
+Loopback-Start-/Stop-/Restart-/Portkonflikttests und isolierte Worker-Fehlertests.
+Noch **keine** Gesamtabnahme: UI/API, persistente Audio-Konfiguration, vollständige
+Discovery/Recovery und plattformübergreifende Hardwaretests folgen separat.
+
 ## Grenzen des Subsystems
 
 Der dedizierte Worker besitzt DHCP, DNS, TFTP, Gateway und SIP. HTTP-Netzboot,
@@ -21,7 +51,7 @@ vereinheitlicht, nicht die Protokollimplementierungen ersetzt.
 | Gateway | Routing/NAT | Worker, opt-in | letztes Apply-Ergebnis | mini-services/gateway.json | Diagnose; kein vollständiger Editor | Netzwerkinterfaces | test_mini_services, test_network_ui_diagnostics | DEPLOYMENT | Konfigurationsreload schreibt Netzwerkregeln erneut, Health kein Istzustand |
 | SIP | Registrar und lokale Redirects | Worker, automatisch | Socket, Registrierungen | telephony.sqlite, SIP_BIND | telephony | private LAN-Adresse | test_sip_runtime, test_telephony_* | TELEPHONY | fehlerhafter Socket kann als laufend gelten; keine automatische Startwiederholung |
 | HTTP/PXE | Bootskript, Assets, Peer-Austausch | Flask, opt-in | HTTP-Endpunkte | boot.json, Federation-Rollen | network_boot_federation | lokale Assets/Peers | test_mini_services | DEPLOYMENT | gehört zum Webprozess, kein eigenständiger Prozessstatus |
-| Audio-Ausgabe | Lautsprecherregister, Gruppen, Töne, TTS-Aufträge | HTTP-Aufträge | SQLite-Queue | audio/audio.sqlite; PIPER_MODEL | audio_output | manuelles Register | test_audio_output | nur Teilinformationen | lokale Wiedergabe nicht als vollständiger Queue-Worker integriert; Onlinewerte teils manuell |
+| Audio-Ausgabe | Lautsprecherregister, Gruppen, Töne, TTS-Aufträge | HTTP-Aufträge | SQLite-Queue | audio-output.sqlite3; PIPER_MODEL | audio_output | manuelles Register | test_audio_output | nur Teilinformationen | lokale Wiedergabe nicht als vollständiger Queue-Worker integriert; Onlinewerte teils manuell |
 | Live-Audio Sender | Mikrofon als Opus/RTP | HTTP-Aktion, ffmpeg | Prozess poll() | Request, nicht persistent | audio_streamer | Eingänge fehlen | test_audio_streamer | AUDIO_STREAMER | Start ersetzt laufende Session, keine Recovery, Linux-Backends |
 | Live-Audio Receiver | Opus/RTP zu Lautsprechern/virtuellem Mikrofon | HTTP-Aktion, ffmpeg/paplay | Prozess poll() | Request, nicht persistent | audio_streamer | pactl sinks | test_audio_streamer | AUDIO_STREAMER | Ausgabe ohne Gerätesuche nicht klar, keine persistente Auswahl/Recovery |
 
@@ -48,7 +78,7 @@ vereinheitlicht, nicht die Protokollimplementierungen ersetzt.
 - Netzwerk: `SIMPLEOFFICE_MINI_SERVICES_CONFIG`; JSON-Blöcke DHCP/DNS
   werden vollständig durch `validate_config` validiert. Boot- und
   Gateway-Einstellungen besitzen eigene bestehende Validatoren.
-- SIP: `SIMPLEOFFICE_SIP_BIND`, `telephony.sqlite` neben der Konfiguration;
+- SIP: `SIMPLEOFFICE_SIP_BIND`, `telephony/telephony-profiles.sqlite3` neben der Konfiguration;
   Port, Realm, Registrar-/Proxy-/STUN-/TURN-Angaben über TelephonyProfileStore.
   Secret-Verifier, nicht Klartextpasswörter, gehen an den Registrar.
 - TTS: `SIMPLEOFFICE_PIPER_MODEL`; Modelle werden nicht automatisch geladen.

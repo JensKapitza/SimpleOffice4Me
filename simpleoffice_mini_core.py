@@ -8,6 +8,8 @@ import json
 import os
 import re
 import struct
+import tempfile
+import time
 import urllib.request
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -113,12 +115,18 @@ def utc_now() -> str:
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parent
 
 
 def default_config_path() -> Path:
     configured = os.environ.get("SIMPLEOFFICE_MINI_SERVICES_CONFIG", "").strip()
-    return Path(configured).expanduser() if configured else project_root() / "instance" / "mini-services.json"
+    if configured:
+        return Path(configured).expanduser()
+    target = project_root() / "instance" / "mini-services.json"
+    # Older workers resolved one directory too high. Keep existing installations
+    # on their complete state directory until explicitly migrated by the owner.
+    legacy = project_root().parent / "instance" / "mini-services.json"
+    return legacy if not target.exists() and legacy.is_file() else target
 
 
 def state_dir(config_path: str | Path | None = None) -> Path:
@@ -148,13 +156,17 @@ def blocklist_meta_path(config_path: str | Path | None = None) -> Path:
 
 def _atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("wb") as handle:
-        handle.write(data)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.chmod(temporary, mode)
-    temporary.replace(path)
+    descriptor, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            os.chmod(temporary, mode)
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -419,7 +431,12 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     target = Path(path or default_config_path())
     if not target.exists():
         return deepcopy(DEFAULT_CONFIG)
-    raw = _read_json(target, DEFAULT_CONFIG)
+    try:
+        raw = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise ValueError("Mini-Service-Konfiguration ist kein gültiges UTF-8-JSON; bitte Einstellungen prüfen.") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("Mini-Service-Konfiguration muss ein JSON-Objekt sein.")
     return validate_config(raw)
 
 
@@ -432,11 +449,33 @@ def save_config(config: dict[str, Any], path: str | Path | None = None) -> dict[
 
 def read_status(path: str | Path | None = None) -> dict[str, Any]:
     data = _read_json(status_path(path), {})
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict) or not data:
+        return {}
+    try:
+        heartbeat = float(data.get("updated_at", status_path(path).stat().st_mtime))
+        age = time.time() - heartbeat
+        stale = not 0 <= age <= 30
+    except (OSError, TypeError, ValueError):
+        stale = True
+    data["stale"] = stale
+    if stale and data.get("state") != "stopped":
+        data["state"] = "unavailable"
+        data["message"] = "Keine aktuelle Rückmeldung vom Mini-Services Worker. Status prüfen oder Worker neu starten."
+        for name in ("dhcp", "dns", "tftp", "sip", "gateway"):
+            data[name + "_running"] = False
+        services = data.get("services", {})
+        for service in (services.values() if isinstance(services, dict) else []):
+            if isinstance(service, dict):
+                service["state"] = "unavailable"
+                service["health"] = {"ok": False, "message": data["message"]}
+        if isinstance(data.get("sip"), dict):
+            data["sip"]["running"] = False
+    return data
 
 
 def write_status(data: dict[str, Any], path: str | Path | None = None) -> None:
-    _atomic_write(status_path(path), (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    payload = {**data, "updated_at": time.time(), "schema_version": 2}
+    _atomic_write(status_path(path), (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
 def read_leases(path: str | Path | None = None) -> list[dict[str, Any]]:

@@ -206,7 +206,10 @@ def _response(code: int, reason: str, headers: dict[str, list[str]], *, extra: l
     return "\r\n".join(rows).encode("latin-1")
 
 
-class SipRegistrarService:
+from simpleoffice_service_lifecycle import DatagramLifecycle, service_health
+
+
+class SipRegistrarService(DatagramLifecycle):
     """Authenticated RFC3261-style registrar plus local INVITE redirector."""
 
     def __init__(self, config_path: str | Path, event: Callable[[dict[str, Any]], None] | None = None):
@@ -214,6 +217,7 @@ class SipRegistrarService:
         self.db_path = telephony_db_path(config_path)
         self.event = event or (lambda _row: None)
         self.stop_event = threading.Event()
+        self.lifecycle_lock = threading.RLock()
         self.socket: socket.socket | None = None
         self.thread: threading.Thread | None = None
         self.registrations: dict[str, dict[str, Any]] = {}
@@ -226,27 +230,8 @@ class SipRegistrarService:
     def realm(self) -> str:
         return str(self.settings.get("realm") or "simpleoffice.local")
 
-    def start(self) -> None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((str(self.settings["bind_host"]), int(self.settings["registrar_port"])))
-        sock.settimeout(1.0)
-        self.socket = sock
-        self.thread = threading.Thread(target=self._loop, name="simpleoffice-sip-udp", daemon=True)
-        self.thread.start()
-        self.event({"service": "sip", "action": "started", "bind": self.settings["bind_host"], "port": self.settings["registrar_port"]})
-
-    def stop(self) -> None:
-        self.stop_event.set()
-        if self.socket is not None:
-            try:
-                self.socket.close()
-            except OSError:
-                pass
-        if self.thread is not None:
-            self.thread.join(timeout=3)
-        self.socket = None
-        self.thread = None
+    def _bind_options(self):
+        return (str(self.settings["bind_host"]), int(self.settings["registrar_port"])), "simpleoffice-sip-udp", "", False
 
     def status(self) -> dict[str, Any]:
         self._cleanup()
@@ -264,7 +249,7 @@ class SipRegistrarService:
                 for extension, item in sorted(self.registrations.items())
             ]
         return {
-            "running": self.socket is not None and not self.stop_event.is_set(),
+            "running": service_health(self),
             "bind_host": self.settings["bind_host"],
             "advertised_host": self.settings["advertised_host"],
             "port": int(self.settings["registrar_port"]),

@@ -159,7 +159,7 @@ def load_boot_settings(config_path: str | Path | None = None) -> dict[str, Any]:
     path = boot_settings_path(config_path)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         value = DEFAULT_BOOT_SETTINGS
     return validate_boot_settings(value)
 
@@ -269,26 +269,22 @@ def _error(code: int, message: str) -> bytes:
     return struct.pack("!HH", TFTP_ERROR, code) + message.encode("ascii", errors="replace")[:200] + b"\0"
 
 
-class TftpService:
+from simpleoffice_service_lifecycle import BoundedTasks, DatagramLifecycle
+
+
+class TftpService(DatagramLifecycle):
     """Read-only RFC 1350 TFTP server with RFC 2347/2348/2349 options."""
     def __init__(self, settings: dict[str, Any], config_path: Path, event: Callable[[dict[str, Any]], None] | None = None):
         self.settings = validate_boot_settings(settings); self.config_path = config_path; self.event = event or (lambda _row: None)
         self.stop_event = threading.Event(); self.socket: socket.socket | None = None; self.thread: threading.Thread | None = None
+        self.lifecycle_lock = threading.RLock()
+        self.tasks = BoundedTasks(16)
 
-    def start(self) -> None:
+    def _bind_options(self):
         bind = str(self.settings["tftp_bind"])
         if bind == UNSPECIFIED_IPV4:
             raise ValueError("TFTP-Bind-Adresse darf nicht alle Netzwerkinterfaces umfassen")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((bind, self.settings["tftp_port"])); sock.settimeout(1); self.socket = sock
-        self.thread = threading.Thread(target=self._loop, name="simpleoffice-tftp", daemon=True); self.thread.start()
-
-    def stop(self) -> None:
-        self.stop_event.set()
-        if self.socket:
-            try: self.socket.close()
-            except OSError: pass
-        if self.thread: self.thread.join(timeout=3)
+        return (bind, self.settings["tftp_port"]), "simpleoffice-tftp", "", False
 
     def _loop(self) -> None:
         assert self.socket is not None
@@ -300,7 +296,15 @@ class TftpService:
                 try: self.socket.sendto(_error(TFTP_ERROR_ACCESS, "read only"), client)
                 except OSError: pass
                 continue
-            threading.Thread(target=self._serve_rrq, args=(packet, client), daemon=True).start()
+            if not self.tasks.submit(self._safe_serve, packet, client):
+                self._send_once(client, _error(0, "server busy; retry later"))
+
+    def _safe_serve(self, packet, client):
+        try:
+            self._serve_rrq(packet, client)
+        except (OSError, ValueError) as exc:
+            if not self.stop_event.is_set():
+                self.event({"service": "tftp", "action": "transfer_failed", "error": type(exc).__name__})
 
     def _serve_rrq(self, packet: bytes, client: tuple[str, int]) -> None:
         try:
@@ -318,14 +322,14 @@ class TftpService:
             self._send_once(client, _error(TFTP_ERROR_ACCESS, str(exc))); return
         except (OSError, ValueError):
             self._send_once(client, _error(TFTP_ERROR_NOT_FOUND, "not found")); return
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as transfer:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as transfer, self.tasks.track(transfer):
             transfer.bind((self.settings["tftp_bind"], 0)); transfer.settimeout(timeout)
             if accepted:
                 payload = struct.pack("!H", TFTP_OACK) + b"".join(k.encode() + b"\0" + v.encode() + b"\0" for k, v in accepted.items())
                 if not self._exchange(transfer, client, payload, expected_ack=0): return
             with path.open("rb") as source:
                 block_number = 1
-                while True:
+                while not self.stop_event.is_set():
                     data = source.read(blksize); payload = struct.pack("!HH", TFTP_DATA, block_number & 0xFFFF) + data
                     if not self._exchange(transfer, client, payload, expected_ack=block_number & 0xFFFF): return
                     if len(data) < blksize: break
@@ -339,6 +343,8 @@ class TftpService:
 
     def _exchange(self, transfer: socket.socket, client: tuple[str, int], payload: bytes, *, expected_ack: int) -> bool:
         for _ in range(int(self.settings["tftp_retries"])):
+            if self.stop_event.is_set():
+                return False
             try:
                 transfer.sendto(payload, client); reply, source = transfer.recvfrom(2048)
             except socket.timeout: continue

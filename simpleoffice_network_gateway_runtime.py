@@ -26,7 +26,7 @@ def load_gateway_settings(config_path: str | Path | None = None) -> dict[str, An
     path = gateway_settings_path(config_path)
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         value = DEFAULT_GATEWAY_SETTINGS
     return validate_gateway_settings(value)
 
