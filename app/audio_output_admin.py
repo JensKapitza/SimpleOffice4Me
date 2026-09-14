@@ -8,6 +8,7 @@ from flask import Blueprint, abort, g, jsonify, render_template, request
 from .access_control import audit, is_admin
 from .audio_output_store import AudioOutputStore, DEFAULT_PRESETS
 from .audio_output_discovery import discover_speaker_outputs
+from .audio_output_worker import worker
 from .auth import login_required
 from .mini_services import default_config_path
 
@@ -39,7 +40,7 @@ def _json() -> dict:
 @admin_required
 def status():
     store = _store()
-    return jsonify({"outputs": store.outputs(), "groups": store.groups(), "presets": DEFAULT_PRESETS, "queue": store.pending(100)})
+    return jsonify({"outputs": store.outputs(), "groups": store.groups(), "presets": DEFAULT_PRESETS, "queue": store.history(100), "service": worker.status()})
 
 
 @bp.get("/ui")
@@ -51,7 +52,8 @@ def index():
         outputs=store.outputs(),
         groups=store.groups(),
         presets=DEFAULT_PRESETS,
-        queue=store.pending(100),
+        queue=store.history(100),
+        service=worker.status(),
     )
 
 
@@ -82,6 +84,42 @@ def scan():
         return jsonify(error="Lokale Ausgänge nicht erreichbar. Audio-Sitzung und PipeWire/PulseAudio prüfen.", state="failed", updated_at=time.time()), 503
     audit("audio_output_scan", "audio_output", "local", detail={"count": len(devices)})
     return jsonify(outputs=outputs, state="completed", count=len(devices), updated_at=time.time(), scope="Lokale PipeWire/PulseAudio-Ausgänge")
+
+
+@bp.post("/<action>")
+@admin_required
+def lifecycle(action):
+    if action not in {"start", "stop", "restart"}:
+        abort(404)
+    try:
+        if action in {"stop", "restart"}:
+            worker.stop()
+        if action in {"start", "restart"}:
+            worker.start()
+    except RuntimeError:
+        return jsonify(error="Audio-Ausgabe wird noch beendet. Status aktualisieren und erneut versuchen."), 409
+    audit("audio_output_lifecycle", "audio_output", "local", detail={"action": action})
+    return jsonify(worker.status())
+
+
+@bp.route("/settings", methods=["GET", "POST"])
+@admin_required
+def output_settings():
+    try:
+        value = worker.save_settings(_json()) if request.method == "POST" else worker.settings()
+    except (ValueError, TypeError):
+        return jsonify(error="Aktiviert/Autostart und Wiederholungsanzahl prüfen."), 400
+    return jsonify(value)
+
+
+@bp.post("/queue/<int:ident>/cancel")
+@admin_required
+def cancel(ident):
+    changed = _store().cancel(ident)
+    if not changed:
+        return jsonify(error="Nur wartende Aufträge können einzeln abgebrochen werden; aktive Wiedergabe über Stop beenden."), 409
+    audit("audio_output_cancelled", "audio_output", str(ident))
+    return jsonify(cancelled=True)
 
 
 @bp.post("/groups")

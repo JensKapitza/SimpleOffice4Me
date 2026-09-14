@@ -6,8 +6,16 @@ import socket
 import threading
 import time
 from contextlib import contextmanager
+from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import Any
+
+
+@lru_cache(maxsize=1)
+def application_version():
+    # Status must stay cheap and independent of external git subprocesses.
+    from simpleoffice_version import _project_version, PROJECT_ROOT
+    return _project_version(PROJECT_ROOT)
 
 
 def service_health(service: Any) -> bool:
@@ -66,14 +74,15 @@ class ServiceState:
         self.retry_at = None
 
     def snapshot(self, pid: int) -> dict[str, Any]:
-        return {"id": self.id, "name": self.name, "version": 1, "state": self.state,
+        ports = [self.config[key] for key in ("port", "tftp_port", "registrar_port") if key in self.config]
+        return {"id": self.id, "name": self.name, "version": application_version(), "state": self.state,
                 "started_at": self.started_at,
                 "uptime_seconds": max(0, int(time.time() - self.started_at)) if self.state == "running" and self.started_at else 0,
                 "worker_id": pid, "last_error": self.last_error, "last_error_at": self.last_error_at,
                 "retry_count": self.retry_count,
                 "retry_in_seconds": max(0, int(self.retry_at - time.monotonic())) if self.retry_at else None,
                 "requires": ["mini-services-worker"], "optional_requires": [], "provides": [self.id],
-                "config": self.config, "health": {"ok": self.state == "running",
+                "config": self.config, "ports": ports, "updated_at": time.time(), "health": {"ok": self.state == "running",
                     "message": "Socket gebunden, Listener aktiv" if self.state == "running" else self.state}}
 
 

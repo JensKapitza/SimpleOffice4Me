@@ -1,6 +1,7 @@
 import tempfile
 import time
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -74,6 +75,8 @@ class MiniApiTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "mini.json"
         self.user = {"id": 1, "is_admin": True, "is_disabled": False}
+        environment = patch.dict(os.environ, {"SIMPLEOFFICE_MINI_SERVICES_CONFIG": str(self.path)})
+        environment.start(); self.addCleanup(environment.stop)
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True, SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
@@ -123,6 +126,14 @@ class MiniApiTests(unittest.TestCase):
     def test_unknown_actions_and_settings_are_rejected(self):
         self.assertEqual(404, self.client.post("/api/mini-services/sip/shell", json={}, headers=self.headers).status_code)
         self.assertEqual(400, self.client.post("/api/mini-services/sip/settings", json={"enabled": "false"}, headers=self.headers).status_code)
+
+    def test_common_catalog_includes_existing_audio_owners(self):
+        result = self.client.get("/api/mini-services")
+        self.assertEqual(200, result.status_code)
+        services = {row["id"]: row for row in result.json["services"]}
+        for name in ("audio-sender", "audio-receiver", "audio-output"):
+            self.assertEqual("web", services[name]["owner"])
+            self.assertIn("health", services[name])
 
 
 if __name__ == "__main__":

@@ -17,10 +17,10 @@
 
   <section id="mini-service-control" class="mb-4" data-api="{{ url_for('mini_services_api.index') }}" aria-labelledby="mini-control-title">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-      <h2 class="h4 mb-0" id="mini-control-title">Netzwerkdienste steuern</h2>
+      <h2 class="h4 mb-0" id="mini-control-title">Dienste steuern</h2>
       <button type="button" class="btn btn-outline-secondary" id="mini-refresh">Status aktualisieren</button>
     </div>
-    <p class="small">Start und Stop gelten für die aktuelle Sitzung. Autostart gilt beim nächsten Worker-Start. DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein.</p>
+    <p class="small">Start und Stop gelten für die aktuelle Sitzung. Autostart gilt beim nächsten SimpleOffice-/Worker-Start. DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein. Audio-Sender benötigen gespeicherte Ziele.</p>
     <div id="mini-feedback" role="status" aria-live="polite" class="alert alert-secondary">Status wird geladen …</div>
     <div id="mini-control-cards" class="row g-3"></div>
   </section>

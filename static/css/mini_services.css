@@ -4,6 +4,9 @@
 #audio-streamer-app select {
   min-height: 44px;
 }
+#audio-announcements .btn, #audio-announcements select, #audio-device-discovery .btn { min-height: 44px; }
+#audio-announcements button:focus-visible, #audio-announcements input:focus-visible,
+#audio-announcements select:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 #mini-service-control button:focus-visible,
 #mini-service-control input:focus-visible,
 #audio-streamer-app button:focus-visible,

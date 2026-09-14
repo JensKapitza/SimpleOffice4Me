@@ -5,6 +5,7 @@ import json
 import sqlite3
 import time
 import hashlib
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -26,13 +27,21 @@ def _now() -> int:
 class AudioOutputStore:
     def __init__(self, root: str | Path):
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.db_path = self.root / "audio-output.sqlite3"
+        if self.db_path.is_symlink():
+            raise ValueError("Audio-Datenbank darf kein symbolischer Link sein")
+        try:
+            descriptor = os.open(self.db_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            os.close(descriptor)
         self._init_db()
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.db_path)
+        db = sqlite3.connect(self.db_path, timeout=3)
         db.row_factory = sqlite3.Row
         try:
             yield db
@@ -84,6 +93,11 @@ class AudioOutputStore:
                 );
                 """
             )
+            db.execute("BEGIN IMMEDIATE")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(audio_announcement)")}
+            for column, definition in (("attempts", "INTEGER NOT NULL DEFAULT 0"), ("next_attempt_at", "REAL NOT NULL DEFAULT 0")):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE audio_announcement ADD COLUMN {column} {definition}")
 
     @staticmethod
     def _clean_id(value: Any, label: str) -> str:
@@ -137,6 +151,8 @@ class AudioOutputStore:
 
     def set_group(self, group_id: str, name: str, members: list[str]) -> dict:
         group = self._clean_id(group_id, "group_id")
+        if not isinstance(members, list) or len(members) > 128:
+            raise ValueError("Gruppen benötigen eine Liste mit höchstens 128 Mitgliedern")
         clean_members = sorted(set(self._clean_id(item, "member") for item in members))
         with self._db() as db:
             db.execute(
@@ -165,11 +181,20 @@ class AudioOutputStore:
         return self._queue("sound", {"preset": name, "asset": definition["asset"]}, targets, definition["priority"] if priority is None else priority, source, source_ref)
 
     def _queue(self, kind: str, payload: dict, targets: list[str], priority: int, source: str, source_ref: str) -> dict:
+        if not isinstance(targets, list) or len(targets) > 128:
+            raise ValueError("Höchstens 128 Audio-Ziele sind erlaubt")
         clean_targets = sorted(set(self._clean_id(item, "target") for item in targets))
         if not clean_targets:
             raise ValueError("Mindestens ein Audio-Ziel ist erforderlich")
         priority = max(0, min(int(priority), 100))
         with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if source_ref:
+                existing = db.execute("SELECT id FROM audio_announcement WHERE source=? AND source_ref=? LIMIT 1", (str(source)[:80], str(source_ref)[:200])).fetchone()
+                if existing:
+                    return self.announcement(existing["id"])
+            if db.execute("SELECT COUNT(*) FROM audio_announcement WHERE state IN ('queued','playing')").fetchone()[0] >= 1000:
+                raise ValueError("Audio-Warteschlange ist voll; alte Aufträge prüfen")
             cursor = db.execute(
                 "INSERT INTO audio_announcement(kind,payload_json,targets_json,priority,source,source_ref,created_at) VALUES(?,?,?,?,?,?,?)",
                 (kind, json.dumps(payload, ensure_ascii=False), json.dumps(clean_targets), priority, str(source)[:80], str(source_ref)[:200], _now()),
@@ -200,3 +225,66 @@ class AudioOutputStore:
                 db.execute("INSERT OR REPLACE INTO audio_service_setting VALUES (?,?)", (service, json.dumps(value)))
             row = db.execute("SELECT data_json FROM audio_service_setting WHERE service=?", (service,)).fetchone()
         return json.loads(row[0]) if row else {}
+
+    def claim(self):
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT id FROM audio_announcement WHERE state='queued' AND next_attempt_at<=? ORDER BY priority DESC,id LIMIT 1", (time.time(),)).fetchone()
+            if row is None:
+                return None
+            db.execute("UPDATE audio_announcement SET state='playing',started_at=?,attempts=attempts+1 WHERE id=?", (_now(), row["id"]))
+        return self.announcement(row["id"])
+
+    def finish(self, ident, *, state="done", error="", retry_seconds=0):
+        if state not in {"done", "failed", "cancelled", "queued"}:
+            raise ValueError("Ungültiger Auftragsstatus")
+        with self._db() as db:
+            db.execute("UPDATE audio_announcement SET state=?,error=?,finished_at=?,next_attempt_at=? WHERE id=? AND state='playing'",
+                (state, error[:300], None if state == "queued" else _now(), time.time() + retry_seconds, int(ident)))
+            db.execute("DELETE FROM audio_announcement WHERE state IN ('done','failed','cancelled') AND id NOT IN (SELECT id FROM audio_announcement ORDER BY id DESC LIMIT 1000)")
+
+    def cancel(self, ident):
+        with self._db() as db:
+            changed = db.execute("UPDATE audio_announcement SET state='cancelled',finished_at=? WHERE id=? AND state='queued'", (_now(), int(ident))).rowcount
+        return bool(changed)
+
+    def recover_interrupted(self):
+        with self._db() as db:
+            db.execute("UPDATE audio_announcement SET state='failed',finished_at=?,error=? WHERE state='playing'", (_now(), "Wiedergabe wurde unterbrochen. Vor erneutem Abspielen prüfen."))
+
+    def history(self, limit=100):
+        with self._db() as db:
+            rows = db.execute("SELECT id FROM audio_announcement ORDER BY id DESC LIMIT ?", (max(1, min(int(limit), 1000)),)).fetchall()
+        return [self.announcement(row["id"]) for row in rows]
+
+    def local_targets(self, targets):
+        groups = {group["group_id"]: group["members"] for group in self.groups()}
+        outputs = self.outputs()
+        selected = {}
+        expanded = set()
+        def expand(target, visited):
+            if target in visited or len(visited) > 8:
+                raise ValueError("Zyklische oder zu tief verschachtelte Audiogruppe")
+            if target in groups:
+                if target in expanded:
+                    return
+                for member in groups[target]:
+                    expand(member, visited | {target})
+                expanded.add(target)
+                return
+            matches = [row for row in outputs if row["output_id"] == target]
+            if len(matches) != 1:
+                raise ValueError("Audio-Ziel ist nicht vorhanden oder nicht eindeutig")
+            row = matches[0]
+            if row["node_id"] != "local":
+                raise ValueError("Für diesen externen Audioknoten ist kein Wiedergabe-Transport eingerichtet")
+            if not row["online"]:
+                raise OSError("Lokaler Audio-Ausgang ist offline")
+            selected[target] = row
+            if len(selected) > 16:
+                raise ValueError("Höchstens 16 lokale Ausgänge pro Auftrag")
+        for target in targets:
+            expand(target, set())
+        if not selected:
+            raise ValueError("Kein Audio-Ausgang ausgewählt")
+        return list(selected.values())

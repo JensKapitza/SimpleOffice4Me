@@ -51,7 +51,7 @@
     report(action === 'scan' ? '↻ Geräte und Dienste werden gesucht …' : '↻ Aktion wird ausgeführt …');
     try {
       const result = await request('/' + id + '/' + action, 'POST', body || {});
-      if (result.id) await waitOperation(result.id);
+      if (result.id && result.state === 'queued' && result.action) await waitOperation(result.id);
       await refresh();
       report(action === 'scan' ? `${result.count} Treffer. ${result.scope || ''}` : '✓ Aktion abgeschlossen.');
     } catch (error) { report(error.name === 'AbortError' ? 'Zeitüberschreitung. Verbindung prüfen und Status aktualisieren.' : error.message, true); }
