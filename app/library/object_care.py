@@ -11,8 +11,6 @@ InventoryEnrichmentStore sidecar so no migration is required.
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
 import uuid
 from datetime import date
 from pathlib import Path
@@ -22,10 +20,10 @@ from flask import abort, current_app, flash, g, redirect, render_template, reque
 
 from ..auth import login_required
 from ..document_store import atomic_json_write, utc_now
-from ..document_store_core import ocr_subprocess_environment
 from ..file_lock import exclusive_file_lock
 from ..inventory import InventoryEnrichmentStore, _create_inspection_task
 from ..object_store import ObjectStore
+from ..object_vision import analyze_ocr
 from .routes import assign_object_to_location, bp
 from .store import LibraryStore
 
@@ -59,7 +57,6 @@ COMPLIANCE_PRESETS = (
     ("Kalibrierung", "Kalibrierung / Messmittelprüfung"),
     ("Sichtprüfung", "Allgemeine Sichtprüfung"),
 )
-MAX_OCR_TEXT = 20000
 
 
 def _root() -> Path:
@@ -125,22 +122,13 @@ def _image_metadata(path: Path) -> dict[str, Any]:
 
 
 def _ocr_image(path: Path) -> tuple[str, str, str]:
-    executable = shutil.which("tesseract")
-    if not executable:
-        return "", "unavailable", "Tesseract OCR ist nicht installiert"
-    environment = ocr_subprocess_environment()
-    command = [executable, str(path), "stdout", "-l", "deu+eng"]
-    try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=90, check=False, env=environment)
-        if result.returncode != 0 and "deu" in result.stderr.casefold():
-            command[-1] = "eng"
-            result = subprocess.run(command, capture_output=True, text=True, timeout=90, check=False, env=environment)
-    except subprocess.TimeoutExpired:
-        return "", "failed", "OCR-Zeitlimit von 90 Sekunden überschritten"
-    if result.returncode != 0:
-        return "", "failed", _line(result.stderr or "Tesseract OCR fehlgeschlagen", 500)
-    text = "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
-    return text[:MAX_OCR_TEXT], "completed", ""
+    """Compatibility wrapper around the shared ML-first OCR service."""
+    result = analyze_ocr(path)
+    return (
+        str(result.get("text", "")),
+        str(result.get("status", "failed")),
+        str(result.get("error", "")),
+    )
 
 
 def _extract_labeled(text: str, labels: str) -> str:
@@ -191,6 +179,26 @@ def _object_update_values(item: dict[str, Any], fields: dict[str, str], tags: li
         "tags": tags,
         "fields": fields,
     }
+
+
+def _merge_ocr_analysis(analysis: dict[str, Any], ocr: dict[str, Any]) -> None:
+    analysis["ocr_engine"] = str(ocr.get("engine", ""))
+    analysis["ocr_status"] = str(ocr.get("status", "failed"))
+    analysis["ocr_text"] = str(ocr.get("text", ""))
+    analysis["ocr_characters"] = int(ocr.get("characters", len(analysis["ocr_text"])) or 0)
+    analysis["ocr_confidence"] = ocr.get("confidence")
+    analysis["ocr_blocks"] = ocr.get("blocks", []) if isinstance(ocr.get("blocks"), list) else []
+    for key in (
+        "error",
+        "fallback_from",
+        "fallback_reason",
+        "fallback_engine",
+        "fallback_status",
+        "fallback_error",
+    ):
+        value = ocr.get(key)
+        if value not in (None, ""):
+            analysis[f"ocr_{key}"] = value
 
 
 class ObjectCareStore(InventoryEnrichmentStore):
@@ -279,13 +287,9 @@ class ObjectCareStore(InventoryEnrichmentStore):
             "analyzed_by": actor,
             **_image_metadata(path),
         }
-        ocr_text, ocr_status, ocr_error = _ocr_image(path)
-        analysis["ocr_status"] = ocr_status
-        analysis["ocr_text"] = ocr_text
-        analysis["ocr_characters"] = len(ocr_text)
-        if ocr_error:
-            analysis["ocr_error"] = ocr_error
-        analysis.update(_analysis_suggestions(ocr_text))
+        ocr = analyze_ocr(path)
+        _merge_ocr_analysis(analysis, ocr)
+        analysis.update(_analysis_suggestions(str(ocr.get("text", ""))))
         with exclusive_file_lock(self.lock_path):
             data = self._read(self.index_path)
             entry = data.setdefault("objects", {}).setdefault(str(object_id), {})
