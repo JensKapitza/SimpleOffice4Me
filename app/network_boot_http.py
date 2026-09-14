@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import tempfile
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from flask import Blueprint, Response, current_app, jsonify, request, send_from_
 
 from .federation_http import _authorized
 from .federation_store import FederationStore
+from simpleoffice_mini_core import default_config_path
 from .network_boot import (
     assets_root,
     federation_manifest,
@@ -28,8 +28,7 @@ MAX_FEDERATED_ASSET = 16 * 1024 * 1024 * 1024
 
 
 def _config_path() -> Path:
-    configured = os.environ.get("SIMPLEOFFICE_MINI_SERVICES_CONFIG", "").strip()
-    return Path(configured).expanduser() if configured else Path(current_app.instance_path) / "mini-services.json"
+    return default_config_path()
 
 
 def _asset_response(relative: str, *, max_age: int):
@@ -40,6 +39,20 @@ def _asset_response(relative: str, *, max_age: int):
         assets_root(config_path), relative,
         conditional=True, etag=True, max_age=max_age,
     )
+
+
+@bp.before_request
+def public_boot_enabled():
+    # Federation storage and authenticated retrieval remain independent. Merely
+    # storing an asset must not publish it to unauthenticated LAN clients.
+    try:
+        enabled = load_boot_settings(_config_path())["enabled"]
+    except (OSError, ValueError):
+        logger.warning("Network boot settings unavailable", exc_info=True)
+        return Response("network boot unavailable\n", 503, {"Cache-Control": "no-store"})
+    if not enabled:
+        return Response("network boot disabled\n", 404, {"Cache-Control": "no-store"})
+    return None
 
 
 @bp.get("/ipxe")

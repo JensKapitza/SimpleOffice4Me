@@ -9,10 +9,12 @@ import socket
 import struct
 import threading
 import time
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
-from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir
+from simpleoffice_mini_services import _atomic_write, config_bool, default_config_path, state_dir
 
 UNSPECIFIED_IPV4 = socket.inet_ntoa(bytes(4))
 
@@ -78,6 +80,17 @@ def safe_asset_path(relative: str, config_path: str | Path | None = None, *, mus
     return path
 
 
+def _boot_url(value: Any) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    if (len(value) > 2000 or parsed.scheme not in {"http", "https"} or not parsed.hostname
+            or parsed.username or parsed.password or any(char.isspace() or ord(char) < 32 for char in value)):
+        raise ValueError("Boot-URL muss eine HTTP(S)-Adresse ohne Zugangsdaten oder Leerzeichen sein")
+    return value
+
+
 def _profile(item: dict[str, Any]) -> dict[str, Any]:
     profile_id = str(item.get("id") or "").strip()
     if not PROFILE_ID.fullmatch(profile_id):
@@ -94,14 +107,14 @@ def _profile(item: dict[str, Any]) -> dict[str, Any]:
             architectures.append(code)
     result = {
         "id": profile_id,
-        "label": str(item.get("label") or profile_id).strip()[:160],
-        "enabled": bool(item.get("enabled", True)),
+        "label": " ".join(str(item.get("label") or profile_id).split())[:160],
+        "enabled": config_bool(item.get("enabled", True), "profile.enabled"),
         "mode": mode,
         "architectures": architectures,
         "kernel": _safe_relative(item.get("kernel", ""), required=False),
         "initrd": _safe_relative(item.get("initrd", ""), required=False),
         "iso": _safe_relative(item.get("iso", ""), required=False),
-        "chain_url": str(item.get("chain_url") or "").strip()[:2000],
+        "chain_url": _boot_url(item.get("chain_url")),
         "kernel_args": " ".join(str(item.get("kernel_args") or "").replace("\x00", "").split())[:4000],
     }
     if mode == "kernel" and not result["kernel"]:
@@ -118,7 +131,7 @@ def validate_boot_settings(candidate: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Network-Boot-Konfiguration muss ein Objekt sein")
     data = dict(DEFAULT_BOOT_SETTINGS); data.update(candidate); data["version"] = 1
     for key in ("enabled", "tftp_enabled"):
-        data[key] = bool(data.get(key))
+        data[key] = config_bool(data[key], key)
     tftp_bind = str(data.get("tftp_bind") or "127.0.0.1").strip()
     try:
         socket.inet_pton(socket.AF_INET, tftp_bind)
@@ -137,12 +150,14 @@ def validate_boot_settings(candidate: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("TFTP Timeout/Retry liegt außerhalb des erlaubten Bereichs")
     if not 1024 <= data["tftp_max_file_bytes"] <= 4 * 1024 * 1024 * 1024:
         raise ValueError("TFTP-Dateilimit ist ungültig")
-    data["http_base_url"] = str(data.get("http_base_url") or "").strip().rstrip("/")[:2000]
+    data["http_base_url"] = _boot_url(data.get("http_base_url")).rstrip("/")
     if data["http_base_url"] and not data["http_base_url"].startswith(("http://", "https://")):
         raise ValueError("HTTP-Boot-Basis muss mit http:// oder https:// beginnen")
     for key in ("bios_loader", "uefi_x64_loader", "uefi_arm64_loader"):
         data[key] = _safe_relative(data.get(key, ""), required=False)
-    profiles = [_profile(item) for item in data.get("profiles", []) if isinstance(item, dict)]
+    if not isinstance(data.get("profiles"), list) or any(not isinstance(item, dict) for item in data["profiles"]):
+        raise ValueError("Bootprofile müssen eine Liste von Objekten sein")
+    profiles = [_profile(item) for item in data["profiles"]]
     if len(profiles) > 200:
         raise ValueError("Zu viele Bootprofile")
     if len({item["id"] for item in profiles}) != len(profiles):
@@ -170,25 +185,39 @@ def save_boot_settings(candidate: dict[str, Any], config_path: str | Path | None
     return clean
 
 
-def list_assets(config_path: str | Path | None = None) -> list[dict[str, Any]]:
+def list_assets(config_path: str | Path | None = None, *, include_hash: bool = True, max_entries: int | None = None) -> list[dict[str, Any]]:
     root = assets_root(config_path); root.mkdir(parents=True, exist_ok=True); rows = []
     for path in root.rglob("*"):
-        if not path.is_file() or path.is_symlink():
+        if not path.is_file() or path.is_symlink() or path.name.startswith(".boot-"):
             continue
-        relative = path.relative_to(root).as_posix(); digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
-        rows.append({"path": relative, "size": path.stat().st_size, "sha256": digest.hexdigest(), "mtime_ns": path.stat().st_mtime_ns})
+        relative = path.relative_to(root).as_posix()
+        stat = path.stat()
+        row = {"path": relative, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+        if include_hash:
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                for block in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(block)
+            row["sha256"] = digest.hexdigest()
+        rows.append(row)
+        if max_entries is not None and len(rows) >= max_entries:
+            break
     return sorted(rows, key=lambda row: row["path"].casefold())
 
 
 def store_asset(source, filename: str, config_path: str | Path | None = None, *, max_bytes: int = 16 * 1024 * 1024 * 1024) -> dict[str, Any]:
     relative = _safe_relative(filename); target = safe_asset_path(relative, config_path, must_exist=False)
-    target.parent.mkdir(parents=True, exist_ok=True); temporary = target.with_suffix(target.suffix + ".part")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".boot-", suffix=".part", dir=target.parent)
+    temporary = Path(temporary_name)
     digest = hashlib.sha256(); total = 0
     try:
-        with temporary.open("wb") as handle:
+        try:
+            handle = os.fdopen(descriptor, "wb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with handle:
             while True:
                 block = source.read(1024 * 1024)
                 if not block: break
@@ -197,8 +226,8 @@ def store_asset(source, filename: str, config_path: str | Path | None = None, *,
                 digest.update(block); handle.write(block)
             handle.flush(); os.fsync(handle.fileno())
         os.replace(temporary, target)
-    except Exception:
-        temporary.unlink(missing_ok=True); raise
+    finally:
+        temporary.unlink(missing_ok=True)
     return {"path": relative, "size": total, "sha256": digest.hexdigest()}
 
 

@@ -5,13 +5,14 @@ transport verbs such as GET/PUT or send/receive.
 """
 from __future__ import annotations
 
+import json
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .access_control import audit, is_admin
 from .auth import login_required
 from .federation_store import FederationStore
 from .mini_services import default_config_path
-from .network_boot import list_assets, load_boot_settings
+from .network_boot import DEFAULT_BOOT_SETTINGS, list_assets, load_boot_settings, save_boot_settings
 from .network_boot_federation import fetch_from_offering_peer, replicate_to_storage_peer
 
 bp = Blueprint("network_boot_admin", __name__, url_prefix="/admin/mini-services/network-boot")
@@ -34,12 +35,42 @@ def _store() -> FederationStore:
 @bp.get("")
 @admin_required
 def index():
+    return _page()
+
+
+def _page(submitted=None):
+    try:
+        boot = load_boot_settings(default_config_path())
+    except (OSError, ValueError):
+        boot = DEFAULT_BOOT_SETTINGS
+        flash("Boot-Konfiguration ist nicht lesbar. Einstellungen prüfen und erneut speichern.")
+    try:
+        assets = list_assets(default_config_path(), include_hash=False, max_entries=512)
+    except OSError:
+        assets = []
+        flash("Boot-Dateien sind nicht lesbar. Dateirechte des Boot-Verzeichnisses prüfen.")
     return render_template(
         "admin/network_boot_federation.html",
         peers=_store().list_peers(),
-        boot=load_boot_settings(default_config_path()),
-        assets=list_assets(default_config_path()),
+        boot=boot,
+        boot_json=submitted if submitted is not None else json.dumps(boot, ensure_ascii=False, indent=2),
+        assets=assets,
     )
+
+
+@bp.post("/settings")
+@admin_required
+def settings():
+    submitted = request.form.get("boot_json", "")
+    try:
+        candidate = DEFAULT_BOOT_SETTINGS if request.form.get("action") == "reset" else json.loads(submitted)
+        clean = save_boot_settings(candidate, default_config_path())
+    except (ValueError, TypeError, OSError):
+        flash("Einstellungen nicht gespeichert. JSON, Adressen, Ports, Profile und Dateirechte prüfen. Aktiviert-Schalter benötigen true oder false.")
+        return _page(submitted), 400
+    audit("network_boot_settings_saved", "service", "http-boot", detail={"enabled": clean["enabled"], "profiles": len(clean["profiles"])})
+    flash("Boot-Einstellungen gespeichert. Der Worker übernimmt TFTP-Änderungen automatisch.")
+    return redirect(url_for("network_boot_admin.index"))
 
 
 @bp.post("/peers/<peer_id>/roles")
@@ -90,7 +121,7 @@ def fetch_peer(peer_id: str):
             "network_boot_fetch_failed", "federation_peer", peer_id,
             outcome="failure", detail={"error_type": type(exc).__name__},
         )
-        flash(f"Networkboot-Daten konnten nicht geholt werden: {exc}")
+        flash("Networkboot-Daten konnten nicht geholt werden. Peer-Verbindung, Freigaberolle und Dateirechte prüfen; Details im Audit.")
     return redirect(url_for("network_boot_admin.index"))
 
 
@@ -111,5 +142,5 @@ def replicate_peer(peer_id: str):
             "network_boot_replication_failed", "federation_peer", peer_id,
             outcome="failure", detail={"error_type": type(exc).__name__},
         )
-        flash(f"Networkboot-Daten konnten nicht gespiegelt werden: {exc}")
+        flash("Networkboot-Daten konnten nicht gespiegelt werden. Peer-Verbindung, Speicherrolle und Dateirechte prüfen; Details im Audit.")
     return redirect(url_for("network_boot_admin.index"))

@@ -45,6 +45,10 @@ def _catalog():
     row.update(settings=output_worker.settings(), scan=store.scan("audio-output"),
                capabilities=["start", "stop", "restart", "scan", "settings"])
     rows.append(row)
+    from .network_boot_service import status as boot_status
+    row = boot_status()
+    row["scan"] = store.scan("http-boot")
+    rows.append(row)
     return {"services": rows, "worker": {key: status.get(key) for key in ("state", "pid", "updated_at", "stale", "config_error")}}
 
 
@@ -92,6 +96,21 @@ def settings(service):
 def action(service, action):
     if service in {"audio-sender", "audio-receiver", "audio-output"} and action in {"start", "stop", "restart", "scan"}:
         return _audio_action(service, action)
+    if service == "http-boot" and action in {"start", "stop", "restart", "scan"}:
+        from .network_boot_service import action as boot_action
+        store = _store()
+        if action == "scan":
+            store.scan(service, {"state": "scanning", "updated_at": time.time(), "count": 0, "targets": []})
+        try:
+            result = boot_action(action)
+        except (ValueError, RuntimeError, OSError) as exc:
+            if action == "scan":
+                store.scan(service, {"state": "failed", "updated_at": time.time(), "count": 0, "targets": [], "error": error_detail(exc)})
+            return jsonify(error=error_detail(exc)), 400
+        if action == "scan":
+            store.scan(service, result)
+        audit("mini_service_action", "service", service, detail={"action": action})
+        return jsonify(result)
     if service not in NETWORK_SERVICES or action not in {"start", "stop", "restart", "scan"}:
         abort(404)
     store = _store()
@@ -149,7 +168,7 @@ def _scan(store, service):
     store.scan(service, {"state": "scanning", "updated_at": started, "count": 0, "targets": []})
     try:
         if service == "tftp":
-            targets = list_assets(default_config_path())
+            targets = list_assets(default_config_path(), include_hash=False, max_entries=512)
         elif service == "sip":
             status = read_status(default_config_path())
             targets = status.get("sip", {}).get("registrations_detail", [])

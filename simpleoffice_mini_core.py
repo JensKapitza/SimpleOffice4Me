@@ -98,11 +98,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-def _https_open(request: urllib.request.Request, timeout: float):
-    parsed = urlsplit(request.full_url)
+def _validate_blocklist_url(url: str) -> None:
+    parsed = urlsplit(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("Blocklisten-URL muss eine HTTPS-Adresse ohne Zugangsdaten sein")
-    response = urllib.request.build_opener().open(request, timeout=timeout)
+
+
+class _BlocklistRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Validate BEFORE urllib connects to the next hop, including intermediate
+        # hops that might otherwise downgrade to HTTP and return to HTTPS.
+        _validate_blocklist_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _https_open(request: urllib.request.Request, timeout: float):
+    _validate_blocklist_url(request.full_url)
+    response = urllib.request.build_opener(_BlocklistRedirectHandler()).open(request, timeout=timeout)
     final = urlsplit(response.geturl())
     if final.scheme != "https" or not final.hostname or final.username or final.password:
         response.close()
@@ -159,7 +171,12 @@ def _atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
     descriptor, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
     try:
-        with os.fdopen(descriptor, "wb") as handle:
+        try:
+            handle = os.fdopen(descriptor, "wb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with handle:
             os.chmod(temporary, mode)
             handle.write(data)
             handle.flush()
@@ -243,6 +260,12 @@ def parse_upstream(value: str) -> tuple[str, int]:
     return host, int(port)
 
 
+def config_bool(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} muss true oder false sein")
+    return value
+
+
 def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(candidate, dict):
         raise ValueError("Mini-Services-Konfiguration muss ein JSON-Objekt sein")
@@ -255,9 +278,8 @@ def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     config["version"] = 1
 
     dhcp = config["dhcp"]
-    dhcp["enabled"] = bool(dhcp.get("enabled"))
-    dhcp["authoritative"] = bool(dhcp.get("authoritative", True))
-    dhcp["ping_check"] = bool(dhcp.get("ping_check", False))
+    for key in ("enabled", "authoritative", "ping_check"):
+        dhcp[key] = config_bool(dhcp[key], "dhcp." + key)
     dhcp["port"] = int(dhcp.get("port", 67))
     if not 1 <= dhcp["port"] <= 65535:
         raise ValueError("DHCP-Port muss zwischen 1 und 65535 liegen")
@@ -357,9 +379,8 @@ def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     dhcp["custom_options"] = clean_custom
 
     dns = config["dns"]
-    dns["enabled"] = bool(dns.get("enabled"))
-    dns["cache_enabled"] = bool(dns.get("cache_enabled", True))
-    dns["query_log"] = bool(dns.get("query_log", True))
+    for key in ("enabled", "cache_enabled", "query_log"):
+        dns[key] = config_bool(dns[key], "dns." + key)
     dns["port"] = int(dns.get("port", 53))
     if not 1 <= dns["port"] <= 65535:
         raise ValueError("DNS-Port muss zwischen 1 und 65535 liegen")

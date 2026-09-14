@@ -18,7 +18,7 @@ from simpleoffice_mini_services import (
 from simpleoffice_network_boot import TftpService, boot_settings_path, load_boot_settings
 from simpleoffice_network_boot_dhcp import BootAwareDhcpService
 from simpleoffice_network_gateway_runtime import (
-    apply_gateway, disable_gateway, gateway_settings_path, load_gateway_settings,
+    apply_gateway, disable_gateway, gateway_health, gateway_settings_path, load_gateway_settings,
 )
 from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, effective_sip_settings
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
@@ -36,6 +36,8 @@ class Worker:
         self.sip_status = {}
         self.gateway_active = False
         self.gateway_status = {}
+        self.gateway_health = {"ok": False, "message": "Gateway ist gestoppt."}
+        self.next_gateway_health = 0
         self.events = []
         self.event_lock = threading.Lock()
         self.started_at = time.time()
@@ -83,12 +85,15 @@ class Worker:
                         raise RuntimeError("Gateway konnte nicht deaktiviert werden")
                     self.gateway_status = result
                     self.gateway_active = False
+                    self.gateway_health = {"ok": False, "message": "Eigene Gateway-Regeln sind entfernt. Globales Forwarding bleibt unverändert."}
             else:
                 service = getattr(self, name)
                 if service is not None:
                     service.stop()
                     setattr(self, name, None)
         except Exception as exc:
+            if name == "gateway":
+                self.gateway_health = {"ok": None, "message": "Gateway konnte nicht gestoppt werden. Diagnose und Dienstrechte prüfen."}
             state.failed(exc)
             self.event({"service": name, "action": "stop_failed", "error": type(exc).__name__})
             return False
@@ -116,6 +121,7 @@ class Worker:
                     raise RuntimeError("Routing-Konfiguration konnte nicht angewendet werden")
                 self.gateway_status = result
                 self.gateway_active = True
+                self.next_gateway_health = 0
             else:
                 factories = {"dhcp": BootAwareDhcpService, "dns": DnsService, "tftp": TftpService}
                 service = SipRegistrarService(self.config_path, self.event) if name == "sip" else factories[name](settings, self.config_path, self.event)
@@ -198,6 +204,12 @@ class Worker:
         command = self.control.claim()
         if command:
             self._execute(command)
+        if self.gateway_active and time.monotonic() >= self.next_gateway_health:
+            self.gateway_health = gateway_health(self.gateway_status)
+            self.next_gateway_health = time.monotonic() + 15
+            state = self.states["gateway"]
+            if state.state in {"running", "degraded"}:
+                state.state = "running" if self.gateway_health["ok"] is True else "degraded"
         for name, state in self.states.items():
             if name != "gateway" and state.state == "running" and not service_health(getattr(self, name)):
                 if self._stop_one(name):
@@ -231,10 +243,10 @@ class Worker:
                 raise ValueError("Unbekannter Befehl")
             if action == "stop":
                 self.manual_states[name] = False
-                if not self._stop_one(name):
-                    raise RuntimeError("Stop fehlgeschlagen")
                 if name in self.desired:
                     self.desired[name] = (False, self.desired[name][1])
+                if not self._stop_one(name):
+                    raise RuntimeError("Stop fehlgeschlagen")
             else:
                 if not self.preferences[name]["enabled"]:
                     raise ValueError("Dienst zuerst in den Einstellungen aktivieren")
@@ -260,10 +272,10 @@ class Worker:
         services = {name: item.snapshot(os.getpid()) for name, item in self.states.items()}
         for name, item in services.items():
             item["settings"] = self.preferences[name]
-        services["gateway"]["health"] = {"ok": None, "message": "Regel-Anwendungsstatus; Datenpfad nicht geprüft"}
+        services["gateway"]["health"] = self.gateway_health
         with self.event_lock:
             events = list(self.events[-20:])
-        failed = self.config_error or any(item.state == "failed" for item in self.states.values())
+        failed = self.config_error or any(item.state in {"failed", "degraded"} for item in self.states.values())
         write_status({
             "state": "degraded" if state == "running" and failed else state,
             "pid": os.getpid(), "started_at": self.started_at,

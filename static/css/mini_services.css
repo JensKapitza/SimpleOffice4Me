@@ -1,5 +1,7 @@
 /* Shared mini-service interaction targets; retain the existing theme palette. */
 #mini-service-control .btn,
+.mini-service-page .btn,
+.mini-service-page summary,
 #audio-streamer-app .btn,
 #audio-streamer-app select {
   min-height: 44px;
@@ -8,6 +10,7 @@
 #audio-announcements button:focus-visible, #audio-announcements input:focus-visible,
 #audio-announcements select:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
 #mini-service-control button:focus-visible,
+.mini-service-page :is(button, input, textarea, summary, a):focus-visible,
 #mini-service-control input:focus-visible,
 #audio-streamer-app button:focus-visible,
 #audio-streamer-app input:focus-visible,
@@ -19,3 +22,6 @@
 #mini-service-control pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 #mini-service-control .form-check-input { width: 1.4em; height: 1.4em; }
 #mini-service-control .form-check-label { padding: 0.4rem; }
+.mini-service-page { overflow-wrap: anywhere; }
+.mini-service-page summary { padding-block: 0.65rem; }
+.mini-service-page textarea { max-width: 100%; }

@@ -211,3 +211,59 @@ ausreichenden Bestand, gilt der ausdrückliche Nutzerauftrag.
 Noch keine Gesamtabnahme. Die Ausgangsmatrix bleibt unverändert als Vergleich
 erhalten. Abgeschlossene Pakete werden mit Tests und verbleibenden Abweichungen
 unten ergänzt. Ungeprüfte Plattform-/Hardwarepfade bleiben ausdrücklich offen.
+
+### Security-Nachprüfung: Netzwerkboot, Blocklisten und SIP
+
+- Öffentliche HTTP-Bootdateien und iPXE-Skripte sind nur bei explizit aktiviertem
+  Netzwerkboot erreichbar. Defekte Einstellungen sperren die Auslieferung.
+  Authentifizierter Föderationsspeicher bleibt unabhängig nutzbar.
+- DHCP/DNS-, Boot- und Gateway-Schalter akzeptieren ausschließlich JSON-Booleans.
+  Der String `"false"` darf niemals einen Netzwerkdienst aktivieren.
+- HTTPS-Blocklisten prüfen jeden Redirect vor dem nächsten Request; HTTP-Downgrade
+  und URLs mit Zugangsdaten werden abgewiesen. Administrativ konfigurierte interne
+  HTTPS-Feeds bleiben erlaubt; dies ist keine allgemeine öffentliche URL-Fetch-API.
+- SIP hält höchstens 1.024 Challenges. Verdrängte Challenges verlieren auch ihre
+  Replay-Zähler. Replay-Prüfung und Aktualisierung sind gemeinsam gesperrt.
+- Boot-URLs akzeptieren keine Zeilenumbrüche oder Zugangsdaten; Profilbeschriftungen
+  können keine zusätzliche iPXE-Skriptzeile erzeugen. Fehler beim Öffnen einer
+  atomaren Konfigurationsdatei schließen auch den ursprünglichen Dateideskriptor.
+
+Nachweis: `tests.test_mini_security`, `tests.test_mini_services` und
+`tests.test_sip_runtime`: 36 Tests erfolgreich. Vor diesem Korrekturpaket lief die
+Gesamtsuite mit 1.581 Tests erfolgreich (10 übersprungen). Dies ersetzt weder
+Hardwaretests noch die noch offene Gesamt-Abnahmematrix.
+
+### Routing-Istzustand und Stop
+
+Linux ersetzt bzw. entfernt ausschließlich die beiden eigenen nftables-Tabellen
+in einer atomaren Transaktion. Fehler beim Lesen oder Ändern gelten nicht mehr als
+erfolgreicher Stop. Windows entfernt ausschließlich den konfigurierten NAT-Namen;
+fehlende Werkzeuge oder Berechtigungen werden als Fehler behandelt. Ein fehlgeschlagener
+Stop behält die Ressourcen-Zuordnung im Worker für einen erneuten Versuch.
+
+Alle 15 Sekunden prüft der laufende Gateway-Dienst eigene Tabellen/NAT und
+IPv4-Forwarding. Fehlende Regeln liefern `degraded`, nicht einen vermeintlich
+funktionierenden Datenpfad. Unlesbarer Status bleibt unbekannt. Globale
+Forwarding-Einstellungen werden beim Stop nicht abgeschaltet, da andere Dienste
+sie nutzen können. Internet-Erreichbarkeit und Paketdurchsatz sind kein Bestandteil
+dieses lokalen Healthchecks. Nachweis: 39 Tests im Gateway-/Lifecycle-/Security-/API-Paket.
+
+### HTTP/PXE, Dateien und Bedienung
+
+HTTP/PXE ist in der gemeinsamen API und Übersicht registriert. Der bestehende
+Webserver bleibt Eigentümer. Start/Stop speichern den vorhandenen Boot-Schalter;
+Neustart lädt Einstellungen neu, ohne andere Webfunktionen zu unterbrechen.
+Fehlende Profile oder Dateien liefern `waiting` bzw. `degraded`; das Wiedererscheinen
+einer Datei wird beim nächsten Statusabruf erkannt. Keine eigenen erfundenen
+HTTP-Prozesslaufzeiten oder Autostart-Schalter.
+
+Dateiscans verwenden Metadaten, maximal 512 Treffer und keine Image-Prüfsummen.
+Föderation behält vollständige Hashprüfung. Parallele Uploads verwenden private,
+zufällige temporäre Namen und atomaren Ersatz. Scanfehler werden gespeichert.
+Der geschützte erweiterte Boot-Editor kann alle vorhandenen Optionen bearbeiten
+und auf deaktivierte Standardwerte zurücksetzen. Ungültige Eingaben bleiben erhalten.
+Widersprüchliche alte „bereit“-Statusanzeigen wurden aus der Übersicht entfernt.
+
+Dokumentation: [Netzwerkboot](NETWORK_BOOT.md). Nachweis: 47 Tests im
+HTTP/PXE-/Security-/Netzwerk-/API-Paket. Der geführte Profileditor und reale
+PXE-/Windows-/Android-Gerätetests sind weiterhin offen.

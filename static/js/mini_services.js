@@ -73,6 +73,7 @@
     body.append(status, health, error, scan);
     const actions = text('div', '', 'd-flex flex-wrap gap-2 mb-3');
     [['start', 'Starten'], ['stop', 'Stoppen'], ['restart', 'Neustart'], ['scan', 'Suchen']].forEach(([key, label]) => {
+      if (!(service.capabilities || []).includes(key)) return;
       const button = text('button', label, 'btn btn-outline-primary');
       button.type = 'button'; button.setAttribute('aria-label', `${service.name}: ${label}`);
       button.addEventListener('click', () => perform(service.id, key)); actions.appendChild(button);
@@ -80,7 +81,8 @@
     body.appendChild(actions);
     const settings = text('details', ''); settings.appendChild(text('summary', 'Einstellungen und Diagnose'));
     const inputs = {};
-    [['enabled', 'Aktiviert'], ['autostart', 'Automatisch mit dem Worker starten']].forEach(([key, label]) => {
+    const configurable = (service.capabilities || []).includes('settings');
+    (configurable ? [['enabled', 'Aktiviert'], ['autostart', 'Automatisch mit dem Dienst starten']] : []).forEach(([key, label]) => {
       const wrap = text('div', '', 'form-check my-2'); const input = document.createElement('input');
       input.type = 'checkbox'; input.className = 'form-check-input'; input.id = `mini-${service.id}-${key}`;
       const caption = text('label', label, 'form-check-label'); caption.htmlFor = input.id;
@@ -88,7 +90,9 @@
     });
     const save = text('button', 'Einstellungen speichern', 'btn btn-outline-primary'); save.type = 'button';
     save.addEventListener('click', () => perform(service.id, 'settings', {enabled: inputs.enabled.checked, autostart: inputs.autostart.checked}));
-    const diagnosis = text('pre', '', 'small mt-2'); settings.append(save, diagnosis); body.appendChild(settings);
+    const diagnosis = text('pre', '', 'small mt-2');
+    if (configurable) settings.appendChild(save);
+    settings.appendChild(diagnosis); body.appendChild(settings);
     article.appendChild(body); col.appendChild(article); cards.appendChild(col);
     const view = {status, health, error, scan, inputs, diagnosis}; views.set(service.id, view); return view;
   };
