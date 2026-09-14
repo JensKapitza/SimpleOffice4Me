@@ -1,10 +1,12 @@
 """Admin controls for live audio streaming."""
 from __future__ import annotations
 
+import time
+
 from flask import Blueprint, abort, g, jsonify, render_template, request
 
 from .access_control import audit, is_admin
-from .audio_output_discovery import discover_speaker_outputs
+from .audio_output_discovery import discover_speaker_outputs, discover_microphone_inputs
 from .audio_streamer import manager, receiver_sdp
 from .auth import login_required
 
@@ -63,7 +65,18 @@ def outputs():
         )
         return _runtime_error()
     audit("audio_output_discovery", "audio_stream", "outputs", detail={"count": len(result)})
-    return jsonify({"outputs": result})
+    return jsonify({"outputs": result, "count": len(result), "state": "completed", "updated_at": time.time()})
+
+
+@bp.get("/inputs")
+@admin_required
+def inputs():
+    try:
+        result = discover_microphone_inputs()
+    except RuntimeError as exc:
+        audit("audio_input_discovery_failed", "audio_stream", "inputs", outcome="failure", detail={"error_type": type(exc).__name__})
+        return jsonify(error="Keine Mikrofone ermittelt. Audio-Sitzung und PipeWire/PulseAudio prüfen; bei ALSA die Quelle manuell wählen.", code="input_discovery_failed"), 503
+    return jsonify({"inputs": result, "count": len(result), "state": "completed", "updated_at": time.time()})
 
 
 @bp.post("/sender/start")

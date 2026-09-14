@@ -1,4 +1,4 @@
-"""Discover local PipeWire/PulseAudio playback sinks for the audio streamer."""
+"""Shared discovery of local PipeWire/PulseAudio inputs and outputs."""
 from __future__ import annotations
 
 import shutil
@@ -42,11 +42,20 @@ def _parse_sink_line(line: str) -> dict[str, Any] | None:
 
 def discover_speaker_outputs() -> list[dict[str, Any]]:
     """Return local Pulse/PipeWire sinks usable by paplay."""
+    return _discover("sinks", "sink")
+
+
+def discover_microphone_inputs() -> list[dict[str, Any]]:
+    """Monitor sources remain manually selectable, but are not microphones."""
+    return [item for item in _discover("sources", "source") if not item["id"].endswith(".monitor")]
+
+
+def _discover(kind: str, default_kind: str) -> list[dict[str, Any]]:
     pactl = shutil.which("pactl")
     if not pactl:
         raise RuntimeError("pactl fehlt; PipeWire-Pulse oder PulseAudio installieren")
 
-    output = _run_pactl(pactl, "list", "short", "sinks")
+    output = _run_pactl(pactl, "list", "short", kind)
     devices: list[dict[str, Any]] = []
     seen: set[str] = set()
     for line in output.splitlines():
@@ -60,7 +69,7 @@ def discover_speaker_outputs() -> list[dict[str, Any]]:
 
     default_sink = ""
     try:
-        default_sink = _run_pactl(pactl, "get-default-sink").strip()[:240]
+        default_sink = _run_pactl(pactl, "get-default-" + default_kind).strip()[:240]
     except RuntimeError:
         pass
     for device in devices:

@@ -3,7 +3,7 @@
 {% block body %}
 <main id="main-content" class="container py-3" style="max-width: 980px;">
 <div id="audio-streamer-app" data-base-url="{{ url_for('audio_streamer_admin.page') }}">
-  <div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
     <div>
       <h1 class="h3 mb-1">Live Audio-Streamer</h1>
       <p class="text-muted mb-0">Mikrofon eines PC/Pi per WLAN als Opus/RTP an andere Geräte senden.</p>
@@ -17,13 +17,20 @@
         <label class="form-label" for="capture-backend">Audio-System</label>
         <select class="form-select mb-3" id="capture-backend"><option value="pulse">PipeWire / PulseAudio</option><option value="alsa">ALSA</option></select>
         <label class="form-label" for="capture-source">Mikrofon / Quelle</label>
-        <input class="form-control mb-3" id="capture-source" value="default" autocomplete="off">
+        <input class="form-control mb-2" id="capture-source" value="default" autocomplete="off" aria-describedby="input-scan-status">
+        <label class="form-label" for="input-search">Mikrofone suchen</label>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <input class="form-control" id="input-search" type="search" placeholder="Mikrofone filtern" autocomplete="off">
+          <button class="btn btn-outline-primary" id="input-scan" type="button">Eingänge scannen</button>
+        </div>
+        <select class="form-select mb-2" id="input-select" aria-label="Erkanntes Mikrofon auswählen"><option value="default">Systemstandard</option></select>
+        <div id="input-scan-status" class="form-text mb-3" role="status" aria-live="polite">Automatische Auswahl; eine manuelle Quelle ist weiterhin möglich.</div>
         <label class="form-label" for="stream-targets">Ziele</label>
         <textarea class="form-control mb-3" id="stream-targets" rows="4" placeholder="192.168.1.50:5004&#10;192.168.1.80:5004"></textarea>
         <div class="form-text mb-3">Ein Ziel pro Zeile.</div>
         <label class="form-label" for="stream-bitrate">Opus Bitrate (kbit/s)</label>
         <input class="form-control mb-3" id="stream-bitrate" type="number" min="16" max="256" value="64">
-        <div class="d-flex gap-2"><button class="btn btn-primary" id="sender-start" type="button">Sender starten</button><button class="btn btn-outline-danger" id="sender-stop" type="button">Sender stoppen</button></div>
+        <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" id="sender-start" type="button">Sender starten</button><button class="btn btn-outline-danger" id="sender-stop" type="button">Sender stoppen</button></div>
       </div></div>
     </div>
     <div class="col-12 col-lg-6">
@@ -38,7 +45,7 @@
           </div>
           <button class="btn btn-outline-primary" id="speaker-scan" type="button">Ausgänge scannen</button>
         </div>
-        <select class="form-select mb-2" id="speaker-select">
+        <select class="form-select mb-2" id="speaker-select" aria-label="Erkannten Audio-Ausgang auswählen">
           <option value="">Keine lokale Wiedergabe</option>
         </select>
         <div id="speaker-scan-status" class="form-text mb-3" aria-live="polite">Noch nicht gescannt.</div>
@@ -52,6 +59,7 @@
   </div>
 </div>
 </main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 <script src="{{ url_for('static', filename='js/audio_streamer.js') }}" data-module="static/js/audio_streamer.js" defer></script>
 <script src="{{ url_for('static', filename='js/audio_output_scan.js') }}" data-module="static/js/audio_output_scan.js" defer></script>
 {% endblock %}

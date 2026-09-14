@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import hashlib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -117,6 +118,18 @@ class AudioOutputStore:
         with self._db() as db:
             rows = db.execute("SELECT * FROM audio_output_node ORDER BY node_id,name,output_id").fetchall()
         return [{**dict(row), "online": bool(row["online"])} for row in rows]
+
+    def sync_local_outputs(self, devices: list[dict]) -> list[dict]:
+        """Update only discovered local records, preserving names and volume."""
+        with self._db() as db:
+            db.execute("UPDATE audio_output_node SET online=0 WHERE node_id='local' AND output_id LIKE 'discovered-%'")
+            for device in devices[:64]:
+                ident = "discovered-" + hashlib.sha256(device["id"].encode()).hexdigest()[:24]
+                db.execute("""INSERT INTO audio_output_node(node_id,output_id,name,device,channels,online,volume,updated_at)
+                    VALUES('local',?,?,?,2,1,100,?) ON CONFLICT(node_id,output_id) DO UPDATE SET
+                    online=1,device=excluded.device,updated_at=excluded.updated_at""",
+                    (ident, device["id"][:200], device["id"], _now()))
+        return [row for row in self.outputs() if row["node_id"] == "local"]
 
     def set_group(self, group_id: str, name: str, members: list[str]) -> dict:
         group = self._clean_id(group_id, "group_id")

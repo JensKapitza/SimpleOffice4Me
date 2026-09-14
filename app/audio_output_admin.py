@@ -1,10 +1,13 @@
 """Administrator endpoints for network audio outputs and announcements."""
 from __future__ import annotations
 
+import time
+
 from flask import Blueprint, abort, g, jsonify, render_template, request
 
 from .access_control import audit, is_admin
 from .audio_output_store import AudioOutputStore, DEFAULT_PRESETS
+from .audio_output_discovery import discover_speaker_outputs
 from .auth import login_required
 from .mini_services import default_config_path
 
@@ -66,6 +69,19 @@ def register_output():
         return jsonify({"error": str(exc)}), 400
     audit("audio_output_registered", "audio_output", f"{result['node_id']}:{result['output_id']}")
     return jsonify(result), 201
+
+
+@bp.post("/scan")
+@admin_required
+def scan():
+    try:
+        devices = discover_speaker_outputs()
+        outputs = _store().sync_local_outputs(devices)
+    except (RuntimeError, OSError) as exc:
+        audit("audio_output_scan_failed", "audio_output", "local", outcome="failure", detail={"error_type": type(exc).__name__})
+        return jsonify(error="Lokale Ausgänge nicht erreichbar. Audio-Sitzung und PipeWire/PulseAudio prüfen.", state="failed", updated_at=time.time()), 503
+    audit("audio_output_scan", "audio_output", "local", detail={"count": len(devices)})
+    return jsonify(outputs=outputs, state="completed", count=len(devices), updated_at=time.time(), scope="Lokale PipeWire/PulseAudio-Ausgänge")
 
 
 @bp.post("/groups")
