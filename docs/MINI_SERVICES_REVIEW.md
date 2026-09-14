@@ -232,3 +232,18 @@ Nachweis: `tests.test_mini_security`, `tests.test_mini_services` und
 `tests.test_sip_runtime`: 36 Tests erfolgreich. Vor diesem Korrekturpaket lief die
 Gesamtsuite mit 1.581 Tests erfolgreich (10 übersprungen). Dies ersetzt weder
 Hardwaretests noch die noch offene Gesamt-Abnahmematrix.
+
+### Routing-Istzustand und Stop
+
+Linux ersetzt bzw. entfernt ausschließlich die beiden eigenen nftables-Tabellen
+in einer atomaren Transaktion. Fehler beim Lesen oder Ändern gelten nicht mehr als
+erfolgreicher Stop. Windows entfernt ausschließlich den konfigurierten NAT-Namen;
+fehlende Werkzeuge oder Berechtigungen werden als Fehler behandelt. Ein fehlgeschlagener
+Stop behält die Ressourcen-Zuordnung im Worker für einen erneuten Versuch.
+
+Alle 15 Sekunden prüft der laufende Gateway-Dienst eigene Tabellen/NAT und
+IPv4-Forwarding. Fehlende Regeln liefern `degraded`, nicht einen vermeintlich
+funktionierenden Datenpfad. Unlesbarer Status bleibt unbekannt. Globale
+Forwarding-Einstellungen werden beim Stop nicht abgeschaltet, da andere Dienste
+sie nutzen können. Internet-Erreichbarkeit und Paketdurchsatz sind kein Bestandteil
+dieses lokalen Healthchecks. Nachweis: 39 Tests im Gateway-/Lifecycle-/Security-/API-Paket.

@@ -125,6 +125,9 @@ def effective_gateway(settings: dict[str, Any], *, server_ip: str = "") -> dict[
     data = validate_gateway_settings(settings)
     detected = detect_interfaces(data["internal_network"], server_ip=server_ip) if data["auto_detect"] else {"internal_interface": "", "external_interface": "", "snapshot": interfaces_snapshot()}
     internal = data["internal_interface"] or detected["internal_interface"]; external = data["external_interface"] or detected["external_interface"]
+    for interface in (internal, external):
+        if interface and not SAFE_IFACE.fullmatch(interface):
+            raise ValueError("Erkannte Schnittstelle enthält nicht unterstützte Zeichen")
     warnings = []
     if data["enabled"] and data["mode"] != "off" and not internal: warnings.append("Interne Schnittstelle konnte nicht erkannt werden")
     if data["enabled"] and data["mode"] == "nat" and not external: warnings.append("Externe Schnittstelle konnte nicht erkannt werden")
