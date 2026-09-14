@@ -68,7 +68,7 @@ jobs:
       - name: Package Electron app
         working-directory: desktop/electron
         run: npx electron-builder --publish never
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: simpleoffice4me-desktop-${{ matrix.artifact }}
           path: desktop/electron/dist/**
