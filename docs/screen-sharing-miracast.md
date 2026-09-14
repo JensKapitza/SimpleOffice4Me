@@ -18,7 +18,7 @@ SimpleOffice4Me trennt Medienwiedergabe (DLNA) und Bildschirmfreigabe. Miracast/
 3. Einstellungen -> System -> Projizieren auf diesen PC.
 4. Empfang aktivieren und die Connect-/Drahtlose-Anzeige-App starten.
 
-SimpleOffice4Me soll diese Betriebssystemdialoge ueber den Menuepunkt **Bildschirm** oeffnen und deren Verfuegbarkeit anzeigen. Die eigentliche Miracast-Aushandlung bleibt beim Windows-Systemstack.
+SimpleOffice4Me öffnet diese Betriebssystemdialoge über den Menüpunkt **Bildschirm**. Die eigentliche Miracast-Aushandlung bleibt beim Windows-Systemstack. Falls das optionale Windows-Feature fehlt, muss es weiterhin bewusst über Windows installiert werden.
 
 ## Linux
 
@@ -44,15 +44,13 @@ Voraussetzungen:
 
 MiracleCast stellt einen Open-Source-Wi-Fi-Display/Miracast-Stack bereit. Fuer Receiver-Betrieb werden insbesondere `miracle-wifid` und `miracle-sinkctl` benoetigt.
 
-Typischer manueller Start nach Installation:
+Nach der systemseitigen Einrichtung öffnet SimpleOffice nur die unprivilegierte Receiver-Steuerung:
 
 ```bash
-sudo systemctl stop NetworkManager
-sudo miracle-wifid &
 miracle-sinkctl --uibc
 ```
 
-Wichtig: MiracleCast kann mit NetworkManager um die WLAN-Schnittstelle konkurrieren. Deshalb soll SimpleOffice4Me den Receiver nicht ungefragt als Root starten oder NetworkManager automatisch stoppen. Die UI erkennt die Werkzeuge und zeigt den Einrichtungsstatus; Systemdienste muessen bewusst vom Administrator eingerichtet werden.
+Wichtig: MiracleCast kann mit NetworkManager um die WLAN-Schnittstelle konkurrieren. SimpleOffice4Me startet deshalb weder Root-Kommandos noch `miracle-wifid` und stoppt NetworkManager nicht. Eventuell nötige Systemdienste müssen bewusst vom Administrator eingerichtet werden.
 
 Fuer einen dauerhaften Rechner ist eine eigene WLAN-Schnittstelle fuer Wi-Fi Direct sinnvoll, damit die normale Netzwerkanbindung nicht unterbrochen wird.
 
@@ -60,12 +58,18 @@ Fuer einen dauerhaften Rechner ist eine eigene WLAN-Schnittstelle fuer Wi-Fi Dir
 
 Android-Hersteller nennen Miracast je nach Geraet z. B. `Cast`, `Smart View`, `Drahtlosprojektion` oder `Bildschirm uebertragen`. Moderne Pixel-Geraete setzen dagegen stark auf Google Cast und bieten Miracast nicht zwingend an.
 
-Fuer SimpleOffice4Me sind zwei Wege vorgesehen:
+SimpleOffice4Me stellt zwei Wege bereit:
 
 - System-Cast-Auswahl oeffnen, wenn das Geraet sie anbietet.
-- eigener SimpleOffice-Screen-Share ueber Android `MediaProjection` als herstellerunabhaengiger Fallback.
+- eigener SimpleOffice-Screen-Share über Android `MediaProjection` als herstellerunabhängiger Fallback. Die aktive Aufnahme läuft als sichtbarer Foreground-Service und lässt sich in der Oberfläche sowie über die Android-Benachrichtigung stoppen.
 
 `MediaProjection` muss immer mit sichtbarer Zustimmung des Benutzers gestartet werden; stille Bildschirmaufnahme ist nicht vorgesehen.
+
+## SimpleOffice ↔ SimpleOffice
+
+Sender und Empfänger öffnen **Bildschirm**. Der Sender wählt **Teilen starten** und übermittelt den angezeigten achtstelligen Verbindungscode. Der Empfänger trägt den Code ein und wählt **Verbinden**. Die Bildspur wird per WebRTC übertragen; der Flask-Endpunkt transportiert ausschließlich Offer, Answer und ICE-Signale. Im normalen Browser bleibt `navigator.mediaDevices.getDisplayMedia()` der Capture-Pfad.
+
+Die aktuelle Signaling-Implementierung verwendet keine externen STUN-/TURN-Dienste und ist damit für direkte Verbindungen im erreichbaren lokalen Netz ausgelegt. Für Verbindungen über NAT wäre ein bewusst konfigurierter ICE-Dienst erforderlich.
 
 ## Sicherheitsmodell
 

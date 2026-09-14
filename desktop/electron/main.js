@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, shell, session } = require('electron');
+const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell, session } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
@@ -10,6 +10,79 @@ let mainWindow = null;
 let backend = null;
 let backendUrl = null;
 let quitting = false;
+
+function executableOnPath(name) {
+  const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  return (process.env.PATH || '').split(path.delimiter).some((directory) =>
+    extensions.some((extension) => {
+      try { fs.accessSync(path.join(directory, `${name}${extension}`), fs.constants.X_OK); return true; }
+      catch (_) { return false; }
+    })
+  );
+}
+
+function desktopScreenStatus() {
+  return {
+    platform: process.platform,
+    windows: { available: process.platform === 'win32' },
+    linux: {
+      available: process.platform === 'linux',
+      gnomeNetworkDisplays: executableOnPath('gnome-network-displays') || executableOnPath('flatpak'),
+      miracleCast: executableOnPath('miracle-sinkctl')
+    }
+  };
+}
+
+function spawnDetached(command, args) {
+  const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true, shell: false });
+  child.unref();
+}
+
+function runDesktopScreenAction(action) {
+  if (process.platform === 'win32' && action === 'windows-send') {
+    spawnDetached('explorer.exe', ['ms-settings-connectabledevices:devicediscovery']);
+    return 'Windows-Suche nach drahtlosen Anzeigen wurde geöffnet.';
+  }
+  if (process.platform === 'win32' && action === 'windows-receive') {
+    spawnDetached('explorer.exe', ['ms-settings:project']);
+    return "Windows-Einstellungen für 'Projizieren auf diesen PC' wurden geöffnet.";
+  }
+  if (process.platform === 'linux' && action === 'linux-send') {
+    if (executableOnPath('gnome-network-displays')) spawnDetached('gnome-network-displays', []);
+    else if (executableOnPath('flatpak')) spawnDetached('flatpak', ['run', 'org.gnome.NetworkDisplays']);
+    else throw new Error('GNOME Network Displays ist nicht installiert.');
+    return 'GNOME Network Displays wurde gestartet.';
+  }
+  if (process.platform === 'linux' && action === 'linux-receive') {
+    if (!executableOnPath('miracle-sinkctl')) throw new Error('MiracleCast ist nicht installiert.');
+    const terminal = [
+      ['x-terminal-emulator', ['-e']], ['kgx', ['--']], ['gnome-terminal', ['--']],
+      ['konsole', ['-e']], ['xterm', ['-e']]
+    ].find(([name]) => executableOnPath(name));
+    if (!terminal) throw new Error('Kein unterstütztes Terminal für MiracleCast gefunden.');
+    spawnDetached(terminal[0], [...terminal[1], 'miracle-sinkctl', '--uibc']);
+    return 'MiracleCast Receiver-Steuerung wurde geöffnet.';
+  }
+  throw new Error('Diese Bildschirm-Aktion ist auf diesem System nicht verfügbar.');
+}
+
+function trustedIpcSender(event) {
+  return Boolean(event.sender && isLocalUrl(event.sender.getURL()));
+}
+
+ipcMain.handle('screen:status', (event) => {
+  if (!trustedIpcSender(event)) throw new Error('Nicht vertrauenswürdiger IPC-Absender.');
+  return desktopScreenStatus();
+});
+
+ipcMain.handle('screen:action', (event, action) => {
+  if (!trustedIpcSender(event)) throw new Error('Nicht vertrauenswürdiger IPC-Absender.');
+  const normalized = String(action || '');
+  if (!['windows-send', 'windows-receive', 'linux-send', 'linux-receive'].includes(normalized)) {
+    throw new Error('Unbekannte Bildschirm-Aktion.');
+  }
+  return { ok: true, message: runDesktopScreenAction(normalized) };
+});
 
 function packagedErrorReportUrl() {
   try {
@@ -107,7 +180,7 @@ async function startBackend() {
     backend = null;
     if (!quitting && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadFile(path.join(__dirname, 'loading.html'), {
-        query: { error: `Python-Backend wurde beendet (${signal || code ?? 'unbekannt'}).` }
+        query: { error: `Python-Backend wurde beendet (${signal || code || 'unbekannt'}).` }
       }).catch(() => {});
     }
   });
@@ -198,11 +271,26 @@ app.whenReady().then(async () => {
   await window.loadFile(path.join(__dirname, 'loading.html'));
 
   session.defaultSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
-    return isLocalUrl(requestingOrigin) && permission === 'media';
+    return isLocalUrl(requestingOrigin) && ['media', 'display-capture'].includes(permission);
   });
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    callback(Boolean(webContents && isLocalUrl(webContents.getURL()) && permission === 'media'));
+    callback(Boolean(webContents && isLocalUrl(webContents.getURL()) && ['media', 'display-capture'].includes(permission)));
   });
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    if (!request.userGesture || !isLocalUrl(request.securityOrigin)) { callback({}); return; }
+    try {
+      const sources = await desktopCapturer.getSources({types: ['screen', 'window'], thumbnailSize: {width: 0, height: 0}});
+      if (!sources.length) { callback({}); return; }
+      const choice = await dialog.showMessageBox(window, {
+        type: 'question', title: 'Bildschirm teilen', message: 'Bildschirm oder Fenster auswählen',
+        detail: 'Die Auswahl wird nur für die aktuelle SimpleOffice-Freigabe verwendet.',
+        buttons: [...sources.map((source) => source.name), 'Abbrechen'], cancelId: sources.length, noLink: true
+      });
+      callback(choice.response < sources.length ? {video: sources[choice.response]} : {});
+    } catch (error) {
+      console.error('Display capture selection failed:', error); callback({});
+    }
+  }, {useSystemPicker: true});
 
   try {
     await startBackend();
