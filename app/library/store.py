@@ -4,6 +4,10 @@ The library module keeps only library-specific metadata here. Books and other
 physical items remain canonical ObjectStore records. Structured shelf
 assignments, printer preferences and a short human-readable activity trail live
 under .simpleoffice-meta/library.
+
+Library locations are also represented by ObjectStore items. A shelf is a
+physical object just like a book, tool or device; the library record only adds
+hierarchy, barcode-label and bulk-assignment semantics.
 """
 from __future__ import annotations
 
@@ -70,7 +74,7 @@ class LibraryStore:
 
     def _write(self, state: dict[str, Any]) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
-        state["version"] = 1
+        state["version"] = 2
         atomic_json_write(self.state_path, state)
 
     @staticmethod
@@ -134,19 +138,11 @@ class LibraryStore:
             locations = state["locations"]
             if clean_parent and not any(str(row.get("location_id", "")) == clean_parent for row in locations if isinstance(row, dict)):
                 raise ValueError("Übergeordneter Standort ist unbekannt")
-            if requested_code:
-                if not _LOCATION_CODE_RE.fullmatch(requested_code):
-                    raise ValueError("Standortcode darf nur Buchstaben, Zahlen sowie . _ : / - enthalten")
-                clean_code = requested_code
-            else:
-                sequence = max(1, int(state.get("next_location", 1) or 1))
-                clean_code = f"LIB-L{sequence:04d}"
-                state["next_location"] = sequence + 1
-            if any(str(row.get("code", "")).casefold() == clean_code.casefold() for row in locations if isinstance(row, dict)):
-                raise ValueError("Dieser Standortcode ist bereits vergeben")
+            clean_code = self._location_code(state, locations, requested_code)
             now = utc_now()
             row = {
                 "location_id": str(uuid.uuid4()),
+                "object_id": "",
                 "code": clean_code,
                 "name": clean_name,
                 "parent_id": clean_parent,
@@ -158,7 +154,90 @@ class LibraryStore:
             locations.append(row)
             self._event(state, "location_created", actor, {"location_id": row["location_id"], "code": clean_code, "name": clean_name})
             self._write(state)
-            return dict(row)
+        self.ensure_location_object(row["location_id"], actor)
+        return self.location(row["location_id"])
+
+    @staticmethod
+    def _location_code(state: dict[str, Any], locations: list[Any], requested_code: str) -> str:
+        if requested_code:
+            if not _LOCATION_CODE_RE.fullmatch(requested_code):
+                raise ValueError("Standortcode darf nur Buchstaben, Zahlen sowie . _ : / - enthalten")
+            clean_code = requested_code
+        else:
+            sequence = max(1, int(state.get("next_location", 1) or 1))
+            clean_code = f"LIB-L{sequence:04d}"
+            state["next_location"] = sequence + 1
+        if any(str(row.get("code", "")).casefold() == clean_code.casefold() for row in locations if isinstance(row, dict)):
+            raise ValueError("Dieser Standortcode ist bereits vergeben")
+        return clean_code
+
+    def ensure_location_object(self, location_id: str, actor: str) -> dict[str, Any]:
+        """Create or reconnect the canonical ObjectStore item for one shelf/location."""
+        from ..object_store import ObjectStore
+
+        location = self.location(location_id)
+        objects = ObjectStore(self.root)
+        object_id = str(location.get("object_id", "")).strip()
+        if object_id:
+            try:
+                return objects.object(object_id)
+            except ValueError:
+                object_id = ""
+        item = self._find_location_object(objects, location)
+        if item is None:
+            parent_path = self.location_path(str(location.get("parent_id", "")))
+            item = objects.create(
+                {
+                    "name": str(location.get("name", "")),
+                    "type": "shelf",
+                    "status": "active",
+                    "description": "Strukturierter Bibliotheks-/Lagerstandort.",
+                    "identifier": str(location.get("code", "")),
+                    "location": parent_path,
+                    "tags": "Bibliothek,Regal,Lagerort",
+                    "fields": {
+                        "library_location_id": str(location.get("location_id", "")),
+                        "library_location_code": str(location.get("code", "")),
+                        "library_parent_id": str(location.get("parent_id", "")),
+                    },
+                },
+                actor,
+            )
+        self._link_location_object(location["location_id"], item["object_id"], actor)
+        return item
+
+    @staticmethod
+    def _find_location_object(objects: Any, location: dict[str, Any]) -> dict[str, Any] | None:
+        location_id = str(location.get("location_id", ""))
+        code = str(location.get("code", ""))
+        for item in objects.objects(code):
+            fields = item.get("fields", {}) if isinstance(item.get("fields"), dict) else {}
+            if str(fields.get("library_location_id", "")) == location_id:
+                return item
+            if str(item.get("identifier", "")).casefold() == code.casefold() and str(item.get("type", "")).casefold() in {"shelf", "regal", "location"}:
+                return item
+        return None
+
+    def _link_location_object(self, location_id: str, object_id: str, actor: str) -> None:
+        with exclusive_file_lock(self.lock_path):
+            state = self._read()
+            row = next((value for value in state["locations"] if isinstance(value, dict) and str(value.get("location_id", "")) == str(location_id)), None)
+            if row is None:
+                raise ValueError("Unbekannter Bibliotheksstandort")
+            if str(row.get("object_id", "")) == str(object_id):
+                return
+            row["object_id"] = str(object_id)
+            row["updated_at"] = utc_now()
+            row["updated_by"] = actor
+            self._event(state, "location_object_linked", actor, {"location_id": location_id, "object_id": object_id})
+            self._write(state)
+
+    def sync_location_objects(self, actor: str) -> list[dict[str, Any]]:
+        """Backfill ObjectStore records for locations created before unification."""
+        linked: list[dict[str, Any]] = []
+        for location in self.locations():
+            linked.append(self.ensure_location_object(str(location["location_id"]), actor))
+        return linked
 
     def assignment(self, object_id: str) -> dict[str, Any] | None:
         value = self._read()["assignments"].get(str(object_id or ""))
@@ -182,7 +261,7 @@ class LibraryStore:
                 "scanned": str(scanned or "")[:160],
             }
             state["assignments"][clean_object] = assignment
-            self._event(state, "book_assigned", actor, assignment)
+            self._event(state, "object_assigned", actor, assignment)
             self._write(state)
             return dict(assignment)
 
