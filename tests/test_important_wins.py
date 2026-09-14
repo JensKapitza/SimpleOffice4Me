@@ -145,8 +145,8 @@ class ImportantWinsRegressionTests(unittest.TestCase):
 
     def test_android_version_is_bumped(self):
         text = self.read("android/apk/app/build.gradle")
-        self.assertRegex(text, r"versionCode\s+7\b")
-        self.assertIn("versionName '1.0.6'", text)
+        self.assertRegex(text, r"versionCode\s+8\b")
+        self.assertIn("versionName '1.0.7'", text)
         self.assertIn("buildConfig true", text)
 
 

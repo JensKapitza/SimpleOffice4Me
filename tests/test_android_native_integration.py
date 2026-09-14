@@ -22,6 +22,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('android:launchMode="singleTop"', manifest)
         self.assertNotIn('WRITE_EXTERNAL_STORAGE', manifest)
         self.assertNotIn('READ_EXTERNAL_STORAGE', manifest)
+        self.assertNotIn('GET_ACCOUNTS', manifest)
 
     def test_manifest_has_narrow_browsable_deep_link(self):
         manifest = self.read(ANDROID / "src" / "main" / "AndroidManifest.xml")
@@ -30,16 +31,47 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('android:scheme="simpleoffice4me"', manifest)
         self.assertIn('android:host="open"', manifest)
 
-    def test_manifest_uses_navigation_activity_for_consistent_back_behavior(self):
+    def test_manifest_uses_native_bootstrap_before_navigation_activity(self):
         manifest = self.read(ANDROID / "src" / "main" / "AndroidManifest.xml")
         navigation = self.read(JAVA / "NavigationActivity.java")
+        bootstrap = self.read(JAVA / "BootstrapActivity.java")
+        self.assertIn('android:name=".BootstrapActivity"', manifest)
         self.assertIn('android:name=".NavigationActivity"', manifest)
+        self.assertIn('android:exported="false"', manifest)
+        self.assertIn('android.intent.category.LAUNCHER', manifest)
+        self.assertIn('public final class BootstrapActivity extends Activity', bootstrap)
+        self.assertIn('new Intent(this, NavigationActivity.class)', bootstrap)
         self.assertIn('public final class NavigationActivity extends MainActivity', navigation)
         self.assertIn('EXIT_CONFIRM_WINDOW_MS = 1800L', navigation)
         self.assertIn('webView.canGoBack()', navigation)
         self.assertIn('webView.goBack()', navigation)
         self.assertIn('finishAndRemoveTask()', navigation)
         self.assertIn('Noch einmal Zurück schließt SimpleOffice.', navigation)
+
+    def test_native_bootstrap_uses_system_google_account_picker_without_account_permission(self):
+        manifest = self.read(ANDROID / "src" / "main" / "AndroidManifest.xml")
+        bootstrap = self.read(JAVA / "BootstrapActivity.java")
+        self.assertNotIn('android.permission.GET_ACCOUNTS', manifest)
+        self.assertIn('AccountManager.newChooseAccountIntent(', bootstrap)
+        self.assertIn('new String[]{"com.google"}', bootstrap)
+        self.assertIn('AccountManager.KEY_ACCOUNT_NAME', bootstrap)
+        self.assertIn('IDENTITY_EMAIL', bootstrap)
+        self.assertIn('rememberIdentity(email)', bootstrap)
+        self.assertNotIn('GoogleSignIn', bootstrap)
+
+    def test_native_bootstrap_establishes_session_before_webview_and_uses_native_password_dialog(self):
+        bootstrap = self.read(JAVA / "BootstrapActivity.java")
+        self.assertIn('"/auth/android/challenge"', bootstrap)
+        self.assertIn('"/auth/android/bootstrap"', bootstrap)
+        self.assertIn('"/auth/android/unlock"', bootstrap)
+        self.assertIn('X-SimpleOffice-Android-Token', bootstrap)
+        self.assertIn('CookieManager.getInstance()', bootstrap)
+        self.assertIn('SimpleOffice4Me entsperren', bootstrap)
+        self.assertIn('InputType.TYPE_TEXT_VARIATION_PASSWORD', bootstrap)
+        self.assertIn('module.callAttr(', bootstrap)
+        self.assertIn('BuildConfig.ERROR_REPORT_URL', bootstrap)
+        self.assertIn('bootstrapToken', bootstrap)
+        self.assertNotIn('new WebView(', bootstrap)
 
     def test_intent_router_limits_files_and_rejects_cross_app_file_paths(self):
         router = self.read(JAVA / "AndroidIntentRouter.java")
@@ -131,8 +163,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('minSdk 24', gradle)
         self.assertIn("'arm64-v8a': '3.13'", gradle)
         self.assertIn("'armeabi-v7a': '3.11'", gradle)
-        self.assertRegex(gradle, r"versionCode\s+7\b")
-        self.assertIn("versionName '1.0.6'", gradle)
+        self.assertRegex(gradle, r"versionCode\s+8\b")
+        self.assertIn("versionName '1.0.7'", gradle)
 
     def test_android_integration_is_documented(self):
         docs = self.read(ROOT / "docs" / "ANDROID_INTEGRATION.md")

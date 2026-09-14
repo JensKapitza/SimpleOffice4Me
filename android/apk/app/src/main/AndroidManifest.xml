@@ -38,9 +38,13 @@
         </activity>
         <activity
             android:name=".NavigationActivity"
-            android:exported="true"
+            android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="keyboardHidden|orientation|screenSize">
+            android:configChanges="keyboardHidden|orientation|screenSize" />
+        <activity
+            android:name=".BootstrapActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
