@@ -7,7 +7,7 @@ from flask import Blueprint, abort, jsonify, request
 
 from simpleoffice_mini_control import ControlStore, NETWORK_SERVICES
 from simpleoffice_mini_core import default_config_path, read_status
-from simpleoffice_service_lifecycle import error_detail
+from simpleoffice_service_lifecycle import ServiceState, error_detail
 from .mini_services_admin import admin_required
 from .access_control import audit
 
@@ -26,8 +26,10 @@ def _catalog():
     states = status.get("services", {})
     rows = []
     for name in NETWORK_SERVICES:
-        row = states.get(name, {"id": name, "name": NAMES[name], "state": "unavailable",
-                               "health": {"ok": False, "message": "Wartet auf Mini-Services Worker"}})
+        row = states.get(name)
+        if row is None:
+            row = ServiceState(name, NAMES[name], state="unavailable").snapshot(0)
+            row["health"] = {"ok": False, "message": "Wartet auf Mini-Services Worker"}
         row.update(settings=preferences[name], scan=store.scan(name),
                    capabilities=["start", "stop", "restart", "scan", "settings"],
                    owner="mini-services-worker")
