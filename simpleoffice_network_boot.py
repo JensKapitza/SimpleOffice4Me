@@ -11,8 +11,9 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
-from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir
+from simpleoffice_mini_services import _atomic_write, config_bool, default_config_path, state_dir
 
 UNSPECIFIED_IPV4 = socket.inet_ntoa(bytes(4))
 
@@ -78,6 +79,17 @@ def safe_asset_path(relative: str, config_path: str | Path | None = None, *, mus
     return path
 
 
+def _boot_url(value: Any) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    parsed = urlsplit(value)
+    if (len(value) > 2000 or parsed.scheme not in {"http", "https"} or not parsed.hostname
+            or parsed.username or parsed.password or any(char.isspace() or ord(char) < 32 for char in value)):
+        raise ValueError("Boot-URL muss eine HTTP(S)-Adresse ohne Zugangsdaten oder Leerzeichen sein")
+    return value
+
+
 def _profile(item: dict[str, Any]) -> dict[str, Any]:
     profile_id = str(item.get("id") or "").strip()
     if not PROFILE_ID.fullmatch(profile_id):
@@ -94,14 +106,14 @@ def _profile(item: dict[str, Any]) -> dict[str, Any]:
             architectures.append(code)
     result = {
         "id": profile_id,
-        "label": str(item.get("label") or profile_id).strip()[:160],
-        "enabled": bool(item.get("enabled", True)),
+        "label": " ".join(str(item.get("label") or profile_id).split())[:160],
+        "enabled": config_bool(item.get("enabled", True), "profile.enabled"),
         "mode": mode,
         "architectures": architectures,
         "kernel": _safe_relative(item.get("kernel", ""), required=False),
         "initrd": _safe_relative(item.get("initrd", ""), required=False),
         "iso": _safe_relative(item.get("iso", ""), required=False),
-        "chain_url": str(item.get("chain_url") or "").strip()[:2000],
+        "chain_url": _boot_url(item.get("chain_url")),
         "kernel_args": " ".join(str(item.get("kernel_args") or "").replace("\x00", "").split())[:4000],
     }
     if mode == "kernel" and not result["kernel"]:
@@ -118,7 +130,7 @@ def validate_boot_settings(candidate: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Network-Boot-Konfiguration muss ein Objekt sein")
     data = dict(DEFAULT_BOOT_SETTINGS); data.update(candidate); data["version"] = 1
     for key in ("enabled", "tftp_enabled"):
-        data[key] = bool(data.get(key))
+        data[key] = config_bool(data[key], key)
     tftp_bind = str(data.get("tftp_bind") or "127.0.0.1").strip()
     try:
         socket.inet_pton(socket.AF_INET, tftp_bind)
@@ -137,12 +149,14 @@ def validate_boot_settings(candidate: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("TFTP Timeout/Retry liegt außerhalb des erlaubten Bereichs")
     if not 1024 <= data["tftp_max_file_bytes"] <= 4 * 1024 * 1024 * 1024:
         raise ValueError("TFTP-Dateilimit ist ungültig")
-    data["http_base_url"] = str(data.get("http_base_url") or "").strip().rstrip("/")[:2000]
+    data["http_base_url"] = _boot_url(data.get("http_base_url")).rstrip("/")
     if data["http_base_url"] and not data["http_base_url"].startswith(("http://", "https://")):
         raise ValueError("HTTP-Boot-Basis muss mit http:// oder https:// beginnen")
     for key in ("bios_loader", "uefi_x64_loader", "uefi_arm64_loader"):
         data[key] = _safe_relative(data.get(key, ""), required=False)
-    profiles = [_profile(item) for item in data.get("profiles", []) if isinstance(item, dict)]
+    if not isinstance(data.get("profiles"), list) or any(not isinstance(item, dict) for item in data["profiles"]):
+        raise ValueError("Bootprofile müssen eine Liste von Objekten sein")
+    profiles = [_profile(item) for item in data["profiles"]]
     if len(profiles) > 200:
         raise ValueError("Zu viele Bootprofile")
     if len({item["id"] for item in profiles}) != len(profiles):

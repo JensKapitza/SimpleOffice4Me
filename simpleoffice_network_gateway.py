@@ -10,6 +10,7 @@ import subprocess
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from simpleoffice_mini_core import config_bool
 
 SAFE_IFACE = re.compile(r"^[A-Za-z0-9_.:@ -]{1,128}$")
 DEFAULT_GATEWAY_SETTINGS: dict[str, Any] = {
@@ -41,9 +42,8 @@ def platform_kind() -> str:
 def validate_gateway_settings(candidate: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(candidate, dict): raise ValueError("Gateway-Konfiguration muss ein Objekt sein")
     data = deepcopy(DEFAULT_GATEWAY_SETTINGS); data.update(candidate); data["version"] = 1
-    data["enabled"] = bool(data.get("enabled")); data["auto_detect"] = bool(data.get("auto_detect", True))
-    data["forward_ipv4"] = bool(data.get("forward_ipv4", True)); data["allow_established"] = bool(data.get("allow_established", True))
-    data["allow_lan_to_wan"] = bool(data.get("allow_lan_to_wan", True)); data["allow_wan_to_lan"] = bool(data.get("allow_wan_to_lan", False))
+    for key in ("enabled", "auto_detect", "forward_ipv4", "allow_established", "allow_lan_to_wan", "allow_wan_to_lan"):
+        data[key] = config_bool(data[key], key)
     mode = str(data.get("mode") or "off").strip().casefold()
     if mode not in {"off", "route", "nat"}: raise ValueError("Gateway-Modus muss off, route oder nat sein")
     data["mode"] = mode

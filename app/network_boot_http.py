@@ -42,6 +42,20 @@ def _asset_response(relative: str, *, max_age: int):
     )
 
 
+@bp.before_request
+def public_boot_enabled():
+    # Federation storage and authenticated retrieval remain independent. Merely
+    # storing an asset must not publish it to unauthenticated LAN clients.
+    try:
+        enabled = load_boot_settings(_config_path())["enabled"]
+    except (OSError, ValueError):
+        logger.warning("Network boot settings unavailable", exc_info=True)
+        return Response("network boot unavailable\n", 503, {"Cache-Control": "no-store"})
+    if not enabled:
+        return Response("network boot disabled\n", 404, {"Cache-Control": "no-store"})
+    return None
+
+
 @bp.get("/ipxe")
 def ipxe_script():
     profile = request.args.get("profile", "").strip()[:80]

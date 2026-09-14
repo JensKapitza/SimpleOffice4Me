@@ -211,3 +211,24 @@ ausreichenden Bestand, gilt der ausdrückliche Nutzerauftrag.
 Noch keine Gesamtabnahme. Die Ausgangsmatrix bleibt unverändert als Vergleich
 erhalten. Abgeschlossene Pakete werden mit Tests und verbleibenden Abweichungen
 unten ergänzt. Ungeprüfte Plattform-/Hardwarepfade bleiben ausdrücklich offen.
+
+### Security-Nachprüfung: Netzwerkboot, Blocklisten und SIP
+
+- Öffentliche HTTP-Bootdateien und iPXE-Skripte sind nur bei explizit aktiviertem
+  Netzwerkboot erreichbar. Defekte Einstellungen sperren die Auslieferung.
+  Authentifizierter Föderationsspeicher bleibt unabhängig nutzbar.
+- DHCP/DNS-, Boot- und Gateway-Schalter akzeptieren ausschließlich JSON-Booleans.
+  Der String `"false"` darf niemals einen Netzwerkdienst aktivieren.
+- HTTPS-Blocklisten prüfen jeden Redirect vor dem nächsten Request; HTTP-Downgrade
+  und URLs mit Zugangsdaten werden abgewiesen. Administrativ konfigurierte interne
+  HTTPS-Feeds bleiben erlaubt; dies ist keine allgemeine öffentliche URL-Fetch-API.
+- SIP hält höchstens 1.024 Challenges. Verdrängte Challenges verlieren auch ihre
+  Replay-Zähler. Replay-Prüfung und Aktualisierung sind gemeinsam gesperrt.
+- Boot-URLs akzeptieren keine Zeilenumbrüche oder Zugangsdaten; Profilbeschriftungen
+  können keine zusätzliche iPXE-Skriptzeile erzeugen. Fehler beim Öffnen einer
+  atomaren Konfigurationsdatei schließen auch den ursprünglichen Dateideskriptor.
+
+Nachweis: `tests.test_mini_security`, `tests.test_mini_services` und
+`tests.test_sip_runtime`: 36 Tests erfolgreich. Vor diesem Korrekturpaket lief die
+Gesamtsuite mit 1.581 Tests erfolgreich (10 übersprungen). Dies ersetzt weder
+Hardwaretests noch die noch offene Gesamt-Abnahmematrix.
