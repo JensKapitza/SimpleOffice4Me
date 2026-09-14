@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +39,28 @@ class AndroidRuntimeTests(unittest.TestCase):
         self.assertIn('from app import android_auth', source)
         self.assertIn('app.register_blueprint(android_auth.bp)', source)
         self.assertIn('timedelta(days=365)', source)
+
+    def test_warm_runtime_refreshes_native_token_without_navigation_clearing_it(self):
+        spec = importlib.util.spec_from_file_location("android_runtime_warm_start_test", RUNTIME)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+
+        class RunningThread:
+            @staticmethod
+            def is_alive():
+                return True
+
+        runtime._THREAD = RunningThread()
+        runtime._SERVER = object()
+        with mock.patch.object(runtime, "_configure_environment") as configure:
+            self.assertTrue(runtime.start(str(ROOT), "", "user@example.com", "x" * 64))
+            configure.assert_called_once_with(ROOT.resolve(), "", "user@example.com", "x" * 64)
+
+            configure.reset_mock()
+            self.assertTrue(runtime.start(str(ROOT)))
+            configure.assert_not_called()
 
 
 if __name__ == "__main__":
