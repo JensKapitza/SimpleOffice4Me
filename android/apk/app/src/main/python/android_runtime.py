@@ -130,10 +130,10 @@ def start(
         raise RuntimeError(f"tools/launcher.py missing under {root}")
 
     if _THREAD is not None and _THREAD.is_alive() and _SERVER is not None:
-        # BootstrapActivity creates a fresh token for every native launch.  The
+        # BootstrapActivity creates a fresh token for every native launch. The
         # already-running Flask app reads the token/account from the environment
         # on each native request, so refresh those values without restarting the
-        # local server.  Calls from NavigationActivity intentionally omit a token
+        # local server. Calls from NavigationActivity intentionally omit a token
         # and must not clear a valid bootstrap identity.
         if bootstrap_token:
             _configure_environment(root, error_report_url, account_email, bootstrap_token)
@@ -143,15 +143,18 @@ def start(
 
     try:
         from app import app
-        if bootstrap_token:
-            from app import android_auth
+        from app import android_auth
+        # Register native routes on every Android runtime start, even when the
+        # system restores NavigationActivity directly. Without a bootstrap token
+        # the sensitive endpoints still fail closed in _require_native_request.
+        if android_auth.bp.name not in app.blueprints:
             app.register_blueprint(android_auth.bp)
     except Exception as exc:
         raise RuntimeError(f"SimpleOffice4Me import failed: {type(exc).__name__}: {exc}") from exc
 
     app.config["TEMPLATES_AUTO_RELOAD"] = False
     app.config["MAX_CONTENT_LENGTH"] = min(int(app.config["MAX_CONTENT_LENGTH"]), 256 * 1024 * 1024)
-    # The native bootstrap runs on every cold app start.  A long cookie lifetime
+    # The native bootstrap runs on every cold app start. A long cookie lifetime
     # prevents the embedded WebView from ever falling back to the browser login
     # screen while the app remains open; password-enabled launches are still
     # explicitly unlocked by BootstrapActivity before the WebView is shown.
