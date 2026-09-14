@@ -2,6 +2,7 @@ package de.simpleoffice4me.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.media.projection.MediaProjectionManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -14,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.JavascriptInterface;
@@ -56,6 +58,7 @@ public class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION_REQUEST = 701;
     private static final int FILE_CHOOSER_REQUEST = 702;
     private static final int AUDIO_PERMISSION_REQUEST = 703;
+    private static final int SCREEN_CAPTURE_REQUEST = 704;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -78,6 +81,7 @@ public class MainActivity extends Activity {
     private String pendingBarcodeStatus;
     private String pendingAudioTargets;
     private int pendingAudioBitrate = 64;
+    private boolean screenCapturePermissionPending;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,6 +91,7 @@ public class MainActivity extends Activity {
         intentRouter.accept(getIntent());
         downloadHandler = new AndroidDownloadHandler(this);
         googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
+        ScreenCaptureService.setListener(this::dispatchNativeScreenEvent);
         buildUi();
         executor.execute(this::prepareAndStartBackend);
     }
@@ -350,6 +355,16 @@ public class MainActivity extends Activity {
                 + "stopSender:()=>String(window.SimpleOfficeAndroid.stopAudioSender(bridgeToken)),"
                 + "startReceiver:(port)=>String(window.SimpleOfficeAndroid.startAudioReceiver(bridgeToken,Number(port||5004))),"
                 + "stopReceiver:()=>String(window.SimpleOfficeAndroid.stopAudioReceiver(bridgeToken))};"
+                + "window.SimpleOfficeNativeScreen=(function(){let pending=null,canvas=null,context=null,track=null;"
+                + "const ensureCanvas=(width,height)=>{if(!canvas){canvas=document.createElement('canvas');context=canvas.getContext('2d',{alpha:false});}canvas.width=width;canvas.height=height;return canvas;};"
+                + "window.addEventListener('simpleoffice:native-screen',event=>{const detail=event.detail||{};"
+                + "if(detail.state==='active'&&pending){const target=ensureCanvas(Number(detail.width||1280),Number(detail.height||720));track=target.captureStream(12).getVideoTracks()[0];pending.resolve(new MediaStream([track]));pending=null;}"
+                + "else if(detail.state==='frame'&&detail.data&&context){const image=new Image();image.onload=()=>context.drawImage(image,0,0,canvas.width,canvas.height);image.src='data:image/jpeg;base64,'+detail.data;}"
+                + "else if((detail.state==='cancelled'||detail.state==='error')&&pending){pending.reject(new Error(detail.message||'Android-Bildschirmfreigabe abgebrochen.'));pending=null;}"
+                + "else if(detail.state==='stopped'&&track){track.stop();track=null;}});"
+                + "return {openCast:()=>String(window.SimpleOfficeAndroid.openCastSettings(bridgeToken)),"
+                + "startShare:()=>new Promise((resolve,reject)=>{if(pending)return reject(new Error('Bildschirmauswahl läuft bereits.'));pending={resolve,reject};const state=String(window.SimpleOfficeAndroid.startScreenCapture(bridgeToken));if(state!=='permission'){pending=null;reject(new Error(state==='busy'?'Bildschirmauswahl läuft bereits.':'MediaProjection ist nicht verfügbar.'));}}),"
+                + "stopShare:()=>{if(track){track.stop();track=null;}return String(window.SimpleOfficeAndroid.stopScreenCapture(bridgeToken));}};})();"
                 + audioUiShim()
                 + googleDriveUiShim()
                 + "window.dispatchEvent(new Event('simpleoffice:native-audio-ready'));"
@@ -492,6 +507,17 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (googleAuthorization != null && googleAuthorization.onActivityResult(requestCode, resultCode, data)) return;
         if (downloadHandler != null && downloadHandler.onActivityResult(requestCode, resultCode, data)) return;
+        if (requestCode == SCREEN_CAPTURE_REQUEST) {
+            screenCapturePermissionPending = false;
+            if (resultCode != RESULT_OK || data == null) {
+                dispatchNativeScreenEvent("cancelled", 0, 0, "", "Bildschirmfreigabe wurde nicht erlaubt.");
+                return;
+            }
+            Intent service = ScreenCaptureService.startIntent(this, resultCode, data);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service);
+            else startService(service);
+            return;
+        }
         if (requestCode == FILE_CHOOSER_REQUEST) {
             ValueCallback<Uri[]> callback = fileChooserCallback;
             fileChooserCallback = null;
@@ -506,6 +532,34 @@ public class MainActivity extends Activity {
     }
 
     private final class NativeBridge {
+        @JavascriptInterface
+        public String openCastSettings(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            Intent intent = new Intent(Settings.ACTION_CAST_SETTINGS);
+            if (intent.resolveActivity(getPackageManager()) == null) return "unavailable";
+            mainHandler.post(() -> startActivity(intent));
+            return "ok";
+        }
+
+        @JavascriptInterface
+        public String startScreenCapture(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            if (screenCapturePermissionPending || ScreenCaptureService.isRunning()) return "busy";
+            MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
+            if (manager == null) return "unavailable";
+            screenCapturePermissionPending = true;
+            mainHandler.post(() -> startActivityForResult(manager.createScreenCaptureIntent(), SCREEN_CAPTURE_REQUEST));
+            return "permission";
+        }
+
+        @JavascriptInterface
+        public String stopScreenCapture(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            screenCapturePermissionPending = false;
+            mainHandler.post(() -> startService(ScreenCaptureService.stopIntent(MainActivity.this)));
+            return "ok";
+        }
+
         @JavascriptInterface
         public String startNfcScan(String token) {
             if (!bridgeAllowed(token)) return "blocked";
@@ -596,6 +650,16 @@ public class MainActivity extends Activity {
 
     private boolean bridgeAllowed(String token) {
         return nativeBridgeToken.equals(token) && localPageVisible;
+    }
+
+    private void dispatchNativeScreenEvent(String state, int width, int height, String data, String message) {
+        mainHandler.post(() -> {
+            if (webView == null || !isLocalUrl(webView.getUrl())) return;
+            webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('simpleoffice:native-screen',{detail:{state:"
+                    + JSONObject.quote(state) + ",width:" + width + ",height:" + height + ",data:"
+                    + JSONObject.quote(data == null ? "" : data) + ",message:"
+                    + JSONObject.quote(message == null ? "" : message) + "}}));", null);
+        });
     }
 
     private void handleGoogleAuthorizationResult(String action, String result) {
@@ -889,6 +953,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        ScreenCaptureService.setListener(null);
         localPageVisible = false;
         stopNfcReader();
         denyPendingCameraPermission();

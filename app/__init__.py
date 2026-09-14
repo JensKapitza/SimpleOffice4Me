@@ -300,6 +300,8 @@ from . import library
 app.register_blueprint(library.bp)
 from . import gamification_routes
 app.register_blueprint(gamification_routes.bp)
+from . import screen_share
+app.register_blueprint(screen_share.bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
@@ -526,7 +528,8 @@ def add_header(response):
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     camera_policy = "camera=(self)" if request.blueprint in {"inventory", "library"} else "camera=()"
-    response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=()")
+    display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
+    response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=(), {display_policy}")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.is_secure:

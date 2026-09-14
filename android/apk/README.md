@@ -29,6 +29,8 @@ A fixed `simpleoffice4me://open/...` deep-link namespace supports navigation to 
 
 Lifecycle handling pauses and resumes the WebView together with the Android activity, which is especially useful on older tablets. Details, security boundaries and examples are documented in `docs/ANDROID_INTEGRATION.md`.
 
+The **Bildschirm** page can open Android's system cast settings when provided by the device. Its device-independent fallback uses a user-approved MediaProjection foreground service and exposes the captured video to the existing SimpleOffice WebRTC sender. The active notification and the web UI can both stop capture.
+
 ## Build
 
 Requirements: JDK 17, Android SDK 36 and Gradle 8.13.

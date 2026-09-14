@@ -95,6 +95,12 @@ Beim Wechsel in den Hintergrund werden zusätzlich zum bestehenden Kamera-/NFC-C
 
 Das reduziert unnötige WebView-Arbeit auf älteren Geräten und ändert nichts am lokalen Flask-Prozess oder an ausdrücklich gestarteten nativen Audio-Threads.
 
+## Bildschirmfreigabe und System-Cast
+
+Die Bildschirm-Seite öffnet über die lokale, tokengebundene JavaScript-Bridge die Android-Anzeigeauswahl (`ACTION_CAST_SETTINGS`), sofern das Gerät dafür eine Systemkomponente anbietet. Fehlt diese, bleibt SimpleOffice Screen Share verfügbar.
+
+Für den Fallback fordert Android die MediaProjection-Zustimmung über den Systemdialog an. Nach Zustimmung läuft die Aufnahme in `ScreenCaptureService` als `mediaProjection`-Foreground-Service mit dauerhafter Benachrichtigung und Stop-Aktion. Begrenzte JPEG-Frames werden ausschließlich an die lokale WebView übergeben, dort in eine Canvas-Videospur umgesetzt und über den normalen SimpleOffice-WebRTC-Pfad versendet. Abbruch, System-Stopp und der Stop-Button beenden Projektion, Virtual Display und MediaStream-Spur.
+
 ## Lokales Backend und Performance
 
 Das eingebettete Flask-Backend läuft weiterhin ausschließlich auf `127.0.0.1:8765`. Der bisherige einzelne WSGI-Request-Thread wurde durch einen kleinen begrenzten Pool ersetzt:
@@ -133,6 +139,7 @@ beziehungsweise `ARM64`. Das erleichtert insbesondere bei älteren Geräten die 
 ## Sicherheitsgrenzen
 
 - Die JavaScript-Bridge bleibt nur auf der lokalen SimpleOffice-Origin aktiv.
+- MediaProjection startet nie ohne den Android-Systemdialog und bleibt durch eine Foreground-Benachrichtigung sichtbar.
 - Externe HTTP(S)-, Telefon- und Mail-Links werden weiter an Android übergeben.
 - Geteilte oder über **Öffnen mit** übergebene Dateien werden nicht automatisch gespeichert.
 - Maximal 20 Dateien werden pro noch nicht bestätigtem Share-Paket vorgemerkt.
@@ -167,6 +174,7 @@ Die Regressionstests prüfen insbesondere:
 - native Google-`AuthorizationClient`-Verwendung, `drive.file`, CSRF/Session-gebundenen localhost-Handoff und das Fehlen eines Token-Deep-Links;
 - begrenzten lokalen HTTP-Worker-Pool;
 - weiterhin getrennte ARM64- und ARM32-Buildprofile.
+- MediaProjection-Service, Foreground-Service-Typ und tokengebundene Screen-Bridge.
 
 GitHub Actions baut anschließend beide APK-Architekturen und prüft Signatur und ABI wie bisher.
 
