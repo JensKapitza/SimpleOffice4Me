@@ -13,6 +13,7 @@ from app.library.object_care import (
 )
 from app.library.store import LibraryStore
 from app.object_store import ObjectStore
+from app.object_vision import _rapidocr_output, analyze_ocr
 
 
 class UnifiedObjectCareTests(unittest.TestCase):
@@ -29,12 +30,75 @@ class UnifiedObjectCareTests(unittest.TestCase):
         self.assertTrue(result["suggested_fields"]["model"].startswith("ZX-42"))
         self.assertTrue(result["suggested_fields"]["serial_number"].startswith("ABC-123"))
 
-    def test_ocr_degrades_cleanly_when_tesseract_is_missing(self):
-        with patch("app.library.object_care.shutil.which", return_value=None):
+    def test_ml_ocr_output_keeps_confidence_and_boxes(self):
+        class Result:
+            txts = ("ACME", "Model ZX-42")
+            scores = (0.96, 0.84)
+            boxes = (
+                ((10, 20), (80, 20), (80, 40), (10, 40)),
+                ((10, 50), (140, 50), (140, 72), (10, 72)),
+            )
+
+        result = _rapidocr_output(Result())
+        self.assertEqual("rapidocr", result["engine"])
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("ACME\nModel ZX-42", result["text"])
+        self.assertEqual(0.9, result["confidence"])
+        self.assertEqual(2, len(result["blocks"]))
+        self.assertEqual([[10.0, 20.0], [80.0, 20.0], [80.0, 40.0], [10.0, 40.0]], result["blocks"][0]["box"])
+
+    def test_ocr_prefers_ml_and_does_not_call_tesseract_on_success(self):
+        ml = {
+            "engine": "rapidocr",
+            "status": "completed",
+            "text": "Bosch GWS 750",
+            "characters": 13,
+            "confidence": 0.93,
+            "blocks": [],
+        }
+        with patch("app.object_vision._run_rapidocr", return_value=ml), patch(
+            "app.object_vision._run_tesseract"
+        ) as tesseract:
+            result = analyze_ocr(Path("unused.jpg"))
+        self.assertEqual("rapidocr", result["engine"])
+        self.assertEqual("Bosch GWS 750", result["text"])
+        tesseract.assert_not_called()
+
+    def test_ocr_falls_back_to_tesseract_when_ml_is_unavailable(self):
+        ml = {
+            "engine": "rapidocr",
+            "status": "unavailable",
+            "text": "",
+            "characters": 0,
+            "confidence": None,
+            "blocks": [],
+            "error": "RapidOCR fehlt",
+        }
+        fallback = {
+            "engine": "tesseract",
+            "status": "completed",
+            "text": "Seriennummer ABC-123",
+            "characters": 21,
+            "confidence": None,
+            "blocks": [],
+        }
+        with patch("app.object_vision._run_rapidocr", return_value=ml), patch(
+            "app.object_vision._run_tesseract", return_value=fallback
+        ):
+            result = analyze_ocr(Path("unused.jpg"))
+        self.assertEqual("tesseract", result["engine"])
+        self.assertEqual("rapidocr", result["fallback_from"])
+        self.assertIn("RapidOCR fehlt", result["fallback_reason"])
+
+    def test_legacy_ocr_wrapper_uses_shared_service(self):
+        with patch(
+            "app.library.object_care.analyze_ocr",
+            return_value={"engine": "rapidocr", "status": "completed", "text": "CE VDE"},
+        ):
             text, status, error = _ocr_image(Path("unused.jpg"))
-        self.assertEqual("", text)
-        self.assertEqual("unavailable", status)
-        self.assertIn("Tesseract", error)
+        self.assertEqual("CE VDE", text)
+        self.assertEqual("completed", status)
+        self.assertEqual("", error)
 
     def test_condition_capture_keeps_history_and_latest_state(self):
         with tempfile.TemporaryDirectory() as temp:
