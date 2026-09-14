@@ -179,6 +179,21 @@ def stop_worker(worker: subprocess.Popen[bytes] | None) -> None:
         print(f"Hintergrunddienst PID {worker.pid} reagiert nicht auf SIGTERM; kein erzwungenes Beenden.", file=sys.stderr)
 
 
+def start_mini_worker() -> subprocess.Popen[bytes] | None:
+    from simpleoffice_mini_core import default_config_path, read_status
+    value = os.environ.get("SIMPLEOFFICE_MINI_SERVICES_AUTOSTART", "1").strip().casefold()
+    if value in {"0", "false", "no", "off"}:
+        return None
+    # Containers and systemd already have a separately privileged worker role.
+    if os.environ.get("SIMPLEOFFICE_CONTAINER_ROLE") in {"web", "error-relay"}:
+        return None
+    path = default_config_path().resolve()
+    if read_status(path).get("state") in {"running", "degraded", "starting"}:
+        return None
+    return subprocess.Popen([sys.executable, "-m", "tools.mini_services", "--config", str(path)],
+                            cwd=str(PROJECT_ROOT), stdin=subprocess.DEVNULL)
+
+
 def default_document_root() -> Path:
     documents = Path.home() / "Documents"
     return documents / "SimpleOffice4Me"
@@ -252,7 +267,12 @@ def start(configure_only: bool = False) -> None:
         print(f"SimpleOffice4Me wurde nicht gestartet: http://{host}:{port} ist bereits belegt. Kein zweiter Server oder Hintergrunddienst wurde gestartet.", file=sys.stderr, flush=True)
         return
 
-    register("web", os.getpid(), "launcher.py")
+    register("web", os.getpid(), "tools.launcher")
+    try:
+        mini_worker = start_mini_worker()
+    except (OSError, ValueError) as exc:
+        mini_worker = None
+        print(f"Mini-Services Worker konnte nicht gestartet werden ({type(exc).__name__}). Dienststatus und Rechte prüfen.", file=sys.stderr)
     try:
         worker = start_index_worker(document_root)
     except OSError as exc:
@@ -293,6 +313,7 @@ def start(configure_only: bool = False) -> None:
         stop_worker(worker)
         stop_worker(osm_worker)
         stop_worker(datalogger_worker)
+        stop_worker(mini_worker)
         if worker is not None and worker.poll() is not None:
             unregister("index", worker.pid)
         unregister("web", os.getpid())
@@ -301,9 +322,22 @@ def start(configure_only: bool = False) -> None:
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["mini-services"]:
+        from tools.mini_services import main as mini_main
+        mini_main(sys.argv[2:])
+        return
     parser = argparse.ArgumentParser(description="SimpleOffice4Me launcher")
-    parser.add_argument("command", nargs="?", choices=("start", "setup"), default="start")
+    parser.add_argument("command", nargs="?", choices=("start", "setup", "status", "stop", "restart"), default="start")
     args = parser.parse_args()
+    from tools import service_control
+    if args.command == "status":
+        print("Laufende Dienste: " + (", ".join(service_control.running_roles()) or "keine"))
+        return
+    if args.command in {"stop", "restart"}:
+        if not service_control.stop():
+            raise SystemExit(1)
+        if args.command == "stop":
+            return
     start(configure_only=args.command == "setup")
 
 

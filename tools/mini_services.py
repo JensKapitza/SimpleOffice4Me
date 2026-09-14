@@ -13,7 +13,7 @@ from pathlib import Path
 
 from simpleoffice_mini_services import (
     DnsService, default_config_path, load_config, read_blocklist_meta,
-    refresh_blocklists, write_status,
+    refresh_blocklists, write_status, read_status, state_dir,
 )
 from simpleoffice_network_boot import TftpService, boot_settings_path, load_boot_settings
 from simpleoffice_network_boot_dhcp import BootAwareDhcpService
@@ -227,20 +227,44 @@ class Worker:
         }, self.config_path)
 
 
-def main() -> None:
+def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me DHCP/DNS/TFTP/Routing/SIP Mini Services")
     parser.add_argument("--config", default=str(default_config_path()))
-    args = parser.parse_args()
+    parser.add_argument("command", choices=("start", "status", "stop", "restart"), default="start", nargs="?")
+    args = parser.parse_args(argv)
+    from tools import service_control
+    config_path = Path(args.config).expanduser().resolve()
+    # Custom configurations have their own existing PID-record directory.
+    service_control.RUN_DIR = config_path.parent / "run"
+    if args.command == "status":
+        status = read_status(config_path)
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+        if status.get("state") not in {"running", "degraded"}:
+            raise SystemExit(3)
+        return
+    if args.command in {"stop", "restart"}:
+        if not service_control.stop(roles=["mini"]):
+            raise SystemExit(1)
+        if args.command == "stop":
+            return
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    worker = Worker(Path(args.config))
+    worker = Worker(config_path)
     def request_stop(_signum: int, _frame: object) -> None:
         worker.stop_event.set()
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    try:
-        worker.start()
-    finally:
-        worker.stop()
+    with service_control.exclusive_lease(state_dir(config_path) / "worker.lock") as acquired:
+        if not acquired:
+            print("Mini-Services Worker läuft bereits. Kein zweiter Worker wird gestartet.")
+            return
+        service_control.register("mini", os.getpid(), "tools.mini_services")
+        try:
+            worker.start()
+        finally:
+            try:
+                worker.stop()
+            finally:
+                service_control.unregister("mini", os.getpid())
 
 
 if __name__ == "__main__":

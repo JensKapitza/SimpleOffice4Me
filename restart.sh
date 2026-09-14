@@ -12,8 +12,9 @@ ACTIVE_ROLES="$($PYTHON -c 'from tools.service_control import running_roles; pri
 case " $ACTIVE_ROLES " in *" web "*) WEB_ACTIVE=1 ;; *) WEB_ACTIVE=0 ;; esac
 case " $ACTIVE_ROLES " in *" index "*) INDEX_ACTIVE=1 ;; *) INDEX_ACTIVE=0 ;; esac
 case " $ACTIVE_ROLES " in *" sftp "*) SFTP_ACTIVE=1 ;; *) SFTP_ACTIVE=0 ;; esac
+case " $ACTIVE_ROLES " in *" mini "*) MINI_ACTIVE=1 ;; *) MINI_ACTIVE=0 ;; esac
 
-if [ "$WEB_ACTIVE" -eq 0 ] && [ "$INDEX_ACTIVE" -eq 0 ] && [ "$SFTP_ACTIVE" -eq 0 ]; then
+if [ "$WEB_ACTIVE" -eq 0 ] && [ "$INDEX_ACTIVE" -eq 0 ] && [ "$SFTP_ACTIVE" -eq 0 ] && [ "$MINI_ACTIVE" -eq 0 ]; then
   echo "Keine aktiven SimpleOffice4Me-Dienste gefunden; nichts neu gestartet."
   exit 0
 fi
@@ -36,4 +37,9 @@ fi
 if [ "$SFTP_ACTIVE" -eq 1 ]; then
   nohup "$ROOT/start-sftp.sh" run >"$RUN_DIR/sftp.log" 2>&1 &
   echo "SFTP/SSHFS-Dienst wird neu gestartet (PID $!)."
+fi
+
+if [ "$MINI_ACTIVE" -eq 1 ] && [ "$WEB_ACTIVE" -eq 0 ]; then
+  nohup "$ROOT/start.sh" mini-services >"$RUN_DIR/mini.log" 2>&1 &
+  echo "Mini-Services Worker wird neu gestartet (PID $!)."
 fi

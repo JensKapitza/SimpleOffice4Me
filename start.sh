@@ -16,6 +16,10 @@ usage() {
   cat <<'EOF'
 SimpleOffice4Me starten
 
+Befehle: start (Standard), status, stop, restart,
+         mini-services [start|status|stop|restart] [--config DATEI]
+Status/Stop und der reine Mini-Worker installieren keine Pakete.
+
 Optionen:
   --google-json DATEI         Google OAuth JSON-Datei (Web-Anwendung)
   --public-url URL            Öffentliche HTTPS-Basis-URL; überschreibt die JSON-Callback-URI
@@ -50,6 +54,23 @@ Beispiel:
     --public-url https://office.example.de --trusted-proxy-hops 1
 EOF
 }
+
+# Lifecycle dispatch reuses the Python launcher; it never triggers setup.
+case "${1:-}" in
+  mini-services|status|stop|restart)
+    START_COMMAND="$1"; shift
+    CONTROL_PYTHON="${SIMPLEOFFICE_MINI_SERVICES_PYTHON:-$PYTHON}"
+    if [ -z "${SIMPLEOFFICE_MINI_SERVICES_PYTHON:-}" ] && [ -x "$VENV/bin/python" ]; then
+      CONTROL_PYTHON="$VENV/bin/python"
+    fi
+    cd "$ROOT"
+    if [ "$START_COMMAND" = mini-services ]; then
+      exec "$CONTROL_PYTHON" -m tools.mini_services "$@"
+    fi
+    exec "$CONTROL_PYTHON" -m tools.launcher "$START_COMMAND" "$@"
+    ;;
+  start) shift ;;
+esac
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
