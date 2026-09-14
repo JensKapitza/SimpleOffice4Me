@@ -9,6 +9,7 @@ from .access_control import audit, is_admin
 from .audio_output_discovery import discover_speaker_outputs, discover_microphone_inputs
 from .audio_streamer import manager, receiver_sdp
 from .auth import login_required
+from .audio_streamer_config import settings as stream_settings, DEFAULTS
 
 bp = Blueprint("audio_streamer_admin", __name__, url_prefix="/admin/mini-services/audio/streamer")
 
@@ -41,7 +42,7 @@ def _runtime_error():
 @bp.get("")
 @admin_required
 def page():
-    return render_template("admin/audio_streamer.html", status=manager.status())
+    return render_template("admin/audio_streamer.html", status=manager.status(), settings={name: stream_settings(name) for name in DEFAULTS})
 
 
 @bp.get("/status")
@@ -84,12 +85,7 @@ def inputs():
 def sender_start():
     try:
         data = payload()
-        result = manager.start_sender(
-            source=str(data.get("source") or "default"),
-            backend=str(data.get("backend") or "pulse"),
-            destinations=data.get("destinations"),
-            bitrate_kbps=int(data.get("bitrate_kbps") or 64),
-        )
+        result = manager.configured_start("sender", data)
     except (ValueError, TypeError):
         return _configuration_error()
     except (RuntimeError, OSError) as exc:
@@ -118,12 +114,7 @@ def sender_stop():
 def receiver_start():
     try:
         data = payload()
-        result = manager.start_receiver(
-            port=int(data.get("port") or 5004),
-            speaker_devices=data.get("speaker_devices") or [],
-            virtual_microphone=bool(data.get("virtual_microphone", True)),
-            virtual_sink=str(data.get("virtual_sink") or "simpleoffice_stream"),
-        )
+        result = manager.configured_start("receiver", data)
     except (ValueError, TypeError):
         return _configuration_error()
     except (RuntimeError, OSError) as exc:
@@ -145,6 +136,52 @@ def receiver_stop():
     manager.stop_receiver()
     audit("audio_stream_receiver_stopped", "audio_stream", "receiver")
     return jsonify({"stopped": True})
+
+
+@bp.get("/settings")
+@admin_required
+def settings_get():
+    return jsonify({name: stream_settings(name) for name in DEFAULTS})
+
+
+@bp.post("/<service>/settings")
+@admin_required
+def settings_save(service):
+    if service not in DEFAULTS:
+        abort(404)
+    try:
+        data = payload()
+        value = stream_settings(service, {**stream_settings(service), **data})
+        if not value["enabled"]:
+            getattr(manager, "stop_" + service)()
+    except (ValueError, TypeError):
+        return _configuration_error()
+    audit("audio_stream_settings", "audio_stream", service, detail={"enabled": value["enabled"], "autostart": value["autostart"]})
+    return jsonify(value)
+
+
+@bp.post("/<service>/reset")
+@admin_required
+def settings_reset(service):
+    if service not in DEFAULTS:
+        abort(404)
+    getattr(manager, "stop_" + service)()
+    return jsonify(stream_settings(service, DEFAULTS[service]))
+
+
+@bp.post("/<service>/restart")
+@admin_required
+def restart(service):
+    if service not in DEFAULTS:
+        abort(404)
+    try:
+        result = manager.configured_start(service, restart=True)
+    except (ValueError, TypeError):
+        return _configuration_error()
+    except (OSError, RuntimeError):
+        return _runtime_error()
+    audit("audio_stream_restarted", "audio_stream", service)
+    return jsonify(result), 202
 
 
 @bp.get("/receiver.sdp")

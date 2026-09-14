@@ -64,6 +64,10 @@ class AudioOutputStore:
                     members_json TEXT NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS audio_service_setting(
+                    service TEXT PRIMARY KEY,
+                    data_json TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS audio_announcement(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     kind TEXT NOT NULL CHECK(kind IN ('tts','sound','stream')),
@@ -187,3 +191,12 @@ class AudioOutputStore:
         with self._db() as db:
             rows = db.execute("SELECT id FROM audio_announcement WHERE state='queued' ORDER BY priority DESC,id ASC LIMIT ?", (max(1, min(int(limit), 500)),)).fetchall()
         return [self.announcement(row["id"]) for row in rows]
+
+    def service_settings(self, service: str, value=None):
+        if service not in {"sender", "receiver", "announcements"}:
+            raise ValueError("Unbekannter Audio-Dienst")
+        with self._db() as db:
+            if value is not None:
+                db.execute("INSERT OR REPLACE INTO audio_service_setting VALUES (?,?)", (service, json.dumps(value)))
+            row = db.execute("SELECT data_json FROM audio_service_setting WHERE service=?", (service,)).fetchone()
+        return json.loads(row[0]) if row else {}

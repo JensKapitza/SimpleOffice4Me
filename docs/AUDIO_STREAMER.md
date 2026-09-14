@@ -60,6 +60,50 @@ Die Steuer-Endpunkte sind nur fuer angemeldete Administratoren erreichbar und un
 Hostnamen, IP-Adressen und Ports werden validiert. Externe Programme werden ausschliesslich mit Argumentlisten ohne Shell-Aufruf gestartet. Pro Sender sind maximal 16 RTP-Ziele zugelassen.
 # Gemeinsame Gerätesuche
 
+## Lifecycle und gespeicherte Einstellungen
+
+Sender und Receiver verwenden `audio/audio-output.sqlite3` neben der
+Mini-Service-Konfiguration. Gespeichert werden jeweils Aktiviert, Autostart,
+höchstens sechs Startwiederholungen sowie die fachlichen Einstellungen:
+
+| Dienst | Optionen und Standardwerte |
+|---|---|
+| Sender | Quelle `default`, Backend `pulse` (alternativ `alsa`), Zielliste leer, Bitrate 64 kbit/s (16–256), Wiederholungen 3 |
+| Receiver | RTP-Port 5004 (1024–65535), Interface automatisch, Ausgänge leer, virtuelles Mikrofon aktiv, Sink `simpleoffice_stream`, Wiederholungen 3 |
+
+Beide Dienste sind verwendbar, aber **Autostart ist zunächst aus**. Für
+Mikrofonfreigabe müssen Ziele angegeben und Autostart bewusst aktiviert werden.
+Start speichert die Auswahl; Start/Stop ändern Autostart nicht. Wiederholte
+Starts mit identischen Einstellungen erzeugen keinen neuen Prozess.
+Standardwerte setzt den jeweiligen Dienst zurück und stoppt die aktive Session.
+Eine Änderung der Einstellungen wird beim nächsten Start übernommen; Deaktivieren
+stoppt sofort. „Neustart“ verwendet die gespeicherten Einstellungen.
+
+Der Web-Launcher startet einen gemeinsamen Audio-Health-Thread. Nach einem
+Prozessausfall erfolgen höchstens die konfigurierte Anzahl an Wiederholungen
+mit exponentieller Wartezeit; Stop bricht die Wiederholung ab. Nach 60 Sekunden
+stabilem Betrieb wird das Fehlerbudget zurückgesetzt. Prozessstatus, letzter
+Fehler, Wiederholung und Konfiguration sind separat sichtbar. Der Receiver
+meldet „wartet“, bis tatsächlich PCM-Audiodaten am Verteiler ankommen.
+
+Receiver verwenden FFmpegs `localaddr` für eine konkrete lokale IPv4-Adresse;
+automatisch wird eine private LAN-Adresse, sonst Loopback gewählt. Die SDP-Datei
+beschreibt weiterhin den RTP-Stream und ist kein Firewallmechanismus. RTP/RTCP
+verwendet den gewählten UDP-Port und den Folgeport. Audio ist unverschlüsselt und
+besitzt in diesem bestehenden Protokollpfad keine Teilnehmerauthentifizierung:
+nur im vertrauenswürdigen LAN verwenden oder Netz-Zugriff extern beschränken.
+
+Zusätzliche Admin-API: `GET .../streamer/settings`,
+`POST .../streamer/{sender,receiver}/settings`, `/reset` und `/restart`.
+Mutationen verlangen den vorhandenen CSRF-Token. Voraussetzungen bleiben
+ffmpeg/Opus und für Wiedergabe/virtuelles Mikrofon die lokale PulseAudio-/
+PipeWire-Sitzung mit paplay/pactl. Fehler werden ohne Exception-Inhalte ausgegeben.
+
+Prüfung: Lifecycle-/Konfigurations-/API-Tests mocken Prozess- und Gerätegrenzen.
+`tests/test_audio_rtp_loopback.py` verwendet vorhandenes FFmpeg mit libopus für
+einen echten synthetischen RTP→PCM-Test ausschließlich auf Loopback. Bei fehlendem
+optionalem FFmpeg wird dieser Test übersprungen, nichts installiert.
+
 Die Seiten **Mini Services → Audio** und **Live Audio-Streamer** verwenden
 dieselbe lokale PipeWire-/PulseAudio-Suche. Beim Öffnen werden Ausgänge gesucht;
 im Streamer zusätzlich Mikrofone. „Ausgänge scannen“ bzw. „Eingänge scannen“
