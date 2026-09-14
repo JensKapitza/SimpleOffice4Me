@@ -6,11 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import session
 from werkzeug.exceptions import Forbidden
 
 from app import app
 from app import android_auth
 from app import db as database
+from app.password_security import hash_password
 
 
 class AndroidNativeAuthTests(unittest.TestCase):
@@ -95,8 +97,46 @@ class AndroidNativeAuthTests(unittest.TestCase):
             payload = response.get_json()
             self.assertTrue(payload["ok"])
             self.assertFalse(payload["password_required"])
-            from flask import session
             self.assertIsNotNone(session.get("user_id"))
+
+    def test_password_protected_native_account_rejects_wrong_and_accepts_correct_password(self):
+        password = "correct horse battery staple"
+        with self.android_env(), app.app_context():
+            user, _ = android_auth._android_user(create=True)
+            user_id = int(user["id"])
+            db = database.get_db()
+            db.execute(
+                "UPDATE user SET password = ? WHERE id = ?",
+                (hash_password(password), user_id),
+            )
+            db.execute(
+                "UPDATE android_local_account SET password_enabled = 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            db.commit()
+
+        with self.android_env(), app.test_request_context(
+            "/auth/android/unlock",
+            method="POST",
+            json={"password": "definitely-wrong"},
+            headers={"X-SimpleOffice-Android-Token": "n" * 64},
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+        ):
+            response, status = android_auth.unlock()
+            self.assertEqual(401, status)
+            self.assertEqual("invalid_password", response.get_json()["error"])
+            self.assertIsNone(session.get("user_id"))
+
+        with self.android_env(), app.test_request_context(
+            "/auth/android/unlock",
+            method="POST",
+            json={"password": password},
+            headers={"X-SimpleOffice-Android-Token": "n" * 64},
+            environ_base={"REMOTE_ADDR": "127.0.0.1"},
+        ):
+            response = android_auth.unlock()
+            self.assertTrue(response.get_json()["ok"])
+            self.assertEqual(user_id, session.get("user_id"))
 
 
 if __name__ == "__main__":
