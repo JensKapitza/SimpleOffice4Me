@@ -130,6 +130,13 @@ def start(
         raise RuntimeError(f"tools/launcher.py missing under {root}")
 
     if _THREAD is not None and _THREAD.is_alive() and _SERVER is not None:
+        # BootstrapActivity creates a fresh token for every native launch.  The
+        # already-running Flask app reads the token/account from the environment
+        # on each native request, so refresh those values without restarting the
+        # local server.  Calls from NavigationActivity intentionally omit a token
+        # and must not clear a valid bootstrap identity.
+        if bootstrap_token:
+            _configure_environment(root, error_report_url, account_email, bootstrap_token)
         return True
 
     _configure_environment(root, error_report_url, account_email, bootstrap_token)
