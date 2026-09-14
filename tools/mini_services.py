@@ -156,7 +156,8 @@ class Worker:
         config = load_config(self.config_path)
         boot = load_boot_settings(self.config_path)
         gateway = load_gateway_settings(self.config_path)
-        gateway["internal_network"] = config["dhcp"]["network"]
+        if config["dhcp"]["enabled"]:
+            gateway["internal_network"] = config["dhcp"]["network"]
         if gateway["auto_detect"] and self.network_snapshot.get("available"):
             found = detect_interfaces(gateway["internal_network"], server_ip=config["dhcp"]["server_ip"], snapshot=self.network_snapshot)
             gateway["internal_interface"] = gateway["internal_interface"] or found["internal_interface"]

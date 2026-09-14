@@ -1,13 +1,14 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4">
+<main id="main-content" class="container-xl py-4 mini-service-page">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
       <h1 class="h2 mb-1">Mini Services</h1>
       <p class="text-secondary mb-0">DHCP- und DNS-Dienste für kleine lokale Netze. Konfiguration, Leases, DNS-Anfragen, lokale Namen und Ad-Blocking an einer Stelle.</p>
     </div>
     <div class="btn-group">
+      <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzer</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Inventar</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Fehler/Audit</a>
@@ -48,6 +49,7 @@
   </div>
 
   <form method="post" action="{{ url_for('mini_services_admin.save') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="accordion mb-4" id="mini-services-config">
       <section class="accordion-item">
         <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dhcp-config" aria-expanded="true" aria-controls="dhcp-config">DHCPv4</button></h2>
@@ -116,6 +118,47 @@
     <button class="btn btn-primary btn-lg" type="submit">Konfiguration speichern</button>
   </form>
 
+  <div class="d-flex flex-wrap gap-2 mt-3 mb-4">
+    {% for service in ['dhcp', 'dns'] %}
+    <form method="post" action="{{ url_for('mini_services_admin.reset_network', service=service) }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-secondary" type="submit">{{ service|upper }} auf deaktivierte Standardwerte zurücksetzen</button>
+    </form>
+    {% endfor %}
+  </div>
+
+  <section class="card mb-4" aria-labelledby="gateway-heading">
+    <div class="card-body">
+      <h2 class="h4" id="gateway-heading">Routing / NAT</h2>
+      <p>Der vorhandene Worker setzt diese Einstellungen um. Kein automatisches Root, keine Änderungen am NetworkManager.
+        Start, Stop und Istzustand findest du in der <a href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a>.</p>
+      <form method="post" action="{{ url_for('mini_services_admin.gateway_settings') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label" for="gateway-mode">Betriebsart</label><select id="gateway-mode" class="form-select" name="mode">
+            {% for value, label in [('off','Aus'), ('route','Routing'), ('nat','Routing und NAT')] %}<option value="{{ value }}" {% if gateway.mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select></div>
+          <div class="col-md-6"><label class="form-label" for="gateway-network">Internes IPv4-Netz</label><input id="gateway-network" class="form-control" name="internal_network" value="{{ gateway.internal_network }}" aria-describedby="gateway-network-help"><div class="form-text" id="gateway-network-help">Bei aktiviertem DHCP gilt dessen Netz. Sonst verwendet Routing dieses Netz unabhängig von den DHCP-Beispielwerten.</div></div>
+          {% for key, label in [('internal_interface','Interne Schnittstelle'), ('external_interface','Externe Schnittstelle')] %}
+          <div class="col-md-6"><label class="form-label" for="gateway-{{ key }}">{{ label }}</label><input id="gateway-{{ key }}" class="form-control" name="{{ key }}" value="{{ gateway[key] }}" list="network-interface-list" aria-describedby="gateway-interface-help"></div>
+          {% endfor %}
+        </div>
+        <p class="form-text" id="gateway-interface-help">Leer lassen für automatische Auswahl anhand des internen Netzes und der Standardroute. Eine manuelle Auswahl bleibt gespeichert; Freitext ist möglich.</p>
+        {% for key, label in [('enabled','Gateway aktiviert'), ('auto_detect','Schnittstellen automatisch erkennen')] %}
+        <div class="form-check my-2"><input class="form-check-input" type="checkbox" id="gateway-{{ key }}" name="{{ key }}" value="1" {% if gateway[key] %}checked{% endif %}><label class="form-check-label" for="gateway-{{ key }}">{{ label }}</label></div>
+        {% endfor %}
+        <details class="my-3"><summary>Weiterleitungsregeln und Windows-NAT</summary>
+          {% for key, label in [('forward_ipv4','IPv4-Forwarding aktivieren'), ('allow_established','Bestehende Verbindungen zulassen'), ('allow_lan_to_wan','LAN nach WAN zulassen'), ('allow_wan_to_lan','WAN nach LAN zulassen')] %}
+          <div class="form-check my-2"><input class="form-check-input" type="checkbox" id="gateway-{{ key }}" name="{{ key }}" value="1" {% if gateway[key] %}checked{% endif %}><label class="form-check-label" for="gateway-{{ key }}">{{ label }}</label></div>
+          {% endfor %}
+          <label class="form-label" for="gateway-nat-name">Windows-NAT-Name</label><input class="form-control" id="gateway-nat-name" name="nat_name" value="{{ gateway.nat_name }}">
+          <p class="form-text">Nur dieser NAT-Eintrag wird verwaltet. Die Richtungsregeln gelten für Linux/nftables; Windows verwendet seine vorhandene Firewall. Beim Stop bleiben globale Forwarding-Einstellungen erhalten.</p>
+        </details>
+        <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit" name="action" value="save">Gateway speichern</button><button class="btn btn-outline-secondary" type="submit" name="action" value="reset">Gateway-Standardwerte</button></div>
+      </form>
+    </div>
+  </section>
+
   <div class="row g-4 mt-1">
     <section class="col-xl-6">
       <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>DHCP-Leases</strong><form method="post" action="{{ url_for('mini_services_admin.clear_dhcp_leases') }}"><button class="btn btn-sm btn-outline-danger" type="submit">Leases leeren</button></form></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">IP</th><th scope="col">MAC</th><th scope="col">Hostname</th><th scope="col">Status</th><th scope="col">Ablauf</th></tr></thead><tbody>{% for lease in leases %}<tr><td><code>{{ lease.ip }}</code></td><td><code>{{ lease.mac }}</code></td><td>{{ lease.hostname or '—' }}</td><td>{{ lease.state }}</td><td>{{ lease.expires|int }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Leases.</td></tr>{% endfor %}</tbody></table></div></div>
@@ -127,4 +170,5 @@
 
   <section class="card mt-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>Ad-/Tracking-Blocklisten</strong><form method="post" action="{{ url_for('mini_services_admin.refresh_lists') }}"><button class="btn btn-sm btn-outline-primary" type="submit">Jetzt aktualisieren</button></form></div><div class="card-body"><p class="mb-2">Geladen: <strong>{{ blocklist.domains or 0 }}</strong> Domains · Stand {{ blocklist.updated_at or '—' }}</p>{% if blocklist.sources %}<ul class="small mb-0">{% for source in blocklist.sources %}<li><code>{{ source.url }}</code> — {% if source.ok %}{{ source.domains }} Domains{% else %}<span class="text-danger">{{ source.error }}: {{ source.message }}</span>{% endif %}</li>{% endfor %}</ul>{% endif %}</div></section>
 </main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 {% endblock %}

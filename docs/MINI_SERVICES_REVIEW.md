@@ -286,3 +286,18 @@ Grenze. DHCP-Netz und Pool werden bei einem Netzwerkwechsel nicht eigenmächtig
 auf ein anderes Segment umgestellt.
 
 Nachweis: 40 Tests im Netzwerk-Recovery-/UI-/Lifecycle-/Gateway-/API-Paket.
+
+### Fachkonfiguration und Betriebshandbücher
+
+Die bestehende Netzwerkseite enthält nun einen Gateway-Editor mit validierten
+Adressen, Interface-Auswahl, Autodetection, Betriebsart, Regeln und Reset. Ohne
+aktiven DHCP-Dienst respektiert Gateway sein eigenes internes Netz. DHCP und DNS
+können separat auf deaktivierte Standardwerte zurückgesetzt werden. Mutationen
+benötigen Admin/CSRF; fehlerhafte Gateway-Eingaben bleiben zur Korrektur sichtbar.
+
+[Gemeinsamer Betrieb](MINI_SERVICES.md), [DHCP](MINI_DHCP.md), [DNS](MINI_DNS.md),
+[Gateway](MINI_GATEWAY.md), [SIP](TELEPHONY.md) und [Netzwerkboot](NETWORK_BOOT.md)
+verwenden dieselben Kapitel für Zweck, Voraussetzungen, Standardbetrieb,
+Konfiguration, Discovery, Ports, Security, Diagnose, API, Plattformen und Grenzen.
+Nachweis für die Konfigurationsänderungen: 31 Netzwerk-/Recovery-/UI-/API-Tests
+einschließlich der vorhandenen Frontend-Routenprüfung.
