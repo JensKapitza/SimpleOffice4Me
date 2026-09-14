@@ -9,6 +9,7 @@ from flask import Blueprint, abort, flash, g, redirect, render_template, request
 from .access_control import audit, is_admin
 from .auth import login_required
 from .mini_services import (
+    DEFAULT_CONFIG,
     clear_dns_log,
     clear_leases,
     default_config_path,
@@ -52,8 +53,13 @@ def _json_rows(name: str) -> list[dict]:
 
 def _network_context():
     path = default_config_path()
+    try:
+        config = load_config(path)
+    except (ValueError, OSError):
+        config = DEFAULT_CONFIG
+        flash("Die Konfigurationsdatei ist nicht lesbar oder ungültig. Angezeigt werden Standardwerte; Speichern ersetzt die fehlerhafte Datei.")
     return {
-        "config": load_config(path),
+        "config": config,
         "status": read_status(path),
         "leases": read_leases(path),
         "dns_queries": tail_dns_log(path, 200),
@@ -67,11 +73,16 @@ def _network_context():
 @bp.get("")
 @admin_required
 def index():
-    context = _network_context()
+    # The hub does not need leases, query logs or privileged routing probes.
+    try:
+        config = load_config(default_config_path())
+    except (ValueError, OSError):
+        config = DEFAULT_CONFIG
+        flash("Mini-Service-Konfiguration ist ungültig. Netzwerkeinstellungen prüfen.")
     return render_template(
         "admin/mini_services_hub.html",
-        config=context["config"],
-        status=context["status"],
+        config=config,
+        status=read_status(default_config_path()),
     )
 
 
@@ -85,7 +96,10 @@ def network():
 @admin_required
 def save():
     path = default_config_path()
-    previous = load_config(path)
+    try:
+        previous = load_config(path)
+    except (ValueError, OSError):
+        previous = DEFAULT_CONFIG
     try:
         candidate = {
             "version": 1,
@@ -162,7 +176,7 @@ def refresh_lists():
         meta = refresh_blocklists(load_config(path), path)
     except Exception as exc:
         audit("mini_dns_blocklist_refresh", "service", "dns", outcome="failure", detail={"error_type": type(exc).__name__})
-        flash(f"Blocklisten konnten nicht aktualisiert werden: {exc}")
+        flash("Blocklisten konnten nicht aktualisiert werden. Netzwerk und Blocklisten-Adressen prüfen; Details im Audit.")
     else:
         audit("mini_dns_blocklist_refresh", "service", "dns", detail={"domains": meta.get("domains", 0)})
         flash(f"Blocklisten aktualisiert: {meta.get('domains', 0)} Domains.")
@@ -196,6 +210,7 @@ from .audio_streamer_admin import bp as _audio_streamer_admin_bp
 from .network_boot_admin import bp as _network_boot_admin_bp
 from .network_boot_http import bp as _network_boot_http_bp, federation_bp as _network_boot_federation_bp
 from .telephony_admin import bp as _telephony_admin_bp
+from .mini_services_api import bp as _mini_services_api_bp
 for _service_bp in (
     _network_boot_admin_bp,
     _network_boot_http_bp,
@@ -203,6 +218,7 @@ for _service_bp in (
     _audio_output_admin_bp,
     _audio_streamer_admin_bp,
     _telephony_admin_bp,
+    _mini_services_api_bp,
 ):
     if _service_bp.name not in _flask_app.blueprints:
         _flask_app.register_blueprint(_service_bp)

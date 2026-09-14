@@ -22,6 +22,7 @@ from simpleoffice_network_gateway_runtime import (
 )
 from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, effective_sip_settings
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
+from simpleoffice_mini_control import ControlStore
 
 LOG = logging.getLogger("simpleoffice.mini_services")
 SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
@@ -44,6 +45,9 @@ class Worker:
         self.states = {key: ServiceState(key, name) for key, name in SERVICE_NAMES.items()}
         self.config_error = None
         self.config_loaded = False
+        self.control = ControlStore(config_path)
+        self.preferences = self.control.preferences()
+        self.manual_states = {}
         self.next_blocklist_refresh = time.monotonic() + 5
         self.blocklist_thread = None
 
@@ -145,6 +149,10 @@ class Worker:
             "sip": (True, sip),
             "gateway": (bool(gateway["enabled"] and gateway["mode"] != "off"), {**gateway, "_server_ip": config["dhcp"]["server_ip"]}),
         }
+        for name, (enabled, settings) in desired.items():
+            preference = self.preferences[name]
+            requested = self.manual_states.get(name, preference["autostart"])
+            desired[name] = (enabled and preference["enabled"] and requested, settings)
         self.config = config
         for name, specification in desired.items():
             if self.desired.get(name) == specification:
@@ -175,6 +183,10 @@ class Worker:
 
     def tick(self) -> None:
         signature = self._signature()
+        preferences = self.control.preferences()
+        if preferences != self.preferences:
+            self.preferences = preferences
+            self.config_loaded = False
         if signature != self.config_signature or not self.config_loaded:
             self.config_loaded = True
             try:
@@ -183,6 +195,9 @@ class Worker:
                 self.config_signature = signature
                 self.config_error = error_detail(exc)
                 self.event({"service": "worker", "action": "configuration_failed", "error": type(exc).__name__})
+        command = self.control.claim()
+        if command:
+            self._execute(command)
         for name, state in self.states.items():
             if name != "gateway" and state.state == "running" and not service_health(getattr(self, name)):
                 if self._stop_one(name):
@@ -199,6 +214,7 @@ class Worker:
         self.write_status("running")
 
     def start(self) -> None:
+        self.control.recover_interrupted()
         self.tick()
         while not self.stop_event.wait(2):
             self.tick()
@@ -208,8 +224,42 @@ class Worker:
         self._stop_network_services()
         self.write_status("stopped")
 
+    def _execute(self, command):
+        name, action = command["service"], command["action"]
+        try:
+            if name not in self.states or action not in {"start", "stop", "restart"}:
+                raise ValueError("Unbekannter Befehl")
+            if action == "stop":
+                self.manual_states[name] = False
+                if not self._stop_one(name):
+                    raise RuntimeError("Stop fehlgeschlagen")
+                if name in self.desired:
+                    self.desired[name] = (False, self.desired[name][1])
+            else:
+                if not self.preferences[name]["enabled"]:
+                    raise ValueError("Dienst zuerst in den Einstellungen aktivieren")
+                if action == "restart" and not self._stop_one(name):
+                    raise RuntimeError("Stop fehlgeschlagen")
+                self.manual_states[name] = True
+                self._load_network_services()
+                state = self.states[name]
+                if not self.desired[name][0]:
+                    raise ValueError("Dienst zuerst in der Fachkonfiguration aktivieren")
+                if state.state != "running":
+                    state.retry_count = 0
+                    self._start_one(name)
+                if self.states[name].state != "running":
+                    raise RuntimeError("Start fehlgeschlagen")
+            self.control.finish(command["id"], True, self.states[name].snapshot(os.getpid()))
+            self.event({"service": name, "action": action, "operation_id": command["id"]})
+        except Exception as exc:
+            self.control.finish(command["id"], False, error_detail(exc))
+            self.event({"service": name, "action": action, "operation_id": command["id"], "error": type(exc).__name__})
+
     def write_status(self, state: str) -> None:
         services = {name: item.snapshot(os.getpid()) for name, item in self.states.items()}
+        for name, item in services.items():
+            item["settings"] = self.preferences[name]
         services["gateway"]["health"] = {"ok": None, "message": "Regel-Anwendungsstatus; Datenpfad nicht geprüft"}
         with self.event_lock:
             events = list(self.events[-20:])

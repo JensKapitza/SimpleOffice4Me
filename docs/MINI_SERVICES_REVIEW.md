@@ -35,6 +35,39 @@ Loopback-Start-/Stop-/Restart-/Portkonflikttests und isolierte Worker-Fehlertest
 Noch **keine** Gesamtabnahme: UI/API, persistente Audio-Konfiguration, vollständige
 Discovery/Recovery und plattformübergreifende Hardwaretests folgen separat.
 
+## Umsetzungspaket 2: Bedienung des Netzwerkworkers
+
+Die registrierte Admin-API unter `/api/mini-services` stellt dieselben fünf
+Worker-Dienste dar. Das lokale SQLite-Postfach enthält ausschließlich Dienst-ID,
+allowlist-validierte Aktion, Operation-ID und Ergebnis; keine Shell-Befehle oder
+frei übergebenen Argumente. Es ist auf 32 offene Befehle und begrenzte Historie
+beschränkt. Befehle verfallen nach 60 Sekunden; unterbrochene Befehle werden
+nach Worker-Neustart als fehlgeschlagen markiert, nicht heimlich wiederholt.
+SQLite stammt aus der Standardbibliothek und ersetzt keinen Service-Manager.
+
+- `GET /api/mini-services`, `GET /api/mini-services/<id>`: Status und Fähigkeiten.
+- `POST /api/mini-services/<id>/{start,stop,restart}`: 202 plus Operation-ID;
+  `GET /api/mini-services/operations/<id>` liefert den Abschluss.
+- `POST /api/mini-services/<id>/settings`: exakt die booleschen Felder
+  `enabled` und `autostart`; persistiert in `mini-services/control.sqlite3`.
+  Die bisherigen Fachkonfigurationen bleiben maßgeblich für Ports und Protokolle.
+- `POST /api/mini-services/<id>/scan`: Interface-Liste, lokale Bootdateien
+  oder registrierte SIP-Telefone; Scope, Trefferzahl und Zeitpunkt werden gezeigt.
+  Das ist keine Behauptung einer noch nicht implementierten DLNA-/SIP-Serversuche.
+- Alle Endpunkte erfordern Anmeldung/Adminrolle, Mutationen den bestehenden
+  CSRF-Token. Antworten sind `no-store`; Worker-Abwesenheit ergibt eine erklärende
+  503-Antwort. Neue Netzwerkports entstehen nicht.
+
+Die Oberfläche verwendet vorhandene Theme-Komponenten: responsive Karten,
+44px-Bedienziele, sichtbaren Tastaturfokus, Text plus Symbol für Status,
+`aria-live` für Aktionsfeedback und ausklappbare Diagnose. Polling ersetzt keine
+fokussierten Eingaben. Die Gestaltung folgt den W3C-Erläuterungen zu
+[Zielgröße](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)
+und [Statusmeldungen](https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html)
+sowie Nielsens [Usability-Heuristiken](https://www.nngroup.com/articles/ten-usability-heuristics/)
+(Systemstatus, Konsistenz, Fehlererholung, Wiedererkennen statt Erinnern).
+Dies ist eine begründete Umsetzung, noch kein vollständiger WCAG-Konformitätsnachweis.
+
 ## Grenzen des Subsystems
 
 Der dedizierte Worker besitzt DHCP, DNS, TFTP, Gateway und SIP. HTTP-Netzboot,

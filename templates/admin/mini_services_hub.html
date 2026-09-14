@@ -15,6 +15,16 @@
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
+  <section id="mini-service-control" class="mb-4" data-api="{{ url_for('mini_services_api.index') }}" aria-labelledby="mini-control-title">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+      <h2 class="h4 mb-0" id="mini-control-title">Netzwerkdienste steuern</h2>
+      <button type="button" class="btn btn-outline-secondary" id="mini-refresh">Status aktualisieren</button>
+    </div>
+    <p class="small">Start und Stop gelten für die aktuelle Sitzung. Autostart gilt beim nächsten Worker-Start. DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein.</p>
+    <div id="mini-feedback" role="status" aria-live="polite" class="alert alert-secondary">Status wird geladen …</div>
+    <div id="mini-control-cards" class="row g-3"></div>
+  </section>
+
   <div class="row g-3">
     <div class="col-sm-6 col-xl-3">
       <article class="card h-100">
@@ -82,4 +92,6 @@
     </div>
   </section>
 </main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
+<script src="{{ url_for('static', filename='js/mini_services.js') }}" defer></script>
 {% endblock %}
