@@ -13,6 +13,8 @@ dependencies = [
   "beautifulsoup4>=4.12,<5",
   "defusedxml>=0.7,<1",
   "Pillow>=12.2,<13",
+  "rapidocr==3.9.2",
+  "onnxruntime==1.24.2",
   "reportlab>=4.0,<6",
   "pypdf>=5.0,<7",
   "waitress>=3.0,<4",
