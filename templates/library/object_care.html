@@ -109,7 +109,7 @@
 
           <div class="vstack gap-3">{% for photo in care.photos|default([])|reverse %}<article class="border rounded p-2">
             <a href="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" target="_blank" rel="noopener noreferrer"><img class="img-fluid rounded border w-100" style="max-height:260px;object-fit:contain" src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" alt="Objektfoto" loading="lazy" decoding="async"></a>
-            {% if photo.analysis %}<div class="small mt-2"><strong>Analyse:</strong> {{ photo.analysis.width|default('?') }}×{{ photo.analysis.height|default('?') }} · {{ photo.analysis.format|default('') }} · OCR {{ photo.analysis.ocr_status|default('nicht ausgeführt') }}{% if photo.analysis.detected_terms %}<br><strong>Erkannt:</strong> {{ photo.analysis.detected_terms|join(', ') }}{% endif %}{% if photo.analysis.suggested_fields %}<br><strong>Vorschläge:</strong> {% for key, value in photo.analysis.suggested_fields.items() %}<code>{{ key }}</code>=${{ value }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>{% endif %}
+            {% if photo.analysis %}<div class="small mt-2"><strong>Analyse:</strong> {{ photo.analysis.width|default('?') }}×{{ photo.analysis.height|default('?') }} · {{ photo.analysis.format|default('') }} · OCR {{ photo.analysis.ocr_status|default('nicht ausgeführt') }}{% if photo.analysis.detected_terms %}<br><strong>Erkannt:</strong> {{ photo.analysis.detected_terms|join(', ') }}{% endif %}{% if photo.analysis.suggested_fields %}<br><strong>Vorschläge:</strong> {% for key, value in photo.analysis.suggested_fields.items() %}<code>{{ key }}</code>={{ value }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>{% endif %}
             {% if photo.analysis and photo.analysis.ocr_text %}<details class="mt-2"><summary>OCR-Text anzeigen</summary><pre class="small border rounded bg-body-tertiary p-2 mt-2" style="white-space:pre-wrap;max-height:260px;overflow:auto">{{ photo.analysis.ocr_text }}</pre></details>{% endif %}
             <form method="post" action="{{ url_for('library.object_care_analyze_photo', object_id=item.object_id, filename=photo.filename) }}" class="mt-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">OCR/Bildanalyse neu ausführen</button></form>
           </article>{% else %}<div class="text-secondary">Noch kein Bild vorhanden.</div>{% endfor %}</div>
@@ -121,10 +121,14 @@
         <div class="card-body">
           <p class="small text-secondary">Die Bibliothek ist nur eine Fachansicht: Jedes Buch und auch jedes Regal bleibt ein normales Objekt.</p>
           {% if assigned_path %}<div class="alert alert-success py-2">Aktuell: {{ assigned_path }}</div>{% endif %}
-          <form method="post" action="{{ url_for('library.object_care_location', object_id=item.object_id) }}" class="row g-2">
+          <form method="post" action="{{ url_for('library.object_care_location', object_id=item.object_id) }}" class="row g-2 mb-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="col-12"><label class="form-label">Standort / Regal</label><select required class="form-select" name="location_id"><option value="">– auswählen –</option>{% for location in locations %}<option value="{{ location.location_id }}" {% if assignment.location_id == location.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
             <div class="col-12"><button class="btn btn-outline-primary" type="submit">Objekt zuordnen</button></div>
+          </form>
+          <form method="post" action="{{ url_for('library.sync_location_objects') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Bestehende Regale als Objekte abgleichen</button>
           </form>
         </div>
       </div>
