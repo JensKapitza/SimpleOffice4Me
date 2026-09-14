@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4">
+<main id="main-content" class="container-xl py-4 mini-service-page">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
-      <h1 class="h2 mb-1">Networkboot · Federation</h1>
+      <h1 class="h2 mb-1">Netzwerkboot</h1>
       <p class="text-secondary mb-0">Boot-Angebot und Datenhaltung sind getrennte Rollen. Die Bezeichnungen gelten immer aus Sicht des jeweiligen Peers.</p>
     </div>
     <div class="btn-group">
@@ -14,6 +14,33 @@
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="card mb-4" aria-labelledby="boot-settings-title">
+    <div class="card-body">
+      <h2 id="boot-settings-title" class="h4">Lokale Boot-Einstellungen</h2>
+      <p>HTTP-Boot ist <strong>{{ 'aktiviert' if boot.enabled else 'deaktiviert' }}</strong>.
+        Start, Stop, Neustart und Dateisuche sind in der <a href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a> verfügbar.
+        Stop sperrt öffentliche Bootdateien und beendet auch die zugehörige TFTP-Auslieferung über den Worker.</p>
+      <details {% if request.method == 'POST' %}open{% endif %}>
+        <summary>Erweiterte Einstellungen, Profile und Diagnose</summary>
+        <form method="post" action="{{ url_for('network_boot_admin.settings') }}" class="mt-3">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <label for="boot-json" class="form-label">Boot-Konfiguration (JSON)</label>
+          <textarea id="boot-json" name="boot_json" class="form-control font-monospace" rows="16" aria-describedby="boot-json-help" spellcheck="false">{{ boot_json }}</textarea>
+          <p class="form-text" id="boot-json-help">Schalter verwenden <code>true</code> oder <code>false</code>.
+            <code>enabled</code> schaltet die öffentliche Auslieferung frei; <code>tftp_enabled</code> zusätzlich TFTP.
+            <code>tftp_bind</code> ist die lokale IPv4-Adresse; <code>127.0.0.1</code> ist nur lokal erreichbar.
+            <code>http_base_url</code> kann für HTTP-Aufrufe leer bleiben; DHCP/PXE benötigt eine für Clients erreichbare Basisadresse.
+            Profile verweisen mit relativen Dateinamen auf vorhandene Bootdateien. <code>default_profile</code> wählt deren ID.
+            Beim Zurücksetzen bleiben Dateien erhalten, die öffentliche Auslieferung wird deaktiviert.</p>
+          <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-primary" type="submit" name="action" value="save">Einstellungen speichern</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="reset">Standardwerte wiederherstellen</button>
+          </div>
+        </form>
+      </details>
+    </div>
+  </section>
 
   <div class="alert alert-secondary" role="status" aria-live="polite">
     <strong>Beispiel:</strong> Ein Server kann <em>Networkboot anbieten</em>, ohne fremde Boot-Dateien zu speichern. Ein Backup-Server kann dagegen nur <em>Networkboot-Daten vorhalten</em>, ohne selbst als Boot-Quelle genutzt zu werden. Beide Optionen können auch gleichzeitig aktiv sein.
@@ -53,7 +80,7 @@
                 <div><button class="btn btn-sm btn-outline-primary" type="submit">Rollen speichern</button></div>
               </form>
             </td>
-            <td class="text-nowrap">
+            <td>
               {% if nb.get('offers_network_boot') %}
               <form method="post" action="{{ url_for('network_boot_admin.fetch_peer', peer_id=peer.peer_id) }}" class="mb-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -78,9 +105,11 @@
 
   <section class="card">
     <div class="card-header"><strong>Lokale Networkboot-Dateien</strong></div>
-    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datei</th><th scope="col">Größe</th><th scope="col">SHA-256</th></tr></thead><tbody>
-      {% for asset in assets %}<tr><td class="text-break">{{ asset.path }}</td><td>{{ asset.size }} Byte</td><td><code class="small">{{ asset.sha256 }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Noch keine Boot-Dateien vorhanden.</td></tr>{% endfor %}
+    <div class="card-body small">Bis zu 512 Dateien; Prüfsummen werden beim Föderationstransfer geprüft.</div>
+    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datei</th><th scope="col">Größe</th></tr></thead><tbody>
+      {% for asset in assets %}<tr><td class="text-break">{{ asset.path }}</td><td>{{ asset.size }} Byte</td></tr>{% else %}<tr><td colspan="2" class="text-secondary">Noch keine Boot-Dateien vorhanden.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 </main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 {% endblock %}

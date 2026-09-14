@@ -9,6 +9,7 @@ import socket
 import struct
 import threading
 import time
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
@@ -184,25 +185,39 @@ def save_boot_settings(candidate: dict[str, Any], config_path: str | Path | None
     return clean
 
 
-def list_assets(config_path: str | Path | None = None) -> list[dict[str, Any]]:
+def list_assets(config_path: str | Path | None = None, *, include_hash: bool = True, max_entries: int | None = None) -> list[dict[str, Any]]:
     root = assets_root(config_path); root.mkdir(parents=True, exist_ok=True); rows = []
     for path in root.rglob("*"):
-        if not path.is_file() or path.is_symlink():
+        if not path.is_file() or path.is_symlink() or path.name.startswith(".boot-"):
             continue
-        relative = path.relative_to(root).as_posix(); digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(block)
-        rows.append({"path": relative, "size": path.stat().st_size, "sha256": digest.hexdigest(), "mtime_ns": path.stat().st_mtime_ns})
+        relative = path.relative_to(root).as_posix()
+        stat = path.stat()
+        row = {"path": relative, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+        if include_hash:
+            digest = hashlib.sha256()
+            with path.open("rb") as handle:
+                for block in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(block)
+            row["sha256"] = digest.hexdigest()
+        rows.append(row)
+        if max_entries is not None and len(rows) >= max_entries:
+            break
     return sorted(rows, key=lambda row: row["path"].casefold())
 
 
 def store_asset(source, filename: str, config_path: str | Path | None = None, *, max_bytes: int = 16 * 1024 * 1024 * 1024) -> dict[str, Any]:
     relative = _safe_relative(filename); target = safe_asset_path(relative, config_path, must_exist=False)
-    target.parent.mkdir(parents=True, exist_ok=True); temporary = target.with_suffix(target.suffix + ".part")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".boot-", suffix=".part", dir=target.parent)
+    temporary = Path(temporary_name)
     digest = hashlib.sha256(); total = 0
     try:
-        with temporary.open("wb") as handle:
+        try:
+            handle = os.fdopen(descriptor, "wb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with handle:
             while True:
                 block = source.read(1024 * 1024)
                 if not block: break
@@ -211,8 +226,8 @@ def store_asset(source, filename: str, config_path: str | Path | None = None, *,
                 digest.update(block); handle.write(block)
             handle.flush(); os.fsync(handle.fileno())
         os.replace(temporary, target)
-    except Exception:
-        temporary.unlink(missing_ok=True); raise
+    finally:
+        temporary.unlink(missing_ok=True)
     return {"path": relative, "size": total, "sha256": digest.hexdigest()}
 
 

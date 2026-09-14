@@ -247,3 +247,23 @@ funktionierenden Datenpfad. Unlesbarer Status bleibt unbekannt. Globale
 Forwarding-Einstellungen werden beim Stop nicht abgeschaltet, da andere Dienste
 sie nutzen können. Internet-Erreichbarkeit und Paketdurchsatz sind kein Bestandteil
 dieses lokalen Healthchecks. Nachweis: 39 Tests im Gateway-/Lifecycle-/Security-/API-Paket.
+
+### HTTP/PXE, Dateien und Bedienung
+
+HTTP/PXE ist in der gemeinsamen API und Übersicht registriert. Der bestehende
+Webserver bleibt Eigentümer. Start/Stop speichern den vorhandenen Boot-Schalter;
+Neustart lädt Einstellungen neu, ohne andere Webfunktionen zu unterbrechen.
+Fehlende Profile oder Dateien liefern `waiting` bzw. `degraded`; das Wiedererscheinen
+einer Datei wird beim nächsten Statusabruf erkannt. Keine eigenen erfundenen
+HTTP-Prozesslaufzeiten oder Autostart-Schalter.
+
+Dateiscans verwenden Metadaten, maximal 512 Treffer und keine Image-Prüfsummen.
+Föderation behält vollständige Hashprüfung. Parallele Uploads verwenden private,
+zufällige temporäre Namen und atomaren Ersatz. Scanfehler werden gespeichert.
+Der geschützte erweiterte Boot-Editor kann alle vorhandenen Optionen bearbeiten
+und auf deaktivierte Standardwerte zurücksetzen. Ungültige Eingaben bleiben erhalten.
+Widersprüchliche alte „bereit“-Statusanzeigen wurden aus der Übersicht entfernt.
+
+Dokumentation: [Netzwerkboot](NETWORK_BOOT.md). Nachweis: 47 Tests im
+HTTP/PXE-/Security-/Netzwerk-/API-Paket. Der geführte Profileditor und reale
+PXE-/Windows-/Android-Gerätetests sind weiterhin offen.

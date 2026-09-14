@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import tempfile
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from flask import Blueprint, Response, current_app, jsonify, request, send_from_
 
 from .federation_http import _authorized
 from .federation_store import FederationStore
+from simpleoffice_mini_core import default_config_path
 from .network_boot import (
     assets_root,
     federation_manifest,
@@ -28,8 +28,7 @@ MAX_FEDERATED_ASSET = 16 * 1024 * 1024 * 1024
 
 
 def _config_path() -> Path:
-    configured = os.environ.get("SIMPLEOFFICE_MINI_SERVICES_CONFIG", "").strip()
-    return Path(configured).expanduser() if configured else Path(current_app.instance_path) / "mini-services.json"
+    return default_config_path()
 
 
 def _asset_response(relative: str, *, max_age: int):

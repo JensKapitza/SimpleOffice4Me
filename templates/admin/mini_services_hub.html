@@ -17,10 +17,12 @@
 
   <section id="mini-service-control" class="mb-4" data-api="{{ url_for('mini_services_api.index') }}" aria-labelledby="mini-control-title">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-      <h2 class="h4 mb-0" id="mini-control-title">Netzwerkdienste steuern</h2>
+      <h2 class="h4 mb-0" id="mini-control-title">Dienste steuern</h2>
       <button type="button" class="btn btn-outline-secondary" id="mini-refresh">Status aktualisieren</button>
     </div>
-    <p class="small">Start und Stop gelten für die aktuelle Sitzung. Autostart gilt beim nächsten Worker-Start. DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein.</p>
+    <p class="small">Start und Stop gelten bei Worker-Diensten für die aktuelle Sitzung. Autostart gilt beim nächsten Dienststart.
+      DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein.
+      HTTP/PXE wird vom Webserver bereitgestellt; sein Start/Stop speichert die Freigabe dauerhaft und steuert auch die zugehörige TFTP-Auslieferung.</p>
     <div id="mini-feedback" role="status" aria-live="polite" class="alert alert-secondary">Status wird geladen …</div>
     <div id="mini-control-cards" class="row g-3"></div>
   </section>
@@ -29,7 +31,7 @@
     <div class="col-sm-6 col-xl-3">
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
-          <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-network-wired me-2" aria-hidden="true"></i>DHCP / DNS</h2><span class="badge text-bg-{{ 'success' if status.dhcp_running or status.dns_running else 'secondary' }} align-self-start">{{ 'läuft' if status.dhcp_running or status.dns_running else 'bereit' }}</span></div>
+          <h2 class="h5"><i class="fas fa-network-wired me-2" aria-hidden="true"></i>DHCP / DNS</h2>
           <p class="text-secondary small">Adressvergabe, lokales DNS, Blocklisten, Leases und Netzwerkoptionen.</p>
           <div class="small mb-3">DHCP: <strong>{{ 'an' if config.dhcp.enabled else 'aus' }}</strong> · DNS: <strong>{{ 'an' if config.dns.enabled else 'aus' }}</strong></div>
           <a class="btn btn-primary mt-auto" href="{{ url_for('mini_services_admin.network') }}">Netzwerkdienste öffnen</a>
@@ -40,9 +42,9 @@
     <div class="col-sm-6 col-xl-3">
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
-          <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-phone-volume me-2" aria-hidden="true"></i>SIP / Telefonie</h2><span class="badge text-bg-{{ 'success' if status.sip_running else 'secondary' }} align-self-start">{{ 'läuft' if status.sip_running else 'bereit' }}</span></div>
+          <h2 class="h5"><i class="fas fa-phone-volume me-2" aria-hidden="true"></i>SIP / Telefonie</h2>
           <p class="text-secondary small">Automatischer lokaler SIP-Registrar für Chat, Softphones und IP-Telefone.</p>
-          {% if status.sip_running and status.sip %}<p class="small mb-3"><code>{{ status.sip.advertised_host }}:{{ status.sip.port }}/UDP</code> · {{ status.sip.registrations or 0 }} registriert</p>{% elif status.sip and status.sip.error %}<p class="small text-warning-emphasis mb-3">SIP konnte nicht starten: {{ status.sip.error }}</p>{% else %}<p class="small mb-3">Startet mit dem Mini-Services-Worker automatisch.</p>{% endif %}
+          <p class="small mb-3">Zugangsdaten, Nebenstellen und Telefonkonfiguration verwalten. Laufzeitstatus siehe oben.</p>
           <a class="btn btn-primary mt-auto" href="{{ url_for('telephony_admin.index') }}">SIP-Service öffnen</a>
         </div>
       </article>
@@ -80,17 +82,6 @@
     </div>
   </div>
 
-  <section class="card mt-4">
-    <div class="card-body">
-      <h2 class="h5">Dienststatus</h2>
-      <div class="row g-2 small">
-        <div class="col-md-3"><span class="text-secondary">Worker:</span> <strong>{{ status.state or 'unbekannt' }}</strong>{% if status.pid %} · PID {{ status.pid }}{% endif %}</div>
-        <div class="col-md-3"><span class="text-secondary">DHCP:</span> <strong>{{ 'läuft' if status.dhcp_running else ('konfiguriert' if config.dhcp.enabled else 'aus') }}</strong></div>
-        <div class="col-md-3"><span class="text-secondary">DNS:</span> <strong>{{ 'läuft' if status.dns_running else ('konfiguriert' if config.dns.enabled else 'aus') }}</strong></div>
-        <div class="col-md-3"><span class="text-secondary">SIP:</span> <strong>{{ 'läuft automatisch' if status.sip_running else 'wartet' }}</strong></div>
-      </div>
-    </div>
-  </section>
 </main>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 <script src="{{ url_for('static', filename='js/mini_services.js') }}" defer></script>
