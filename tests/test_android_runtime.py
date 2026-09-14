@@ -28,6 +28,16 @@ class AndroidRuntimeTests(unittest.TestCase):
         self.assertIn('os.environ["SIMPLEOFFICE_HOST"] = "127.0.0.1"', source)
         self.assertIn('os.environ["SIMPLEOFFICE_BACKGROUND_INDEX"] = "0"', source)
 
+    def test_runtime_receives_native_identity_and_registers_local_auth_before_serving(self):
+        source = RUNTIME.read_text(encoding="utf-8")
+        self.assertIn('account_email: str = ""', source)
+        self.assertIn('bootstrap_token: str = ""', source)
+        self.assertIn('SIMPLEOFFICE_ANDROID_ACCOUNT', source)
+        self.assertIn('SIMPLEOFFICE_ANDROID_BOOTSTRAP_TOKEN', source)
+        self.assertIn('from app import android_auth', source)
+        self.assertIn('app.register_blueprint(android_auth.bp)', source)
+        self.assertIn('timedelta(days=365)', source)
+
 
 if __name__ == "__main__":
     unittest.main()

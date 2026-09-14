@@ -16,8 +16,8 @@ def androidRuntimeProfiles = [
     'armeabi-v7a': '3.11',
 ]
 def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
-def appVersionCode = 7
-def appVersionName = '1.0.6'
+def appVersionCode = 8
+def appVersionName = '1.0.7'
 if (!expectedPythonVersion) {
     throw new GradleException("Unsupported Android ABI: ${androidAbi}")
 }
@@ -35,8 +35,8 @@ android {
         applicationId 'de.simpleoffice4me.android'
         minSdk 24
         targetSdk 36
-        versionCode 7
-        versionName '1.0.6'
+        versionCode 8
+        versionName '1.0.7'
         buildConfigField 'String', 'ERROR_REPORT_URL', "\"${escapedErrorReportUrl}\""
 
         ndk {

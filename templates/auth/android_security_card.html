@@ -1,0 +1,52 @@
+<section class="col-lg-6">
+  <div class="card h-100">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>{{ 'Android app protection' if g.language == 'en' else 'Android-App-Schutz' }}</span>
+      <span class="badge {{ 'text-bg-success' if android_local_account.password_enabled else 'text-bg-secondary' }}">
+        {{ 'active' if android_local_account.password_enabled and g.language == 'en' else 'aktiv' if android_local_account.password_enabled else 'off' if g.language == 'en' else 'aus' }}
+      </span>
+    </div>
+    <div class="card-body">
+      {% if android_local_account.email %}
+        <p class="small text-secondary mb-3">{{ 'Local Android identity:' if g.language == 'en' else 'Lokale Android-Identität:' }} <strong>{{ android_local_account.email }}</strong></p>
+      {% else %}
+        <p class="small text-secondary mb-3">{{ 'The app currently uses a local Android account without a Google identity.' if g.language == 'en' else 'Die App verwendet aktuell ein lokales Android-Konto ohne Google-Identität.' }}</p>
+      {% endif %}
+      <p class="small">{{ 'Without app protection, device unlocking protects local SimpleOffice data. You can add a separate password at any time.' if g.language == 'en' else 'Ohne App-Schutz schützt die Gerätesperre die lokalen SimpleOffice-Daten. Ein zusätzliches Passwort kannst du jederzeit nachträglich aktivieren.' }}</p>
+
+      <form method="post" action="{{ url_for('android_auth.password') }}" autocomplete="off" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        {% if android_local_account.password_enabled %}
+          <div class="col-12">
+            <label class="form-label" for="android-current-password">{{ 'Current app password' if g.language == 'en' else 'Aktuelles App-Passwort' }}</label>
+            <input class="form-control" id="android-current-password" name="current_password" type="password" minlength="12" maxlength="128" autocomplete="current-password" required>
+          </div>
+        {% endif %}
+        <div class="col-md-6">
+          <label class="form-label" for="android-new-password">{{ 'New password' if g.language == 'en' else 'Neues Passwort' }}</label>
+          <input class="form-control" id="android-new-password" name="new_password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="android-new-password-confirm">{{ 'Repeat password' if g.language == 'en' else 'Passwort wiederholen' }}</label>
+          <input class="form-control" id="android-new-password-confirm" name="new_password_confirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-outline-primary" type="submit" name="action" value="{{ 'change' if android_local_account.password_enabled else 'enable' }}">
+            {{ 'Change app password' if android_local_account.password_enabled and g.language == 'en' else 'App-Passwort ändern' if android_local_account.password_enabled else 'Enable app protection' if g.language == 'en' else 'App-Schutz aktivieren' }}
+          </button>
+        </div>
+      </form>
+
+      {% if android_local_account.password_enabled %}
+        <form method="post" action="{{ url_for('android_auth.password') }}" autocomplete="off" class="mt-3">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label" for="android-disable-password">{{ 'Current app password' if g.language == 'en' else 'Aktuelles App-Passwort zum Deaktivieren' }}</label>
+          <div class="input-group">
+            <input class="form-control" id="android-disable-password" name="current_password" type="password" minlength="12" maxlength="128" autocomplete="current-password" required>
+            <button class="btn btn-outline-danger" type="submit" name="action" value="disable">{{ 'Disable protection' if g.language == 'en' else 'Schutz deaktivieren' }}</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+</section>
