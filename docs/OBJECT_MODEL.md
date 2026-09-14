@@ -28,12 +28,26 @@ Bilder werden pro Objekt abgelegt. Sie können unmittelbar bei der Erfassung, sp
 Die Analyse bleibt lokal:
 
 - Bildformat, Auflösung, Orientierung und einfache Qualitätsmerkmale über Pillow
-- OCR über Tesseract, sofern installiert
+- **ML-OCR über RapidOCR mit ONNX Runtime als Standard auf Desktop-Systemen**
+- Tesseract nur noch als lokaler Fallback, wenn die ML-Engine fehlt, fehlschlägt oder keinen Text erkennt
+- ML-Ergebnisse enthalten zusätzlich Textblöcke, Koordinaten und Konfidenzwerte
 - erkannte Modell-/Seriennummern als Attributvorschläge
 - erkannte Begriffe wie CE, DGUV, VDE, GS, RoHS oder WEEE als Hinweise und Such-Tags
 - OCR-Ausschnitt und Schlüsselwörter werden im Objekt suchbar gemacht
 
-Fehlt Tesseract, bleibt die Fotoablage vollständig nutzbar und OCR wird transparent als nicht verfügbar markiert.
+Die ML-Modelle laufen lokal; Bilder oder erkannte Texte werden für die OCR nicht an externe Dienste übertragen. Die Desktop-Anwendung bündelt RapidOCR und ONNX Runtime als normale Python-Abhängigkeiten. Android verwendet weiterhin seinen eigenen plattformspezifischen Paket-/OCR-Weg und kann später dasselbe Ergebnisformat liefern.
+
+Das gemeinsame OCR-Ergebnis ist unabhängig von der Engine aufgebaut und enthält mindestens:
+
+- verwendete Engine (`rapidocr` oder Fallback `tesseract`)
+- Status
+- Volltext
+- Anzahl erkannter Zeichen
+- mittlere Konfidenz, sofern die Engine sie liefert
+- erkannte Textblöcke mit Bounding-Boxen, sofern verfügbar
+- Informationen über einen eventuell verwendeten Fallback
+
+Damit kann die Oberfläche später erkannte Bereiche direkt auf dem Objektfoto markieren, ohne das Datenmodell erneut ändern zu müssen.
 
 ### Zustand und Alterungsverlauf
 
@@ -96,7 +110,7 @@ Die Bibliothek ist eine Fachansicht auf Objekte:
 | Bereich | Kanonische Verantwortung |
 | --- | --- |
 | Identität, Stammdaten, Attribute, Tags, Dokumente | `ObjectStore` |
-| Bilder, OCR, Zustand, Konformität, Prüfverlauf | gemeinsame Objektakte / bestehender Inventory-Sidecar |
+| Bilder, ML-OCR, Zustand, Konformität, Prüfverlauf | gemeinsame Objektakte / bestehender Inventory-Sidecar |
 | Schnellerfassung, Barcode, NFC, Buch-Metadaten | Inventar-Workflow |
 | Regalhierarchie, Zuordnung, Etikettendruck | Bibliotheks-Workflow |
 | Fälligkeiten und Wiederholungen | VTODO / Aufgabenverwaltung |
