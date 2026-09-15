@@ -40,6 +40,44 @@ class HttpBootLifecycleTests(unittest.TestCase):
     def action(self, name):
         return self.client.post("/api/mini-services/http-boot/" + name, json={}, headers=self.headers)
 
+    def test_guided_profile_create_update_delete_preserves_settings_and_assets(self):
+        save_boot_settings({"tftp_port": 1069}, self.path)
+        store_asset(io.BytesIO(b"kernel"), "kernel", self.path)
+        url = "/admin/mini-services/network-boot/profiles"
+        form = {"id": "linux", "label": "Linux", "mode": "kernel", "kernel": "kernel", "architectures": "0,7", "enabled": "1", "default": "1"}
+        self.assertEqual(403, self.client.post(url, data=form).status_code)
+        self.assertEqual(302, self.client.post(url, data=form, headers=self.headers).status_code)
+        config = load_boot_settings(self.path)
+        self.assertFalse(config["enabled"])
+        self.assertEqual(1069, config["tftp_port"])
+        self.assertEqual("linux", config["default_profile"])
+        self.assertEqual([0, 7], config["profiles"][0]["architectures"])
+        self.assertEqual(302, self.client.post(url, data={**form, "original_id": "linux", "id": "rescue"}, headers=self.headers).status_code)
+        self.assertEqual("rescue", load_boot_settings(self.path)["default_profile"])
+        self.assertEqual(302, self.client.post(url, data={"original_id": "rescue", "action": "delete"}, headers=self.headers).status_code)
+        self.assertEqual([], load_boot_settings(self.path)["profiles"])
+        self.assertEqual("", load_boot_settings(self.path)["default_profile"])
+        self.assertEqual(b"kernel", (assets_root(self.path) / "kernel").read_bytes())
+
+    def test_guided_profile_rejects_invalid_input_and_keeps_form(self):
+        save_boot_settings({"profiles": [{"id": "existing", "kernel": "kernel"}]}, self.path)
+        before = load_boot_settings(self.path)
+        url = "/admin/mini-services/network-boot/profiles"
+        for form in ({"id": "existing", "mode": "kernel", "kernel": "other"}, {"id": "new", "mode": "kernel", "kernel": "../../outside"}, {"id": "new", "mode": "chain", "chain_url": "file:///private"}):
+            with patch("app.network_boot_admin._page", return_value="invalid") as page:
+                self.assertEqual(400, self.client.post(url, data=form, headers=self.headers).status_code)
+                self.assertEqual(form["id"], page.call_args.kwargs["profile_form"]["id"])
+            self.assertEqual(before, load_boot_settings(self.path))
+        self.user["is_admin"] = False
+        self.assertEqual(403, self.client.post(url, data={}, headers=self.headers).status_code)
+
+    def test_guided_profile_write_error_is_retryable(self):
+        with patch("app.network_boot_admin.save_boot_settings", side_effect=PermissionError("private")), patch("app.network_boot_admin._page", return_value="retry") as page:
+            response = self.client.post("/admin/mini-services/network-boot/profiles", data={"id": "new", "mode": "kernel", "kernel": "vmlinuz"}, headers=self.headers)
+        self.assertEqual(503, response.status_code)
+        self.assertEqual("vmlinuz", page.call_args.kwargs["profile_form"]["kernel"])
+        self.assertEqual([], load_boot_settings(self.path)["profiles"])
+
     def test_status_and_idempotent_lifecycle_without_mini_worker(self):
         self.assertEqual("stopped", self.client.get("/api/mini-services/http-boot").json["state"])
         config = {"default_profile": "linux", "profiles": [{"id": "linux", "kernel": "kernel"}]}

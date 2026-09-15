@@ -38,7 +38,8 @@ def index():
     return _page()
 
 
-def _page(submitted=None):
+def _page(submitted=None, profile_form=None):
+    profile_error = profile_form is not None
     try:
         boot = load_boot_settings(default_config_path())
     except (OSError, ValueError):
@@ -49,13 +50,68 @@ def _page(submitted=None):
     except OSError:
         assets = []
         flash("Boot-Dateien sind nicht lesbar. Dateirechte des Boot-Verzeichnisses prüfen.")
+    if profile_form is None:
+        selected = next((item for item in boot["profiles"] if item["id"] == request.args.get("profile")), None)
+        profile_form = {"id": "", "original_id": "", "label": "", "mode": "kernel", "enabled": True,
+                        "architectures": "0,7,9,11", "kernel": "", "initrd": "", "iso": "",
+                        "chain_url": "", "kernel_args": "", "default": False}
+        if selected:
+            profile_form.update(selected, original_id=selected["id"],
+                                architectures=",".join(map(str, selected["architectures"])),
+                                default=boot["default_profile"] == selected["id"])
     return render_template(
         "admin/network_boot_federation.html",
         peers=_store().list_peers(),
         boot=boot,
         boot_json=submitted if submitted is not None else json.dumps(boot, ensure_ascii=False, indent=2),
         assets=assets,
+        profile_form=profile_form,
+        profile_error=profile_error,
     )
+
+
+@bp.post("/profiles")
+@admin_required
+def profile_save():
+    fields = ("id", "original_id", "label", "mode", "architectures", "kernel", "initrd", "iso", "chain_url", "kernel_args")
+    form = {key: request.form.get(key, "") for key in fields}
+    form.update(enabled=request.form.get("enabled") == "1", default=request.form.get("default") == "1")
+    try:
+        config = load_boot_settings(default_config_path())
+        original = form["original_id"]
+        existing = next((item for item in config["profiles"] if item["id"] == original), None)
+        if original and existing is None:
+            raise ValueError("Das bearbeitete Profil existiert nicht mehr")
+        action = request.form.get("action", "save")
+        if action == "delete":
+            if not existing:
+                raise ValueError("Kein Profil zum Entfernen ausgewählt")
+            config["profiles"] = [item for item in config["profiles"] if item["id"] != original]
+            if config["default_profile"] == original:
+                config["default_profile"] = ""
+        elif action == "save":
+            candidate = {key: form[key] for key in fields if key != "original_id"}
+            candidate["enabled"] = form["enabled"]
+            candidate["architectures"] = [int(value.strip()) for value in form["architectures"].split(",") if value.strip()]
+            if any(item["id"] == candidate["id"].strip() and item["id"] != original for item in config["profiles"]):
+                raise ValueError("Profil-ID bereits vergeben")
+            config["profiles"] = [candidate if item["id"] == original else item for item in config["profiles"]]
+            if existing is None:
+                config["profiles"].append(candidate)
+            if form["default"]:
+                config["default_profile"] = candidate["id"].strip()
+            elif config["default_profile"] == original:
+                config["default_profile"] = ""
+        else:
+            raise ValueError("Unbekannte Profilaktion")
+        save_boot_settings(config, default_config_path())
+    except (ValueError, TypeError, OSError) as exc:
+        flash("Bootprofil nicht gespeichert. Eindeutige ID, Modus, Dateipfade, HTTP(S)-Adresse und Architekturcodes prüfen. Bei Schreibfehlern Dateirechte prüfen. Eingaben bleiben erhalten.")
+        audit("network_boot_profile_rejected", "service", "http-boot", detail={"error_type": type(exc).__name__})
+        return _page(profile_form=form), 503 if isinstance(exc, OSError) else 400
+    audit("network_boot_profile_saved", "service", "http-boot", detail={"action": action})
+    flash("Bootprofil gespeichert. Der Aktivierungszustand der Boot-Dienste bleibt unverändert; gelöschte Profile entfernen keine Dateien.")
+    return redirect(url_for("network_boot_admin.index"))
 
 
 @bp.post("/settings")
