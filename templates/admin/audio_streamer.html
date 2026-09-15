@@ -2,8 +2,8 @@
 {% block title %}Audio-Streamer · SimpleOffice4Me{% endblock %}
 {% block body %}
 <main id="main-content" class="container py-3" style="max-width: 980px;">
-<div id="audio-streamer-app" data-base-url="{{ url_for('audio_streamer_admin.page') }}">
-  <div class="d-flex justify-content-between align-items-center mb-3">
+<div id="audio-streamer-app" data-base-url="{{ url_for('audio_streamer_admin.page') }}" data-settings='{{ settings|tojson }}'>
+  <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
     <div>
       <h1 class="h3 mb-1">Live Audio-Streamer</h1>
       <p class="text-muted mb-0">Mikrofon eines PC/Pi per WLAN als Opus/RTP an andere Geräte senden.</p>
@@ -17,19 +17,32 @@
         <label class="form-label" for="capture-backend">Audio-System</label>
         <select class="form-select mb-3" id="capture-backend"><option value="pulse">PipeWire / PulseAudio</option><option value="alsa">ALSA</option></select>
         <label class="form-label" for="capture-source">Mikrofon / Quelle</label>
-        <input class="form-control mb-3" id="capture-source" value="default" autocomplete="off">
+        <input class="form-control mb-2" id="capture-source" value="default" autocomplete="off" aria-describedby="input-scan-status">
+        <label class="form-label" for="input-search">Mikrofone suchen</label>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <input class="form-control" id="input-search" type="search" placeholder="Mikrofone filtern" autocomplete="off">
+          <button class="btn btn-outline-primary" id="input-scan" type="button">Eingänge scannen</button>
+        </div>
+        <select class="form-select mb-2" id="input-select" aria-label="Erkanntes Mikrofon auswählen"><option value="default">Systemstandard</option></select>
+        <div id="input-scan-status" class="form-text mb-3" role="status" aria-live="polite">Automatische Auswahl; eine manuelle Quelle ist weiterhin möglich.</div>
         <label class="form-label" for="stream-targets">Ziele</label>
         <textarea class="form-control mb-3" id="stream-targets" rows="4" placeholder="192.168.1.50:5004&#10;192.168.1.80:5004"></textarea>
         <div class="form-text mb-3">Ein Ziel pro Zeile.</div>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <button class="btn btn-outline-primary" id="target-scan" type="button">Empfänger suchen</button>
+          <select class="form-select" id="target-select" aria-label="Erkannten RTP-Empfänger auswählen"><option value="">Empfänger auswählen</option></select>
+          <button class="btn btn-outline-secondary" id="target-add" type="button" disabled>Ziel hinzufügen</button>
+        </div>
+        <div class="form-text mb-3" id="target-scan-status" role="status" aria-live="polite">Zuerst den Receiver auf dem Zielgerät starten. Gefundene Ziele werden erst nach deiner Auswahl übernommen.</div>
         <label class="form-label" for="stream-bitrate">Opus Bitrate (kbit/s)</label>
         <input class="form-control mb-3" id="stream-bitrate" type="number" min="16" max="256" value="64">
-        <div class="d-flex gap-2"><button class="btn btn-primary" id="sender-start" type="button">Sender starten</button><button class="btn btn-outline-danger" id="sender-stop" type="button">Sender stoppen</button></div>
+        <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" id="sender-start" type="button">Sender starten</button><button class="btn btn-outline-danger" id="sender-stop" type="button">Sender stoppen</button></div>
       </div></div>
     </div>
     <div class="col-12 col-lg-6">
       <div class="card h-100"><div class="card-header fw-semibold">Receiver – Audio empfangen</div><div class="card-body">
         <label class="form-label" for="receiver-port">RTP-Port</label>
-        <input class="form-control mb-3" id="receiver-port" type="number" min="1024" max="65535" value="5004">
+        <input class="form-control mb-3" id="receiver-port" type="number" min="1024" max="65534" value="5004">
 
         <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
           <div class="flex-grow-1">
@@ -38,7 +51,7 @@
           </div>
           <button class="btn btn-outline-primary" id="speaker-scan" type="button">Ausgänge scannen</button>
         </div>
-        <select class="form-select mb-2" id="speaker-select">
+        <select class="form-select mb-2" id="speaker-select" aria-label="Erkannten Audio-Ausgang auswählen">
           <option value="">Keine lokale Wiedergabe</option>
         </select>
         <div id="speaker-scan-status" class="form-text mb-3" aria-live="polite">Noch nicht gescannt.</div>
@@ -50,8 +63,32 @@
       </div></div>
     </div>
   </div>
+  <details class="card mt-3" id="audio-settings-panel">
+    <summary class="card-header">Einstellungen, Autostart und Diagnose</summary>
+    <div class="card-body">
+      <p class="small">Start speichert die aktuelle Auswahl. Autostart ist eine separate Entscheidung. Audio wird unverschlüsselt per RTP übertragen; nur in einem vertrauenswürdigen Netz verwenden.</p>
+      <div class="row g-3">
+        {% for service, label in [('sender', 'Sender'), ('receiver', 'Receiver')] %}
+        <section class="col-12 col-md-6">
+          <h2 class="h5">{{ label }}</h2>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="{{ service }}-enabled"><label class="form-check-label" for="{{ service }}-enabled">Aktiviert</label></div>
+          <div class="form-check my-2"><input class="form-check-input" type="checkbox" id="{{ service }}-autostart"><label class="form-check-label" for="{{ service }}-autostart">Beim SimpleOffice-Start automatisch starten</label></div>
+          {% if service == 'sender' %}<p class="form-text">Mit Autostart wird das Mikrofon nach dem Start automatisch an die gespeicherten Ziele übertragen.</p>{% endif %}
+          <label class="form-label" for="{{ service }}-retries">Wiederholungen nach Ausfall</label>
+          <input class="form-control mb-2" id="{{ service }}-retries" type="number" min="0" max="6" value="3">
+          <div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-outline-primary" data-audio-save="{{ service }}">Speichern</button><button type="button" class="btn btn-outline-secondary" data-audio-restart="{{ service }}">Neustart</button><button type="button" class="btn btn-outline-danger" data-audio-reset="{{ service }}">Standardwerte</button></div>
+        </section>
+        {% endfor %}
+      </div>
+      <label class="form-label mt-3" for="receiver-bind">Receiver-Netzwerkadresse</label>
+      <input class="form-control" id="receiver-bind" placeholder="Automatisch: private lokale IPv4-Adresse" aria-describedby="receiver-bind-help">
+      <p id="receiver-bind-help" class="form-text">Leer wählt eine private lokale Adresse, andernfalls Loopback. Eine konkrete lokale IPv4-Adresse begrenzt den Empfang auf dieses Interface.</p>
+      <pre id="audio-diagnosis" class="small mt-3" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+    </div>
+  </details>
 </div>
 </main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 <script src="{{ url_for('static', filename='js/audio_streamer.js') }}" data-module="static/js/audio_streamer.js" defer></script>
 <script src="{{ url_for('static', filename='js/audio_output_scan.js') }}" data-module="static/js/audio_output_scan.js" defer></script>
 {% endblock %}

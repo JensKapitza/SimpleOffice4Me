@@ -59,5 +59,6 @@ def queue_due_calendar_events(store: AudioOutputStore, events: list[dict], *, no
             continue
         event_id = str(event.get("event_id") or event.get("id") or "")[:200]
         text = settings["text"] or announcement_text(event, settings["minutes_before"])
-        queued.append(store.queue_tts(text, settings["targets"], priority=settings["priority"], voice=settings["voice"], source="calendar", source_ref=event_id))
+        occurrence = event_id[:140] + "@" + starts.isoformat()
+        queued.append(store.queue_tts(text, settings["targets"], priority=settings["priority"], voice=settings["voice"], source="calendar", source_ref=occurrence))
     return queued

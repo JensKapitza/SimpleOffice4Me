@@ -255,6 +255,8 @@ def start(configure_only: bool = False) -> None:
 
     from tools.service_control import register, unregister
     from app import app
+    from app.audio_streamer import manager as audio_manager
+    from app.audio_output_worker import worker as announcement_worker
     options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]))
     host = str(options["host"])
     port = int(options["port"])
@@ -303,6 +305,8 @@ def start(configure_only: bool = False) -> None:
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous_handlers[signum] = signal.signal(signum, request_stop)
     try:
+        audio_manager.start_background()
+        announcement_worker.start_background()
         try:
             serve(app, **options)
         except OSError as exc:
@@ -310,6 +314,8 @@ def start(configure_only: bool = False) -> None:
                 raise
             print(f"SimpleOffice4Me wurde nicht gestartet: http://{host}:{port} wurde zwischen Vorprüfung und Serverstart belegt.", file=sys.stderr, flush=True)
     finally:
+        audio_manager.stop_all()
+        announcement_worker.stop()
         stop_worker(worker)
         stop_worker(osm_worker)
         stop_worker(datalogger_worker)

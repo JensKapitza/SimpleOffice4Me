@@ -34,6 +34,27 @@ def _catalog():
                    capabilities=["start", "stop", "restart", "scan", "settings"],
                    owner="mini-services-worker")
         rows.append(row)
+    from .audio_streamer import manager
+    from .audio_streamer_config import settings as stream_settings
+    from .audio_output_worker import worker as output_worker
+    for key, row in manager.status().items():
+        ident = "audio-" + key
+        row.update(id=ident, name="Audio-Sender" if key == "sender" else "Audio-Receiver",
+                   settings={}, scan=store.scan(ident),
+                   capabilities=["start", "stop", "restart", "scan", "settings"])
+        try:
+            row["settings"] = stream_settings(key)
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
+        rows.append(row)
+    row = output_worker.status()
+    row.update(settings={}, scan=store.scan("audio-output"),
+               capabilities=["start", "stop", "restart", "scan", "settings"])
+    try:
+        row["settings"] = output_worker.settings()
+    except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+        row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
+    rows.append(row)
     from .network_boot_service import status as boot_status
     row = boot_status()
     row["scan"] = store.scan("http-boot")
@@ -68,6 +89,8 @@ def operation(ident):
 @bp.post("/<service>/settings")
 @admin_required
 def settings(service):
+    if service in {"audio-sender", "audio-receiver", "audio-output"}:
+        return _audio_action(service, "settings")
     if service not in NETWORK_SERVICES:
         abort(404)
     try:
@@ -81,6 +104,8 @@ def settings(service):
 @bp.post("/<service>/<action>")
 @admin_required
 def action(service, action):
+    if service in {"audio-sender", "audio-receiver", "audio-output"} and action in {"start", "stop", "restart", "scan"}:
+        return _audio_action(service, action)
     if service == "http-boot" and action in {"start", "stop", "restart", "scan"}:
         from .network_boot_service import action as boot_action
         store = _store()
@@ -109,6 +134,41 @@ def action(service, action):
         return jsonify(error="Aktion konnte nicht vorgemerkt werden. Kurz warten und erneut versuchen."), 409
     audit("mini_service_action", "service", service, detail={"action": action, "operation_id": command["id"]})
     return jsonify(command), 202
+
+
+def _audio_action(service, action):
+    # Delegate to existing owners and validators; no second audio manager.
+    from . import audio_streamer_admin, audio_output_admin
+    from .audio_output_discovery import discover_microphone_inputs, discover_speaker_outputs
+    if action == "scan":
+        store = _store()
+        try:
+            devices = discover_microphone_inputs() if service == "audio-sender" else discover_speaker_outputs()
+            if service == "audio-output":
+                audio_output_admin._store().sync_local_outputs(devices)
+            result = {"state": "completed", "updated_at": time.time(), "count": len(devices), "targets": devices, "scope": "Lokale Audiogeräte"}
+            store.scan(service, result)
+            return jsonify(result)
+        except (RuntimeError, OSError) as exc:
+            result = {"state": "failed", "updated_at": time.time(), "count": 0, "targets": [], "error": error_detail(exc)}
+            store.scan(service, result)
+            return jsonify(result), 503
+    if service == "audio-output":
+        if action == "settings":
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return jsonify(error="JSON-Objekt erwartet."), 400
+            try:
+                return jsonify(audio_output_admin.worker.save_settings({**audio_output_admin.worker.settings(), **data}))
+            except ValueError:
+                return jsonify(error="Audio-Einstellungen prüfen."), 400
+        return audio_output_admin.lifecycle(action=action)
+    key = service.removeprefix("audio-")
+    if action == "settings":
+        return audio_streamer_admin.settings_save(service=key)
+    if action == "restart":
+        return audio_streamer_admin.restart(service=key)
+    return getattr(audio_streamer_admin, key + "_" + action)()
 
 
 def _scan(store, service):

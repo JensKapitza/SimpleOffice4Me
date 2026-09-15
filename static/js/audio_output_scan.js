@@ -1,68 +1,130 @@
 (() => {
   'use strict';
-
-  const root = document.getElementById('audio-streamer-app');
-  if (!root) return;
-
-  const base = root.dataset.baseUrl || '';
-  const select = document.getElementById('speaker-select');
-  const search = document.getElementById('speaker-search');
-  const status = document.getElementById('speaker-scan-status');
-  const manual = document.getElementById('speaker-device');
-  const scanButton = document.getElementById('speaker-scan');
-  let outputs = [];
-
-  const render = () => {
-    if (!select) return;
-    const current = select.value;
-    const query = String(search?.value || '').trim().toLocaleLowerCase();
-    const visible = outputs.filter((item) => {
-      const text = `${item.id || ''} ${item.driver || ''} ${item.state || ''}`.toLocaleLowerCase();
-      return !query || text.includes(query);
-    });
-
-    select.replaceChildren();
-    const none = document.createElement('option');
-    none.value = '';
-    none.textContent = 'Keine lokale Wiedergabe';
-    select.appendChild(none);
-
-    visible.forEach((item) => {
-      const option = document.createElement('option');
-      option.value = item.id;
-      const meta = [item.default ? 'Standard' : '', item.state || ''].filter(Boolean).join(' · ');
-      option.textContent = meta ? `${item.id} (${meta})` : item.id;
-      select.appendChild(option);
-    });
-
-    if (visible.some((item) => item.id === current)) select.value = current;
-    if (status) status.textContent = `${visible.length} von ${outputs.length} Ausgängen angezeigt.`;
-  };
-
-  const scan = async () => {
-    if (scanButton) scanButton.disabled = true;
-    if (status) status.textContent = 'Audio-Ausgänge werden gesucht …';
+  const nativeAudio = () => Boolean(window.SimpleOfficeNativeAudio);
+  const get = (id) => document.getElementById(id);
+  const clear = (node) => { while (node.firstChild) node.removeChild(node.firstChild); };
+  const request = async (url, method, timeout = 12000) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
     try {
-      const response = await fetch(base + '/outputs', {cache: 'no-store', credentials: 'same-origin'});
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      outputs = Array.isArray(data.outputs) ? data.outputs : [];
-      render();
-      const preferred = outputs.find((item) => item.default) || outputs[0];
-      if (preferred && select) {
-        select.value = preferred.id;
-        if (manual) manual.value = preferred.id;
-      }
-    } catch (error) {
-      if (status) status.textContent = error.message || 'Scan fehlgeschlagen.';
-    } finally {
-      if (scanButton) scanButton.disabled = false;
-    }
+      const token = document.querySelector('meta[name="csrf-token"]');
+      const response = await fetch(url, {method: method || 'GET', cache: 'no-store', credentials: 'same-origin',
+        signal: controller.signal, headers: {'X-CSRF-Token': token ? token.content : ''}});
+      let data;
+      try { data = await response.json(); } catch (_) { throw new Error('Antwort nicht lesbar. Anmeldung prüfen.'); }
+      if (!response.ok) throw new Error(data.error || 'Gerätesuche fehlgeschlagen.');
+      return data;
+    } finally { clearTimeout(timer); }
   };
-
-  scanButton?.addEventListener('click', scan);
-  search?.addEventListener('input', render);
-  select?.addEventListener('change', () => {
-    if (manual) manual.value = select.value;
-  });
+  const root = get('audio-streamer-app');
+  const targetScan = get('target-scan');
+  if (root && targetScan) {
+    const select = get('target-select'), add = get('target-add');
+    const status = get('target-scan-status'), manual = get('stream-targets');
+    targetScan.addEventListener('click', async () => {
+      targetScan.disabled = true;
+      add.disabled = true;
+      clear(select);
+      status.textContent = 'Empfänger werden gesucht …';
+      try {
+        const data = await request(root.dataset.baseUrl + '/targets/scan', 'POST', 60000);
+        const placeholder = document.createElement('option');
+        placeholder.value = ''; placeholder.textContent = 'Empfänger auswählen'; select.appendChild(placeholder);
+        for (const target of data.targets || []) {
+          const option = document.createElement('option');
+          option.value = target.id; option.textContent = target.label + ' · ' + target.id;
+          select.appendChild(option);
+        }
+        status.textContent = data.count + ' aktive Empfänger · ' + new Date(data.updated_at * 1000).toLocaleTimeString();
+      } catch (error) {
+        status.textContent = error.name === 'AbortError' ? 'Suche dauert zu lange. Später erneut versuchen.' : error.message;
+      } finally { targetScan.disabled = false; }
+    });
+    select.addEventListener('change', () => { add.disabled = !select.value; });
+    add.addEventListener('click', () => {
+      const values = manual.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+      if (!select.value || values.includes(select.value)) return;
+      if (values.length >= 16) { status.textContent = 'Maximal 16 Ziele. Zuerst ein Ziel entfernen.'; return; }
+      values.push(select.value); manual.value = values.join('\n');
+      manual.dispatchEvent(new Event('input', {bubbles: true}));
+      status.textContent = 'Ziel hinzugefügt. Zum Übertragen den Sender starten.';
+    });
+  }
+  const attach = (prefix, key, manualId, noneLabel) => {
+    const select = get(prefix + '-select'), search = get(prefix + '-search'), status = get(prefix + '-scan-status');
+    const manual = get(manualId), button = get(prefix + '-scan');
+    if (!select || !button) return;
+    let devices = [], scannedAt = null;
+    const render = () => {
+      const current = manual.value;
+      const query = search.value.trim().toLocaleLowerCase();
+      const visible = devices.filter(item => !query || String(item.id + ' ' + item.driver + ' ' + (item.label || '')).toLocaleLowerCase().includes(query));
+      clear(select);
+      select.add(new Option(noneLabel, prefix === 'input' ? 'default' : ''));
+      visible.forEach(item => select.add(new Option((item.label ? item.label + ' · ' : '') + item.id + (item.default ? ' (Standard)' : ''), item.id)));
+      if (visible.some(item => item.id === current)) select.value = current;
+      status.textContent = visible.length + ' von ' + devices.length + ' Geräten · ' + (scannedAt ? new Date(scannedAt * 1000).toLocaleTimeString() : '');
+    };
+    const scan = async () => {
+      if (nativeAudio()) { status.textContent = 'Android verwendet die Systemauswahl für Audiogeräte.'; return; }
+      button.disabled = true;
+      status.textContent = '↻ Audiogeräte werden gesucht …';
+      try {
+        const backendQuery = prefix === 'input' && get('capture-backend').value === 'alsa' ? '?backend=alsa' : '';
+        const data = await request(root.dataset.baseUrl + '/' + key + backendQuery);
+        if (nativeAudio()) return;
+        devices = Array.isArray(data[key]) ? data[key] : [];
+        scannedAt = data.updated_at;
+        const current = manual.value;
+        const preferred = devices.find(item => item.id === current) || devices.find(item => item.default) || devices[0];
+        // Preserve explicitly chosen manual/ALSA sources. An empty output gets
+        // the discovered default; a removed previously-discovered device falls back.
+        if (preferred && (!current || current === 'default' || manual.dataset.discovered === 'true')) {
+          manual.value = preferred.id; manual.dataset.discovered = 'true';
+          if (prefix === 'input' && preferred.backend) get('capture-backend').value = preferred.backend;
+        }
+        render();
+        if (!devices.length) status.textContent = '○ Keine Geräte gefunden. Verbindung und Audio-Sitzung prüfen.';
+      } catch (error) {
+        if (!nativeAudio()) status.textContent = error.name === 'AbortError' ? 'Suche dauert zu lange. Erneut versuchen.' : error.message;
+      } finally { button.disabled = nativeAudio(); }
+    };
+    button.addEventListener('click', scan);
+    search.addEventListener('input', render);
+    select.addEventListener('change', () => {
+      manual.value = select.value; manual.dataset.discovered = 'true';
+      const selected = devices.find(item => item.id === select.value);
+      if (prefix === 'input' && selected && selected.backend) get('capture-backend').value = selected.backend;
+    });
+    manual.addEventListener('input', () => { manual.dataset.discovered = 'false'; });
+    window.addEventListener('simpleoffice:native-audio-ready', () => {
+      button.disabled = true; select.disabled = true; search.disabled = true;
+      status.textContent = 'Android verwendet die Systemauswahl für Audiogeräte.';
+    });
+    setTimeout(scan, 300);
+  };
+  if (root) {
+    attach('speaker', 'outputs', 'speaker-device', 'Keine lokale Wiedergabe');
+    attach('input', 'inputs', 'capture-source', 'Systemstandard');
+  }
+  const discovery = get('audio-device-discovery');
+  if (discovery) {
+    const button = get('audio-local-scan'), status = get('audio-local-scan-status'), results = get('audio-local-scan-results');
+    const scan = async () => {
+      button.disabled = true; status.textContent = '↻ Audio-Ausgänge werden gesucht …';
+      try {
+        const data = await request(discovery.dataset.scanUrl, 'POST');
+        clear(results);
+        data.outputs.forEach(item => {
+          const li = document.createElement('li');
+          li.textContent = (item.online ? '● Verfügbar: ' : '○ Offline: ') + item.name;
+          results.appendChild(li);
+        });
+        status.textContent = data.count + ' Ausgänge gefunden und gespeichert · ' + new Date(data.updated_at * 1000).toLocaleTimeString();
+      } catch (error) { status.textContent = error.name === 'AbortError' ? 'Suche dauert zu lange. Erneut versuchen.' : error.message; }
+      finally { button.disabled = false; }
+    };
+    button.addEventListener('click', scan);
+    scan();
+  }
 })();

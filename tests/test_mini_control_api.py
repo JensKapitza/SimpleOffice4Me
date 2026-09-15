@@ -1,6 +1,8 @@
 import tempfile
 import time
 import unittest
+import os
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -74,6 +76,8 @@ class MiniApiTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "mini.json"
         self.user = {"id": 1, "is_admin": True, "is_disabled": False}
+        environment = patch.dict(os.environ, {"SIMPLEOFFICE_MINI_SERVICES_CONFIG": str(self.path)})
+        environment.start(); self.addCleanup(environment.stop)
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True, SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
@@ -123,6 +127,25 @@ class MiniApiTests(unittest.TestCase):
     def test_unknown_actions_and_settings_are_rejected(self):
         self.assertEqual(404, self.client.post("/api/mini-services/sip/shell", json={}, headers=self.headers).status_code)
         self.assertEqual(400, self.client.post("/api/mini-services/sip/settings", json={"enabled": "false"}, headers=self.headers).status_code)
+
+    def test_audio_storage_failure_does_not_hide_network_and_boot_status(self):
+        with patch("app.audio_streamer_config.settings", side_effect=sqlite3.OperationalError("sensitive")), patch("app.audio_output_worker.worker.settings", side_effect=sqlite3.OperationalError("sensitive")):
+            response = self.client.get("/api/mini-services")
+        self.assertEqual(200, response.status_code)
+        states = {row["id"]: row["state"] for row in response.json["services"]}
+        self.assertEqual("degraded", states["audio-sender"])
+        self.assertEqual("degraded", states["audio-output"])
+        self.assertIn("http-boot", states)
+        self.assertIn("dhcp", states)
+        self.assertNotIn("sensitive", response.get_data(as_text=True))
+
+    def test_common_catalog_includes_existing_audio_owners(self):
+        result = self.client.get("/api/mini-services")
+        self.assertEqual(200, result.status_code)
+        services = {row["id"]: row for row in result.json["services"]}
+        for name in ("audio-sender", "audio-receiver", "audio-output"):
+            self.assertEqual("web", services[name]["owner"])
+            self.assertIn("health", services[name])
 
 
 if __name__ == "__main__":

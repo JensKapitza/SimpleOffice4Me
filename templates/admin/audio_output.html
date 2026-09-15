@@ -10,6 +10,52 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
   </div>
 
+  <section class="card mb-4" id="audio-announcements" data-api="{{ url_for('audio_output_admin.status') }}">
+    <div class="card-body">
+      <h2 class="h5">Durchsagen und Wiedergabe</h2>
+      <div id="announcement-status" class="alert alert-secondary" role="status" aria-live="polite">{{ service.health.message }}</div>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <button type="button" class="btn btn-outline-primary" data-audio-control="start">Dienst starten</button>
+        <button type="button" class="btn btn-outline-danger" data-audio-control="stop">Wiedergabe stoppen</button>
+        <button type="button" class="btn btn-outline-secondary" data-audio-control="restart">Neustart</button>
+      </div>
+      <label for="announcement-target" class="form-label">Ausgang oder Gruppe</label>
+      <select id="announcement-target" class="form-select mb-2">
+        <option value="">Bitte auswählen oder Ausgänge scannen</option>
+        {% for output in outputs if output.node_id == 'local' %}<option value="{{ output.output_id }}">{{ output.name }}{{ '' if output.online else ' (offline)' }}</option>{% endfor %}
+        {% for group in groups %}<option value="{{ group.group_id }}">Gruppe: {{ group.name }}</option>{% endfor %}
+      </select>
+      <label for="announcement-text" class="form-label">Text sprechen</label>
+      <textarea id="announcement-text" class="form-control mb-2" maxlength="2000" rows="2" aria-describedby="announcement-help"></textarea>
+      <p id="announcement-help" class="form-text">Sprachausgabe benötigt das vorhandene Piper-Programm und ein lokal konfiguriertes Modell. Signaltöne werden ohne Sprachmodell erzeugt.</p>
+      <button type="button" class="btn btn-primary mb-3" id="announcement-say">Text einreihen</button>
+      <label for="announcement-preset" class="form-label d-block">Signalton</label>
+      <div class="d-flex flex-wrap gap-2">
+        <select id="announcement-preset" class="form-select w-auto">{% for name in presets %}<option value="{{ name }}">{{ name }}</option>{% endfor %}</select>
+        <button type="button" class="btn btn-outline-primary" id="announcement-sound">Signalton einreihen</button>
+      </div>
+      <details class="mt-3"><summary>Einstellungen</summary>
+        <div class="form-check mt-2"><input type="checkbox" id="announcement-enabled" class="form-check-input"><label for="announcement-enabled" class="form-check-label">Aktiviert</label></div>
+        <div class="form-check mt-2"><input type="checkbox" id="announcement-autostart" class="form-check-input"><label for="announcement-autostart" class="form-check-label">Mit SimpleOffice starten</label></div>
+        <label for="announcement-retries" class="form-label mt-2">Wiederholungen vor Beginn einer Wiedergabe</label>
+        <input id="announcement-retries" type="number" min="0" max="6" value="3" class="form-control mb-2">
+        <button type="button" class="btn btn-outline-primary" id="announcement-save">Speichern</button>
+      </details>
+      <div id="announcement-history" class="mt-3"></div>
+    </div>
+  </section>
+
+  <section id="audio-device-discovery" class="card mb-4" data-scan-url="{{ url_for('audio_output_admin.scan') }}">
+    <div class="card-body">
+      <h2 class="h5">Lokale Audio-Ausgänge suchen</h2>
+      <p class="small">Erkannte PipeWire-/PulseAudio-Ausgänge werden gespeichert. Remote-Geräte und bestehende Gruppen bleiben erhalten.</p>
+      <button class="btn btn-outline-primary" id="audio-local-scan" type="button">Ausgänge scannen</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('audio_output_admin.index') }}">Gespeicherte Übersicht aktualisieren</a>
+      <div id="audio-local-scan-status" class="mt-2" role="status" aria-live="polite">Noch nicht gescannt.</div>
+      <ul id="audio-local-scan-results" class="mt-2"></ul>
+    </div>
+  </section>
+
   <div class="row g-3 mb-4">
     <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ausgänge</div><div class="fs-3">{{ outputs|length }}</div><div class="small">{{ outputs|selectattr('online')|list|length }} online</div></div></div></div>
     <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Gruppen</div><div class="fs-3">{{ groups|length }}</div></div></div></div>
@@ -45,4 +91,7 @@
   <p class="small text-secondary mt-3 mb-0">Die vorhandenen JSON-Endpunkte bleiben für Geräte und Automatisierung unverändert verfügbar.</p>
   <script>(()=>{const text=document.getElementById('audio-output-filter');const status=document.getElementById('audio-output-status-filter');if(!text||!status)return;const rows=[...document.querySelectorAll('[data-audio-output-row]')];const count=document.getElementById('audio-output-filter-count');const empty=document.getElementById('audio-output-filter-empty');const apply=()=>{const q=text.value.trim().toLocaleLowerCase();const wanted=status.value;let visible=0;rows.forEach(row=>{const matchesText=!q||(row.dataset.search||'').includes(q);const matchesStatus=wanted==='all'||row.dataset.status===wanted;const show=matchesText&&matchesStatus;row.hidden=!show;if(show)visible+=1;});count.textContent=String(visible);empty.hidden=visible!==0||rows.length===0;};text.addEventListener('input',apply);status.addEventListener('change',apply);apply();})();</script>
 </main>
+<script src="{{ url_for('static', filename='js/audio_output_scan.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/audio_announcements.js') }}" defer></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 {% endblock %}
