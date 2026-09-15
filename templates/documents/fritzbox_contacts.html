@@ -5,8 +5,8 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
       <a class="small text-decoration-none" href="{{ url_for('documents.contacts') }}">← Kontakte</a>
-      <h1 class="h2 mt-2 mb-1">FRITZ!Box-Kontakte</h1>
-      <p class="text-secondary mb-0">Kontakte aus SimpleOffice in ein lokales FRITZ!Box-Telefonbuch speichern und später über die FRITZ!Box-UID aktualisieren.</p>
+      <h1 class="h2 mt-2 mb-1">FRITZ!Box</h1>
+      <p class="text-secondary mb-0">TR-064-Verbindung prüfen, Internetstatus anzeigen und Kontakte in ein lokales FRITZ!Box-Telefonbuch synchronisieren.</p>
     </div>
     <span class="badge text-bg-secondary fs-6">{{ syncable_count }} mit Telefonnummer</span>
   </div>
@@ -14,17 +14,17 @@
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="alert alert-secondary">
-    <strong>Voraussetzung:</strong> Der verwendete FRITZ!Box-Benutzer benötigt die Berechtigung <strong>Telefonie</strong>. Der Sync schreibt nur in lokale FRITZ!Box-Telefonbücher; Online-Telefonbücher sind über TR-064 nicht beschreibbar.
+    <strong>Voraussetzung:</strong> In der FRITZ!Box muss <strong>Zugriff für Anwendungen im Heimnetz</strong> aktiviert sein. Für den Telefonbuch-Sync benötigt der Benutzer die Berechtigung <strong>Telefonie</strong>.
   </div>
 
   <section class="card mb-4">
-    <div class="card-header"><strong>1. Verbindung &amp; Telefonbuch</strong></div>
+    <div class="card-header"><strong>1. Verbindung</strong></div>
     <div class="card-body">
       <form method="post" action="{{ url_for('fritzbox_contacts.discover') }}" class="row g-3">
         <div class="col-lg-5">
-          <label class="form-label" for="fritz-url">HTTPS-Adresse</label>
-          <input id="fritz-url" required class="form-control font-monospace" name="url" value="{{ config.url }}" placeholder="https://fritz.box:49443" autocomplete="url">
-          <div class="form-text">Nur die Basis-URL angeben, keine Zugangsdaten in die URL schreiben.</div>
+          <label class="form-label" for="fritz-url">FRITZ!Box-Adresse</label>
+          <input id="fritz-url" required class="form-control font-monospace" name="url" value="{{ config.url }}" placeholder="http://fritz.box:49000" autocomplete="url">
+          <div class="form-text">Empfohlen im Heimnetz: <code>http://fritz.box:49000</code>. HTTPS bleibt vollständig zertifikatsgeprüft; die Prüfung wird nicht deaktiviert.</div>
         </div>
         <div class="col-lg-3">
           <label class="form-label" for="fritz-user">Benutzername</label>
@@ -41,33 +41,51 @@
             <label class="form-check-label" for="fritz-remember">Passwort verschlüsselt speichern</label>
           </div>
         </div>
-        <div class="col-md-6">
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="verify_tls" value="1" id="fritz-tls" {% if config.verify_tls %}checked{% endif %}>
-            <label class="form-check-label" for="fritz-tls">Zertifikat vollständig prüfen</label>
-          </div>
-          <div class="form-text">Bei <strong>self signed certificate / CERTIFICATE_VERIFY_FAILED</strong> dieses Häkchen entfernen und erneut verbinden. HTTPS bleibt aktiv; nur die Zertifikatsprüfung wird für diese FRITZ!Box-Verbindung deaktiviert.</div>
-        </div>
-        {% if config.verify_tls %}
         <div class="col-12">
-          <div class="alert alert-warning py-2 mb-0">
-            <strong>Selbstsigniertes FRITZ!Box-Zertifikat?</strong> Falls der Verbindungstest mit „self signed certificate“ oder „CERTIFICATE_VERIFY_FAILED“ endet, <strong>„Zertifikat vollständig prüfen“ deaktivieren</strong>. Das ist bei lokalen FRITZ!Box-Zertifikaten häufig erforderlich.
+          <div class="alert alert-light border py-2 mb-0">
+            Lokales HTTP wird nur für <code>fritz.box</code> und private/lokale IP-Adressen akzeptiert. Für öffentliche oder entfernte Hosts ist ausschließlich HTTPS erlaubt.
           </div>
         </div>
-        {% else %}
-        <div class="col-12">
-          <div class="alert alert-warning py-2 mb-0">
-            Die Verbindung nutzt weiterhin <strong>HTTPS</strong>, akzeptiert für diese FRITZ!Box aber auch ein selbstsigniertes Zertifikat. Diese Ausnahme nur für eine vertrauenswürdige Box im eigenen Netz verwenden.
-          </div>
-        </div>
-        {% endif %}
         <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
-          <button type="submit" class="btn btn-primary"><i class="fas fa-plug me-1" aria-hidden="true"></i>Verbindung testen &amp; Telefonbücher laden</button>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-plug me-1" aria-hidden="true"></i>Verbindung testen &amp; Daten laden</button>
           {% if config.updated_at %}<span class="small text-secondary">Konfiguration zuletzt geändert: {{ config.updated_at }}</span>{% endif %}
         </div>
       </form>
     </div>
   </section>
+
+  {% if fritz_status %}
+  <section class="card mb-4">
+    <div class="card-header"><strong>Internet &amp; Remote-Status</strong></div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6 col-xl-3">
+          <div class="small text-secondary">Externe IPv4</div>
+          <div class="font-monospace text-break">{{ fritz_status.external_ipv4 or '–' }}</div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+          <div class="small text-secondary">Externe IPv6</div>
+          <div class="font-monospace text-break">{{ fritz_status.external_ipv6 or '–' }}</div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+          <div class="small text-secondary">DynDNS</div>
+          <div>{% if fritz_status.dyndns_enabled is sameas true %}aktiv{% elif fritz_status.dyndns_enabled is sameas false %}inaktiv{% else %}unbekannt{% endif %}</div>
+          {% if fritz_status.dyndns_domain %}<div class="small font-monospace text-break">{{ fritz_status.dyndns_domain }}</div>{% endif %}
+          {% if fritz_status.dyndns_provider %}<div class="small text-secondary">{{ fritz_status.dyndns_provider }}</div>{% endif %}
+        </div>
+        <div class="col-md-6 col-xl-3">
+          <div class="small text-secondary">MyFRITZ!</div>
+          <div>{% if fritz_status.myfritz_enabled is sameas true %}aktiv{% elif fritz_status.myfritz_enabled is sameas false %}inaktiv{% else %}unbekannt{% endif %}</div>
+          {% if fritz_status.myfritz_domain %}<div class="small font-monospace text-break">{{ fritz_status.myfritz_domain }}</div>{% endif %}
+          {% if fritz_status.myfritz_state %}<div class="small text-secondary">{{ fritz_status.myfritz_state }}</div>{% endif %}
+        </div>
+      </div>
+      {% if fritz_status.errors %}
+      <div class="form-text mt-3">Einzelne Statusabfragen waren wegen FRITZ!OS-Version oder Benutzerrechten nicht verfügbar. Der Telefonbuch-Sync bleibt davon unabhängig.</div>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
 
   {% if phonebooks %}
   <section class="card mb-4">
@@ -120,7 +138,7 @@
     </div>
   </section>
   {% else %}
-  <div class="alert alert-light border">Nach einem erfolgreichen Verbindungstest werden hier die von der FRITZ!Box gemeldeten Telefonbücher und die übertragbaren Kontakte angezeigt.</div>
+  <div class="alert alert-light border">Nach einem erfolgreichen Verbindungstest werden hier die von der FRITZ!Box gemeldeten Telefonbücher angezeigt.</div>
   {% endif %}
 </main>
 <script>
