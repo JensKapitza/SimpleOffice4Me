@@ -448,8 +448,11 @@ class FritzBoxStore:
     @staticmethod
     def _effective_url(row: dict[str, Any]) -> str:
         url = str(row.get("url") or "http://fritz.box:49000")
-        if url == "https://fritz.box:49443" and row.get("verify_tls") is False:
-            return "http://fritz.box:49000"
+        if row.get("verify_tls") is False:
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.scheme == "https" and parsed.hostname and _is_local_host(parsed.hostname):
+                host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+                return f"http://{host}:49000"
         return url
 
     def config(self, actor: str) -> dict[str, Any]:
@@ -566,8 +569,12 @@ def discover():
         }, password, remember)
         credentials = store.credentials(actor, password)
         client = _client(credentials)
-        books = client.phonebooks()
         status = client.status()
+        try:
+            books = client.phonebooks()
+        except FritzBoxError as exc:
+            books = []
+            status.setdefault("errors", []).append(f"Telefonbuch: {exc}")
         contacts = _contacts()
         flash(f"FRITZ!Box erreichbar: {len(books)} Telefonbuch/Telefonbücher gefunden.")
         return render_template(
