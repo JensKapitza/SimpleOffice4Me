@@ -61,6 +61,28 @@ class NetworkSettingsTests(unittest.TestCase):
         self.assertEqual(1067, config["dhcp"]["port"])
         self.assertEqual(404, self.client.post("/admin/mini-services/network/unknown/reset", headers=self.headers).status_code)
 
+    def test_invalid_network_form_preserves_values_without_writing(self):
+        save_config({"dns": {"port": 1053}}, self.path)
+        before = self.path.read_bytes()
+        form = {"network": "invalid", "reservations": '{"unfinished":', "domain": "keep.home.arpa"}
+        with patch("app.mini_services_admin._network_context", return_value={}), patch("app.mini_services_admin.render_template", return_value="invalid") as render:
+            response = self.client.post("/admin/mini-services/save", data=form, headers=self.headers)
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("invalid", render.call_args.kwargs["config"]["dhcp"]["network"])
+        self.assertEqual("keep.home.arpa", render.call_args.kwargs["config"]["dhcp"]["domain"])
+        self.assertEqual(form["reservations"], render.call_args.kwargs["submitted_json"]["reservations"])
+        self.assertEqual(before, self.path.read_bytes())
+
+    def test_network_write_failure_is_safe_and_retryable(self):
+        with patch("app.mini_services_admin._network_context", return_value={}), patch("app.mini_services_admin.render_template", return_value="retry") as render, patch("app.mini_services_admin.save_config", side_effect=PermissionError("secret-storage-path")):
+            response = self.client.post("/admin/mini-services/save", data={"network": "10.20.0.0/24"}, headers=self.headers)
+        self.assertEqual(503, response.status_code)
+        self.assertEqual("10.20.0.0/24", render.call_args.kwargs["config"]["dhcp"]["network"])
+        with self.client.session_transaction() as session:
+            messages = str(session.get("_flashes"))
+        self.assertIn("Dateirechte", messages)
+        self.assertNotIn("secret-storage-path", messages)
+
     def test_gateway_network_is_independent_when_dhcp_is_disabled(self):
         save_gateway_settings({"internal_network": "10.20.0.0/24"}, self.path)
         worker = Worker(self.path)

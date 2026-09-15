@@ -213,6 +213,21 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertIn("<body", body.casefold())
         self.assertGreater(len(body.strip()), 500)
 
+    def test_invalid_mini_network_form_renders_and_escapes_retained_input(self):
+        raw = '<script>alert("test")</script>{'
+        response = self.client.post("/admin/mini-services/save", data={
+            "reservations": raw, "network": "invalid-network", "domain": "keep.home.arpa",
+        })
+        self.assertEqual(400, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("invalid-network", body)
+        self.assertIn("keep.home.arpa", body)
+        self.assertIn("&lt;script&gt;", body)
+        self.assertNotIn(raw, body)
+        self.assertIn('role="alert"', body)
+        self.assertIn('for="mini-reservations"', body)
+        self.assertIn('id="mini-reservations"', body)
+
     def test_all_parameterless_template_linked_get_endpoints_render(self):
         """Smoke-test every directly callable GET page advertised anywhere in templates."""
         failures: list[str] = []

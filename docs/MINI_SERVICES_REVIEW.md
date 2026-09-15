@@ -80,10 +80,10 @@ vereinheitlicht, nicht die Protokollimplementierungen ersetzt.
 |---|---|---|---|---|---|---|---|---|---|
 | DHCP | IPv4-Leases, Reservierungen, PXE-Optionen | Worker, opt-in | Objekt vorhanden | mini-services.json/dhcp | network | Interface-Liste | test_mini_services | DEPLOYMENT | mehrfacher Start, Bind-Leak, Fehler beendet DNS/TFTP, statische Beispielnetze |
 | DNS | UDP/TCP Resolver, Cache, Blocklisten | Worker, opt-in | Objekt vorhanden | mini-services.json/dns | network | Interface-Liste; Upstreams manuell | test_mini_services | DEPLOYMENT | unbegrenzte Request-Threads, Bind-Leaks, keine fachliche Healthprobe |
-| TFTP | read-only Netzboot-Dateien | Worker, opt-in | Objekt vorhanden | mini-services/boot.json | Boot/Federation; kein vollständiger Editor | Dateiinventar | test_mini_services | DEPLOYMENT | unbegrenzte Transfers, Stop beendet Transfers nicht, Wiederanlauf fehlt |
+| TFTP | read-only Netzboot-Dateien | Worker, opt-in | Objekt vorhanden | mini-services/network-boot/settings.json | Boot/Federation; kein vollständiger Editor | Dateiinventar | test_mini_services | DEPLOYMENT | unbegrenzte Transfers, Stop beendet Transfers nicht, Wiederanlauf fehlt |
 | Gateway | Routing/NAT | Worker, opt-in | letztes Apply-Ergebnis | mini-services/gateway.json | Diagnose; kein vollständiger Editor | Netzwerkinterfaces | test_mini_services, test_network_ui_diagnostics | DEPLOYMENT | Konfigurationsreload schreibt Netzwerkregeln erneut, Health kein Istzustand |
-| SIP | Registrar und lokale Redirects | Worker, automatisch | Socket, Registrierungen | telephony.sqlite, SIP_BIND | telephony | private LAN-Adresse | test_sip_runtime, test_telephony_* | TELEPHONY | fehlerhafter Socket kann als laufend gelten; keine automatische Startwiederholung |
-| HTTP/PXE | Bootskript, Assets, Peer-Austausch | Flask, opt-in | HTTP-Endpunkte | boot.json, Federation-Rollen | network_boot_federation | lokale Assets/Peers | test_mini_services | DEPLOYMENT | gehört zum Webprozess, kein eigenständiger Prozessstatus |
+| SIP | Registrar und lokale Redirects | Worker, automatisch | Socket, Registrierungen | telephony/telephony-profiles.sqlite3, SIP_BIND | telephony | private LAN-Adresse | test_sip_runtime, test_telephony_* | TELEPHONY | fehlerhafter Socket kann als laufend gelten; keine automatische Startwiederholung |
+| HTTP/PXE | Bootskript, Assets, Peer-Austausch | Flask, opt-in | HTTP-Endpunkte | mini-services/network-boot/settings.json, Federation-Rollen | network_boot_federation | lokale Assets/Peers | test_mini_services | DEPLOYMENT | gehört zum Webprozess, kein eigenständiger Prozessstatus |
 | Audio-Ausgabe | Lautsprecherregister, Gruppen, Töne, TTS-Aufträge | HTTP-Aufträge | SQLite-Queue | audio-output.sqlite3; PIPER_MODEL | audio_output | manuelles Register | test_audio_output | nur Teilinformationen | lokale Wiedergabe nicht als vollständiger Queue-Worker integriert; Onlinewerte teils manuell |
 | Live-Audio Sender | Mikrofon als Opus/RTP | HTTP-Aktion, ffmpeg | Prozess poll() | Request, nicht persistent | audio_streamer | Eingänge fehlen | test_audio_streamer | AUDIO_STREAMER | Start ersetzt laufende Session, keine Recovery, Linux-Backends |
 | Live-Audio Receiver | Opus/RTP zu Lautsprechern/virtuellem Mikrofon | HTTP-Aktion, ffmpeg/paplay | Prozess poll() | Request, nicht persistent | audio_streamer | pactl sinks | test_audio_streamer | AUDIO_STREAMER | Ausgabe ohne Gerätesuche nicht klar, keine persistente Auswahl/Recovery |
@@ -112,7 +112,7 @@ vereinheitlicht, nicht die Protokollimplementierungen ersetzt.
   werden vollständig durch `validate_config` validiert. Boot- und
   Gateway-Einstellungen besitzen eigene bestehende Validatoren.
 - SIP: `SIMPLEOFFICE_SIP_BIND`, `telephony/telephony-profiles.sqlite3` neben der Konfiguration;
-  Port, Realm, Registrar-/Proxy-/STUN-/TURN-Angaben über TelephonyProfileStore.
+  Registrar-Adresse, Port, Transport, Realm und STUN über TelephonyProfileStore.
   Secret-Verifier, nicht Klartextpasswörter, gehen an den Registrar.
 - TTS: `SIMPLEOFFICE_PIPER_MODEL`; Modelle werden nicht automatisch geladen.
 - Federation: `SIMPLEOFFICE_FEDERATION_PEER_ID`; vorhandene Peer-Rollen und
@@ -301,3 +301,20 @@ verwenden dieselben Kapitel für Zweck, Voraussetzungen, Standardbetrieb,
 Konfiguration, Discovery, Ports, Security, Diagnose, API, Plattformen und Grenzen.
 Nachweis für die Konfigurationsänderungen: 31 Netzwerk-/Recovery-/UI-/API-Tests
 einschließlich der vorhandenen Frontend-Routenprüfung.
+
+### Fehlertolerante Netzwerkeinstellungen
+
+DHCP-/DNS-Validierungsfehler liefern HTTP 400 und behalten auch fehlerhaftes JSON
+zur Korrektur bei. Schreibfehler liefern eine verständliche HTTP-503-Seite mit
+Hinweis auf Dateirechte/Speicherplatz. Rohe Exceptions und Pfade erscheinen nicht
+in der Rückmeldung; das Audit erhält den Fehlertyp. Die gespeicherte Konfiguration
+bleibt bei Validierungsfehlern unverändert. Eingaben werden beim erneuten Rendern
+HTML-escaped. Feldbeschriftungen sind explizit mit den Eingaben verknüpft; die
+Navigation bricht auf schmalen Ansichten um.
+
+Nachweis: 18 Formular-, Diagnose- und Frontend-Routentests bestehen, einschließlich
+Schreibfehler, beibehaltener Eingaben und HTML-Escaping. Python-Syntax und
+Whitespace-Prüfung bestehen. Die visuelle Browserprüfung ist am 15.09.2026 durch
+`ERR_BLOCKED_BY_CLIENT` beim Zugriff auf die lokale Testseite blockiert. Deshalb
+werden Kontrast, Touch-Bedienung und reale mobile Darstellung nicht als abgenommen
+ausgewiesen. Es wurden keine Browser- oder anderen Abhängigkeiten installiert.
