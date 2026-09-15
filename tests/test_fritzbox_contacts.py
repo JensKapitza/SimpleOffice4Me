@@ -115,6 +115,26 @@ class FritzBoxContactTests(unittest.TestCase):
             self.assertEqual(store.credentials("alice")["url"], "http://fritz.box:49000")
             self.assertTrue(store.credentials("alice")["verify_tls"])
 
+    def test_old_disabled_tls_private_ip_config_migrates_to_local_tr064_http(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = FritzBoxStore(Path(directory), b"installation-key-long-enough-for-tests")
+            store.control.mkdir(parents=True, exist_ok=True)
+            store.path.write_text(json.dumps({
+                "version": 1,
+                "connections": [{
+                    "id": "old-ip",
+                    "owner": "alice",
+                    "url": "https://192.168.178.1:49443",
+                    "username": "alice",
+                    "password": store.secrets.encrypt("secret-password"),
+                    "verify_tls": False,
+                    "phonebook_id": 0,
+                    "mappings": {},
+                }],
+            }), encoding="utf-8")
+            self.assertEqual(store.config("alice")["url"], "http://192.168.178.1:49000")
+            self.assertEqual(store.credentials("alice")["url"], "http://192.168.178.1:49000")
+
     def test_safe_config_never_exposes_password(self):
         with tempfile.TemporaryDirectory() as directory:
             store = FritzBoxStore(Path(directory), b"installation-key-long-enough-for-tests")
