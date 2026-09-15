@@ -97,19 +97,28 @@ def _rapidocr_output(result: Any) -> dict[str, Any]:
     }
 
 
+def _rapidocr_failure(exc: Exception, *, unavailable: bool = False) -> dict[str, Any]:
+    return {
+        "engine": "rapidocr",
+        "status": "unavailable" if unavailable else "failed",
+        "text": "",
+        "characters": 0,
+        "confidence": None,
+        "blocks": [],
+        "error": _line(exc) or ("RapidOCR ist nicht installiert" if unavailable else "RapidOCR konnte nicht initialisiert werden"),
+    }
+
+
 def _run_rapidocr(path: Path) -> dict[str, Any]:
     try:
         engine = _rapidocr_engine()
     except (ImportError, ModuleNotFoundError) as exc:
-        return {
-            "engine": "rapidocr",
-            "status": "unavailable",
-            "text": "",
-            "characters": 0,
-            "confidence": None,
-            "blocks": [],
-            "error": _line(exc) or "RapidOCR ist nicht installiert",
-        }
+        return _rapidocr_failure(exc, unavailable=True)
+    except Exception as exc:
+        # RapidOCR may resolve model assets while the engine is initialized.
+        # Network, cache or read-only filesystem failures must not bypass the
+        # local Tesseract fallback and break the whole object-photo workflow.
+        return _rapidocr_failure(exc)
     try:
         with _RAPID_OCR_LOCK:
             result = engine(str(path))
