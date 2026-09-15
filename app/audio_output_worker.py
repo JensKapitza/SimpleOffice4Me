@@ -8,11 +8,12 @@ import sqlite3
 import subprocess
 import threading
 import time
+from contextlib import ExitStack
 
 from simpleoffice_service_lifecycle import ServiceState, error_detail
 from tools.service_control import exclusive_lease
 from .audio_output_discovery import discover_speaker_outputs
-from .audio_output_engine import render_preset, render_tts, playback_command, prune_tts_cache
+from .audio_output_engine import render_preset, render_tts, playback_command, prune_tts_cache, attenuated_audio
 from .audio_output_store import AudioOutputStore
 from .mini_services import default_config_path
 
@@ -157,6 +158,7 @@ class AudioOutputWorker:
     def process_job(self, store, job):
         self.active_job = job["id"]
         started_playback = False
+        playback_files = ExitStack()
         try:
             outputs = store.local_targets(job["targets"])
             payload = job["payload"]
@@ -171,6 +173,7 @@ class AudioOutputWorker:
                 store.finish(job["id"], state="cancelled")
                 return
             commands = []
+            adjusted_files = {}
             for output in outputs:
                 if output["output_id"].startswith("discovered-"):
                     player = shutil.which("paplay")
@@ -178,7 +181,11 @@ class AudioOutputWorker:
                         raise RuntimeError("paplay fehlt für den erkannten PulseAudio-Ausgang")
                     commands.append([player, "--device=" + output["device"], "--volume=" + str(round(output["volume"] * 65536 / 100)), str(path)])
                 else:
-                    commands.append(playback_command(path, output["device"]))
+                    volume = output["volume"]
+                    if volume not in adjusted_files:
+                        adjusted_files[volume] = playback_files.enter_context(attenuated_audio(path, volume, cancel_event=self.stop_event))
+                    adjusted = adjusted_files[volume]
+                    commands.append(playback_command(adjusted, output["device"]))
             with self.lock:
                 for command in commands:
                     if self.stop_event.is_set():
@@ -215,6 +222,7 @@ class AudioOutputWorker:
                     process.kill()
                     process.wait(timeout=2)
             self.active_job = None
+            playback_files.close()
             try:
                 prune_tts_cache(store.root / "rendered")
             except OSError as exc:

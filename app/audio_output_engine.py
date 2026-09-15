@@ -16,6 +16,7 @@ import wave
 import tempfile
 import time
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Iterable
 
 
@@ -118,6 +119,49 @@ def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | Non
     return target
 
 
+@contextmanager
+def attenuated_audio(path: str | Path, volume: int, *, cancel_event=None):
+    """Apply per-output PCM gain without changing the source or system mixer."""
+    if type(volume) is not int or not 0 <= volume <= 100:
+        raise ValueError("Lautstärke muss zwischen 0 und 100 liegen")
+    source = Path(path)
+    if volume == 100:
+        yield source
+        return
+    # Private directory also protects the WAV while wave.open creates its header.
+    with tempfile.TemporaryDirectory(prefix="playback-", dir=source.parent) as temporary:
+        target = Path(temporary) / "audio.wav"
+        with wave.open(str(source), "rb") as incoming, wave.open(str(target), "wb") as outgoing:
+            width = incoming.getsampwidth()
+            channels = incoming.getnchannels()
+            if width not in (1, 2, 3, 4) or incoming.getcomptype() != "NONE":
+                raise ValueError("Lautstärkeanpassung benötigt PCM-WAV")
+            remaining = incoming.getnframes() * channels * width
+            if remaining > 32 * 1024 * 1024:
+                raise ValueError("Audiodatei ist zu groß")
+            outgoing.setparams(incoming.getparams())
+            while remaining:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Lautstärkeanpassung abgebrochen")
+                data = incoming.readframes(min(4096, remaining // (channels * width)))
+                if not data or len(data) % (channels * width):
+                    raise ValueError("Audiodatei ist unvollständig")
+                remaining -= len(data)
+                scaled = bytearray(len(data))
+                for offset in range(0, len(data), width):
+                    sample = int.from_bytes(data[offset:offset + width], "little", signed=width > 1)
+                    if width == 1:
+                        sample -= 128
+                    # Truncate toward zero symmetrically, including negative samples.
+                    value = (abs(sample) * volume // 100) * (-1 if sample < 0 else 1)
+                    if width == 1:
+                        value += 128
+                    scaled[offset:offset + width] = value.to_bytes(width, "little", signed=width > 1)
+                outgoing.writeframesraw(scaled)
+        os.chmod(target, 0o600)
+        yield target
+
+
 def playback_command(path: str | Path, device: str = "") -> list[str]:
     file_path = str(Path(path))
     if shutil.which("pw-play"):
@@ -131,6 +175,8 @@ def playback_command(path: str | Path, device: str = "") -> list[str]:
             command.extend(["-D", device])
         return command + [file_path]
     if shutil.which("ffplay"):
+        if device and device != "default":
+            raise RuntimeError("FFplay kann das gewählte Gerät nicht gezielt ansprechen; Systemstandard wählen oder einen gerätefähigen Player verwenden")
         return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", file_path]
     raise RuntimeError("Kein Audio-Player gefunden (pw-play, aplay oder ffplay)")
 

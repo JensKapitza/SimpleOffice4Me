@@ -36,6 +36,16 @@ Gruppen, Aufträge und Einstellungen. Standardwerte: `enabled=true`,
 bleiben bei erneutem Scan erhalten. Automatisch erkannte Geräte erhalten Node
 `local` und eine stabile `discovered-...`-ID.
 
+Die Lautstärke (0–100 Prozent) gilt auch für manuell angelegte lokale Ausgänge.
+Bei diesen Ausgängen wird PCM-WAV vor der Wiedergabe in begrenzten Blöcken mit
+Python angepasst. Das Original und die Systemlautstärke bleiben unverändert;
+private temporäre Dateien werden nach Ende/Abbruch entfernt. 100 Prozent benötigt
+keine Kopie. Innerhalb eines Auftrags teilen Ausgänge mit gleicher Lautstärke
+dieselbe Kopie. Die Verarbeitung ist abbrechbar und auf 32 MiB PCM begrenzt.
+Automatisch erkannte PulseAudio-Ausgänge verwenden weiterhin die Player-Lautstärke.
+Der FFplay-Fallback unterstützt nur den Systemstandard; eine konkrete abweichende
+Geräteauswahl scheitert ausdrücklich, statt auf dem falschen Lautsprecher zu spielen.
+
 ## Discovery
 
 Der Scan aktualisiert lokale PulseAudio-/PipeWire-Ausgänge spätestens alle 30

@@ -43,6 +43,26 @@ class AnnouncementTests(unittest.TestCase):
         self.assertNotIn("shell", popen.call_args.kwargs)
         self.assertEqual([], self.worker.processes)
 
+    def test_manual_output_volume_file_exists_until_player_finishes(self):
+        self.store.register_output("local", "speaker", "Quiet", device="default", volume=50)
+        job = self.store.queue_sound("gong", ["speaker"])
+        files = []
+        def command(path, device):
+            files.append(Path(path))
+            self.assertTrue(Path(path).is_file())
+            self.assertEqual("default", device)
+            return ["player", str(path)]
+        player = Mock(returncode=0)
+        def poll():
+            self.assertTrue(files[0].is_file())
+            return 0
+        player.poll.side_effect = poll
+        with patch("app.audio_output_worker.playback_command", side_effect=command), patch("app.audio_output_worker.subprocess.Popen", return_value=player):
+            self.worker.process_job(self.store, self.store.claim())
+        self.assertEqual("done", self.store.announcement(job["id"])["state"])
+        self.assertFalse(files[0].exists())
+        self.assertTrue(list((self.store.root / "rendered").glob("preset-*.wav")))
+
     def test_unsupported_remote_target_fails_without_lingering(self):
         self.store.register_output("remote", "remote-speaker", "Remote")
         job = self.store.queue_sound("gong", ["remote-speaker"])
@@ -50,6 +70,14 @@ class AnnouncementTests(unittest.TestCase):
         result = self.store.announcement(job["id"])
         self.assertEqual("failed", result["state"])
         self.assertIn("externe Knoten", result["error"])
+
+    def test_player_start_failure_cleans_attenuated_audio(self):
+        self.store.register_output("local", "speaker", "Quiet", volume=40)
+        job = self.store.queue_sound("gong", ["speaker"])
+        with patch("app.audio_output_worker.playback_command", return_value=["player"]), patch("app.audio_output_worker.subprocess.Popen", side_effect=OSError("not available")):
+            self.worker.process_job(self.store, self.store.claim())
+        self.assertEqual("queued", self.store.announcement(job["id"])["state"])
+        self.assertEqual([], list((self.store.root / "rendered").glob("playback-*")))
 
     def test_missing_hardware_retries_before_playback_only(self):
         self.store.register_output("local", "speaker", "Offline", online=False)
