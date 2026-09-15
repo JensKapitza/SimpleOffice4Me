@@ -40,12 +40,20 @@ def _catalog():
     for key, row in manager.status().items():
         ident = "audio-" + key
         row.update(id=ident, name="Audio-Sender" if key == "sender" else "Audio-Receiver",
-                   settings=stream_settings(key), scan=store.scan(ident),
+                   settings={}, scan=store.scan(ident),
                    capabilities=["start", "stop", "restart", "scan", "settings"])
+        try:
+            row["settings"] = stream_settings(key)
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
         rows.append(row)
     row = output_worker.status()
-    row.update(settings=output_worker.settings(), scan=store.scan("audio-output"),
+    row.update(settings={}, scan=store.scan("audio-output"),
                capabilities=["start", "stop", "restart", "scan", "settings"])
+    try:
+        row["settings"] = output_worker.settings()
+    except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+        row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
     rows.append(row)
     from .network_boot_service import status as boot_status
     row = boot_status()

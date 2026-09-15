@@ -26,10 +26,10 @@
   const refresh = async () => {
     const data = await request('');
     const select = get('announcement-target'), current = select.value;
-    const previous = Array.from(select.options).map(option => option.value).join('|');
+    const previous = JSON.stringify(Array.from(select.options).slice(1).map(option => [option.value, option.text]));
     const options = data.outputs.filter(output => output.node_id === 'local').map(output => ({id: output.output_id, name: output.name + (output.online ? '' : ' (offline)')}));
     data.groups.forEach(group => options.push({id: group.group_id, name: 'Gruppe: ' + group.name}));
-    if ('|' + options.map(option => option.id).join('|') !== previous) {
+    if (JSON.stringify(options.map(option => [option.id, option.name])) !== previous) {
       while (select.firstChild) select.removeChild(select.firstChild);
       select.add(new Option('Ausgang oder Gruppe wählen', ''));
       options.forEach(option => select.add(new Option(option.name, option.id)));
@@ -51,7 +51,8 @@
       history.appendChild(row);
     });
     }
-    if (!busy) show((data.service.state === 'running' ? '● Läuft' : data.service.state === 'waiting' ? '◷ Wartet' : '■ ' + data.service.state) + ' · ' + data.service.health.message);
+    const states = {unavailable: '○ Nicht erreichbar', stopped: '■ Gestoppt', starting: '↻ Startet', running: '● Läuft', degraded: '⚠ Eingeschränkt', stopping: '↻ Stoppt', failed: '⚠ Fehler', waiting: '◷ Wartet', disabled: '○ Deaktiviert'};
+    if (!busy) show((states[data.service.state] || data.service.state) + ' · ' + data.service.health.message);
   };
   const act = async (path, body) => {
     if (busy) return;

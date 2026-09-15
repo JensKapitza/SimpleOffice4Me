@@ -1,5 +1,6 @@
 """Admin controls for live audio streaming."""
 from __future__ import annotations
+import sqlite3
 
 import time
 
@@ -192,3 +193,9 @@ def receiver_sdp_download():
     except (ValueError, TypeError):
         return jsonify({"error": "Ungültiger RTP-Port."}), 400
     return content, 200, {"Content-Type": "application/sdp"}
+
+
+@bp.errorhandler(sqlite3.Error)
+def storage_error(exc):
+    audit("audio_storage_failed", "service", "audio-streamer", outcome="failure", detail={"error_type": type(exc).__name__})
+    return jsonify(error="Audio-Einstellungen nicht verfügbar. Dateirechte und Datenbank prüfen; anschließend erneut versuchen."), 503

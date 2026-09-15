@@ -4,6 +4,7 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
@@ -27,6 +28,7 @@ class AudioOutputWorker:
         self.state = ServiceState("audio-output", "Audio-Ausgabe")
         self.scan_result = {"state": "waiting", "count": 0, "updated_at": None}
         self.next_scan = 0
+        self.retry_limit = 3
 
     def store(self):
         return AudioOutputStore(self.root or default_config_path().parent / "audio")
@@ -42,6 +44,7 @@ class AudioOutputWorker:
     def save_settings(self, value):
         value = self.settings(value)
         self.store().service_settings("announcements", value)
+        self.retry_limit = value["retry_limit"]
         if not value["enabled"]:
             self.stop()
         return value
@@ -52,19 +55,26 @@ class AudioOutputWorker:
                 if self.stop_event.is_set():
                     raise RuntimeError("Audio-Ausgabe wird noch beendet; Status aktualisieren")
                 return self.status()
-            if not self.settings()["enabled"]:
+            value = self.settings()
+            self.retry_limit = value["retry_limit"]
+            if not value["enabled"]:
                 self.state.state = "disabled"
                 return self.status()
             self.stop_event.clear()
             self.state.state = "starting"
+            self.state.retry_count = 0
             self.thread = threading.Thread(target=self._run, name="simpleoffice-announcements", daemon=True)
             self.thread.start()
             return self.status()
 
     def start_background(self):
-        value = self.settings()
-        if value["enabled"] and value["autostart"]:
-            self.start()
+        try:
+            value = self.settings()
+            if value["enabled"] and value["autostart"]:
+                self.start()
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            self.state.failed(exc)
+            self.state.retry_at = None  # Cannot assume autostart from unreadable settings.
 
     def stop(self):
         self.stop_event.set()
@@ -105,27 +115,44 @@ class AudioOutputWorker:
             return value
 
     def _run(self):
-        store = self.store()
         try:
-            with exclusive_lease(store.root / "announcement-worker.lock") as acquired:
-                if not acquired:
-                    self.state.state = "unavailable"
+            while not self.stop_event.is_set():
+                try:
+                    self._run_once()
                     return
-                store.recover_interrupted()
-                self.state.running()
-                while not self.stop_event.is_set():
-                    if time.monotonic() >= self.next_scan:
-                        self.scan()
-                    job = store.claim()
-                    if job is None:
-                        self.stop_event.wait(1)
-                        continue
-                    self.process_job(store, job)
-        except Exception as exc:
-            self.state.failed(exc)
+                except Exception as exc:
+                    self.state.failed(exc)
+                    if self.state.retry_count > self.retry_limit:
+                        self.state.retry_at = None
+                        return
+                    delay = min(60, 2 ** self.state.retry_count)
+                    self.state.retry_at = time.monotonic() + delay
+                    if self.stop_event.wait(delay):
+                        return
         finally:
             if self.stop_event.is_set():
                 self.state.state = "stopped"
+
+    def _run_once(self):
+        # Creating/opening storage belongs inside the bounded recovery boundary.
+        store = self.store()
+        with exclusive_lease(store.root / "announcement-worker.lock") as acquired:
+            if not acquired:
+                self.state.state = "unavailable"
+                return
+            store.recover_interrupted()
+            self.state.running()
+            stable_since = time.monotonic()
+            while not self.stop_event.is_set():
+                if time.monotonic() - stable_since >= 60:
+                    self.state.retry_count = 0
+                if time.monotonic() >= self.next_scan:
+                    self.scan()
+                job = store.claim()
+                if job is None:
+                    self.stop_event.wait(1)
+                    continue
+                self.process_job(store, job)
 
     def process_job(self, store, job):
         self.active_job = job["id"]

@@ -1,5 +1,6 @@
 """Administrator endpoints for network audio outputs and announcements."""
 from __future__ import annotations
+import sqlite3
 
 import time
 
@@ -159,3 +160,10 @@ def sound():
         return jsonify({"error": str(exc)}), 400
     audit("audio_sound_queued", "audio_announcement", str(result["id"]), detail={"targets": result["targets"]})
     return jsonify(result), 202
+
+
+@bp.errorhandler(sqlite3.Error)
+@bp.errorhandler(OSError)
+def storage_error(exc):
+    audit("audio_storage_failed", "service", "audio-output", outcome="failure", detail={"error_type": type(exc).__name__})
+    return jsonify(error="Audio-Speicher nicht verfügbar. Dateirechte und Datenbank prüfen; anschließend erneut versuchen."), 503

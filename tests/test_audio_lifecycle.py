@@ -1,4 +1,5 @@
 import tempfile
+import sqlite3
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -11,6 +12,14 @@ from app.security_controls import protect_browser_mutation
 
 
 class AudioSettingsTests(unittest.TestCase):
+    def test_storage_failure_does_not_abort_other_audio_autostarts(self):
+        manager = LiveAudioManager()
+        with patch.object(manager, "_ensure_monitor"), patch("app.audio_streamer_config.settings", side_effect=[sqlite3.OperationalError("locked"), {"enabled": False}]) as read:
+            manager.start_background()
+        self.assertEqual(2, read.call_count)
+        self.assertEqual("failed", manager.states["sender"].state)
+        self.assertEqual("stopped", manager.states["receiver"].state)
+
     def test_defaults_do_not_capture_microphone_on_start(self):
         for service in ("sender", "receiver"):
             self.assertFalse(validate_settings(service, {})["autostart"])

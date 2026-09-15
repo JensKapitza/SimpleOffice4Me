@@ -12,6 +12,7 @@ import atexit
 import ipaddress
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -373,7 +374,7 @@ class LiveAudioManager:
                 value = settings(service)
                 if value["enabled"] and value["autostart"]:
                     self.configured_start(service)
-            except (OSError, ValueError, RuntimeError) as exc:
+            except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
                 self.states[service].failed(exc)
 
     def configured_start(self, service, changes=None, *, restart=False):

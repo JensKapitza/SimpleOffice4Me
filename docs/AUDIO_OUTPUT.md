@@ -113,3 +113,17 @@ Sprachmodelle und Lautsprecherqualität wurden nicht mit echter Hardware geprüf
 `tests/test_audio_announcements.py` prüft konkurrierende Abholung, Abschluss,
 Abbruch, fehlende Hardware, begrenzte Wiederholung, Gruppenfehler, Remote-Fehler
 und die Deduplizierung von Kalenderaufträgen ohne Spezialhardware.
+## Speicherfehler und Wiederanlauf
+
+Eine nicht lesbare Audio-Konfiguration verhindert den Webstart nicht. Der
+betroffene Dienst meldet den Speicherfehler; die gemeinsame Übersicht zeigt
+Netzwerk- und Bootdienste weiter an. Bei unbekannten Autostart-Einstellungen
+wird keine Wiedergabe auf Verdacht gestartet. Nach Reparatur explizit starten.
+
+Fehler beim Öffnen oder Verarbeiten der Durchsagen-Datenbank während eines
+angeforderten Worker-Laufs verwenden begrenzten Backoff: standardmäßig drei
+Wiederholungen nach 2/4/8 Sekunden, konfigurierbar bis sechs. Stop unterbricht
+das Warten. Nach 60 Sekunden stabilem Betrieb beginnt ein neues Fehlerbudget.
+Möglicherweise schon teilweise abgespielte Durchsagen werden nicht automatisch
+erneut abgespielt. Storage-APIs liefern verständliche 503-Antworten ohne rohe
+Exceptiontexte. Offline-/Namensänderungen werden auch in der Zielauswahl sichtbar.

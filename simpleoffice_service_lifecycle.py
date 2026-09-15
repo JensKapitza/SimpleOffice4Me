@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import errno
+import json
+import logging
 import socket
 import threading
 import time
+import traceback
 from contextlib import contextmanager
 from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import Any
+from pathlib import Path
 
 
 @lru_cache(maxsize=1)
@@ -16,6 +20,18 @@ def application_version():
     # Status must stay cheap and independent of external git subprocesses.
     from simpleoffice_version import _project_version, PROJECT_ROOT
     return _project_version(PROJECT_ROOT)
+
+
+def log_service_event(service: str, event: str, *, exc: Exception | None = None, operation_id: str | None = None):
+    """Shared event format without exception payloads, source text or locals."""
+    row = {"service": service, "event": event, "severity": "error" if exc else "info", "timestamp": time.time()}
+    if operation_id:
+        row["operation_id"] = operation_id
+    if exc is not None:
+        row["diagnostic"] = error_detail(exc)
+        row["trace"] = [{"file": Path(frame.filename).name, "line": frame.lineno, "function": frame.name}
+                        for frame in traceback.extract_tb(exc.__traceback__)[-8:]]
+    logging.getLogger("simpleoffice.mini_services").log(logging.ERROR if exc else logging.INFO, "%s", json.dumps(row, ensure_ascii=False))
 
 
 def service_health(service: Any) -> bool:
@@ -65,6 +81,7 @@ class ServiceState:
         self.last_error = error_detail(exc)
         self.last_error_at = time.time()
         self.retry_count += 1
+        log_service_event(self.id, "failed", exc=exc)
         # A configuration edit / explicit restart resets this finite budget.
         self.retry_at = time.monotonic() + min(60, 2 ** self.retry_count) if self.retry_count < 6 else None
 

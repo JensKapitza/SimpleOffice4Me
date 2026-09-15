@@ -1,4 +1,5 @@
 import tempfile
+import sqlite3
 import threading
 import unittest
 from pathlib import Path
@@ -8,6 +9,7 @@ from app.audio_output_store import AudioOutputStore
 from app.audio_output_worker import AudioOutputWorker
 from app.audio_calendar import queue_due_calendar_events
 from datetime import datetime, timezone
+from simpleoffice_service_lifecycle import log_service_event
 
 
 class AnnouncementTests(unittest.TestCase):
@@ -91,6 +93,52 @@ class AnnouncementTests(unittest.TestCase):
     def test_invalid_settings_and_targets_are_rejected(self):
         with self.assertRaises(ValueError): self.worker.save_settings({"enabled": "true", "autostart": True, "retry_limit": 3})
         with self.assertRaises(ValueError): self.store.queue_sound("gong", "speaker")
+
+    def test_unreadable_autostart_settings_do_not_abort_web_start(self):
+        with patch.object(self.worker, "settings", side_effect=sqlite3.OperationalError("private detail")):
+            self.worker.start_background()
+        self.assertEqual("failed", self.worker.state.state)
+        self.assertIsNone(self.worker.thread)
+        self.assertIsNone(self.worker.state.retry_at)
+
+    def test_worker_storage_open_failures_have_bounded_cancellable_recovery(self):
+        with patch.object(self.worker, "store", side_effect=sqlite3.OperationalError("locked")) as store, patch.object(self.worker.stop_event, "wait", return_value=False) as wait:
+            self.worker._run()
+        self.assertEqual(4, store.call_count)
+        self.assertEqual([2, 4, 8], [call.args[0] for call in wait.call_args_list])
+        self.assertEqual("failed", self.worker.state.state)
+        self.assertIsNone(self.worker.state.retry_at)
+        self.worker.state.retry_count = 0
+        def cancel(_delay):
+            self.worker.stop_event.set()
+            return True
+        with patch.object(self.worker, "store", side_effect=PermissionError) as store, patch.object(self.worker.stop_event, "wait", side_effect=cancel):
+            self.worker._run()
+        self.assertEqual(1, store.call_count)
+        self.assertEqual("stopped", self.worker.state.state)
+
+    def test_worker_recovers_after_transient_storage_failure(self):
+        calls = []
+        def attempt():
+            calls.append(1)
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("locked")
+            self.worker.state.running()
+        with patch.object(self.worker, "_run_once", side_effect=attempt), patch.object(self.worker.stop_event, "wait", return_value=False):
+            self.worker._run()
+        self.assertEqual(2, len(calls))
+        self.assertEqual("running", self.worker.state.state)
+
+    def test_shared_diagnostics_include_frames_but_no_exception_payload(self):
+        try:
+            raise ValueError("secret-password-do-not-log")
+        except ValueError as exc:
+            with self.assertLogs("simpleoffice.mini_services", level="ERROR") as captured:
+                log_service_event("audio-output", "failed", exc=exc, operation_id="operation-1")
+        message = captured.output[0]
+        self.assertNotIn("secret-password-do-not-log", message)
+        for value in ("timestamp", "severity", "trace", "test_audio_announcements.py", "operation-1"):
+            self.assertIn(value, message)
 
 
 if __name__ == "__main__": unittest.main()
