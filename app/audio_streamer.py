@@ -30,9 +30,11 @@ _MAX_STREAM_TARGETS = 16
 
 
 def _port(value: Any) -> int:
+    if type(value) is not int and not (isinstance(value, str) and value.strip().isascii() and value.strip().isdigit()):
+        raise ValueError("RTP-Port muss eine ganze Zahl sein")
     port = int(value)
-    if port < 1024 or port > 65535:
-        raise ValueError("Port muss zwischen 1024 und 65535 liegen")
+    if port < 1024 or port > 65534:
+        raise ValueError("RTP-Port muss zwischen 1024 und 65534 liegen; der Folgeport wird für RTCP benötigt")
     return port
 
 

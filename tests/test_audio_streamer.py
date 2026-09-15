@@ -40,6 +40,16 @@ class AudioStreamerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_destinations([{"host": "127.0.0.1", "port": 5004}] * 17)
 
+    def test_rtp_ports_are_integral_and_leave_room_for_rtcp(self):
+        from app.audio_streamer_config import validate_settings
+        for value in (65535, 5004.5, 5004.0, True, "5004.5"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    normalize_destinations([{"host": "127.0.0.1", "port": value}])
+                with self.assertRaises(ValueError):
+                    validate_settings("receiver", {"port": value})
+        self.assertEqual(65534, validate_settings("receiver", {"port": "65534"})["port"])
+
     def test_speaker_devices_are_deduplicated_and_bounded(self) -> None:
         self.assertEqual(
             normalize_speaker_devices(["sink-a", " sink-b ", "sink-a", ""]),
