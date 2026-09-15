@@ -8,6 +8,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import time
+import threading
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ def refresh_blocklists(
     *,
     max_download_bytes: int = 10 * 1024 * 1024,
     max_domains: int = 500_000,
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     path = Path(config_path or default_config_path())
     dns = validate_config(config)["dns"]
@@ -61,6 +63,8 @@ def refresh_blocklists(
     sources: list[dict[str, Any]] = []
     failed = False
     for url in dns["blocklist_urls"]:
+        if cancel_event is not None and cancel_event.is_set():
+            return {"cancelled": True}
         started = time.monotonic()
         try:
             request = urllib.request.Request(
@@ -93,9 +97,11 @@ def refresh_blocklists(
                     "url": url,
                     "ok": False,
                     "error": type(exc).__name__,
-                    "message": str(exc)[:200],
+                    "message": "Download fehlgeschlagen; Netzwerk und Blocklisten-Adresse prüfen.",
                 }
             )
+    if cancel_event is not None and cancel_event.is_set():
+        return {"cancelled": True}
     active_path = blocklist_path(path)
     preserved_previous = failed and active_path.is_file()
     if preserved_previous:

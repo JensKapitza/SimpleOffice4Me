@@ -3,10 +3,23 @@ import socket
 import unittest
 from unittest.mock import patch
 
-from tools.launcher import endpoint_available, running_web_pid, waitress_options
+from tools.launcher import endpoint_available, running_web_pid, waitress_options, start_mini_worker
 
 
 class WsgiServerSettingsTest(unittest.TestCase):
+    def test_mini_autostart_respects_external_worker_and_deployment(self):
+        with patch.dict(os.environ, {}, clear=True), patch("simpleoffice_mini_core.read_status", return_value={}), patch("tools.launcher.subprocess.Popen") as popen:
+            self.assertIs(start_mini_worker(), popen.return_value)
+            self.assertIn("tools.mini_services", popen.call_args.args[0])
+            self.assertNotIn("shell", popen.call_args.kwargs)
+        for environment in ({"SIMPLEOFFICE_MINI_SERVICES_AUTOSTART": "0"}, {"SIMPLEOFFICE_CONTAINER_ROLE": "web"}):
+            with patch.dict(os.environ, environment, clear=True), patch("tools.launcher.subprocess.Popen") as popen:
+                self.assertIsNone(start_mini_worker())
+                popen.assert_not_called()
+        with patch.dict(os.environ, {}, clear=True), patch("simpleoffice_mini_core.read_status", return_value={"state": "degraded"}), patch("tools.launcher.subprocess.Popen") as popen:
+            self.assertIsNone(start_mini_worker())
+            popen.assert_not_called()
+
     def test_secure_local_defaults_match_application_upload_limit(self):
         with patch.dict(os.environ, {}, clear=True):
             options = waitress_options({"host": "127.0.0.1", "port": 8080}, 512 * 1024 * 1024)

@@ -10,6 +10,11 @@ if %errorlevel%==0 (
   set "PYTHON=python"
 )
 
+if /I "%~1"=="mini-services" goto :control
+if /I "%~1"=="status" goto :control
+if /I "%~1"=="stop" goto :control
+if /I "%~1"=="restart" goto :control
+
 call :parse_args %*
 if errorlevel 1 exit /b %errorlevel%
 
@@ -25,6 +30,15 @@ python -m pip install --disable-pip-version-check --editable "%ROOT%[sftp]"
 if errorlevel 1 goto :install_error
 python "%ROOT%tools\install_invoice_validator.py"
 python -m tools.launcher start
+exit /b %errorlevel%
+
+:control
+rem Lifecycle operations use existing Python and never run pip/setup.
+if exist ".venv\Scripts\python.exe" (
+  ".venv\Scripts\python.exe" -m tools.launcher %*
+) else (
+  %PYTHON% -m tools.launcher %*
+)
 exit /b %errorlevel%
 
 :parse_args

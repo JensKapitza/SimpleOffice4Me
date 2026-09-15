@@ -189,3 +189,49 @@ Danach im Webinterface Federation-Peers, Drucker und bei Nutzung der Mini Servic
 ## Sicherheitsgrenze
 
 Docker wird absichtlich nicht pauschal mit `--privileged` betrieben. Web/Federation benötigen diese Rechte nicht. Nur der getrennte Netzwerkworker erhält die dokumentierten Capabilities. Wer `--privileged` verwendet, erweitert Angriffsfläche und Verantwortung erheblich und verlässt die unterstützte Standardkonfiguration.
+# Einheitlicher Start der Mini Services
+
+Im Repository startet `./start.sh` die Webanwendung und den bestehenden
+Mini-Services Worker. `start.bat` verwendet unter Windows denselben Launcher.
+Es werden nur konfigurierte Netzwerkdienste aktiviert; DHCP, DNS, TFTP und
+Routing/NAT bleiben zunächst ausgeschaltet. SIP wählt eine private lokale
+Adresse, andernfalls Loopback. Vorhandene DHCP-Server oder Firewallregeln anderer
+Anwendungen werden nicht automatisch abgeschaltet.
+
+```sh
+./start.sh status
+./start.sh stop
+./start.sh restart
+./start.sh mini-services
+./start.sh mini-services status
+./start.sh mini-services restart
+./start.sh mini-services stop
+./start.sh mini-services --config /pfad/instance/mini-services.json
+```
+
+Start/Restart laufen im Vordergrund. Status/Stop und der reine Netzwerkworker
+benötigen keine Paketinstallation. Der Worker verwendet ausschließlich die
+Python-Standardbibliothek. `start2.sh` bleibt als Weiterleitung kompatibel.
+`restart.sh` erhält weiter seine Bedeutung „nur zuvor laufende Dienste starten“.
+Die Windows-Entsprechung lautet beispielsweise `start.bat mini-services status`.
+
+`SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0` unterdrückt den vom Web-Launcher
+gestarteten Worker. Die ausgelieferte systemd-Webunit setzt diesen Schalter,
+da die eigene Mini-Services-Unit die benötigten Capabilities besitzt. Auch die
+Docker-Rollen `web` und `error-relay` starten keinen zusätzlichen Netzwerkworker.
+Stop des Webprozesses beendet nur seinen eigenen Worker. Ein exklusiver,
+vom Betriebssystem freigegebener Lock verhindert doppelte Worker auch nach
+Abstürzen. Bei eigenen Konfigurationspfaden für CLI-Befehle denselben Pfad
+angeben; PID-Dateien liegen daneben unter `run`.
+
+Bei `mini-services status` bedeutet Exitcode 3: kein aktuell laufender Worker.
+Ein laufender Worker mit fehlerhaftem Teildienst meldet `degraded` und dessen
+strukturierten Fehler. Nach 30 Sekunden ohne Heartbeat ist Status `unavailable`.
+Es erfolgt keine automatische Rechteerhöhung. Privilegierte Ports und NAT
+benötigen bewusst eingerichtete Systemrechte; Audio benötigt eine erreichbare
+Benutzersitzung mit den bereits dokumentierten Audiowerkzeugen.
+## Mini-Service-Handbücher
+
+Einheitlicher Betrieb, Konfigurationspfade, API, Recovery und die Service-Handbücher
+sind unter [Mini Services](MINI_SERVICES.md) zusammengeführt. Die untenstehenden
+Deployment-Varianten verwenden weiterhin dieselben Worker und Startbefehle.

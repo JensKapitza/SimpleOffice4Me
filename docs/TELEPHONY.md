@@ -1,5 +1,103 @@
 # SimpleOffice4Me Telefonie
 
+## Zweck
+
+Lokaler SIP-Registrar und Redirect-Dienst für konfigurierte Nebenstellen.
+Der bestehende Mini-Services-Worker bleibt Eigentümer; RTP-Medien fließen direkt
+zwischen Endgeräten. Einzelheiten zum unterstützten Protokoll folgen unten.
+
+## Voraussetzungen
+
+Python-Standardbibliothek für den Registrar, vorhandene SimpleOffice-Telefonie-
+Datenbank und ein SIP-Endgerät bzw. kompatibler Client. Die Webverwaltung nutzt
+die bestehende Projekt-Kryptografie für gespeicherte Passwörter. Es wird keine
+neue SIP-Bibliothek benötigt oder automatisch installiert.
+
+## Standardbetrieb
+
+`./start.sh` startet den Worker und den lokalen SIP-Dienst automatisch, sofern
+Aktiviert/Autostart nicht abgeschaltet wurden. Die gemeinsame Dienstübersicht
+bietet Start, Stop, Restart und Status. Nebenstellen und Zugangsdaten werden
+weiterhin unter **Mini Services → SIP / Telefonie** eingerichtet.
+[Gemeinsamer Betrieb, CLI und Zustände](MINI_SERVICES.md).
+
+## Konfiguration
+
+`telephony/telephony-profiles.sqlite3` liegt neben der Mini-Services-Konfiguration.
+Die Telefonie-Verwaltung persistiert dieselben Werte, die der Worker verwendet.
+
+| Option | Standard / Wirkung |
+|---|---|
+| `registrar_host` | leer; automatisch ermittelte Adresse wird angezeigt, manueller Host für abweichende/externe Infrastruktur |
+| `registrar_port` | `5060`; gültiger Port 1–65535 |
+| `transport` | `udp`; der eingebaute Mini-Registrar verwendet UDP, andere Transportoptionen betreffen externe SIP-Infrastruktur |
+| `realm` | `simpleoffice.local`; Bestandteil des Digest-Verifiers, bei vorhandenen Profilen nicht beliebig änderbar |
+| `stun_server` | leer; optionale Client-/externe Infrastruktur, der Mini-Registrar betreibt selbst keinen STUN-Server |
+| `SIMPLEOFFICE_SIP_BIND` | nicht gesetzt; manuell nur Loopback oder private IPv4 zulässig |
+| Aktiviert / Autostart | gemeinsame Worker-Präferenzen, getrennt von Nebenstellen-Konfiguration |
+
+## Discovery
+
+Der Dienst ermittelt eine private lokale IPv4-Adresse, sonst Loopback. Bei
+Netzwerkwechsel bewertet der Worker die Auswahl alle 30 Sekunden neu.
+Scan zeigt tatsächlich registrierte lokale Telefone. Er sucht nicht nach fremden
+SIP-Providern und erzeugt keine Nebenstellen automatisch. Ein fest konfiguriertes
+verlorenes Binding führt zu `waiting`; Rückkehr kann ohne manuellen Restart erfolgen.
+
+## Ports
+
+UDP 5060 beziehungsweise konfigurierter Port. Medienports werden zwischen den
+Endgeräten ausgehandelt und gehören nicht zum Registrar. Keine SIP-WebSocket-/TLS-
+Listener im eingebauten Mini-Dienst.
+
+## Security
+
+Siehe „Sicherheit“ und „Zugangsdaten“ unten. Zusätzlich sind offene Challenges auf
+1.024 begrenzt. Verdrängte Challenges verlieren ihre Replay-Zähler. Nonce-Counter-
+Prüfung und Aktualisierung sind gemeinsam gesperrt. Normale Mini-Service-Logs
+enthalten keine SIP-Pakete oder Digest-Zugangsdaten. API-Steuerung erfordert Admin/CSRF.
+
+## Fehlerdiagnose
+
+„Wartet auf Mini-Services-Worker“: `./start.sh status` bzw.
+`./start.sh mini-services status` prüfen. Portkonflikte betreffen nur SIP;
+die übrigen Worker-Dienste bleiben unabhängig. Eine Loopback-Adresse ist nicht
+vom Telefon im LAN erreichbar. Fehlende Registrierungen: Nebenstelle aktiviert,
+Passwort/Realm/Serveradresse passend und LAN-/Firewallzugriff möglich?
+
+Health prüft gebundenen Socket und aktiven Listener; Registrierungen zeigen echte
+Client-Aktivität. Startfehler verwenden begrenzten Backoff, bekannte fehlende
+Netzwerk-Bindings werden langsam erneut geprüft. Stop beendet automatischen
+Wiederanlauf. Registrierungen sind flüchtig; nach Restart registrieren sich
+Telefone erneut. Lokaler Betrieb benötigt keinen Internetzugang.
+
+## API
+
+ID `sip` in der [gemeinsamen Mini-Service-API](MINI_SERVICES.md).
+Die vorhandene Telefonie-Verwaltung bleibt für Profile, generierte Passwörter
+und Clientdaten zuständig. SIP selbst ist ein separates UDP-Protokoll.
+
+## Plattformen
+
+Python-Registrar auf Linux und Windows; konkrete Firewall-/Endgerätetests bleiben
+erforderlich. Android nutzt die vorhandene native Übergabe an einen installierten
+SIP-Handler und kann über WebView administrieren. Ein interner vollständiger
+Android-SIP-User-Agent ist dadurch nicht implementiert.
+
+## Einschränkungen
+
+Kein Internet-Proxy, PSTN-Trunk, Medienrelay oder vollständiger PBX-Ersatz. Der
+eingebaute Registrar bleibt UDP/IPv4. Automatische Discovery bedeutet lokale
+Adressauswahl und registrierte Telefone, keine vollständige Inventur aller SIP-
+Geräte. Die nächste Ausbaustufe am Ende dieses Dokuments bleibt gesonderte Arbeit.
+
+## Tests
+
+`test_sip_runtime`, `test_mini_lifecycle`, `test_mini_security`,
+`test_mini_network_recovery`, `test_mini_control_api` sowie bestehende
+`test_telephony_*`: Registrierungen, Digest/Replay, lokale Zieladressen,
+Challenge-Grenzen, Start/Stop/Restart, Fehlerisolation, Bindings und geschützte API.
+
 ## Ziel
 
 SimpleOffice4Me verwendet fuer lokale Telefonie Standard-SIP. Der normale Betrieb soll ohne Serverkonfiguration funktionieren: Der Mini-Services-Worker startet automatisch einen lokalen Registrar auf einer privaten LAN-Adresse mit Port `5060/UDP`.
