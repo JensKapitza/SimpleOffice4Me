@@ -11,7 +11,8 @@ class ObjectVisionPackagingTests(unittest.TestCase):
     def test_desktop_dependencies_include_local_ml_ocr(self):
         pyproject = (self.root / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('"rapidocr==3.9.2"', pyproject)
-        self.assertIn('"onnxruntime==1.24.2"', pyproject)
+        self.assertIn('"onnxruntime==1.23.2; python_version == \'3.10\'"', pyproject)
+        self.assertIn('"onnxruntime==1.24.2; python_version >= \'3.11\'"', pyproject)
 
     def test_pyinstaller_explicitly_bundles_lazy_ml_runtime(self):
         builder = (
