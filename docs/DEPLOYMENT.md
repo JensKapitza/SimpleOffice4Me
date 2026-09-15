@@ -230,3 +230,8 @@ strukturierten Fehler. Nach 30 Sekunden ohne Heartbeat ist Status `unavailable`.
 Es erfolgt keine automatische Rechteerhöhung. Privilegierte Ports und NAT
 benötigen bewusst eingerichtete Systemrechte; Audio benötigt eine erreichbare
 Benutzersitzung mit den bereits dokumentierten Audiowerkzeugen.
+## Mini-Service-Handbücher
+
+Einheitlicher Betrieb, Konfigurationspfade, API, Recovery und die Service-Handbücher
+sind unter [Mini Services](MINI_SERVICES.md) zusammengeführt. Die untenstehenden
+Deployment-Varianten verwenden weiterhin dieselben Worker und Startbefehle.

@@ -267,3 +267,37 @@ Widersprüchliche alte „bereit“-Statusanzeigen wurden aus der Übersicht ent
 Dokumentation: [Netzwerkboot](NETWORK_BOOT.md). Nachweis: 47 Tests im
 HTTP/PXE-/Security-/Netzwerk-/API-Paket. Der geführte Profileditor und reale
 PXE-/Windows-/Android-Gerätetests sind weiterhin offen.
+
+### Gemeinsame Netzwerk-Discovery und Wiederanlauf
+
+Oberfläche und Worker verwenden die bestehende plattformübergreifende
+Interface-Erkennung des Routing-Kerns. Linux- und Windows-Aufrufe sind jeweils
+auf drei Sekunden begrenzt; Windows liefert jetzt auch Präfixlänge und Linkstatus.
+Nicht lesbare OS-Ausgaben gelten als unbekannt, niemals als Beweis für entfernte
+Hardware. Die Standardbibliothek liefert weiterhin Interface-Namen als UI-Fallback.
+
+Der Worker prüft beim Start und alle 30 Sekunden neu. Verschwindet eine bekannte
+konfigurierte IPv4-Adresse/Schnittstelle, beendet er den betroffenen Listener und
+meldet `waiting`. Bei Rückkehr startet genau ein Listener; ein manueller Stop
+bleibt erhalten. Effektive SIP- und automatische Gateway-Bindings werden erneut
+ausgewertet. Unveränderte Dienste werden nicht neu gestartet. IPv6-Linkverlust
+wird vom derzeitigen IPv4-Inventar nicht behauptet und bleibt eine dokumentierte
+Grenze. DHCP-Netz und Pool werden bei einem Netzwerkwechsel nicht eigenmächtig
+auf ein anderes Segment umgestellt.
+
+Nachweis: 40 Tests im Netzwerk-Recovery-/UI-/Lifecycle-/Gateway-/API-Paket.
+
+### Fachkonfiguration und Betriebshandbücher
+
+Die bestehende Netzwerkseite enthält nun einen Gateway-Editor mit validierten
+Adressen, Interface-Auswahl, Autodetection, Betriebsart, Regeln und Reset. Ohne
+aktiven DHCP-Dienst respektiert Gateway sein eigenes internes Netz. DHCP und DNS
+können separat auf deaktivierte Standardwerte zurückgesetzt werden. Mutationen
+benötigen Admin/CSRF; fehlerhafte Gateway-Eingaben bleiben zur Korrektur sichtbar.
+
+[Gemeinsamer Betrieb](MINI_SERVICES.md), [DHCP](MINI_DHCP.md), [DNS](MINI_DNS.md),
+[Gateway](MINI_GATEWAY.md), [SIP](TELEPHONY.md) und [Netzwerkboot](NETWORK_BOOT.md)
+verwenden dieselben Kapitel für Zweck, Voraussetzungen, Standardbetrieb,
+Konfiguration, Discovery, Ports, Security, Diagnose, API, Plattformen und Grenzen.
+Nachweis für die Konfigurationsänderungen: 31 Netzwerk-/Recovery-/UI-/API-Tests
+einschließlich der vorhandenen Frontend-Routenprüfung.

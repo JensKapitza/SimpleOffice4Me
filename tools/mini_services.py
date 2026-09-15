@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import logging
 import os
@@ -23,6 +24,7 @@ from simpleoffice_network_gateway_runtime import (
 from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, effective_sip_settings
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
 from simpleoffice_mini_control import ControlStore
+from simpleoffice_network_gateway import interfaces_snapshot, binding_available, detect_interfaces
 
 LOG = logging.getLogger("simpleoffice.mini_services")
 SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
@@ -52,6 +54,8 @@ class Worker:
         self.manual_states = {}
         self.next_blocklist_refresh = time.monotonic() + 5
         self.blocklist_thread = None
+        self.network_snapshot = {"available": False, "interfaces": []}
+        self.next_network_scan = 0
 
     def event(self, row: dict[str, object]) -> None:
         # Exception strings may contain packets, URLs or credentials.
@@ -112,6 +116,12 @@ class Worker:
         if not enabled or self.stop_event.is_set():
             state.state = "disabled" if not enabled else "stopped"
             return
+        if not self._network_available(name):
+            state.state = "waiting"
+            state.last_error = error_detail(OSError(errno.EADDRNOTAVAIL, ""))
+            state.last_error_at = time.time()
+            state.retry_at = None
+            return
         state.state = "starting"
         service = None
         try:
@@ -146,7 +156,12 @@ class Worker:
         config = load_config(self.config_path)
         boot = load_boot_settings(self.config_path)
         gateway = load_gateway_settings(self.config_path)
-        gateway["internal_network"] = config["dhcp"]["network"]
+        if config["dhcp"]["enabled"]:
+            gateway["internal_network"] = config["dhcp"]["network"]
+        if gateway["auto_detect"] and self.network_snapshot.get("available"):
+            found = detect_interfaces(gateway["internal_network"], server_ip=config["dhcp"]["server_ip"], snapshot=self.network_snapshot)
+            gateway["internal_interface"] = gateway["internal_interface"] or found["internal_interface"]
+            gateway["external_interface"] = gateway["external_interface"] or found["external_interface"]
         sip = effective_sip_settings(self.config_path)
         desired = {
             "dhcp": (bool(config["dhcp"]["enabled"]), {**config["dhcp"], "_boot": boot}),
@@ -187,6 +202,24 @@ class Worker:
         except Exception as exc:
             self.event({"service": "dns", "action": "blocklist_refresh_failed", "error": type(exc).__name__})
 
+    def _network_available(self, name):
+        settings = self.desired.get(name, (False, {}))[1]
+        addresses = {"dhcp": ("bind", "server_ip"), "dns": ("bind",), "tftp": ("tftp_bind",), "sip": ("bind_host",), "gateway": ()}[name]
+        interfaces = ("internal_interface", "external_interface") if name == "gateway" else ("interface",)
+        return binding_available(settings, self.network_snapshot, addresses=addresses, interfaces=interfaces)
+
+    def _refresh_network(self):
+        if time.monotonic() < self.next_network_scan:
+            return
+        self.next_network_scan = time.monotonic() + 30
+        snapshot = interfaces_snapshot()
+        changed = snapshot != self.network_snapshot
+        self.network_snapshot = snapshot
+        if changed and snapshot.get("available") and not self.config_error:
+            # Re-evaluate only effective bindings. Unchanged configurations do
+            # not restart listeners; manually stopped services stay stopped.
+            self._load_network_services()
+
     def tick(self) -> None:
         signature = self._signature()
         preferences = self.control.preferences()
@@ -204,6 +237,10 @@ class Worker:
         command = self.control.claim()
         if command:
             self._execute(command)
+        try:
+            self._refresh_network()
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.event({"service": "worker", "action": "network_scan_failed", "error": type(exc).__name__})
         if self.gateway_active and time.monotonic() >= self.next_gateway_health:
             self.gateway_health = gateway_health(self.gateway_status)
             self.next_gateway_health = time.monotonic() + 15
@@ -211,6 +248,15 @@ class Worker:
             if state.state in {"running", "degraded"}:
                 state.state = "running" if self.gateway_health["ok"] is True else "degraded"
         for name, state in self.states.items():
+            if state.state in {"running", "degraded"} and not self._network_available(name):
+                if self._stop_one(name):
+                    state.state = "waiting"
+                    state.last_error = error_detail(OSError(errno.EADDRNOTAVAIL, ""))
+                    state.last_error_at = time.time()
+                    self.event({"service": name, "action": "network_waiting"})
+            if state.state == "waiting" and self.network_snapshot.get("available") and self._network_available(name):
+                state.retry_count = 0
+                self._start_one(name)
             if name != "gateway" and state.state == "running" and not service_health(getattr(self, name)):
                 if self._stop_one(name):
                     state.failed(RuntimeError("Listener ist nicht aktiv"))
@@ -272,7 +318,11 @@ class Worker:
         services = {name: item.snapshot(os.getpid()) for name, item in self.states.items()}
         for name, item in services.items():
             item["settings"] = self.preferences[name]
-        services["gateway"]["health"] = self.gateway_health
+            item["targets"] = self.network_snapshot.get("interfaces", [])
+            if item["state"] == "waiting":
+                item["health"] = {"ok": False, "message": "Wartet auf konfigurierte Netzwerkschnittstelle oder IPv4-Adresse. Automatische Prüfung alle 30 Sekunden."}
+        if services["gateway"]["state"] != "waiting":
+            services["gateway"]["health"] = self.gateway_health
         with self.event_lock:
             events = list(self.events[-20:])
         failed = self.config_error or any(item.state in {"failed", "degraded"} for item in self.states.values())

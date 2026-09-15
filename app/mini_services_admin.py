@@ -22,6 +22,8 @@ from .mini_services import (
     tail_dns_log,
 )
 from .network_system_status import ipv4_routing_status, network_interfaces
+from simpleoffice_network_gateway import DEFAULT_GATEWAY_SETTINGS
+from simpleoffice_network_gateway_runtime import load_gateway_settings, save_gateway_settings
 
 
 bp = Blueprint("mini_services_admin", __name__, url_prefix="/admin/mini-services")
@@ -58,6 +60,11 @@ def _network_context():
     except (ValueError, OSError):
         config = DEFAULT_CONFIG
         flash("Die Konfigurationsdatei ist nicht lesbar oder ungültig. Angezeigt werden Standardwerte; Speichern ersetzt die fehlerhafte Datei.")
+    try:
+        gateway = load_gateway_settings(path)
+    except (ValueError, OSError):
+        gateway = DEFAULT_GATEWAY_SETTINGS
+        flash("Gateway-Einstellungen sind nicht lesbar. Standardwerte werden angezeigt; erneut speichern, um die Datei zu reparieren.")
     return {
         "config": config,
         "status": read_status(path),
@@ -67,6 +74,7 @@ def _network_context():
         "config_path": str(path),
         "interfaces": network_interfaces(),
         "routing": ipv4_routing_status(),
+        "gateway": gateway,
     }
 
 
@@ -165,6 +173,42 @@ def save():
         detail={"dhcp_enabled": clean["dhcp"]["enabled"], "dns_enabled": clean["dns"]["enabled"]},
     )
     flash("Mini Services gespeichert. Der Netzwerk-Worker übernimmt die Änderung automatisch.")
+    return redirect(url_for("mini_services_admin.network"))
+
+
+@bp.post("/gateway/settings")
+@admin_required
+def gateway_settings():
+    candidate = {key: request.form.get(key, str(default)) for key, default in DEFAULT_GATEWAY_SETTINGS.items()}
+    for key, default in DEFAULT_GATEWAY_SETTINGS.items():
+        if isinstance(default, bool):
+            candidate[key] = request.form.get(key) == "1"
+    try:
+        if request.form.get("action") == "reset":
+            candidate = DEFAULT_GATEWAY_SETTINGS
+        clean = save_gateway_settings(candidate, default_config_path())
+    except (OSError, ValueError, TypeError):
+        flash("Gateway-Einstellungen nicht gespeichert. Modus, Schnittstellen, IPv4-Netz und Dateirechte prüfen.")
+        return render_template("admin/mini_services.html", **{**_network_context(), "gateway": candidate}), 400
+    audit("mini_gateway_settings_updated", "service", "gateway", detail={"enabled": clean["enabled"], "mode": clean["mode"]})
+    flash("Gateway-Einstellungen gespeichert. Der Worker übernimmt die Änderung; Status in der Dienstübersicht prüfen.")
+    return redirect(url_for("mini_services_admin.network"))
+
+
+@bp.post("/network/<service>/reset")
+@admin_required
+def reset_network(service):
+    if service not in {"dhcp", "dns"}:
+        abort(404)
+    try:
+        config = load_config(default_config_path())
+        config[service] = DEFAULT_CONFIG[service]
+        save_config(config, default_config_path())
+    except (OSError, ValueError):
+        flash("Standardwerte konnten nicht gespeichert werden. Gesamtkonfiguration und Dateirechte prüfen.")
+        return redirect(url_for("mini_services_admin.network"))
+    audit("mini_service_defaults_restored", "service", service)
+    flash(f"{service.upper()}: deaktivierte Standardwerte wiederhergestellt. Andere Dienste bleiben unverändert.")
     return redirect(url_for("mini_services_admin.network"))
 
 
