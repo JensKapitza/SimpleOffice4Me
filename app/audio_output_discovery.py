@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import re
+from pathlib import Path
 from typing import Any
 
 _MAX_DISCOVERED_OUTPUTS = 64
 _DISCOVERY_TIMEOUT_SECONDS = 5
+_ALSA_ROOT = Path("/proc/asound")
 
 
 def _run_pactl(pactl: str, *args: str) -> str:
@@ -45,9 +48,51 @@ def discover_speaker_outputs() -> list[dict[str, Any]]:
     return _discover("sinks", "sink")
 
 
-def discover_microphone_inputs() -> list[dict[str, Any]]:
+def discover_microphone_inputs(backend: str = "auto") -> list[dict[str, Any]]:
     """Monitor sources remain manually selectable, but are not microphones."""
-    return [item for item in _discover("sources", "source") if not item["id"].endswith(".monitor")]
+    if backend not in {"auto", "pulse", "alsa"}:
+        raise ValueError("Unbekanntes Capture-Backend")
+    if backend == "alsa":
+        return _alsa_microphones()
+    try:
+        devices = [dict(item, backend="pulse") for item in _discover("sources", "source") if not item["id"].endswith(".monitor")]
+    except RuntimeError:
+        devices = _alsa_microphones() if backend == "auto" else []
+        if not devices:
+            raise
+        return devices
+    return devices or (_alsa_microphones() if backend == "auto" else [])
+
+
+def _alsa_microphones() -> list[dict[str, Any]]:
+    """Existing ALSA capture backend: read kernel inventory, no command/tool install."""
+    try:
+        with (_ALSA_ROOT / "pcm").open(encoding="utf-8") as handle:
+            lines = handle.read(65536).splitlines()
+    except FileNotFoundError:
+        return []
+    devices = []
+    seen = set()
+    for line in lines:
+        match = re.match(r"^(\d{2,3})-(\d{2,3}):\s*(.*?)\s*:\s*.*\bcapture\s+[1-9]\d*\b", line)
+        if not match:
+            continue
+        card, device, label = match.groups()
+        try:
+            # ALSA card IDs survive ordinary numeric card-index reordering.
+            card_id = (_ALSA_ROOT / ("card" + str(int(card))) / "id").read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            continue  # Device removed during the scan; never persist a guessed ID.
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", card_id):
+            continue
+        ident = f"plughw:CARD={card_id},DEV={int(device)}"
+        if ident in seen:
+            continue
+        seen.add(ident)
+        devices.append({"id": ident, "label": label[:160], "driver": "ALSA", "backend": "alsa", "state": "available", "default": False})
+        if len(devices) >= _MAX_DISCOVERED_OUTPUTS:
+            break
+    return devices
 
 
 def _discover(kind: str, default_kind: str) -> list[dict[str, Any]]:

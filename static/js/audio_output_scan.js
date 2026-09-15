@@ -25,22 +25,20 @@
     const render = () => {
       const current = manual.value;
       const query = search.value.trim().toLocaleLowerCase();
-      const visible = devices.filter(item => !query || String(item.id + ' ' + item.driver).toLocaleLowerCase().includes(query));
+      const visible = devices.filter(item => !query || String(item.id + ' ' + item.driver + ' ' + (item.label || '')).toLocaleLowerCase().includes(query));
       clear(select);
       select.add(new Option(noneLabel, prefix === 'input' ? 'default' : ''));
-      visible.forEach(item => select.add(new Option(item.id + (item.default ? ' (Standard)' : ''), item.id)));
+      visible.forEach(item => select.add(new Option((item.label ? item.label + ' · ' : '') + item.id + (item.default ? ' (Standard)' : ''), item.id)));
       if (visible.some(item => item.id === current)) select.value = current;
       status.textContent = visible.length + ' von ' + devices.length + ' Geräten · ' + (scannedAt ? new Date(scannedAt * 1000).toLocaleTimeString() : '');
     };
     const scan = async () => {
       if (nativeAudio()) { status.textContent = 'Android verwendet die Systemauswahl für Audiogeräte.'; return; }
-      if (prefix === 'input' && get('capture-backend').value === 'alsa') {
-        status.textContent = 'ALSA-Quelle manuell wählen; diese Suche zeigt PipeWire-/PulseAudio-Geräte.'; return;
-      }
       button.disabled = true;
       status.textContent = '↻ Audiogeräte werden gesucht …';
       try {
-        const data = await request(root.dataset.baseUrl + '/' + key);
+        const backendQuery = prefix === 'input' && get('capture-backend').value === 'alsa' ? '?backend=alsa' : '';
+        const data = await request(root.dataset.baseUrl + '/' + key + backendQuery);
         if (nativeAudio()) return;
         devices = Array.isArray(data[key]) ? data[key] : [];
         scannedAt = data.updated_at;
@@ -50,6 +48,7 @@
         // the discovered default; a removed previously-discovered device falls back.
         if (preferred && (!current || current === 'default' || manual.dataset.discovered === 'true')) {
           manual.value = preferred.id; manual.dataset.discovered = 'true';
+          if (prefix === 'input' && preferred.backend) get('capture-backend').value = preferred.backend;
         }
         render();
         if (!devices.length) status.textContent = '○ Keine Geräte gefunden. Verbindung und Audio-Sitzung prüfen.';
@@ -59,7 +58,11 @@
     };
     button.addEventListener('click', scan);
     search.addEventListener('input', render);
-    select.addEventListener('change', () => { manual.value = select.value; manual.dataset.discovered = 'true'; });
+    select.addEventListener('change', () => {
+      manual.value = select.value; manual.dataset.discovered = 'true';
+      const selected = devices.find(item => item.id === select.value);
+      if (prefix === 'input' && selected && selected.backend) get('capture-backend').value = selected.backend;
+    });
     manual.addEventListener('input', () => { manual.dataset.discovered = 'false'; });
     window.addEventListener('simpleoffice:native-audio-ready', () => {
       button.disabled = true; select.disabled = true; search.disabled = true;

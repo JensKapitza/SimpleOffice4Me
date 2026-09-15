@@ -74,10 +74,12 @@ def outputs():
 @admin_required
 def inputs():
     try:
-        result = discover_microphone_inputs()
-    except RuntimeError as exc:
+        result = discover_microphone_inputs(request.args.get("backend", "auto"))
+    except ValueError:
+        return jsonify(error="Capture-Backend muss auto, pulse oder alsa sein."), 400
+    except (RuntimeError, OSError) as exc:
         audit("audio_input_discovery_failed", "audio_stream", "inputs", outcome="failure", detail={"error_type": type(exc).__name__})
-        return jsonify(error="Keine Mikrofone ermittelt. Audio-Sitzung und PipeWire/PulseAudio prüfen; bei ALSA die Quelle manuell wählen.", code="input_discovery_failed"), 503
+        return jsonify(error="Keine Mikrofone ermittelt. Audio-Sitzung, Geräte und Zugriffsrechte für PipeWire/PulseAudio oder ALSA prüfen.", code="input_discovery_failed"), 503
     return jsonify({"inputs": result, "count": len(result), "state": "completed", "updated_at": time.time()})
 
 

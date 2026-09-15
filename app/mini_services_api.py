@@ -149,7 +149,7 @@ def _audio_action(service, action):
             result = {"state": "completed", "updated_at": time.time(), "count": len(devices), "targets": devices, "scope": "Lokale Audiogeräte"}
             store.scan(service, result)
             return jsonify(result)
-        except RuntimeError as exc:
+        except (RuntimeError, OSError) as exc:
             result = {"state": "failed", "updated_at": time.time(), "count": 0, "targets": [], "error": error_detail(exc)}
             store.scan(service, result)
             return jsonify(result), 503

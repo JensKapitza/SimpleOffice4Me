@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from app.audio_output_discovery import discover_microphone_inputs, discover_speaker_outputs
@@ -8,6 +9,42 @@ from app.audio_output_store import AudioOutputStore
 
 
 class AudioDiscoveryTests(unittest.TestCase):
+    def test_alsa_capture_fallback_uses_card_id_and_excludes_playback_only_devices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pcm").write_text("00-00: USB Mic : USB Audio : capture 1\n01-00: Speakers : playback 1\n02-00: Removed : capture 1\n")
+            (root / "card0").mkdir()
+            (root / "card0/id").write_text("USBMic\n")
+            with patch("app.audio_output_discovery._ALSA_ROOT", root), patch("app.audio_output_discovery.shutil.which", return_value=None):
+                devices = discover_microphone_inputs()
+            self.assertEqual(1, len(devices))
+            self.assertEqual("plughw:CARD=USBMic,DEV=0", devices[0]["id"])
+            self.assertEqual("alsa", devices[0]["backend"])
+            self.assertFalse(devices[0]["default"])
+
+    def test_explicit_alsa_scan_never_invokes_pactl_and_card_reordering_keeps_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "pcm").write_text("05-02: USB Mic : capture 1\n")
+            (root / "card5").mkdir()
+            (root / "card5/id").write_text("USBMic")
+            with patch("app.audio_output_discovery._ALSA_ROOT", root), patch("app.audio_output_discovery._run_pactl") as pactl:
+                devices = discover_microphone_inputs("alsa")
+            pactl.assert_not_called()
+            self.assertEqual("plughw:CARD=USBMic,DEV=2", devices[0]["id"])
+            with self.assertRaises(ValueError):
+                discover_microphone_inputs("unknown")
+
+    def test_alsa_missing_inventory_returns_empty_and_invalid_card_id_is_skipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch("app.audio_output_discovery._ALSA_ROOT", root):
+                self.assertEqual([], discover_microphone_inputs("alsa"))
+                (root / "pcm").write_text("00-00: USB Mic : capture 1\n")
+                (root / "card0").mkdir()
+                (root / "card0/id").write_text("bad/../../card")
+                self.assertEqual([], discover_microphone_inputs("alsa"))
+
     def test_inputs_exclude_monitors_and_prefer_default(self):
         rows = "1\tmic-b\talsa\ts16le 1ch 48000Hz\tSUSPENDED\n2\tmic-a\talsa\ts16le 1ch 48000Hz\tRUNNING\n3\tspeaker.monitor\talsa\ts16le 1ch 48000Hz\tIDLE\n"
         with patch("app.audio_output_discovery.shutil.which", return_value="/usr/bin/pactl"), patch("app.audio_output_discovery.subprocess.run", side_effect=[Mock(stdout=rows), Mock(stdout="mic-a\n")]) as run:

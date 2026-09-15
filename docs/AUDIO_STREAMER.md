@@ -116,8 +116,14 @@ vorhandene Geräte offline. Remote-Definitionen werden nicht überschrieben.
 Diese Registrierung allein ist noch kein Nachweis einer laufenden Wiedergabe.
 
 Die Streamer-Auswahl bevorzugt das Systemstandardgerät. Manuelle Eingaben bleiben
-möglich; `.monitor`-Quellen werden nicht als Mikrofone vorgeschlagen. ALSA-Quellen
-bleiben manuell wählbar. `pactl`-Abfragen haben fünf Sekunden Timeout und liefern
+möglich; `.monitor`-Quellen werden nicht als Mikrofone vorgeschlagen. ALSA-Mikrofone
+werden über `/proc/asound/pcm` und die Karten-IDs erkannt, auch wenn `pactl` fehlt.
+Die Auswahl setzt das vorhandene Capture-Backend passend auf `alsa`; benannte
+Karten-IDs vermeiden Abhängigkeit von gewöhnlichen numerischen Kartenwechseln.
+`GET .../inputs?backend=alsa` sucht ausschließlich ALSA-Geräte. Playback-only-
+Geräte werden nicht als Mikrofone angeboten. ALSA-Lautsprecher/virtuelle Mikrofone
+sind damit nicht als zusätzlicher Receiver-Backend implementiert; der vorhandene
+Receiver benötigt weiterhin PipeWire/PulseAudio. `pactl`-Abfragen haben fünf Sekunden Timeout und liefern
 höchstens 64 Geräte. Es wird keine optionale Software automatisch installiert.
 
 Android nutzt weiterhin den vorhandenen nativen Audio-Bridge-Pfad und seine
