@@ -1,8 +1,9 @@
-"""Push SimpleOffice contacts to a local FRITZ!Box phonebook via TR-064."""
+"""FRITZ!Box TR-064 integration for contacts and connection status."""
 from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -72,18 +73,48 @@ class FritzBoxSecretBox:
         return AESGCM(self.key).decrypt(raw[:12], raw[12:], b"simpleoffice-fritzbox-v1").decode("utf-8")
 
 
+def _is_local_host(hostname: str) -> bool:
+    host = hostname.rstrip(".").lower()
+    if host in {"fritz.box", "localhost"} or host.endswith(".fritz.box"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if address.is_loopback or address.is_link_local:
+        return True
+    if isinstance(address, ipaddress.IPv4Address):
+        return any(address in network for network in (
+            ipaddress.ip_network("10.0.0.0/8"),
+            ipaddress.ip_network("172.16.0.0/12"),
+            ipaddress.ip_network("192.168.0.0/16"),
+        ))
+    return address in ipaddress.ip_network("fc00::/7")
+
+
 def _safe_base_url(value: str) -> str:
     raw = value.strip().rstrip("/")
     parsed = urllib.parse.urlsplit(raw)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("FRITZ!Box-Adresse muss eine HTTPS-Adresse ohne Zugangsdaten sein")
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("FRITZ!Box-Adresse muss HTTP/HTTPS ohne Zugangsdaten verwenden")
+    if parsed.scheme == "http" and not _is_local_host(parsed.hostname):
+        raise ValueError("Unverschlüsseltes TR-064 ist nur für fritz.box oder lokale/private IP-Adressen erlaubt")
     if parsed.query or parsed.fragment:
         raise ValueError("FRITZ!Box-Adresse darf keine Query oder Fragment enthalten")
     if parsed.path not in {"", "/"}:
         raise ValueError("FRITZ!Box-Adresse bitte nur als Basis-URL angeben")
     if parsed.port is not None and not 1 <= parsed.port <= 65535:
-        raise ValueError("ungültiger HTTPS-Port")
+        raise ValueError("ungültiger FRITZ!Box-Port")
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
+def _as_bool(value: Any) -> bool | None:
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return None
 
 
 def _contact_numbers(contact: dict[str, Any]) -> list[tuple[str, str]]:
@@ -147,17 +178,23 @@ class FritzBoxClient:
         if not self.username or not self.password:
             raise ValueError("FRITZ!Box-Benutzername und Passwort sind erforderlich")
         if not self.verify_tls:
-            raise ValueError("FRITZ!Box-TLS-Zertifikatsprüfung darf aus Sicherheitsgründen nicht deaktiviert werden")
+            raise ValueError(
+                "TLS-Zertifikatsprüfung wird nicht deaktiviert. Für eine lokale FRITZ!Box "
+                "kann stattdessen der von AVM vorgesehene TR-064-Endpunkt http://fritz.box:49000 verwendet werden."
+            )
         context = ssl.create_default_context()
         manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
         manager.add_password(None, self.base_url + "/", self.username, self.password)
-        self.opener = urllib.request.build_opener(
+        handlers: list[Any] = [
             urllib.request.HTTPDigestAuthHandler(manager),
             urllib.request.HTTPBasicAuthHandler(manager),
-            urllib.request.HTTPSHandler(context=context),
-        )
+        ]
+        if urllib.parse.urlsplit(self.base_url).scheme == "https":
+            handlers.append(urllib.request.HTTPSHandler(context=context))
+        self.opener = urllib.request.build_opener(*handlers)
         self.service_type = DEFAULT_SERVICE
         self.control_url = DEFAULT_CONTROL_URL
+        self.services: dict[str, str] = {}
         self._discover()
 
     @staticmethod
@@ -173,8 +210,9 @@ class FritzBoxClient:
             return prefix + control_url
         return control_url
 
-    def _control_candidates(self) -> list[str]:
-        control = self.control_url if self.control_url.startswith("/") else DEFAULT_CONTROL_URL
+    @staticmethod
+    def _control_candidates(control_url: str) -> list[str]:
+        control = control_url if control_url.startswith("/") else DEFAULT_CONTROL_URL
         if control.startswith("/tr064/"):
             candidates = [control, control.removeprefix("/tr064")]
         else:
@@ -189,49 +227,86 @@ class FritzBoxClient:
             if exc.code in {401, 403}:
                 raise FritzBoxError("FRITZ!Box-Anmeldung abgewiesen; Benutzerrechte und Passwort prüfen") from exc
             raise FritzBoxError(f"FRITZ!Box antwortet mit HTTP {exc.code}") from exc
-        except (urllib.error.URLError, TimeoutError, ssl.SSLError, OSError) as exc:
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, ssl.SSLCertVerificationError):
+                raise FritzBoxError(
+                    "FRITZ!Box-Zertifikat ist nicht vertrauenswürdig. Die Prüfung bleibt aktiv. "
+                    "Im lokalen Heimnetz kann TR-064 stattdessen über http://fritz.box:49000 verwendet werden."
+                ) from exc
+            raise FritzBoxError(f"FRITZ!Box nicht erreichbar: {exc}") from exc
+        except (TimeoutError, ssl.SSLError, OSError) as exc:
             raise FritzBoxError(f"FRITZ!Box nicht erreichbar: {exc}") from exc
         if len(data) > MAX_RESPONSE_BYTES:
             raise FritzBoxError("FRITZ!Box-Antwort ist unerwartet groß")
         return data
 
     def _discover(self) -> None:
+        last_error: FritzBoxError | None = None
         for description_path, path_prefix in TR064_DESCRIPTION_PATHS:
             try:
                 data = self._read(self.base_url + description_path)
                 root = safe_xml_fromstring(data)
-            except (FritzBoxError, ET.ParseError, DefusedXmlException):
+            except FritzBoxError as exc:
+                last_error = exc
                 continue
+            except (ET.ParseError, DefusedXmlException):
+                continue
+
+            discovered: dict[str, str] = {}
             for service in root.iter():
                 if service.tag.rsplit("}", 1)[-1] != "service":
                     continue
                 values = {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in service}
                 service_type = values.get("serviceType", "")
                 control = values.get("controlURL", "")
-                if "X_AVM-DE_OnTel" in service_type and control.startswith("/"):
-                    self.service_type = service_type
-                    self.control_url = self._apply_path_prefix(control, path_prefix)
-                    return
+                if service_type and control.startswith("/"):
+                    discovered[service_type] = self._apply_path_prefix(control, path_prefix)
+            if discovered:
+                self.services = discovered
+                phonebook = self._find_service("X_AVM-DE_OnTel", required=False)
+                if phonebook is not None:
+                    self.service_type, self.control_url = phonebook
+                return
 
-    def soap(self, action: str, arguments: dict[str, Any] | None = None) -> dict[str, str]:
+        if last_error is not None:
+            raise last_error
+        raise FritzBoxError("FRITZ!Box-TR-064-Beschreibung konnte nicht geladen werden")
+
+    def _find_service(self, fragment: str, required: bool = True) -> tuple[str, str] | None:
+        for service_type, control_url in self.services.items():
+            if fragment in service_type:
+                return service_type, control_url
+        if required:
+            raise FritzBoxError(f"FRITZ!Box stellt den TR-064-Service {fragment} nicht bereit")
+        return None
+
+    def _soap_service(
+        self,
+        service_type: str,
+        control_url: str,
+        action: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
         arguments = arguments or {}
         params = "".join(f"<{key}>{escape(str(value))}</{key}>" for key, value in arguments.items())
         body = (
             '<?xml version="1.0" encoding="utf-8"?>'
             f'<s:Envelope xmlns:s="{SOAP_ENV}" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
-            f'<s:Body><u:{action} xmlns:u="{self.service_type}">{params}</u:{action}></s:Body></s:Envelope>'
+            f'<s:Body><u:{action} xmlns:u="{service_type}">{params}</u:{action}></s:Body></s:Envelope>'
         ).encode("utf-8")
         raw: bytes | None = None
         last_error: FritzBoxError | None = None
-        for control_url in self._control_candidates():
-            url = urllib.parse.urljoin(self.base_url + "/", control_url.lstrip("/"))
+        for candidate in self._control_candidates(control_url):
+            url = urllib.parse.urljoin(self.base_url + "/", candidate.lstrip("/"))
             req = urllib.request.Request(url, data=body, method="POST", headers={
                 "Content-Type": 'text/xml; charset="utf-8"',
-                "SOAPAction": f'"{self.service_type}#{action}"',
+                "SOAPAction": f'"{service_type}#{action}"',
             })
             try:
                 raw = self._read(req)
-                self.control_url = control_url
+                if service_type == self.service_type:
+                    self.control_url = candidate
                 break
             except FritzBoxError as exc:
                 last_error = exc
@@ -241,9 +316,8 @@ class FritzBoxClient:
         if raw is None:
             raise FritzBoxError(
                 "FRITZ!Box-TR-064-Endpunkt nicht gefunden (HTTP 404). "
-                "Im Heimnetz HTTPS-Port 49443 verwenden; bei HTTPS über Web-/Remote-Zugriff "
-                "wird /tr064 automatisch versucht. In der FRITZ!Box außerdem "
-                "'Zugriff für Anwendungen zulassen' aktivieren."
+                "Im Heimnetz Port 49000 (HTTP) oder 49443 (HTTPS) verwenden; bei Remote-HTTPS "
+                "wird /tr064 automatisch versucht. Außerdem 'Zugriff für Anwendungen zulassen' aktivieren."
             ) from last_error
         try:
             root = safe_xml_fromstring(raw)
@@ -258,7 +332,17 @@ class FritzBoxClient:
             raise FritzBoxError("FRITZ!Box-Antwort enthält kein erwartetes Aktionsergebnis")
         return {child.tag.rsplit("}", 1)[-1]: (child.text or "").strip() for child in response}
 
+    def soap(self, action: str, arguments: dict[str, Any] | None = None) -> dict[str, str]:
+        return self._soap_service(self.service_type, self.control_url, action, arguments)
+
+    def service_action(self, fragment: str, action: str) -> dict[str, str]:
+        service = self._find_service(fragment)
+        assert service is not None
+        return self._soap_service(service[0], service[1], action)
+
     def phonebooks(self) -> list[dict[str, Any]]:
+        if self._find_service("X_AVM-DE_OnTel", required=False) is None:
+            raise FritzBoxError("FRITZ!Box stellt keinen Telefonbuch-Service bereit")
         raw = self.soap("GetPhonebookList").get("NewPhonebookList", "")
         ids = [int(value) for value in re.findall(r"\d+", raw)][:100]
         result = []
@@ -269,6 +353,67 @@ class FritzBoxClient:
                 "name": info.get("NewPhonebookName") or f"Telefonbuch {phonebook_id}",
                 "extra_id": info.get("NewPhonebookExtraID", ""),
             })
+        return result
+
+    def status(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "external_ipv4": "",
+            "external_ipv6": "",
+            "dyndns_enabled": None,
+            "dyndns_domain": "",
+            "dyndns_provider": "",
+            "myfritz_enabled": None,
+            "myfritz_domain": "",
+            "myfritz_state": "",
+            "errors": [],
+        }
+
+        if self._find_service("X_AVM-DE_AppSetup", required=False) is not None:
+            try:
+                info = self.service_action("X_AVM-DE_AppSetup", "GetAppRemoteInfo")
+                result["external_ipv4"] = info.get("NewExternalIPAddress", info.get("ExternalIPAddress", ""))
+                result["external_ipv6"] = info.get("NewExternalIPv6Address", info.get("ExternalIPv6Address", ""))
+                result["dyndns_enabled"] = _as_bool(info.get("NewRemoteAccessDDNSEnabled", info.get("RemoteAccessDDNSEnabled", "")))
+                result["dyndns_domain"] = info.get("NewRemoteAccessDDNSDomain", info.get("RemoteAccessDDNSDomain", ""))
+                result["myfritz_enabled"] = _as_bool(info.get("NewMyFritzDynDNSEnabled", info.get("MyFritzDynDNSEnabled", "")))
+                result["myfritz_domain"] = info.get("NewMyFritzDynDNSName", info.get("MyFritzDynDNSName", ""))
+            except FritzBoxError as exc:
+                result["errors"].append(str(exc))
+
+        if self._find_service("X_AVM-DE_RemoteAccess", required=False) is not None:
+            try:
+                info = self.service_action("X_AVM-DE_RemoteAccess", "GetDDNSInfo")
+                if result["dyndns_enabled"] is None:
+                    result["dyndns_enabled"] = _as_bool(info.get("NewEnabled", ""))
+                if not result["dyndns_domain"]:
+                    result["dyndns_domain"] = info.get("NewDomain", "")
+                result["dyndns_provider"] = info.get("NewProviderName", "")
+            except FritzBoxError as exc:
+                result["errors"].append(str(exc))
+
+        if self._find_service("X_AVM-DE_MyFritz", required=False) is not None:
+            try:
+                info = self.service_action("X_AVM-DE_MyFritz", "GetInfo")
+                if result["myfritz_enabled"] is None:
+                    result["myfritz_enabled"] = _as_bool(info.get("NewEnabled", ""))
+                if not result["myfritz_domain"]:
+                    result["myfritz_domain"] = info.get("NewDynDNSName", "")
+                result["myfritz_state"] = info.get("NewState", "")
+            except FritzBoxError as exc:
+                result["errors"].append(str(exc))
+
+        if not result["external_ipv4"]:
+            for service_name in ("WANIPConnection", "WANPPPConnection"):
+                if self._find_service(service_name, required=False) is None:
+                    continue
+                try:
+                    info = self.service_action(service_name, "GetExternalIPAddress")
+                    result["external_ipv4"] = info.get("NewExternalIPAddress", "")
+                    if result["external_ipv4"]:
+                        break
+                except FritzBoxError as exc:
+                    result["errors"].append(str(exc))
+
         return result
 
     def set_contact(self, phonebook_id: int, contact: dict[str, Any], unique_id: int | None = None) -> int:
@@ -300,12 +445,19 @@ class FritzBoxStore:
     def _row(self, actor: str) -> dict[str, Any]:
         return next((dict(row) for row in self._read().get("connections", []) if row.get("owner") == actor), {})
 
+    @staticmethod
+    def _effective_url(row: dict[str, Any]) -> str:
+        url = str(row.get("url") or "http://fritz.box:49000")
+        if url == "https://fritz.box:49443" and row.get("verify_tls") is False:
+            return "http://fritz.box:49000"
+        return url
+
     def config(self, actor: str) -> dict[str, Any]:
         row = self._row(actor)
         return {
-            "url": row.get("url", "https://fritz.box:49443"),
+            "url": self._effective_url(row),
             "username": row.get("username", ""),
-            "verify_tls": row.get("verify_tls", True),
+            "verify_tls": True,
             "phonebook_id": row.get("phonebook_id", ""),
             "password_saved": bool(row.get("password")),
             "updated_at": row.get("updated_at", ""),
@@ -331,7 +483,7 @@ class FritzBoxStore:
             "url": url,
             "username": username,
             "password": stored_password,
-            "verify_tls": bool(data.get("verify_tls", True)),
+            "verify_tls": True,
             "phonebook_id": phonebook_id,
             "mappings": dict((previous or {}).get("mappings", {})),
             "updated_at": utc_now(),
@@ -350,7 +502,7 @@ class FritzBoxStore:
         plain = password or (self.secrets.decrypt(str(row["password"])) if row.get("password") else "")
         if not plain:
             raise ValueError("FRITZ!Box-Passwort ist erforderlich")
-        return {**row, "plain_password": plain}
+        return {**row, "url": self._effective_url(row), "verify_tls": True, "plain_password": plain}
 
     def mapping(self, actor: str, phonebook_id: int, contact_id: str) -> int | None:
         value = self._row(actor).get("mappings", {}).get(f"{phonebook_id}:{contact_id}")
@@ -382,8 +534,7 @@ def _contacts() -> list[dict[str, Any]]:
 
 def _client(credentials: dict[str, Any]) -> FritzBoxClient:
     return FritzBoxClient(
-        credentials["url"], credentials["username"], credentials["plain_password"],
-        verify_tls=bool(credentials.get("verify_tls", True)),
+        credentials["url"], credentials["username"], credentials["plain_password"], verify_tls=True,
     )
 
 
@@ -397,6 +548,7 @@ def index():
         contacts=[{**item, "syncable": bool(_contact_numbers(item))} for item in contacts],
         syncable_count=sum(bool(_contact_numbers(item)) for item in contacts),
         phonebooks=[],
+        fritz_status=None,
     )
 
 
@@ -406,21 +558,23 @@ def discover():
     actor = str(g.user["username"])
     password = request.form.get("password", "")
     remember = request.form.get("remember") == "1"
-    verify_tls = request.form.get("verify_tls") == "1"
     try:
         store = _store()
         store.save_config(actor, {
             "url": request.form.get("url", ""), "username": request.form.get("username", ""),
-            "verify_tls": verify_tls, "phonebook_id": request.form.get("phonebook_id", ""),
+            "verify_tls": True, "phonebook_id": request.form.get("phonebook_id", ""),
         }, password, remember)
         credentials = store.credentials(actor, password)
-        books = _client(credentials).phonebooks()
+        client = _client(credentials)
+        books = client.phonebooks()
+        status = client.status()
         contacts = _contacts()
         flash(f"FRITZ!Box erreichbar: {len(books)} Telefonbuch/Telefonbücher gefunden.")
         return render_template(
             "documents/fritzbox_contacts.html", config=store.config(actor), phonebooks=books,
             contacts=[{**item, "syncable": bool(_contact_numbers(item))} for item in contacts],
             syncable_count=sum(bool(_contact_numbers(item)) for item in contacts),
+            fritz_status=status,
         )
     except (ValueError, FritzBoxError) as exc:
         flash(str(exc))
