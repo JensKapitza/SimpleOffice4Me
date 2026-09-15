@@ -137,9 +137,9 @@ def save():
                 "tftp_server": request.form.get("tftp_server", ""),
                 "boot_file": request.form.get("boot_file", ""),
                 "exclusions": _csv(request.form.get("exclusions", "")),
-                "reservations": _json_rows("reservations"),
-                "static_routes": _json_rows("static_routes"),
-                "custom_options": json.loads(request.form.get("custom_options", "{}") or "{}"),
+                "reservations": previous["dhcp"]["reservations"],
+                "static_routes": previous["dhcp"]["static_routes"],
+                "custom_options": previous["dhcp"]["custom_options"],
             },
             "dns": {
                 **previous["dns"],
@@ -153,19 +153,33 @@ def save():
                 "query_log": request.form.get("query_log") == "1",
                 "query_log_max_bytes": request.form.get("query_log_max_bytes", str(10 * 1024 * 1024)),
                 "block_mode": request.form.get("block_mode", "zero"),
-                "records": _json_rows("dns_records"),
+                "records": previous["dns"]["records"],
                 "manual_blocks": _csv(request.form.get("manual_blocks", "")),
                 "allowlist": _csv(request.form.get("allowlist", "")),
                 "blocklist_urls": [line.strip() for line in request.form.get("blocklist_urls", "").splitlines() if line.strip()],
                 "blocklist_refresh_hours": request.form.get("blocklist_refresh_hours", "24"),
             },
         }
+        candidate["dhcp"]["reservations"] = _json_rows("reservations")
+        candidate["dhcp"]["static_routes"] = _json_rows("static_routes")
+        candidate["dhcp"]["custom_options"] = json.loads(request.form.get("custom_options", "{}") or "{}")
+        candidate["dns"]["records"] = _json_rows("dns_records")
         if not isinstance(candidate["dhcp"]["custom_options"], dict):
             raise ValueError("custom_options muss ein JSON-Objekt sein")
         clean = save_config(candidate, path)
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        flash(f"Mini Services wurden nicht gespeichert: {exc}")
-        return redirect(url_for("mini_services_admin.network"))
+    except (ValueError, TypeError, OSError) as exc:
+        storage_error = isinstance(exc, OSError)
+        message = (
+            "Die Konfiguration konnte nicht geschrieben werden. Dateirechte und freien Speicher prüfen und erneut versuchen."
+            if storage_error else
+            "Die Konfiguration ist ungültig. IP-Adressen, Netz und Pool, Ports, Zeitwerte sowie JSON-Felder prüfen."
+        )
+        flash(message + " Deine Eingaben bleiben erhalten; die gespeicherte Konfiguration wurde nicht geändert.")
+        audit("mini_services_config_rejected", "service", "dhcp-dns", detail={"error_type": type(exc).__name__})
+        return render_template(
+            "admin/mini_services.html", **{**_network_context(), "config": candidate},
+            submitted_json=request.form, configuration_error=True,
+        ), 503 if storage_error else 400
     audit(
         "mini_services_config_updated",
         "service",
