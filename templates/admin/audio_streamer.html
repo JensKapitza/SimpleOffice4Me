@@ -28,6 +28,12 @@
         <label class="form-label" for="stream-targets">Ziele</label>
         <textarea class="form-control mb-3" id="stream-targets" rows="4" placeholder="192.168.1.50:5004&#10;192.168.1.80:5004"></textarea>
         <div class="form-text mb-3">Ein Ziel pro Zeile.</div>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <button class="btn btn-outline-primary" id="target-scan" type="button">Empfänger suchen</button>
+          <select class="form-select" id="target-select" aria-label="Erkannten RTP-Empfänger auswählen"><option value="">Empfänger auswählen</option></select>
+          <button class="btn btn-outline-secondary" id="target-add" type="button" disabled>Ziel hinzufügen</button>
+        </div>
+        <div class="form-text mb-3" id="target-scan-status" role="status" aria-live="polite">Zuerst den Receiver auf dem Zielgerät starten. Gefundene Ziele werden erst nach deiner Auswahl übernommen.</div>
         <label class="form-label" for="stream-bitrate">Opus Bitrate (kbit/s)</label>
         <input class="form-control mb-3" id="stream-bitrate" type="number" min="16" max="256" value="64">
         <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" id="sender-start" type="button">Sender starten</button><button class="btn btn-outline-danger" id="sender-stop" type="button">Sender stoppen</button></div>

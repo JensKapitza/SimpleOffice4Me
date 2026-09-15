@@ -49,7 +49,17 @@ def well_known():
         # This fallback enables ad-hoc LAN discovery without requiring a public
         # Internet URL. Published QR/directory profiles still require their
         # configured public URL because they call local_profile without it.
-        return jsonify(local_profile(_root(), fallback_base_url=request.host_url))
+        profile = local_profile(_root(), fallback_base_url=request.host_url)
+        from .federation_discovery_lan import is_private_lan_ipv4
+        if is_private_lan_ipv4(request.remote_addr):
+            from .audio_streamer import manager
+            from .audio_target_discovery import receiver_capability
+            capability = receiver_capability(manager.status())
+            if capability:
+                profile["capabilities"]["audio_receiver"] = capability
+        response = jsonify(profile)
+        response.headers["Cache-Control"] = "no-store"
+        return response
     except ValueError as exc:
         _log_rejected("profile", exc)
         return jsonify({"error": "federation_profile_unavailable"}), 503

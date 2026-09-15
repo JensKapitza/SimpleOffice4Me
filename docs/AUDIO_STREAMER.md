@@ -38,7 +38,8 @@ Der Webprozess benötigt keine Root-Rechte.
 2. **Mini Services → Audio → Live Audio-Streamer** öffnen.
 3. Auf dem Empfangsgerät Ausgänge scannen, Lautsprecher und/oder virtuelles
    Mikrofon wählen und den Receiver starten.
-4. Auf dem Sendegerät Eingänge scannen, Mikrofon wählen und mindestens ein
+4. Auf dem Sendegerät Eingänge scannen und Mikrofon wählen. **Empfänger suchen**
+   ausführen, ein Ziel auswählen und **Ziel hinzufügen** drücken. Alternativ ein
    RTP-Ziel als `HOST:PORT` eintragen. Dann den Sender starten.
 5. Im Receiver den tatsächlichen PCM-Empfang prüfen. Ohne Daten meldet er
    „wartet“. Zum Beenden die Stop-Aktion des jeweiligen Dienstes verwenden.
@@ -99,9 +100,26 @@ stabiler ID; Name und Lautstärke bleiben bei erneutem Scan erhalten, verschwund
 Geräte werden offline. Remote-Definitionen werden nicht überschrieben.
 Eine Registrierung allein bestätigt noch keine erfolgreiche Wiedergabe.
 
-RTP-Ziele werden derzeit manuell angegeben. Die lokale Mikrofonsuche ist keine
-Empfängersuche im Netzwerk. Ein dauerhaft verschwundenes bevorzugtes Mikrofon
-wird nicht stillschweigend durch ein anderes aufgenommen.
+**Empfänger suchen** verwendet die vorhandene Federation-LAN-Suche: maximal vier
+lokale private IPv4-/24-Netze, vier konfigurierte SimpleOffice-HTTP-Ports und 32
+gleichzeitige Prüfungen. Standardport ist 8080; bestehende Einstellungen
+`SIMPLEOFFICE_FEDERATION_LAN_ADDRESS`, `SIMPLEOFFICE_FEDERATION_LAN_PORTS` und
+`SIMPLEOFFICE_PORT` gelten auch hier. Die Suche startet auf Knopfdruck und zeigt
+Fortschritt, Trefferzahl, Zeitpunkt oder Fehler. Pro Webprozess läuft höchstens
+eine Audio-Zielsuche gleichzeitig. Der Browser wartet höchstens 60 Sekunden.
+
+Ein laufender Desktop-Receiver stellt seine Opus/RTP-Fähigkeit im vorhandenen
+Well-known-Profil nur für private LAN-Anfragen bereit. Gestoppte Receiver und
+Loopback-Bindings werden nicht angeboten. Der Scanner akzeptiert nur die Adresse
+des tatsächlich abgefragten Peers als Audioziel, keine davon abweichende Adresse
+aus dessen Angaben. Beide Instanzen benötigen diese Erweiterung. Die bestehende
+Federation-Suche merkt Peers ohne Vertrauens- oder Datenfreigabe vor.
+
+Treffer werden nicht automatisch als Mikrofonziel gewählt. **Ziel hinzufügen**
+übernimmt die Auswahl in das bestehende Senderformular; Start speichert sie wie
+bisher. Manuelle Ziele bleiben erhalten. VLC und andere reine RTP-Player ohne
+SimpleOffice-Profil werden nicht entdeckt. Ein dauerhaft verschwundenes
+bevorzugtes Mikrofon wird nicht stillschweigend durch ein anderes aufgenommen.
 
 ## Ports
 
@@ -154,6 +172,7 @@ Alle nachfolgenden Pfade sind relativ zu dieser Basis.
 | GET | /status | Laufzeitstatus von Sender und Receiver |
 | GET | /inputs | automatische Mikrofonsuche; ?backend=alsa beschränkt auf ALSA |
 | GET | /outputs | lokale PulseAudio-/PipeWire-Ausgänge |
+| POST | /targets/scan | aktive SimpleOffice-Desktop-RTP-Empfänger über LAN-Suche finden |
 | GET | /settings | gespeicherte Konfiguration beider Dienste |
 | POST | /sender/start, /receiver/start | starten mit validierten Einstellungen |
 | POST | /sender/stop, /receiver/stop | stoppen |
@@ -177,8 +196,8 @@ ebenfalls bereit; siehe [gemeinsamer Betrieb](MINI_SERVICES.md).
 
 ## Einschränkungen und Tests
 
-ALSA-Lautsprecher sind kein zusätzlicher Receiver-Backend. RTP-Zieldiscovery,
-verschlüsselter Audiotransport und eine automatische Übernahme eines beliebigen
+ALSA-Lautsprecher sind kein zusätzlicher Receiver-Backend. Universelle Discovery
+fremder RTP-Player, verschlüsselter Audiotransport und die Übernahme eines beliebigen
 Ersatzmikrofons sind nicht implementiert. Hardwareentfernung wird über
 Prozess-/Discovery-Zustand erkannt; ein weiterlaufender, aber stummer Treiber
 kann zusätzliche manuelle Diagnose erfordern.

@@ -1,10 +1,11 @@
 """Admin controls for live audio streaming."""
 from __future__ import annotations
 import sqlite3
+import threading
 
 import time
 
-from flask import Blueprint, abort, g, jsonify, render_template, request
+from flask import Blueprint, abort, current_app, g, jsonify, render_template, request
 
 from .access_control import audit, is_admin
 from .audio_output_discovery import discover_speaker_outputs, discover_microphone_inputs
@@ -13,6 +14,7 @@ from .auth import login_required
 from .audio_streamer_config import settings as stream_settings, DEFAULTS
 
 bp = Blueprint("audio_streamer_admin", __name__, url_prefix="/admin/mini-services/audio/streamer")
+_target_scan_lock = threading.Lock()
 
 
 def admin_required(view):
@@ -139,6 +141,28 @@ def receiver_stop():
     manager.stop_receiver()
     audit("audio_stream_receiver_stopped", "audio_stream", "receiver")
     return jsonify({"stopped": True})
+
+
+@bp.post("/targets/scan")
+@admin_required
+def targets_scan():
+    from .audio_target_discovery import targets_from_profiles
+    from .federation_discovery_lan import discover_lan
+    if not _target_scan_lock.acquire(blocking=False):
+        return jsonify(error="Empfängersuche läuft bereits. Kurz warten und erneut versuchen."), 409
+    try:
+        result = discover_lan(current_app.config["DOCUMENT_ROOT"])
+        targets = targets_from_profiles(result["peers"])
+        response = jsonify(state="completed", targets=targets, count=len(targets),
+                           updated_at=time.time(), networks=result["networks"],
+                           scope="Aktive SimpleOffice-Desktop-Empfänger im lokalen IPv4-Netz")
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        audit("audio_target_scan_failed", "audio_stream", "sender", outcome="failure", detail={"error_type": type(exc).__name__})
+        return jsonify(state="failed", updated_at=time.time(), error="Empfängersuche fehlgeschlagen. Privates IPv4-Netz und Federation-Port prüfen."), 503
+    finally:
+        _target_scan_lock.release()
 
 
 @bp.get("/settings")

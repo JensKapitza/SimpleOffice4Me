@@ -3,9 +3,9 @@
   const nativeAudio = () => Boolean(window.SimpleOfficeNativeAudio);
   const get = (id) => document.getElementById(id);
   const clear = (node) => { while (node.firstChild) node.removeChild(node.firstChild); };
-  const request = async (url, method) => {
+  const request = async (url, method, timeout = 12000) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const token = document.querySelector('meta[name="csrf-token"]');
       const response = await fetch(url, {method: method || 'GET', cache: 'no-store', credentials: 'same-origin',
@@ -17,6 +17,39 @@
     } finally { clearTimeout(timer); }
   };
   const root = get('audio-streamer-app');
+  const targetScan = get('target-scan');
+  if (root && targetScan) {
+    const select = get('target-select'), add = get('target-add');
+    const status = get('target-scan-status'), manual = get('stream-targets');
+    targetScan.addEventListener('click', async () => {
+      targetScan.disabled = true;
+      add.disabled = true;
+      clear(select);
+      status.textContent = 'Empfänger werden gesucht …';
+      try {
+        const data = await request(root.dataset.baseUrl + '/targets/scan', 'POST', 60000);
+        const placeholder = document.createElement('option');
+        placeholder.value = ''; placeholder.textContent = 'Empfänger auswählen'; select.appendChild(placeholder);
+        for (const target of data.targets || []) {
+          const option = document.createElement('option');
+          option.value = target.id; option.textContent = target.label + ' · ' + target.id;
+          select.appendChild(option);
+        }
+        status.textContent = data.count + ' aktive Empfänger · ' + new Date(data.updated_at * 1000).toLocaleTimeString();
+      } catch (error) {
+        status.textContent = error.name === 'AbortError' ? 'Suche dauert zu lange. Später erneut versuchen.' : error.message;
+      } finally { targetScan.disabled = false; }
+    });
+    select.addEventListener('change', () => { add.disabled = !select.value; });
+    add.addEventListener('click', () => {
+      const values = manual.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+      if (!select.value || values.includes(select.value)) return;
+      if (values.length >= 16) { status.textContent = 'Maximal 16 Ziele. Zuerst ein Ziel entfernen.'; return; }
+      values.push(select.value); manual.value = values.join('\n');
+      manual.dispatchEvent(new Event('input', {bubbles: true}));
+      status.textContent = 'Ziel hinzugefügt. Zum Übertragen den Sender starten.';
+    });
+  }
   const attach = (prefix, key, manualId, noneLabel) => {
     const select = get(prefix + '-select'), search = get(prefix + '-search'), status = get(prefix + '-scan-status');
     const manual = get(manualId), button = get(prefix + '-scan');
