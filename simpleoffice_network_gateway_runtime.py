@@ -22,6 +22,39 @@ def gateway_settings_path(config_path: str | Path | None = None) -> Path:
     return state_dir(config_path or default_config_path()) / "gateway.json"
 
 
+def gateway_ownership_path(config_path: str | Path | None = None) -> Path:
+    return state_dir(config_path or default_config_path()) / "gateway-owned.json"
+
+
+def load_gateway_ownership(config_path: str | Path | None = None) -> dict[str, Any] | None:
+    path = gateway_ownership_path(config_path)
+    if path.is_symlink():
+        raise ValueError("Gateway-Ownership-Datei darf kein symbolischer Link sein")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise ValueError("Gateway-Ownership-Datei ist ungültig") from exc
+    return validate_gateway_settings(value)
+
+
+def remember_gateway_ownership(value: dict[str, Any], config_path: str | Path | None = None) -> dict[str, Any]:
+    clean = validate_gateway_settings(value)
+    _atomic_write(
+        gateway_ownership_path(config_path),
+        (json.dumps(clean, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    return clean
+
+
+def clear_gateway_ownership(config_path: str | Path | None = None) -> None:
+    path = gateway_ownership_path(config_path)
+    if path.is_symlink():
+        raise ValueError("Gateway-Ownership-Datei darf kein symbolischer Link sein")
+    path.unlink(missing_ok=True)
+
+
 def load_gateway_settings(config_path: str | Path | None = None) -> dict[str, Any]:
     path = gateway_settings_path(config_path)
     try:
