@@ -19,7 +19,9 @@ from simpleoffice_mini_services import (
 from simpleoffice_network_boot import TftpService, boot_settings_path, load_boot_settings
 from simpleoffice_network_boot_dhcp import BootAwareDhcpService
 from simpleoffice_network_gateway_runtime import (
-    apply_gateway, disable_gateway, gateway_health, gateway_settings_path, load_gateway_settings,
+    apply_gateway, clear_gateway_ownership, disable_gateway, gateway_health,
+    gateway_settings_path, load_gateway_ownership, load_gateway_settings,
+    remember_gateway_ownership,
 )
 from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, effective_sip_settings
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
@@ -83,13 +85,17 @@ class Worker:
         state.state = "stopping"
         try:
             if name == "gateway":
-                if self.gateway_active:
-                    result = disable_gateway(self.desired[name][1])
+                settings = self.desired.get(name, (False, None))[1] if self.gateway_active else None
+                if settings is None:
+                    settings = load_gateway_ownership(self.config_path)
+                if settings is not None:
+                    result = disable_gateway(settings)
                     if not result.get("ok"):
                         raise RuntimeError("Gateway konnte nicht deaktiviert werden")
+                    clear_gateway_ownership(self.config_path)
                     self.gateway_status = result
-                    self.gateway_active = False
-                    self.gateway_health = {"ok": False, "message": "Eigene Gateway-Regeln sind entfernt. Globales Forwarding bleibt unverändert."}
+                self.gateway_active = False
+                self.gateway_health = {"ok": False, "message": "Eigene Gateway-Regeln sind entfernt. Globales Forwarding bleibt unverändert."}
             else:
                 service = getattr(self, name)
                 if service is not None:
@@ -126,6 +132,10 @@ class Worker:
         service = None
         try:
             if name == "gateway":
+                # Persist ownership before touching host networking. If the
+                # process crashes during apply, the next worker can still
+                # identify and remove only the resources SimpleOffice owns.
+                remember_gateway_ownership(settings, self.config_path)
                 result = apply_gateway(settings, server_ip=str(self.config["dhcp"]["server_ip"]))
                 if not result.get("ok"):
                     raise RuntimeError("Routing-Konfiguration konnte nicht angewendet werden")
@@ -140,7 +150,12 @@ class Worker:
             state.running()
             self.event({"service": name, "action": "started"})
         except Exception as exc:
-            if service is not None:
+            if name == "gateway":
+                if not self._stop_one(name):
+                    # Keep the ownership marker so a later retry can clean up.
+                    state.retry_at = None
+                    return
+            elif service is not None:
                 setattr(self, name, service)
                 if not self._stop_one(name):
                     # Never create a replacement while ownership is unclear.
