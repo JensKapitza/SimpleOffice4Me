@@ -91,7 +91,7 @@
       <div class="card shadow-sm" id="inspections">
         <div class="card-header"><strong>Aktive Wiedervorlagen</strong></div>
         <div class="card-body">
-          {% for rule in care.inspections|default([]) %}<div class="border rounded p-2 mb-2"><div class="d-flex justify-content-between gap-2"><strong>{{ rule.name }}</strong><span class="badge {{ 'text-bg-danger' if rule.active and rule.next_due and rule.next_due < today else 'text-bg-warning' if rule.active else 'text-bg-secondary' }}">{{ ('fällig ' ~ rule.next_due) if rule.active else 'abgeschlossen' }}</span></div>{% if rule.note %}<div class="small text-secondary">{{ rule.note }}</div>{% endif %}</div>{% else %}<p class="text-secondary mb-0">Noch keine Wiedervorlage. Prüfungen können oben beim Nachweis direkt angelegt werden.</p>{% endfor %}
+          {% for rule in care.inspections|default([]) %}<div class="border rounded p-2 mb-2"><div class="d-flex justify-content-between gap-2"><strong>{{ rule.name }}</strong><span class="badge {{ 'text-bg-danger' if rule.active and rule.next_due and rule.next_due is lt(today) else 'text-bg-warning' if rule.active else 'text-bg-secondary' }}">{{ ('fällig ' ~ rule.next_due) if rule.active else 'abgeschlossen' }}</span></div>{% if rule.note %}<div class="small text-secondary">{{ rule.note }}</div>{% endif %}</div>{% else %}<p class="text-secondary mb-0">Noch keine Wiedervorlage. Prüfungen können oben beim Nachweis direkt angelegt werden.</p>{% endfor %}
         </div>
       </div>
     </section>
