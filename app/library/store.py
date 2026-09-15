@@ -214,8 +214,6 @@ class LibraryStore:
             fields = item.get("fields", {}) if isinstance(item.get("fields"), dict) else {}
             if str(fields.get("library_location_id", "")) == location_id:
                 return item
-            if str(item.get("identifier", "")).casefold() == code.casefold() and str(item.get("type", "")).casefold() in {"shelf", "regal", "location"}:
-                return item
         return None
 
     def _link_location_object(self, location_id: str, object_id: str, actor: str) -> None:
