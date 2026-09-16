@@ -162,6 +162,12 @@ CRA-Checks bestanden. pip-audit fehlt in der lokalen Testumgebung; nicht install
 
 Die Anbindung eines virtuellen Windows-Mikrofons benötigt eine zusätzliche
 Systemkomponente. Im Projekt ist kein entsprechender Treiber vorhanden.
-Eine mögliche optionale Anbindung (VB-CABLE) wird erst nach ausdrücklicher
-Dependency-Freigabe implementiert. Keine neue Bibliothek oder Systemkomponente
+VB-CABLE und SysVAD wurden vom Auftraggeber ausdrücklich ausgeschlossen.
+Der virtuelle Mikrofoneingang unter Windows bleibt daher eine dokumentierte
+Plattformgrenze; beide Komponenten werden nicht integriert. Keine neue Bibliothek oder Systemkomponente
 wurde im Rahmen dieser Änderungen installiert. Übrige Matrixlücken bleiben offen.
+
+Audio-Ausgabe: Fehler beim Beenden einzelner Player blockieren die Bereinigung
+der übrigen Prozesse und temporären Lautstärkedateien nicht mehr. Unbestätigt
+beendete Player bleiben referenziert; neue Wiedergabe ist gesperrt, bis ein
+erneuter Stop die Bereinigung abschließt. Diagnose enthält keine Exception-Nutzdaten.

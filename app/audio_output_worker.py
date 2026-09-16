@@ -10,7 +10,7 @@ import threading
 import time
 from contextlib import ExitStack
 
-from simpleoffice_service_lifecycle import ServiceState, error_detail
+from simpleoffice_service_lifecycle import ServiceState, error_detail, log_service_event
 from tools.service_control import exclusive_lease
 from .audio_output_discovery import discover_speaker_outputs
 from .audio_output_engine import render_preset, render_tts, playback_command, prune_tts_cache, attenuated_audio
@@ -25,6 +25,7 @@ class AudioOutputWorker:
         self.stop_event = threading.Event()
         self.thread = None
         self.processes = []
+        self.cleaning_players = False
         self.active_job = None
         self.state = ServiceState("audio-output", "Audio-Ausgabe")
         self.scan_result = {"state": "waiting", "count": 0, "updated_at": None}
@@ -52,6 +53,10 @@ class AudioOutputWorker:
 
     def start(self):
         with self.lock:
+            if self.cleaning_players:
+                raise RuntimeError("Audio-Player wird noch beendet; Status aktualisieren")
+            if self.stop_event.is_set() and self.processes:
+                raise RuntimeError("Audio-Player wird noch beendet; Stop erneut ausführen")
             if self.thread is not None and self.thread.is_alive():
                 if self.stop_event.is_set():
                     raise RuntimeError("Audio-Ausgabe wird noch beendet; Status aktualisieren")
@@ -83,15 +88,49 @@ class AudioOutputWorker:
             processes = list(self.processes)
             thread = self.thread
         for process in processes:
-            if process.poll() is None:
-                try:
+            try:
+                if process.poll() is None:
                     process.terminate()
-                except OSError:
-                    pass
+            except OSError as exc:
+                self._cleanup_error(exc)
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout=5)
+        if not thread or not thread.is_alive():
+            self._cleanup_players()
         with self.lock:
-            self.state.state = "stopped" if not thread or not thread.is_alive() else "stopping"
+            self.state.state = "stopped" if not self.processes and not self.cleaning_players and (not thread or not thread.is_alive()) else "stopping"
+
+    def _cleanup_error(self, exc):
+        self.state.last_error = error_detail(exc)
+        self.state.last_error_at = time.time()
+        log_service_event("audio-output", "player_cleanup_failed", exc=exc)
+
+    def _cleanup_players(self):
+        with self.lock:
+            if self.cleaning_players:
+                return
+            self.cleaning_players = True
+            processes, self.processes = self.processes, []
+        remaining = []
+        for process in processes:
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                self._cleanup_error(exc)
+                try:
+                    process.kill()
+                    process.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired) as final_error:
+                    self._cleanup_error(final_error)
+                    remaining.append(process)
+        with self.lock:
+            self.processes.extend(remaining)
+            self.cleaning_players = False
+            if remaining:
+                self.stop_event.set()
+                self.state.state = "stopping"
 
     def scan(self):
         self.scan_result = {"state": "scanning", "updated_at": time.time(), "count": 0}
@@ -132,7 +171,7 @@ class AudioOutputWorker:
                         return
         finally:
             if self.stop_event.is_set():
-                self.state.state = "stopped"
+                self.state.state = "stopping" if self.processes else "stopped"
 
     def _run_once(self):
         # Creating/opening storage belongs inside the bounded recovery boundary.
@@ -211,19 +250,10 @@ class AudioOutputWorker:
             message = "Audio-Ziel oder Gruppe prüfen; externe Knoten benötigen einen angebundenen Transport." if isinstance(exc, ValueError) else "Wiedergabe nicht möglich. Audio-Geräte, Player und ggf. Piper-Modell prüfen."
             store.finish(job["id"], state="cancelled" if self.stop_event.is_set() else "queued" if retry else "failed", error=message, retry_seconds=min(60, 2 ** job["attempts"]))
         finally:
-            with self.lock:
-                processes, self.processes = self.processes, []
-            for process in processes:
-                if process.poll() is None:
-                    process.terminate()
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=2)
+            self._cleanup_players()
             self.active_job = None
-            playback_files.close()
             try:
+                playback_files.close()
                 prune_tts_cache(store.root / "rendered")
             except OSError as exc:
                 self.state.last_error = error_detail(exc)

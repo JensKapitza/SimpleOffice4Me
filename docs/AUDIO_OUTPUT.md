@@ -137,3 +137,10 @@ das Warten. Nach 60 Sekunden stabilem Betrieb beginnt ein neues Fehlerbudget.
 Möglicherweise schon teilweise abgespielte Durchsagen werden nicht automatisch
 erneut abgespielt. Storage-APIs liefern verständliche 503-Antworten ohne rohe
 Exceptiontexte. Offline-/Namensänderungen werden auch in der Zielauswahl sichtbar.
+
+Bei Fehlern während der Prozessbereinigung wird jeder Player unabhängig beendet,
+mit begrenztem Wait und Kill-Fallback. Bleibt ein Prozess unbestätigt aktiv, steht
+der Dienst auf „stopping“ und startet keine neuen Wiedergaben. Nach Behebung
+der Betriebssystem-/Berechtigungsursache erneut Stop ausführen. Temporäre
+Lautstärkedateien und der aktive Auftragsverweis werden trotzdem bereinigt;
+Dateifehler bleiben in der Diagnose sichtbar.

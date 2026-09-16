@@ -1,5 +1,6 @@
 import tempfile
 import sqlite3
+import subprocess
 import threading
 import unittest
 from pathlib import Path
@@ -78,6 +79,55 @@ class AnnouncementTests(unittest.TestCase):
             self.worker.process_job(self.store, self.store.claim())
         self.assertEqual("queued", self.store.announcement(job["id"])["state"])
         self.assertEqual([], list((self.store.root / "rendered").glob("playback-*")))
+
+    def test_cleanup_failure_does_not_skip_other_players_and_keeps_retryable_handles(self):
+        blocked = Mock()
+        blocked.poll.return_value = None
+        blocked.terminate.side_effect = PermissionError("private-context")
+        blocked.kill.side_effect = PermissionError("private-context")
+        healthy = Mock()
+        healthy.poll.return_value = None
+        self.worker.processes = [blocked, healthy]
+        with self.assertLogs("simpleoffice.mini_services", level="ERROR") as logs:
+            self.worker._cleanup_players()
+        self.assertNotIn("private-context", "\n".join(logs.output))
+        healthy.terminate.assert_called_once()
+        healthy.wait.assert_called_once_with(timeout=2)
+        self.assertEqual([blocked], self.worker.processes)
+        self.assertTrue(self.worker.stop_event.is_set())
+        with self.assertRaises(RuntimeError):
+            self.worker.start()
+        blocked.poll.return_value = 0
+        self.worker.stop()
+        self.assertEqual([], self.worker.processes)
+        self.assertEqual("stopped", self.worker.state.state)
+
+    def test_player_wait_timeout_uses_bounded_kill_fallback(self):
+        player = Mock()
+        player.poll.return_value = None
+        player.wait.side_effect = [subprocess.TimeoutExpired("player", 2), 0]
+        self.worker.processes = [player]
+        self.worker._cleanup_players()
+        player.kill.assert_called_once()
+        self.assertEqual(2, player.wait.call_count)
+        self.assertEqual([], self.worker.processes)
+
+    def test_cleanup_os_error_still_removes_volume_files_and_active_job(self):
+        self.store.register_output("local", "speaker", "Quiet", volume=40)
+        self.store.queue_sound("gong", ["speaker"])
+        files = []
+        def command(path, device):
+            files.append(Path(path))
+            return ["player", str(path)]
+        player = Mock(returncode=0)
+        player.poll.side_effect = [0, OSError("gone")]
+        with patch("app.audio_output_worker.playback_command", side_effect=command), patch("app.audio_output_worker.subprocess.Popen", return_value=player):
+            self.worker.process_job(self.store, self.store.claim())
+        self.assertTrue(files)
+        self.assertFalse(files[0].exists())
+        self.assertIsNone(self.worker.active_job)
+        self.assertEqual([], self.worker.processes)
+        player.kill.assert_called_once()
 
     def test_missing_hardware_retries_before_playback_only(self):
         self.store.register_output("local", "speaker", "Offline", online=False)
