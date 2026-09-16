@@ -6,7 +6,7 @@ import urllib.parse
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
-from flask import Blueprint, Response, current_app, abort, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from . import personnel
 from .auth import login_required
@@ -50,6 +50,21 @@ def ensure_schema() -> None:
             db.execute(f"ALTER TABLE employee_punch ADD COLUMN {name} {definition}")
     db.executescript(
         """
+        CREATE TABLE IF NOT EXISTS employee_time_audit (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          employee_id INTEGER NOT NULL,
+          punch_id INTEGER,
+          action TEXT NOT NULL,
+          before_json TEXT NOT NULL DEFAULT '{}',
+          after_json TEXT NOT NULL DEFAULT '{}',
+          reason TEXT NOT NULL DEFAULT '',
+          actor_user_id INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(employee_id) REFERENCES employee(id),
+          FOREIGN KEY(actor_user_id) REFERENCES user(id)
+        );
+        CREATE INDEX IF NOT EXISTS employee_time_audit_employee_time
+          ON employee_time_audit(employee_id, created_at DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS employee_punch_federation_source
           ON employee_punch(source_peer,source_ref)
           WHERE source_kind='federation' AND source_ref<>'';
@@ -134,7 +149,7 @@ def _period() -> tuple[str, date, date]:
     today = personnel._local_now().date()
     raw = str(request.values.get("period", "30d"))
     try:
-        anchor = date.fromisoformat(str(request.values.get("anchor", today.isoformat())))
+        anchor = min(date.fromisoformat(str(request.values.get("anchor", today.isoformat()))), today)
     except ValueError:
         anchor = today
     if raw in PERIODS:
@@ -143,16 +158,15 @@ def _period() -> tuple[str, date, date]:
     if raw == "month":
         start = anchor.replace(day=1)
         following = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-        end = following - timedelta(days=1)
-        if start <= today <= end:
-            end = today
-        return raw, start, end
+        return raw, start, min(following - timedelta(days=1), today)
     if raw == "custom":
         try:
             start = date.fromisoformat(str(request.values.get("start", "")))
             end = date.fromisoformat(str(request.values.get("end", "")))
         except ValueError as exc:
             raise ValueError("Individueller Zeitraum ist ungültig") from exc
+        if end > today:
+            end = today
         if end < start or (end - start).days > 365:
             raise ValueError("Zeitraum muss zwischen 1 und 366 Tagen liegen")
         return raw, start, end
@@ -337,7 +351,7 @@ def _remote_employees(peer_id: str) -> tuple[list[dict[str, Any]], str]:
     if not peer_id:
         return [], ""
     try:
-        peer_id = sanitize_peer_id(peer_id)
+        peer_id = sanitize_peer_id(str(peer_id))
         store = FederationStore(_root())
         peer = store.get_peer(peer_id)
         if not peer or not peer.get("enabled"):
@@ -408,14 +422,14 @@ def _punch_payload(row: Any) -> dict[str, Any]:
 
 def import_federated_events(peer_id: str, remote_key: str, local_employee_id: int, events: list[Any], start: date, end: date) -> dict[str, int]:
     ensure_schema()
-    peer_id = sanitize_peer_id(peer_id)
+    peer_id = sanitize_peer_id(str(peer_id))
     remote_key = str(remote_key or "").strip()[:160]
     if not remote_key or not isinstance(events, list) or len(events) > MAX_FEDERATION_EVENTS:
         raise ValueError("Ungültige Federation-Stempeldaten")
     employee = get_db().execute("SELECT * FROM employee WHERE id=? AND active=1", (local_employee_id,)).fetchone()
     if employee is None:
         raise ValueError("Lokaler Mitarbeiter ist nicht aktiv")
-    if (end - start).days >= MAX_FEDERATION_DAYS:
+    if end < start or (end - start).days >= MAX_FEDERATION_DAYS:
         raise ValueError("Federation-Import ist auf 93 Tage begrenzt")
     db = get_db()
     db.execute("SAVEPOINT personnel_time_federation")
@@ -491,7 +505,6 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
     except Exception:
         db.execute("ROLLBACK TO SAVEPOINT personnel_time_federation")
         db.execute("RELEASE SAVEPOINT personnel_time_federation")
-        db.rollback()
         raise
 
 
@@ -549,7 +562,7 @@ def federation_import():
     _require_admin()
     ensure_schema()
     try:
-        peer_id = sanitize_peer_id(request.form.get("peer_id", ""))
+        peer_id = sanitize_peer_id(str(request.form.get("peer_id", "")))
         remote_key = str(request.form.get("remote_employee_key", "")).strip()[:160]
         local_employee_id = int(request.form.get("employee_id", "0"))
         start = date.fromisoformat(str(request.form.get("start", "")))
@@ -595,7 +608,7 @@ def authenticate_federation():
     return None
 
 
-def _require_export() -> Response | None:
+def _require_export():
     if _federation_export_enabled():
         return None
     return jsonify({"error": "personnel_time_export_disabled"}), 403
@@ -604,7 +617,7 @@ def _require_export() -> Response | None:
 @federation_bp.get("/capabilities")
 def federation_capabilities():
     disabled = _require_export()
-    if disabled:
+    if disabled is not None:
         return disabled
     return jsonify({
         "resource": "personnel_time",
@@ -620,7 +633,7 @@ def federation_capabilities():
 @federation_bp.get("/employees")
 def federation_employees():
     disabled = _require_export()
-    if disabled:
+    if disabled is not None:
         return disabled
     ensure_schema()
     names = personnel._employee_names()
@@ -637,7 +650,7 @@ def federation_employees():
 @federation_bp.get("/punches")
 def federation_punches():
     disabled = _require_export()
-    if disabled:
+    if disabled is not None:
         return disabled
     ensure_schema()
     employee_key = str(request.args.get("employee_key", "")).strip()[:160]
