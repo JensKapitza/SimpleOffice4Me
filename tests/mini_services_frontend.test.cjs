@@ -65,3 +65,19 @@ test('Failed scan refreshes card and restores buttons while keeping the action e
   assert.equal(button.disabled, false);
   assert.equal(f.elements['mini-service-control'].attributes['aria-busy'], undefined);
 });
+
+ test('Missing required tools are visible and optional tools remain diagnostic', async () => {
+  const f = await fixture();
+  f.service.dependencies = [
+    {programs: ['ffmpeg'], required: true, available: false},
+    {programs: ['pactl'], required: false, available: false}
+  ];
+  await f.elements['mini-refresh'].handlers.click();
+  const warning = f.nodes.find(item => item.textContent.includes('Erforderliche Programme fehlen'));
+  assert.match(warning.textContent, /ffmpeg/);
+  assert.doesNotMatch(warning.textContent, /pactl/);
+  assert.equal(JSON.parse(f.nodes.find(item => item.tag === 'pre').textContent).dependencies.length, 2);
+  f.service.dependencies[0].available = true;
+  await f.elements['mini-refresh'].handlers.click();
+  assert.match(warning.textContent, /Hardware.*nicht geprüft/);
+});

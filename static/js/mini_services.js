@@ -91,7 +91,8 @@
     const error = text('p', '', 'small');
     const scan = text('p', '', 'small');
     scan.setAttribute('role', 'status'); scan.setAttribute('aria-live', 'polite');
-    body.append(status, health, error, scan);
+    const dependencies = text('p', '', 'small');
+    body.append(status, health, error, scan, dependencies);
     const actions = text('div', '', 'd-flex flex-wrap gap-2 mb-3');
     [['start', 'Starten'], ['stop', 'Stoppen'], ['restart', 'Neustart'], ['scan', 'Suchen']].forEach(([key, label]) => {
       if (!(service.capabilities || []).includes(key)) return;
@@ -115,7 +116,7 @@
     if (configurable) settings.appendChild(save);
     settings.appendChild(diagnosis); body.appendChild(settings);
     article.appendChild(body); col.appendChild(article); cards.appendChild(col);
-    const view = {status, health, error, scan, inputs, diagnosis}; views.set(service.id, view); return view;
+    const view = {status, health, error, scan, dependencies, inputs, diagnosis}; views.set(service.id, view); return view;
   };
   const refresh = async () => {
     const data = await request('');
@@ -125,10 +126,14 @@
       view.health.textContent = service.health ? service.health.message : '';
       view.error.textContent = service.last_error ? `${service.last_error.message} ${service.last_error.action}` : '';
       view.scan.textContent = scanLabel(service.scan);
+      const missing = (service.dependencies || []).filter(item => item.required && !item.available);
+      view.dependencies.textContent = missing.length
+        ? `⚠ Erforderliche Programme fehlen: ${missing.map(item => item.programs.join(' oder ')).join(', ')}. Voraussetzungen in der Diagnose prüfen.`
+        : service.dependencies ? 'Programmprüfung abgeschlossen; Hardware und Audiowiedergabe sind damit nicht geprüft.' : '';
       // Do not replace focused controls or a user's unsaved settings on polling.
       if (!view.initialized) { Object.keys(view.inputs).forEach(key => { view.inputs[key].checked = service.settings[key]; }); view.initialized = true; }
       view.diagnosis.textContent = JSON.stringify({config: service.config, health: service.health, error: service.last_error,
-        retry: service.retry_in_seconds, scan: service.scan, owner: service.owner, version: service.version,
+        dependencies: service.dependencies, retry: service.retry_in_seconds, scan: service.scan, owner: service.owner, version: service.version,
         requires: service.requires, optional_requires: service.optional_requires, provides: service.provides}, null, 2);
     });
   };

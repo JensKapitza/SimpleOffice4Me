@@ -126,3 +126,23 @@ Nachweis, dass keine Geräte vorhanden sind. Fehlerhinweis und nächste möglich
 Aktion stehen auf der Karte. Nach fehlgeschlagenen Aktionen wird der Status
 aktualisiert. Unter „Einstellungen und Diagnose“ stehen außerdem Dienstversion,
 Eigentümer sowie die gemeldeten requires/optional_requires/provides-Beziehungen.
+
+### Audio-Programmprüfung
+
+Die gemeinsame Status-API liefert für Audio-Dienste `dependencies`: Programm bzw.
+Alternativen, `required`, `available`, Zweck und `scope: executable-only`.
+Die Übersicht nennt fehlende Pflichtprogramme; alle bedingten Funktionen stehen
+unter „Einstellungen und Diagnose“. Die Prüfung sucht nur im PATH und startet
+oder installiert nichts. Hardware, Codecs, Audioberechtigungen und laufende
+PulseAudio-/PipeWire-Dienste sind dadurch nicht bestätigt. Laufzeit-Health und
+Status bleiben eigenständige Informationen.
+
+Sender benötigen FFmpeg; pactl dient bei Pulse nur der Gerätesuche. Receiver
+benötigen FFmpeg und für Lautsprecher paplay (Linux) bzw. FFplay (Windows).
+Das virtuelle Mikrofon unter Linux benötigt sowohl paplay als auch pactl, auch
+ohne ausgewählte Lautsprecher. Beide werden vor dem Ersetzen einer laufenden
+Receiver-Session geprüft. Unter Windows bleibt das virtuelle Mikrofon unsupported.
+Beim Ansage-Worker hängen Programme von der Funktion ab: pactl für Discovery,
+paplay für erkannte Ausgänge, pw-play/aplay/ffplay als Alternativen für manuelle
+lokale Ausgänge, Piper plus vorhandenes Modell nur für Sprachansagen. Fehlende
+optionale Programme verhindern daher nicht pauschal den Worker-Start.

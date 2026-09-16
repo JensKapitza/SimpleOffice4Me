@@ -175,8 +175,10 @@ def _receiver_preflight(clean):
         receiver_playback_command(device)
     if clean["virtual_microphone"] and platform.system() == "Windows":
         raise ValueError("Virtuelle Mikrofone sind unter Windows nicht unterstützt")
-    if clean["virtual_microphone"] and not shutil.which("pactl"):
-        raise RuntimeError("pactl fehlt")
+    if clean["virtual_microphone"]:
+        paplay_command()
+        if not shutil.which("pactl"):
+            raise RuntimeError("pactl fehlt")
 
 
 def _close_pipe(pipe: Any) -> None:

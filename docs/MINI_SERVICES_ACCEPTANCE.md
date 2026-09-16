@@ -180,3 +180,9 @@ Ausgängen werden als failed/HTTP 503 erfasst. Abhängigkeiten, Eigentümer und
 Version sind in der gemeinsamen Diagnose sichtbar. Das macht die vorhandenen
 Metadaten sichtbar, ersetzt aber nicht die noch unvollständige Erkennung aller
 Systemvoraussetzungen. Node-Runtimetests prüfen Anzeige und Fehleraktualisierung.
+
+Audio-Programmprüfung ergänzt: erforderliche Stream-Programme und bedingte
+Ansage-/Discovery-Funktionen sind maschinenlesbar und in der gemeinsamen Diagnose
+sichtbar. Fehlendes paplay wird auch beim reinen virtuellen Mikrofon vor dem
+Sessionwechsel erkannt. Diese PATH-Prüfung ersetzt keine Hardware-, Codec- oder
+Plattformabnahme; die offenen Punkte der Qualitätsmatrix bleiben bestehen.

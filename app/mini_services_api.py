@@ -10,6 +10,7 @@ from simpleoffice_mini_core import default_config_path, read_status
 from simpleoffice_service_lifecycle import ServiceState, error_detail
 from .mini_services_admin import admin_required
 from .access_control import audit
+from .audio_dependencies import audio_dependencies
 
 bp = Blueprint("mini_services_api", __name__, url_prefix="/api/mini-services")
 NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
@@ -44,6 +45,7 @@ def _catalog():
                    capabilities=["start", "stop", "restart", "scan", "settings"])
         try:
             row["settings"] = stream_settings(key)
+            row["dependencies"] = audio_dependencies(key, row["settings"])
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
         rows.append(row)
@@ -52,6 +54,7 @@ def _catalog():
                capabilities=["start", "stop", "restart", "scan", "settings"])
     try:
         row["settings"] = output_worker.settings()
+        row["dependencies"] = audio_dependencies("output", row["settings"])
     except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
         row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
     rows.append(row)
