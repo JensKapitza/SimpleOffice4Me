@@ -165,8 +165,7 @@ def _period() -> tuple[str, date, date]:
             end = date.fromisoformat(str(request.values.get("end", "")))
         except ValueError as exc:
             raise ValueError("Individueller Zeitraum ist ungültig") from exc
-        if end > today:
-            end = today
+        end = min(end, today)
         if end < start or (end - start).days > 365:
             raise ValueError("Zeitraum muss zwischen 1 und 366 Tagen liegen")
         return raw, start, end
@@ -420,6 +419,10 @@ def _punch_payload(row: Any) -> dict[str, Any]:
     }
 
 
+def _row_local_date(row: Any) -> date:
+    return datetime.fromisoformat(str(row["occurred_at"]).replace("Z", "+00:00")).astimezone(personnel._personnel_timezone()).date()
+
+
 def import_federated_events(peer_id: str, remote_key: str, local_employee_id: int, events: list[Any], start: date, end: date) -> dict[str, int]:
     ensure_schema()
     peer_id = sanitize_peer_id(str(peer_id))
@@ -434,7 +437,8 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
     db = get_db()
     db.execute("SAVEPOINT personnel_time_federation")
     affected: set[date] = set()
-    result = {"inserted": 0, "updated": 0, "unchanged": 0}
+    incoming_refs: set[str] = set()
+    result = {"inserted": 0, "updated": 0, "removed": 0, "unchanged": 0}
     try:
         for raw in events:
             if not isinstance(raw, dict):
@@ -444,6 +448,10 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
             stamp_text = str(raw.get("occurred_at") or "")
             if not event_key or action not in personnel.PUNCH_ACTIONS:
                 raise ValueError("Federation-Stempel enthält unbekannte Felder")
+            source_ref = remote_key + ":" + event_key
+            if source_ref in incoming_refs:
+                raise ValueError("Federation-Antwort enthält doppelte Ereignis-IDs")
+            incoming_refs.add(source_ref)
             try:
                 stamp = datetime.fromisoformat(stamp_text.replace("Z", "+00:00"))
             except ValueError as exc:
@@ -458,7 +466,6 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
                 raise ValueError("Federation-Stempel liegt in der Zukunft")
             if personnel.month_is_closed(local_employee_id, shown.strftime("%Y-%m")):
                 raise ValueError(f"Monat {shown.strftime('%Y-%m')} ist bereits festgeschrieben")
-            source_ref = remote_key + ":" + event_key
             existing = db.execute(
                 "SELECT * FROM employee_punch WHERE source_kind='federation' AND source_peer=? AND source_ref=?",
                 (peer_id, source_ref),
@@ -467,6 +474,8 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
             if existing:
                 if int(existing["employee_id"]) != local_employee_id:
                     raise ValueError("Federation-Stempel ist bereits einem anderen Mitarbeiter zugeordnet")
+                previous_day = _row_local_date(existing)
+                affected.add(previous_day)
                 before = _punch_payload(existing)
                 if str(existing["action"]) == action and str(existing["occurred_at"]) == normalized_stamp:
                     result["unchanged"] += 1
@@ -489,6 +498,28 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
                 _audit_import(local_employee_id, int(created["id"]), "federation_punch_imported", {}, _punch_payload(created), peer_id)
                 result["inserted"] += 1
             affected.add(shown)
+
+        lower, upper = _utc_bounds(start, end)
+        existing_range = db.execute(
+            """SELECT * FROM employee_punch
+               WHERE employee_id=? AND source_kind='federation' AND source_peer=?
+                 AND occurred_at>=? AND occurred_at<? ORDER BY occurred_at,id""",
+            (local_employee_id, peer_id, lower, upper),
+        ).fetchall()
+        prefix = remote_key + ":"
+        for existing in existing_range:
+            source_ref = str(existing["source_ref"] or "")
+            if not source_ref.startswith(prefix) or source_ref in incoming_refs:
+                continue
+            shown = _row_local_date(existing)
+            if personnel.month_is_closed(local_employee_id, shown.strftime("%Y-%m")):
+                raise ValueError(f"Monat {shown.strftime('%Y-%m')} ist bereits festgeschrieben")
+            before = _punch_payload(existing)
+            _audit_import(local_employee_id, int(existing["id"]), "federation_punch_removed", before, {}, peer_id)
+            db.execute("DELETE FROM employee_punch WHERE id=?", (int(existing["id"]),))
+            affected.add(shown)
+            result["removed"] += 1
+
         for shown in affected:
             error = _validate_sequence(local_employee_id, shown)
             if error:
@@ -512,6 +543,8 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
 @login_required
 def index():
     _require_admin()
+    from .personnel_time_clock import ensure_admin_time_account
+    ensure_admin_time_account()
     ensure_schema()
     employees = _employees()
     if not employees:
@@ -579,7 +612,7 @@ def federation_import():
         if data.get("employee_key") != remote_key or data.get("complete_range") is not True:
             raise ValueError("Federation-Antwort deckt den angeforderten Zeitraum nicht vollständig ab")
         result = import_federated_events(peer_id, remote_key, local_employee_id, data.get("events") or [], start, end)
-        remote_label = str(request.form.get("remote_label", remote_key))[:200]
+        remote_label = str(data.get("employee_label") or remote_key)[:200]
         get_db().execute(
             """INSERT INTO employee_time_federation_map(peer_id,remote_employee_key,local_employee_id,remote_label,updated_at,updated_by)
                VALUES(?,?,?,?,?,?) ON CONFLICT(peer_id,remote_employee_key) DO UPDATE SET
@@ -589,7 +622,10 @@ def federation_import():
         )
         get_db().commit()
         store.record_event("personnel_time_imported", peer_id=peer_id, detail={"employee_id": local_employee_id, **result})
-        flash(f"Federation-Zeiten übernommen: {result['inserted']} neu, {result['updated']} aktualisiert, {result['unchanged']} unverändert.")
+        flash(
+            f"Federation-Zeiten synchronisiert: {result['inserted']} neu, {result['updated']} aktualisiert, "
+            f"{result['removed']} entfernt, {result['unchanged']} unverändert."
+        )
         return redirect(url_for("personnel_time_insights.index", employee_id=local_employee_id, period="custom", start=start.isoformat(), end=end.isoformat(), federation_peer=peer_id))
     except Exception as exc:
         current_app.logger.warning("personnel_time_federation_import_failed error=%s", type(exc).__name__)
@@ -673,9 +709,11 @@ def federation_punches():
     ).fetchall()
     if len(punches) > MAX_FEDERATION_EVENTS:
         return jsonify({"error": "too_many_events", "max_events": MAX_FEDERATION_EVENTS}), 409
+    names = personnel._employee_names()
     return jsonify({
         "schema": 1,
         "employee_key": employee_key,
+        "employee_label": names.get(int(row["id"]), f"Mitarbeiter {row['id']}"),
         "start": start.isoformat(),
         "end": end.isoformat(),
         "complete_range": True,
