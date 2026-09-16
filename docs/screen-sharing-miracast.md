@@ -79,3 +79,33 @@ Die aktuelle Signaling-Implementierung verwendet keine externen STUN-/TURN-Diens
 - OS-spezifische Miracast-Dienste nicht mit Root-Rechten aus dem Webprozess starten,
 - keine frei zusammengesetzten Shell-Kommandos,
 - aktive Session muss in der UI sichtbar und stoppbar sein.
+
+## Signaling-Limits und Fehlerverhalten
+
+Der bestehende In-Memory-Signaling-Server akzeptiert höchstens 64 Sessions
+insgesamt und vier pro angemeldetem Benutzer. Geschlossene oder seit 30 Minuten
+nicht aktualisierte Sessions werden bei der nächsten Anfrage entfernt.
+Jede Signal-Anfrage ist auf 128.000 Bytes begrenzt, die Warteschlange pro Session
+auf 256 Nachrichten und 512.000 eingegangene Bytes. Bei voller Warteschlange
+wird mit HTTP 409 abgewiesen, statt das ursprüngliche Offer still zu verlieren.
+Stop bleibt möglich. Session-Quoten liefern HTTP 429.
+
+Offer, Answer und ICE werden strukturell und hinsichtlich der Sender-/Empfängerrolle
+geprüft. Nach drei fehlgeschlagenen Signaling-Abfragen endet die lokale Freigabe;
+Retries warten 1,4 und 2,8 Sekunden. Einzelne Anfragen haben zehn Sekunden Timeout.
+Bei geschlossener oder nicht mehr zugänglicher Session endet die Freigabe sofort.
+„Stop“ beendet Aufnahme und Peer-Verbindung, bevor auf die Serverbestätigung
+gewartet wird. Hardwareaufnahme und Netzwerk-Bestätigung sind damit entkoppelt.
+
+API-Änderung zum Schutz des Verbindungscodes vor URL-/Proxy-Logs:
+`POST /screen/api/join` erhält `{ "code": "…" }` im JSON-Body und benötigt CSRF.
+Signalabfragen und DELETE übertragen den Code im Header `X-Screen-Code`.
+Der frühere Join-GET-Pfad und Code-Queryparameter werden nicht mehr unterstützt.
+POST-Signale behalten den Code im Body. Angepasste Clients müssen diese
+Übergaben übernehmen; die mitgelieferte Oberfläche verwendet sie bereits.
+Benutzerdefinierte Header-/Body-Logs dürfen diese Codes ebenfalls nicht aufzeichnen.
+
+Tests: Python prüft Rollen, CSRF, Nachrichtentypen, Größen, Quoten und Freigabe
+geschlossener Sessions. Node-Runtimetests prüfen Stop bei hängender Bestätigung,
+veraltete Poll-Antworten und begrenzte Recovery. Diese Tests ersetzen keine
+Miracast-/Android-Hardwareabnahme.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import functools
+import json
 import platform
 import secrets
 import shutil
@@ -20,6 +21,10 @@ bp = Blueprint("screen", __name__, url_prefix="/screen")
 _WINDOWS_CAPABILITY = "App.WirelessDisplay.Connect~~~~0.0.1.0"
 _SESSION_TTL_SECONDS = 1800
 _MAX_SIGNAL_MESSAGES = 256
+_MAX_SESSIONS = 64
+_MAX_SESSIONS_PER_USER = 4
+_MAX_SIGNAL_BYTES = 128000
+_MAX_SESSION_SIGNAL_BYTES = 512000
 _sessions_lock = threading.RLock()
 _sessions: dict[str, dict[str, Any]] = {}
 
@@ -148,7 +153,7 @@ def _actor_id() -> str:
 
 def _purge_sessions() -> None:
     now = time.time()
-    for key in [key for key, value in _sessions.items() if now - float(value["updated_at"]) > _SESSION_TTL_SECONDS]:
+    for key in [key for key, value in _sessions.items() if value.get("closed") or now - float(value["updated_at"]) > _SESSION_TTL_SECONDS]:
         _sessions.pop(key, None)
 
 
@@ -199,17 +204,24 @@ def create_session():
     now = time.time()
     with _sessions_lock:
         _purge_sessions()
+        owner = _actor_id()
+        if len(_sessions) >= _MAX_SESSIONS or sum(value["owner"] == owner for value in _sessions.values()) >= _MAX_SESSIONS_PER_USER:
+            return jsonify(error="Zu viele Bildschirm-Sessions. Nicht benötigte Freigaben beenden.", code="session_limit"), 429
         session_id = secrets.token_urlsafe(18)
-        _sessions[session_id] = {"owner": _actor_id(), "join_code": _new_join_code(), "created_at": now, "updated_at": now, "connected": False, "closed": False, "sequence": 0, "messages": []}
+        _sessions[session_id] = {"owner": owner, "join_code": _new_join_code(), "created_at": now, "updated_at": now, "connected": False, "closed": False, "sequence": 0, "messages": [], "signal_bytes": 0}
         snapshot = _snapshot(session_id, _sessions[session_id])
     audit("screen_session_created", "screen_session", session_id)
     return jsonify({"schema": 1, "session": snapshot}), 201
 
 
-@bp.get("/api/join/<code>")
+@bp.post("/api/join")
 @login_required
-def resolve_session(code: str):
-    normalized = str(code or "").strip().upper()[:16]
+def resolve_session():
+    body, _ = _signal_body()
+    code = body.get("code")
+    if not isinstance(code, str) or not 1 <= len(code.strip()) <= 16:
+        abort(400)
+    normalized = code.strip().upper()
     with _sessions_lock:
         _purge_sessions()
         for session_id, value in _sessions.items():
@@ -226,7 +238,7 @@ def _authorized(value: dict[str, Any], role: str, code: str) -> bool:
 @login_required
 def signals(session_id: str):
     role = str(request.args.get("role") or "").strip().casefold()
-    code = str(request.args.get("code") or "").strip().upper()
+    code = request.headers.get("X-Screen-Code", "").strip().upper()
     try:
         after = max(0, int(request.args.get("after") or 0))
     except ValueError:
@@ -241,21 +253,49 @@ def signals(session_id: str):
         if not _authorized(value, role, code):
             abort(403)
         messages = [item for item in value["messages"] if int(item["seq"]) > after and item["from"] != role]
+        value["updated_at"] = time.time()
         return jsonify({"schema": 1, "messages": messages, "last_sequence": int(value["sequence"]), "connected": bool(value.get("connected"))})
+
+
+def _signal_body():
+    if not request.is_json:
+        abort(415)
+    raw = request.stream.read(_MAX_SIGNAL_BYTES + 1)
+    if len(raw) > _MAX_SIGNAL_BYTES:
+        abort(413)
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeError, RecursionError):
+        abort(400)
+    if not isinstance(body, dict):
+        abort(400)
+    return body, len(raw)
 
 
 @bp.post("/api/sessions/<session_id>/signals")
 @login_required
 def post_signal(session_id: str):
-    body = request.get_json(silent=True) or {}
+    body, payload_bytes = _signal_body()
     role = str(body.get("role") or "").strip().casefold()
     kind = str(body.get("type") or "").strip().casefold()
     code = str(body.get("code") or "").strip().upper()
     payload = body.get("payload")
     if role not in {"sender", "receiver"} or kind not in {"offer", "answer", "ice", "ready", "bye"}:
         abort(400)
-    if len(str(payload)) > 128000:
-        abort(413)
+    if kind in {"offer", "answer"}:
+        if role != ("sender" if kind == "offer" else "receiver"):
+            abort(400)
+        if not isinstance(payload, dict) or payload.get("type") != kind or not isinstance(payload.get("sdp"), str) or not payload["sdp"].strip():
+            abort(400)
+    elif kind == "ice":
+        if not isinstance(payload, dict) or not isinstance(payload.get("candidate"), str):
+            abort(400)
+        if payload.get("sdpMid") is not None and not isinstance(payload["sdpMid"], str):
+            abort(400)
+        if payload.get("sdpMLineIndex") is not None and (type(payload["sdpMLineIndex"]) is not int or payload["sdpMLineIndex"] < 0):
+            abort(400)
+    elif payload is not None:
+        abort(400)
     with _sessions_lock:
         _purge_sessions()
         value = _sessions.get(session_id)
@@ -263,14 +303,18 @@ def post_signal(session_id: str):
             abort(404)
         if not _authorized(value, role, code):
             abort(403)
+        if kind != "bye" and (len(value["messages"]) >= _MAX_SIGNAL_MESSAGES or value["signal_bytes"] + payload_bytes > _MAX_SESSION_SIGNAL_BYTES):
+            return jsonify(error="Signaling-Limit erreicht. Freigabe neu starten.", code="signal_limit"), 409
         value["sequence"] += 1
         value["updated_at"] = time.time()
         if kind in {"answer", "ready"}:
             value["connected"] = True
         if kind == "bye":
             value["closed"] = True
+            value["messages"].clear()
+            value["signal_bytes"] = 0
         value["messages"].append({"seq": value["sequence"], "from": role, "type": kind, "payload": payload})
-        value["messages"] = value["messages"][-_MAX_SIGNAL_MESSAGES:]
+        value["signal_bytes"] += payload_bytes
         sequence = value["sequence"]
     return jsonify({"schema": 1, "accepted": True, "sequence": sequence})
 
@@ -278,7 +322,7 @@ def post_signal(session_id: str):
 @bp.delete("/api/sessions/<session_id>")
 @login_required
 def close_session(session_id: str):
-    code = str(request.args.get("code") or "").strip().upper()
+    code = request.headers.get("X-Screen-Code", "").strip().upper()
     with _sessions_lock:
         value = _sessions.get(session_id)
         if value is None:
