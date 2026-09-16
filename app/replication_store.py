@@ -315,6 +315,7 @@ def init_app(app) -> None:
         gamification_leaderboard_routes,
         license_routes,
         mail_index_routes,
+        personnel_time_insights,
         printershare,
         printershare_quickwins,
         rentals,
@@ -331,6 +332,8 @@ def init_app(app) -> None:
     app.register_blueprint(federation_mail_http.bp)
     app.register_blueprint(federation_print_http.bp)
     app.register_blueprint(federation_software_http.bp)
+    app.register_blueprint(personnel_time_insights.bp)
+    app.register_blueprint(personnel_time_insights.federation_bp)
     federation_phase2.init_app(app)
     federation_discovery_runtime.init_app(app)
     app.register_blueprint(federation_admin.bp)
