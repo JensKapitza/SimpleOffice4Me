@@ -171,3 +171,12 @@ Audio-Ausgabe: Fehler beim Beenden einzelner Player blockieren die Bereinigung
 der übrigen Prozesse und temporären Lautstärkedateien nicht mehr. Unbestätigt
 beendete Player bleiben referenziert; neue Wiedergabe ist gesperrt, bis ein
 erneuter Stop die Bereinigung abschließt. Diagnose enthält keine Exception-Nutzdaten.
+
+Der Mini-Service-Hub unterscheidet nun Scan-Fortschritt, Scan-Fehler, leere
+Ergebnisse und Treffer mit Suchbereich. Fehler erscheinen als Text mit
+Handlungshinweis, Statusänderungen über aria-live. Audio-Scans speichern den
+Zustand scanning vor der Discovery; Speicherfehler beim Registrieren von
+Ausgängen werden als failed/HTTP 503 erfasst. Abhängigkeiten, Eigentümer und
+Version sind in der gemeinsamen Diagnose sichtbar. Das macht die vorhandenen
+Metadaten sichtbar, ersetzt aber nicht die noch unvollständige Erkennung aller
+Systemvoraussetzungen. Node-Runtimetests prüfen Anzeige und Fehleraktualisierung.

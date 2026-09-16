@@ -3,6 +3,8 @@ import time
 import unittest
 import os
 import sqlite3
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -71,6 +73,24 @@ class ControlStoreTests(unittest.TestCase):
 
 
 class MiniApiTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js required for frontend regression tests")
+    def test_frontend_scan_states_and_failure_feedback(self):
+        script = Path(__file__).resolve().parent / "mini_services_frontend.test.cjs"
+        result = subprocess.run([shutil.which("node"), "--test", str(script)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_audio_scan_publishes_progress_and_records_storage_failure(self):
+        store = ControlStore(self.path)
+        def discover():
+            self.assertEqual("scanning", store.scan("audio-output")["state"])
+            return [{"id": "speaker"}]
+        with patch("app.audio_output_discovery.discover_speaker_outputs", side_effect=discover), patch("app.audio_output_admin._store") as output_store:
+            output_store.return_value.sync_local_outputs.side_effect = sqlite3.OperationalError("secret-db-path")
+            result = self.client.post("/api/mini-services/audio-output/scan", json={}, headers=self.headers)
+        self.assertEqual(503, result.status_code)
+        self.assertNotIn("secret-db-path", result.get_data(as_text=True))
+        self.assertEqual("failed", store.scan("audio-output")["state"])
+
     def test_windows_receiver_scan_reports_unverified_default_without_registering_sink(self):
         with patch("app.audio_output_discovery.platform.system", return_value="Windows"), patch("app.audio_output_discovery.shutil.which", return_value="ffplay"), patch("app.audio_output_admin._store") as output_store:
             result = self.client.post("/api/mini-services/audio-receiver/scan", json={}, headers=self.headers)

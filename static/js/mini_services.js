@@ -20,6 +20,22 @@
     feedback.textContent = message;
     feedback.className = `alert alert-${error ? 'danger' : 'secondary'}`;
   };
+  const scanLabel = (scan) => {
+    if (!scan) return '○ Noch keine Suche ausgeführt.';
+    const timestamp = Number(scan.updated_at);
+    const date = new Date(timestamp * 1000);
+    const when = timestamp > 0 && Number.isFinite(date.getTime()) ? ' · ' + date.toLocaleString() : '';
+    if (scan.state === 'scanning') return '↻ Suche läuft …' + when;
+    if (scan.state === 'failed') {
+      const detail = scan.error && typeof scan.error === 'object' ? scan.error : {};
+      return '⚠ Suche fehlgeschlagen. ' + (detail.message || 'Geräte und Voraussetzungen prüfen.') +
+        (detail.action ? ' ' + detail.action : '') + when;
+    }
+    if (scan.state !== 'completed') return '○ Noch keine Suche abgeschlossen.';
+    const count = Number.isInteger(scan.count) && scan.count >= 0 ? scan.count : 0;
+    return (count ? '✓ ' + count + ' Treffer' : '○ Keine Treffer') +
+      (scan.scope ? ' · ' + scan.scope : '') + when;
+  };
   const request = async (path, method = 'GET', body) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
@@ -54,7 +70,11 @@
       if (result.id && result.state === 'queued' && result.action) await waitOperation(result.id);
       await refresh();
       report(action === 'scan' ? `${result.count} Treffer. ${result.scope || ''}` : '✓ Aktion abgeschlossen.');
-    } catch (error) { report(error.name === 'AbortError' ? 'Zeitüberschreitung. Verbindung prüfen und Status aktualisieren.' : error.message, true); }
+    } catch (error) {
+      report(error.name === 'AbortError' ? 'Zeitüberschreitung. Verbindung prüfen und Status aktualisieren.' : error.message, true);
+      // The server may have persisted a failed scan or lifecycle result.
+      try { await refresh(); } catch (_) { /* Keep the original action error visible. */ }
+    }
     finally {
       busy = false;
       root.removeAttribute('aria-busy');
@@ -70,6 +90,7 @@
     const health = text('p', '', 'small');
     const error = text('p', '', 'small');
     const scan = text('p', '', 'small');
+    scan.setAttribute('role', 'status'); scan.setAttribute('aria-live', 'polite');
     body.append(status, health, error, scan);
     const actions = text('div', '', 'd-flex flex-wrap gap-2 mb-3');
     [['start', 'Starten'], ['stop', 'Stoppen'], ['restart', 'Neustart'], ['scan', 'Suchen']].forEach(([key, label]) => {
@@ -103,11 +124,12 @@
       view.status.textContent = labels[service.state] || service.state;
       view.health.textContent = service.health ? service.health.message : '';
       view.error.textContent = service.last_error ? `${service.last_error.message} ${service.last_error.action}` : '';
-      view.scan.textContent = service.scan.updated_at ? `${service.scan.count} Treffer · ${new Date(service.scan.updated_at * 1000).toLocaleString()}` : 'Noch keine Suche ausgeführt.';
+      view.scan.textContent = scanLabel(service.scan);
       // Do not replace focused controls or a user's unsaved settings on polling.
       if (!view.initialized) { Object.keys(view.inputs).forEach(key => { view.inputs[key].checked = service.settings[key]; }); view.initialized = true; }
       view.diagnosis.textContent = JSON.stringify({config: service.config, health: service.health, error: service.last_error,
-        retry: service.retry_in_seconds, scan: service.scan}, null, 2);
+        retry: service.retry_in_seconds, scan: service.scan, owner: service.owner, version: service.version,
+        requires: service.requires, optional_requires: service.optional_requires, provides: service.provides}, null, 2);
     });
   };
   document.getElementById('mini-refresh').addEventListener('click', () => refresh().then(() => report('✓ Status aktualisiert.')).catch(error => report(error.message, true)));

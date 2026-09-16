@@ -117,3 +117,12 @@ vorhandenen systemd-/Container-Pfade.
 - [HTTP/PXE und TFTP](NETWORK_BOOT.md)
 - [Audio-Ausgabe / Durchsagen](AUDIO_OUTPUT.md)
 - [Audio-Sender und Receiver](AUDIO_STREAMER.md)
+
+### Suchstatus und Diagnose im Hub
+
+Die Servicekarten zeigen „Suche läuft“, „Suche fehlgeschlagen“, „Keine Treffer“
+oder die Trefferzahl mit Suchbereich und Zeitpunkt. Ein Scan-Fehler ist kein
+Nachweis, dass keine Geräte vorhanden sind. Fehlerhinweis und nächste mögliche
+Aktion stehen auf der Karte. Nach fehlgeschlagenen Aktionen wird der Status
+aktualisiert. Unter „Einstellungen und Diagnose“ stehen außerdem Dienstversion,
+Eigentümer sowie die gemeldeten requires/optional_requires/provides-Beziehungen.

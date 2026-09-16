@@ -142,6 +142,7 @@ def _audio_action(service, action):
     from .audio_output_discovery import discover_microphone_inputs, discover_speaker_outputs, discover_receiver_outputs
     if action == "scan":
         store = _store()
+        store.scan(service, {"state": "scanning", "updated_at": time.time(), "count": 0, "targets": []})
         try:
             devices = (discover_microphone_inputs() if service == "audio-sender" else
                        discover_receiver_outputs() if service == "audio-receiver" else discover_speaker_outputs())
@@ -152,7 +153,7 @@ def _audio_action(service, action):
                 result["scope"] = "Windows-Systemstandard; Hardware nicht geprüft"
             store.scan(service, result)
             return jsonify(result)
-        except (RuntimeError, OSError) as exc:
+        except (RuntimeError, OSError, sqlite3.Error) as exc:
             result = {"state": "failed", "updated_at": time.time(), "count": 0, "targets": [], "error": error_detail(exc)}
             store.scan(service, result)
             return jsonify(result), 503
