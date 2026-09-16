@@ -115,6 +115,47 @@ def _replace_linux_rules(script: str = "") -> None:
         raise RuntimeError("nftables-Regeln konnten nicht geändert werden")
 
 
+def _linux_rule_structure(value: dict[str, Any]) -> bool:
+    """Inspect owned chains and rule counts, not arbitrary host firewall tables."""
+    counts = value.get("rule_counts")
+    if not isinstance(counts, dict):
+        raise ValueError("Erwartete Gateway-Regelstruktur fehlt")
+    specifications = [("inet", "simpleoffice_mini", "forward", "filter", 0, "drop")]
+    if value.get("mode") == "nat":
+        specifications.append(("ip", "simpleoffice_mini_nat", "postrouting", "nat", 100, "accept"))
+    for family, table, chain, kind, priority, policy in specifications:
+        result = _run(["nft", "-j", "list", "table", family, table], 2)
+        if not result.get("ok"):
+            raise RuntimeError("Gateway-Regeln nicht lesbar")
+        rows = json.loads(result["stdout"])["nftables"]
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError("Ungültige nftables-Struktur")
+        tables = [row["table"] for row in rows if "table" in row]
+        chains = [row["chain"] for row in rows if "chain" in row]
+        rules = [row["rule"] for row in rows if "rule" in row]
+        if any(not isinstance(item, dict) for item in tables + chains + rules):
+            raise ValueError("Ungültige nftables-Objekte")
+        if len(tables) != 1 or tables[0].get("family") != family or tables[0].get("name") != table:
+            return False
+        if tables[0].get("flags"):
+            return False
+        expected = {"family": family, "table": table, "name": chain,
+                    "type": kind, "hook": chain, "prio": priority, "policy": policy}
+        if len(chains) != 1 or any(chains[0].get(key) != val for key, val in expected.items()):
+            return False
+        count = counts.get(chain)
+        if type(count) is not int or count < 0:
+            raise ValueError("Erwartete Regelanzahl fehlt")
+        if len(rules) != count:
+            return False
+        for rule in rules:
+            if any(rule.get(key) != val for key, val in {"family": family, "table": table, "chain": chain}.items()):
+                return False
+            if not isinstance(rule.get("expr"), list) or not rule["expr"]:
+                return False
+    return True
+
+
 def gateway_health(value: dict[str, Any]) -> dict[str, Any]:
     """Read actual owned rules/forwarding. This does not probe Internet access."""
     kind = value.get("platform", platform_kind())
@@ -122,6 +163,8 @@ def gateway_health(value: dict[str, Any]) -> dict[str, Any]:
         if kind == "linux":
             tables = _linux_tables()
             rules = _OWN_TABLES[0] in tables and (value.get("mode") != "nat" or _OWN_TABLES[1] in tables)
+            if rules:
+                rules = _linux_rule_structure(value)
             forwarding = Path("/proc/sys/net/ipv4/ip_forward").read_text(encoding="ascii").strip() == "1"
             ok = rules and forwarding
         elif kind == "windows":
@@ -140,7 +183,7 @@ def gateway_health(value: dict[str, Any]) -> dict[str, Any]:
             ok = state["forwarding"] is True and state["rules"] is True
         else:
             raise RuntimeError("Routingstatus auf dieser Plattform nicht verfügbar")
-        return {"ok": ok, "message": "Eigene Regeln und IPv4-Forwarding vorhanden; Internetzugang nicht geprüft." if ok else "Gateway-Regeln oder IPv4-Forwarding fehlen."}
+        return {"ok": ok, "message": "Eigene Regeln und IPv4-Forwarding vorhanden; Internetzugang nicht geprüft." if ok else "Gateway-Regelstruktur oder IPv4-Forwarding fehlen oder weichen ab."}
     except (OSError, RuntimeError, ValueError, KeyError, TypeError):
         return {"ok": None, "message": "Routingstatus nicht lesbar. Dienstrechte und Systemwerkzeuge prüfen."}
 
@@ -173,7 +216,10 @@ def apply_gateway(value: dict[str, Any], *, server_ip: str = "") -> dict[str, An
             result = _run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
             if not result["ok"]: raise RuntimeError(str(result["stderr"] or "IPv4 forwarding fehlgeschlagen"))
         _replace_linux_rules(_linux_script(data))
-        return {"ok": True, "platform": "linux", "mode": data["mode"], "internal": data["effective_internal_interface"], "external": data["effective_external_interface"]}
+        return {"ok": True, "platform": "linux", "mode": data["mode"], "internal": data["effective_internal_interface"], "external": data["effective_external_interface"],
+                "rule_counts": {"forward": int(data["allow_established"]) +
+                                (int(data["allow_lan_to_wan"]) + int(data["allow_wan_to_lan"]) if data["effective_internal_interface"] and data["effective_external_interface"] else 0),
+                                "postrouting": 1 if data["mode"] == "nat" else 0}}
     if data["platform"] == "windows":
         internal = data["effective_internal_interface"].replace("'", "''"); external = data["effective_external_interface"].replace("'", "''")
         script = [f"Set-NetIPInterface -InterfaceAlias '{internal}' -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop"]

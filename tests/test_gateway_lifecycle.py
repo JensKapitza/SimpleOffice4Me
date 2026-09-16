@@ -44,6 +44,9 @@ class GatewayRuntimeTests(unittest.TestCase):
 
     def test_health_checks_rules_and_forwarding_independently(self):
         status = {"platform": "linux", "mode": "nat"}
+        structure = patch("simpleoffice_network_gateway_runtime._linux_rule_structure", return_value=True)
+        structure.start()
+        self.addCleanup(structure.stop)
         with patch("simpleoffice_network_gateway_runtime._linux_tables", return_value={("inet", "simpleoffice_mini"), ("ip", "simpleoffice_mini_nat")}), patch.object(Path, "read_text", return_value="1"):
             self.assertTrue(gateway_health(status)["ok"])
             with patch.object(Path, "read_text", return_value="0"):

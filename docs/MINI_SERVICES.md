@@ -121,7 +121,7 @@ vorhandenen systemd-/Container-Pfade.
 ### Gateway-Recovery nach Healthcheck
 
 Der bestehende Healthcheck läuft alle 15 Sekunden. Bestätigt er fehlende eigene
-Gateway-Tabellen oder deaktiviertes IPv4-Forwarding, wechselt der Dienst nach
+Gateway-Tabellen, abweichende Chain-Struktur/Regelanzahl oder deaktiviertes IPv4-Forwarding, wechselt der Dienst nach
 `failed` und verwendet den gemeinsamen Retry mit Backoff (2/4/8/16/32 Sekunden,
 zusätzlich zum Worker-Takt). Nach fünf Wiederanläufen führt ein weiterer Fehler
 zu `failed` ohne automatischen Retry. Expliziter Neustart oder eine geänderte
@@ -133,8 +133,9 @@ einem Wiederanlauf wird der Healthcheck erneut ausgeführt. Wiederherstellung
 verwendet ausschließlich die vorhandenen Start-/Stop- und Ownership-Pfade.
 Keine automatische Rechteerhöhung oder Installation zusätzlicher Programme.
 
-Grenzen: Der Linux-Check bestätigt Tabellenexistenz und IPv4-Forwarding, nicht
-die Vollständigkeit einzelner Regeln oder tatsächlichen Pakettransport. Der
+Grenzen: Der Linux-Check prüft Tabellen, Chain-Struktur, Regelanzahl und
+IPv4-Forwarding, nicht den vollständigen Inhalt einzelner Regelausdrücke oder
+tatsächlichen Pakettransport. Der
 Reload aktiver Linux-Gateways verwendet nun die vorhandene nft-Transaktion ohne
 vorherigen Stop. Windows und die Recovery nach bestätigtem Healthfehler verwenden
 weiterhin Stop/Start; ein plattformübergreifend atomarer Reload ist nicht umgesetzt.

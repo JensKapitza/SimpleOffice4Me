@@ -98,8 +98,10 @@ Bedienoberfläche; Android ist kein unterstützter Gateway-Host.
 ## Einschränkungen
 
 IPv4, kein vollständiger Firewallmanager, kein IPv6-NAT, keine WAN-Portfreigaben.
-Health erkennt fehlende eigene Tabellen und deaktiviertes IPv4-Forwarding, aber
-keine vollständigen Änderungen einzelner Regeln. Bestätigte Healthfehler lösen
+Health erkennt fehlende eigene Tabellen, abweichende Chain-Typen/Hooks,
+Prioritäten/Policies, inaktive Tabellen, fehlende oder zusätzliche Regeln und
+deaktiviertes IPv4-Forwarding. Ein vollständiger Vergleich der Regelausdrücke
+ist noch nicht enthalten. Bestätigte Healthfehler lösen
 die begrenzte Worker-Recovery aus; fremde Tabellen werden dabei nicht verändert.
 Ein unlesbarer Status löst keine Regeländerung aus. Windows-Regeländerungen sind nicht transaktional
 wie nftables; Plattformtests bleiben erforderlich.
@@ -137,3 +139,25 @@ nur die eigenen Regeln.
 Regression: `test_gateway_reload` prüft Konfigurationswechsel, identischen
 Neustart, abgewiesene Anwendung, Timeout, Ownership-Schreibfehler, Deaktivieren
 und den unveränderten Windows-Pfad ohne Eingriff in das Hostnetzwerk.
+
+## Lesende Prüfung der Linux-Regelstruktur
+
+Nach erfolgreicher Anwendung enthält der Laufzeitstatus die erwarteten
+Regelanzahlen je Chain. Der Healthcheck liest ausschließlich die eigenen
+Tabellen mit `nft -j list table` (jeweils zwei Sekunden Timeout) und prüft
+Filter-/NAT-Chain, Hook, numerische Priorität, Policy, Tabellenflags sowie
+Regelanzahl und Chain-Zuordnung. Ein bewusst leerer Forward-Regelsatz mit
+Drop-Policy ist gültig. Veränderte Handles beeinflussen die Prüfung nicht.
+
+Fehlende Soll-Metadaten, ungültiges JSON und Lesefehler ergeben einen unbekannten
+Healthstatus statt eines bestätigten Fehlers; dadurch wird keine automatische
+Recovery aufgrund eines Parser-/Berechtigungsfehlers ausgelöst. Strukturfehler
+sind bestätigte Healthfehler und verwenden die vorhandene begrenzte Recovery.
+Die Zahl vorhandener Regelausdrücke bestätigt nicht deren Inhalt: ausgetauschte
+Adressen oder Aktionen bei gleicher Regelanzahl sowie tatsächlicher Paketfluss
+bleiben außerhalb dieser Prüfung. Es wird kein Internetzugang getestet.
+
+Schema/CLI: [nftables-Dokumentation](https://netfilter.org/projects/nftables/manpage.html).
+`test_gateway_rule_structure` prüft gültige/leere Chains, abweichende Attribute,
+NAT, entfernte/zusätzliche Regeln, veränderte Handles, ungültige JSON-Antworten und
+Soll-Metadaten. Kein nft-Paket installiert und keine echten Kernelregeln verändert.
