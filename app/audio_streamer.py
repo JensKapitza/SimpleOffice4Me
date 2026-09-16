@@ -97,14 +97,18 @@ def sender_command(*, source: str, backend: str, destinations: list[tuple[str, i
     if not ffmpeg:
         raise RuntimeError("ffmpeg ist nicht installiert")
     backend = str(backend or "pulse").strip().lower()
-    source = str(source or "default").strip()[:240] or "default"
+    source = str(source or "default").strip() or "default"
     bitrate = max(16, min(int(bitrate_kbps), 256))
     if backend == "pulse":
         command = [ffmpeg, "-hide_banner", "-loglevel", "warning", "-f", "pulse", "-i", source]
     elif backend == "alsa":
         command = [ffmpeg, "-hide_banner", "-loglevel", "warning", "-f", "alsa", "-i", source]
+    elif backend == "dshow":
+        if source == "default" or len(source) > 1024 or any(ord(c) < 32 or c in ":=" for c in source):
+            raise ValueError("Windows-Mikrofon über die Gerätesuche auswählen")
+        command = [ffmpeg, "-hide_banner", "-loglevel", "warning", "-f", "dshow", "-i", "audio=" + source]
     else:
-        raise ValueError("Capture-Backend muss pulse oder alsa sein")
+        raise ValueError("Capture-Backend muss pulse, alsa oder dshow sein")
     for host, port in destinations:
         command += [
             "-map", "0:a:0", "-vn", "-ac", "2", "-ar", "48000",

@@ -70,7 +70,7 @@
       button.disabled = true;
       status.textContent = '↻ Audiogeräte werden gesucht …';
       try {
-        const backendQuery = prefix === 'input' && get('capture-backend').value === 'alsa' ? '?backend=alsa' : '';
+        const backendQuery = prefix === 'input' && ['alsa', 'dshow'].includes(get('capture-backend').value) ? '?backend=' + get('capture-backend').value : '';
         const data = await request(root.dataset.baseUrl + '/' + key + backendQuery);
         if (nativeAudio()) return;
         devices = Array.isArray(data[key]) ? data[key] : [];

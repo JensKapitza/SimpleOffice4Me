@@ -1,7 +1,9 @@
-"""Shared discovery of local PipeWire/PulseAudio inputs and outputs."""
+"""Shared discovery of local audio inputs and outputs."""
 from __future__ import annotations
 
+from collections import Counter
 import shutil
+import platform
 import subprocess
 import re
 from pathlib import Path
@@ -50,8 +52,10 @@ def discover_speaker_outputs() -> list[dict[str, Any]]:
 
 def discover_microphone_inputs(backend: str = "auto") -> list[dict[str, Any]]:
     """Monitor sources remain manually selectable, but are not microphones."""
-    if backend not in {"auto", "pulse", "alsa"}:
+    if backend not in {"auto", "pulse", "alsa", "dshow"}:
         raise ValueError("Unbekanntes Capture-Backend")
+    if backend == "dshow" or (backend == "auto" and platform.system() == "Windows"):
+        return _dshow_microphones()
     if backend == "alsa":
         return _alsa_microphones()
     try:
@@ -62,6 +66,62 @@ def discover_microphone_inputs(backend: str = "auto") -> list[dict[str, Any]]:
             raise
         return devices
     return devices or (_alsa_microphones() if backend == "auto" else [])
+
+
+def _dshow_microphones() -> list[dict[str, Any]]:
+    """FFmpeg lists DirectShow devices on stderr and normally exits nonzero."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg fehlt; Mikrofone können nicht gesucht werden")
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+            shell=False, capture_output=True, encoding="utf-8", errors="replace",
+            timeout=_DISCOVERY_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("Windows-Mikrofonsuche fehlgeschlagen") from exc
+    devices = []
+    friendly_names = Counter()
+    pending = None
+    audio_section = False
+    recognized = False
+    for line in result.stderr.splitlines():
+        if "DirectShow audio devices" in line:
+            audio_section = recognized = True
+        elif "DirectShow video devices" in line:
+            audio_section = False
+            recognized = True
+        if "Could not enumerate audio only devices" in line:
+            recognized = True
+        alternate = re.search(r'Alternative name "(.*)"', line)
+        if alternate:
+            if pending is not None:
+                ident = alternate.group(1)
+                # DirectShow splits the input on ':'. Never permit a second input.
+                if 1 <= len(ident) <= 1024 and not any(ord(c) < 32 or c in ':=' for c in ident):
+                    pending["id"] = ident
+            pending = None
+            continue
+        match = re.search(r'\] "(.*)"(?: \(([^)]*)\))?\s*$', line)
+        if not match:
+            continue
+        label, kind = match.groups()
+        recognized = True
+        pending = None
+        if (kind and "audio" not in kind.split(", ")) or (not kind and not audio_section):
+            continue
+        friendly_names[label] += 1
+        pending = {"id": label, "label": label[:160], "backend": "dshow", "driver": "DirectShow", "state": "available", "default": False}
+        devices.append(pending)
+    if not recognized:
+        raise RuntimeError("FFmpeg unterstützt keine DirectShow-Gerätesuche oder der Zugriff ist gescheitert")
+    # Ambiguous friendly names must not silently select the wrong microphone.
+    ids = Counter(item["id"] for item in devices)
+    return [item for item in devices if ids[item["id"]] == 1
+            and friendly_names[item["id"]] <= 1
+            and 1 <= len(item["id"]) <= 1024
+            and not any(ord(c) < 32 or c in ':=' for c in item["id"])][:_MAX_DISCOVERED_OUTPUTS]
 
 
 def _alsa_microphones() -> list[dict[str, Any]]:

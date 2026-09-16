@@ -21,7 +21,7 @@ nativen Audio-Bridge-Pfad.
 
 | Dienst | Vorhandene Komponenten |
 |---|---|
-| Desktop-Sender | FFmpeg mit libopus und PulseAudio- oder ALSA-Eingang; Mikrofon |
+| Desktop-Sender | FFmpeg mit libopus und PulseAudio-, ALSA- oder Windows-DirectShow-Eingang; Mikrofon |
 | Desktop-Receiver | FFmpeg, PulseAudio oder PipeWire-Pulse, paplay |
 | Virtuelles Mikrofon | zusätzlich pactl und eine erreichbare Audio-Benutzersitzung |
 | Automatische Pulse-Gerätesuche | pactl |
@@ -67,8 +67,8 @@ stellt die folgenden Standardwerte wieder her.
 | Beide | enabled | true; deaktiviert verhindert Start |
 | Beide | autostart | false; Mikrofonfreigabe nur bewusst aktivieren |
 | Beide | retry_limit | 3; ganze Zahl 0–6 |
-| Sender | source | default; erkannte oder manuell eingegebene Quelle, maximal 240 Zeichen |
-| Sender | backend | pulse; alternativ alsa |
+| Sender | source | default; erkannte oder manuell eingegebene Quelle, maximal 240 Zeichen (DirectShow: 1024) |
+| Sender | backend | pulse; alternativ alsa oder dshow (Windows) |
 | Sender | destinations | leere Liste; für Start mindestens ein Ziel, höchstens 16 |
 | Sender | bitrate_kbps | 64; ganze Zahl 16–256 kbit/s |
 | Receiver | port | 5004; RTP-Port 1024–65534, Folgeport für RTCP beachten |
@@ -94,6 +94,20 @@ vorgeschlagen. ALSA-Mikrofone werden über /proc/asound erkannt, auch ohne pactl
 Die Auswahl setzt das Capture-Backend auf alsa. Benannte Karten-IDs vermeiden
 die Abhängigkeit von gewöhnlichen numerischen Kartenwechseln. Reine
 Wiedergabegeräte werden nicht als Mikrofone angeboten.
+
+Unter Windows nutzt die automatische Eingangs-Suche das bereits verwendete
+FFmpeg mit [DirectShow](https://ffmpeg.org/ffmpeg-devices.html#dshow). Der installierte
+Build muss DirectShow und libopus unterstützen. Es wird nichts nachinstalliert.
+Windows muss Desktop-Apps den Mikrofonzugriff erlauben. Die Suche ist auf fünf
+Sekunden begrenzt und zeigt höchstens 64 Eingänge. Alternative Gerätekennungen
+werden bevorzugt; mehrdeutige Namen und Kennungen mit `:` oder `=` werden
+ausgeschlossen, damit kein falscher oder zusätzlicher Eingang geöffnet wird.
+DirectShow meldet hier kein Systemstandardgerät: Bei der ersten Suche wird der
+erste geeignete Eingang vorgeschlagen, aber keine Aufnahme gestartet. Auswahl
+prüfen und den Sender ausdrücklich starten; dabei wird sie gespeichert.
+`default` ist für DirectShow keine gültige Geräteauswahl. Ein unbekannter
+FFmpeg-Eingangstyp führt zu einem sichtbaren Scanfehler. Windows-Ausgänge und
+virtuelle Mikrofone sind damit noch nicht implementiert.
 
 Die [Audio-Ausgabe](AUDIO_OUTPUT.md) registriert erkannte lokale Ausgänge mit
 stabiler ID; Name und Lautstärke bleiben bei erneutem Scan erhalten, verschwundene
@@ -170,7 +184,7 @@ Alle nachfolgenden Pfade sind relativ zu dieser Basis.
 | Methode | Pfad | Funktion |
 |---|---|---|
 | GET | /status | Laufzeitstatus von Sender und Receiver |
-| GET | /inputs | automatische Mikrofonsuche; ?backend=alsa beschränkt auf ALSA |
+| GET | /inputs | automatische Mikrofonsuche; ?backend=alsa bzw. ?backend=dshow beschränkt die Suche |
 | GET | /outputs | lokale PulseAudio-/PipeWire-Ausgänge |
 | POST | /targets/scan | aktive SimpleOffice-Desktop-RTP-Empfänger über LAN-Suche finden |
 | GET | /settings | gespeicherte Konfiguration beider Dienste |
@@ -190,7 +204,7 @@ ebenfalls bereit; siehe [gemeinsamer Betrieb](MINI_SERVICES.md).
 | Plattform | Unterstützung / Grenze |
 |---|---|
 | Linux | Sender über PulseAudio oder ALSA; Receiver über PulseAudio/PipeWire-Pulse |
-| Windows | Dieser Desktop-Capture-Pfad besitzt kein natives Windows-Backend; fehlendes PulseAudio wird als Fehler angezeigt |
+| Windows | Sender über FFmpeg/DirectShow implementiert, Systemgrenzen gemockt getestet; reale Geräteabnahme offen. Kein nativer Windows-Receiver |
 | Android | vorhandene native Bridge mit Systemgeräten; Desktop-Scans überschreiben die native Auswahl nicht |
 | Externe Tablets/Player | können RTP/Opus über die SDP-Datei empfangen, sofern der Player dies unterstützt |
 

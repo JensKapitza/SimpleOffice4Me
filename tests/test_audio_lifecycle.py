@@ -77,6 +77,24 @@ class AudioLifecycleTests(unittest.TestCase):
             self.process.terminate.assert_not_called()
             self.assertTrue(self.manager.status()["sender"]["running"])
 
+    def test_windows_sender_uses_existing_idempotent_lifecycle_and_recovery(self):
+        with patch("app.audio_streamer.shutil.which", return_value="ffmpeg"), patch("app.audio_streamer.subprocess.Popen", return_value=self.process) as popen:
+            for _ in range(2):
+                self.manager.start_sender(source="USB Mic", backend="dshow", destinations=self.targets)
+            self.assertEqual(1, popen.call_count)
+            self.assertIn("audio=USB Mic", popen.call_args.args[0])
+            self.process.poll.return_value = 1
+            self.manager.recover()
+            self.assertEqual("failed", self.manager.states["sender"].state)
+            self.manager.states["sender"].retry_at = 0.01
+            self.process.poll.return_value = None
+            self.manager.recover()
+            self.assertEqual(2, popen.call_count)
+            self.assertIn("audio=USB Mic", popen.call_args.args[0])
+            self.manager.stop_sender()
+            self.manager.stop_sender()
+            self.assertFalse(self.manager.status()["sender"]["running"])
+
     def test_crash_has_bounded_recovery_and_explicit_stop_cancels_it(self):
         with patch("app.audio_streamer.shutil.which", return_value="ffmpeg"), patch("app.audio_streamer.subprocess.Popen", return_value=self.process) as popen:
             self.start()
@@ -147,6 +165,23 @@ class AudioApiTests(unittest.TestCase):
             result = self.client.post("/admin/mini-services/audio/streamer/sender/start", json={}, headers=self.headers)
         self.assertEqual(503, result.status_code)
         self.assertNotIn("secret", result.get_data(as_text=True))
+
+    def test_windows_scan_and_persistent_selection_are_admin_only(self):
+        url = "/admin/mini-services/audio/streamer/inputs?backend=dshow"
+        with patch("app.audio_streamer_admin.discover_microphone_inputs", return_value=[{"id": "USB Mic", "backend": "dshow"}]) as scan:
+            self.assertEqual(200, self.client.get(url).status_code)
+            scan.assert_called_once_with("dshow")
+            self.user["is_admin"] = False
+            self.assertEqual(403, self.client.get(url).status_code)
+            self.assertEqual(1, scan.call_count)
+        self.user["is_admin"] = True
+        data = {"backend": "dshow", "source": "USB Mic"}
+        url = "/admin/mini-services/audio/streamer/sender/settings"
+        self.assertEqual(403, self.client.post(url, json=data).status_code)
+        self.assertEqual(200, self.client.post(url, json=data, headers=self.headers).status_code)
+        stored = self.client.get("/admin/mini-services/audio/streamer/settings").json["sender"]
+        self.assertEqual("dshow", stored["backend"])
+        self.assertEqual("USB Mic", stored["source"])
 
 
 if __name__ == "__main__":

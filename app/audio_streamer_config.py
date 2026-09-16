@@ -26,11 +26,13 @@ def validate_settings(service, value):
     if type(data["retry_limit"]) is not int or not 0 <= data["retry_limit"] <= 6:
         raise ValueError("Wiederholungen müssen zwischen 0 und 6 liegen")
     if service == "sender":
-        if data["backend"] not in {"pulse", "alsa"}:
-            raise ValueError("Capture-Backend muss pulse oder alsa sein")
-        if not isinstance(data["source"], str) or not 1 <= len(data["source"].strip()) <= 240 or any(ord(c) < 32 for c in data["source"]):
+        if data["backend"] not in {"pulse", "alsa", "dshow"}:
+            raise ValueError("Capture-Backend muss pulse, alsa oder dshow sein")
+        if not isinstance(data["source"], str) or not 1 <= len(data["source"].strip()) <= (1024 if data["backend"] == "dshow" else 240) or any(ord(c) < 32 for c in data["source"]):
             raise ValueError("Audio-Quelle ist ungültig")
         data["source"] = data["source"].strip()
+        if data["backend"] == "dshow" and (data["source"] == "default" or any(c in data["source"] for c in ":=")):
+            raise ValueError("Windows-Mikrofon über die Gerätesuche auswählen")
         if not isinstance(data["destinations"], list):
             raise ValueError("Ziele müssen eine Liste sein")
         data["destinations"] = [{"host": host, "port": port} for host, port in normalize_destinations(data["destinations"])] if data["destinations"] else []
