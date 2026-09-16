@@ -52,7 +52,7 @@ def main() -> None:
     python = str(python_in_venv())
 
     run(python, "-m", "pip", "install", "--upgrade", "pip")
-    run(python, "-m", "pip", "install", str(REPO))
+    run(python, "-m", "pip", "install", f"{REPO}[ocr]")
     run(python, "-m", "pip", "install", "-r", str(HERE / "requirements-build.txt"))
 
     shutil.rmtree(DIST, ignore_errors=True)
