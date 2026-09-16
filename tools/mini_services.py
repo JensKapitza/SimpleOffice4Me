@@ -261,7 +261,13 @@ class Worker:
             self.next_gateway_health = time.monotonic() + 15
             state = self.states["gateway"]
             if state.state in {"running", "degraded"}:
-                state.state = "running" if self.gateway_health["ok"] is True else "degraded"
+                if self.gateway_health["ok"] is False:
+                    # Only a confirmed failure schedules the existing bounded
+                    # recovery. An unreadable status must not mutate host rules.
+                    state.failed(RuntimeError("Gateway-Healthcheck fehlgeschlagen"))
+                    self.event({"service": "gateway", "action": "health_failed", "error": "RuntimeError"})
+                else:
+                    state.state = "running" if self.gateway_health["ok"] is True else "degraded"
         for name, state in self.states.items():
             if state.state in {"running", "degraded"} and not self._network_available(name):
                 if self._stop_one(name):

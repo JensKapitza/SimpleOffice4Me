@@ -117,3 +117,23 @@ vorhandenen systemd-/Container-Pfade.
 - [HTTP/PXE und TFTP](NETWORK_BOOT.md)
 - [Audio-Ausgabe / Durchsagen](AUDIO_OUTPUT.md)
 - [Audio-Sender und Receiver](AUDIO_STREAMER.md)
+
+### Gateway-Recovery nach Healthcheck
+
+Der bestehende Healthcheck läuft alle 15 Sekunden. Bestätigt er fehlende eigene
+Gateway-Tabellen oder deaktiviertes IPv4-Forwarding, wechselt der Dienst nach
+`failed` und verwendet den gemeinsamen Retry mit Backoff (2/4/8/16/32 Sekunden,
+zusätzlich zum Worker-Takt). Nach fünf Wiederanläufen führt ein weiterer Fehler
+zu `failed` ohne automatischen Retry. Expliziter Neustart oder eine geänderte
+Konfiguration setzt das Budget zurück; Stop verwirft den anstehenden Retry.
+
+Ein unlesbarer Status (`health.ok: null`, beispielsweise fehlende Leserechte)
+führt nur zu `degraded`, ohne aufgrund dieser Diagnose Regeln zu ändern. Nach
+einem Wiederanlauf wird der Healthcheck erneut ausgeführt. Wiederherstellung
+verwendet ausschließlich die vorhandenen Start-/Stop- und Ownership-Pfade.
+Keine automatische Rechteerhöhung oder Installation zusätzlicher Programme.
+
+Grenzen: Der Linux-Check bestätigt Tabellenexistenz und IPv4-Forwarding, nicht
+die Vollständigkeit einzelner Regeln oder tatsächlichen Pakettransport. Der
+Worker-Neustart entfernt weiterhin eigene Regeln vor erneutem Anwenden; ein
+plattformübergreifend atomarer Reload ist damit noch nicht umgesetzt.
