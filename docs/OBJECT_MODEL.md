@@ -28,14 +28,14 @@ Bilder werden pro Objekt abgelegt. Sie können unmittelbar bei der Erfassung, sp
 Die Analyse bleibt lokal:
 
 - Bildformat, Auflösung, Orientierung und einfache Qualitätsmerkmale über Pillow
-- **ML-OCR über RapidOCR mit ONNX Runtime als Standard auf Desktop-Systemen**
-- Tesseract nur noch als lokaler Fallback, wenn die ML-Engine fehlt, fehlschlägt oder keinen Text erkennt
+- **ML-OCR über RapidOCR mit ONNX Runtime als Standard auf Desktop- und Server-Bundles**
+- Tesseract als lokaler Fallback, wenn die ML-Engine fehlt, fehlschlägt oder keinen Text erkennt
 - ML-Ergebnisse enthalten zusätzlich Textblöcke, Koordinaten und Konfidenzwerte
 - erkannte Modell-/Seriennummern als Attributvorschläge
 - erkannte Begriffe wie CE, DGUV, VDE, GS, RoHS oder WEEE als Hinweise und Such-Tags
 - OCR-Ausschnitt und Schlüsselwörter werden im Objekt suchbar gemacht
 
-Die ML-Modelle laufen lokal; Bilder oder erkannte Texte werden für die OCR nicht an externe Dienste übertragen. Die Desktop-Anwendung bündelt RapidOCR und ONNX Runtime als normale Python-Abhängigkeiten. Android verwendet weiterhin seinen eigenen plattformspezifischen Paket-/OCR-Weg und kann später dasselbe Ergebnisformat liefern.
+Die ML-Modelle laufen lokal; Bilder oder erkannte Texte werden für die OCR nicht an externe Dienste übertragen. RapidOCR und ONNX Runtime liegen im optionalen Python-Extra `ocr`. Der Desktop-Build und das Docker-/Server-Image installieren dieses Extra ausdrücklich. Android/Termux laden die nativen ONNX-Abhängigkeiten nicht versehentlich; dort bleibt die gemeinsame Objektakte nutzbar und OCR fällt auf eine lokal verfügbare Fallback-Engine zurück.
 
 Das gemeinsame OCR-Ergebnis ist unabhängig von der Engine aufgebaut und enthält mindestens:
 
