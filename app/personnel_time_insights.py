@@ -104,6 +104,26 @@ def _root():
     return current_app.config["DOCUMENT_ROOT"]
 
 
+@bp.before_app_request
+def protect_federation_punch_source():
+    """Migrate provenance for ordinary clock use and keep remote events source-authoritative."""
+    if request.blueprint != "personnel_time":
+        return None
+    ensure_schema()
+    if request.endpoint not in {"personnel_time.edit_punch", "personnel_time.delete_punch"}:
+        return None
+    try:
+        punch_id = int((request.view_args or {}).get("punch_id", 0))
+    except (TypeError, ValueError):
+        return None
+    row = get_db().execute("SELECT * FROM employee_punch WHERE id=?", (punch_id,)).fetchone()
+    if row is None or str(row["source_kind"] or "local") != "federation":
+        return None
+    shown = datetime.fromisoformat(str(row["occurred_at"]).replace("Z", "+00:00")).astimezone(personnel._personnel_timezone()).date()
+    flash("Federation-Stempel werden am Quellstandort korrigiert und anschließend erneut synchronisiert.")
+    return redirect(url_for("personnel_time.index", employee_id=int(row["employee_id"]), date=shown.isoformat()))
+
+
 def _federation_export_enabled() -> bool:
     ensure_schema()
     row = get_db().execute("SELECT export_enabled FROM employee_time_federation_setting WHERE id=1").fetchone()
@@ -117,10 +137,13 @@ def _set_federation_export(enabled: bool) -> None:
         (1 if enabled else 0, utc_now(), int(g.user["id"])),
     )
     get_db().commit()
-    FederationStore(_root()).record_event(
-        "personnel_time_export_enabled" if enabled else "personnel_time_export_disabled",
-        detail={"actor": str(g.user["username"])},
-    )
+    try:
+        FederationStore(_root()).record_event(
+            "personnel_time_export_enabled" if enabled else "personnel_time_export_disabled",
+            detail={"actor": str(g.user["username"])},
+        )
+    except OSError:
+        current_app.logger.warning("personnel_time_federation_export_audit_failed")
 
 
 def _employees() -> list[dict[str, Any]]:
@@ -423,7 +446,16 @@ def _row_local_date(row: Any) -> date:
     return datetime.fromisoformat(str(row["occurred_at"]).replace("Z", "+00:00")).astimezone(personnel._personnel_timezone()).date()
 
 
-def import_federated_events(peer_id: str, remote_key: str, local_employee_id: int, events: list[Any], start: date, end: date) -> dict[str, int]:
+def import_federated_events(
+    peer_id: str,
+    remote_key: str,
+    local_employee_id: int,
+    events: list[Any],
+    start: date,
+    end: date,
+    *,
+    remote_label: str = "",
+) -> dict[str, int]:
     ensure_schema()
     peer_id = sanitize_peer_id(str(peer_id))
     remote_key = str(remote_key or "").strip()[:160]
@@ -530,6 +562,13 @@ def import_federated_events(peer_id: str, remote_key: str, local_employee_id: in
                 personnel._update_flex_day(local_employee_id, shown, schedule)
             else:
                 db.execute("DELETE FROM employee_flex_day WHERE employee_id=? AND work_date=?", (local_employee_id, shown.isoformat()))
+        db.execute(
+            """INSERT INTO employee_time_federation_map(peer_id,remote_employee_key,local_employee_id,remote_label,updated_at,updated_by)
+               VALUES(?,?,?,?,?,?) ON CONFLICT(peer_id,remote_employee_key) DO UPDATE SET
+               local_employee_id=excluded.local_employee_id,remote_label=excluded.remote_label,
+               updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
+            (peer_id, remote_key, local_employee_id, str(remote_label or remote_key)[:200], utc_now(), int(g.user["id"])),
+        )
         db.execute("RELEASE SAVEPOINT personnel_time_federation")
         db.commit()
         return result
@@ -597,6 +636,8 @@ def federation_import():
     try:
         peer_id = sanitize_peer_id(str(request.form.get("peer_id", "")))
         remote_key = str(request.form.get("remote_employee_key", "")).strip()[:160]
+        if not remote_key:
+            raise ValueError("Remote-Mitarbeiter fehlt")
         local_employee_id = int(request.form.get("employee_id", "0"))
         start = date.fromisoformat(str(request.form.get("start", "")))
         end = date.fromisoformat(str(request.form.get("end", "")))
@@ -611,17 +652,19 @@ def federation_import():
         data = _json_request(peer["base_url"] + "/federation/v1/personnel/time/punches?" + query, token=token, timeout=20)
         if data.get("employee_key") != remote_key or data.get("complete_range") is not True:
             raise ValueError("Federation-Antwort deckt den angeforderten Zeitraum nicht vollständig ab")
-        result = import_federated_events(peer_id, remote_key, local_employee_id, data.get("events") or [], start, end)
-        remote_label = str(data.get("employee_label") or remote_key)[:200]
-        get_db().execute(
-            """INSERT INTO employee_time_federation_map(peer_id,remote_employee_key,local_employee_id,remote_label,updated_at,updated_by)
-               VALUES(?,?,?,?,?,?) ON CONFLICT(peer_id,remote_employee_key) DO UPDATE SET
-               local_employee_id=excluded.local_employee_id,remote_label=excluded.remote_label,
-               updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
-            (peer_id, remote_key, local_employee_id, remote_label, utc_now(), int(g.user["id"])),
+        result = import_federated_events(
+            peer_id,
+            remote_key,
+            local_employee_id,
+            data.get("events") or [],
+            start,
+            end,
+            remote_label=str(data.get("employee_label") or remote_key),
         )
-        get_db().commit()
-        store.record_event("personnel_time_imported", peer_id=peer_id, detail={"employee_id": local_employee_id, **result})
+        try:
+            store.record_event("personnel_time_imported", peer_id=peer_id, detail={"employee_id": local_employee_id, **result})
+        except OSError:
+            current_app.logger.warning("personnel_time_federation_event_log_failed peer=%s", peer_id)
         flash(
             f"Federation-Zeiten synchronisiert: {result['inserted']} neu, {result['updated']} aktualisiert, "
             f"{result['removed']} entfernt, {result['unchanged']} unverändert."
