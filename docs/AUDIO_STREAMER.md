@@ -234,3 +234,10 @@ Legacy-Konfiguration, idempotenten Start/Stop, Preflight und Cleanup bei
 Teilstartfehlern. Ein echter FFplay-Test spielt synthetisches PCM über den
 SDL-Dummytreiber; er prüft Format und Prozessende ohne Lautsprecher und wird
 bei fehlendem FFplay übersprungen. Dies ersetzt keine Windows-Hardwareabnahme.
+
+Audio-Neustarts prüfen Startargumente und Programmverfügbarkeit vor dem Stop.
+Abgewiesene Starts überschreiben keine gespeicherten Einstellungen.
+Fehler beim Speichern lassen laufende Streams bestehen. Ein expliziter Restart
+ersetzt auch bei gleicher Konfiguration den Prozess. Zwischen Vorprüfung und
+tatsächlichem Prozessstart sind weiterhin Betriebssystemfehler möglich; dann
+greift die begrenzte Recovery. Regressionstests decken diese Vorprüfungsfälle ab.

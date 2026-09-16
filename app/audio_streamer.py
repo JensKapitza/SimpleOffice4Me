@@ -169,6 +169,16 @@ def receiver_playback_command(device: str = "") -> list[str]:
             "-ar", "48000", "-ch_layout", "stereo", "-i", "pipe:0"]
 
 
+def _receiver_preflight(clean):
+    decoder_command(Path("stream.sdp"), clean["bind"] or auto_sip_bind_host())
+    for device in clean["speaker_devices"]:
+        receiver_playback_command(device)
+    if clean["virtual_microphone"] and platform.system() == "Windows":
+        raise ValueError("Virtuelle Mikrofone sind unter Windows nicht unterstützt")
+    if clean["virtual_microphone"] and not shutil.which("pactl"):
+        raise RuntimeError("pactl fehlt")
+
+
 def _close_pipe(pipe: Any) -> None:
     if pipe is None:
         return
@@ -400,6 +410,10 @@ class LiveAudioManager:
                 self.states[service].failed(exc)
 
     def configured_start(self, service, changes=None, *, restart=False):
+        with _SESSION_LOCK:
+            return self._configured_start(service, changes, restart=restart)
+
+    def _configured_start(self, service, changes=None, *, restart=False):
         from .audio_streamer_config import settings, validate_settings
         current = settings(service)
         value = validate_settings(service, {**current, **(changes or {})})
@@ -409,14 +423,17 @@ class LiveAudioManager:
             raise ValueError("Mindestens ein Ziel ist erforderlich")
         if service == "receiver" and not value["speaker_devices"] and not value["virtual_microphone"]:
             raise ValueError("Mindestens einen Ausgang oder virtuelles Mikrofon wählen")
-        # Persist only validated settings. Starting never turns autostart on.
-        settings(service, value)
-        self.retry_limits[service] = value["retry_limit"]
-        if restart:
-            getattr(self, "stop_" + service)()
         arguments = {key: item for key, item in value.items() if key not in {"enabled", "autostart", "retry_limit"}}
         try:
-            return getattr(self, "start_" + service)(**arguments)
+            # Reject unsupported options/missing tools before persisting or stopping.
+            if service == "sender":
+                sender_command(source=value["source"], backend=value["backend"],
+                               destinations=normalize_destinations(value["destinations"]), bitrate_kbps=value["bitrate_kbps"])
+            else:
+                _receiver_preflight(value)
+            settings(service, value)
+            self.retry_limits[service] = value["retry_limit"]
+            return getattr(self, "start_" + service)(**arguments, _restart=restart)
         except (OSError, RuntimeError) as exc:
             alive = bool(self.sender and self.sender.process.poll() is None) if service == "sender" else self._receiver_alive()
             if alive:
@@ -429,13 +446,13 @@ class LiveAudioManager:
             self._ensure_monitor()
             raise
 
-    def start_sender(self, *, source: str, backend: str, destinations: Any, bitrate_kbps: int = 64, _retry=False) -> dict[str, Any]:
+    def start_sender(self, *, source: str, backend: str, destinations: Any, bitrate_kbps: int = 64, _retry=False, _restart=False) -> dict[str, Any]:
         from .audio_streamer_config import validate_settings
         clean = validate_settings("sender", {"source": source, "backend": backend, "destinations": destinations, "bitrate_kbps": bitrate_kbps})
         targets = normalize_destinations(clean["destinations"])
         request = {key: clean[key] for key in ("source", "backend", "destinations", "bitrate_kbps")}
         with _SESSION_LOCK:
-            if self.requested["sender"] == request and self.sender and self.sender.process.poll() is None:
+            if not _restart and self.requested["sender"] == request and self.sender and self.sender.process.poll() is None:
                 return self.status()["sender"]
             # Build and validate before stopping a healthy stream.
             command = sender_command(source=clean["source"], backend=clean["backend"], destinations=targets, bitrate_kbps=clean["bitrate_kbps"])
@@ -469,7 +486,7 @@ class LiveAudioManager:
 
     def start_receiver(self, *, port: int, speaker_devices: list[str] | None = None,
                        virtual_microphone: bool = True, virtual_sink: str = "simpleoffice_stream",
-                       bind: str = "", _retry=False) -> dict[str, Any]:
+                       bind: str = "", _retry=False, _restart=False) -> dict[str, Any]:
         from .audio_streamer_config import validate_settings
         clean = validate_settings("receiver", {"port": port, "speaker_devices": speaker_devices or [],
                     "virtual_microphone": virtual_microphone, "virtual_sink": virtual_sink, "bind": bind})
@@ -477,16 +494,9 @@ class LiveAudioManager:
         if not clean["speaker_devices"] and not clean["virtual_microphone"]:
             raise ValueError("Mindestens einen Ausgang oder virtuelles Mikrofon wählen")
         with _SESSION_LOCK:
-            if self.requested["receiver"] == request and self._receiver_alive():
+            if not _restart and self.requested["receiver"] == request and self._receiver_alive():
                 return self.status()["receiver"]
-            # Check executable availability and configuration before replacing.
-            decoder_command(Path("stream.sdp"), clean["bind"] or auto_sip_bind_host())
-            for device in clean["speaker_devices"]:
-                receiver_playback_command(device)
-            if clean["virtual_microphone"] and platform.system() == "Windows":
-                raise ValueError("Virtuelle Mikrofone sind unter Windows nicht unterstützt")
-            if clean["virtual_microphone"] and not shutil.which("pactl"):
-                raise RuntimeError("pactl fehlt")
+            _receiver_preflight(clean)
             self.stop_receiver(_clear=False)
             self.requested["receiver"] = request
             state = self.states["receiver"]

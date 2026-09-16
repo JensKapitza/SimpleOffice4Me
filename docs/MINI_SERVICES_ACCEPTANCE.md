@@ -140,3 +140,10 @@ und Reset wählen Systemstandard ohne virtuelles Mikrofon. Start/Stop,
 Teilstartfehler, Persistenz/Reset und Rechte sind getestet; echter FFplay-Aufruf
 mit synthetischem PCM und SDL-Dummytreiber ergänzt die gemockten OS-Grenzen.
 Gezielte Geräteauswahl, virtuelle Mikrofone und Windows-Hardwareabnahme bleiben offen.
+
+Audio-Neustarts prüfen Startargumente und Programmverfügbarkeit vor dem Stop.
+Abgewiesene Starts überschreiben keine gespeicherten Einstellungen.
+Fehler beim Speichern lassen laufende Streams bestehen. Ein expliziter Restart
+ersetzt auch bei gleicher Konfiguration den Prozess. Zwischen Vorprüfung und
+tatsächlichem Prozessstart sind weiterhin Betriebssystemfehler möglich; dann
+greift die begrenzte Recovery. Regressionstests decken diese Vorprüfungsfälle ab.

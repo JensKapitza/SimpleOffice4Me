@@ -77,6 +77,46 @@ class AudioLifecycleTests(unittest.TestCase):
             self.process.terminate.assert_not_called()
             self.assertTrue(self.manager.status()["sender"]["running"])
 
+    def test_configured_restart_missing_tool_preserves_running_sender_and_settings(self):
+        current = validate_settings("sender", {"destinations": self.targets})
+        with patch("app.audio_streamer.shutil.which", return_value="ffmpeg"), patch("app.audio_streamer.subprocess.Popen", return_value=self.process):
+            self.start()
+        with patch("app.audio_streamer_config.settings", return_value=current) as saved, patch("app.audio_streamer.shutil.which", return_value=None):
+            with self.assertRaises(RuntimeError):
+                self.manager.configured_start("sender", {"source": "changed"}, restart=True)
+            saved.assert_called_once_with("sender")
+        self.process.terminate.assert_not_called()
+        self.assertTrue(self.manager.status()["sender"]["running"])
+        self.assertEqual("default", self.manager.requested["sender"]["source"])
+
+    def test_configured_restart_replaces_identical_sender_after_validation(self):
+        current = validate_settings("sender", {"destinations": self.targets})
+        with patch("app.audio_streamer_config.settings", return_value=current), patch("app.audio_streamer.shutil.which", return_value="ffmpeg"), patch("app.audio_streamer.subprocess.Popen", return_value=self.process) as popen:
+            self.start()
+            self.manager.configured_start("sender", restart=True)
+            self.assertEqual(2, popen.call_count)
+            self.assertEqual(1, self.process.terminate.call_count)
+
+    def test_configured_restart_storage_failure_preserves_sender(self):
+        current = validate_settings("sender", {"destinations": self.targets})
+        with patch("app.audio_streamer.shutil.which", return_value="ffmpeg"), patch("app.audio_streamer.subprocess.Popen", return_value=self.process):
+            self.start()
+            with patch("app.audio_streamer_config.settings", side_effect=[current, sqlite3.OperationalError("locked")]):
+                with self.assertRaises(sqlite3.OperationalError):
+                    self.manager.configured_start("sender", restart=True)
+        self.process.terminate.assert_not_called()
+        self.assertTrue(self.manager.status()["sender"]["running"])
+
+    def test_configured_windows_receiver_restart_rejects_unsupported_selection_before_stop(self):
+        current = validate_settings("receiver", {"speaker_devices": ["default"], "virtual_microphone": False})
+        receiver = self.manager.receiver = Mock()
+        with patch("app.audio_streamer_config.settings", return_value=current) as saved, patch("app.audio_streamer.platform.system", return_value="Windows"), patch("app.audio_streamer.shutil.which", return_value="ffplay"):
+            with self.assertRaises(ValueError):
+                self.manager.configured_start("receiver", {"virtual_microphone": True}, restart=True)
+            saved.assert_called_once_with("receiver")
+        receiver.stop.assert_not_called()
+        self.assertIs(receiver, self.manager.receiver)
+
     def test_windows_sender_uses_existing_idempotent_lifecycle_and_recovery(self):
         with patch("app.audio_streamer.shutil.which", return_value="ffmpeg"), patch("app.audio_streamer.subprocess.Popen", return_value=self.process) as popen:
             for _ in range(2):
