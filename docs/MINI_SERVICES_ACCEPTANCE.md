@@ -1,6 +1,6 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 15.09.2026, aufbauend auf PR #296 und #298 einschließlich RTP-Discovery.
+Stand: 16.09.2026, aufbauend auf PR #296 und #298 einschließlich Windows-Audio und Restart-Korrektur.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
 und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
@@ -103,8 +103,11 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 Diese Punkte sind keine pauschalen Ausnahmen vom Auftrag. Fehlende Implementierung
 bleibt offen; Umgebungsgrenzen werden getrennt davon benannt. Die PRs bleiben Draft,
 bis die anwendbaren Kriterien erfüllt oder konkrete technische Abweichungen
-vollständig bewertet sind. PR #288 (Bildschirm) wird durch diese Prüfung nicht
-als fertiggestellt behandelt; #285 (DLNA) bleibt ein eigener Arbeitsbereich.
+vollständig bewertet sind. GitHub-Abgleich vom 16.09.2026: PR #288 (Bildschirm) wurde am 14.09.2026
+gemergt. Alle acht Workflows seines Heads 16cc006a sind erfolgreich, einschließlich
+Android- und Desktop-Build. Weitere Signaling-/Stop-Korrekturen stehen separat
+in Draft-PR #301 auf main. #285 ist ein offenes DLNA-Issue, kein PR.
+Diese Angaben ersetzen keine reale Geräteabnahme.
 
 ## Testnachweise
 
@@ -147,3 +150,18 @@ Fehler beim Speichern lassen laufende Streams bestehen. Ein expliziter Restart
 ersetzt auch bei gleicher Konfiguration den Prozess. Zwischen Vorprüfung und
 tatsächlichem Prozessstart sind weiterhin Betriebssystemfehler möglich; dann
 greift die begrenzte Recovery. Regressionstests decken diese Vorprüfungsfälle ab.
+
+## Aktueller vollständiger Testlauf
+
+Audio-Branch auf Commit 67a4d8f: 1.662 Tests, 10 übersprungen, keine Fehler
+(166,718 Sekunden). 74 gezielte Tests schließen Restart-Vorprüfung ein.
+Separater main-/Screen-Stand: 1.559 Tests, 10 übersprungen, keine Fehler
+(160,145 Sekunden); danach ergänzte Poll-Heartbeat-Prüfung im gezielten Lauf.
+PR #301 hat zusätzlich drei Node-Runtimetests; Policy-, Größen-, Syntax- und
+CRA-Checks bestanden. pip-audit fehlt in der lokalen Testumgebung; nicht installiert.
+
+Die Anbindung eines virtuellen Windows-Mikrofons benötigt eine zusätzliche
+Systemkomponente. Im Projekt ist kein entsprechender Treiber vorhanden.
+Eine mögliche optionale Anbindung (VB-CABLE) wird erst nach ausdrücklicher
+Dependency-Freigabe implementiert. Keine neue Bibliothek oder Systemkomponente
+wurde im Rahmen dieser Änderungen installiert. Übrige Matrixlücken bleiben offen.
