@@ -1,6 +1,7 @@
 """Validated audio settings in the existing audio database."""
 from copy import deepcopy
 import ipaddress
+import platform
 import re
 
 from .audio_output_store import AudioOutputStore
@@ -15,11 +16,18 @@ DEFAULTS = {
 }
 
 
+def default_settings(service):
+    data = deepcopy(DEFAULTS[service])
+    if service == "receiver" and platform.system() == "Windows":
+        data.update(speaker_devices=["default"], virtual_microphone=False)
+    return data
+
+
 def validate_settings(service, value):
     from .audio_streamer import normalize_destinations, normalize_speaker_devices, _port
     if service not in DEFAULTS or not isinstance(value, dict) or set(value) - set(DEFAULTS[service]):
         raise ValueError("Unbekannte Audio-Einstellungen")
-    data = {**deepcopy(DEFAULTS[service]), **value}
+    data = {**default_settings(service), **value}
     for key in ("enabled", "autostart"):
         if type(data[key]) is not bool:
             raise ValueError("Aktiviert/Autostart muss boolesch sein")

@@ -22,7 +22,7 @@ nativen Audio-Bridge-Pfad.
 | Dienst | Vorhandene Komponenten |
 |---|---|
 | Desktop-Sender | FFmpeg mit libopus und PulseAudio-, ALSA- oder Windows-DirectShow-Eingang; Mikrofon |
-| Desktop-Receiver | FFmpeg, PulseAudio oder PipeWire-Pulse, paplay |
+| Linux-Receiver | FFmpeg, PulseAudio oder PipeWire-Pulse, paplay |
 | Virtuelles Mikrofon | zusätzlich pactl und eine erreichbare Audio-Benutzersitzung |
 | Automatische Pulse-Gerätesuche | pactl |
 | ALSA-Mikrofonsuche | lesbares /proc/asound/pcm und Karten-IDs unter /proc/asound |
@@ -73,8 +73,8 @@ stellt die folgenden Standardwerte wieder her.
 | Sender | bitrate_kbps | 64; ganze Zahl 16–256 kbit/s |
 | Receiver | port | 5004; RTP-Port 1024–65534, Folgeport für RTCP beachten |
 | Receiver | bind | leer: automatische konkrete private LAN-IPv4, sonst Loopback; manuell konkrete lokale IPv4 |
-| Receiver | speaker_devices | leere Liste; gewünschte lokale Lautsprecher auswählen |
-| Receiver | virtual_microphone | true |
+| Receiver | speaker_devices | Linux: leere Liste; Windows: ["default"] für Systemstandard |
+| Receiver | virtual_microphone | Linux: true; Windows: false (nicht unterstützt) |
 | Receiver | virtual_sink | simpleoffice_stream; 1–80 Buchstaben/Ziffern oder _ . - |
 
 Autostart des Senders ohne Ziele wird abgelehnt. Die Auswahl eines Zielgeräts
@@ -106,8 +106,15 @@ DirectShow meldet hier kein Systemstandardgerät: Bei der ersten Suche wird der
 erste geeignete Eingang vorgeschlagen, aber keine Aufnahme gestartet. Auswahl
 prüfen und den Sender ausdrücklich starten; dabei wird sie gespeichert.
 `default` ist für DirectShow keine gültige Geräteauswahl. Ein unbekannter
-FFmpeg-Eingangstyp führt zu einem sichtbaren Scanfehler. Windows-Ausgänge und
-virtuelle Mikrofone sind damit noch nicht implementiert.
+FFmpeg-Eingangstyp führt zu einem sichtbaren Scanfehler. Der Windows-Receiver verwendet [FFplay](https://ffmpeg.org/ffplay-all.html)
+aus der bereits unterstützten FFmpeg-Werkzeugfamilie für PCM-Wiedergabe.
+FFplay muss vorhanden sein; es wird nicht automatisch installiert. Die
+Ausgangssuche bietet ausschließlich den Windows-Systemstandard an und
+kennzeichnet ihn als nicht hardwaregeprüft. Das konkrete Gerät wählst du
+in den Windows-Soundeinstellungen. Nach einem Gerätewechsel den Receiver
+neu starten. Gezielte Mehrgeräte-Ausgabe und virtuelle Mikrofone werden
+abgelehnt. Vorhandene Linux-Einstellungen bleiben lesbar und editierbar;
+über „Zurücksetzen“ erhält der Receiver die Windows-Defaults.
 
 Die [Audio-Ausgabe](AUDIO_OUTPUT.md) registriert erkannte lokale Ausgänge mit
 stabiler ID; Name und Lautstärke bleiben bei erneutem Scan erhalten, verschwundene
@@ -204,7 +211,7 @@ ebenfalls bereit; siehe [gemeinsamer Betrieb](MINI_SERVICES.md).
 | Plattform | Unterstützung / Grenze |
 |---|---|
 | Linux | Sender über PulseAudio oder ALSA; Receiver über PulseAudio/PipeWire-Pulse |
-| Windows | Sender über FFmpeg/DirectShow implementiert, Systemgrenzen gemockt getestet; reale Geräteabnahme offen. Kein nativer Windows-Receiver |
+| Windows | Sender über FFmpeg/DirectShow implementiert, Systemgrenzen gemockt getestet; reale Geräteabnahme offen. Receiver über vorhandenes FFplay am Systemstandard; keine gezielte Geräteauswahl oder virtuellen Mikrofone |
 | Android | vorhandene native Bridge mit Systemgeräten; Desktop-Scans überschreiben die native Auswahl nicht |
 | Externe Tablets/Player | können RTP/Opus über die SDP-Datei empfangen, sofern der Player dies unterstützt |
 
@@ -221,3 +228,9 @@ benötigen keine Spezialhardware. `tests/test_audio_rtp_loopback.py` prüft mit
 vorhandenem FFmpeg/libopus einen synthetischen RTP→PCM-Stream auf Loopback; fehlt
 FFmpeg, wird der Test übersprungen. Reale Linux-/Windows-/Android-Geräteabnahme
 und mobile visuelle Abnahme sind damit nicht ersetzt.
+
+Windows-Receiver-Tests prüfen Prozessargumente, Defaults/Reset, Berechtigungen,
+Legacy-Konfiguration, idempotenten Start/Stop, Preflight und Cleanup bei
+Teilstartfehlern. Ein echter FFplay-Test spielt synthetisches PCM über den
+SDL-Dummytreiber; er prüft Format und Prozessende ohne Lautsprecher und wird
+bei fehlendem FFplay übersprungen. Dies ersetzt keine Windows-Hardwareabnahme.

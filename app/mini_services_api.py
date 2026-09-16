@@ -139,14 +139,17 @@ def action(service, action):
 def _audio_action(service, action):
     # Delegate to existing owners and validators; no second audio manager.
     from . import audio_streamer_admin, audio_output_admin
-    from .audio_output_discovery import discover_microphone_inputs, discover_speaker_outputs
+    from .audio_output_discovery import discover_microphone_inputs, discover_speaker_outputs, discover_receiver_outputs
     if action == "scan":
         store = _store()
         try:
-            devices = discover_microphone_inputs() if service == "audio-sender" else discover_speaker_outputs()
+            devices = (discover_microphone_inputs() if service == "audio-sender" else
+                       discover_receiver_outputs() if service == "audio-receiver" else discover_speaker_outputs())
             if service == "audio-output":
                 audio_output_admin._store().sync_local_outputs(devices)
             result = {"state": "completed", "updated_at": time.time(), "count": len(devices), "targets": devices, "scope": "Lokale Audiogeräte"}
+            if any(device.get("driver") == "FFplay" for device in devices):
+                result["scope"] = "Windows-Systemstandard; Hardware nicht geprüft"
             store.scan(service, result)
             return jsonify(result)
         except (RuntimeError, OSError) as exc:

@@ -71,6 +71,15 @@ class ControlStoreTests(unittest.TestCase):
 
 
 class MiniApiTests(unittest.TestCase):
+    def test_windows_receiver_scan_reports_unverified_default_without_registering_sink(self):
+        with patch("app.audio_output_discovery.platform.system", return_value="Windows"), patch("app.audio_output_discovery.shutil.which", return_value="ffplay"), patch("app.audio_output_admin._store") as output_store:
+            result = self.client.post("/api/mini-services/audio-receiver/scan", json={}, headers=self.headers)
+            self.assertEqual(200, result.status_code)
+            self.assertEqual("default", result.json["targets"][0]["id"])
+            self.assertEqual("unknown", result.json["targets"][0]["state"])
+            self.assertIn("Hardware nicht geprüft", result.json["scope"])
+            output_store.assert_not_called()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

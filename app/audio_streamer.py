@@ -2,7 +2,7 @@
 
 The sender captures one local microphone with ffmpeg, encodes Opus once per RTP
 output and sends it over UDP. The receiver decodes the RTP/Opus stream and fans
-PCM out to local PulseAudio/PipeWire playback devices. A virtual microphone is
+PCM out to local PulseAudio/PipeWire devices or the Windows system output. A virtual microphone is
 implemented as a Pulse/PipeWire null sink; applications select its monitor
 source as the microphone.
 """
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import atexit
 import ipaddress
+import platform
 import re
 import shutil
 import sqlite3
@@ -155,6 +156,19 @@ def paplay_command(device: str = "") -> list[str]:
     return command + ["--raw", "--rate=48000", "--channels=2", "--format=s16le"]
 
 
+def receiver_playback_command(device: str = "") -> list[str]:
+    """Use the existing PCM fanout; Windows supports the system output only."""
+    if platform.system() != "Windows":
+        return paplay_command(device)
+    if device not in {"", "default"}:
+        raise ValueError("Windows-Receiver unterstützt nur den Systemstandard-Ausgang")
+    ffplay = shutil.which("ffplay")
+    if not ffplay:
+        raise RuntimeError("FFplay fehlt; Windows-Wiedergabe ist nicht verfügbar")
+    return [ffplay, "-nodisp", "-autoexit", "-loglevel", "error", "-f", "s16le",
+            "-ar", "48000", "-ch_layout", "stereo", "-i", "pipe:0"]
+
+
 def _close_pipe(pipe: Any) -> None:
     if pipe is None:
         return
@@ -235,7 +249,7 @@ class ReceiverSession:
             for device in devices:
                 self.players.append(
                     subprocess.Popen(
-                        paplay_command(device),
+                        receiver_playback_command(device),
                         stdin=subprocess.PIPE,
                         stderr=subprocess.DEVNULL,
                     )
@@ -316,6 +330,8 @@ class ReceiverSession:
 
 
 def ensure_virtual_microphone(sink_name: str = "simpleoffice_stream") -> str:
+    if platform.system() == "Windows":
+        raise ValueError("Virtuelle Mikrofone sind unter Windows nicht unterstützt")
     name = str(sink_name or "simpleoffice_stream").strip()
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", name):
         raise ValueError("Name des virtuellen Mikrofons ist ungueltig")
@@ -466,7 +482,9 @@ class LiveAudioManager:
             # Check executable availability and configuration before replacing.
             decoder_command(Path("stream.sdp"), clean["bind"] or auto_sip_bind_host())
             for device in clean["speaker_devices"]:
-                paplay_command(device)
+                receiver_playback_command(device)
+            if clean["virtual_microphone"] and platform.system() == "Windows":
+                raise ValueError("Virtuelle Mikrofone sind unter Windows nicht unterstützt")
             if clean["virtual_microphone"] and not shutil.which("pactl"):
                 raise RuntimeError("pactl fehlt")
             self.stop_receiver(_clear=False)

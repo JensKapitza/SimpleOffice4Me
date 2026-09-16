@@ -23,7 +23,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Status | V | V | V | T | V | V | T | T | V | Strukturierte Zustände; physische Audioausgabe und Gateway-Datenpfad nicht bestätigt |
 | Autostart | V | V | V | V | V | V | V | V | V | Persistente Präferenzen; DHCP/Gateway und Mikrofonfreigabe bewusst aktivieren |
 | Abhängigkeiten | V | V | V | T | V | V | T | T | T | Worker/Web-Eigentümer explizit; Systemwerkzeuge nicht vollständig im Status modelliert |
-| Hardwareerkennung | – | – | – | V | V | – | T | T | T | Interfaces, Pulse, ALSA- und DirectShow-Mikrofone; Windows-Ausgänge fehlen |
+| Hardwareerkennung | – | – | – | V | V | – | T | T | T | Interfaces, Pulse, ALSA- und DirectShow-Mikrofone; Windows-Systemstandard verfügbar; keine Windows-Ausgangserkennung |
 | Netzwerkdiensterkennung | T | T | T | V | T | T | F | T | T | Bestehende LAN-Profile für aktive Desktop-RTP-Empfänger; fremde Player nicht entdeckt |
 | Konfiguration | V | V | V | V | V | V | V | V | V | Bestehende JSON-/SQLite-Speicher; Audio jetzt persistent |
 | Standardwerte | V | V | V | V | V | V | V | V | V | Sichere Bindings/Opt-in; DHCP-Netz nicht automatisch erraten |
@@ -44,7 +44,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Tests | T | T | T | T | T | T | T | T | T | Umfang erweitert; gesamte verlangte Fehlermatrix nicht pro Plattform nachgewiesen |
 | Plattformangaben | V | V | V | V | V | V | V | V | V | Unterstützung und Grenzen ausdrücklich benannt |
 | Linux | T | T | T | T | T | V | T | T | T | Loopback/Protokolltests; echte LAN-/Audio-/Gateway-Hardwareabnahme fehlt |
-| Windows | ? | ? | ? | T | ? | ? | T | T | F | Gateway und DirectShow-Sender gemockt; nativer Windows-Receiver fehlt |
+| Windows | ? | ? | ? | T | ? | ? | T | T | T | Windows-Audio über DirectShow/FFplay; reale Geräteabnahme fehlt |
 | Android | – | – | – | – | ? | T | T | T | T | Native Bridge beibehalten; SDK/Gradle und Geräteabnahme fehlen |
 | Performance | T | T | T | ? | T | ? | ? | ? | ? | Lifecycle-Mikrobenchmark; kein Last-/Durchsatzvergleich aller Dienste |
 | Ressourcenverbrauch | V | V | V | T | V | T | T | T | T | Begrenzte Tasks/Queues/Cache; kein vollständiges RAM-/CPU-Profil |
@@ -88,7 +88,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 
 | Service | Eigenschaft | Abweichung | Technischer Grund | Nächste Verbesserung |
 |---|---|---|---|---|
-| AS/AR | Windows | DirectShow-Sender implementiert; reale Abnahme und nativer Receiver fehlen | Systemgrenzen nur gemockt, Receiver nutzt Pulse/ALSA-Infrastruktur | Windows-Hardwareabnahme; Receiver separat ergänzen |
+| AS/AR | Windows | DirectShow-Sender und FFplay-Receiver implementiert; nur Systemstandard-Ausgabe | Gezielte Windows-Geräteauswahl und virtuelle Mikrofone fehlen; Hardwareabnahme offen | Windows-Hardwareabnahme; gezielte Ausgänge gesondert prüfen |
 | AS/AR | Android | Build und reale Hintergrund-/Geräteprüfung offen | Gradle/SDK hier nicht vorhanden; keine Installation freigegeben | In vorhandener Android-Buildumgebung bauen, anschließend Gerätetest |
 | AO | Remote-Ausgabe | Definitionen ohne Transport sind nicht abspielbar | Register ist kein Audio-Transport | Echten unterstützten Transport anbinden; DLNA bleibt #285 |
 | AS | Discovery | Fremde RTP-Player werden nicht erkannt | Sie veröffentlichen kein SimpleOffice-Profil | Nur tatsächlich verfügbare Protokolle ergänzen; manuelle Ziele bleiben |
@@ -130,3 +130,13 @@ DirectShow-Gerätesuche und Capture verwenden vorhandenes FFmpeg, ohne neue
 Dependency. Tests prüfen Unicode/stabile Kennungen, doppelte Namen, ungültige
 Eingänge, fehlendes Backend, Timeout, API-Rechte, Persistenz und gemeinsamen
 Lifecycle samt Recovery. Eine echte Windows-Geräteabnahme ist weiterhin offen.
+
+### Windows-Receiver
+
+Vorhandene PCM-Verteilung nutzt unter Windows FFplay statt paplay.
+Scan/API kennzeichnen den Systemstandard ausdrücklich als nicht hardwaregeprüft;
+kein künstlicher Pulse-Sink wird im Ausgaberegister angelegt. Windows-Defaults
+und Reset wählen Systemstandard ohne virtuelles Mikrofon. Start/Stop,
+Teilstartfehler, Persistenz/Reset und Rechte sind getestet; echter FFplay-Aufruf
+mit synthetischem PCM und SDL-Dummytreiber ergänzt die gemockten OS-Grenzen.
+Gezielte Geräteauswahl, virtuelle Mikrofone und Windows-Hardwareabnahme bleiben offen.

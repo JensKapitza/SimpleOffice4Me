@@ -54,7 +54,7 @@
     const select = get(prefix + '-select'), search = get(prefix + '-search'), status = get(prefix + '-scan-status');
     const manual = get(manualId), button = get(prefix + '-scan');
     if (!select || !button) return;
-    let devices = [], scannedAt = null;
+    let devices = [], scannedAt = null, scanMessage = '';
     const render = () => {
       const current = manual.value;
       const query = search.value.trim().toLocaleLowerCase();
@@ -63,7 +63,7 @@
       select.add(new Option(noneLabel, prefix === 'input' ? 'default' : ''));
       visible.forEach(item => select.add(new Option((item.label ? item.label + ' · ' : '') + item.id + (item.default ? ' (Standard)' : ''), item.id)));
       if (visible.some(item => item.id === current)) select.value = current;
-      status.textContent = visible.length + ' von ' + devices.length + ' Geräten · ' + (scannedAt ? new Date(scannedAt * 1000).toLocaleTimeString() : '');
+      status.textContent = (scanMessage || visible.length + ' von ' + devices.length + ' Geräten') + ' · ' + (scannedAt ? new Date(scannedAt * 1000).toLocaleTimeString() : '');
     };
     const scan = async () => {
       if (nativeAudio()) { status.textContent = 'Android verwendet die Systemauswahl für Audiogeräte.'; return; }
@@ -75,6 +75,7 @@
         if (nativeAudio()) return;
         devices = Array.isArray(data[key]) ? data[key] : [];
         scannedAt = data.updated_at;
+        scanMessage = data.message || '';
         const current = manual.value;
         const preferred = devices.find(item => item.id === current) || devices.find(item => item.default) || devices[0];
         // Preserve explicitly chosen manual/ALSA sources. An empty output gets

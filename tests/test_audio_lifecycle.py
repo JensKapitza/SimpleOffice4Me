@@ -160,6 +160,24 @@ class AudioApiTests(unittest.TestCase):
         self.user["is_admin"] = False
         self.assertEqual(403, self.client.get("/admin/mini-services/audio/streamer/settings").status_code)
 
+    def test_windows_receiver_scan_reset_and_old_settings_remain_editable(self):
+        base = "/admin/mini-services/audio/streamer"
+        with patch("app.audio_streamer_admin.platform.system", return_value="Windows"), patch("app.audio_output_discovery.shutil.which", return_value="ffplay"), patch("app.audio_streamer_admin.manager.stop_receiver"):
+            result = self.client.get(base + "/outputs")
+            self.assertEqual(200, result.status_code)
+            self.assertEqual("unknown", result.json["outputs"][0]["state"])
+            self.assertIn("keine Hardwareprüfung", result.json["message"])
+            self.assertEqual(403, self.client.post(base + "/receiver/reset").status_code)
+            old = {"virtual_microphone": True, "speaker_devices": ["old-pulse-sink"]}
+            self.assertEqual(200, self.client.post(base + "/receiver/settings", json=old, headers=self.headers).status_code)
+            self.assertEqual(200, self.client.get(base + "/settings").status_code)
+            reset = self.client.post(base + "/receiver/reset", headers=self.headers)
+            self.assertEqual(200, reset.status_code)
+            self.assertFalse(reset.json["virtual_microphone"])
+            self.assertEqual(["default"], reset.json["speaker_devices"])
+            self.user["is_admin"] = False
+            self.assertEqual(403, self.client.get(base + "/outputs").status_code)
+
     def test_missing_dependency_error_does_not_expose_exception(self):
         with patch("app.audio_streamer_admin.manager.configured_start", side_effect=RuntimeError("token=secret")):
             result = self.client.post("/admin/mini-services/audio/streamer/sender/start", json={}, headers=self.headers)

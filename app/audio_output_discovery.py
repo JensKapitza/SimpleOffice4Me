@@ -50,6 +50,16 @@ def discover_speaker_outputs() -> list[dict[str, Any]]:
     return _discover("sinks", "sink")
 
 
+def discover_receiver_outputs() -> list[dict[str, Any]]:
+    """Receiver targets only: never register the Windows fallback as a Pulse sink."""
+    if platform.system() != "Windows":
+        return discover_speaker_outputs()
+    if not shutil.which("ffplay"):
+        raise RuntimeError("FFplay fehlt; Windows-Wiedergabe ist nicht verfügbar")
+    return [{"id": "default", "label": "Windows-Systemstandard (Hardware nicht geprüft)",
+             "driver": "FFplay", "default": True, "state": "unknown"}]
+
+
 def discover_microphone_inputs(backend: str = "auto") -> list[dict[str, Any]]:
     """Monitor sources remain manually selectable, but are not microphones."""
     if backend not in {"auto", "pulse", "alsa", "dshow"}:

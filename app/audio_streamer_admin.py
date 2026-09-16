@@ -2,16 +2,17 @@
 from __future__ import annotations
 import sqlite3
 import threading
+import platform
 
 import time
 
 from flask import Blueprint, abort, current_app, g, jsonify, render_template, request
 
 from .access_control import audit, is_admin
-from .audio_output_discovery import discover_speaker_outputs, discover_microphone_inputs
+from .audio_output_discovery import discover_receiver_outputs, discover_microphone_inputs
 from .audio_streamer import manager, receiver_sdp
 from .auth import login_required
-from .audio_streamer_config import settings as stream_settings, DEFAULTS
+from .audio_streamer_config import settings as stream_settings, DEFAULTS, default_settings
 
 bp = Blueprint("audio_streamer_admin", __name__, url_prefix="/admin/mini-services/audio/streamer")
 _target_scan_lock = threading.Lock()
@@ -45,7 +46,7 @@ def _runtime_error():
 @bp.get("")
 @admin_required
 def page():
-    return render_template("admin/audio_streamer.html", status=manager.status(), settings={name: stream_settings(name) for name in DEFAULTS})
+    return render_template("admin/audio_streamer.html", status=manager.status(), settings={name: stream_settings(name) for name in DEFAULTS}, windows_audio=platform.system() == "Windows")
 
 
 @bp.get("/status")
@@ -58,7 +59,7 @@ def status():
 @admin_required
 def outputs():
     try:
-        result = discover_speaker_outputs()
+        result = discover_receiver_outputs()
     except RuntimeError as exc:
         audit(
             "audio_output_discovery_failed",
@@ -69,7 +70,10 @@ def outputs():
         )
         return _runtime_error()
     audit("audio_output_discovery", "audio_stream", "outputs", detail={"count": len(result)})
-    return jsonify({"outputs": result, "count": len(result), "state": "completed", "updated_at": time.time()})
+    response = {"outputs": result, "count": len(result), "state": "completed", "updated_at": time.time()}
+    if platform.system() == "Windows":
+        response["message"] = "Systemstandard verfügbar; keine Hardwareprüfung. Das Ausgabegerät wird in Windows gewählt."
+    return jsonify(response)
 
 
 @bp.get("/inputs")
@@ -193,7 +197,7 @@ def settings_reset(service):
     if service not in DEFAULTS:
         abort(404)
     getattr(manager, "stop_" + service)()
-    return jsonify(stream_settings(service, DEFAULTS[service]))
+    return jsonify(stream_settings(service, default_settings(service)))
 
 
 @bp.post("/<service>/restart")

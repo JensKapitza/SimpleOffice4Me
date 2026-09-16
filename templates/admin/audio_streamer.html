@@ -58,7 +58,8 @@
 
         <label class="form-label" for="speaker-device">Manueller Ausgang</label>
         <input class="form-control mb-3" id="speaker-device" placeholder="optional: Sink-ID manuell eingeben" autocomplete="off">
-        <div class="form-check mb-2"><input class="form-check-input" id="virtual-microphone" type="checkbox" checked><label class="form-check-label" for="virtual-microphone">Virtuelles Mikrofon bereitstellen</label></div>
+        <div class="form-check mb-2"><input class="form-check-input" id="virtual-microphone" type="checkbox" {% if not windows_audio %}checked{% endif %}><label class="form-check-label" for="virtual-microphone">Virtuelles Mikrofon bereitstellen{% if windows_audio %} (unter Windows nicht unterstützt; vorhandene Auswahl ausschalten){% endif %}</label></div>
+        {% if windows_audio %}<p class="form-text">Windows: Wiedergabe über FFplay am Systemstandard-Ausgang. Gerät in den Windows-Soundeinstellungen wählen; nach einem Gerätewechsel den Receiver neu starten. Keine virtuellen Mikrofone und keine gezielte Mehrgeräte-Ausgabe.</p>{% endif %}
         <div class="d-flex flex-wrap gap-2"><button class="btn btn-success" id="receiver-start" type="button">Receiver starten</button><button class="btn btn-outline-danger" id="receiver-stop" type="button">Receiver stoppen</button><a class="btn btn-outline-secondary" id="sdp-download" href="{{ url_for('audio_streamer_admin.receiver_sdp_download') }}?port=5004">SDP für VLC/Tablet</a></div>
       </div></div>
     </div>
