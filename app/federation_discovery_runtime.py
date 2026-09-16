@@ -1,4 +1,4 @@
-"""Runtime integration for automatic country discovery."""
+"""Runtime integration for automatic federation discovery and scheduled sync jobs."""
 import os
 import threading
 import time
@@ -52,3 +52,8 @@ def init_app(app):
     if configured_country() and not app.testing:
         thread = threading.Thread(target=_worker, args=(app,), daemon=True, name="federation-country-discovery")
         thread.start()
+
+    # Personnel-time federation uses the same application lifecycle as the
+    # other federation background jobs but keeps its own opt-in mapping rules.
+    from . import personnel_time_analytics
+    personnel_time_analytics.init_app(app)
