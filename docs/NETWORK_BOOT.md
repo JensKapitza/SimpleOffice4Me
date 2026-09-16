@@ -42,6 +42,19 @@ Basis ist `SIMPLEOFFICE_MINI_SERVICES_CONFIG`, sonst die gemeinsame
 Worker einheitlich berücksichtigt. Der erweiterte Editor verwendet genau das
 bestehende JSON-Format; fehlerhafte Eingaben bleiben zur Korrektur sichtbar.
 
+Unter **Bootprofile** lassen sich Profile ohne JSON anlegen und bearbeiten.
+„Neues Profil“ öffnet ein leeres Formular; ein Profilname lädt dessen Werte.
+Kernel/Initrd, ISO oder externes iPXE-Skript werden als Bootverfahren ausgewählt.
+Vorhandene Dateien werden vorgeschlagen; relative Pfade bleiben manuell eingebbar.
+Architekturcodes werden kommagetrennt eingegeben. Alle bestehenden Profilfelder
+sind verfügbar und verwenden weiterhin denselben Validator.
+
+„Als Standardprofil verwenden“ aktualisiert die Standardauswahl. Wird das
+Standardprofil entfernt, wird die Auswahl geleert; Dateien bleiben erhalten.
+Eine neue Profil-ID darf keine vorhandene ID überschreiben. Fehlgeschlagene
+Eingaben bleiben sichtbar. Der Aktivierungszustand von HTTP/TFTP und die übrigen
+Einstellungen werden durch Profiländerungen nicht verändert.
+
 | Option | Standard / Bedeutung |
 |---|---|
 | `version` | Schemaschlüssel, automatisch `1` |
@@ -135,6 +148,8 @@ abgewiesen. Kein automatisches Root und keine Änderungen am NetworkManager.
   Web-Eigentümers; kein Worker-Postfach für HTTP-Routen.
 - `POST /admin/mini-services/network-boot/settings`: vorhandenes JSON als Formular-
   Feld `boot_json`, oder `action=reset`; Admin und CSRF erforderlich.
+- `POST /admin/mini-services/network-boot/profiles`: geführte Profilfelder,
+  `original_id` beim Bearbeiten, `action=save|delete`; Admin und CSRF erforderlich.
 - `GET /network-boot/ipxe?profile=<id>` und `GET|HEAD /network-boot/files/<pfad>`:
   aktivierte öffentliche Auslieferung, Dateiabrufe unterstützen Range-Requests.
 - `/federation/v1/network-boot/manifest`, `/assets/<pfad>` und
@@ -153,8 +168,8 @@ Windows-Hardware wurden in dieser Umgebung nicht getestet.
 Der HTTP-Healthcheck prüft registrierte Routen und Dateien des Standardprofils,
 nicht den Booterfolg einer Maschine oder externe Chain-Ziele. TFTP ist kein
 verschlüsselter Dateitransfer. Fremde Bootdateien und Images bleiben Aufgabe des
-Administrators. Die Konfiguration komplexer Bootprofile erfolgt aktuell im
-erweiterten JSON-Editor; ein geführter Profileditor steht noch aus.
+Administrators. Ein gültiges Profil ersetzt keine Prüfung der gewählten
+Bootdateien und Kernel-Parameter auf dem tatsächlichen Client.
 
 `tests.test_network_boot_lifecycle`, `tests.test_mini_security`,
 `tests.test_mini_services` und `tests.test_mini_control_api`: 47 Tests erfolgreich,

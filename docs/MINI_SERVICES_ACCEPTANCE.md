@@ -28,7 +28,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Konfiguration | V | V | V | V | V | V | V | V | V | Bestehende JSON-/SQLite-Speicher; Audio jetzt persistent |
 | Standardwerte | V | V | V | V | V | V | V | V | V | Sichere Bindings/Opt-in; DHCP-Netz nicht automatisch erraten |
 | Validierung | V | V | V | V | V | V | V | V | V | Vor Start/Änderung; Audio-Portpaar und boolesche Schalter geprüft |
-| UI | T | T | T | T | T | T | T | T | T | Gemeinsame Aktionen; geführte Bootprofile und vollständige visuelle Prüfung fehlen |
+| UI | T | T | T | T | T | T | T | T | T | Gemeinsame Aktionen und geführte Bootprofile vorhanden; vollständige visuelle Prüfung fehlt |
 | CLI | V | V | V | V | V | T | T | T | T | start.sh steuert Eigentümer; kein gleichwertiger Fach-CLI für alle Webdienste |
 | API | V | V | V | V | V | V | V | V | V | Gemeinsame Admin-/CSRF-API plus bestehende Fachrouten |
 | Fehlerbehandlung | V | V | V | T | V | V | V | V | V | Verständliche Antworten, erhaltene Formulare, isolierte Speicherfehler |
@@ -96,7 +96,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 | Gateway | Health/Atomizität | Tabellen/NAT werden geprüft, nicht kompletter Datenpfad; Reload nicht durchgehend atomar | Bestehende Stop/Apply-Grenze und OS-Regelverwaltung | Regelinhalte prüfen, Reload-Transaktion und Pakettests ergänzen |
 | DHCP/Gateway | Automatische Konfiguration | Kein eigenmächtig gewähltes neues DHCP-Netz | Fremde DHCP-Server und vorhandene Netzverwaltung dürfen nicht gestört werden | Konflikterkennung und geführte Auswahl ohne automatische Aktivierung |
 | Netzwerkdienste | IPv6-Netzwechsel | Automatische Bindingprüfung bisher IPv4 | Gemeinsames Inventar liefert IPv4-Adressen | IPv6-Inventar und Linkverlusttests ergänzen |
-| HTTP/TFTP | Bedienung | Vollständiger JSON-Editor, kein geführter Profileditor | Fachkonfiguration war bisher textbasiert | Profile/Assets über validierte Felder bearbeiten |
+| HTTP/TFTP | Bedienung | Geführter Profileditor umgesetzt; tatsächlicher Booterfolg ungeprüft | Bootdateien und Kernel-Parameter hängen vom Client ab | Reale PXE-Clients mit den angelegten Profilen prüfen |
 | Alle | Mobile/Accessibility | Kein visueller Konformitätsnachweis | Browser blockiert lokale Testseite mit ERR_BLOCKED_BY_CLIENT | Desktop/Tablet/Smartphone/WebView samt Fokus/Kontrast prüfen |
 | Alle | CLI/Logs/Tests | Noch nicht jeder relevante Aspekt gleichwertig | Historische Fachpfade und unvollständige Negativfallabdeckung | Verbleibende T/F/?-Zeilen gezielt abarbeiten |
 
@@ -107,6 +107,10 @@ vollständig bewertet sind. PR #288 (Bildschirm) wird durch diese Prüfung nicht
 als fertiggestellt behandelt; #285 (DLNA) bleibt ein eigener Arbeitsbereich.
 
 ## Testnachweise
+
+- 16.09.2026: Geführter Boot-Profileditor in den gemeinsamen Stand übernommen.
+  61 Boot-/Security-/API-/Frontend-Tests bestanden, einschließlich Anlegen,
+  Bearbeiten, Standardauswahl, Entfernen, Schreibfehler und HTML-Escaping.
 
 - Gemeinsamer Netzwerk-/Audio-Prüfstand vor den jüngsten Audioergänzungen:
   191 Tests bestanden; kein erneuter vollständiger Gesamtlauf daraus abgeleitet.
