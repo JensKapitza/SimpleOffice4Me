@@ -135,5 +135,6 @@ Keine automatische Rechteerhöhung oder Installation zusätzlicher Programme.
 
 Grenzen: Der Linux-Check bestätigt Tabellenexistenz und IPv4-Forwarding, nicht
 die Vollständigkeit einzelner Regeln oder tatsächlichen Pakettransport. Der
-Worker-Neustart entfernt weiterhin eigene Regeln vor erneutem Anwenden; ein
-plattformübergreifend atomarer Reload ist damit noch nicht umgesetzt.
+Reload aktiver Linux-Gateways verwendet nun die vorhandene nft-Transaktion ohne
+vorherigen Stop. Windows und die Recovery nach bestätigtem Healthfehler verwenden
+weiterhin Stop/Start; ein plattformübergreifend atomarer Reload ist nicht umgesetzt.

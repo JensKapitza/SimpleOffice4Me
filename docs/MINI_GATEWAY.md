@@ -98,9 +98,10 @@ Bedienoberfläche; Android ist kein unterstützter Gateway-Host.
 ## Einschränkungen
 
 IPv4, kein vollständiger Firewallmanager, kein IPv6-NAT, keine WAN-Portfreigaben.
-Nach externen Regeländerungen zeigt Health den abweichenden Zustand; automatisches
-Zurücksetzen fremder Firewallentscheidungen erfolgt nicht. Neustart kann die
-eigenen Regeln erneut anwenden. Windows-Regeländerungen sind nicht transaktional
+Health erkennt fehlende eigene Tabellen und deaktiviertes IPv4-Forwarding, aber
+keine vollständigen Änderungen einzelner Regeln. Bestätigte Healthfehler lösen
+die begrenzte Worker-Recovery aus; fremde Tabellen werden dabei nicht verändert.
+Ein unlesbarer Status löst keine Regeländerung aus. Windows-Regeländerungen sind nicht transaktional
 wie nftables; Plattformtests bleiben erforderlich.
 
 ## Tests
@@ -109,3 +110,30 @@ wie nftables; Plattformtests bleiben erforderlich.
 `test_mini_control_api`: Stopfehler, atomare Linux-Transaktion, fehlende Rechte,
 Istzustand, manuelle Stop-Semantik, Netzwerkwechsel, persistente validierte
 Einstellungen und Auth/CSRF ohne privilegierte Hardwaretests.
+
+## Reload unter Linux
+
+Bei einem aktiven Linux-Gateway ersetzen Konfigurationsänderungen und expliziter
+Neustart die eigenen nftables-Tabellen in einer Transaktion. Der Worker entfernt
+sie davor nicht mehr. Lehnt nft die Transaktion ab, bleiben die bisherigen Regeln
+bestehen. Gespeicherte Wunschkonfiguration und zuletzt erfolgreich angewendete
+Konfiguration können dann voneinander abweichen; Diagnose und Reload-Fehler sind
+im Status sichtbar. Nach einer Korrektur erneut speichern oder Neustart auslösen.
+Die Laufzeit beginnt bei einem erfolgreichen Reload nicht erneut.
+
+Die Ownership-Datei wird vor Anwendung geschrieben. Beide Linux-Modi verwenden
+dieselben festen Tabellennamen; die Datei ermöglicht daher auch nach einem
+Prozessabsturz das Aufräumen. Scheitert schon das Schreiben, wird nft nicht
+aufgerufen. Ein Timeout bestätigt weder Erfolg noch Ablehnung: Regeln werden
+nicht vorsorglich gelöscht, der Status wird degraded und erneut geprüft. Der
+Healthcheck ersetzt dabei keine vollständige Prüfung der angewendeten Regeln.
+
+Die Atomarität betrifft ausschließlich die nft-Transaktion. IPv4-Forwarding ist
+gemeinsamer Hostzustand und kann vor der Transaktion aktiviert werden; es wird
+nicht automatisch zurückgesetzt. Windows-Reload, Neuaufbau nach Stop und
+Health-Recovery besitzen diese Garantie nicht. Deaktivieren entfernt weiterhin
+nur die eigenen Regeln.
+
+Regression: `test_gateway_reload` prüft Konfigurationswechsel, identischen
+Neustart, abgewiesene Anwendung, Timeout, Ownership-Schreibfehler, Deaktivieren
+und den unveränderten Windows-Pfad ohne Eingriff in das Hostnetzwerk.

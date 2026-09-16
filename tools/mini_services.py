@@ -26,7 +26,7 @@ from simpleoffice_network_gateway_runtime import (
 from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, effective_sip_settings
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
 from simpleoffice_mini_control import ControlStore
-from simpleoffice_network_gateway import interfaces_snapshot, binding_available, detect_interfaces
+from simpleoffice_network_gateway import interfaces_snapshot, binding_available, detect_interfaces, platform_kind
 
 LOG = logging.getLogger("simpleoffice.mini_services")
 SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
@@ -164,7 +164,40 @@ class Worker:
             state.failed(exc)
             self.event({"service": name, "action": "start_failed", "error": type(exc).__name__})
 
-    def _load_network_services(self) -> None:
+    def _reload_linux_gateway(self, specification) -> None:
+        """Replace owned nft tables without stopping the currently active gateway."""
+        state = self.states["gateway"]
+        try:
+            # Linux ownership is the same fixed pair of tables for route/NAT.
+            # Persist before applying so crashes remain recoverable, including
+            # when nft's bounded wait cannot confirm the transaction outcome.
+            remember_gateway_ownership(specification[1], self.config_path)
+            result = apply_gateway(specification[1], server_ip=str(self.config["dhcp"]["server_ip"]))
+            if not result.get("ok"):
+                raise RuntimeError("Gateway-Reload fehlgeschlagen")
+        except Exception as exc:
+            state.state = "degraded"
+            state.last_error = error_detail(exc)
+            state.last_error_at = time.time()
+            state.retry_at = None
+            self.next_gateway_health = 0
+            self.event({"service": "gateway", "action": "reload_failed", "error": type(exc).__name__})
+            # Do not call stop: nft rejection preserves the old transaction.
+            # Timeouts have an uncertain outcome; the next healthcheck remains
+            # necessary and the ownership marker still covers both tables.
+            raise
+        self.desired["gateway"] = specification
+        self.gateway_status = result
+        state.config = {key: specification[1][key] for key in ("enabled", "mode")}
+        state.retry_count = 0
+        state.retry_at = None
+        state.state = "running"
+        state.last_error = None
+        state.last_error_at = None
+        self.next_gateway_health = 0
+        self.event({"service": "gateway", "action": "reloaded"})
+
+    def _load_network_services(self, *, force_gateway_reload=False) -> None:
         # Validate BEFORE touching listeners; compare effective settings, not DB
         # mtime, so a changed phone registration does not restart every service.
         signature = self._signature()
@@ -191,7 +224,10 @@ class Worker:
             desired[name] = (enabled and preference["enabled"] and requested, settings)
         self.config = config
         for name, specification in desired.items():
-            if self.desired.get(name) == specification:
+            if self.desired.get(name) == specification and not (name == "gateway" and force_gateway_reload):
+                continue
+            if name == "gateway" and self.gateway_active and specification[0] and platform_kind() == "linux":
+                self._reload_linux_gateway(specification)
                 continue
             if not self._stop_one(name):
                 continue
@@ -317,10 +353,14 @@ class Worker:
             else:
                 if not self.preferences[name]["enabled"]:
                     raise ValueError("Dienst zuerst in den Einstellungen aktivieren")
-                if action == "restart" and not self._stop_one(name):
+                reload_gateway = name == "gateway" and action == "restart" and self.gateway_active and platform_kind() == "linux"
+                if action == "restart" and not reload_gateway and not self._stop_one(name):
                     raise RuntimeError("Stop fehlgeschlagen")
                 self.manual_states[name] = True
-                self._load_network_services()
+                if reload_gateway:
+                    self._load_network_services(force_gateway_reload=True)
+                else:
+                    self._load_network_services()
                 state = self.states[name]
                 if not self.desired[name][0]:
                     raise ValueError("Dienst zuerst in der Fachkonfiguration aktivieren")
