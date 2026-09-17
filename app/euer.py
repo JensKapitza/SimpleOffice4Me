@@ -224,3 +224,10 @@ def export_csv():
     response = Response(payload, mimetype="text/csv; charset=utf-8")
     response.headers["Content-Disposition"] = f'attachment; filename="EÜR-{year}.csv"'
     return response
+
+
+# Keep the finance module as a nested blueprint of the already registered
+# bookkeeping blueprint. This avoids a second application bootstrap path while
+# exposing /documents/business/bookkeeping/finances and all import actions.
+from .finance_web import bp as finance_bp
+bp.register_blueprint(finance_bp)
