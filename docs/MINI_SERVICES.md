@@ -139,3 +139,20 @@ Pakettransport sowie die Abnahme gegen reale unterstützte nft-Versionen. Der
 Reload aktiver Linux-Gateways verwendet nun die vorhandene nft-Transaktion ohne
 vorherigen Stop. Windows und die Recovery nach bestätigtem Healthfehler verwenden
 weiterhin Stop/Start; ein plattformübergreifend atomarer Reload ist nicht umgesetzt.
+
+### Linux-IPv6 bei Netzwerkwechsel
+
+Die vorhandene `ip -j address show`-Abfrage erfasst IPv4 und IPv6. Adressen in
+DAD-Prüfung (`tentative`) oder mit fehlgeschlagener DAD (`dadfailed`) gelten noch
+nicht als nutzbar. Der Snapshot gibt die geprüften Familien explizit als
+`address_families` an. Die Bindingprüfung normalisiert IP-Schreibweisen und
+berücksichtigt bei IPv6 eine angegebene Zone als Interface-Name oder Index.
+
+Geht eine konfigurierte IPv6-Adresse verloren, verwendet der Worker denselben
+waiting-/Stop-/Wiederanlaufpfad wie für IPv4. Eine zurückkehrende Adresse startet
+nur weiterhin angeforderte Dienste neu. Manuelles Stop und unbekanntes Inventar
+behalten ihr bisheriges Verhalten. Diese Prüfung erweitert weder den IPv4-only
+Gateway/DHCP-Backend noch automatisch die Socket-Fähigkeiten anderer Dienste.
+Windows- und ältere Snapshots bestätigen weiterhin nur IPv4; fehlende IPv6-Daten
+werden dort nicht als Adressverlust ausgelegt. Reale IPv6-LAN- und Windows-Abnahme
+bleiben offen. Keine neue Dependency und kein zusätzlicher Netzwerkdienst.

@@ -87,10 +87,12 @@ def interfaces_snapshot() -> dict[str, Any]:
         for item in addr_data if isinstance(addr_data, list) else []:
             if not isinstance(item, dict):
                 continue
-            ips = [f"{a.get('local')}/{a.get('prefixlen')}" for a in item.get("addr_info", []) if isinstance(a, dict) and a.get("family") == "inet" and a.get("local")]
+            ips = [f"{a.get('local')}/{a.get('prefixlen')}" for a in item.get("addr_info", []) if isinstance(a, dict) and a.get("family") in {"inet", "inet6"} and a.get("local")
+                   and not a.get("tentative") and not a.get("dadfailed")
+                   and not {"tentative", "dadfailed"}.intersection(a.get("flags") or [])]
             rows.append({"index": item.get("ifindex", 0), "name": str(item.get("ifname") or ""), "state": str(item.get("operstate") or ""), "addresses": ips, "loopback": str(item.get("link_type") or "") == "loopback"})
         defaults = [str(row.get("dev") or "") for row in route_data if isinstance(row, dict) and row.get("dev")]
-        return {"platform": kind, "available": bool(addresses["ok"] and isinstance(addr_data, list)), "interfaces": rows, "default_interfaces": defaults}
+        return {"platform": kind, "available": bool(addresses["ok"] and isinstance(addr_data, list)), "address_families": [4, 6], "interfaces": rows, "default_interfaces": defaults}
     if kind == "windows":
         result = _powershell("Get-NetIPConfiguration | Select-Object InterfaceAlias,InterfaceIndex,IPv4Address,IPv4DefaultGateway,@{Name='Status';Expression={$_.NetAdapter.Status}} | ConvertTo-Json -Depth 6", 3)
         try: data = json.loads(result["stdout"]) if result["ok"] else []
@@ -131,7 +133,16 @@ def binding_available(settings: dict[str, Any], snapshot: dict[str, Any], *, add
         return True
     rows = [row for row in snapshot.get("interfaces", []) if str(row.get("state", "")).lower() not in {"down", "notpresent", "disconnected", "lowerlayerdown"}]
     names = {row["name"] for row in rows}
-    assigned = {str(value).split("/", 1)[0] for row in rows for value in row.get("addresses", [])}
+    assigned = []
+    for row in rows:
+        for value in row.get("addresses", []):
+            try:
+                address = ipaddress.ip_interface(value).ip if "/" in value else ipaddress.ip_address(value)
+            except ValueError:
+                continue
+            assigned.append((address, str(row.get("name", "")), str(row.get("index", ""))))
+    # Older snapshots and the Windows inventory only guarantee IPv4 coverage.
+    families = snapshot.get("address_families", [4])
     for key in interfaces:
         if settings.get(key) and settings[key] not in names:
             return False
@@ -139,8 +150,12 @@ def binding_available(settings: dict[str, Any], snapshot: dict[str, Any], *, add
         values = settings.get(key) or []
         for value in values if isinstance(values, list) else [values]:
             address = ipaddress.ip_address(value)
-            # Current inventory is IPv4; do not claim IPv6 has disappeared.
-            if address.version == 4 and not address.is_loopback and not address.is_unspecified and str(address) not in assigned:
+            if address.version not in families or address.is_loopback or address.is_unspecified:
+                continue
+            scope = getattr(address, "scope_id", None)
+            if not any(address.packed == candidate.packed and
+                       (scope is None or scope in {name, index})
+                       for candidate, name, index in assigned):
                 return False
     return True
 

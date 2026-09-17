@@ -91,5 +91,40 @@ class NetworkRecoveryTests(unittest.TestCase):
             scan.assert_not_called()
 
 
+class IPv6NetworkTests(unittest.TestCase):
+    def test_linux_inventory_contains_usable_ipv6_and_excludes_tentative_addresses(self):
+        data = [{"ifindex": 2, "ifname": "lan", "operstate": "UP", "addr_info": [
+            {"family": "inet", "local": "192.168.50.1", "prefixlen": 24},
+            {"family": "inet6", "local": "2001:db8::1", "prefixlen": 64},
+            {"family": "inet6", "local": "2001:db8::2", "prefixlen": 64, "tentative": True},
+            {"family": "inet6", "local": "2001:db8::3", "prefixlen": 64, "flags": ["dadfailed"]}]}]
+        with patch("simpleoffice_network_gateway.platform_kind", return_value="linux"), patch("simpleoffice_network_gateway._run", side_effect=[{"ok": True, "stdout": json.dumps(data)}, {"ok": True, "stdout": "[]"}]):
+            snapshot = interfaces_snapshot()
+        self.assertEqual([4, 6], snapshot["address_families"])
+        self.assertEqual(["192.168.50.1/24", "2001:db8::1/64"], snapshot["interfaces"][0]["addresses"])
+
+    def test_ipv6_normalization_scope_and_unknown_family_coverage(self):
+        snapshot = {**UP, "address_families": [4, 6], "interfaces": [{"index": 2, "name": "lan", "state": "UP", "addresses": ["fe80::1/64", "2001:db8::1/64"]}]}
+        for value in ("2001:0db8:0:0:0:0:0:1", "fe80::1%lan", "fe80::1%2"):
+            self.assertTrue(binding_available({"bind": value}, snapshot, addresses=("bind",)))
+        for value in ("2001:db8::2", "fe80::1%other", "fe80::1%3"):
+            self.assertFalse(binding_available({"bind": value}, snapshot, addresses=("bind",)))
+        self.assertTrue(binding_available({"bind": "2001:db8::2"}, DOWN, addresses=("bind",)))
+        self.assertFalse(binding_available({"bind": "2001:db8::1"}, {**snapshot, "interfaces": []}, addresses=("bind",)))
+        self.assertTrue(binding_available({"bind": ["::", "::1"]}, {**snapshot, "interfaces": []}, addresses=("bind",)))
+
+
+class IPv6RecoveryTests(NetworkRecoveryTests):
+    def setUp(self):
+        super().setUp()
+        save_config({"dns": {"enabled": True, "bind": ["2001:db8::1"], "port": 15353}}, self.path)
+
+    def scan(self, snapshot):
+        # Reuse the complete loss/return, explicit-stop and unknown-scan scenarios.
+        snapshot = {**snapshot, "address_families": [4, 6], "interfaces": [
+            {**row, "addresses": ["2001:db8::1/64"]} for row in snapshot.get("interfaces", [])]}
+        super().scan(snapshot)
+
+
 if __name__ == "__main__":
     unittest.main()
