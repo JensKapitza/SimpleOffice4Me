@@ -50,7 +50,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Ressourcenverbrauch | V | V | V | T | V | T | T | T | T | Begrenzte Tasks/Queues/Cache; kein vollständiges RAM-/CPU-Profil |
 | Startzeit | T | T | T | ? | T | ? | ? | ? | ? | Messwerte unten; keine Kaltstartmessung des ganzen Systems |
 | Offline | V | T | V | T | V | V | V | V | V | Lokale Funktionen; DNS-Upstreams/externe Bootziele benötigen ihr Netz |
-| Netzwerkwechsel | V | V | V | T | V | T | T | T | T | IPv4-Binding-Recovery; IPv6 und stille Audiounterbrechung offen |
+| Netzwerkwechsel | V | V | V | T | V | T | T | T | T | IPv4-/IPv6-Binding-Recovery; reale Linkwechsel und stille Audiounterbrechung offen |
 | Discovery | V | V | V | V | T | V | T | T | T | Scan, Zeit, Treffer und Fehler; kein universelles Geräteprotokoll |
 | Service-Interaktion | V | V | V | V | V | V | V | V | V | Ausfallisolation und gemeinsamer Netzwerk-/Audio-Prüfstand |
 | Monitoring | V | V | V | T | V | V | T | T | V | Frischer Heartbeat; reale PCM-Daten statt Prozessbehauptung |
@@ -95,7 +95,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 | AR | ALSA-Ausgänge | Receiver benötigt PulseAudio/PipeWire-Pulse | Vorhandener PCM-Verteiler und virtuelle Mikrofone nutzen diesen Backend | Separaten ALSA-Ausgabepfad nur mit vollständigem Cleanup/Health ergänzen |
 | Gateway | Health/Atomizität | Linux-Regelstruktur/-inhalt geprüft, aktiver Reload über nft-Transaktion; realer Datenpfad und Windows-Atomizität offen | Gemeinsames Forwarding ist nicht Teil der Transaktion; nft fehlt in der Testumgebung | Reale nft-Versionen/Kernel-Paketfluss prüfen und Windows-Reload verbessern |
 | DHCP/Gateway | Automatische Konfiguration | Kein eigenmächtig gewähltes neues DHCP-Netz | Fremde DHCP-Server und vorhandene Netzverwaltung dürfen nicht gestört werden | Konflikterkennung und geführte Auswahl ohne automatische Aktivierung |
-| Netzwerkdienste | IPv6-Netzwechsel | Automatische Bindingprüfung bisher IPv4 | Gemeinsames Inventar liefert IPv4-Adressen | IPv6-Inventar und Linkverlusttests ergänzen |
+| Netzwerkdienste | IPv6-Netzwechsel | Linux-/Windows-Inventar und Binding-Recovery implementiert; reale LAN-/Windows-Abnahme offen | OS-Grenzen im Test gemockt; DHCP/Gateway bleiben IPv4-only | Reale Linkwechsel prüfen; DNS-IPv6-Loopback separat getestet |
 | HTTP/TFTP | Bedienung | Geführter Profileditor umgesetzt; tatsächlicher Booterfolg ungeprüft | Bootdateien und Kernel-Parameter hängen vom Client ab | Reale PXE-Clients mit den angelegten Profilen prüfen |
 | Alle | Mobile/Accessibility | Kein visueller Konformitätsnachweis | Browser blockiert lokale Testseite mit ERR_BLOCKED_BY_CLIENT | Desktop/Tablet/Smartphone/WebView samt Fokus/Kontrast prüfen |
 | Alle | CLI/Logs/Tests | Noch nicht jeder relevante Aspekt gleichwertig | Historische Fachpfade und unvollständige Negativfallabdeckung | Verbleibende T/F/?-Zeilen gezielt abarbeiten |
@@ -197,3 +197,15 @@ Ansage-/Discovery-Funktionen sind maschinenlesbar und in der gemeinsamen Diagnos
 sichtbar. Fehlendes paplay wird auch beim reinen virtuellen Mikrofon vor dem
 Sessionwechsel erkannt. Diese PATH-Prüfung ersetzt keine Hardware-, Codec- oder
 Plattformabnahme; die offenen Punkte der Qualitätsmatrix bleiben bestehen.
+
+### IPv6-Integration und reale Loopback-Sockets
+
+Linux-/Windows-Inventar und IPv6-Bindingprüfung aus #296 in den gemeinsamen
+Audio-Stand übernommen. 55 relevante Netzwerk-/API-/Audio-Tests bestanden.
+`test_dns_ipv6_loopback` prüft echte AF_INET6-Sockets auf ::1: DNS-AAAA über UDP
+und TCP, Start-Idempotenz, Stop und erneuten Start samt geschlossenen Sockets und
+beendeten Listener-Threads. Eine Upstream-Anfrage würde den Test scheitern lassen.
+Freie Ports werden vom OS vergeben (UDP/TCP jeweils eigener Port); keine LAN-
+Pakete oder Systemkonfigurationsänderungen. In dieser Umgebung ohne Skip bestanden.
+Reale Interface-Linkwechsel, identischer Produktionsport und Windows-/Android-
+Geräteabnahme sind damit nicht nachgewiesen. Python-Syntax und Diff geprüft.

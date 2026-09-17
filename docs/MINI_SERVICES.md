@@ -168,3 +168,39 @@ Pakettransport sowie die Abnahme gegen reale unterstützte nft-Versionen. Der
 Reload aktiver Linux-Gateways verwendet nun die vorhandene nft-Transaktion ohne
 vorherigen Stop. Windows und die Recovery nach bestätigtem Healthfehler verwenden
 weiterhin Stop/Start; ein plattformübergreifend atomarer Reload ist nicht umgesetzt.
+
+### Linux-IPv6 bei Netzwerkwechsel
+
+Die vorhandene `ip -j address show`-Abfrage erfasst IPv4 und IPv6. Adressen in
+DAD-Prüfung (`tentative`) oder mit fehlgeschlagener DAD (`dadfailed`) gelten noch
+nicht als nutzbar. Der Snapshot gibt die geprüften Familien explizit als
+`address_families` an. Die Bindingprüfung normalisiert IP-Schreibweisen und
+berücksichtigt bei IPv6 eine angegebene Zone als Interface-Name oder Index.
+
+Geht eine konfigurierte IPv6-Adresse verloren, verwendet der Worker denselben
+waiting-/Stop-/Wiederanlaufpfad wie für IPv4. Eine zurückkehrende Adresse startet
+nur weiterhin angeforderte Dienste neu. Manuelles Stop und unbekanntes Inventar
+behalten ihr bisheriges Verhalten. Diese Prüfung erweitert weder den IPv4-only
+Gateway/DHCP-Backend noch automatisch die Socket-Fähigkeiten anderer Dienste.
+Ältere Snapshots bestätigen weiterhin nur IPv4; fehlende IPv6-Daten werden dort
+nicht als Adressverlust ausgelegt. Reale IPv6-LAN- und Windows-Abnahme bleiben offen. Keine neue Dependency und kein zusätzlicher Netzwerkdienst.
+
+### Windows-IPv6-Inventar
+
+Windows verwendet nun `Get-NetIPConfiguration -All` zusammen mit
+`Get-NetIPAddress`, ausschließlich lesend im bestehenden PowerShell-Aufruf mit
+drei Sekunden Timeout. Damit werden auch virtuelle und getrennte Interfaces
+sowie IPv6 erfasst. IPv4-Standardrouten bleiben Grundlage der IPv4-Gateway-Auswahl.
+
+Preferred- und Deprecated-Adressen bleiben im Binding-Inventar; Invalid,
+Tentative und Duplicate werden ausgeschlossen. Deprecated bedeutet dabei nicht,
+dass die Adresse für neue Verbindungen bevorzugt wird. IPv6-Zonen verwenden die
+bestehende Prüfung nach Interface-Name oder Index. Leere, erfolgreich gelesene
+Adresslisten können Verlust bestätigen; fehlerhafte Daten, unbekannte Zustände
+oder Adressen ohne zugeordnetes Interface markieren den gesamten Scan als
+unbekannt und stoppen keine laufenden Dienste. Legacy-Snapshots bleiben IPv4-only.
+
+Tests decken Scope, Verlust, DAD-Status, getrennte Interfaces und fehlerhafte
+Antworten ohne Windows-Hardware ab. Reale Windows-/PowerShell-Abnahme bleibt offen.
+Referenzen: [Get-NetIPConfiguration](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipconfiguration)
+und [Get-NetIPAddress](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipaddress).
