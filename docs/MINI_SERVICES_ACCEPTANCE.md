@@ -24,7 +24,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Autostart | V | V | V | V | V | V | V | V | V | Persistente Präferenzen; DHCP/Gateway und Mikrofonfreigabe bewusst aktivieren |
 | Abhängigkeiten | V | V | V | T | V | V | T | T | T | Worker/Web-Eigentümer explizit; Audio-Programme nach erforderlichen/bedingten Funktionen erkannt; übrige Systemwerkzeuge noch nicht vollständig modelliert |
 | Hardwareerkennung | – | – | – | V | V | – | T | T | T | Interfaces, Pulse, ALSA- und DirectShow-Mikrofone; Windows-Systemstandard verfügbar; keine Windows-Ausgangserkennung |
-| Netzwerkdiensterkennung | T | T | T | V | T | T | F | T | T | Bestehende LAN-Profile für aktive Desktop-RTP-Empfänger; fremde Player nicht entdeckt |
+| Netzwerkdiensterkennung | T | T | T | V | T | T | T | T | T | Bestehende LAN-Profile für aktive Desktop-RTP-Empfänger; fremde Player nicht entdeckt |
 | Konfiguration | V | V | V | V | V | V | V | V | V | Bestehende JSON-/SQLite-Speicher; Audio jetzt persistent |
 | Standardwerte | V | V | V | V | V | V | V | V | V | Sichere Bindings/Opt-in; DHCP-Netz nicht automatisch erraten |
 | Validierung | V | V | V | V | V | V | V | V | V | Vor Start/Änderung; Audio-Portpaar und boolesche Schalter geprüft |
@@ -90,7 +90,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 |---|---|---|---|---|
 | AS/AR | Windows | DirectShow-Sender und FFplay-Receiver implementiert; nur Systemstandard-Ausgabe | Gezielte Windows-Geräteauswahl und virtuelle Mikrofone fehlen; Hardwareabnahme offen | Windows-Hardwareabnahme; gezielte Ausgänge gesondert prüfen |
 | AS/AR | Android | Build und reale Hintergrund-/Geräteprüfung offen | Gradle/SDK hier nicht vorhanden; keine Installation freigegeben | In vorhandener Android-Buildumgebung bauen, anschließend Gerätetest |
-| AO | Remote-Ausgabe | Definitionen ohne Transport sind nicht abspielbar | Register ist kein Audio-Transport | Echten unterstützten Transport anbinden; DLNA bleibt #285 |
+| AO | Remote-Ausgabe | Explizite RTP/Opus-Bindung, Suche und Versand implementiert; Empfang unbestätigt | Bestehendes RTP-Protokoll bietet weder Verschlüsselung noch Wiedergabebestätigung; nur vertrauenswürdiges privates IPv4-Netz | Reale Empfänger-/Lautsprecherabnahme; DLNA bleibt #285 |
 | AS | Discovery | Fremde RTP-Player werden nicht erkannt | Sie veröffentlichen kein SimpleOffice-Profil | Nur tatsächlich verfügbare Protokolle ergänzen; manuelle Ziele bleiben |
 | AR | ALSA-Ausgänge | Receiver benötigt PulseAudio/PipeWire-Pulse | Vorhandener PCM-Verteiler und virtuelle Mikrofone nutzen diesen Backend | Separaten ALSA-Ausgabepfad nur mit vollständigem Cleanup/Health ergänzen |
 | Gateway | Health/Atomizität | Linux-Regelstruktur/-inhalt geprüft, aktiver Reload über nft-Transaktion; realer Datenpfad und Windows-Atomizität offen | Gemeinsames Forwarding ist nicht Teil der Transaktion; nft fehlt in der Testumgebung | Reale nft-Versionen/Kernel-Paketfluss prüfen und Windows-Reload verbessern |
@@ -234,3 +234,24 @@ mit Handlungshinweis statt stiller Werteänderung. 55 relevante Audio-Tests
 bestanden, einschließlich persistenter Grenzwerte, unveränderter Datensätze bei
 Fehlern sowie Admin-/CSRF-Schutz. Python-Syntax und Diff geprüft. Kein neuer
 Gesamtlauf und kein Remote-Transportnachweis; externe Audio-Nodes bleiben offen.
+
+## Entfernte Durchsagen über bestehenden RTP-Empfänger
+
+Ausgaberegister um explizite RTP/Opus-Bindung erweitert, vorhandene SQLite-Daten
+werden migriert. Ungebundene Alt-Nodes bleiben unverändert ohne Transport.
+Durchsagen-Worker verwendet bestehendes FFmpeg, Lautstärkeanpassung, begrenzte
+Prozesslaufzeit, Stop/Cleanup und Nichtwiederholung teilweise gesendeter Aufträge.
+Doppelte RTP-Empfänger innerhalb einer Gruppe werden vor Prozessstart abgewiesen.
+Admin-/CSRF-API, bestehende LAN-Suche, manuelle Zielwahl und persistente Speicherung
+sind in der Audio-Seite verfügbar. Versandstatus `sent-unconfirmed` behauptet
+keine physische Wiedergabe. Private IPv4-Adressen/Loopback sind zulässig; RTP
+bleibt unverschlüsselt und ohne Peer-Authentifizierung, daher nur vertraute Netze.
+Keine neue Dependency, kein zusätzlicher Listener oder Service-Manager.
+
+85 relevante Tests bestanden, einschließlich echtem RTP/Opus-Langstream und
+kurzem Gong über Loopback in den bestehenden Decoder. Anschließend neun
+Transport-Tests bestanden, darin zwei Node-Runtimefälle für Suche/Auswahl,
+CSRF-geschützte Registrierung und Fehlerfeedback. Tests prüfen Migration,
+Validierung, gemischte Gruppen, Stop, fehlendes FFmpeg, Prozessfehler und
+Nichtwiederholung. Python-/JavaScript-Syntax und Diff geprüft. Reale Hardware,
+Ende-zu-Ende-Bestätigung, Audio über IPv6 und visuelle Abnahme bleiben offen.

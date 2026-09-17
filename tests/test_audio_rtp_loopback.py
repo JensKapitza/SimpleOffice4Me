@@ -8,10 +8,48 @@ import unittest
 from pathlib import Path
 
 from app.audio_streamer import decoder_command, receiver_sdp
+from app.audio_output_engine import render_preset
+from app.audio_output_transport import announcement_command
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "Existing optional ffmpeg is unavailable")
 class AudioRtpLoopbackTests(unittest.TestCase):
+    def test_short_announcement_reaches_existing_receiver(self):
+        encoders = subprocess.run([shutil.which("ffmpeg"), "-hide_banner", "-encoders"], capture_output=True, timeout=5, check=True).stdout
+        if b"libopus" not in encoders:
+            self.skipTest("Existing ffmpeg has no libopus encoder")
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as first, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as second:
+            first.bind(("127.0.0.1", 0))
+            port = first.getsockname()[1]
+            if port >= 65535:
+                self.skipTest("No adjacent RTCP port")
+            try:
+                second.bind(("127.0.0.1", port + 1))
+            except OSError:
+                self.skipTest("Adjacent RTCP port is busy")
+        with tempfile.TemporaryDirectory() as temp:
+            sdp = Path(temp) / "stream.sdp"
+            sdp.write_text(receiver_sdp(port))
+            command = decoder_command(sdp, "127.0.0.1")
+            command[-1:-1] = ["-t", "0.2"]
+            receiver = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                time.sleep(0.2)
+                path = render_preset("gong", temp)
+                subprocess.run(announcement_command(path, {"kind": "rtp-udp", "host": "127.0.0.1", "port": port}),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=8, check=True)
+                pcm, errors = receiver.communicate(timeout=5)
+                self.assertEqual(0, receiver.returncode, errors.decode(errors="replace"))
+                self.assertGreater(len(pcm), 10000)
+                self.assertTrue(any(pcm))
+            finally:
+                if receiver.poll() is None:
+                    receiver.terminate()
+                try:
+                    receiver.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    receiver.kill(); receiver.communicate(timeout=3)
+
     def test_opus_stream_decodes_to_pcm_on_loopback(self):
         ffmpeg = shutil.which("ffmpeg")
         encoders = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, timeout=5, check=True).stdout

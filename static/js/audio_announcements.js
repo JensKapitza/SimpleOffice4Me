@@ -27,7 +27,7 @@
     const data = await request('');
     const select = get('announcement-target'), current = select.value;
     const previous = JSON.stringify(Array.from(select.options).slice(1).map(option => [option.value, option.text]));
-    const options = data.outputs.filter(output => output.node_id === 'local').map(output => ({id: output.output_id, name: output.name + (output.online ? '' : ' (offline)')}));
+    const options = data.outputs.filter(output => output.node_id === 'local' || (output.transport && output.transport.kind === 'rtp-udp')).map(output => ({id: output.output_id, name: output.name + (output.online ? '' : ' (offline)')}));
     data.groups.forEach(group => options.push({id: group.group_id, name: 'Gruppe: ' + group.name}));
     if (JSON.stringify(options.map(option => [option.id, option.name])) !== previous) {
       while (select.firstChild) select.removeChild(select.firstChild);
@@ -43,7 +43,7 @@
     const labels = {queued: '◷ Wartet', playing: '● Spielt', done: '✓ Abgeschlossen', failed: '⚠ Fehlgeschlagen', cancelled: '■ Abgebrochen'};
     data.queue.slice(0, 20).forEach(job => {
       const row = document.createElement('p');
-      row.textContent = '#' + job.id + ' · ' + (labels[job.state] || job.state) + ' · ' + job.kind + (job.error ? ' · ' + job.error : '');
+      row.textContent = '#' + job.id + ' · ' + (labels[job.state] || job.state) + ' · ' + job.kind + (job.error ? ' · ' + job.error : '') + (job.delivery === 'sent-unconfirmed' ? ' · Remote-Ziele: Versand beendet; Empfang nicht bestätigt.' : '');
       if (job.state === 'queued') {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-sm btn-outline-secondary ms-2';
         button.textContent = 'Abbrechen'; button.addEventListener('click', () => act('/queue/' + job.id + '/cancel', {})); row.appendChild(button);
@@ -72,5 +72,6 @@
   get('announcement-save').addEventListener('click', () => act('/settings', {enabled: get('announcement-enabled').checked, autostart: get('announcement-autostart').checked, retry_limit: Number(get('announcement-retries').value)}));
   request('/settings').then(data => { get('announcement-enabled').checked = data.enabled; get('announcement-autostart').checked = data.autostart; get('announcement-retries').value = data.retry_limit; }).catch(error => show(error.message, true));
   const poll = async () => { if (!busy && !document.hidden) { try { await refresh(); } catch (error) { show(error.message, true); } } setTimeout(poll, 3000); };
+  window.addEventListener('simpleoffice:audio-output-saved', () => refresh().catch(error => show(error.message, true)));
   poll();
 })();

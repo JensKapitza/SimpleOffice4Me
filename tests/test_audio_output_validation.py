@@ -72,5 +72,13 @@ class AudioOutputValidationTests(unittest.TestCase):
                 result = client.post("/admin/mini-services/audio/" + path,
                                      json={**data, "targets": ["speaker"], "priority": "50"}, headers=headers)
                 self.assertEqual(400, result.status_code)
+            remote = {"node_id": "remote", "output_id": "remote-speaker", "transport": {"kind": "rtp-udp", "host": "192.168.1.20", "port": 5004}}
+            self.assertEqual(403, client.post(url, json=remote).status_code)
+            registered = client.post(url, json=remote, headers=headers)
+            self.assertEqual(201, registered.status_code)
+            self.assertEqual(remote["transport"], registered.json["transport"])
+            remote["transport"]["host"] = "8.8.8.8"
+            self.assertEqual(400, client.post(url, json=remote, headers=headers).status_code)
+            self.assertEqual("192.168.1.20", self.store.output("remote", "remote-speaker")["transport"]["host"])
             user["is_admin"] = False
             self.assertEqual(403, client.post(url, json=payload, headers=headers).status_code)

@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from .audio_output_transport import validate_transport
+
 
 DEFAULT_PRESETS = {
     "gong": {"kind": "sound", "asset": "gong.wav", "priority": 50},
@@ -94,8 +96,11 @@ class AudioOutputStore:
                 """
             )
             db.execute("BEGIN IMMEDIATE")
+            output_columns = {row[1] for row in db.execute("PRAGMA table_info(audio_output_node)")}
+            if "transport_json" not in output_columns:
+                db.execute("ALTER TABLE audio_output_node ADD COLUMN transport_json TEXT NOT NULL DEFAULT '{}'")
             columns = {row[1] for row in db.execute("PRAGMA table_info(audio_announcement)")}
-            for column, definition in (("attempts", "INTEGER NOT NULL DEFAULT 0"), ("next_attempt_at", "REAL NOT NULL DEFAULT 0")):
+            for column, definition in (("attempts", "INTEGER NOT NULL DEFAULT 0"), ("next_attempt_at", "REAL NOT NULL DEFAULT 0"), ("delivery", "TEXT NOT NULL DEFAULT ''")):
                 if column not in columns:
                     db.execute(f"ALTER TABLE audio_announcement ADD COLUMN {column} {definition}")
 
@@ -112,9 +117,10 @@ class AudioOutputStore:
             raise ValueError(f"{label} muss eine ganze Zahl zwischen {minimum} und {maximum} sein")
         return value
 
-    def register_output(self, node_id: str, output_id: str, name: str, *, device: str = "", channels: int = 2, online: bool = True, volume: int = 100) -> dict:
+    def register_output(self, node_id: str, output_id: str, name: str, *, device: str = "", channels: int = 2, online: bool = True, volume: int = 100, transport: dict | None = None) -> dict:
         node = self._clean_id(node_id, "node_id")
         output = self._clean_id(output_id, "output_id")
+        transport = validate_transport(transport, node)
         label = str(name or output).strip()[:200]
         channels = self._integer(channels, "Kanäle", 1, 16)
         volume = self._integer(volume, "Lautstärke", 0, 100)
@@ -124,12 +130,12 @@ class AudioOutputStore:
             raise ValueError("Gerät muss Text mit höchstens 500 Zeichen ohne Steuerzeichen sein")
         with self._db() as db:
             db.execute(
-                """INSERT INTO audio_output_node(node_id,output_id,name,device,channels,online,volume,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?)
+                """INSERT INTO audio_output_node(node_id,output_id,name,device,channels,online,volume,updated_at,transport_json)
+                   VALUES(?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(node_id,output_id) DO UPDATE SET
                      name=excluded.name,device=excluded.device,channels=excluded.channels,
-                     online=excluded.online,volume=excluded.volume,updated_at=excluded.updated_at""",
-                (node, output, label, device, channels, int(online), volume, _now()),
+                     online=excluded.online,volume=excluded.volume,updated_at=excluded.updated_at,transport_json=excluded.transport_json""",
+                (node, output, label, device, channels, int(online), volume, _now(), json.dumps(transport)),
             )
         return self.output(node, output)
 
@@ -140,12 +146,19 @@ class AudioOutputStore:
             raise KeyError("Audio-Ausgang nicht gefunden")
         result = dict(row)
         result["online"] = bool(result["online"])
+        result["transport"] = json.loads(result.pop("transport_json"))
         return result
 
     def outputs(self) -> list[dict]:
         with self._db() as db:
             rows = db.execute("SELECT * FROM audio_output_node ORDER BY node_id,name,output_id").fetchall()
-        return [{**dict(row), "online": bool(row["online"])} for row in rows]
+        results = []
+        for row in rows:
+            item = dict(row)
+            item["online"] = bool(item["online"])
+            item["transport"] = json.loads(item.pop("transport_json"))
+            results.append(item)
+        return results
 
     def sync_local_outputs(self, devices: list[dict]) -> list[dict]:
         """Update only discovered local records, preserving names and volume."""
@@ -245,12 +258,14 @@ class AudioOutputStore:
             db.execute("UPDATE audio_announcement SET state='playing',started_at=?,attempts=attempts+1 WHERE id=?", (_now(), row["id"]))
         return self.announcement(row["id"])
 
-    def finish(self, ident, *, state="done", error="", retry_seconds=0):
+    def finish(self, ident, *, state="done", error="", retry_seconds=0, delivery=""):
+        if delivery not in {"", "sent-unconfirmed"}:
+            raise ValueError("Ungültiger Übertragungsstatus")
         if state not in {"done", "failed", "cancelled", "queued"}:
             raise ValueError("Ungültiger Auftragsstatus")
         with self._db() as db:
-            db.execute("UPDATE audio_announcement SET state=?,error=?,finished_at=?,next_attempt_at=? WHERE id=? AND state='playing'",
-                (state, error[:300], None if state == "queued" else _now(), time.time() + retry_seconds, int(ident)))
+            db.execute("UPDATE audio_announcement SET state=?,error=?,finished_at=?,next_attempt_at=?,delivery=? WHERE id=? AND state='playing'",
+                (state, error[:300], None if state == "queued" else _now(), time.time() + retry_seconds, delivery, int(ident)))
             db.execute("DELETE FROM audio_announcement WHERE state IN ('done','failed','cancelled') AND id NOT IN (SELECT id FROM audio_announcement ORDER BY id DESC LIMIT 1000)")
 
     def cancel(self, ident):
@@ -268,6 +283,9 @@ class AudioOutputStore:
         return [self.announcement(row["id"]) for row in rows]
 
     def local_targets(self, targets):
+        return self.playback_targets(targets, allow_remote=False)
+
+    def playback_targets(self, targets, *, allow_remote=True):
         groups = {group["group_id"]: group["members"] for group in self.groups()}
         outputs = self.outputs()
         selected = {}
@@ -286,15 +304,23 @@ class AudioOutputStore:
             if len(matches) != 1:
                 raise ValueError("Audio-Ziel ist nicht vorhanden oder nicht eindeutig")
             row = matches[0]
-            if row["node_id"] != "local":
+            if row["node_id"] != "local" and (not allow_remote or not validate_transport(row["transport"], row["node_id"])):
                 raise ValueError("Für diesen externen Audioknoten ist kein Wiedergabe-Transport eingerichtet")
             if not row["online"]:
-                raise OSError("Lokaler Audio-Ausgang ist offline")
+                raise OSError("Audio-Ausgang ist offline")
             selected[target] = row
             if len(selected) > 16:
-                raise ValueError("Höchstens 16 lokale Ausgänge pro Auftrag")
+                raise ValueError("Höchstens 16 Ausgänge pro Auftrag")
         for target in targets:
             expand(target, set())
         if not selected:
             raise ValueError("Kein Audio-Ausgang ausgewählt")
+        endpoints = set()
+        for output in selected.values():
+            transport = output.get("transport")
+            if output["node_id"] != "local" and transport:
+                endpoint = (transport["host"], transport["port"])
+                if endpoint in endpoints:
+                    raise ValueError("Mehrere Ausgänge verwenden denselben RTP-Empfänger; Gruppe korrigieren")
+                endpoints.add(endpoint)
         return list(selected.values())

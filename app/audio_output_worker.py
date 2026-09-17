@@ -199,7 +199,7 @@ class AudioOutputWorker:
         started_playback = False
         playback_files = ExitStack()
         try:
-            outputs = store.local_targets(job["targets"])
+            outputs = store.playback_targets(job["targets"])
             payload = job["payload"]
             cache = store.root / "rendered"
             if job["kind"] == "sound":
@@ -214,7 +214,7 @@ class AudioOutputWorker:
             commands = []
             adjusted_files = {}
             for output in outputs:
-                if output["output_id"].startswith("discovered-"):
+                if output["node_id"] == "local" and output["output_id"].startswith("discovered-"):
                     player = shutil.which("paplay")
                     if not player:
                         raise RuntimeError("paplay fehlt für den erkannten PulseAudio-Ausgang")
@@ -224,7 +224,11 @@ class AudioOutputWorker:
                     if volume not in adjusted_files:
                         adjusted_files[volume] = playback_files.enter_context(attenuated_audio(path, volume, cancel_event=self.stop_event))
                     adjusted = adjusted_files[volume]
-                    commands.append(playback_command(adjusted, output["device"]))
+                    if output["node_id"] == "local":
+                        commands.append(playback_command(adjusted, output["device"]))
+                    else:
+                        from .audio_output_transport import announcement_command
+                        commands.append(announcement_command(adjusted, output["transport"]))
             with self.lock:
                 for command in commands:
                     if self.stop_event.is_set():
@@ -241,7 +245,7 @@ class AudioOutputWorker:
             elif not started_playback or any(process.returncode != 0 for process in self.processes):
                 raise RuntimeError("Audio-Player hat die Wiedergabe abgebrochen")
             else:
-                store.finish(job["id"])
+                store.finish(job["id"], delivery="sent-unconfirmed" if any(output["node_id"] != "local" for output in outputs) else "")
         except Exception as exc:
             self.state.last_error = error_detail(exc)
             self.state.last_error_at = time.time()

@@ -32,6 +32,7 @@ def audio_dependencies(service, settings):
         elif not windows:
             add(["pactl"], False, "Lautsprecher automatisch suchen")
     elif service == "output":
+        add(["ffmpeg"], False, "Durchsagen an gebundene RTP/Opus-Empfänger senden")
         add(["pactl"], False, "Lokale PulseAudio-Ausgänge automatisch suchen")
         add(["paplay"], False, "Ansagen auf automatisch erkannten Ausgängen wiedergeben")
         add(["pw-play", "aplay", "ffplay"], False, "Ansagen auf manuell eingetragenen lokalen Ausgängen wiedergeben")

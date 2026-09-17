@@ -22,7 +22,7 @@
       <label for="announcement-target" class="form-label">Ausgang oder Gruppe</label>
       <select id="announcement-target" class="form-select mb-2">
         <option value="">Bitte auswählen oder Ausgänge scannen</option>
-        {% for output in outputs if output.node_id == 'local' %}<option value="{{ output.output_id }}">{{ output.name }}{{ '' if output.online else ' (offline)' }}</option>{% endfor %}
+        {% for output in outputs if output.node_id == 'local' or output.transport %}<option value="{{ output.output_id }}">{{ output.name }}{{ '' if output.online else ' (offline)' }}</option>{% endfor %}
         {% for group in groups %}<option value="{{ group.group_id }}">Gruppe: {{ group.name }}</option>{% endfor %}
       </select>
       <label for="announcement-text" class="form-label">Text sprechen</label>
@@ -56,6 +56,28 @@
     </div>
   </section>
 
+  <section class="card mb-4" id="announcement-remote" data-scan-url="{{ url_for('audio_streamer_admin.targets_scan') }}">
+    <div class="card-body">
+      <h2 class="h5">Entfernten RTP-Empfänger verbinden</h2>
+      <p id="announcement-remote-help">Der Audio-Streamer auf dem Ziel muss bereits empfangen. RTP ist unverschlüsselt und ohne Authentifizierung: nur in vertrauenswürdigen privaten Netzen verwenden. Ein abgeschlossener Sendeauftrag bestätigt keine hörbare Wiedergabe. Keine gleichzeitigen Sender auf demselben Empfänger verwenden.</p>
+      <button type="button" class="btn btn-outline-primary" id="announcement-remote-scan">Empfänger suchen</button>
+      <label for="announcement-remote-select" class="form-label mt-2">Gefundene Empfänger</label>
+      <select id="announcement-remote-select" class="form-select"><option value="">Suchen oder manuell eingeben</option></select>
+      <div id="announcement-remote-status" class="mt-2" role="status" aria-live="polite">Noch nicht gesucht.</div>
+      <form id="announcement-remote-form" class="mt-3" aria-describedby="announcement-remote-help">
+        <label for="announcement-remote-name" class="form-label">Name</label>
+        <input id="announcement-remote-name" class="form-control mb-2" maxlength="200" required>
+        <label for="announcement-remote-host" class="form-label">Private IPv4-Adresse des Empfängers</label>
+        <input id="announcement-remote-host" class="form-control mb-2" inputmode="decimal" required>
+        <label for="announcement-remote-port" class="form-label">RTP-Port (Folgeport für RTCP)</label>
+        <input id="announcement-remote-port" class="form-control mb-2" type="number" min="1024" max="65534" value="5004" required>
+        <label for="announcement-remote-volume" class="form-label">Lautstärke in Prozent</label>
+        <input id="announcement-remote-volume" class="form-control mb-2" type="number" min="0" max="100" value="100" required>
+        <button type="submit" class="btn btn-primary">Empfänger speichern</button>
+      </form>
+    </div>
+  </section>
+
   <div class="row g-3 mb-4">
     <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ausgänge</div><div class="fs-3">{{ outputs|length }}</div><div class="small">{{ outputs|selectattr('online')|list|length }} online</div></div></div></div>
     <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Gruppen</div><div class="fs-3">{{ groups|length }}</div></div></div></div>
@@ -67,7 +89,7 @@
       <div class="card h-100">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><strong>Audioausgänge</strong>{% if outputs %}<div class="d-flex flex-wrap align-items-center gap-2"><span class="badge text-bg-secondary" id="audio-output-filter-count">{{ outputs|length }}</span><label class="visually-hidden" for="audio-output-filter">Audioausgänge filtern</label><input class="form-control form-control-sm" id="audio-output-filter" type="search" autocomplete="off" placeholder="Node, Ausgang oder Name" style="min-width:15rem"><select class="form-select form-select-sm" id="audio-output-status-filter" aria-label="Audiostatus filtern" style="width:auto"><option value="all">Alle</option><option value="online">Online</option><option value="offline">Offline</option></select></div>{% endif %}</div>
         <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Node</th><th scope="col">Ausgang</th><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Lautstärke</th></tr></thead><tbody>
-          {% for output in outputs %}<tr data-audio-output-row data-status="{{ 'online' if output.online else 'offline' }}" data-search="{{ (output.node_id ~ ' ' ~ output.output_id ~ ' ' ~ output.name ~ ' ' ~ output.device ~ ' ' ~ output.volume)|lower }}"><td><code>{{ output.node_id }}</code></td><td><code>{{ output.output_id }}</code></td><td>{{ output.name }}</td><td><span class="badge text-bg-{{ 'success' if output.online else 'secondary' }}">{{ 'online' if output.online else 'offline' }}</span></td><td>{{ output.volume }} %</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Audioausgänge registriert.</td></tr>{% endfor %}<tr id="audio-output-filter-empty" hidden><td colspan="5" class="text-secondary py-3 text-center">Kein Audioausgang passt zum Filter.</td></tr>
+          {% for output in outputs %}<tr data-audio-output-row data-status="{{ 'online' if output.online else 'offline' }}" data-search="{{ (output.node_id ~ ' ' ~ output.output_id ~ ' ' ~ output.name ~ ' ' ~ output.device ~ ' ' ~ output.volume)|lower }}"><td><code>{{ output.node_id }}</code></td><td><code>{{ output.output_id }}</code></td><td>{{ output.name }}</td><td><span class="badge text-bg-{{ 'success' if output.online else 'secondary' }}">{{ 'Konfiguriert – Empfang ungeprüft' if output.transport and output.online else 'online' if output.online else 'offline' }}</span></td><td>{{ output.volume }} %</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Audioausgänge registriert.</td></tr>{% endfor %}<tr id="audio-output-filter-empty" hidden><td colspan="5" class="text-secondary py-3 text-center">Kein Audioausgang passt zum Filter.</td></tr>
         </tbody></table></div>
       </div>
     </section>
@@ -93,5 +115,6 @@
 </main>
 <script src="{{ url_for('static', filename='js/audio_output_scan.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/audio_announcements.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/audio_output_remote.js') }}" defer></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 {% endblock %}

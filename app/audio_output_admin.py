@@ -66,7 +66,7 @@ def register_output():
         result = _store().register_output(
             data.get("node_id", ""), data.get("output_id", ""), data.get("name", ""),
             device=data.get("device", ""), channels=data.get("channels", 2),
-            online=data.get("online", True), volume=data.get("volume", 100),
+            online=data.get("online", True), volume=data.get("volume", 100), transport=data.get("transport"),
         )
     except (ValueError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 400
