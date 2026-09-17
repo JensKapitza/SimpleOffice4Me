@@ -64,7 +64,7 @@
       <label for="announcement-remote-select" class="form-label mt-2">Gefundene Empfänger</label>
       <select id="announcement-remote-select" class="form-select"><option value="">Suchen oder manuell eingeben</option></select>
       <div id="announcement-remote-status" class="mt-2" role="status" aria-live="polite">Noch nicht gesucht.</div>
-      <form id="announcement-remote-form" class="mt-3" aria-describedby="announcement-remote-help">
+      <form id="announcement-remote-form" method="post" action="{{ url_for('audio_output_admin.register_output') }}" class="mt-3" aria-describedby="announcement-remote-help">
         <label for="announcement-remote-name" class="form-label">Name</label>
         <input id="announcement-remote-name" class="form-control mb-2" maxlength="200" required>
         <label for="announcement-remote-host" class="form-label">Private IPv4-Adresse des Empfängers</label>

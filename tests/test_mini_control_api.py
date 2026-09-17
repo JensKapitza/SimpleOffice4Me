@@ -79,6 +79,21 @@ class MiniApiTests(unittest.TestCase):
         result = subprocess.run([shutil.which("node"), "--test", str(script)], capture_output=True, text=True, timeout=30)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_sender_scan_uses_configured_backend_and_safe_configuration_errors(self):
+        url = "/api/mini-services/audio-sender/scan"
+        for backend in ("pulse", "alsa", "dshow"):
+            with self.subTest(backend=backend), patch("app.audio_streamer_config.settings", return_value={"backend": backend}), patch("app.audio_output_discovery.discover_microphone_inputs", return_value=[{"id": "mic", "backend": backend}]) as scan:
+                result = self.client.post(url, json={}, headers=self.headers)
+                self.assertEqual(200, result.status_code)
+                scan.assert_called_once_with(backend)
+                self.assertEqual(backend, result.json["targets"][0]["backend"])
+        with patch("app.audio_streamer_config.settings", side_effect=ValueError("secret-setting")), patch("app.audio_output_discovery.discover_microphone_inputs") as scan:
+            result = self.client.post(url, json={}, headers=self.headers)
+        self.assertEqual(503, result.status_code)
+        self.assertNotIn("secret-setting", result.get_data(as_text=True))
+        self.assertEqual("failed", ControlStore(self.path).scan("audio-sender")["state"])
+        scan.assert_not_called()
+
     def test_audio_scan_publishes_progress_and_records_storage_failure(self):
         store = ControlStore(self.path)
         def discover():

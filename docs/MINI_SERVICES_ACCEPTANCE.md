@@ -255,3 +255,29 @@ CSRF-geschützte Registrierung und Fehlerfeedback. Tests prüfen Migration,
 Validierung, gemischte Gruppen, Stop, fehlendes FFmpeg, Prozessfehler und
 Nichtwiederholung. Python-/JavaScript-Syntax und Diff geprüft. Reale Hardware,
 Ende-zu-Ende-Bestätigung, Audio über IPv6 und visuelle Abnahme bleiben offen.
+
+### Gemeinsame Mikrofon-Discovery
+
+Die Hub-Suche verwendet jetzt das gespeicherte Capture-Backend (PulseAudio,
+ALSA oder DirectShow) statt unabhängig davon automatisch ein anderes Backend
+auszuwählen. Ungültige Einstellungen erzeugen einen gespeicherten fehlgeschlagenen
+Scan mit sicherer Diagnose. 42 API-/Discovery-/Lifecycle-Tests bestanden.
+Der Gesamtlauf fand zunächst eine fehlende HTTP-Methode am neuen RTP-Formular;
+diese ist korrigiert. Anschließend bestanden 47 gezielte Accessibility-,
+Routen-, Transport- und API-Tests.
+
+CI-Abgleich: Auf Audio-Commit fd52a988 sind Android-APK, Desktop, Docker,
+Tests/Dependency-Audit und Security-Quick-Wins erfolgreich. Auf Screen-Commit
+34bd7f9d sind alle acht gemeldeten Workflows erfolgreich, einschließlich Android,
+Desktop, Tests/Audit und CodeQL. Diese Nachweise beziehen sich auf die genannten
+Commits, nicht auf spätere Änderungen oder reale Hardware.
+
+### Gesamtlauf nach RTP- und Discovery-Korrekturen
+
+1.726 Unittests in 160,102 Sekunden erfolgreich, 10 übersprungen. Enthalten sind
+RTP-Transport, echter kurzer Gong/Opus-Loopback, Migration, API/Berechtigungen,
+Frontend-Runtimefälle, konfigurierte Mikrofon-Discovery und Formsemantik.
+Python-/JavaScript-Syntax sowie Diff geprüft. Kein Nachweis für separat definierte
+pytest-Funktionen oder reale Hardware-/Mobile-Abnahme. Auf dem RTP-Commit
+f5e791a9 sind zusätzlich Android-APK, Desktop, Docker und Security-Quick-Wins
+in CI erfolgreich; Tests/Audit waren beim Abruf noch in Arbeit.
