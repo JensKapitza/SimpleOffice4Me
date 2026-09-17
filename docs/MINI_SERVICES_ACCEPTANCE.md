@@ -39,7 +39,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Berechtigungen | V | V | V | V | V | V | V | V | V | Admin/CSRF; privilegierter Netzwerkworker bleibt getrennt |
 | Security | T | T | T | T | T | T | T | T | T | Gezielte Regressionstests; kein vollständiger Security-Audit behauptet |
 | Dokumentation | V | V | V | V | V | V | V | V | V | Gleiche Betriebskapitel, Optionen und technische Grenzen dokumentiert |
-| Inline-Hilfe | T | T | T | T | V | T | T | T | T | Erweiterte Optionen noch nicht überall gleich gut erklärt |
+| Inline-Hilfe | T | T | T | T | V | T | T | T | T | Aktiviert/Autostart im Hub erklärt und Fachseiten direkt verlinkt; erweiterte Optionen noch uneinheitlich |
 | Beispiele | V | V | V | V | V | V | V | V | V | Handbücher enthalten Betriebsabläufe und Konfigurationsbeispiele |
 | Tests | T | T | T | T | T | T | T | T | T | Umfang erweitert; gesamte verlangte Fehlermatrix nicht pro Plattform nachgewiesen |
 | Plattformangaben | V | V | V | V | V | V | V | V | V | Unterstützung und Grenzen ausdrücklich benannt |

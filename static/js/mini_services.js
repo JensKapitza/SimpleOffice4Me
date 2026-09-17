@@ -3,6 +3,7 @@
   const root = document.getElementById('mini-service-control');
   if (!root) return;
   const base = root.dataset.api;
+  const settingsLinks = JSON.parse(root.dataset.settingsLinks || '{}');
   const feedback = document.getElementById('mini-feedback');
   const cards = document.getElementById('mini-control-cards');
   const labels = {unavailable: '○ Nicht erreichbar', stopped: '■ Gestoppt', starting: '↻ Startet',
@@ -100,6 +101,13 @@
       button.type = 'button'; button.setAttribute('aria-label', `${service.name}: ${label}`);
       button.addEventListener('click', () => perform(service.id, key)); actions.appendChild(button);
     });
+    const settingsUrl = settingsLinks[service.id];
+    if (typeof settingsUrl === 'string' && /^\/(?!\/)/.test(settingsUrl) && !/[\\\x00-\x20]/.test(settingsUrl)) {
+      const link = text('a', 'Konfiguration öffnen', 'btn btn-outline-secondary');
+      link.href = settingsUrl;
+      link.setAttribute('aria-label', `${service.name}: Konfiguration öffnen`);
+      actions.appendChild(link);
+    }
     body.appendChild(actions);
     const settings = text('details', ''); settings.appendChild(text('summary', 'Einstellungen und Diagnose'));
     const inputs = {};
@@ -108,7 +116,12 @@
       const wrap = text('div', '', 'form-check my-2'); const input = document.createElement('input');
       input.type = 'checkbox'; input.className = 'form-check-input'; input.id = `mini-${service.id}-${key}`;
       const caption = text('label', label, 'form-check-label'); caption.htmlFor = input.id;
-      wrap.append(input, caption); settings.appendChild(wrap); inputs[key] = input;
+      const help = text('p', key === 'enabled'
+        ? 'Erlaubt den Betrieb dieses Dienstes. Geräte, Adressen und weitere Voraussetzungen stehen unter „Konfiguration öffnen“.'
+        : 'Startet den aktivierten Dienst beim nächsten Start seines Workers oder der Webanwendung. Verwendet die gespeicherte Konfiguration.', 'form-text');
+      help.id = `mini-${service.id}-${key}-help`;
+      input.setAttribute('aria-describedby', help.id);
+      wrap.append(input, caption, help); settings.appendChild(wrap); inputs[key] = input;
     });
     const save = text('button', 'Einstellungen speichern', 'btn btn-outline-primary'); save.type = 'button';
     save.addEventListener('click', () => perform(service.id, 'settings', {enabled: inputs.enabled.checked, autostart: inputs.autostart.checked}));

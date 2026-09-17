@@ -204,3 +204,16 @@ Tests decken Scope, Verlust, DAD-Status, getrennte Interfaces und fehlerhafte
 Antworten ohne Windows-Hardware ab. Reale Windows-/PowerShell-Abnahme bleibt offen.
 Referenzen: [Get-NetIPConfiguration](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipconfiguration)
 und [Get-NetIPAddress](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipaddress).
+
+### Konfiguration direkt aus der Dienstkarte
+
+Jede Karte der gemeinsamen Übersicht verlinkt ihre vorhandene Fachseite über
+„Konfiguration öffnen“. URLs werden serverseitig mit `url_for` erzeugt, damit
+Installationen unter einem URL-Präfix funktionieren. DHCP/DNS/Gateway verwenden
+die Netzwerkeinstellungen, SIP die Telefonie, TFTP/HTTP-Boot die Bootverwaltung
+und Audio die vorhandenen Audioseiten. Die jeweiligen Admin-Prüfungen bleiben
+bestehen. Es entsteht kein zweiter Konfigurationsspeicher.
+
+Aktiviert/Autostart besitzen direkt zugeordnete Inline-Hilfe. Konfigurationslinks
+und Diagnose-Summary erhalten sichtbaren Tastaturfokus und mindestens 44 Pixel
+hohe Interaktionsflächen. Dies ersetzt keine visuelle WCAG-/Mobilabnahme.

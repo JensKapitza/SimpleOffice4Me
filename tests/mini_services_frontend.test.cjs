@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-async function fixture(scan) {
+async function fixture(scan, settingsLinks = {}, capabilities = ['scan']) {
   const nodes = [];
   function node(tag) {
     const value = {tag, children: [], attributes: {}, handlers: {}, textContent: '',
@@ -18,8 +18,8 @@ async function fixture(scan) {
     nodes.push(value); return value;
   }
   const elements = Object.fromEntries(['mini-service-control', 'mini-feedback', 'mini-control-cards', 'mini-refresh'].map(id => [id, node('div')]));
-  elements['mini-service-control'].dataset = {api: '/api/mini-services'};
-  const service = {id: 'audio-sender', name: 'Audio', state: 'stopped', capabilities: ['scan'], settings: {}, scan,
+  elements['mini-service-control'].dataset = {api: '/api/mini-services', settingsLinks: JSON.stringify(settingsLinks)};
+  const service = {id: 'audio-sender', name: 'Audio', state: 'stopped', capabilities, settings: {}, scan,
     owner: 'web', requires: ['web'], optional_requires: [], provides: ['audio-sender'], version: 'test'};
   let postFailure = false;
   const context = {Headers, AbortController,
@@ -80,4 +80,25 @@ test('Failed scan refreshes card and restores buttons while keeping the action e
   f.service.dependencies[0].available = true;
   await f.elements['mini-refresh'].handlers.click();
   assert.match(warning.textContent, /Hardware.*nicht geprüft/);
+});
+
+test('Service cards expose only local configuration links with service labels', async () => {
+  const f = await fixture(undefined, {'audio-sender': '/office/admin/mini-services/audio/streamer'});
+  const link = f.nodes.find(item => item.tag === 'a');
+  assert.equal(link.href, '/office/admin/mini-services/audio/streamer');
+  assert.equal(link.attributes['aria-label'], 'Audio: Konfiguration öffnen');
+  for (const url of ['https://example.org', '//example.org', 'javascript:alert(1)', '/\\example.org', '/ bad']) {
+    const unsafe = await fixture(undefined, {'audio-sender': url});
+    assert.equal(unsafe.nodes.filter(item => item.tag === 'a').length, 0);
+  }
+});
+
+test('Lifecycle toggles reference readable inline help', async () => {
+  const f = await fixture(undefined, {}, ['settings']);
+  const inputs = f.nodes.filter(item => item.tag === 'input');
+  assert.equal(inputs.length, 2);
+  for (const input of inputs) {
+    const help = f.nodes.find(item => item.id === input.attributes['aria-describedby']);
+    assert.ok(help && help.textContent.length > 20);
+  }
 });
