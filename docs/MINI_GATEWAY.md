@@ -98,9 +98,12 @@ Bedienoberfläche; Android ist kein unterstützter Gateway-Host.
 ## Einschränkungen
 
 IPv4, kein vollständiger Firewallmanager, kein IPv6-NAT, keine WAN-Portfreigaben.
-Nach externen Regeländerungen zeigt Health den abweichenden Zustand; automatisches
-Zurücksetzen fremder Firewallentscheidungen erfolgt nicht. Neustart kann die
-eigenen Regeln erneut anwenden. Windows-Regeländerungen sind nicht transaktional
+Health erkennt fehlende eigene Tabellen, abweichende Chain-Typen/Hooks,
+Prioritäten/Policies, inaktive Tabellen, fehlende oder zusätzliche Regeln und
+deaktiviertes IPv4-Forwarding. Die von SimpleOffice erzeugten Regelausdrücke werden einschließlich Reihenfolge,
+Interface-Richtung, Verbindungszuständen, Quellnetz und Aktion verglichen. Bestätigte Healthfehler lösen
+die begrenzte Worker-Recovery aus; fremde Tabellen werden dabei nicht verändert.
+Ein unlesbarer Status löst keine Regeländerung aus. Windows-Regeländerungen sind nicht transaktional
 wie nftables; Plattformtests bleiben erforderlich.
 
 ## Tests
@@ -109,3 +112,70 @@ wie nftables; Plattformtests bleiben erforderlich.
 `test_mini_control_api`: Stopfehler, atomare Linux-Transaktion, fehlende Rechte,
 Istzustand, manuelle Stop-Semantik, Netzwerkwechsel, persistente validierte
 Einstellungen und Auth/CSRF ohne privilegierte Hardwaretests.
+
+## Reload unter Linux
+
+Bei einem aktiven Linux-Gateway ersetzen Konfigurationsänderungen und expliziter
+Neustart die eigenen nftables-Tabellen in einer Transaktion. Der Worker entfernt
+sie davor nicht mehr. Lehnt nft die Transaktion ab, bleiben die bisherigen Regeln
+bestehen. Gespeicherte Wunschkonfiguration und zuletzt erfolgreich angewendete
+Konfiguration können dann voneinander abweichen; Diagnose und Reload-Fehler sind
+im Status sichtbar. Nach einer Korrektur erneut speichern oder Neustart auslösen.
+Die Laufzeit beginnt bei einem erfolgreichen Reload nicht erneut.
+
+Die Ownership-Datei wird vor Anwendung geschrieben. Beide Linux-Modi verwenden
+dieselben festen Tabellennamen; die Datei ermöglicht daher auch nach einem
+Prozessabsturz das Aufräumen. Scheitert schon das Schreiben, wird nft nicht
+aufgerufen. Ein Timeout bestätigt weder Erfolg noch Ablehnung: Regeln werden
+nicht vorsorglich gelöscht, der Status wird degraded und erneut geprüft. Der
+Healthcheck ersetzt dabei keine vollständige Prüfung der angewendeten Regeln.
+
+Die Atomarität betrifft ausschließlich die nft-Transaktion. IPv4-Forwarding ist
+gemeinsamer Hostzustand und kann vor der Transaktion aktiviert werden; es wird
+nicht automatisch zurückgesetzt. Windows-Reload, Neuaufbau nach Stop und
+Health-Recovery besitzen diese Garantie nicht. Deaktivieren entfernt weiterhin
+nur die eigenen Regeln.
+
+Regression: `test_gateway_reload` prüft Konfigurationswechsel, identischen
+Neustart, abgewiesene Anwendung, Timeout, Ownership-Schreibfehler, Deaktivieren
+und den unveränderten Windows-Pfad ohne Eingriff in das Hostnetzwerk.
+
+## Lesende Prüfung der Linux-Regelstruktur
+
+Nach erfolgreicher Anwendung enthält der Laufzeitstatus die erwarteten
+Regelanzahlen je Chain. Der Healthcheck liest ausschließlich die eigenen
+Tabellen mit `nft -j list table` (jeweils zwei Sekunden Timeout) und prüft
+Filter-/NAT-Chain, Hook, numerische Priorität, Policy, Tabellenflags sowie
+Regelanzahl und Chain-Zuordnung. Ein bewusst leerer Forward-Regelsatz mit
+Drop-Policy ist gültig. Veränderte Handles beeinflussen die Prüfung nicht.
+
+Fehlende Soll-Metadaten, ungültiges JSON und Lesefehler ergeben einen unbekannten
+Healthstatus statt eines bestätigten Fehlers; dadurch wird keine automatische
+Recovery aufgrund eines Parser-/Berechtigungsfehlers ausgelöst. Strukturfehler
+sind bestätigte Healthfehler und verwenden die vorhandene begrenzte Recovery.
+Zusätzlich werden die Regelausdrücke mit der zuletzt erfolgreich angewendeten
+Konfiguration verglichen. Ausgetauschte Adressen oder Aktionen werden auch bei
+gleicher Regelanzahl erkannt. Tatsächlicher Paketfluss bleibt außerhalb der Prüfung. Es wird kein Internetzugang getestet.
+
+Schema/CLI: [nftables-Dokumentation](https://netfilter.org/projects/nftables/manpage.html).
+`test_gateway_rule_structure` prüft gültige/leere Chains, abweichende Attribute,
+NAT, entfernte/zusätzliche Regeln, veränderte Handles, ungültige JSON-Antworten und
+Soll-Metadaten. Kein nft-Paket installiert und keine echten Kernelregeln verändert.
+
+## Regelinhalte im Healthcheck
+
+Der Laufzeitstatus enthält `rule_expressions` als Sollwerte für die eigenen
+Forward- und Postrouting-Regeln. Der Vergleich umfasst alle Statements und ihre
+Reihenfolge. Handles werden nicht verglichen; die Reihenfolge der Namen in einer
+Conntrack-Bitmaskenliste und leere Masquerade-Optionen (`{}`/`null`) werden
+normalisiert. Zusätzliche Statements, andere Operatoren, Interfaces, Präfixe,
+Zustände oder NAT-Optionen gelten als Abweichung. Die Regelanzahl wird aus
+denselben Sollausdrücken abgeleitet.
+
+Fehlende Sollausdrücke ergeben unbekannten Healthstatus. Der Vergleich ist auf
+die von SimpleOffice erzeugten Regeln begrenzt, kein allgemeiner semantischer
+Firewall-Vergleich. Andere äquivalente Darstellungen werden nicht pauschal als
+gleich angenommen. Tests verwenden das dokumentierte JSON-Schema; die Abnahme
+gegen reale unterstützte nft-Versionen und Kernel-Paketfluss bleibt offen.
+
+Referenz: [libnftables-json(5), mit dem nftables-Paket ausgeliefertes Handbuch](https://man.archlinux.org/man/libnftables-json.5.en).

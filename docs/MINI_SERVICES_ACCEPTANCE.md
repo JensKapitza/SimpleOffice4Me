@@ -1,6 +1,6 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 16.09.2026, aufbauend auf PR #296 und #298 einschließlich Windows-Audio und Restart-Korrektur.
+Stand: 17.09.2026, gemeinsamer Stand von PR #296 und #298 einschließlich Audio-Programmprüfung und Linux-Gateway-Recovery/Reload/Regelinhaltsprüfung.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
 und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
@@ -22,7 +22,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Restart | V | V | V | V | V | V | V | V | V | Vorhandener Eigentümer bleibt; keine zweite Startarchitektur |
 | Status | V | V | V | T | V | V | T | T | V | Strukturierte Zustände; physische Audioausgabe und Gateway-Datenpfad nicht bestätigt |
 | Autostart | V | V | V | V | V | V | V | V | V | Persistente Präferenzen; DHCP/Gateway und Mikrofonfreigabe bewusst aktivieren |
-| Abhängigkeiten | V | V | V | T | V | V | T | T | T | Worker/Web-Eigentümer explizit; Systemwerkzeuge nicht vollständig im Status modelliert |
+| Abhängigkeiten | V | V | V | T | V | V | T | T | T | Worker/Web-Eigentümer explizit; Audio-Programme nach erforderlichen/bedingten Funktionen erkannt; übrige Systemwerkzeuge noch nicht vollständig modelliert |
 | Hardwareerkennung | – | – | – | V | V | – | T | T | T | Interfaces, Pulse, ALSA- und DirectShow-Mikrofone; Windows-Systemstandard verfügbar; keine Windows-Ausgangserkennung |
 | Netzwerkdiensterkennung | T | T | T | V | T | T | F | T | T | Bestehende LAN-Profile für aktive Desktop-RTP-Empfänger; fremde Player nicht entdeckt |
 | Konfiguration | V | V | V | V | V | V | V | V | V | Bestehende JSON-/SQLite-Speicher; Audio jetzt persistent |
@@ -57,7 +57,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Versionsanzeige | V | V | V | V | V | V | V | V | V | Gemeinsame Projektversion im Status |
 | Bedienbarkeit | T | T | T | T | T | T | T | T | T | Besseres Feedback; vollständige Bedienabnahme fehlt |
 | Mobile/Touch/Fokus | ? | ? | ? | ? | ? | ? | ? | ? | ? | Codeanpassungen vorhanden, visuelle Abnahme blockiert |
-| Parallelität/Atomizität | V | V | V | T | V | V | V | V | V | Locks, atomare Dateien und Queue-Claims; Gateway-Reload nicht insgesamt atomar |
+| Parallelität/Atomizität | V | V | V | T | V | V | V | V | V | Locks, atomare Dateien und Queue-Claims; Aktiver Linux-Gateway-Reload nutzt nft-Transaktion; Windows und Recovery nicht insgesamt atomar |
 | Datenschutz | T | T | T | T | T | T | T | T | T | Kein automatischer Mikrofonstart; vollständige Logprüfung noch offen |
 
 ## Reproduzierbare Messung
@@ -93,7 +93,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 | AO | Remote-Ausgabe | Definitionen ohne Transport sind nicht abspielbar | Register ist kein Audio-Transport | Echten unterstützten Transport anbinden; DLNA bleibt #285 |
 | AS | Discovery | Fremde RTP-Player werden nicht erkannt | Sie veröffentlichen kein SimpleOffice-Profil | Nur tatsächlich verfügbare Protokolle ergänzen; manuelle Ziele bleiben |
 | AR | ALSA-Ausgänge | Receiver benötigt PulseAudio/PipeWire-Pulse | Vorhandener PCM-Verteiler und virtuelle Mikrofone nutzen diesen Backend | Separaten ALSA-Ausgabepfad nur mit vollständigem Cleanup/Health ergänzen |
-| Gateway | Health/Atomizität | Tabellen/NAT werden geprüft, nicht kompletter Datenpfad; Reload nicht durchgehend atomar | Bestehende Stop/Apply-Grenze und OS-Regelverwaltung | Regelinhalte prüfen, Reload-Transaktion und Pakettests ergänzen |
+| Gateway | Health/Atomizität | Linux-Regelstruktur/-inhalt geprüft, aktiver Reload über nft-Transaktion; realer Datenpfad und Windows-Atomizität offen | Gemeinsames Forwarding ist nicht Teil der Transaktion; nft fehlt in der Testumgebung | Reale nft-Versionen/Kernel-Paketfluss prüfen und Windows-Reload verbessern |
 | DHCP/Gateway | Automatische Konfiguration | Kein eigenmächtig gewähltes neues DHCP-Netz | Fremde DHCP-Server und vorhandene Netzverwaltung dürfen nicht gestört werden | Konflikterkennung und geführte Auswahl ohne automatische Aktivierung |
 | Netzwerkdienste | IPv6-Netzwechsel | Automatische Bindingprüfung bisher IPv4 | Gemeinsames Inventar liefert IPv4-Adressen | IPv6-Inventar und Linkverlusttests ergänzen |
 | HTTP/TFTP | Bedienung | Geführter Profileditor umgesetzt; tatsächlicher Booterfolg ungeprüft | Bootdateien und Kernel-Parameter hängen vom Client ab | Reale PXE-Clients mit den angelegten Profilen prüfen |
@@ -142,7 +142,7 @@ kein künstlicher Pulse-Sink wird im Ausgaberegister angelegt. Windows-Defaults
 und Reset wählen Systemstandard ohne virtuelles Mikrofon. Start/Stop,
 Teilstartfehler, Persistenz/Reset und Rechte sind getestet; echter FFplay-Aufruf
 mit synthetischem PCM und SDL-Dummytreiber ergänzt die gemockten OS-Grenzen.
-Gezielte Geräteauswahl, virtuelle Mikrofone und Windows-Hardwareabnahme bleiben offen.
+Gezielte Geräteauswahl und Windows-Hardwareabnahme bleiben offen. Virtuelle Windows-Mikrofone bleiben eine dokumentierte Plattformgrenze; VB-CABLE und SysVAD sind ausgeschlossen.
 
 Audio-Neustarts prüfen Startargumente und Programmverfügbarkeit vor dem Stop.
 Abgewiesene Starts überschreiben keine gespeicherten Einstellungen.
@@ -151,7 +151,18 @@ ersetzt auch bei gleicher Konfiguration den Prozess. Zwischen Vorprüfung und
 tatsächlichem Prozessstart sind weiterhin Betriebssystemfehler möglich; dann
 greift die begrenzte Recovery. Regressionstests decken diese Vorprüfungsfälle ab.
 
-## Aktueller vollständiger Testlauf
+## Vollständiger Unittest-Lauf am 17.09.2026
+
+Gemeinsamer Audio-/Gateway-Stand: 1.695 Unittests in 155,932 Sekunden,
+10 übersprungen, keine Fehler. Gateway-Recovery, aktiver Linux-Reload und
+Regelinhalt sowie die jüngsten Audio-Cleanup-/Scan-/Programmprüfungen sind
+enthalten. Der währenddessen ergänzte Paketierungstest wurde anschließend
+separat erfolgreich ausgeführt (beide Paketdefinitionen, isolierte Imports).
+Python-Compileall für app/tools und neue Gateway-Module, JavaScript-Syntax
+des Mini-Service-Hubs und Diff-Prüfung bestanden. Dies ist ein Unittest-Lauf,
+keine Aussage über separat definierte pytest-Funktionen oder Plattformabnahme.
+
+## Frühere vollständige Testläufe
 
 Audio-Branch auf Commit 67a4d8f: 1.662 Tests, 10 übersprungen, keine Fehler
 (166,718 Sekunden). 74 gezielte Tests schließen Restart-Vorprüfung ein.

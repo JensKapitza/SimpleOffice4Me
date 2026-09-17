@@ -39,6 +39,10 @@ setup(
         "simpleoffice_network_boot_dhcp",
         "simpleoffice_network_gateway",
         "simpleoffice_network_gateway_runtime",
+        "simpleoffice_gateway_rule_content",
+        "simpleoffice_mini_control",
+        "simpleoffice_service_lifecycle",
+        "simpleoffice_sip_runtime",
     ],
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
