@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from simpleoffice_network_gateway import effective_gateway
-from simpleoffice_network_gateway_runtime import _replace_linux_rules, disable_gateway, gateway_health
+from simpleoffice_network_gateway_runtime import _replace_linux_rules, disable_gateway, gateway_health, apply_gateway
 from tools.mini_services import Worker
 
 
@@ -55,6 +55,25 @@ class GatewayRuntimeTests(unittest.TestCase):
             self.assertFalse(gateway_health(status)["ok"])
         with patch("simpleoffice_network_gateway_runtime._linux_tables", side_effect=PermissionError):
             self.assertIsNone(gateway_health(status)["ok"])
+
+    def test_windows_apply_checks_existing_nat_before_forwarding_without_deletion(self):
+        data = {"warnings": [], "enabled": True, "mode": "nat", "platform": "windows",
+                "effective_internal_interface": "LAN", "effective_external_interface": "WAN",
+                "nat_name": "SimpleOfficeMiniNat", "internal_network": "192.168.50.0/24"}
+        with patch("simpleoffice_network_gateway_runtime.effective_gateway", return_value=data), patch(
+            "simpleoffice_network_gateway_runtime._powershell", return_value={"ok": True}
+        ) as run:
+            self.assertTrue(apply_gateway({})["ok"])
+            script, timeout = run.call_args.args
+            self.assertEqual(30, timeout)
+            self.assertNotIn("Remove-NetNat", script)
+            self.assertNotIn("SilentlyContinue", script)
+            self.assertLess(script.index("InternalIPInterfaceAddressPrefix -ne"), script.index("Set-NetIPInterface"))
+            self.assertIn("if ($owned.Count -eq 0) { New-NetNat", script)
+            run.return_value = {"ok": False, "stderr": "denied", "stdout": ""}
+            with self.assertRaises(RuntimeError):
+                apply_gateway({})
+
 
     def test_windows_stop_does_not_claim_success_on_permission_failure(self):
         with patch("simpleoffice_network_gateway_runtime.platform_kind", return_value="windows"), patch(

@@ -179,3 +179,18 @@ gleich angenommen. Tests verwenden das dokumentierte JSON-Schema; die Abnahme
 gegen reale unterstützte nft-Versionen und Kernel-Paketfluss bleibt offen.
 
 Referenz: [libnftables-json(5), mit dem nftables-Paket ausgeliefertes Handbuch](https://man.archlinux.org/man/libnftables-json.5.en).
+
+## Windows-Neustart bei unverändertem NAT
+
+Bleiben Betriebsart, NAT-Name und internes Netz gleich, verwendet der Worker
+jetzt einen Reload ohne vorherigen Stop. Die Anwendung liest das NAT mit
+terminierenden Fehlern, prüft das vorhandene Präfix und erstellt nur ein fehlendes
+Objekt. Ein vorhandenes passendes NAT wird nicht gelöscht. Ein abweichendes
+Präfix führt vor den Forwarding-Befehlen zum Fehler. Bei Reload-Fehlern bleibt die
+Ownership erhalten; der Worker führt keine pauschale Ressourcenlöschung aus.
+
+Namens-, Netz- oder Betriebsartwechsel nutzen weiterhin Stop/Start. Auch der
+Reload ist keine Windows-Transaktion: Teiländerungen des gemeinsamen Forwardings
+und unklarer Ausgang bei Timeout sind möglich. Reale PowerShell-/Windows-NAT-
+Tests bleiben offen. Gemockte Systemgrenzen prüfen Befehlsreihenfolge,
+fehlende Löschbefehle, Fehlerweitergabe und Worker-Ressourcenerhalt.

@@ -209,3 +209,18 @@ Freie Ports werden vom OS vergeben (UDP/TCP jeweils eigener Port); keine LAN-
 Pakete oder Systemkonfigurationsänderungen. In dieser Umgebung ohne Skip bestanden.
 Reale Interface-Linkwechsel, identischer Produktionsport und Windows-/Android-
 Geräteabnahme sind damit nicht nachgewiesen. Python-Syntax und Diff geprüft.
+
+### Lokaler Integrationsstand: Windows-NAT und Linux-Inventar
+
+Windows-NAT-Restart bei gleichem Namen/Netz/Modus in den Audio-Stand integriert.
+Zusätzlich erkennt das Linux-Inventar fehlerhafte Adressobjekte als unbekannten
+Scan statt als fehlende Hardware. Ungültige Routing-JSON-Strukturen verwerfen
+nicht das gültige Adressinventar. Ein erfolgreich gelesenes leeres Inventar
+bestätigt weiterhin Adressverlust. Keine neuen Dependencies.
+
+Die Veröffentlichung war zunächst durch fehlendes Workspace-Guthaben in der
+automatischen Freigabeprüfung blockiert. Nach erneutem Push-Auftrag wurde die
+Veröffentlichung wieder aufgenommen. Die fachlichen Abnahmegrenzen bleiben bestehen.
+
+Prüfung des lokalen Integrationsstands: 53 relevante Tests bestanden, darunter
+echter IPv6-DNS-Loopback; Python-Syntax und Diff-Prüfung bestanden.

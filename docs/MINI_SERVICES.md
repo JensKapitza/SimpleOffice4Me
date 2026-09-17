@@ -166,8 +166,10 @@ Der Linux-Check prüft Tabellen, Chain-Struktur, Regelanzahl, die von SimpleOffi
 erzeugten Regelausdrücke und IPv4-Forwarding. Grenzen bleiben tatsächlicher
 Pakettransport sowie die Abnahme gegen reale unterstützte nft-Versionen. Der
 Reload aktiver Linux-Gateways verwendet nun die vorhandene nft-Transaktion ohne
-vorherigen Stop. Windows und die Recovery nach bestätigtem Healthfehler verwenden
-weiterhin Stop/Start; ein plattformübergreifend atomarer Reload ist nicht umgesetzt.
+vorherigen Stop. Windows erhält bei unverändertem NAT-Namen/Netz ebenfalls das
+bestehende Objekt. Windows-Änderungen von Name/Netz/Modus und die Recovery nach
+bestätigtem Healthfehler verwenden weiterhin Stop/Start; ein plattformübergreifend
+atomarer Reload ist nicht umgesetzt.
 
 ### Linux-IPv6 bei Netzwerkwechsel
 
@@ -217,3 +219,11 @@ bestehen. Es entsteht kein zweiter Konfigurationsspeicher.
 Aktiviert/Autostart besitzen direkt zugeordnete Inline-Hilfe. Konfigurationslinks
 und Diagnose-Summary erhalten sichtbaren Tastaturfokus und mindestens 44 Pixel
 hohe Interaktionsflächen. Dies ersetzt keine visuelle WCAG-/Mobilabnahme.
+
+### Fehlerhafte Linux-Inventardaten
+
+Fehlende Adresslisten, ungültige Präfixe, widersprüchliche Adressfamilien und
+ungültige Flag-Objekte führen zu `available: false`. Laufende Dienste werden
+aufgrund dieser unvollständigen Information nicht gestoppt. Leere gültige Listen
+bleiben dagegen ein bestätigter Verlust. Das verwendet dieselbe Unterscheidung
+zwischen unbekanntem Scan und fehlender Hardware wie das Windows-Inventar.
