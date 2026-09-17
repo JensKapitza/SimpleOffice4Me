@@ -231,11 +231,16 @@ def apply_gateway(value: dict[str, Any], *, server_ip: str = "") -> dict[str, An
                 "rule_counts": {chain: len(rules) for chain, rules in expressions.items()}}
     if data["platform"] == "windows":
         internal = data["effective_internal_interface"].replace("'", "''"); external = data["effective_external_interface"].replace("'", "''")
-        script = [f"Set-NetIPInterface -InterfaceAlias '{internal}' -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop"]
-        if external: script.append(f"Set-NetIPInterface -InterfaceAlias '{external}' -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop")
+        script = ["$ErrorActionPreference='Stop'"]
         if data["mode"] == "nat":
             name = data["nat_name"].replace("'", "''")
-            script.extend(["if (-not (Get-Command New-NetNat -ErrorAction SilentlyContinue)) { throw 'New-NetNat unavailable on this Windows installation' }", f"Get-NetNat -Name '{name}' -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue", f"New-NetNat -Name '{name}' -InternalIPInterfaceAddressPrefix '{data['internal_network']}' -ErrorAction Stop | Out-Null"])
+            script.extend([f"$owned = @(Get-NetNat -ErrorAction Stop | Where-Object {{$_.Name -eq '{name}'}})",
+                           f"if ($owned.Count -gt 1 -or ($owned.Count -eq 1 -and $owned[0].InternalIPInterfaceAddressPrefix -ne '{data['internal_network']}')) {{ throw 'Existing NAT prefix differs' }}",
+                           "if ($owned.Count -eq 0) { Get-Command New-NetNat -ErrorAction Stop | Out-Null }"])
+        script.append(f"Set-NetIPInterface -InterfaceAlias '{internal}' -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop")
+        if external: script.append(f"Set-NetIPInterface -InterfaceAlias '{external}' -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop")
+        if data["mode"] == "nat":
+            script.append(f"if ($owned.Count -eq 0) {{ New-NetNat -Name '{name}' -InternalIPInterfaceAddressPrefix '{data['internal_network']}' -ErrorAction Stop | Out-Null }}")
         result = _powershell("; ".join(script), 30)
         if not result["ok"]: raise RuntimeError(str(result["stderr"] or result["stdout"] or "Windows Routing/NAT fehlgeschlagen"))
         return {"ok": True, "platform": "windows", "mode": data["mode"], "nat_name": data["nat_name"], "internal": data["effective_internal_interface"], "external": data["effective_external_interface"]}

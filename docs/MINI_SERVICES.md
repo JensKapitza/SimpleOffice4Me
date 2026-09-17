@@ -137,8 +137,10 @@ Der Linux-Check prüft Tabellen, Chain-Struktur, Regelanzahl, die von SimpleOffi
 erzeugten Regelausdrücke und IPv4-Forwarding. Grenzen bleiben tatsächlicher
 Pakettransport sowie die Abnahme gegen reale unterstützte nft-Versionen. Der
 Reload aktiver Linux-Gateways verwendet nun die vorhandene nft-Transaktion ohne
-vorherigen Stop. Windows und die Recovery nach bestätigtem Healthfehler verwenden
-weiterhin Stop/Start; ein plattformübergreifend atomarer Reload ist nicht umgesetzt.
+vorherigen Stop. Windows erhält bei unverändertem NAT-Namen/Netz ebenfalls das
+bestehende Objekt. Windows-Änderungen von Name/Netz/Modus und die Recovery nach
+bestätigtem Healthfehler verwenden weiterhin Stop/Start; ein plattformübergreifend
+atomarer Reload ist nicht umgesetzt.
 
 ### Linux-IPv6 bei Netzwerkwechsel
 

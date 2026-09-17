@@ -92,10 +92,21 @@ class GatewayReloadTests(unittest.TestCase):
         self.apply.assert_not_called()
         self.assertFalse(self.worker.gateway_active)
 
-    def test_windows_restart_keeps_existing_stop_start_path(self):
+    def test_windows_changed_network_keeps_existing_stop_start_path(self):
+        self.settings.return_value = {**_GATEWAY, "internal_network": "192.168.99.0/24"}
         command = self.worker.control.enqueue("gateway", "restart")
         with patch("tools.mini_services.platform_kind", return_value="windows"):
             self.worker._execute(self.worker.control.claim())
         self.stop.assert_called_once()
         self.apply.assert_not_called()
         self.worker._start_one.assert_called_with("gateway")
+
+    def test_windows_same_nat_restart_preserves_active_resource_on_failure(self):
+        command = self.worker.control.enqueue("gateway", "restart")
+        self.apply.side_effect = PermissionError("private diagnostic")
+        with patch("tools.mini_services.platform_kind", return_value="windows"):
+            self.worker._execute(self.worker.control.claim())
+        self.stop.assert_not_called()
+        self.apply.assert_called_once()
+        self.assertTrue(self.worker.gateway_active)
+        self.assertEqual("failed", self.worker.control.operation(command["id"])["state"])

@@ -164,13 +164,13 @@ class Worker:
             state.failed(exc)
             self.event({"service": name, "action": "start_failed", "error": type(exc).__name__})
 
-    def _reload_linux_gateway(self, specification) -> None:
-        """Replace owned nft tables without stopping the currently active gateway."""
+    def _reload_gateway(self, specification) -> None:
+        """Reload without deleting active rules when the backend can preserve them."""
         state = self.states["gateway"]
         try:
-            # Linux ownership is the same fixed pair of tables for route/NAT.
-            # Persist before applying so crashes remain recoverable, including
-            # when nft's bounded wait cannot confirm the transaction outcome.
+            # Linux uses fixed owned tables; Windows reload is limited to the
+            # same NAT name/prefix. Persist before applying for crash cleanup.
+            # A bounded wait may still leave the application outcome unknown.
             remember_gateway_ownership(specification[1], self.config_path)
             result = apply_gateway(specification[1], server_ip=str(self.config["dhcp"]["server_ip"]))
             if not result.get("ok"):
@@ -182,9 +182,9 @@ class Worker:
             state.retry_at = None
             self.next_gateway_health = 0
             self.event({"service": "gateway", "action": "reload_failed", "error": type(exc).__name__})
-            # Do not call stop: nft rejection preserves the old transaction.
-            # Timeouts have an uncertain outcome; the next healthcheck remains
-            # necessary and the ownership marker still covers both tables.
+            # Never delete retained resources after a reload failure. Linux
+            # transactions preserve old rules on rejection; Windows can leave
+            # partial forwarding changes. Recheck health after any timeout.
             raise
         self.desired["gateway"] = specification
         self.gateway_status = result
@@ -196,6 +196,16 @@ class Worker:
         state.last_error_at = None
         self.next_gateway_health = 0
         self.event({"service": "gateway", "action": "reloaded"})
+
+    def _can_reload_gateway(self, specification):
+        if not self.gateway_active or not specification[0]:
+            return False
+        if platform_kind() == "linux":
+            return True
+        old = self.desired.get("gateway", (False, {}))[1]
+        return platform_kind() == "windows" and all(
+            old.get(key) == specification[1].get(key)
+            for key in ("mode", "nat_name", "internal_network"))
 
     def _load_network_services(self, *, force_gateway_reload=False) -> None:
         # Validate BEFORE touching listeners; compare effective settings, not DB
@@ -226,8 +236,8 @@ class Worker:
         for name, specification in desired.items():
             if self.desired.get(name) == specification and not (name == "gateway" and force_gateway_reload):
                 continue
-            if name == "gateway" and self.gateway_active and specification[0] and platform_kind() == "linux":
-                self._reload_linux_gateway(specification)
+            if name == "gateway" and self._can_reload_gateway(specification):
+                self._reload_gateway(specification)
                 continue
             if not self._stop_one(name):
                 continue
@@ -353,7 +363,7 @@ class Worker:
             else:
                 if not self.preferences[name]["enabled"]:
                     raise ValueError("Dienst zuerst in den Einstellungen aktivieren")
-                reload_gateway = name == "gateway" and action == "restart" and self.gateway_active and platform_kind() == "linux"
+                reload_gateway = name == "gateway" and action == "restart" and self.gateway_active and platform_kind() in {"linux", "windows"}
                 if action == "restart" and not reload_gateway and not self._stop_one(name):
                     raise RuntimeError("Stop fehlgeschlagen")
                 self.manual_states[name] = True
