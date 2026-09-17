@@ -100,8 +100,8 @@ Bedienoberfläche; Android ist kein unterstützter Gateway-Host.
 IPv4, kein vollständiger Firewallmanager, kein IPv6-NAT, keine WAN-Portfreigaben.
 Health erkennt fehlende eigene Tabellen, abweichende Chain-Typen/Hooks,
 Prioritäten/Policies, inaktive Tabellen, fehlende oder zusätzliche Regeln und
-deaktiviertes IPv4-Forwarding. Ein vollständiger Vergleich der Regelausdrücke
-ist noch nicht enthalten. Bestätigte Healthfehler lösen
+deaktiviertes IPv4-Forwarding. Die von SimpleOffice erzeugten Regelausdrücke werden einschließlich Reihenfolge,
+Interface-Richtung, Verbindungszuständen, Quellnetz und Aktion verglichen. Bestätigte Healthfehler lösen
 die begrenzte Worker-Recovery aus; fremde Tabellen werden dabei nicht verändert.
 Ein unlesbarer Status löst keine Regeländerung aus. Windows-Regeländerungen sind nicht transaktional
 wie nftables; Plattformtests bleiben erforderlich.
@@ -153,11 +153,29 @@ Fehlende Soll-Metadaten, ungültiges JSON und Lesefehler ergeben einen unbekannt
 Healthstatus statt eines bestätigten Fehlers; dadurch wird keine automatische
 Recovery aufgrund eines Parser-/Berechtigungsfehlers ausgelöst. Strukturfehler
 sind bestätigte Healthfehler und verwenden die vorhandene begrenzte Recovery.
-Die Zahl vorhandener Regelausdrücke bestätigt nicht deren Inhalt: ausgetauschte
-Adressen oder Aktionen bei gleicher Regelanzahl sowie tatsächlicher Paketfluss
-bleiben außerhalb dieser Prüfung. Es wird kein Internetzugang getestet.
+Zusätzlich werden die Regelausdrücke mit der zuletzt erfolgreich angewendeten
+Konfiguration verglichen. Ausgetauschte Adressen oder Aktionen werden auch bei
+gleicher Regelanzahl erkannt. Tatsächlicher Paketfluss bleibt außerhalb der Prüfung. Es wird kein Internetzugang getestet.
 
 Schema/CLI: [nftables-Dokumentation](https://netfilter.org/projects/nftables/manpage.html).
 `test_gateway_rule_structure` prüft gültige/leere Chains, abweichende Attribute,
 NAT, entfernte/zusätzliche Regeln, veränderte Handles, ungültige JSON-Antworten und
 Soll-Metadaten. Kein nft-Paket installiert und keine echten Kernelregeln verändert.
+
+## Regelinhalte im Healthcheck
+
+Der Laufzeitstatus enthält `rule_expressions` als Sollwerte für die eigenen
+Forward- und Postrouting-Regeln. Der Vergleich umfasst alle Statements und ihre
+Reihenfolge. Handles werden nicht verglichen; die Reihenfolge der Namen in einer
+Conntrack-Bitmaskenliste und leere Masquerade-Optionen (`{}`/`null`) werden
+normalisiert. Zusätzliche Statements, andere Operatoren, Interfaces, Präfixe,
+Zustände oder NAT-Optionen gelten als Abweichung. Die Regelanzahl wird aus
+denselben Sollausdrücken abgeleitet.
+
+Fehlende Sollausdrücke ergeben unbekannten Healthstatus. Der Vergleich ist auf
+die von SimpleOffice erzeugten Regeln begrenzt, kein allgemeiner semantischer
+Firewall-Vergleich. Andere äquivalente Darstellungen werden nicht pauschal als
+gleich angenommen. Tests verwenden das dokumentierte JSON-Schema; die Abnahme
+gegen reale unterstützte nft-Versionen und Kernel-Paketfluss bleibt offen.
+
+Referenz: [libnftables-json(5), mit dem nftables-Paket ausgeliefertes Handbuch](https://man.archlinux.org/man/libnftables-json.5.en).

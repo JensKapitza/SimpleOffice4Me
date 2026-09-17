@@ -9,7 +9,7 @@ from simpleoffice_network_gateway_runtime import _linux_rule_structure, gateway_
 
 class GatewayRuleStructureTests(unittest.TestCase):
     def setUp(self):
-        self.status = {"platform": "linux", "mode": "route", "rule_counts": {"forward": 1}}
+        self.status = {"platform": "linux", "mode": "route", "rule_counts": {"forward": 1}, "rule_expressions": {"forward": [[{"accept": None}]]}}
         self.rows = [
             {"metainfo": {"json_schema_version": 1}},
             {"table": {"family": "inet", "name": "simpleoffice_mini", "handle": 7}},
@@ -44,10 +44,12 @@ class GatewayRuleStructureTests(unittest.TestCase):
 
     def test_deliberately_empty_forward_chain_is_supported(self):
         self.status["rule_counts"]["forward"] = 0
+        self.status["rule_expressions"]["forward"] = []
         self.assertTrue(self.inspect(self.rows[:-1]))
 
     def test_nat_requires_postrouting_structure_too(self):
         self.status.update(mode="nat", rule_counts={"forward": 1, "postrouting": 1})
+        self.status["rule_expressions"]["postrouting"] = [[{"masquerade": None}]]
         nat = {"nftables": [
             {"table": {"family": "ip", "name": "simpleoffice_mini_nat"}},
             {"chain": {"family": "ip", "table": "simpleoffice_mini_nat", "name": "postrouting", "type": "nat", "hook": "postrouting", "prio": 100, "policy": "accept"}},
@@ -75,3 +77,14 @@ class GatewayRuleStructureTests(unittest.TestCase):
             self.assertEqual({"forward": 2, "postrouting": 1}, apply_gateway({})["rule_counts"])
             data.update(allow_established=False, allow_lan_to_wan=False, mode="route")
             self.assertEqual({"forward": 0, "postrouting": 0}, apply_gateway({})["rule_counts"])
+
+    def test_same_count_with_changed_verdict_or_added_condition_is_unhealthy(self):
+        self.rows[-1]["rule"]["expr"] = [{"drop": None}]
+        self.assertFalse(self.inspect(self.rows))
+        self.rows[-1]["rule"]["expr"] = [{"counter": {"packets": 0, "bytes": 0}}, {"accept": None}]
+        self.assertFalse(self.inspect(self.rows))
+
+    def test_missing_expected_content_is_unknown(self):
+        self.status.pop("rule_expressions")
+        with self.assertRaises(ValueError):
+            self.inspect(self.rows)

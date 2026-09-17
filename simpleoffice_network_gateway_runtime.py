@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from simpleoffice_gateway_rule_content import expected_rules, normalize_expressions
 from simpleoffice_mini_services import _atomic_write, default_config_path, state_dir
 from simpleoffice_network_gateway import (
     DEFAULT_GATEWAY_SETTINGS,
@@ -120,6 +121,9 @@ def _linux_rule_structure(value: dict[str, Any]) -> bool:
     counts = value.get("rule_counts")
     if not isinstance(counts, dict):
         raise ValueError("Erwartete Gateway-Regelstruktur fehlt")
+    content = value.get("rule_expressions")
+    if not isinstance(content, dict):
+        raise ValueError("Erwarteter Gateway-Regelinhalt fehlt")
     specifications = [("inet", "simpleoffice_mini", "forward", "filter", 0, "drop")]
     if value.get("mode") == "nat":
         specifications.append(("ip", "simpleoffice_mini_nat", "postrouting", "nat", 100, "accept"))
@@ -148,11 +152,16 @@ def _linux_rule_structure(value: dict[str, Any]) -> bool:
             raise ValueError("Erwartete Regelanzahl fehlt")
         if len(rules) != count:
             return False
+        expected_expressions = content.get(chain)
+        if not isinstance(expected_expressions, list) or len(expected_expressions) != count:
+            raise ValueError("Erwarteter Gateway-Regelinhalt ist ungültig")
         for rule in rules:
             if any(rule.get(key) != val for key, val in {"family": family, "table": table, "chain": chain}.items()):
                 return False
             if not isinstance(rule.get("expr"), list) or not rule["expr"]:
                 return False
+        if normalize_expressions([rule["expr"] for rule in rules]) != normalize_expressions(expected_expressions):
+            return False
     return True
 
 
@@ -215,11 +224,11 @@ def apply_gateway(value: dict[str, Any], *, server_ip: str = "") -> dict[str, An
         if data["forward_ipv4"]:
             result = _run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
             if not result["ok"]: raise RuntimeError(str(result["stderr"] or "IPv4 forwarding fehlgeschlagen"))
+        expressions = expected_rules(data)
         _replace_linux_rules(_linux_script(data))
         return {"ok": True, "platform": "linux", "mode": data["mode"], "internal": data["effective_internal_interface"], "external": data["effective_external_interface"],
-                "rule_counts": {"forward": int(data["allow_established"]) +
-                                (int(data["allow_lan_to_wan"]) + int(data["allow_wan_to_lan"]) if data["effective_internal_interface"] and data["effective_external_interface"] else 0),
-                                "postrouting": 1 if data["mode"] == "nat" else 0}}
+                "rule_expressions": expressions,
+                "rule_counts": {chain: len(rules) for chain, rules in expressions.items()}}
     if data["platform"] == "windows":
         internal = data["effective_internal_interface"].replace("'", "''"); external = data["effective_external_interface"].replace("'", "''")
         script = [f"Set-NetIPInterface -InterfaceAlias '{internal}' -AddressFamily IPv4 -Forwarding Enabled -ErrorAction Stop"]

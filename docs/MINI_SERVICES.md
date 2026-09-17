@@ -133,9 +133,9 @@ einem Wiederanlauf wird der Healthcheck erneut ausgeführt. Wiederherstellung
 verwendet ausschließlich die vorhandenen Start-/Stop- und Ownership-Pfade.
 Keine automatische Rechteerhöhung oder Installation zusätzlicher Programme.
 
-Grenzen: Der Linux-Check prüft Tabellen, Chain-Struktur, Regelanzahl und
-IPv4-Forwarding, nicht den vollständigen Inhalt einzelner Regelausdrücke oder
-tatsächlichen Pakettransport. Der
+Der Linux-Check prüft Tabellen, Chain-Struktur, Regelanzahl, die von SimpleOffice
+erzeugten Regelausdrücke und IPv4-Forwarding. Grenzen bleiben tatsächlicher
+Pakettransport sowie die Abnahme gegen reale unterstützte nft-Versionen. Der
 Reload aktiver Linux-Gateways verwendet nun die vorhandene nft-Transaktion ohne
 vorherigen Stop. Windows und die Recovery nach bestätigtem Healthfehler verwenden
 weiterhin Stop/Start; ein plattformübergreifend atomarer Reload ist nicht umgesetzt.
