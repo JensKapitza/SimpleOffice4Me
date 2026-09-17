@@ -36,6 +36,15 @@ Gruppen, Aufträge und Einstellungen. Standardwerte: `enabled=true`,
 bleiben bei erneutem Scan erhalten. Automatisch erkannte Geräte erhalten Node
 `local` und eine stabile `discovered-...`-ID.
 
+Die Ausgangs-API akzeptiert `channels` als JSON-Ganzzahl von 1–16,
+`volume` als JSON-Ganzzahl von 0–100 und `online` ausschließlich als JSON-Boolean.
+Defaults sind 2 Kanäle, 100 Prozent und `true`. `device` ist ein Text mit höchstens
+500 Zeichen ohne Steuerzeichen; ein leerer Text wählt den vorhandenen Standardpfad.
+Ungültige Werte werden mit HTTP 400 abgewiesen, ohne bestehende Ausgänge zu ändern;
+es gibt keine stillschweigende Begrenzung oder Umdeutung von `"false"` zu `true`.
+Auftragsprioritäten müssen ebenfalls JSON-Ganzzahlen von 0–100 sein. Ungültige
+Aufträge gelangen nicht in die Warteschlange.
+
 Die Lautstärke (0–100 Prozent) gilt auch für manuell angelegte lokale Ausgänge.
 Bei diesen Ausgängen wird PCM-WAV vor der Wiedergabe in begrenzten Blöcken mit
 Python angepasst. Das Original und die Systemlautstärke bleiben unverändert;

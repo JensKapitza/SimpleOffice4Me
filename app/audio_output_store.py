@@ -106,12 +106,22 @@ class AudioOutputStore:
             raise ValueError(f"{label} ist ungueltig")
         return text
 
+    @staticmethod
+    def _integer(value: Any, label: str, minimum: int, maximum: int) -> int:
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError(f"{label} muss eine ganze Zahl zwischen {minimum} und {maximum} sein")
+        return value
+
     def register_output(self, node_id: str, output_id: str, name: str, *, device: str = "", channels: int = 2, online: bool = True, volume: int = 100) -> dict:
         node = self._clean_id(node_id, "node_id")
         output = self._clean_id(output_id, "output_id")
         label = str(name or output).strip()[:200]
-        channels = max(1, min(int(channels), 16))
-        volume = max(0, min(int(volume), 100))
+        channels = self._integer(channels, "Kanäle", 1, 16)
+        volume = self._integer(volume, "Lautstärke", 0, 100)
+        if type(online) is not bool:
+            raise ValueError("Online muss true oder false sein")
+        if not isinstance(device, str) or len(device) > 500 or any(ord(ch) < 32 or ord(ch) == 127 for ch in device):
+            raise ValueError("Gerät muss Text mit höchstens 500 Zeichen ohne Steuerzeichen sein")
         with self._db() as db:
             db.execute(
                 """INSERT INTO audio_output_node(node_id,output_id,name,device,channels,online,volume,updated_at)
@@ -119,7 +129,7 @@ class AudioOutputStore:
                    ON CONFLICT(node_id,output_id) DO UPDATE SET
                      name=excluded.name,device=excluded.device,channels=excluded.channels,
                      online=excluded.online,volume=excluded.volume,updated_at=excluded.updated_at""",
-                (node, output, label, str(device)[:500], channels, int(bool(online)), volume, _now()),
+                (node, output, label, device, channels, int(online), volume, _now()),
             )
         return self.output(node, output)
 
@@ -186,7 +196,7 @@ class AudioOutputStore:
         clean_targets = sorted(set(self._clean_id(item, "target") for item in targets))
         if not clean_targets:
             raise ValueError("Mindestens ein Audio-Ziel ist erforderlich")
-        priority = max(0, min(int(priority), 100))
+        priority = self._integer(priority, "Priorität", 0, 100)
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
             if source_ref:

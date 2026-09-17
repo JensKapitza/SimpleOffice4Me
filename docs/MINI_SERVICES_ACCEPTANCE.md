@@ -224,3 +224,13 @@ Veröffentlichung wieder aufgenommen. Die fachlichen Abnahmegrenzen bleiben best
 
 Prüfung des lokalen Integrationsstands: 53 relevante Tests bestanden, darunter
 echter IPv6-DNS-Loopback; Python-Syntax und Diff-Prüfung bestanden.
+
+## Audio-Konfigurationsvalidierung (17.09.2026)
+
+Ausgangsregistrierung prüft Kanäle, Lautstärke, Online-Boolean und Gerätekennung
+vor dem Schreiben. Ungültige Updates bewahren die bestehende Konfiguration;
+ungültige Prioritäten werden vor dem Einreihen abgewiesen. API liefert HTTP 400
+mit Handlungshinweis statt stiller Werteänderung. 55 relevante Audio-Tests
+bestanden, einschließlich persistenter Grenzwerte, unveränderter Datensätze bei
+Fehlern sowie Admin-/CSRF-Schutz. Python-Syntax und Diff geprüft. Kein neuer
+Gesamtlauf und kein Remote-Transportnachweis; externe Audio-Nodes bleiben offen.
