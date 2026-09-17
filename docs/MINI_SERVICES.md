@@ -153,6 +153,25 @@ waiting-/Stop-/Wiederanlaufpfad wie für IPv4. Eine zurückkehrende Adresse star
 nur weiterhin angeforderte Dienste neu. Manuelles Stop und unbekanntes Inventar
 behalten ihr bisheriges Verhalten. Diese Prüfung erweitert weder den IPv4-only
 Gateway/DHCP-Backend noch automatisch die Socket-Fähigkeiten anderer Dienste.
-Windows- und ältere Snapshots bestätigen weiterhin nur IPv4; fehlende IPv6-Daten
-werden dort nicht als Adressverlust ausgelegt. Reale IPv6-LAN- und Windows-Abnahme
-bleiben offen. Keine neue Dependency und kein zusätzlicher Netzwerkdienst.
+Ältere Snapshots bestätigen weiterhin nur IPv4; fehlende IPv6-Daten werden dort
+nicht als Adressverlust ausgelegt. Reale IPv6-LAN- und Windows-Abnahme bleiben offen. Keine neue Dependency und kein zusätzlicher Netzwerkdienst.
+
+### Windows-IPv6-Inventar
+
+Windows verwendet nun `Get-NetIPConfiguration -All` zusammen mit
+`Get-NetIPAddress`, ausschließlich lesend im bestehenden PowerShell-Aufruf mit
+drei Sekunden Timeout. Damit werden auch virtuelle und getrennte Interfaces
+sowie IPv6 erfasst. IPv4-Standardrouten bleiben Grundlage der IPv4-Gateway-Auswahl.
+
+Preferred- und Deprecated-Adressen bleiben im Binding-Inventar; Invalid,
+Tentative und Duplicate werden ausgeschlossen. Deprecated bedeutet dabei nicht,
+dass die Adresse für neue Verbindungen bevorzugt wird. IPv6-Zonen verwenden die
+bestehende Prüfung nach Interface-Name oder Index. Leere, erfolgreich gelesene
+Adresslisten können Verlust bestätigen; fehlerhafte Daten, unbekannte Zustände
+oder Adressen ohne zugeordnetes Interface markieren den gesamten Scan als
+unbekannt und stoppen keine laufenden Dienste. Legacy-Snapshots bleiben IPv4-only.
+
+Tests decken Scope, Verlust, DAD-Status, getrennte Interfaces und fehlerhafte
+Antworten ohne Windows-Hardware ab. Reale Windows-/PowerShell-Abnahme bleibt offen.
+Referenzen: [Get-NetIPConfiguration](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipconfiguration)
+und [Get-NetIPAddress](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipaddress).

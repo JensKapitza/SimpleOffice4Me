@@ -75,6 +75,48 @@ def _powershell(script: str, timeout: int = 15) -> dict[str, Any]:
     return _run([Path(executable).name, "-NoProfile", "-NonInteractive", "-Command", script], timeout)
 
 
+def _windows_inventory(data):
+    """Reject incomplete scans rather than interpret them as lost bindings."""
+    complete = isinstance(data, dict) and "interfaces" in data and "addresses" in data
+    if complete:
+        interfaces, addresses = data["interfaces"], data["addresses"]
+        if not isinstance(interfaces, list) or not isinstance(addresses, list):
+            raise ValueError("Windows-Netzwerkinventar unvollständig")
+    else:
+        # Compatibility with earlier IPv4-only snapshots.
+        interfaces = [data] if isinstance(data, dict) else data
+        addresses = []
+        if not isinstance(interfaces, list):
+            raise ValueError("Windows-Netzwerkinventar ungültig")
+    rows, defaults = [], []
+    for item in interfaces:
+        if not isinstance(item, dict) or not item.get("InterfaceAlias") or type(item.get("InterfaceIndex")) is not int:
+            raise ValueError("Windows-Interface ungültig")
+        ips = []
+        if not complete:
+            raw = item.get("IPv4Address") or []
+            for entry in [raw] if isinstance(raw, dict) else raw:
+                ips.append(str(ipaddress.ip_interface(str(entry["IPAddress"]) + "/" + str(entry["PrefixLength"]))))
+        name = item["InterfaceAlias"]
+        if item.get("IPv4DefaultGateway"):
+            defaults.append(name)
+        rows.append({"index": item["InterfaceIndex"], "name": name, "state": str(item.get("Status") or "unknown"),
+                     "addresses": ips, "loopback": False})
+    by_index = {row["index"]: row for row in rows}
+    if len(by_index) != len(rows):
+        raise ValueError("Windows-Interfaceindex ist mehrdeutig")
+    for entry in addresses:
+        if not isinstance(entry, dict) or entry.get("InterfaceIndex") not in by_index:
+            raise ValueError("Windows-Adresse ohne Interface")
+        address = ipaddress.ip_interface(str(entry["IPAddress"]) + "/" + str(entry["PrefixLength"]))
+        state = entry["State"]
+        if state not in {"Preferred", "Deprecated", "Invalid", "Tentative", "Duplicate"}:
+            raise ValueError("Windows-Adressstatus unbekannt")
+        if state in {"Preferred", "Deprecated"}:
+            by_index[entry["InterfaceIndex"]]["addresses"].append(str(address))
+    return rows, defaults, [4, 6] if complete else [4]
+
+
 def interfaces_snapshot() -> dict[str, Any]:
     kind = platform_kind()
     if kind == "linux":
@@ -94,20 +136,19 @@ def interfaces_snapshot() -> dict[str, Any]:
         defaults = [str(row.get("dev") or "") for row in route_data if isinstance(row, dict) and row.get("dev")]
         return {"platform": kind, "available": bool(addresses["ok"] and isinstance(addr_data, list)), "address_families": [4, 6], "interfaces": rows, "default_interfaces": defaults}
     if kind == "windows":
-        result = _powershell("Get-NetIPConfiguration | Select-Object InterfaceAlias,InterfaceIndex,IPv4Address,IPv4DefaultGateway,@{Name='Status';Expression={$_.NetAdapter.Status}} | ConvertTo-Json -Depth 6", 3)
-        try: data = json.loads(result["stdout"]) if result["ok"] else []
-        except json.JSONDecodeError: data = None
-        if isinstance(data, dict): data = [data]
-        rows = []; defaults = []
-        for item in data if isinstance(data, list) else []:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("InterfaceAlias") or ""); ips_raw = item.get("IPv4Address") or []
-            if isinstance(ips_raw, dict): ips_raw = [ips_raw]
-            ips = [str(x["IPAddress"]) + ("/" + str(x["PrefixLength"]) if x.get("PrefixLength") is not None else "") for x in ips_raw if isinstance(x, dict) and x.get("IPAddress")]
-            if item.get("IPv4DefaultGateway"): defaults.append(name)
-            rows.append({"index": item.get("InterfaceIndex", 0), "name": name, "state": str(item.get("Status") or "unknown"), "addresses": ips, "loopback": False})
-        return {"platform": kind, "available": bool(result["ok"] and isinstance(data, list)), "interfaces": rows, "default_interfaces": defaults, "netnat_available": _powershell("if (Get-Command New-NetNat -ErrorAction SilentlyContinue) { '1' } else { '0' }", 3)["stdout"].strip() == "1"}
+        script = ("$ErrorActionPreference='Stop'; "
+                  "$a = @(Get-NetIPAddress -ErrorAction Stop | Select-Object InterfaceIndex,IPAddress,PrefixLength,@{Name='State';Expression={[string]$_.AddressState}}); "
+                  "$i = @(Get-NetIPConfiguration -All -ErrorAction Stop | Select-Object InterfaceAlias,InterfaceIndex,IPv4DefaultGateway,@{Name='Status';Expression={$_.NetAdapter.Status}}); "
+                  "@{interfaces=$i;addresses=$a} | ConvertTo-Json -Depth 6")
+        result = _powershell(script, 3)
+        try:
+            data = json.loads(result["stdout"]) if result["ok"] else None
+            rows, defaults, families = _windows_inventory(data)
+        except (ValueError, TypeError, KeyError):
+            return {"platform": kind, "available": False, "interfaces": [], "default_interfaces": []}
+        return {"platform": kind, "available": True, "address_families": families,
+                "interfaces": rows, "default_interfaces": defaults,
+                "netnat_available": _powershell("if (Get-Command New-NetNat -ErrorAction SilentlyContinue) { '1' } else { '0' }", 3)["stdout"].strip() == "1"}
     return {"platform": kind, "available": False, "interfaces": [], "default_interfaces": []}
 
 
