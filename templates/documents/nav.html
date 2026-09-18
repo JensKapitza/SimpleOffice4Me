@@ -30,6 +30,7 @@
         <a class="nav-link" href="{{ url_for('documents.contacts') }}"><i class="fas fa-address-book me-1" aria-hidden="true"></i>{{ tr('contacts') }}</a>
         <a class="nav-link" href="{{ url_for('fritzbox_contacts.index') }}"><i class="fas fa-phone me-1" aria-hidden="true"></i>FRITZ!Box</a>
         <a class="nav-link" href="{{ url_for('personnel.index') }}"><i class="fas fa-users me-1" aria-hidden="true"></i>Personal</a>
+        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('personnel_time_analytics.index') }}"><i class="fas fa-chart-column me-1" aria-hidden="true"></i>Zeit-Analyse</a>{% endif %}
         <a class="nav-link" href="{{ url_for('mail_reader.index') }}"><i class="fas fa-envelope me-1" aria-hidden="true"></i>Mail</a>
         <a class="nav-link" href="{{ url_for('mail_index.index') }}"><i class="fas fa-clone me-1" aria-hidden="true"></i>Spam/Dubletten</a>
         <a class="nav-link" href="{{ url_for('documents.images') }}"><i class="fas fa-images me-1" aria-hidden="true"></i>{{ tr('images') }}</a>
