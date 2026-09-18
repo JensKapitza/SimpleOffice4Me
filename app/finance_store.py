@@ -17,7 +17,7 @@ from typing import Any, Iterator
 from .document_store import CONTROL_DIR
 from .finance_schema import (
     ACCOUNT_KINDS, ALLOCATION_TARGETS, ENTRY_DIRECTIONS, ENTRY_STATUSES, SCHEMA,
-    SOURCE_TYPES, TAG_RE, currency, iso_date, new_id, normalize_iban,
+    SOURCE_TYPES, TAG_RE, OBLIGATION_KINDS, RECURRENCE_UNITS, TAX_YEAR_STATUSES, BANK_CONNECTION_STATUSES, currency, iso_date, new_id, normalize_iban,
     positive_cents, signed_cents, text, transaction_fingerprint,
 )
 
@@ -212,6 +212,115 @@ class FinanceStore:
             for row in prepared: db.execute("INSERT INTO finance_allocation(allocation_id,entry_id,target_type,target_id,label,amount_cents,share_basis_points,created_at) VALUES(:allocation_id,:entry_id,:target_type,:target_id,:label,:amount_cents,:share_basis_points,:created_at)", row)
             self._audit(db, actor, "entry_allocations_replaced", "entry", entry_id, {"count": len(prepared), "mode": next(iter(modes), "none")})
         return prepared
+
+    def create_obligation(self, values: dict[str, Any], actor: str) -> dict[str, Any]:
+        actor = self._actor(actor)
+        kind = text(values.get("kind", "other"), 30).casefold()
+        recurrence = text(values.get("recurrence_unit", "monthly"), 20).casefold()
+        direction = text(values.get("direction", "expense"), 20).casefold()
+        if kind not in OBLIGATION_KINDS: raise ValueError("obligation kind is invalid")
+        if recurrence not in RECURRENCE_UNITS: raise ValueError("recurrence unit is invalid")
+        if direction not in {"income", "expense"}: raise ValueError("obligation direction is invalid")
+        name = text(values.get("name"), 200)
+        if not name: raise ValueError("obligation name is required")
+        interval_count = int(values.get("interval_count", 1) or 1)
+        if not 1 <= interval_count <= 120: raise ValueError("interval_count is outside the supported range")
+        due_raw = values.get("due_day")
+        due_day = None if due_raw in {None, ""} else int(due_raw)
+        if due_day is not None and not 1 <= due_day <= 31: raise ValueError("due_day is outside the supported range")
+        starts_on = iso_date(values.get("starts_on"), "starts_on")
+        ends_on = iso_date(values.get("ends_on"), "ends_on", allow_empty=True)
+        if ends_on and ends_on < starts_on: raise ValueError("ends_on cannot be before starts_on")
+        ts = _now()
+        row = {"obligation_id": new_id("obl"), "owner": actor, "name": name, "kind": kind,
+               "direction": direction, "amount_cents": positive_cents(values.get("amount_cents")),
+               "currency": currency(values.get("currency", "EUR")), "recurrence_unit": recurrence,
+               "interval_count": interval_count, "due_day": due_day, "starts_on": starts_on,
+               "ends_on": ends_on, "category": text(values.get("category"), 120),
+               "counterparty_name": text(values.get("counterparty_name"), 300),
+               "counterparty_iban": normalize_iban(values.get("counterparty_iban")),
+               "reference": text(values.get("reference"), 300),
+               "contract_document_id": text(values.get("contract_document_id"), 200),
+               "active": 1, "created_at": ts, "updated_at": ts}
+        with self._db() as db:
+            db.execute("""INSERT INTO finance_obligation(obligation_id,owner,name,kind,direction,amount_cents,currency,recurrence_unit,interval_count,due_day,starts_on,ends_on,category,counterparty_name,counterparty_iban,reference,contract_document_id,active,created_at,updated_at)
+                          VALUES(:obligation_id,:owner,:name,:kind,:direction,:amount_cents,:currency,:recurrence_unit,:interval_count,:due_day,:starts_on,:ends_on,:category,:counterparty_name,:counterparty_iban,:reference,:contract_document_id,:active,:created_at,:updated_at)""", row)
+            self._audit(db, actor, "obligation_created", "obligation", row["obligation_id"], {"kind": kind, "recurrence": recurrence})
+        return row
+
+    def obligations(self, actor: str, *, active_only: bool = True) -> list[dict[str, Any]]:
+        actor = self._actor(actor)
+        sql = "SELECT * FROM finance_obligation WHERE owner=?"
+        params: list[Any] = [actor]
+        if active_only: sql += " AND active=1"
+        sql += " ORDER BY name COLLATE NOCASE,obligation_id"
+        with self._db() as db: return [dict(row) for row in db.execute(sql, params).fetchall()]
+
+    def confirm_transaction_match(self, transaction_id: str, source_type: str, source_id: str, actor: str, *, score: int = 0, note: str = "") -> dict[str, Any]:
+        actor = self._actor(actor); source_type = text(source_type, 40).casefold(); source_id = text(source_id, 200)
+        if source_type not in SOURCE_TYPES or source_type in {"manual", "bank_transaction", "internal_allocation"}:
+            raise ValueError("match source type is invalid")
+        if not source_id: raise ValueError("match source id is required")
+        score = max(0, min(int(score), 100))
+        with self._db() as db:
+            tx = db.execute("""SELECT t.transaction_id FROM finance_bank_transaction t
+                               JOIN finance_account a ON a.account_id=t.account_id
+                               WHERE t.transaction_id=? AND a.owner=?""", (text(transaction_id, 100), actor)).fetchone()
+            if not tx: raise ValueError("bank transaction not found")
+            existing = db.execute("SELECT * FROM finance_transaction_match WHERE owner=? AND transaction_id=? AND source_type=? AND source_id=?", (actor, transaction_id, source_type, source_id)).fetchone()
+            if existing: return dict(existing)
+            row = {"match_id": new_id("match"), "owner": actor, "transaction_id": transaction_id,
+                   "source_type": source_type, "source_id": source_id, "score": score,
+                   "state": "confirmed", "note": text(note, 500), "created_at": _now()}
+            db.execute("""INSERT INTO finance_transaction_match(match_id,owner,transaction_id,source_type,source_id,score,state,note,created_at)
+                          VALUES(:match_id,:owner,:transaction_id,:source_type,:source_id,:score,:state,:note,:created_at)""", row)
+            self._audit(db, actor, "transaction_match_confirmed", "bank_transaction", transaction_id, {"source_type": source_type, "source_id": source_id, "score": score})
+        return row
+
+    def transaction_matches(self, transaction_id: str, actor: str) -> list[dict[str, Any]]:
+        actor = self._actor(actor)
+        with self._db() as db:
+            rows = db.execute("SELECT * FROM finance_transaction_match WHERE owner=? AND transaction_id=? ORDER BY created_at,match_id", (actor, text(transaction_id, 100))).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_bank_connection(self, values: dict[str, Any], actor: str) -> dict[str, Any]:
+        """Persist connection metadata only. PIN and TAN are deliberately unsupported."""
+        actor = self._actor(actor)
+        forbidden = {"pin", "tan", "password", "secret"}
+        if any(text(values.get(key), 1000) for key in forbidden):
+            raise ValueError("PIN, TAN and banking secrets must never be stored")
+        provider = text(values.get("provider"), 30).casefold()
+        login_id = text(values.get("login_id"), 200)
+        if not provider or not login_id: raise ValueError("provider and login_id are required")
+        status = text(values.get("status", "configured"), 40).casefold()
+        if status not in BANK_CONNECTION_STATUSES: raise ValueError("bank connection status is invalid")
+        institution = text(values.get("institution"), 200)
+        with self._db() as db:
+            existing = db.execute("SELECT * FROM finance_bank_connection WHERE owner=? AND provider=? AND institution=? AND login_id=?", (actor, provider, institution, login_id)).fetchone()
+            if existing: return dict(existing)
+            ts = _now(); row = {"connection_id": new_id("bank"), "owner": actor, "provider": provider,
+                "institution": institution, "endpoint": text(values.get("endpoint"), 500), "login_id": login_id,
+                "status": status, "last_successful_sync": None, "last_error": "", "created_at": ts, "updated_at": ts}
+            db.execute("""INSERT INTO finance_bank_connection(connection_id,owner,provider,institution,endpoint,login_id,status,last_successful_sync,last_error,created_at,updated_at)
+                          VALUES(:connection_id,:owner,:provider,:institution,:endpoint,:login_id,:status,:last_successful_sync,:last_error,:created_at,:updated_at)""", row)
+            self._audit(db, actor, "bank_connection_created", "bank_connection", row["connection_id"], {"provider": provider, "institution": institution})
+        return row
+
+    def set_tax_year_status(self, tax_year: int, status: str, actor: str, *, submitted_on: str = "", advisor_note: str = "") -> dict[str, Any]:
+        actor = self._actor(actor); tax_year = int(tax_year); status = text(status, 40).casefold()
+        if not 1900 <= tax_year <= 2200: raise ValueError("tax year is outside the supported range")
+        if status not in TAX_YEAR_STATUSES: raise ValueError("tax year status is invalid")
+        submitted = iso_date(submitted_on, "submitted_on", allow_empty=True)
+        if status in {"submitted", "assessment_received", "archived"} and not submitted:
+            raise ValueError("submitted_on is required after submission")
+        row = {"owner": actor, "tax_year": tax_year, "status": status, "submitted_on": submitted,
+               "advisor_note": text(advisor_note, 1000), "updated_at": _now()}
+        with self._db() as db:
+            db.execute("""INSERT INTO finance_tax_year(owner,tax_year,status,submitted_on,advisor_note,updated_at)
+                          VALUES(:owner,:tax_year,:status,:submitted_on,:advisor_note,:updated_at)
+                          ON CONFLICT(owner,tax_year) DO UPDATE SET status=excluded.status,submitted_on=excluded.submitted_on,advisor_note=excluded.advisor_note,updated_at=excluded.updated_at""", row)
+            self._audit(db, actor, "tax_year_status_changed", "tax_year", str(tax_year), {"status": status})
+        return row
 
     def audit(self, actor: str, *, limit: int = 200) -> list[dict[str, Any]]:
         actor, limit = self._actor(actor), max(1, min(int(limit), 1000))
