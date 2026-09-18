@@ -11,7 +11,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .auth import login_required
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
-from .finance_store import FinanceStore
+from .finance_store import FinanceStore\nfrom .finance_fints import FinTSUnavailable, discover_accounts
 from .safe_paths import safe_filename
 
 bp = Blueprint("finance", __name__, url_prefix="/finances")
@@ -170,6 +170,56 @@ def statement_commit():
             f"{result['possible_duplicates']} mögliche Dubletten."
         )
     return redirect(url_for(".index", account_id=account.get("account_id", request.form.get("account_id", ""))))
+
+
+@bp.post("/bank-connections")
+@login_required
+def create_bank_connection():
+    values = request.form.to_dict()
+    for key in ("pin", "tan", "password", "secret"):
+        values.pop(key, None)
+    try:
+        connection = _store().save_bank_connection(values, _actor())
+        flash("Bankverbindung gespeichert. Die PIN wurde nicht gespeichert.")
+        return redirect(url_for(".index", connection_id=connection["connection_id"]))
+    except ValueError as exc:
+        flash(f"Bankverbindung nicht gespeichert: {exc}")
+        return redirect(url_for(".index"))
+
+
+@bp.post("/bank-connections/<connection_id>/discover")
+@login_required
+def discover_bank_accounts(connection_id: str):
+    actor = _actor()
+    pin = request.form.get("pin", "")
+    try:
+        store = _store()
+        connection = store.bank_connection(connection_id, actor)
+        remote_accounts = discover_accounts(connection, pin)
+        local_accounts = store.accounts(actor)
+        suggestions = []
+        for remote in remote_accounts:
+            local = store.account_by_iban(remote.get("iban", ""), actor) if remote.get("iban") else None
+            suggestions.append({"remote": remote, "local": local})
+        return render_template("finance/bank_discovery.html", connection=connection, suggestions=suggestions, accounts=local_accounts)
+    except (ValueError, FinTSUnavailable) as exc:
+        flash(f"Konten konnten nicht abgerufen werden: {exc}")
+        return redirect(url_for(".index"))
+    finally:
+        pin = ""
+
+
+@bp.post("/bank-connections/<connection_id>/map-account")
+@login_required
+def map_bank_account(connection_id: str):
+    actor = _actor()
+    try:
+        mapping = _store().map_remote_account(connection_id, request.form.get("remote_account_id", ""), request.form.get("account_id", ""), request.form.get("remote_iban", ""), actor)
+        flash("Bankkonto wurde dem vorhandenen SimpleOffice-Konto zugeordnet.")
+        return redirect(url_for(".index", account_id=mapping["account_id"]))
+    except ValueError as exc:
+        flash(f"Kontozuordnung nicht gespeichert: {exc}")
+        return redirect(url_for(".index"))
 
 
 def init_app(app) -> None:
