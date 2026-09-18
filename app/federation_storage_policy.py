@@ -103,6 +103,8 @@ def place_shards(
         # Public fallback is all-or-nothing when its diversity requirement cannot be met.
         public = []
     ordered = private + public
+    if not ordered:
+        return {}
     assigned: dict[str, list[str]] = {peer.peer_id: [] for peer in ordered}
     public_counts = {peer.peer_id: 0 for peer in public}
     cursor = 0
