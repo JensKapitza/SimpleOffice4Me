@@ -12,6 +12,7 @@ from .auth import login_required
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
+from .safe_paths import safe_filename
 
 bp = Blueprint("finance", __name__, url_prefix="/finances")
 _STAGE_TTL_SECONDS = 24 * 60 * 60
@@ -121,7 +122,7 @@ def statement_preview():
         flash("Kontoauszug ist größer als 25 MiB.")
         return redirect(url_for(".index"))
     actor = _actor()
-    filename = Path(upload.filename).name[:240] or "kontoauszug"
+    filename = safe_filename(upload.filename, fallback="kontoauszug", max_length=240)
     try:
         token = _stage_upload(data, actor)
         preview = FinanceStatementImporter(_store()).preview(
@@ -147,7 +148,7 @@ def statement_preview():
 def statement_commit():
     actor = _actor()
     token = request.form.get("stage_token", "").strip().casefold()
-    filename = Path(request.form.get("filename", "kontoauszug")).name[:240] or "kontoauszug"
+    filename = safe_filename(request.form.get("filename", "kontoauszug"), fallback="kontoauszug", max_length=240)
     try:
         data = _read_stage(token, actor)
         result = FinanceStatementImporter(_store()).commit(
