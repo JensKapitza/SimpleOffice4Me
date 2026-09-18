@@ -7,7 +7,7 @@
   const roleLabel = byId('screen-session-role');
   const stateLabel = byId('screen-session-state');
   let session = null, role = '', code = '', pc = null, stream = null;
-  let pollTimer = null, lastSequence = 0, stopping = false;
+  let pollTimer = null, lastSequence = 0, stopping = false, pollFailures = 0;
   const pendingCandidates = [];
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
@@ -20,9 +20,16 @@
     const headers = new Headers(options.headers || {});
     if (options.method && options.method !== 'GET') headers.set('X-CSRF-Token', csrf);
     if (options.body) headers.set('Content-Type', 'application/json');
-    const response = await fetch(url, {...options, headers, credentials: 'same-origin'});
-    if (!response.ok) throw new Error(`Serverfehler HTTP ${response.status}`);
-    return response.json();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, {...options, headers, credentials: 'same-origin', signal: controller.signal});
+      if (!response.ok) {
+        const error = new Error(`Serverfehler HTTP ${response.status}`);
+        error.status = response.status; throw error;
+      }
+      return await response.json();
+    } finally { window.clearTimeout(timeout); }
   };
   const sendSignal = (type, payload) => {
     if (!session || !role) return Promise.reject(new Error('Keine aktive Session.'));
@@ -75,19 +82,30 @@
   };
   const poll = async () => {
     if (!session || !role || stopping) return;
+    const polledSession = session;
     try {
-      const suffix = `?role=${encodeURIComponent(role)}&after=${lastSequence}&code=${encodeURIComponent(code)}`;
-      const data = await api(`/screen/api/sessions/${encodeURIComponent(session.session_id)}/signals${suffix}`);
+      const suffix = `?role=${encodeURIComponent(role)}&after=${lastSequence}`;
+      const data = await api(`/screen/api/sessions/${encodeURIComponent(session.session_id)}/signals${suffix}`, {headers: {'X-Screen-Code': code}});
+      if (session !== polledSession || stopping) return;
       await handleSignals(data.messages || []);
+      pollFailures = 0;
       lastSequence = Math.max(lastSequence, Number(data.last_sequence || 0));
-    } catch (error) { signalFailure('Signaling-Verbindung fehlgeschlagen', error); }
-    if (session && !stopping) pollTimer = window.setTimeout(poll, 700);
+    } catch (error) {
+      if (session !== polledSession || stopping) return;
+      signalFailure('Signaling-Verbindung fehlgeschlagen', error);
+      pollFailures += 1;
+      if ([403, 404, 410].includes(error.status) || pollFailures >= 3) {
+        await stop(false, false); return;
+      }
+    }
+    if (session === polledSession && !stopping) pollTimer = window.setTimeout(poll, pollFailures ? 700 * (2 ** pollFailures) : 700);
   };
   const stop = async (notify = true, resetMessage = true) => {
     if (stopping) return;
     stopping = true;
     if (pollTimer) window.clearTimeout(pollTimer); pollTimer = null;
-    if (notify && session) { try { await sendSignal('bye', null); } catch (_) { /* already closed */ } }
+    // Start notification while identifiers still exist, but release capture immediately.
+    const notification = notify && session ? sendSignal('bye', null).catch(() => {}) : Promise.resolve();
     if (pc) pc.close(); pc = null;
     if (stream) stream.getTracks().forEach((track) => track.stop()); stream = null;
     try { window.SimpleOfficeNativeScreen?.stopShare?.(); } catch (_) { /* optional bridge */ }
@@ -96,8 +114,9 @@
     byId('screen-remote-video').srcObject = null; byId('screen-remote-video').classList.add('d-none');
     byId('screen-share-code-box').classList.add('d-none');
     byId('screen-share-stop').disabled = true; byId('screen-receive-stop').disabled = true; byId('screen-fullscreen').disabled = true;
-    roleLabel.textContent = '–'; setState('nicht verbunden'); stopping = false;
+    roleLabel.textContent = '–'; setState('nicht verbunden'); pollFailures = 0; stopping = false;
     if (resetMessage) show('Freigabe beendet.', 'secondary');
+    await notification;
   };
   const captureDisplay = async () => {
     if (window.SimpleOfficeNativeScreen?.startShare) {
@@ -129,7 +148,7 @@
     try {
       await stop(false, false); code = String(byId('screen-join-code').value || '').trim().toUpperCase();
       if (!code) throw new Error('Verbindungscode fehlt.');
-      const resolved = await api(`/screen/api/join/${encodeURIComponent(code)}`);
+      const resolved = await api('/screen/api/join', {method: 'POST', body: JSON.stringify({code})});
       session = resolved.session; role = 'receiver'; roleLabel.textContent = 'Empfänger'; setState('verbindet');
       pc = createPeer();
       pc.ontrack = (event) => {
