@@ -11,7 +11,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .auth import login_required
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
-from .finance_store import FinanceStore\nfrom .finance_fints import FinTSUnavailable, discover_accounts
+from .finance_store import FinanceStore\nfrom .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts\nfrom .finance_fints_sync import FinTSSyncService
 from .safe_paths import safe_filename
 
 bp = Blueprint("finance", __name__, url_prefix="/finances")
@@ -220,6 +220,32 @@ def map_bank_account(connection_id: str):
     except ValueError as exc:
         flash(f"Kontozuordnung nicht gespeichert: {exc}")
         return redirect(url_for(".index"))
+
+
+@bp.post("/bank-connections/<connection_id>/sync")
+@login_required
+def sync_bank_connection(connection_id: str):
+    actor = _actor()
+    pin = request.form.get("pin", "")
+    try:
+        result = FinTSSyncService(_store()).sync_connection(connection_id, pin, actor)
+        flash(
+            f"Bankabruf abgeschlossen: {result['created']} neu, "
+            f"{result['existing']} bereits vorhanden, "
+            f"{result['possible_duplicates']} mögliche Dubletten."
+        )
+    except FinTSAuthenticationRequired as exc:
+        _store().update_bank_connection_status(connection_id, actor, "authentication_required", error=str(exc))
+        flash(str(exc))
+    except (FinTSUnavailable, ValueError) as exc:
+        flash(f"Bankabruf nicht möglich: {exc}")
+    except Exception:
+        # Never surface library exception details here: a provider could include
+        # sensitive dialog material. The store contains a bounded diagnostic.
+        flash("Bankabruf fehlgeschlagen. Details stehen im Bankverbindungsstatus.")
+    finally:
+        pin = ""
+    return redirect(url_for(".index"))
 
 
 def init_app(app) -> None:
