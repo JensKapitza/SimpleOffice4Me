@@ -140,6 +140,38 @@ class FinanceStore:
             self._audit(db, actor, "bank_transaction_imported", "bank_transaction", row["transaction_id"], {"account_id": account_id, "duplicate_state": row["duplicate_state"]})
         return row, result
 
+    def latest_bank_booking_date(self, account_id: str, actor: str) -> str:
+        actor = self._actor(actor); account_id = text(account_id, 100)
+        with self._db() as db:
+            account = db.execute("SELECT owner FROM finance_account WHERE account_id=?", (account_id,)).fetchone()
+            if not account or str(account["owner"]) != actor: raise ValueError("account not found")
+            row = db.execute("SELECT MAX(booking_date) AS latest FROM finance_bank_transaction WHERE account_id=?", (account_id,)).fetchone()
+        return str(row["latest"] or "")
+
+    def fingerprint_counts(self, account_id: str, actor: str, *, start_date: str, end_date: str) -> dict[str, int]:
+        actor = self._actor(actor); account_id = text(account_id, 100)
+        start = iso_date(start_date, "start_date"); end = iso_date(end_date, "end_date")
+        with self._db() as db:
+            account = db.execute("SELECT owner FROM finance_account WHERE account_id=?", (account_id,)).fetchone()
+            if not account or str(account["owner"]) != actor: raise ValueError("account not found")
+            rows = db.execute("""SELECT fingerprint,COUNT(*) AS n FROM finance_bank_transaction
+                                 WHERE account_id=? AND booking_date>=? AND booking_date<=?
+                                 GROUP BY fingerprint""", (account_id, start, end)).fetchall()
+        return {str(row["fingerprint"]): int(row["n"]) for row in rows}
+
+    def update_bank_connection_status(self, connection_id: str, actor: str, status: str, *, error: str = "", successful: bool = False) -> dict[str, Any]:
+        actor = self._actor(actor); status = text(status, 40).casefold()
+        if status not in BANK_CONNECTION_STATUSES: raise ValueError("bank connection status is invalid")
+        connection = self.bank_connection(connection_id, actor)
+        ts = _now()
+        with self._db() as db:
+            db.execute("""UPDATE finance_bank_connection SET status=?,last_error=?,last_successful_sync=CASE WHEN ? THEN ? ELSE last_successful_sync END,updated_at=?
+                          WHERE connection_id=? AND owner=?""",
+                       (status, text(error, 1000), 1 if successful else 0, ts, ts, connection_id, actor))
+            self._audit(db, actor, "bank_connection_status_changed", "bank_connection", connection_id, {"status": status, "successful": successful})
+            row = db.execute("SELECT * FROM finance_bank_connection WHERE connection_id=? AND owner=?", (connection_id, actor)).fetchone()
+        return dict(row)
+
     def bank_transactions(self, account_id: str, actor: str, *, limit: int = 500) -> list[dict[str, Any]]:
         actor, limit = self._actor(actor), max(1, min(int(limit), 5000))
         with self._db() as db:
