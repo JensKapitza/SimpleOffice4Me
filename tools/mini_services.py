@@ -172,7 +172,7 @@ class Worker:
             # same NAT name/prefix. Persist before applying for crash cleanup.
             # A bounded wait may still leave the application outcome unknown.
             remember_gateway_ownership(specification[1], self.config_path)
-            result = apply_gateway(specification[1], server_ip=str(self.config["dhcp"]["server_ip"]))
+            result = apply_gateway(specification[1], server_ip=str(specification[1].get("_server_ip", self.config["dhcp"]["server_ip"])))
             if not result.get("ok"):
                 raise RuntimeError("Gateway-Reload fehlgeschlagen")
         except Exception as exc:
@@ -196,6 +196,47 @@ class Worker:
         state.last_error_at = None
         self.next_gateway_health = 0
         self.event({"service": "gateway", "action": "reloaded"})
+
+    def _replace_windows_gateway(self, specification):
+        """Restore the previous owned NAT after a rejected prefix/mode change."""
+        previous = self.desired["gateway"]
+        if previous[1]["nat_name"] != specification[1]["nat_name"]:
+            # A different name can refer to a foreign NAT. Never remove it as
+            # cleanup for an unsuccessful attempt to take ownership.
+            raise ValueError("NAT-Namenswechsel benötigt einen expliziten Stop")
+        state = self.states["gateway"]
+        if not self._stop_one("gateway"):
+            state.retry_at = None
+            raise RuntimeError("Vorheriges Gateway konnte nicht bestätigt gestoppt werden")
+        self.desired["gateway"] = specification
+        try:
+            self._reload_gateway(specification)
+            self.gateway_active = True
+        except Exception as original:
+            # Do not automatically repeat a disruptive switch on every tick.
+            self.config_signature = self._signature()
+            self.config_error = error_detail(original)
+            try:
+                # This also confirms removal after an ambiguous apply timeout.
+                # If cleanup is uncertain, preserve its marker and stop here.
+                if not self._stop_one("gateway"):
+                    raise RuntimeError("Neue Gateway-Konfiguration konnte nicht bereinigt werden")
+                self.desired["gateway"] = previous
+                self._reload_gateway(previous)
+                self.gateway_active = True
+            except Exception as rollback_error:
+                state.state = "failed"
+                state.last_error = error_detail(rollback_error)
+                state.last_error_at = time.time()
+                state.retry_at = None
+                self.event({"service": "gateway", "action": "rollback_failed", "error": type(rollback_error).__name__})
+                raise RuntimeError("Gateway-Wiederherstellung fehlgeschlagen; Status und Dienstrechte prüfen") from rollback_error
+            state.state = "degraded"
+            state.last_error = error_detail(original)
+            state.last_error_at = time.time()
+            state.retry_at = None
+            self.event({"service": "gateway", "action": "rollback_restored"})
+            raise RuntimeError("Gateway-Umstellung fehlgeschlagen; vorherige Konfiguration wiederhergestellt") from original
 
     def _can_reload_gateway(self, specification):
         if not self.gateway_active or not specification[0]:
@@ -238,6 +279,9 @@ class Worker:
                 continue
             if name == "gateway" and self._can_reload_gateway(specification):
                 self._reload_gateway(specification)
+                continue
+            if name == "gateway" and self.gateway_active and specification[0] and platform_kind() == "windows":
+                self._replace_windows_gateway(specification)
                 continue
             if not self._stop_one(name):
                 continue

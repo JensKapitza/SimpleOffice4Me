@@ -92,14 +92,16 @@ class GatewayReloadTests(unittest.TestCase):
         self.apply.assert_not_called()
         self.assertFalse(self.worker.gateway_active)
 
-    def test_windows_changed_network_keeps_existing_stop_start_path(self):
+    def test_windows_changed_network_replaces_owned_resource(self):
         self.settings.return_value = {**_GATEWAY, "internal_network": "192.168.99.0/24"}
         command = self.worker.control.enqueue("gateway", "restart")
         with patch("tools.mini_services.platform_kind", return_value="windows"):
             self.worker._execute(self.worker.control.claim())
         self.stop.assert_called_once()
-        self.apply.assert_not_called()
-        self.worker._start_one.assert_called_with("gateway")
+        self.apply.assert_called_once()
+        self.assertTrue(self.worker.gateway_active)
+        self.assertEqual("192.168.99.0/24", self.worker.desired["gateway"][1]["internal_network"])
+        self.assertEqual("completed", self.worker.control.operation(command["id"])["state"])
 
     def test_windows_same_nat_restart_preserves_active_resource_on_failure(self):
         command = self.worker.control.enqueue("gateway", "restart")
@@ -110,3 +112,76 @@ class GatewayReloadTests(unittest.TestCase):
         self.apply.assert_called_once()
         self.assertTrue(self.worker.gateway_active)
         self.assertEqual("failed", self.worker.control.operation(command["id"])["state"])
+
+    def test_windows_failed_change_restores_previous_configuration(self):
+        self.settings.return_value = {**_GATEWAY, "internal_network": "192.168.99.0/24"}
+        for error in (PermissionError("secret"), subprocess.TimeoutExpired("powershell", 30)):
+            with self.subTest(error=type(error).__name__):
+                self.previous[1]["_server_ip"] = "192.168.178.77"
+                self.apply.reset_mock()
+                self.apply.side_effect = [error, {"ok": True, "platform": "windows", "mode": "nat"}]
+                command = self.worker.control.enqueue("gateway", "restart")
+                with patch("tools.mini_services.platform_kind", return_value="windows"):
+                    self.worker._execute(self.worker.control.claim())
+                self.assertEqual("failed", self.worker.control.operation(command["id"])["state"])
+                self.assertTrue(self.worker.gateway_active)
+                self.assertEqual(self.previous, self.worker.desired["gateway"])
+                self.assertEqual(self.previous[1]["internal_network"], load_gateway_ownership(self.worker.config_path)["internal_network"])
+                self.assertEqual("degraded", self.worker.states["gateway"].state)
+                self.assertIsNone(self.worker.states["gateway"].retry_at)
+                self.assertNotIn("secret", str(self.worker.states["gateway"].last_error))
+                self.assertEqual(2, self.apply.call_count)
+                self.assertEqual("192.168.178.77", self.apply.call_args.kwargs["server_ip"])
+
+    def test_windows_failed_cleanup_does_not_overwrite_ownership_or_restore(self):
+        self.settings.return_value = {**_GATEWAY, "internal_network": "192.168.99.0/24"}
+        self.apply.side_effect = RuntimeError("apply rejected")
+        self.stop.side_effect = [{"ok": True}, PermissionError("cleanup denied")]
+        with patch("tools.mini_services.platform_kind", return_value="windows"), self.assertRaises(RuntimeError):
+            self.worker._load_network_services()
+        self.apply.assert_called_once()
+        self.assertFalse(self.worker.gateway_active)
+        self.assertEqual("192.168.99.0/24", load_gateway_ownership(self.worker.config_path)["internal_network"])
+        self.assertEqual("failed", self.worker.states["gateway"].state)
+        self.assertIsNone(self.worker.states["gateway"].retry_at)
+
+    def test_windows_restore_failure_retains_previous_marker_for_manual_cleanup(self):
+        self.settings.return_value = {**_GATEWAY, "internal_network": "192.168.99.0/24"}
+        self.apply.side_effect = [RuntimeError("new rejected"), PermissionError("old rejected")]
+        with patch("tools.mini_services.platform_kind", return_value="windows"), self.assertRaises(RuntimeError):
+            self.worker._load_network_services()
+        self.assertFalse(self.worker.gateway_active)
+        self.assertEqual(self.previous[1]["internal_network"], load_gateway_ownership(self.worker.config_path)["internal_network"])
+        self.assertEqual("failed", self.worker.states["gateway"].state)
+        self.assertIsNone(self.worker.states["gateway"].retry_at)
+
+    def test_windows_name_change_never_touches_unowned_nat(self):
+        self.settings.return_value = {**_GATEWAY, "nat_name": "OtherNat"}
+        with patch("tools.mini_services.platform_kind", return_value="windows"), self.assertRaises(ValueError):
+            self.worker._load_network_services()
+        self.stop.assert_not_called()
+        self.apply.assert_not_called()
+        self.assertTrue(self.worker.gateway_active)
+
+    def test_restored_configuration_is_not_replaced_again_on_next_tick(self):
+        self.settings.return_value = {**_GATEWAY, "internal_network": "192.168.99.0/24"}
+        self.apply.side_effect = [RuntimeError("new rejected"), {"ok": True, "platform": "windows", "mode": "nat"}]
+        self.worker.config_loaded = True
+        self.worker.next_gateway_health = float("inf")
+        self.worker.next_network_scan = float("inf")
+        with patch("tools.mini_services.platform_kind", return_value="windows"):
+            with self.assertRaises(RuntimeError):
+                self.worker._load_network_services()
+            self.worker.next_gateway_health = float("inf")
+            self.worker.tick()
+        self.assertEqual(2, self.apply.call_count)
+        self.assertEqual(self.previous, self.worker.desired["gateway"])
+
+    def test_windows_initial_stop_failure_prevents_new_apply(self):
+        self.settings.return_value = {**_GATEWAY, "internal_network": "192.168.99.0/24"}
+        self.stop.side_effect = PermissionError("stop denied")
+        with patch("tools.mini_services.platform_kind", return_value="windows"), self.assertRaises(RuntimeError):
+            self.worker._load_network_services()
+        self.apply.assert_not_called()
+        self.assertEqual(self.previous, self.worker.desired["gateway"])
+        self.assertIsNone(self.worker.states["gateway"].retry_at)
