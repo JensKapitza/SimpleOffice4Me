@@ -59,6 +59,12 @@
         <div class="col-md-4"><label class="form-label" for="pin-{{ loop.index }}">PIN nur für diesen Abruf</label><input required class="form-control" id="pin-{{ loop.index }}" name="pin" type="password" autocomplete="off"></div>
         <div class="col-md-3"><button class="btn btn-primary w-100" type="submit">Konten abrufen</button></div>
       </form>
+      <form method="post" action="{{ url_for('.sync_bank_connection', connection_id=connection.connection_id) }}" class="row g-2 align-items-end mt-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-5"><span class="badge text-bg-secondary">{{ connection.status }}</span>{% if connection.last_successful_sync %}<span class="small text-secondary ms-2">Letzter erfolgreicher Abruf vorhanden</span>{% endif %}{% if connection.last_error %}<div class="small text-danger mt-1">{{ connection.last_error }}</div>{% endif %}</div>
+        <div class="col-md-4"><label class="form-label" for="sync-pin-{{ loop.index }}">PIN nur für Umsatzabruf</label><input required class="form-control" id="sync-pin-{{ loop.index }}" name="pin" type="password" autocomplete="off"></div>
+        <div class="col-md-3"><button class="btn btn-success w-100" type="submit">Umsätze abrufen</button></div>
+      </form>
       {% else %}<div class="small text-secondary">Noch keine Bankverbindung gespeichert.</div>{% endfor %}
     </div>
   </section>
