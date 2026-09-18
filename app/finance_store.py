@@ -52,6 +52,11 @@ class FinanceStore:
     def initialize(self) -> None:
         with self._db() as db:
             db.executescript(SCHEMA)
+            # Forward-only additive migration for databases created by an
+            # earlier Finance Core draft. Never drop or rewrite finance data.
+            columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(finance_bank_connection)").fetchall()}
+            if columns and "bank_code" not in columns:
+                db.execute("ALTER TABLE finance_bank_connection ADD COLUMN bank_code TEXT NOT NULL DEFAULT ''")
 
     @staticmethod
     def _actor(value: Any) -> str:
