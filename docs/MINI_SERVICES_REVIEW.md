@@ -5,6 +5,10 @@ Arbeits- und Abnahmematrix, keine pauschale Produktionsfreigabe. Ein grüner
 Build ersetzt weder Hardwaretests noch eine Prüfung der tatsächlich nutzbaren
 Ende-zu-Ende-Funktion. Keine neue Drittanbieterabhängigkeit ist vorgesehen.
 
+Der [Abnahmestand nach den Änderungen](MINI_SERVICES_ACCEPTANCE.md) wiederholt
+alle 43 Qualitätskriterien und enthält Messwerte, Nachweise sowie konkrete
+verbleibende Implementierungs- und Prüfaufgaben.
+
 ## Umsetzungspaket 1: Netzwerk-Laufzeit
 
 Der vorhandene Worker bleibt Eigentümer der fünf Netzwerkdienste. Seine

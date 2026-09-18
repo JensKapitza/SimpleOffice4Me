@@ -63,6 +63,7 @@ class Worker:
         # Exception strings may contain packets, URLs or credentials.
         clean = {key: row[key] for key in ("service", "action", "error", "operation_id") if key in row}
         clean.update(at=time.time(), severity="error" if row.get("error") else "info")
+        clean.update(event=clean.get("action", "event"), timestamp=clean["at"])
         with self.event_lock:
             self.events.append(clean)
             self.events = self.events[-50:]

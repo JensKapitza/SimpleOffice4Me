@@ -13,7 +13,10 @@ import shutil
 import struct
 import subprocess
 import wave
+import tempfile
+import time
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Iterable
 
 
@@ -67,7 +70,7 @@ def render_preset(name: str, cache_dir: str | Path) -> Path:
     return target
 
 
-def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | None = None) -> Path:
+def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | None = None, cancel_event=None) -> Path:
     root = Path(cache_dir)
     root.mkdir(parents=True, exist_ok=True)
     selected_model = str(model or os.environ.get("SIMPLEOFFICE_PIPER_MODEL", "")).strip()
@@ -79,12 +82,84 @@ def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | Non
     target = root / f"tts-{_cache_key(text, voice, selected_model)}.wav"
     if target.exists():
         return target
-    subprocess.run(
-        [piper, "--model", selected_model, "--output_file", str(target)],
-        input=text.encode("utf-8"), check=True, stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE, timeout=45,
-    )
+    with tempfile.TemporaryDirectory(prefix="tts-render-", dir=root) as temporary:
+        output = Path(temporary) / "speech.wav"
+        process = subprocess.Popen([piper, "--model", selected_model, "--output_file", str(output)],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 45
+        input_data = text.encode("utf-8")
+        try:
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Spracherzeugung abgebrochen")
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Spracherzeugung dauert zu lange")
+                try:
+                    process.communicate(input=input_data, timeout=0.2)
+                    break
+                except subprocess.TimeoutExpired:
+                    input_data = None
+            if process.returncode != 0:
+                raise RuntimeError("Spracherzeugung fehlgeschlagen")
+            if output.stat().st_size > 32 * 1024 * 1024:
+                raise ValueError("Erzeugte Sprachdatei ist zu groß")
+            with wave.open(str(output), "rb") as audio:
+                if audio.getnframes() == 0:
+                    raise ValueError("Sprachdatei ist leer")
+            os.chmod(output, 0o600)
+            os.replace(output, target)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
     return target
+
+
+@contextmanager
+def attenuated_audio(path: str | Path, volume: int, *, cancel_event=None):
+    """Apply per-output PCM gain without changing the source or system mixer."""
+    if type(volume) is not int or not 0 <= volume <= 100:
+        raise ValueError("Lautstärke muss zwischen 0 und 100 liegen")
+    source = Path(path)
+    if volume == 100:
+        yield source
+        return
+    # Private directory also protects the WAV while wave.open creates its header.
+    with tempfile.TemporaryDirectory(prefix="playback-", dir=source.parent) as temporary:
+        target = Path(temporary) / "audio.wav"
+        with wave.open(str(source), "rb") as incoming, wave.open(str(target), "wb") as outgoing:
+            width = incoming.getsampwidth()
+            channels = incoming.getnchannels()
+            if width not in (1, 2, 3, 4) or incoming.getcomptype() != "NONE":
+                raise ValueError("Lautstärkeanpassung benötigt PCM-WAV")
+            remaining = incoming.getnframes() * channels * width
+            if remaining > 32 * 1024 * 1024:
+                raise ValueError("Audiodatei ist zu groß")
+            outgoing.setparams(incoming.getparams())
+            while remaining:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Lautstärkeanpassung abgebrochen")
+                data = incoming.readframes(min(4096, remaining // (channels * width)))
+                if not data or len(data) % (channels * width):
+                    raise ValueError("Audiodatei ist unvollständig")
+                remaining -= len(data)
+                scaled = bytearray(len(data))
+                for offset in range(0, len(data), width):
+                    sample = int.from_bytes(data[offset:offset + width], "little", signed=width > 1)
+                    if width == 1:
+                        sample -= 128
+                    # Truncate toward zero symmetrically, including negative samples.
+                    value = (abs(sample) * volume // 100) * (-1 if sample < 0 else 1)
+                    if width == 1:
+                        value += 128
+                    scaled[offset:offset + width] = value.to_bytes(width, "little", signed=width > 1)
+                outgoing.writeframesraw(scaled)
+        os.chmod(target, 0o600)
+        yield target
 
 
 def playback_command(path: str | Path, device: str = "") -> list[str]:
@@ -100,9 +175,24 @@ def playback_command(path: str | Path, device: str = "") -> list[str]:
             command.extend(["-D", device])
         return command + [file_path]
     if shutil.which("ffplay"):
+        if device and device != "default":
+            raise RuntimeError("FFplay kann das gewählte Gerät nicht gezielt ansprechen; Systemstandard wählen oder einen gerätefähigen Player verwenden")
         return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", file_path]
     raise RuntimeError("Kein Audio-Player gefunden (pw-play, aplay oder ffplay)")
 
 
 def play_file(path: str | Path, device: str = "") -> None:
     subprocess.run(playback_command(path, device), check=True, timeout=300)
+
+
+def prune_tts_cache(cache_dir: str | Path, *, max_files=64, max_bytes=128 * 1024 * 1024):
+    """Bound generated speech retention; never remove unrelated assets."""
+    files = [path for path in Path(cache_dir).glob("tts-*.wav") if not path.is_symlink() and path.is_file()]
+    files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    kept_bytes = 0
+    for index, path in enumerate(files):
+        size = path.stat().st_size
+        if index >= max_files or kept_bytes + size > max_bytes:
+            path.unlink()
+        else:
+            kept_bytes += size

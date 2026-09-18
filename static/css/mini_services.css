@@ -6,7 +6,10 @@
 #audio-streamer-app select {
   min-height: 44px;
 }
-#mini-service-control button:focus-visible,
+#audio-announcements .btn, #audio-announcements select, #audio-device-discovery .btn { min-height: 44px; }
+#audio-announcements button:focus-visible, #audio-announcements input:focus-visible,
+#audio-announcements select:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+#mini-service-control :is(button, a, summary):focus-visible,
 .mini-service-page :is(button, input, textarea, summary, a):focus-visible,
 #mini-service-control input:focus-visible,
 #audio-streamer-app button:focus-visible,
@@ -22,3 +25,5 @@
 .mini-service-page { overflow-wrap: anywhere; }
 .mini-service-page summary { padding-block: 0.65rem; }
 .mini-service-page textarea { max-width: 100%; }
+
+#mini-service-control summary { min-height: 44px; padding-block: 0.65rem; }

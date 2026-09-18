@@ -3,6 +3,7 @@
   const root = document.getElementById('mini-service-control');
   if (!root) return;
   const base = root.dataset.api;
+  const settingsLinks = JSON.parse(root.dataset.settingsLinks || '{}');
   const feedback = document.getElementById('mini-feedback');
   const cards = document.getElementById('mini-control-cards');
   const labels = {unavailable: '○ Nicht erreichbar', stopped: '■ Gestoppt', starting: '↻ Startet',
@@ -19,6 +20,22 @@
   const report = (message, error = false) => {
     feedback.textContent = message;
     feedback.className = `alert alert-${error ? 'danger' : 'secondary'}`;
+  };
+  const scanLabel = (scan) => {
+    if (!scan) return '○ Noch keine Suche ausgeführt.';
+    const timestamp = Number(scan.updated_at);
+    const date = new Date(timestamp * 1000);
+    const when = timestamp > 0 && Number.isFinite(date.getTime()) ? ' · ' + date.toLocaleString() : '';
+    if (scan.state === 'scanning') return '↻ Suche läuft …' + when;
+    if (scan.state === 'failed') {
+      const detail = scan.error && typeof scan.error === 'object' ? scan.error : {};
+      return '⚠ Suche fehlgeschlagen. ' + (detail.message || 'Geräte und Voraussetzungen prüfen.') +
+        (detail.action ? ' ' + detail.action : '') + when;
+    }
+    if (scan.state !== 'completed') return '○ Noch keine Suche abgeschlossen.';
+    const count = Number.isInteger(scan.count) && scan.count >= 0 ? scan.count : 0;
+    return (count ? '✓ ' + count + ' Treffer' : '○ Keine Treffer') +
+      (scan.scope ? ' · ' + scan.scope : '') + when;
   };
   const request = async (path, method = 'GET', body) => {
     const controller = new AbortController();
@@ -51,10 +68,14 @@
     report(action === 'scan' ? '↻ Geräte und Dienste werden gesucht …' : '↻ Aktion wird ausgeführt …');
     try {
       const result = await request('/' + id + '/' + action, 'POST', body || {});
-      if (result.state === 'queued' && result.action) await waitOperation(result.id);
+      if (result.id && result.state === 'queued' && result.action) await waitOperation(result.id);
       await refresh();
       report(action === 'scan' ? `${result.count} Treffer. ${result.scope || ''}` : '✓ Aktion abgeschlossen.');
-    } catch (error) { report(error.name === 'AbortError' ? 'Zeitüberschreitung. Verbindung prüfen und Status aktualisieren.' : error.message, true); }
+    } catch (error) {
+      report(error.name === 'AbortError' ? 'Zeitüberschreitung. Verbindung prüfen und Status aktualisieren.' : error.message, true);
+      // The server may have persisted a failed scan or lifecycle result.
+      try { await refresh(); } catch (_) { /* Keep the original action error visible. */ }
+    }
     finally {
       busy = false;
       root.removeAttribute('aria-busy');
@@ -70,7 +91,9 @@
     const health = text('p', '', 'small');
     const error = text('p', '', 'small');
     const scan = text('p', '', 'small');
-    body.append(status, health, error, scan);
+    scan.setAttribute('role', 'status'); scan.setAttribute('aria-live', 'polite');
+    const dependencies = text('p', '', 'small');
+    body.append(status, health, error, scan, dependencies);
     const actions = text('div', '', 'd-flex flex-wrap gap-2 mb-3');
     [['start', 'Starten'], ['stop', 'Stoppen'], ['restart', 'Neustart'], ['scan', 'Suchen']].forEach(([key, label]) => {
       if (!(service.capabilities || []).includes(key)) return;
@@ -78,6 +101,13 @@
       button.type = 'button'; button.setAttribute('aria-label', `${service.name}: ${label}`);
       button.addEventListener('click', () => perform(service.id, key)); actions.appendChild(button);
     });
+    const settingsUrl = settingsLinks[service.id];
+    if (typeof settingsUrl === 'string' && /^\/(?!\/)/.test(settingsUrl) && !/[\\\x00-\x20]/.test(settingsUrl)) {
+      const link = text('a', 'Konfiguration öffnen', 'btn btn-outline-secondary');
+      link.href = settingsUrl;
+      link.setAttribute('aria-label', `${service.name}: Konfiguration öffnen`);
+      actions.appendChild(link);
+    }
     body.appendChild(actions);
     const settings = text('details', ''); settings.appendChild(text('summary', 'Einstellungen und Diagnose'));
     const inputs = {};
@@ -86,7 +116,12 @@
       const wrap = text('div', '', 'form-check my-2'); const input = document.createElement('input');
       input.type = 'checkbox'; input.className = 'form-check-input'; input.id = `mini-${service.id}-${key}`;
       const caption = text('label', label, 'form-check-label'); caption.htmlFor = input.id;
-      wrap.append(input, caption); settings.appendChild(wrap); inputs[key] = input;
+      const help = text('p', key === 'enabled'
+        ? 'Erlaubt den Betrieb dieses Dienstes. Geräte, Adressen und weitere Voraussetzungen stehen unter „Konfiguration öffnen“.'
+        : 'Startet den aktivierten Dienst beim nächsten Start seines Workers oder der Webanwendung. Verwendet die gespeicherte Konfiguration.', 'form-text');
+      help.id = `mini-${service.id}-${key}-help`;
+      input.setAttribute('aria-describedby', help.id);
+      wrap.append(input, caption, help); settings.appendChild(wrap); inputs[key] = input;
     });
     const save = text('button', 'Einstellungen speichern', 'btn btn-outline-primary'); save.type = 'button';
     save.addEventListener('click', () => perform(service.id, 'settings', {enabled: inputs.enabled.checked, autostart: inputs.autostart.checked}));
@@ -94,7 +129,7 @@
     if (configurable) settings.appendChild(save);
     settings.appendChild(diagnosis); body.appendChild(settings);
     article.appendChild(body); col.appendChild(article); cards.appendChild(col);
-    const view = {status, health, error, scan, inputs, diagnosis}; views.set(service.id, view); return view;
+    const view = {status, health, error, scan, dependencies, inputs, diagnosis}; views.set(service.id, view); return view;
   };
   const refresh = async () => {
     const data = await request('');
@@ -103,11 +138,16 @@
       view.status.textContent = labels[service.state] || service.state;
       view.health.textContent = service.health ? service.health.message : '';
       view.error.textContent = service.last_error ? `${service.last_error.message} ${service.last_error.action}` : '';
-      view.scan.textContent = service.scan.updated_at ? `${service.scan.count} Treffer · ${new Date(service.scan.updated_at * 1000).toLocaleString()}` : 'Noch keine Suche ausgeführt.';
+      view.scan.textContent = scanLabel(service.scan);
+      const missing = (service.dependencies || []).filter(item => item.required && !item.available);
+      view.dependencies.textContent = missing.length
+        ? `⚠ Erforderliche Programme fehlen: ${missing.map(item => item.programs.join(' oder ')).join(', ')}. Voraussetzungen in der Diagnose prüfen.`
+        : service.dependencies ? 'Programmprüfung abgeschlossen; Hardware und Audiowiedergabe sind damit nicht geprüft.' : '';
       // Do not replace focused controls or a user's unsaved settings on polling.
       if (!view.initialized) { Object.keys(view.inputs).forEach(key => { view.inputs[key].checked = service.settings[key]; }); view.initialized = true; }
       view.diagnosis.textContent = JSON.stringify({config: service.config, health: service.health, error: service.last_error,
-        retry: service.retry_in_seconds, scan: service.scan}, null, 2);
+        dependencies: service.dependencies, retry: service.retry_in_seconds, scan: service.scan, owner: service.owner, version: service.version,
+        requires: service.requires, optional_requires: service.optional_requires, provides: service.provides}, null, 2);
     });
   };
   document.getElementById('mini-refresh').addEventListener('click', () => refresh().then(() => report('✓ Status aktualisiert.')).catch(error => report(error.message, true)));

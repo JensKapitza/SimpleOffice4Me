@@ -15,13 +15,25 @@
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
-  <section id="mini-service-control" class="mb-4" data-api="{{ url_for('mini_services_api.index') }}" aria-labelledby="mini-control-title">
+  {% set settings_links = {
+    'dhcp': url_for('mini_services_admin.network'),
+    'dns': url_for('mini_services_admin.network'),
+    'gateway': url_for('mini_services_admin.network'),
+    'sip': url_for('telephony_admin.index'),
+    'tftp': url_for('network_boot_admin.index'),
+    'http-boot': url_for('network_boot_admin.index'),
+    'audio-output': url_for('audio_output_admin.index'),
+    'audio-sender': url_for('audio_streamer_admin.page'),
+    'audio-receiver': url_for('audio_streamer_admin.page')
+  } %}
+  <section data-settings-links="{{ settings_links|tojson|forceescape }}" id="mini-service-control" class="mb-4" data-api="{{ url_for('mini_services_api.index') }}" aria-labelledby="mini-control-title">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
       <h2 class="h4 mb-0" id="mini-control-title">Dienste steuern</h2>
       <button type="button" class="btn btn-outline-secondary" id="mini-refresh">Status aktualisieren</button>
     </div>
     <p class="small">Start und Stop gelten bei Worker-Diensten für die aktuelle Sitzung. Autostart gilt beim nächsten Dienststart.
       DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein.
+      Audio-Sender benötigen gespeicherte Ziele.
       HTTP/PXE wird vom Webserver bereitgestellt; sein Start/Stop speichert die Freigabe dauerhaft und steuert auch die zugehörige TFTP-Auslieferung.</p>
     <div id="mini-feedback" role="status" aria-live="polite" class="alert alert-secondary">Status wird geladen …</div>
     <div id="mini-control-cards" class="row g-3"></div>

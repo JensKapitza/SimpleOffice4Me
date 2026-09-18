@@ -118,6 +118,35 @@ vorhandenen systemd-/Container-Pfade.
 - [Audio-Ausgabe / Durchsagen](AUDIO_OUTPUT.md)
 - [Audio-Sender und Receiver](AUDIO_STREAMER.md)
 
+### Suchstatus und Diagnose im Hub
+
+Die Servicekarten zeigen „Suche läuft“, „Suche fehlgeschlagen“, „Keine Treffer“
+oder die Trefferzahl mit Suchbereich und Zeitpunkt. Ein Scan-Fehler ist kein
+Nachweis, dass keine Geräte vorhanden sind. Fehlerhinweis und nächste mögliche
+Aktion stehen auf der Karte. Nach fehlgeschlagenen Aktionen wird der Status
+aktualisiert. Unter „Einstellungen und Diagnose“ stehen außerdem Dienstversion,
+Eigentümer sowie die gemeldeten requires/optional_requires/provides-Beziehungen.
+
+### Audio-Programmprüfung
+
+Die gemeinsame Status-API liefert für Audio-Dienste `dependencies`: Programm bzw.
+Alternativen, `required`, `available`, Zweck und `scope: executable-only`.
+Die Übersicht nennt fehlende Pflichtprogramme; alle bedingten Funktionen stehen
+unter „Einstellungen und Diagnose“. Die Prüfung sucht nur im PATH und startet
+oder installiert nichts. Hardware, Codecs, Audioberechtigungen und laufende
+PulseAudio-/PipeWire-Dienste sind dadurch nicht bestätigt. Laufzeit-Health und
+Status bleiben eigenständige Informationen.
+
+Sender benötigen FFmpeg; pactl dient bei Pulse nur der Gerätesuche. Receiver
+benötigen FFmpeg und für Lautsprecher paplay (Linux) bzw. FFplay (Windows).
+Das virtuelle Mikrofon unter Linux benötigt sowohl paplay als auch pactl, auch
+ohne ausgewählte Lautsprecher. Beide werden vor dem Ersetzen einer laufenden
+Receiver-Session geprüft. Unter Windows bleibt das virtuelle Mikrofon unsupported.
+Beim Ansage-Worker hängen Programme von der Funktion ab: pactl für Discovery,
+paplay für erkannte Ausgänge, pw-play/aplay/ffplay als Alternativen für manuelle
+lokale Ausgänge, Piper plus vorhandenes Modell nur für Sprachansagen. Fehlende
+optionale Programme verhindern daher nicht pauschal den Worker-Start.
+
 ### Gateway-Recovery nach Healthcheck
 
 Der bestehende Healthcheck läuft alle 15 Sekunden. Bestätigt er fehlende eigene
@@ -177,3 +206,24 @@ Tests decken Scope, Verlust, DAD-Status, getrennte Interfaces und fehlerhafte
 Antworten ohne Windows-Hardware ab. Reale Windows-/PowerShell-Abnahme bleibt offen.
 Referenzen: [Get-NetIPConfiguration](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipconfiguration)
 und [Get-NetIPAddress](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipaddress).
+
+### Konfiguration direkt aus der Dienstkarte
+
+Jede Karte der gemeinsamen Übersicht verlinkt ihre vorhandene Fachseite über
+„Konfiguration öffnen“. URLs werden serverseitig mit `url_for` erzeugt, damit
+Installationen unter einem URL-Präfix funktionieren. DHCP/DNS/Gateway verwenden
+die Netzwerkeinstellungen, SIP die Telefonie, TFTP/HTTP-Boot die Bootverwaltung
+und Audio die vorhandenen Audioseiten. Die jeweiligen Admin-Prüfungen bleiben
+bestehen. Es entsteht kein zweiter Konfigurationsspeicher.
+
+Aktiviert/Autostart besitzen direkt zugeordnete Inline-Hilfe. Konfigurationslinks
+und Diagnose-Summary erhalten sichtbaren Tastaturfokus und mindestens 44 Pixel
+hohe Interaktionsflächen. Dies ersetzt keine visuelle WCAG-/Mobilabnahme.
+
+### Fehlerhafte Linux-Inventardaten
+
+Fehlende Adresslisten, ungültige Präfixe, widersprüchliche Adressfamilien und
+ungültige Flag-Objekte führen zu `available: false`. Laufende Dienste werden
+aufgrund dieser unvollständigen Information nicht gestoppt. Leere gültige Listen
+bleiben dagegen ein bestätigter Verlust. Das verwendet dieselbe Unterscheidung
+zwischen unbekanntem Scan und fehlender Hardware wie das Windows-Inventar.
