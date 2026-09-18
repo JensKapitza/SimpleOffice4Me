@@ -59,5 +59,40 @@ class FinanceStoreTests(unittest.TestCase):
         self.assertTrue(any(row["entity_id"] == entry["entry_id"] and row["event"] == "entry_created" for row in self.store.audit("jens")))
 
 
+    def test_recurring_obligation_and_tax_year_workflow(self):
+        obligation = self.store.create_obligation({
+            "name": "Kita", "kind": "childcare", "direction": "expense",
+            "amount_cents": 18500, "currency": "EUR", "recurrence_unit": "monthly",
+            "starts_on": "2026-01-01", "due_day": 3, "counterparty_name": "Kita"
+        }, "jens")
+        self.assertEqual("childcare", obligation["kind"])
+        self.assertEqual(1, len(self.store.obligations("jens")))
+        self.assertEqual("collecting", self.store.set_tax_year_status(2026, "collecting", "jens")["status"])
+        submitted = self.store.set_tax_year_status(2026, "submitted", "jens", submitted_on="2027-05-01")
+        self.assertEqual("2027-05-01", submitted["submitted_on"])
+
+    def test_bank_connection_never_accepts_pin_or_tan(self):
+        connection = self.store.save_bank_connection({
+            "provider": "fints", "institution": "ING", "login_id": "user-4711"
+        }, "jens")
+        self.assertEqual("user-4711", connection["login_id"])
+        with self.assertRaises(ValueError):
+            self.store.save_bank_connection({
+                "provider": "fints", "institution": "ING", "login_id": "user-4712", "pin": "12345"
+            }, "jens")
+
+    def test_confirmed_transaction_match_is_idempotent_and_owner_scoped(self):
+        tx, _ = self.store.import_bank_transaction({
+            "account_id": self.account["account_id"], "booking_date": "2026-09-18",
+            "amount_cents": -18500, "currency": "EUR", "purpose": "Kita September"
+        }, "jens")
+        first = self.store.confirm_transaction_match(tx["transaction_id"], "contract", "kita-contract", "jens", score=90)
+        second = self.store.confirm_transaction_match(tx["transaction_id"], "contract", "kita-contract", "jens", score=10)
+        self.assertEqual(first["match_id"], second["match_id"])
+        self.assertEqual(1, len(self.store.transaction_matches(tx["transaction_id"], "jens")))
+        with self.assertRaises(ValueError):
+            self.store.confirm_transaction_match(tx["transaction_id"], "contract", "other", "melanie")
+
+
 if __name__ == "__main__":
     unittest.main()
