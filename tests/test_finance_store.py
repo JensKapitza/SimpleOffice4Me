@@ -75,7 +75,7 @@ class FinanceStoreTests(unittest.TestCase):
         connection = self.store.save_bank_connection({
             "provider": "fints", "institution": "ING", "login_id": "user-4711"
         }, "jens")
-        self.assertEqual("user-4711", connection["login_id"])
+        self.assertEqual("user-4711", connection["login_id"])\n        self.assertNotIn("pin", connection)\n        self.assertNotIn("tan", connection)
         with self.assertRaises(ValueError):
             self.store.save_bank_connection({
                 "provider": "fints", "institution": "ING", "login_id": "user-4712", "pin": "12345"
