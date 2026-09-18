@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+from tools.mini_services_web import WEB_SERVICES, ClientError, web_command
+
 from simpleoffice_mini_services import (
     DnsService, default_config_path, load_config, read_blocklist_meta,
     refresh_blocklists, write_status, read_status, state_dir,
@@ -442,20 +444,36 @@ def service_command(config_path, service, action, *, wait_seconds=5, operation_i
 
 
 def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description="SimpleOffice4Me DHCP/DNS/TFTP/Routing/SIP Mini Services")
-    parser.add_argument("--config", default=str(default_config_path()))
-    parser.add_argument("command", choices=("start", "status", "stop", "restart"), default="start", nargs="?")
-    parser.add_argument("--service", choices=tuple(SERVICE_NAMES), help="Einzeldienst über den vorhandenen Worker steuern")
-    parser.add_argument("--wait", type=int, choices=range(0, 61), default=5, metavar="0..60", help="Maximale Wartezeit auf Einzelaktionen (Standard: 5 Sekunden)")
+    parser = argparse.ArgumentParser(description="SimpleOffice4Me Netzwerk-, Audio- und HTTP-Boot-Dienste")
+    parser.add_argument("--config", help="Konfigurationsdatei des Netzwerk-Workers")
+    parser.add_argument("command", choices=("start", "status", "stop", "restart", "scan"), default="start", nargs="?")
+    parser.add_argument("--service", choices=tuple(SERVICE_NAMES) + WEB_SERVICES, help="Einzeldienst über seinen vorhandenen Worker/Webprozess steuern")
+    parser.add_argument("--wait", type=int, choices=range(0, 61), default=None, metavar="0..60", help="Maximale Wartezeit auf Einzelaktionen (Standard: 5 Sekunden)")
     parser.add_argument("--operation", help="Aktions-ID mit status --service prüfen")
+    parser.add_argument("--web-url", help="Webprozess für Audio/HTTP-Boot; HTTPS oder lokale Loopback-IP")
+    parser.add_argument("--username", help="SimpleOffice-Administrator für Audio/HTTP-Boot")
+    parser.add_argument("--password-stdin", action="store_true", help="Passwort einmalig von stdin statt verdeckt vom Terminal lesen")
+    parser.add_argument("--web-timeout", type=int, choices=range(1, 61), default=None, metavar="1..60", help="HTTP-Timeout je Anfrage; keine automatische Wiederholung")
     args = parser.parse_args(argv)
+    web_service = args.service in WEB_SERVICES or (args.command == "scan" and args.service in SERVICE_NAMES)
+    if web_service and (not args.username or args.operation or args.config or args.wait is not None):
+        parser.error("Webaktionen benötigen --username; --operation, --wait und --config gelten nur für Netzwerkdienste (Webinstanz über --web-url)")
+    if not web_service and (args.username or args.password_stdin or args.web_url is not None or args.web_timeout is not None or args.command == "scan"):
+        parser.error("Anmeldung benötigt einen Audio/HTTP-Boot-Einzeldienst oder scan --service DIENST")
     if args.operation and (not args.service or args.command != "status"):
         parser.error("--operation benötigt status und --service")
     from tools import service_control
-    config_path = Path(args.config).expanduser().resolve()
+    config_path = Path(args.config or default_config_path()).expanduser().resolve()
     if args.service:
         try:
-            result, code = service_command(config_path, args.service, args.command, wait_seconds=args.wait, operation_id=args.operation)
+            if web_service:
+                result, code = web_command(args.service, args.command, base_url=args.web_url or "http://127.0.0.1:8080",
+                                           username=args.username, password_stdin=args.password_stdin,
+                                           timeout=args.web_timeout or 10)
+            else:
+                result, code = service_command(config_path, args.service, args.command, wait_seconds=5 if args.wait is None else args.wait, operation_id=args.operation)
+        except ClientError as exc:
+            result, code = {"error": str(exc)}, 1
         except (OSError, sqlite3.Error, ValueError) as exc:
             result, code = {"error": error_detail(exc)}, 1
         print(json.dumps(result, ensure_ascii=False, indent=2))

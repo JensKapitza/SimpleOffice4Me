@@ -239,10 +239,9 @@ zwischen unbekanntem Scan und fehlender Hardware wie das Windows-Inventar.
 
 Unter Windows dieselben Argumente mit `start.bat`; alternativ plattformübergreifend
 `python -m tools.mini_services`. `--config DATEI` wählt wie bisher die Instanz.
-Unterstützte Einzeldienste: dhcp, dns, tftp, sip, gateway. Ohne `--service` bleibt
-die bisherige Worker-Gruppensteuerung erhalten. Audio und HTTP-Boot gehören dem
-Webprozess und werden weiterhin über ihre gemeinsame Admin-API/UI bedient;
-CLI-Gleichstand für diese Dienste ist damit noch nicht umgesetzt.
+Netzwerk-Einzeldienste: dhcp, dns, tftp, sip, gateway. Ohne `--service` bleibt
+die bisherige Worker-Gruppensteuerung erhalten. Audio und HTTP-Boot verwenden
+über dieselbe CLI die bestehende Admin-API des laufenden Webprozesses (siehe unten).
 
 Einzelaktionen verwenden dieselbe private SQLite-Mailbox wie die Admin-API.
 Kein zweiter Worker, keine Installation, keine Rechteerhöhung. Ausführung bleibt
@@ -256,3 +255,45 @@ können zusätzlich bis zum bestehenden SQLite-Timeout warten. Ein Warteende ist
 kein Abbruch: Aktions-ID aufbewahren und Status prüfen. Wiederholte identische
 noch offene Aktionen werden wie in der API dedupliziert. Ein fehlender oder
 veralteter Worker-Heartbeat verhindert das Einreihen neuer Aktionen.
+
+### Audio, HTTP-Boot und Discovery über den laufenden Webprozess
+
+```sh
+./start.sh mini-services status --service audio-output --username admin
+./start.sh mini-services restart --service audio-receiver --username admin
+./start.sh mini-services scan --service audio-sender --username admin
+./start.sh mini-services scan --service dns --username admin
+./start.sh mini-services stop --service http-boot --username admin
+./start.sh mini-services status --service http-boot --username admin --web-url 'http://[::1]:8080'
+```
+
+Unterstützt: `audio-sender`, `audio-receiver`, `audio-output`, `http-boot` mit
+`start`, `stop`, `restart`, `status`, `scan`. Zusätzlich verwenden Netzwerkdienste
+`scan --service DIENST --username admin` über die vorhandene Discovery-API.
+Der Webprozess muss für diese Aktionen bereits laufen.
+Die CLI importiert keine Flask-App und startet keinen zweiten Audio-Worker.
+Gespeicherte Geräteeinstellungen und vorhandene API-Validierung bleiben wirksam.
+Ein fehlendes Bootprofil liefert beispielsweise `waiting` und Exitcode 3.
+
+Standardadresse ist `http://127.0.0.1:8080`; bei abweichendem Port oder Server
+`--web-url` verwenden. HTTP ist ausschließlich für explizite Loopback-IP-Adressen
+(IPv4 oder IPv6) zulässig, sonst ist HTTPS mit gültigem Zertifikat erforderlich.
+Nur Basisadressen ohne Unterpfad, Query oder eingebettete Zugangsdaten werden
+akzeptiert. Weiterleitungen und Umgebungs-Proxys werden nicht verwendet.
+`--config` und `--operation` gelten ausschließlich für Netzwerk-Worker.
+
+Die Anmeldung verwendet ein bestehendes SimpleOffice-Administratorkonto mit
+Passwort, Sitzungscookies im Arbeitsspeicher und den regulären CSRF-Schutz.
+Kontosperren und Login-Drosselung gelten unverändert. Das Passwort wird verdeckt
+abgefragt. Für Automatisierung erlaubt `--password-stdin` eine einzelne Zeile aus
+einem vorhandenen Secret-Manager; keine Passwörter in Befehle oder Shell-Historien
+schreiben. Cookies und Passwort werden nicht auf Datenträger gespeichert.
+Reine OAuth-Konten benötigen für diese CLI ein eingerichtetes lokales Passwort.
+
+`--web-timeout 10` begrenzt jede HTTP-Anfrage auf 1–60 Sekunden (Standard 10).
+Es gibt keine automatische Wiederholung von Aktionen. Nach Timeout kann eine
+Aktion bereits ausgeführt sein: zuerst `status` prüfen. `--wait` ist nur für das
+Polling der Netzwerk-Mailbox relevant. Start mit `starting`/`waiting`, deaktivierte
+Dienste und nicht laufender Status ergeben Exitcode 3, fehlgeschlagene Aktionen
+oder Verbindungen Exitcode 1; bestätigter Stop/Scan sowie laufender/eingeschränkter
+Dienst Exitcode 0. Diagnose und Einstellungen bleiben in der gemeinsamen UI.
