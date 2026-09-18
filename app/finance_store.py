@@ -299,12 +299,46 @@ class FinanceStore:
             existing = db.execute("SELECT * FROM finance_bank_connection WHERE owner=? AND provider=? AND institution=? AND login_id=?", (actor, provider, institution, login_id)).fetchone()
             if existing: return dict(existing)
             ts = _now(); row = {"connection_id": new_id("bank"), "owner": actor, "provider": provider,
-                "institution": institution, "endpoint": text(values.get("endpoint"), 500), "login_id": login_id,
+                "institution": institution, "bank_code": text(values.get("bank_code"), 20), "endpoint": text(values.get("endpoint"), 500), "login_id": login_id,
                 "status": status, "last_successful_sync": None, "last_error": "", "created_at": ts, "updated_at": ts}
             db.execute("""INSERT INTO finance_bank_connection(connection_id,owner,provider,institution,endpoint,login_id,status,last_successful_sync,last_error,created_at,updated_at)
                           VALUES(:connection_id,:owner,:provider,:institution,:endpoint,:login_id,:status,:last_successful_sync,:last_error,:created_at,:updated_at)""", row)
             self._audit(db, actor, "bank_connection_created", "bank_connection", row["connection_id"], {"provider": provider, "institution": institution})
         return row
+
+    def bank_connections(self, actor: str) -> list[dict[str, Any]]:
+        actor = self._actor(actor)
+        with self._db() as db:
+            return [dict(row) for row in db.execute("SELECT * FROM finance_bank_connection WHERE owner=? ORDER BY institution COLLATE NOCASE,connection_id", (actor,)).fetchall()]
+
+    def bank_connection(self, connection_id: str, actor: str) -> dict[str, Any]:
+        actor = self._actor(actor)
+        with self._db() as db:
+            row = db.execute("SELECT * FROM finance_bank_connection WHERE connection_id=? AND owner=?", (text(connection_id, 100), actor)).fetchone()
+        if not row: raise ValueError("bank connection not found")
+        return dict(row)
+
+    def map_remote_account(self, connection_id: str, remote_account_id: str, account_id: str, remote_iban: str, actor: str) -> dict[str, Any]:
+        actor = self._actor(actor); connection = self.bank_connection(connection_id, actor)
+        remote_account_id = text(remote_account_id, 200)
+        if not remote_account_id: raise ValueError("remote account id is required")
+        with self._db() as db:
+            account = db.execute("SELECT account_id FROM finance_account WHERE account_id=? AND owner=?", (text(account_id, 100), actor)).fetchone()
+            if not account: raise ValueError("account not found")
+            row = {"connection_id": connection["connection_id"], "remote_account_id": remote_account_id,
+                   "account_id": account_id, "remote_iban": normalize_iban(remote_iban)}
+            db.execute("""INSERT INTO finance_bank_connection_account(connection_id,remote_account_id,account_id,remote_iban)
+                          VALUES(:connection_id,:remote_account_id,:account_id,:remote_iban)
+                          ON CONFLICT(connection_id,remote_account_id) DO UPDATE SET account_id=excluded.account_id,remote_iban=excluded.remote_iban""", row)
+            self._audit(db, actor, "bank_account_mapped", "bank_connection", connection_id, {"remote_account_id": remote_account_id, "account_id": account_id})
+        return row
+
+    def bank_account_mappings(self, connection_id: str, actor: str) -> list[dict[str, Any]]:
+        connection = self.bank_connection(connection_id, actor)
+        with self._db() as db:
+            rows = db.execute("""SELECT m.*,a.name,a.institution,a.iban,a.currency FROM finance_bank_connection_account m
+                                 JOIN finance_account a ON a.account_id=m.account_id WHERE m.connection_id=? ORDER BY a.name COLLATE NOCASE""", (connection["connection_id"],)).fetchall()
+        return [dict(row) for row in rows]
 
     def set_tax_year_status(self, tax_year: int, status: str, actor: str, *, submitted_on: str = "", advisor_note: str = "") -> dict[str, Any]:
         actor = self._actor(actor); tax_year = int(tax_year); status = text(status, 40).casefold()
