@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h2 mb-1">Finanzen</h1><p class="text-secondary mb-0">Konten und Bankbuchungen zentral verwalten. Bankimporte verändern vorhandene Buchungen nicht.</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.euer.overview') }}"><i class="fas fa-calculator me-1" aria-hidden="true"></i>EÜR</a>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="row g-4 mb-4">
+    <div class="col-lg-7">
+      <section class="card h-100">
+        <div class="card-header"><strong>Kontoauszug importieren</strong></div>
+        <div class="card-body">
+          <p class="text-secondary">CSV, CAMT.052, CAMT.053 oder MT940 auswählen. Vor dem Import wird immer eine Vorschau angezeigt.</p>
+          <form method="post" action="{{ url_for('.statement_preview') }}" enctype="multipart/form-data" class="row g-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-7"><label class="form-label" for="statement">Kontoauszug</label><input required class="form-control" id="statement" name="statement" type="file" accept=".csv,.xml,.camt,.sta,.mt940,text/csv,application/xml,text/xml"></div>
+            <div class="col-md-5"><label class="form-label" for="import-account">Konto</label><select class="form-select" id="import-account" name="account_id"><option value="">Automatisch über IBAN erkennen</option>{% for account in accounts %}<option value="{{ account.account_id }}">{{ account.name }}{% if account.iban %} · {{ account.iban[-8:] }}{% endif %}</option>{% endfor %}</select></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Import prüfen</button></div>
+          </form>
+        </div>
+      </section>
+    </div>
+    <div class="col-lg-5">
+      <section class="card h-100"><div class="card-header"><strong>Konto hinzufügen</strong></div><div class="card-body">
+        <form method="post" action="{{ url_for('.create_account') }}" class="row g-2">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="col-12"><label class="form-label" for="account-name">Name</label><input required class="form-control" id="account-name" name="name" placeholder="z. B. ING Girokonto"></div>
+          <div class="col-md-6"><label class="form-label" for="institution">Bank</label><input class="form-control" id="institution" name="institution"></div>
+          <div class="col-md-6"><label class="form-label" for="kind">Art</label><select class="form-select" id="kind" name="kind"><option value="bank">Bankkonto</option><option value="credit_card">Kreditkarte</option><option value="cash">Kasse/Bargeld</option><option value="clearing">Verrechnung</option><option value="internal">Intern</option></select></div>
+          <div class="col-12"><label class="form-label" for="iban">IBAN</label><input class="form-control font-monospace" id="iban" name="iban" autocomplete="off"></div>
+          <div class="col-md-6"><label class="form-label" for="bic">BIC</label><input class="form-control" id="bic" name="bic"></div>
+          <div class="col-md-6"><label class="form-label" for="currency">Währung</label><input class="form-control" id="currency" name="currency" value="EUR" maxlength="3"></div>
+          <div class="col-12 mt-3"><button class="btn btn-outline-primary" type="submit">Konto anlegen</button></div>
+        </form>
+      </div></section>
+    </div>
+  </div>
+
+  <section class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>Konten</strong><span class="badge text-bg-secondary">{{ accounts|length }}</span></div>
+    <div class="list-group list-group-flush">{% for account in accounts %}<a class="list-group-item list-group-item-action {% if account.account_id == selected_account_id %}active{% endif %}" href="{{ url_for('.index', account_id=account.account_id) }}"><div class="d-flex justify-content-between gap-3"><span><strong>{{ account.name }}</strong><br><small>{{ account.institution or account.kind }}{% if account.iban %} · {{ account.iban[:4] }}…{{ account.iban[-4:] }}{% endif %}</small></span><span>{{ account.currency }}</span></div></a>{% else %}<div class="list-group-item text-secondary">Noch kein Konto angelegt. Ein Import mit IBAN kann erst nach dem Anlegen bzw. später nach der Bank-Kontodiscovery zugeordnet werden.</div>{% endfor %}</div>
+  </section>
+
+  {% if selected_account_id %}<section class="card"><div class="card-header"><strong>Letzte Bankbuchungen</strong></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Datum</th><th>Gegenpartei / Verwendungszweck</th><th>Status</th><th class="text-end">Betrag</th></tr></thead><tbody>{% for row in transactions %}<tr><td>{{ row.booking_date }}</td><td><strong>{{ row.counterparty_name or '—' }}</strong><br><small class="text-secondary">{{ row.purpose or row.bank_transaction_id or 'Keine Beschreibung' }}</small></td><td>{% if row.duplicate_state == 'distinct' %}<span class="badge text-bg-success">eindeutig</span>{% else %}<span class="badge text-bg-warning">{{ row.duplicate_state }}</span>{% endif %}</td><td class="text-end fw-semibold {% if row.amount_cents > 0 %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(row.amount_cents / 100) }} {{ row.currency }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Bankbuchungen importiert.</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+</main>
+{% endblock %}
