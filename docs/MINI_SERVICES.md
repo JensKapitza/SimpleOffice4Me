@@ -227,3 +227,32 @@ ungültige Flag-Objekte führen zu `available: false`. Laufende Dienste werden
 aufgrund dieser unvollständigen Information nicht gestoppt. Leere gültige Listen
 bleiben dagegen ein bestätigter Verlust. Das verwendet dieselbe Unterscheidung
 zwischen unbekanntem Scan und fehlender Hardware wie das Windows-Inventar.
+
+## Einzelsteuerung über CLI
+
+```sh
+./start.sh mini-services status --service dns
+./start.sh mini-services restart --service dns --wait 5
+./start.sh mini-services stop --service sip
+./start.sh mini-services status --service dns --operation AKTIONS_ID
+```
+
+Unter Windows dieselben Argumente mit `start.bat`; alternativ plattformübergreifend
+`python -m tools.mini_services`. `--config DATEI` wählt wie bisher die Instanz.
+Unterstützte Einzeldienste: dhcp, dns, tftp, sip, gateway. Ohne `--service` bleibt
+die bisherige Worker-Gruppensteuerung erhalten. Audio und HTTP-Boot gehören dem
+Webprozess und werden weiterhin über ihre gemeinsame Admin-API/UI bedient;
+CLI-Gleichstand für diese Dienste ist damit noch nicht umgesetzt.
+
+Einzelaktionen verwenden dieselbe private SQLite-Mailbox wie die Admin-API.
+Kein zweiter Worker, keine Installation, keine Rechteerhöhung. Ausführung bleibt
+beim vorhandenen Worker samt Validierung und Aktivierungseinstellungen. Lokaler
+Zugriff auf die Instanzdateien ist erforderlich; Dateirechte nicht lockern.
+Die Ausgabe ist JSON. Exitcode 0: abgeschlossene erfolgreiche Aktion bzw.
+laufender/eingeschränkter Dienst; 1: Fehler; 2: ungültige CLI-Argumente;
+3: noch offene Aktion oder nicht laufender/nicht erreichbarer Dienst.
+`--wait` begrenzt das Polling auf 0–60 Sekunden (Standard 5); Datenbankoperationen
+können zusätzlich bis zum bestehenden SQLite-Timeout warten. Ein Warteende ist
+kein Abbruch: Aktions-ID aufbewahren und Status prüfen. Wiederholte identische
+noch offene Aktionen werden wie in der API dedupliziert. Ein fehlender oder
+veralteter Worker-Heartbeat verhindert das Einreihen neuer Aktionen.

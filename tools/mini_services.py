@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import signal
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -411,13 +412,56 @@ class Worker:
         }, self.config_path)
 
 
+def service_command(config_path, service, action, *, wait_seconds=5, operation_id=None):
+    """Use the existing private mailbox; never instantiate another service owner."""
+    status = read_status(config_path)
+    if operation_id:
+        row = ControlStore(config_path).operation(operation_id)
+        if row is None or row["service"] != service:
+            return {"error": "Aktion für diesen Dienst nicht gefunden."}, 1
+        return row, 0 if row["state"] == "completed" else 1 if row["state"] == "failed" else 3
+    available = status.get("state") in {"running", "degraded"} and not status.get("stale")
+    if action == "status":
+        row = status.get("services", {}).get(service, {"id": service, "state": "unavailable"})
+        if not available:
+            row = {**row, "state": "unavailable", "health": {"ok": False, "message": "Mini-Services Worker nicht erreichbar."}}
+        return row, 0 if row.get("state") in {"running", "degraded"} else 3
+    if not available:
+        return {"error": "Mini-Services Worker nicht erreichbar. Zuerst SimpleOffice oder den Worker starten."}, 3
+    store = ControlStore(config_path)
+    row = store.enqueue(service, action)
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        row = store.operation(row["id"]) or row
+        if row["state"] in {"completed", "failed"}:
+            return row, 0 if row["state"] == "completed" else 1
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {**row, "message": "Aktion noch offen; mit status --operation ID prüfen. Warteende bricht den Auftrag nicht ab."}, 3
+        time.sleep(min(0.1, remaining))
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me DHCP/DNS/TFTP/Routing/SIP Mini Services")
     parser.add_argument("--config", default=str(default_config_path()))
     parser.add_argument("command", choices=("start", "status", "stop", "restart"), default="start", nargs="?")
+    parser.add_argument("--service", choices=tuple(SERVICE_NAMES), help="Einzeldienst über den vorhandenen Worker steuern")
+    parser.add_argument("--wait", type=int, choices=range(0, 61), default=5, metavar="0..60", help="Maximale Wartezeit auf Einzelaktionen (Standard: 5 Sekunden)")
+    parser.add_argument("--operation", help="Aktions-ID mit status --service prüfen")
     args = parser.parse_args(argv)
+    if args.operation and (not args.service or args.command != "status"):
+        parser.error("--operation benötigt status und --service")
     from tools import service_control
     config_path = Path(args.config).expanduser().resolve()
+    if args.service:
+        try:
+            result, code = service_command(config_path, args.service, args.command, wait_seconds=args.wait, operation_id=args.operation)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            result, code = {"error": error_detail(exc)}, 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if code:
+            raise SystemExit(code)
+        return
     # Custom configurations have their own existing PID-record directory.
     service_control.RUN_DIR = config_path.parent / "run"
     if args.command == "status":
