@@ -2,7 +2,7 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
-  <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.objects') }}" class="small text-decoration-none">← Alle Objekte</a><h1 class="h2 mb-1"><span class="badge text-bg-dark align-middle">#{{ item.display_id }}</span> {{ item.name }}</h1><code>{{ item.object_id }}</code></div><span class="badge text-bg-primary">{{ item.type }}</span></div>
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.objects') }}" class="small text-decoration-none">← Alle Objekte</a><h1 class="h2 mb-1"><span class="badge text-bg-dark align-middle">#{{ item.display_id }}</span> {{ item.name }}</h1><code>{{ item.object_id }}</code></div><div class="d-flex flex-wrap gap-2 align-items-center"><a class="btn btn-primary" href="{{ url_for('library.object_care', object_id=item.object_id) }}"><i class="fas fa-camera me-1" aria-hidden="true"></i>Objektakte · Bilder · Zustand · Prüfungen</a><span class="badge text-bg-primary">{{ item.type }}</span></div></div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-4">
     <section class="col-lg-7"><div class="card mb-4"><div class="card-header">Stammdaten</div><div class="card-body"><form method="post" class="row g-3" id="object-edit-form" data-object-billing-form>

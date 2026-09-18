@@ -4,6 +4,7 @@ import re
 
 from . import printer as _printer
 from .routes import bp
+from . import object_care as _object_care  # noqa: F401  # register shared object-care routes
 
 
 _original_send = _printer.send

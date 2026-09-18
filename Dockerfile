@@ -28,7 +28,7 @@ WORKDIR /opt/simpleoffice4me
 COPY . /opt/simpleoffice4me
 
 RUN python -m venv /opt/simpleoffice4me/.venv \
-    && /opt/simpleoffice4me/.venv/bin/pip install --no-cache-dir . \
+    && /opt/simpleoffice4me/.venv/bin/pip install --no-cache-dir '.[ocr]' \
     && rm -rf /opt/simpleoffice4me/database /opt/simpleoffice4me/instance \
     && install -d -o simpleoffice -g simpleoffice -m 0750 \
         /var/lib/simpleoffice4me \

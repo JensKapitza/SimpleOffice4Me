@@ -52,7 +52,7 @@ def main() -> None:
     python = str(python_in_venv())
 
     run(python, "-m", "pip", "install", "--upgrade", "pip")
-    run(python, "-m", "pip", "install", str(REPO))
+    run(python, "-m", "pip", "install", f"{REPO}[ocr]")
     run(python, "-m", "pip", "install", "-r", str(HERE / "requirements-build.txt"))
 
     shutil.rmtree(DIST, ignore_errors=True)
@@ -72,6 +72,12 @@ def main() -> None:
         "--collect-submodules", "app",
         "--collect-submodules", "tools",
         "--collect-data", "app",
+        # ObjectVision imports RapidOCR lazily so Android can use the same
+        # application package without desktop-only native dependencies. Make
+        # the desktop bundle explicit: include OCR models plus ONNX native
+        # libraries even though PyInstaller cannot discover the lazy import.
+        "--collect-all", "rapidocr",
+        "--collect-all", "onnxruntime",
         "--add-data", add_data(REPO / "templates", "templates"),
         "--add-data", add_data(REPO / "static", "static"),
         str(ENTRY),

@@ -1,0 +1,140 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <div class="text-secondary small">Objektakte #{{ item.display_id }}</div>
+      <h1 class="h2 mb-1">{{ item.name }}</h1>
+      <div class="d-flex flex-wrap gap-2">
+        <span class="badge text-bg-primary">{{ item.type }}</span>
+        <span class="badge {{ 'text-bg-success' if item.status == 'active' else 'text-bg-secondary' }}">{{ item.status }}</span>
+        {% if care.condition %}<span class="badge text-bg-info">Zustand: {{ condition_states.get(care.condition.state, care.condition.state) }} · {{ care.condition.rating }}/5</span>{% endif %}
+      </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('inventory.item_detail', object_id=item.object_id) }}">Inventaransicht</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('documents.object_detail', object_id=item.object_id) }}">Stammdaten bearbeiten</a>
+    </div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="alert alert-light border">
+    <strong>Ein Objekt, mehrere Fachansichten:</strong> Bücher, Regale, Werkzeuge, Geräte und andere Gegenstände bleiben normale Objekte. Inventar ergänzt die Schnellerfassung, die Bibliothek Standort/Etikettierung; Bilder, lokale ML-OCR, Zustand, Attribute und Prüfungen gehören gemeinsam in diese Objektakte.
+  </div>
+
+  <div class="row g-3">
+    <section class="col-xl-7">
+      <div class="card shadow-sm mb-3">
+        <div class="card-header"><strong>Objektbasis &amp; Attribute</strong></div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-sm-4">Objektnummer</dt><dd class="col-sm-8">#{{ item.display_id }}</dd>
+            <dt class="col-sm-4">Kennung</dt><dd class="col-sm-8">{{ item.identifier or '—' }}</dd>
+            <dt class="col-sm-4">Standort</dt><dd class="col-sm-8">{{ item.location or '—' }}</dd>
+            <dt class="col-sm-4">Beschreibung</dt><dd class="col-sm-8">{{ item.description or '—' }}</dd>
+          </dl>
+          {% if item.fields %}<div class="table-responsive mt-3"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Attribut</th><th scope="col">Wert</th></tr></thead><tbody>{% for key, value in item.fields.items() %}<tr><td><code>{{ key }}</code></td><td>{{ value }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-3" id="condition">
+        <div class="card-header"><strong>Zustand &amp; Alterungsverlauf</strong></div>
+        <div class="card-body">
+          <p class="text-secondary">Spontane Zustandsaufnahme mit optionalem Foto. So bleibt sichtbar, wie sich ein Gegenstand über die Zeit verändert.</p>
+          <form method="post" action="{{ url_for('library.object_care_condition', object_id=item.object_id) }}" enctype="multipart/form-data" class="row g-2 mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4"><label class="form-label">Zustand</label><select class="form-select" name="state" required>{% for value, label in condition_states.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Bewertung</label><select class="form-select" name="rating" required>{% for rating in [5,4,3,2,1] %}<option value="{{ rating }}">{{ rating }}/5</option>{% endfor %}</select></div>
+            <div class="col-md-5"><label class="form-label">Datum</label><input class="form-control" type="date" name="captured_on" value="{{ today }}"></div>
+            <div class="col-12"><label class="form-label">Beobachtung</label><textarea class="form-control" name="note" rows="2" placeholder="Kratzer, Verschleiß, Funktion, Beschädigung, Reparaturbedarf …"></textarea></div>
+            <div class="col-md-8"><label class="form-label">Zustandsfoto</label><input class="form-control" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment"></div>
+            <div class="col-md-4 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="analyze" value="1" id="condition-analyze" checked><label class="form-check-label" for="condition-analyze">ML-OCR/Bildanalyse</label></div></div>
+            <div class="col-12"><button class="btn btn-success" type="submit">Zustand dokumentieren</button></div>
+          </form>
+          <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datum</th><th scope="col">Zustand</th><th scope="col">Bewertung</th><th scope="col">Notiz</th></tr></thead><tbody>
+            {% for event in care.condition_history|default([])|reverse %}<tr><td>{{ event.captured_on }}</td><td>{{ condition_states.get(event.state, event.state) }}</td><td>{{ event.rating }}/5</td><td>{{ event.note or '—' }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Zustandsaufnahme.</td></tr>{% endfor %}
+          </tbody></table></div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-3" id="compliance">
+        <div class="card-header"><strong>Prüfungen &amp; Konformität</strong></div>
+        <div class="card-body">
+          <p class="text-secondary">CE wird hier als Kennzeichnung/Nachweis dokumentiert. Wiederkehrende Prüfungen wie DGUV, Sichtprüfung oder Kalibrierung können zusätzlich direkt als Aufgabe mit Fälligkeit angelegt werden.</p>
+          <form method="post" action="{{ url_for('library.object_care_compliance', object_id=item.object_id) }}" enctype="multipart/form-data" class="row g-2 mb-4">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-6"><label class="form-label">Prüf-/Konformitätsart</label><input required class="form-control" name="scheme" list="compliance-presets" placeholder="CE, DGUV V3, VDE …"><datalist id="compliance-presets">{% for value, label in compliance_presets %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</datalist></div>
+            <div class="col-md-3"><label class="form-label">Status</label><select class="form-select" name="status">{% for value, label in compliance_statuses.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Nachweisdatum</label><input class="form-control" type="date" name="recorded_on" value="{{ today }}"></div>
+            <div class="col-md-6"><label class="form-label">Referenz / Prüfnummer</label><input class="form-control" name="reference" placeholder="Prüfbericht, Zertifikat, Serienbezug …"></div>
+            <div class="col-md-3"><label class="form-label">Gültig bis</label><input class="form-control" type="date" name="valid_until"></div>
+            <div class="col-md-3"><label class="form-label">Dokument-ID</label><input class="form-control" name="document_id" placeholder="optional"></div>
+            <div class="col-12"><label class="form-label">Notiz</label><textarea class="form-control" name="note" rows="2"></textarea></div>
+            <div class="col-12"><label class="form-label">Foto / Typenschild / Prüfplakette</label><input class="form-control" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment"></div>
+            <div class="col-12 border-top pt-3"><strong>Optional: daraus eine wiederkehrende Prüfung machen</strong></div>
+            <div class="col-md-5"><label class="form-label">Prüfung</label><input class="form-control" name="inspection_name" placeholder="z. B. DGUV V3 Prüfung"></div>
+            <div class="col-md-3"><label class="form-label">Nächste Fälligkeit</label><input class="form-control" type="date" name="inspection_due"></div>
+            <div class="col-md-2"><label class="form-label">Alle</label><input class="form-control" type="number" name="inspection_interval" min="0" max="366" placeholder="12"></div>
+            <div class="col-md-2"><label class="form-label">Einheit</label><select class="form-select" name="inspection_unit"><option value="months">Monate</option><option value="years">Jahre</option><option value="weeks">Wochen</option><option value="days">Tage</option></select></div>
+            <div class="col-12"><label class="form-label">Verantwortlich</label><input class="form-control" name="inspection_responsible"></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Nachweis / Prüfung dokumentieren</button></div>
+          </form>
+
+          <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datum</th><th scope="col">Art</th><th scope="col">Status</th><th scope="col">Referenz</th><th scope="col">Gültig bis</th></tr></thead><tbody>
+            {% for record in care.compliance_history|default([])|reverse %}<tr><td>{{ record.recorded_on }}</td><td>{{ record.scheme }}</td><td>{{ compliance_statuses.get(record.status, record.status) }}</td><td>{{ record.reference or '—' }}</td><td>{{ record.valid_until or '—' }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Konformitäts-/Prüfnachweise.</td></tr>{% endfor %}
+          </tbody></table></div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm" id="inspections">
+        <div class="card-header"><strong>Aktive Wiedervorlagen</strong></div>
+        <div class="card-body">
+          {% for rule in care.inspections|default([]) %}<div class="border rounded p-2 mb-2"><div class="d-flex justify-content-between gap-2"><strong>{{ rule.name }}</strong><span class="badge {{ 'text-bg-danger' if rule.active and rule.next_due and rule.next_due is lt(today) else 'text-bg-warning' if rule.active else 'text-bg-secondary' }}">{{ ('fällig ' ~ rule.next_due) if rule.active else 'abgeschlossen' }}</span></div>{% if rule.note %}<div class="small text-secondary">{{ rule.note }}</div>{% endif %}</div>{% else %}<p class="text-secondary mb-0">Noch keine Wiedervorlage. Prüfungen können oben beim Nachweis direkt angelegt werden.</p>{% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <aside class="col-xl-5">
+      <div class="card shadow-sm mb-3" id="media">
+        <div class="card-header"><strong>Bilder, OCR &amp; Analyse</strong></div>
+        <div class="card-body">
+          <p class="small text-secondary">Desktop: RapidOCR/ONNX läuft lokal als Standard. Tesseract wird nur als lokaler Fallback verwendet.</p>
+          <form method="post" action="{{ url_for('library.object_care_add_photo', object_id=item.object_id) }}" enctype="multipart/form-data" class="mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <label class="form-label">Bild hinzufügen</label><input required class="form-control mb-2" type="file" name="photo" accept="image/jpeg,image/png,image/webp" capture="environment">
+            <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="analyze" value="1" id="photo-analyze" checked><label class="form-check-label" for="photo-analyze">lokal mit ML-OCR analysieren</label></div>
+            <button class="btn btn-outline-primary" type="submit">Bild speichern &amp; analysieren</button>
+          </form>
+
+          <div class="vstack gap-3">{% for photo in care.photos|default([])|reverse %}<article class="border rounded p-2">
+            <a href="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" target="_blank" rel="noopener noreferrer"><img class="img-fluid rounded border w-100" style="max-height:260px;object-fit:contain" src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photo.filename) }}" alt="Objektfoto" loading="lazy" decoding="async"></a>
+            {% if photo.analysis %}<div class="small mt-2"><strong>Analyse:</strong> {{ photo.analysis.width|default('?') }}×{{ photo.analysis.height|default('?') }} · {{ photo.analysis.format|default('') }} · OCR {{ photo.analysis.ocr_status|default('nicht ausgeführt') }}{% if photo.analysis.ocr_engine %} · {{ photo.analysis.ocr_engine }}{% endif %}{% if photo.analysis.ocr_confidence is not none %} · Konfidenz {{ photo.analysis.ocr_confidence }}{% endif %}{% if photo.analysis.ocr_blocks %} · {{ photo.analysis.ocr_blocks|length }} Textblöcke{% endif %}{% if photo.analysis.detected_terms %}<br><strong>Erkannt:</strong> {{ photo.analysis.detected_terms|join(', ') }}{% endif %}{% if photo.analysis.suggested_fields %}<br><strong>Vorschläge:</strong> {% for key, value in photo.analysis.suggested_fields.items() %}<code>{{ key }}</code>={{ value }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}{% if photo.analysis.ocr_fallback_from %}<br><strong>Fallback:</strong> {{ photo.analysis.ocr_fallback_from }} → {{ photo.analysis.ocr_engine }}{% endif %}{% if photo.analysis.ocr_error %}<br><span class="text-danger">{{ photo.analysis.ocr_error }}</span>{% endif %}</div>{% endif %}
+            {% if photo.analysis and photo.analysis.ocr_text %}<details class="mt-2"><summary>OCR-Text anzeigen</summary><pre class="small border rounded bg-body-tertiary p-2 mt-2" style="white-space:pre-wrap;max-height:260px;overflow:auto">{{ photo.analysis.ocr_text }}</pre></details>{% endif %}
+            {% if photo.analysis and photo.analysis.ocr_blocks %}<details class="mt-2"><summary>Erkannte Textbereiche</summary><div class="table-responsive mt-2"><table class="table table-sm mb-0"><thead><tr><th scope="col">Text</th><th scope="col">Konfidenz</th></tr></thead><tbody>{% for block in photo.analysis.ocr_blocks %}<tr><td>{{ block.text }}</td><td>{{ block.confidence if block.confidence is not none else '—' }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+            <form method="post" action="{{ url_for('library.object_care_analyze_photo', object_id=item.object_id, filename=photo.filename) }}" class="mt-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">OCR/Bildanalyse neu ausführen</button></form>
+          </article>{% else %}<div class="text-secondary">Noch kein Bild vorhanden.</div>{% endfor %}</div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm" id="location">
+        <div class="card-header"><strong>Bibliothek / strukturierter Standort</strong></div>
+        <div class="card-body">
+          <p class="small text-secondary">Die Bibliothek ist nur eine Fachansicht: Jedes Buch und auch jedes Regal bleibt ein normales Objekt.</p>
+          {% if assigned_path %}<div class="alert alert-success py-2">Aktuell: {{ assigned_path }}</div>{% endif %}
+          <form method="post" action="{{ url_for('library.object_care_location', object_id=item.object_id) }}" class="row g-2 mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-12"><label class="form-label">Standort / Regal</label><select required class="form-select" name="location_id"><option value="">– auswählen –</option>{% for location in locations %}<option value="{{ location.location_id }}" {% if assignment.location_id == location.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+            <div class="col-12"><button class="btn btn-outline-primary" type="submit">Objekt zuordnen</button></div>
+          </form>
+          <form method="post" action="{{ url_for('library.sync_location_objects') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Bestehende Regale als Objekte abgleichen</button>
+          </form>
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+{% endblock %}

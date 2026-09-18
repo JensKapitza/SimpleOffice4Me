@@ -22,6 +22,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ocr = [
+  "rapidocr==3.9.2",
+  "onnxruntime==1.23.2; python_version == '3.10'",
+  "onnxruntime==1.24.2; python_version >= '3.11'",
+]
 security = [
   "pip-audit>=2.7,<3",
 ]
