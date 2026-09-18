@@ -11,12 +11,52 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUN_DIR = ROOT / "instance" / "run"
-ROLES = ("index", "web", "sftp")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from simpleoffice_mini_core import default_config_path
+RUN_DIR = default_config_path().parent / "run"
+ROLES = ("index", "web", "sftp", "mini")
+
+
+@contextmanager
+def exclusive_lease(path: Path):
+    """OS-owned lease: crash releases it; never unlink a locked inode."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    if path.is_symlink():
+        raise RuntimeError("Dienst-Lock darf kein symbolischer Link sein")
+    descriptor = os.open(path, flags, 0o600)
+    acquired = False
+    try:
+        if os.name == "nt":
+            import msvcrt
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"0")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            try:
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                acquired = True
+            except OSError as exc:
+                if exc.errno not in {13, 11, 36}:
+                    raise
+        else:
+            import fcntl
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except BlockingIOError:
+                pass
+        yield acquired
+    finally:
+        if acquired and os.name == "nt":
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        os.close(descriptor)
 
 
 def _role(role: str) -> str:
@@ -174,8 +214,8 @@ def running_roles() -> list[str]:
     return result
 
 
-def stop(timeout: float = 20.0) -> bool:
-    records = [(role, read(role)) for role in ROLES]
+def stop(timeout: float = 20.0, roles=None) -> bool:
+    records = [(role, read(role)) for role in (ROLES if roles is None else tuple(_role(role) for role in roles))]
     active = [(role, record) for role, record in records if record and process_matches(record)]
     for role, record in active:
         try:
@@ -201,12 +241,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me Dienste sicher verwalten")
     parser.add_argument("command", choices=("status", "stop"))
     parser.add_argument("--timeout", type=float, default=20.0)
+    parser.add_argument("--role", choices=ROLES)
     args = parser.parse_args()
     if args.command == "status":
-        roles = running_roles()
+        roles = [role for role in running_roles() if args.role is None or args.role == role]
         print("Laufende Dienste: " + ", ".join(roles) if roles else "SimpleOffice4Me ist gestoppt.")
         return 0 if roles else 3
-    return 0 if stop(max(1.0, min(args.timeout, 120.0))) else 1
+    return 0 if stop(max(1.0, min(args.timeout, 120.0)), roles=[args.role] if args.role else None) else 1
 
 
 if __name__ == "__main__":

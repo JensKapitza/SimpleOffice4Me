@@ -17,8 +17,8 @@ class NetworkUiDiagnosticsTests(unittest.TestCase):
         result = Mock(returncode=0, stdout=json.dumps(payload))
         with patch("app.network_system_status.socket.if_nameindex", return_value=[(2, "eth0")]), patch(
             "app.network_system_status.platform.system", return_value="Linux"
-        ), patch("app.network_system_status.shutil.which", return_value="ip"), patch(
-            "app.network_system_status.subprocess.run", return_value=result
+        ), patch("simpleoffice_network_gateway.platform_kind", return_value="linux"), patch(
+            "simpleoffice_network_gateway._run", return_value={"ok": True, "stdout": result.stdout}
         ):
             rows = network_interfaces()
         self.assertEqual(["192.168.50.10/24"], rows[0]["ipv4"])

@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4">
+<main id="main-content" class="container-xl py-4 mini-service-page">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
-      <h1 class="h2 mb-1">Networkboot · Federation</h1>
+      <h1 class="h2 mb-1">Netzwerkboot</h1>
       <p class="text-secondary mb-0">Boot-Angebot und Datenhaltung sind getrennte Rollen. Die Bezeichnungen gelten immer aus Sicht des jeweiligen Peers.</p>
     </div>
     <div class="btn-group">
@@ -13,7 +13,63 @@
     </div>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert {{ 'alert-danger' if profile_error else 'alert-info' }}" role="{{ 'alert' if profile_error else 'status' }}">{{ message }}</div>{% endfor %}
+
+  <section class="card mb-4" aria-labelledby="boot-profiles-title">
+    <div class="card-body">
+      <h2 id="boot-profiles-title" class="h4">Bootprofile</h2>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <a class="btn btn-outline-primary" href="{{ url_for('network_boot_admin.index') }}">Neues Profil</a>
+        {% for profile in boot.profiles %}<a class="btn btn-outline-secondary text-break" href="{{ url_for('network_boot_admin.index', profile=profile.id) }}">{{ profile.label }} · {{ 'aktiv' if profile.enabled else 'deaktiviert' }}{% if boot.default_profile == profile.id %} · Standard{% endif %}</a>{% endfor %}
+      </div>
+      <form method="post" action="{{ url_for('network_boot_admin.profile_save') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="original_id" value="{{ profile_form.original_id }}">
+        <div class="row g-3">
+          <div class="col-md-4"><label class="form-label" for="profile-id">Technische ID</label><input class="form-control" id="profile-id" name="id" value="{{ profile_form.id }}" required maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_.-]*" aria-describedby="profile-id-help"><div class="form-text" id="profile-id-help">Eindeutig, etwa linux-rettung. Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich.</div></div>
+          <div class="col-md-8"><label class="form-label" for="profile-label">Anzeigename</label><input class="form-control" id="profile-label" name="label" value="{{ profile_form.label }}" maxlength="160"></div>
+          <div class="col-md-6"><label class="form-label" for="profile-mode">Bootverfahren</label><select class="form-select" id="profile-mode" name="mode">{% for value, label in [('kernel','Kernel und optional Initrd'),('iso','ISO-Datei'),('chain','Externes iPXE-Skript')] %}<option value="{{ value }}" {% if profile_form.mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div class="col-md-6"><label class="form-label" for="profile-architectures">PXE-Architekturcodes</label><input class="form-control" id="profile-architectures" name="architectures" value="{{ profile_form.architectures }}" aria-describedby="profile-arch-help"><div class="form-text" id="profile-arch-help">Kommagetrennte Codes, z. B. 0,7,9,11. Diese Werte werden im bestehenden Profil gespeichert.</div></div>
+          {% for key, label in [('kernel','Kernel-Datei'),('initrd','Initrd-Datei (optional)'),('iso','ISO-Datei')] %}
+          <div class="col-md-4"><label class="form-label" for="profile-{{ key }}">{{ label }}</label><input class="form-control" id="profile-{{ key }}" name="{{ key }}" value="{{ profile_form[key] }}" list="boot-asset-paths" aria-describedby="profile-files-help"></div>
+          {% endfor %}
+          <datalist id="boot-asset-paths">{% for asset in assets %}<option value="{{ asset.path }}"></option>{% endfor %}</datalist>
+          <div class="col-12 form-text" id="profile-files-help">Vorhandene Bootdateien werden vorgeschlagen. Relative Pfade sind möglich. Nur die zum Bootverfahren gehörende Datei ist erforderlich; fehlende Dateien werden im Dienststatus gemeldet.</div>
+          <div class="col-12"><label class="form-label" for="profile-chain">Adresse des externen iPXE-Skripts</label><input class="form-control" id="profile-chain" name="chain_url" value="{{ profile_form.chain_url }}" aria-describedby="profile-chain-help"><div class="form-text" id="profile-chain-help">Nur für „Externes iPXE-Skript“ erforderlich: vollständige HTTP(S)-Adresse ohne Zugangsdaten.</div></div>
+          <div class="col-12"><label class="form-label" for="profile-args">Kernel-Parameter</label><textarea class="form-control" id="profile-args" name="kernel_args" rows="2">{{ profile_form.kernel_args }}</textarea></div>
+        </div>
+        {% for key, label in [('enabled','Profil aktiviert'),('default','Als Standardprofil verwenden')] %}<div class="form-check my-3"><input class="form-check-input" type="checkbox" id="profile-{{ key }}" name="{{ key }}" value="1" {% if profile_form[key] %}checked{% endif %}><label class="form-check-label" for="profile-{{ key }}">{{ label }}</label></div>{% endfor %}
+        <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit" name="action" value="save">Profil speichern</button>{% if profile_form.original_id %}<button class="btn btn-outline-danger" type="submit" name="action" value="delete" formnovalidate>Profil entfernen (Dateien behalten)</button>{% endif %}</div>
+      </form>
+    </div>
+  </section>
+
+  <section class="card mb-4" aria-labelledby="boot-settings-title">
+    <div class="card-body">
+      <h2 id="boot-settings-title" class="h4">Lokale Boot-Einstellungen</h2>
+      <p>HTTP-Boot ist <strong>{{ 'aktiviert' if boot.enabled else 'deaktiviert' }}</strong>.
+        Start, Stop, Neustart und Dateisuche sind in der <a href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a> verfügbar.
+        Stop sperrt öffentliche Bootdateien und beendet auch die zugehörige TFTP-Auslieferung über den Worker.</p>
+      <details {% if request.method == 'POST' %}open{% endif %}>
+        <summary>Erweiterte Einstellungen, Profile und Diagnose</summary>
+        <form method="post" action="{{ url_for('network_boot_admin.settings') }}" class="mt-3">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <label for="boot-json" class="form-label">Boot-Konfiguration (JSON)</label>
+          <textarea id="boot-json" name="boot_json" class="form-control font-monospace" rows="16" aria-describedby="boot-json-help" spellcheck="false">{{ boot_json }}</textarea>
+          <p class="form-text" id="boot-json-help">Schalter verwenden <code>true</code> oder <code>false</code>.
+            <code>enabled</code> schaltet die öffentliche Auslieferung frei; <code>tftp_enabled</code> zusätzlich TFTP.
+            <code>tftp_bind</code> ist die lokale IPv4-Adresse; <code>127.0.0.1</code> ist nur lokal erreichbar.
+            <code>http_base_url</code> kann für HTTP-Aufrufe leer bleiben; DHCP/PXE benötigt eine für Clients erreichbare Basisadresse.
+            Profile verweisen mit relativen Dateinamen auf vorhandene Bootdateien. <code>default_profile</code> wählt deren ID.
+            Beim Zurücksetzen bleiben Dateien erhalten, die öffentliche Auslieferung wird deaktiviert.</p>
+          <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-primary" type="submit" name="action" value="save">Einstellungen speichern</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="reset">Standardwerte wiederherstellen</button>
+          </div>
+        </form>
+      </details>
+    </div>
+  </section>
 
   <div class="alert alert-secondary" role="status" aria-live="polite">
     <strong>Beispiel:</strong> Ein Server kann <em>Networkboot anbieten</em>, ohne fremde Boot-Dateien zu speichern. Ein Backup-Server kann dagegen nur <em>Networkboot-Daten vorhalten</em>, ohne selbst als Boot-Quelle genutzt zu werden. Beide Optionen können auch gleichzeitig aktiv sein.
@@ -53,7 +109,7 @@
                 <div><button class="btn btn-sm btn-outline-primary" type="submit">Rollen speichern</button></div>
               </form>
             </td>
-            <td class="text-nowrap">
+            <td>
               {% if nb.get('offers_network_boot') %}
               <form method="post" action="{{ url_for('network_boot_admin.fetch_peer', peer_id=peer.peer_id) }}" class="mb-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -78,9 +134,11 @@
 
   <section class="card">
     <div class="card-header"><strong>Lokale Networkboot-Dateien</strong></div>
-    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datei</th><th scope="col">Größe</th><th scope="col">SHA-256</th></tr></thead><tbody>
-      {% for asset in assets %}<tr><td class="text-break">{{ asset.path }}</td><td>{{ asset.size }} Byte</td><td><code class="small">{{ asset.sha256 }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Noch keine Boot-Dateien vorhanden.</td></tr>{% endfor %}
+    <div class="card-body small">Bis zu 512 Dateien; Prüfsummen werden beim Föderationstransfer geprüft.</div>
+    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datei</th><th scope="col">Größe</th></tr></thead><tbody>
+      {% for asset in assets %}<tr><td class="text-break">{{ asset.path }}</td><td>{{ asset.size }} Byte</td></tr>{% else %}<tr><td colspan="2" class="text-secondary">Noch keine Boot-Dateien vorhanden.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 </main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 {% endblock %}

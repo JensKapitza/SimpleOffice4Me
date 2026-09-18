@@ -12,6 +12,21 @@ from tools import service_control
 
 
 class ServiceControlTests(unittest.TestCase):
+    def test_exclusive_lease_is_idempotent_and_released(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "worker.lock"
+            with service_control.exclusive_lease(path) as first:
+                self.assertTrue(first)
+                with service_control.exclusive_lease(path) as second:
+                    self.assertFalse(second)
+            with service_control.exclusive_lease(path) as third:
+                self.assertTrue(third)
+
+    def test_scoped_stop_does_not_touch_other_roles(self):
+        with patch.object(service_control, "read", return_value=None) as read:
+            self.assertTrue(service_control.stop(roles=["mini"]))
+            read.assert_called_once_with("mini")
+
     def test_register_uses_private_atomic_record_and_unregisters_own_pid(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(service_control, "RUN_DIR", Path(temp)):
             service_control.register("web", os.getpid(), "test_service_control")

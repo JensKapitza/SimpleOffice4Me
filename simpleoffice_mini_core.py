@@ -8,6 +8,8 @@ import json
 import os
 import re
 import struct
+import tempfile
+import time
 import urllib.request
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -96,11 +98,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-def _https_open(request: urllib.request.Request, timeout: float):
-    parsed = urlsplit(request.full_url)
+def _validate_blocklist_url(url: str) -> None:
+    parsed = urlsplit(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("Blocklisten-URL muss eine HTTPS-Adresse ohne Zugangsdaten sein")
-    response = urllib.request.build_opener().open(request, timeout=timeout)
+
+
+class _BlocklistRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Validate BEFORE urllib connects to the next hop, including intermediate
+        # hops that might otherwise downgrade to HTTP and return to HTTPS.
+        _validate_blocklist_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _https_open(request: urllib.request.Request, timeout: float):
+    _validate_blocklist_url(request.full_url)
+    response = urllib.request.build_opener(_BlocklistRedirectHandler()).open(request, timeout=timeout)
     final = urlsplit(response.geturl())
     if final.scheme != "https" or not final.hostname or final.username or final.password:
         response.close()
@@ -113,12 +127,18 @@ def utc_now() -> str:
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parent
 
 
 def default_config_path() -> Path:
     configured = os.environ.get("SIMPLEOFFICE_MINI_SERVICES_CONFIG", "").strip()
-    return Path(configured).expanduser() if configured else project_root() / "instance" / "mini-services.json"
+    if configured:
+        return Path(configured).expanduser()
+    target = project_root() / "instance" / "mini-services.json"
+    # Older workers resolved one directory too high. Keep existing installations
+    # on their complete state directory until explicitly migrated by the owner.
+    legacy = project_root().parent / "instance" / "mini-services.json"
+    return legacy if not target.exists() and legacy.is_file() else target
 
 
 def state_dir(config_path: str | Path | None = None) -> Path:
@@ -148,13 +168,22 @@ def blocklist_meta_path(config_path: str | Path | None = None) -> Path:
 
 def _atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    with temporary.open("wb") as handle:
-        handle.write(data)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.chmod(temporary, mode)
-    temporary.replace(path)
+    descriptor, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        try:
+            handle = os.fdopen(descriptor, "wb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with handle:
+            os.chmod(temporary, mode)
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -231,6 +260,12 @@ def parse_upstream(value: str) -> tuple[str, int]:
     return host, int(port)
 
 
+def config_bool(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} muss true oder false sein")
+    return value
+
+
 def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(candidate, dict):
         raise ValueError("Mini-Services-Konfiguration muss ein JSON-Objekt sein")
@@ -243,9 +278,8 @@ def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     config["version"] = 1
 
     dhcp = config["dhcp"]
-    dhcp["enabled"] = bool(dhcp.get("enabled"))
-    dhcp["authoritative"] = bool(dhcp.get("authoritative", True))
-    dhcp["ping_check"] = bool(dhcp.get("ping_check", False))
+    for key in ("enabled", "authoritative", "ping_check"):
+        dhcp[key] = config_bool(dhcp[key], "dhcp." + key)
     dhcp["port"] = int(dhcp.get("port", 67))
     if not 1 <= dhcp["port"] <= 65535:
         raise ValueError("DHCP-Port muss zwischen 1 und 65535 liegen")
@@ -345,9 +379,8 @@ def validate_config(candidate: dict[str, Any]) -> dict[str, Any]:
     dhcp["custom_options"] = clean_custom
 
     dns = config["dns"]
-    dns["enabled"] = bool(dns.get("enabled"))
-    dns["cache_enabled"] = bool(dns.get("cache_enabled", True))
-    dns["query_log"] = bool(dns.get("query_log", True))
+    for key in ("enabled", "cache_enabled", "query_log"):
+        dns[key] = config_bool(dns[key], "dns." + key)
     dns["port"] = int(dns.get("port", 53))
     if not 1 <= dns["port"] <= 65535:
         raise ValueError("DNS-Port muss zwischen 1 und 65535 liegen")
@@ -419,7 +452,12 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     target = Path(path or default_config_path())
     if not target.exists():
         return deepcopy(DEFAULT_CONFIG)
-    raw = _read_json(target, DEFAULT_CONFIG)
+    try:
+        raw = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise ValueError("Mini-Service-Konfiguration ist kein gültiges UTF-8-JSON; bitte Einstellungen prüfen.") from exc
+    if not isinstance(raw, dict):
+        raise ValueError("Mini-Service-Konfiguration muss ein JSON-Objekt sein.")
     return validate_config(raw)
 
 
@@ -432,11 +470,33 @@ def save_config(config: dict[str, Any], path: str | Path | None = None) -> dict[
 
 def read_status(path: str | Path | None = None) -> dict[str, Any]:
     data = _read_json(status_path(path), {})
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict) or not data:
+        return {}
+    try:
+        heartbeat = float(data.get("updated_at", status_path(path).stat().st_mtime))
+        age = time.time() - heartbeat
+        stale = not 0 <= age <= 30
+    except (OSError, TypeError, ValueError):
+        stale = True
+    data["stale"] = stale
+    if stale and data.get("state") != "stopped":
+        data["state"] = "unavailable"
+        data["message"] = "Keine aktuelle Rückmeldung vom Mini-Services Worker. Status prüfen oder Worker neu starten."
+        for name in ("dhcp", "dns", "tftp", "sip", "gateway"):
+            data[name + "_running"] = False
+        services = data.get("services", {})
+        for service in (services.values() if isinstance(services, dict) else []):
+            if isinstance(service, dict):
+                service["state"] = "unavailable"
+                service["health"] = {"ok": False, "message": data["message"]}
+        if isinstance(data.get("sip"), dict):
+            data["sip"]["running"] = False
+    return data
 
 
 def write_status(data: dict[str, Any], path: str | Path | None = None) -> None:
-    _atomic_write(status_path(path), (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    payload = {**data, "updated_at": time.time(), "schema_version": 2}
+    _atomic_write(status_path(path), (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
 def read_leases(path: str | Path | None = None) -> list[dict[str, Any]]:

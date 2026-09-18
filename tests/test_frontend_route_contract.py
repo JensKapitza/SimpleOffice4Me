@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import tempfile
 import unittest
+import os
+from unittest.mock import patch
 from pathlib import Path
 
 from werkzeug.security import generate_password_hash
@@ -136,6 +138,22 @@ class FrontendRouteContractTests(unittest.TestCase):
 
 
 class FrontendNavigationSmokeTests(unittest.TestCase):
+    def test_guided_boot_profile_editor_renders_values_and_safe_validation_error(self):
+        from simpleoffice_network_boot import save_boot_settings
+        path = Path(self.temp.name) / "mini-profile.json"
+        with patch.dict(os.environ, {"SIMPLEOFFICE_MINI_SERVICES_CONFIG": str(path)}):
+            save_boot_settings({"profiles": [{"id": "rescue", "label": "Rescue", "kernel": "vmlinuz"}]}, path)
+            response = self.client.get("/admin/mini-services/network-boot?profile=rescue")
+            self.assertEqual(200, response.status_code)
+            body = response.get_data(as_text=True)
+            self.assertIn('name="original_id" value="rescue"', body)
+            self.assertIn('value="vmlinuz"', body)
+            response = self.client.post("/admin/mini-services/network-boot/profiles", data={"id": "new", "mode": "kernel", "kernel": "../../outside", "label": '<script>alert(1)</script>'})
+            self.assertEqual(400, response.status_code)
+            body = response.get_data(as_text=True)
+            self.assertIn("&lt;script&gt;", body)
+            self.assertNotIn("<script>alert(1)</script>", body)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.saved = {
@@ -212,6 +230,21 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertIn("<html", body.casefold())
         self.assertIn("<body", body.casefold())
         self.assertGreater(len(body.strip()), 500)
+
+    def test_invalid_mini_network_form_renders_and_escapes_retained_input(self):
+        raw = '<script>alert("test")</script>{'
+        response = self.client.post("/admin/mini-services/save", data={
+            "reservations": raw, "network": "invalid-network", "domain": "keep.home.arpa",
+        })
+        self.assertEqual(400, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("invalid-network", body)
+        self.assertIn("keep.home.arpa", body)
+        self.assertIn("&lt;script&gt;", body)
+        self.assertNotIn(raw, body)
+        self.assertIn('role="alert"', body)
+        self.assertIn('for="mini-reservations"', body)
+        self.assertIn('id="mini-reservations"', body)
 
     def test_all_parameterless_template_linked_get_endpoints_render(self):
         """Smoke-test every directly callable GET page advertised anywhere in templates."""

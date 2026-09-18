@@ -1,20 +1,21 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4">
+<main id="main-content" class="container-xl py-4 mini-service-page">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
       <h1 class="h2 mb-1">Mini Services</h1>
       <p class="text-secondary mb-0">DHCP- und DNS-Dienste für kleine lokale Netze. Konfiguration, Leases, DNS-Anfragen, lokale Namen und Ad-Blocking an einer Stelle.</p>
     </div>
-    <div class="btn-group">
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzer</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Inventar</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Fehler/Audit</a>
     </div>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert {{ 'alert-danger' if configuration_error else 'alert-info' }}" role="{{ 'alert' if configuration_error else 'status' }}">{{ message }}</div>{% endfor %}
 
   <div class="alert alert-warning">
     <strong>Netzwerkhinweis:</strong> DHCP darf in einem Segment normalerweise nur von dem bewusst gewählten Server angeboten werden. Vor Aktivierung den DHCP-Server der Fritzbox bzw. des bisherigen Routers deaktivieren. DNS kann Hostnamen umleiten; HTTP-Pfade wie <code>/ziel</code> sind keine DNS-Funktion.
@@ -42,12 +43,13 @@
   </section>
 
   <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
-    <span class="badge text-bg-secondary">Worker wird von systemd verwaltet</span>
+    <span class="badge text-bg-secondary">Gemeinsamer Mini-Services-Worker</span>
     <span class="small text-secondary">DHCP und DNS werden mit den Schaltern unten aktiviert/deaktiviert; der Worker lädt Änderungen automatisch.</span>
-    <code class="ms-auto small">{{ config_path }}</code>
+    <code class="ms-auto small text-break">{{ config_path }}</code>
   </div>
 
   <form method="post" action="{{ url_for('mini_services_admin.save') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="accordion mb-4" id="mini-services-config">
       <section class="accordion-item">
         <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#dhcp-config" aria-expanded="true" aria-controls="dhcp-config">DHCPv4</button></h2>
@@ -55,34 +57,34 @@
           <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="dhcp_enabled" value="1" id="dhcp-enabled" {% if config.dhcp.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="dhcp-enabled">DHCP-Server aktivieren</label></div>
           <div class="row g-3">
             <div class="col-md-3"><label class="form-label" for="dhcp-interface">Interface</label><input class="form-control" id="dhcp-interface" name="dhcp_interface" value="{{ config.dhcp.interface }}" list="network-interface-list" placeholder="z. B. eth0" autocomplete="off"><datalist id="network-interface-list">{% for iface in interfaces %}<option value="{{ iface.name }}">{{ iface.ipv4|join(', ') or iface.state }}</option>{% endfor %}</datalist><div class="form-text">Freitext bleibt möglich; erkannte Interfaces werden vorgeschlagen.</div></div>
-            <div class="col-md-3"><label class="form-label">Bind-Adresse</label><input class="form-control" name="dhcp_bind" value="{{ config.dhcp.bind }}"></div>
-            <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" type="number" name="dhcp_port" value="{{ config.dhcp.port }}" min="1" max="65535"></div>
-            <div class="col-md-4"><label class="form-label">Server-IP</label><input class="form-control" name="server_ip" value="{{ config.dhcp.server_ip }}" required></div>
-            <div class="col-md-4"><label class="form-label">Netz</label><input class="form-control" name="network" value="{{ config.dhcp.network }}" placeholder="192.168.178.0/24" required></div>
-            <div class="col-md-4"><label class="form-label">Pool von</label><input class="form-control" name="pool_start" value="{{ config.dhcp.pool_start }}" required></div>
-            <div class="col-md-4"><label class="form-label">Pool bis</label><input class="form-control" name="pool_end" value="{{ config.dhcp.pool_end }}" required></div>
-            <div class="col-md-4"><label class="form-label">Router/Gateway</label><input class="form-control" name="routers" value="{{ config.dhcp.routers|join(', ') }}"></div>
-            <div class="col-md-4"><label class="form-label">DNS-Server für Clients</label><input class="form-control" name="dns_servers" value="{{ config.dhcp.dns_servers|join(', ') }}"></div>
-            <div class="col-md-4"><label class="form-label">Lokale Domain</label><input class="form-control" name="domain" value="{{ config.dhcp.domain }}" placeholder="home.arpa"></div>
-            <div class="col-md-4"><label class="form-label">Domain Search</label><input class="form-control" name="domain_search" value="{{ config.dhcp.domain_search|join(', ') }}"></div>
-            <div class="col-md-4"><label class="form-label">NTP-Server</label><input class="form-control" name="ntp_servers" value="{{ config.dhcp.ntp_servers|join(', ') }}"></div>
-            <div class="col-md-4"><label class="form-label">Ausgeschlossene IPs</label><input class="form-control" name="exclusions" value="{{ config.dhcp.exclusions|join(', ') }}"></div>
-            <div class="col-md-3"><label class="form-label">Lease (s)</label><input class="form-control" type="number" name="lease_time" value="{{ config.dhcp.lease_time }}"></div>
-            <div class="col-md-3"><label class="form-label">T1/Renew (s)</label><input class="form-control" type="number" name="renewal_time" value="{{ config.dhcp.renewal_time }}"></div>
-            <div class="col-md-3"><label class="form-label">T2/Rebind (s)</label><input class="form-control" type="number" name="rebinding_time" value="{{ config.dhcp.rebinding_time }}"></div>
-            <div class="col-md-3"><label class="form-label">Decline-Sperre (s)</label><input class="form-control" type="number" name="decline_hold_seconds" value="{{ config.dhcp.decline_hold_seconds }}"></div>
-            <div class="col-md-3"><label class="form-label">MTU</label><input class="form-control" type="number" name="mtu" value="{{ config.dhcp.mtu }}"></div>
-            <div class="col-md-3"><label class="form-label">PXE next-server</label><input class="form-control" name="next_server" value="{{ config.dhcp.next_server }}"></div>
-            <div class="col-md-3"><label class="form-label">TFTP-Server</label><input class="form-control" name="tftp_server" value="{{ config.dhcp.tftp_server }}"></div>
-            <div class="col-md-3"><label class="form-label">Boot-Datei</label><input class="form-control" name="boot_file" value="{{ config.dhcp.boot_file }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-dhcp-bind">Bind-Adresse</label><input id="mini-dhcp-bind" class="form-control" name="dhcp_bind" value="{{ config.dhcp.bind }}"></div>
+            <div class="col-md-2"><label class="form-label" for="mini-dhcp-port">Port</label><input id="mini-dhcp-port" class="form-control" type="number" name="dhcp_port" value="{{ config.dhcp.port }}" min="1" max="65535"></div>
+            <div class="col-md-4"><label class="form-label" for="mini-server-ip">Server-IP</label><input id="mini-server-ip" class="form-control" name="server_ip" value="{{ config.dhcp.server_ip }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="mini-network">Netz</label><input id="mini-network" class="form-control" name="network" value="{{ config.dhcp.network }}" placeholder="192.168.178.0/24" required></div>
+            <div class="col-md-4"><label class="form-label" for="mini-pool-start">Pool von</label><input id="mini-pool-start" class="form-control" name="pool_start" value="{{ config.dhcp.pool_start }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="mini-pool-end">Pool bis</label><input id="mini-pool-end" class="form-control" name="pool_end" value="{{ config.dhcp.pool_end }}" required></div>
+            <div class="col-md-4"><label class="form-label" for="mini-routers">Router/Gateway</label><input id="mini-routers" class="form-control" name="routers" value="{{ config.dhcp.routers|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label" for="mini-dns-servers">DNS-Server für Clients</label><input id="mini-dns-servers" class="form-control" name="dns_servers" value="{{ config.dhcp.dns_servers|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label" for="mini-domain">Lokale Domain</label><input id="mini-domain" class="form-control" name="domain" value="{{ config.dhcp.domain }}" placeholder="home.arpa"></div>
+            <div class="col-md-4"><label class="form-label" for="mini-domain-search">Domain Search</label><input id="mini-domain-search" class="form-control" name="domain_search" value="{{ config.dhcp.domain_search|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label" for="mini-ntp-servers">NTP-Server</label><input id="mini-ntp-servers" class="form-control" name="ntp_servers" value="{{ config.dhcp.ntp_servers|join(', ') }}"></div>
+            <div class="col-md-4"><label class="form-label" for="mini-exclusions">Ausgeschlossene IPs</label><input id="mini-exclusions" class="form-control" name="exclusions" value="{{ config.dhcp.exclusions|join(', ') }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-lease-time">Lease (s)</label><input id="mini-lease-time" class="form-control" type="number" name="lease_time" value="{{ config.dhcp.lease_time }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-renewal-time">T1/Renew (s)</label><input id="mini-renewal-time" class="form-control" type="number" name="renewal_time" value="{{ config.dhcp.renewal_time }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-rebinding-time">T2/Rebind (s)</label><input id="mini-rebinding-time" class="form-control" type="number" name="rebinding_time" value="{{ config.dhcp.rebinding_time }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-decline-hold-seconds">Decline-Sperre (s)</label><input id="mini-decline-hold-seconds" class="form-control" type="number" name="decline_hold_seconds" value="{{ config.dhcp.decline_hold_seconds }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-mtu">MTU</label><input id="mini-mtu" class="form-control" type="number" name="mtu" value="{{ config.dhcp.mtu }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-next-server">PXE next-server</label><input id="mini-next-server" class="form-control" name="next_server" value="{{ config.dhcp.next_server }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-tftp-server">TFTP-Server</label><input id="mini-tftp-server" class="form-control" name="tftp_server" value="{{ config.dhcp.tftp_server }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-boot-file">Boot-Datei</label><input id="mini-boot-file" class="form-control" name="boot_file" value="{{ config.dhcp.boot_file }}"></div>
             <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="authoritative" value="1" id="authoritative" {% if config.dhcp.authoritative %}checked{% endif %}><label class="form-check-label" for="authoritative">Authoritativ</label></div></div>
             <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="ping_check" value="1" id="ping-check" {% if config.dhcp.ping_check %}checked{% endif %}><label class="form-check-label" for="ping-check">IP vor Vergabe anpingen</label></div></div>
           </div>
           <hr>
           <div class="row g-3">
-            <div class="col-lg-6"><label class="form-label">Reservierungen (JSON)</label><textarea class="form-control font-monospace" rows="7" name="reservations">{{ config.dhcp.reservations|tojson(indent=2) }}</textarea><div class="form-text">Beispiel: <code>[{"mac":"aa:bb:cc:dd:ee:ff","ip":"192.168.178.10","hostname":"drucker"}]</code></div></div>
-            <div class="col-lg-6"><label class="form-label">Classless Static Routes (Option 121, JSON)</label><textarea class="form-control font-monospace" rows="7" name="static_routes">{{ config.dhcp.static_routes|tojson(indent=2) }}</textarea><div class="form-text">Beispiel: <code>[{"network":"10.0.0.0/8","gateway":"192.168.178.2"}]</code></div></div>
-            <div class="col-lg-12"><label class="form-label">Weitere DHCP-Optionen (JSON)</label><textarea class="form-control font-monospace" rows="4" name="custom_options">{{ config.dhcp.custom_options|tojson(indent=2) }}</textarea><div class="form-text">Werte standardmäßig Text; alternativ <code>hex:</code>, <code>base64:</code>, <code>ip:</code> oder <code>u32:</code>.</div></div>
+            <div class="col-lg-6"><label class="form-label" for="mini-reservations">Reservierungen (JSON)</label><textarea id="mini-reservations" class="form-control font-monospace" rows="7" name="reservations">{{ submitted_json.get("reservations", "") if submitted_json is defined else config.dhcp.reservations|tojson(indent=2) }}</textarea><div class="form-text">Beispiel: <code>[{"mac":"aa:bb:cc:dd:ee:ff","ip":"192.168.178.10","hostname":"drucker"}]</code></div></div>
+            <div class="col-lg-6"><label class="form-label" for="mini-static-routes">Classless Static Routes (Option 121, JSON)</label><textarea id="mini-static-routes" class="form-control font-monospace" rows="7" name="static_routes">{{ submitted_json.get("static_routes", "") if submitted_json is defined else config.dhcp.static_routes|tojson(indent=2) }}</textarea><div class="form-text">Beispiel: <code>[{"network":"10.0.0.0/8","gateway":"192.168.178.2"}]</code></div></div>
+            <div class="col-lg-12"><label class="form-label" for="mini-custom-options">Weitere DHCP-Optionen (JSON)</label><textarea id="mini-custom-options" class="form-control font-monospace" rows="4" name="custom_options">{{ submitted_json.get("custom_options", "") if submitted_json is defined else config.dhcp.custom_options|tojson(indent=2) }}</textarea><div class="form-text">Werte standardmäßig Text; alternativ <code>hex:</code>, <code>base64:</code>, <code>ip:</code> oder <code>u32:</code>.</div></div>
           </div>
         </div></div>
       </section>
@@ -92,29 +94,70 @@
         <div id="dns-config" class="accordion-collapse collapse show"><div class="accordion-body">
           <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="dns_enabled" value="1" id="dns-enabled" {% if config.dns.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="dns-enabled">DNS-Server aktivieren</label></div>
           <div class="row g-3">
-            <div class="col-md-4"><label class="form-label">Bind-Adressen</label><input class="form-control" name="dns_bind" value="{{ config.dns.bind|join(', ') }}"></div>
-            <div class="col-md-2"><label class="form-label">Port</label><input class="form-control" type="number" name="dns_port" value="{{ config.dns.port }}"></div>
-            <div class="col-md-6"><label class="form-label">Upstream DNS</label><input class="form-control" name="upstreams" value="{{ config.dns.upstreams|join(', ') }}" placeholder="1.1.1.1, 9.9.9.9"></div>
-            <div class="col-md-3"><label class="form-label">Timeout (s)</label><input class="form-control" name="dns_timeout" value="{{ config.dns.timeout }}"></div>
-            <div class="col-md-3"><label class="form-label">Cache-Einträge</label><input class="form-control" type="number" name="cache_max_entries" value="{{ config.dns.cache_max_entries }}"></div>
-            <div class="col-md-3"><label class="form-label">Querylog max. Bytes</label><input class="form-control" type="number" name="query_log_max_bytes" value="{{ config.dns.query_log_max_bytes }}"></div>
-            <div class="col-md-3"><label class="form-label">Blockmodus</label><select class="form-select" name="block_mode"><option value="zero" {% if config.dns.block_mode == 'zero' %}selected{% endif %}>0.0.0.0 / ::</option><option value="nxdomain" {% if config.dns.block_mode == 'nxdomain' %}selected{% endif %}>NXDOMAIN</option><option value="refused" {% if config.dns.block_mode == 'refused' %}selected{% endif %}>REFUSED</option></select></div>
+            <div class="col-md-4"><label class="form-label" for="mini-dns-bind">Bind-Adressen</label><input id="mini-dns-bind" class="form-control" name="dns_bind" value="{{ config.dns.bind|join(', ') }}"></div>
+            <div class="col-md-2"><label class="form-label" for="mini-dns-port">Port</label><input id="mini-dns-port" class="form-control" type="number" name="dns_port" value="{{ config.dns.port }}"></div>
+            <div class="col-md-6"><label class="form-label" for="mini-upstreams">Upstream DNS</label><input id="mini-upstreams" class="form-control" name="upstreams" value="{{ config.dns.upstreams|join(', ') }}" placeholder="1.1.1.1, 9.9.9.9"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-dns-timeout">Timeout (s)</label><input id="mini-dns-timeout" class="form-control" name="dns_timeout" value="{{ config.dns.timeout }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-cache-max-entries">Cache-Einträge</label><input id="mini-cache-max-entries" class="form-control" type="number" name="cache_max_entries" value="{{ config.dns.cache_max_entries }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-query-log-max-bytes">Querylog max. Bytes</label><input id="mini-query-log-max-bytes" class="form-control" type="number" name="query_log_max_bytes" value="{{ config.dns.query_log_max_bytes }}"></div>
+            <div class="col-md-3"><label class="form-label" for="mini-block-mode">Blockmodus</label><select id="mini-block-mode" class="form-select" name="block_mode"><option value="zero" {% if config.dns.block_mode == 'zero' %}selected{% endif %}>0.0.0.0 / ::</option><option value="nxdomain" {% if config.dns.block_mode == 'nxdomain' %}selected{% endif %}>NXDOMAIN</option><option value="refused" {% if config.dns.block_mode == 'refused' %}selected{% endif %}>REFUSED</option></select></div>
             <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="cache_enabled" value="1" id="cache-enabled" {% if config.dns.cache_enabled %}checked{% endif %}><label class="form-check-label" for="cache-enabled">Cache aktiv</label></div></div>
             <div class="col-md-3"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="query_log" value="1" id="query-log" {% if config.dns.query_log %}checked{% endif %}><label class="form-check-label" for="query-log">DNS-Anfragen protokollieren</label></div></div>
           </div>
           <hr>
           <div class="row g-3">
-            <div class="col-lg-12"><label class="form-label">Lokale DNS-Regeln / Umleitungen (JSON)</label><textarea class="form-control font-monospace" rows="8" name="dns_records">{{ config.dns.records|tojson(indent=2) }}</textarea><div class="form-text">A, AAAA, CNAME, TXT, PTR, MX und SRV. Beispiel: <code>[{"name":"nas.home.arpa","type":"A","value":"192.168.178.5","ttl":300}]</code>. Wildcards wie <code>*.intern.example</code> sind möglich.</div></div>
-            <div class="col-lg-6"><label class="form-label">Manuell blockieren</label><textarea class="form-control" rows="5" name="manual_blocks">{{ config.dns.manual_blocks|join('\n') }}</textarea></div>
-            <div class="col-lg-6"><label class="form-label">Allowlist</label><textarea class="form-control" rows="5" name="allowlist">{{ config.dns.allowlist|join('\n') }}</textarea></div>
-            <div class="col-lg-9"><label class="form-label">Blocklisten-URLs (eine HTTPS-URL je Zeile)</label><textarea class="form-control" rows="5" name="blocklist_urls">{{ config.dns.blocklist_urls|join('\n') }}</textarea></div>
-            <div class="col-lg-3"><label class="form-label">Aktualisierung (h)</label><input class="form-control" type="number" name="blocklist_refresh_hours" min="1" max="720" value="{{ config.dns.blocklist_refresh_hours }}"></div>
+            <div class="col-lg-12"><label class="form-label" for="mini-dns-records">Lokale DNS-Regeln / Umleitungen (JSON)</label><textarea id="mini-dns-records" class="form-control font-monospace" rows="8" name="dns_records">{{ submitted_json.get("dns_records", "") if submitted_json is defined else config.dns.records|tojson(indent=2) }}</textarea><div class="form-text">A, AAAA, CNAME, TXT, PTR, MX und SRV. Beispiel: <code>[{"name":"nas.home.arpa","type":"A","value":"192.168.178.5","ttl":300}]</code>. Wildcards wie <code>*.intern.example</code> sind möglich.</div></div>
+            <div class="col-lg-6"><label class="form-label" for="mini-manual-blocks">Manuell blockieren</label><textarea id="mini-manual-blocks" class="form-control" rows="5" name="manual_blocks">{{ config.dns.manual_blocks|join('\n') }}</textarea></div>
+            <div class="col-lg-6"><label class="form-label" for="mini-allowlist">Allowlist</label><textarea id="mini-allowlist" class="form-control" rows="5" name="allowlist">{{ config.dns.allowlist|join('\n') }}</textarea></div>
+            <div class="col-lg-9"><label class="form-label" for="mini-blocklist-urls">Blocklisten-URLs (eine HTTPS-URL je Zeile)</label><textarea id="mini-blocklist-urls" class="form-control" rows="5" name="blocklist_urls">{{ config.dns.blocklist_urls|join('\n') }}</textarea></div>
+            <div class="col-lg-3"><label class="form-label" for="mini-blocklist-refresh-hours">Aktualisierung (h)</label><input id="mini-blocklist-refresh-hours" class="form-control" type="number" name="blocklist_refresh_hours" min="1" max="720" value="{{ config.dns.blocklist_refresh_hours }}"></div>
           </div>
         </div></div>
       </section>
     </div>
     <button class="btn btn-primary btn-lg" type="submit">Konfiguration speichern</button>
   </form>
+
+  <div class="d-flex flex-wrap gap-2 mt-3 mb-4">
+    {% for service in ['dhcp', 'dns'] %}
+    <form method="post" action="{{ url_for('mini_services_admin.reset_network', service=service) }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-secondary" type="submit">{{ service|upper }} auf deaktivierte Standardwerte zurücksetzen</button>
+    </form>
+    {% endfor %}
+  </div>
+
+  <section class="card mb-4" aria-labelledby="gateway-heading">
+    <div class="card-body">
+      <h2 class="h4" id="gateway-heading">Routing / NAT</h2>
+      <p>Der vorhandene Worker setzt diese Einstellungen um. Kein automatisches Root, keine Änderungen am NetworkManager.
+        Start, Stop und Istzustand findest du in der <a href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a>.</p>
+      <form method="post" action="{{ url_for('mini_services_admin.gateway_settings') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label" for="gateway-mode">Betriebsart</label><select id="gateway-mode" class="form-select" name="mode">
+            {% for value, label in [('off','Aus'), ('route','Routing'), ('nat','Routing und NAT')] %}<option value="{{ value }}" {% if gateway.mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select></div>
+          <div class="col-md-6"><label class="form-label" for="gateway-network">Internes IPv4-Netz</label><input id="gateway-network" class="form-control" name="internal_network" value="{{ gateway.internal_network }}" aria-describedby="gateway-network-help"><div class="form-text" id="gateway-network-help">Bei aktiviertem DHCP gilt dessen Netz. Sonst verwendet Routing dieses Netz unabhängig von den DHCP-Beispielwerten.</div></div>
+          {% for key, label in [('internal_interface','Interne Schnittstelle'), ('external_interface','Externe Schnittstelle')] %}
+          <div class="col-md-6"><label class="form-label" for="gateway-{{ key }}">{{ label }}</label><input id="gateway-{{ key }}" class="form-control" name="{{ key }}" value="{{ gateway[key] }}" list="network-interface-list" aria-describedby="gateway-interface-help"></div>
+          {% endfor %}
+        </div>
+        <p class="form-text" id="gateway-interface-help">Leer lassen für automatische Auswahl anhand des internen Netzes und der Standardroute. Eine manuelle Auswahl bleibt gespeichert; Freitext ist möglich.</p>
+        {% for key, label in [('enabled','Gateway aktiviert'), ('auto_detect','Schnittstellen automatisch erkennen')] %}
+        <div class="form-check my-2"><input class="form-check-input" type="checkbox" id="gateway-{{ key }}" name="{{ key }}" value="1" {% if gateway[key] %}checked{% endif %}><label class="form-check-label" for="gateway-{{ key }}">{{ label }}</label></div>
+        {% endfor %}
+        <details class="my-3"><summary>Weiterleitungsregeln und Windows-NAT</summary>
+          {% for key, label in [('forward_ipv4','IPv4-Forwarding aktivieren'), ('allow_established','Bestehende Verbindungen zulassen'), ('allow_lan_to_wan','LAN nach WAN zulassen'), ('allow_wan_to_lan','WAN nach LAN zulassen')] %}
+          <div class="form-check my-2"><input class="form-check-input" type="checkbox" id="gateway-{{ key }}" name="{{ key }}" value="1" {% if gateway[key] %}checked{% endif %}><label class="form-check-label" for="gateway-{{ key }}">{{ label }}</label></div>
+          {% endfor %}
+          <label class="form-label" for="gateway-nat-name">Windows-NAT-Name</label><input class="form-control" id="gateway-nat-name" name="nat_name" value="{{ gateway.nat_name }}">
+          <p class="form-text">Nur dieser NAT-Eintrag wird verwaltet. Die Richtungsregeln gelten für Linux/nftables; Windows verwendet seine vorhandene Firewall. Beim Stop bleiben globale Forwarding-Einstellungen erhalten.</p>
+        </details>
+        <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit" name="action" value="save">Gateway speichern</button><button class="btn btn-outline-secondary" type="submit" name="action" value="reset">Gateway-Standardwerte</button></div>
+      </form>
+    </div>
+  </section>
 
   <div class="row g-4 mt-1">
     <section class="col-xl-6">
@@ -127,4 +170,5 @@
 
   <section class="card mt-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>Ad-/Tracking-Blocklisten</strong><form method="post" action="{{ url_for('mini_services_admin.refresh_lists') }}"><button class="btn btn-sm btn-outline-primary" type="submit">Jetzt aktualisieren</button></form></div><div class="card-body"><p class="mb-2">Geladen: <strong>{{ blocklist.domains or 0 }}</strong> Domains · Stand {{ blocklist.updated_at or '—' }}</p>{% if blocklist.sources %}<ul class="small mb-0">{% for source in blocklist.sources %}<li><code>{{ source.url }}</code> — {% if source.ok %}{{ source.domains }} Domains{% else %}<span class="text-danger">{{ source.error }}: {{ source.message }}</span>{% endif %}</li>{% endfor %}</ul>{% endif %}</div></section>
 </main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
 {% endblock %}

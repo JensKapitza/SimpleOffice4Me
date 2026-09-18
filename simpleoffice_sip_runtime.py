@@ -24,6 +24,7 @@ _MAX_HEADERS = 100
 _MAX_LINE = 4096
 _MAX_REGISTRATION = 3600
 _NONCE_TTL = 300
+_MAX_NONCES = 1024
 _DIGEST_PART = re.compile(r"\s*([A-Za-z0-9_-]+)\s*=\s*(?:\"([^\"]*)\"|([^,\s]+))\s*(?:,|$)")
 _SIP_URI = re.compile(r"^sip:([0-9]{1,12})@([^;>]+)(?:;.*)?$", re.I)
 _HEADER_USER = re.compile(r"(?:<\s*)?sip:([0-9]{1,12})@", re.I)
@@ -206,7 +207,10 @@ def _response(code: int, reason: str, headers: dict[str, list[str]], *, extra: l
     return "\r\n".join(rows).encode("latin-1")
 
 
-class SipRegistrarService:
+from simpleoffice_service_lifecycle import DatagramLifecycle, service_health
+
+
+class SipRegistrarService(DatagramLifecycle):
     """Authenticated RFC3261-style registrar plus local INVITE redirector."""
 
     def __init__(self, config_path: str | Path, event: Callable[[dict[str, Any]], None] | None = None):
@@ -214,6 +218,7 @@ class SipRegistrarService:
         self.db_path = telephony_db_path(config_path)
         self.event = event or (lambda _row: None)
         self.stop_event = threading.Event()
+        self.lifecycle_lock = threading.RLock()
         self.socket: socket.socket | None = None
         self.thread: threading.Thread | None = None
         self.registrations: dict[str, dict[str, Any]] = {}
@@ -226,27 +231,8 @@ class SipRegistrarService:
     def realm(self) -> str:
         return str(self.settings.get("realm") or "simpleoffice.local")
 
-    def start(self) -> None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((str(self.settings["bind_host"]), int(self.settings["registrar_port"])))
-        sock.settimeout(1.0)
-        self.socket = sock
-        self.thread = threading.Thread(target=self._loop, name="simpleoffice-sip-udp", daemon=True)
-        self.thread.start()
-        self.event({"service": "sip", "action": "started", "bind": self.settings["bind_host"], "port": self.settings["registrar_port"]})
-
-    def stop(self) -> None:
-        self.stop_event.set()
-        if self.socket is not None:
-            try:
-                self.socket.close()
-            except OSError:
-                pass
-        if self.thread is not None:
-            self.thread.join(timeout=3)
-        self.socket = None
-        self.thread = None
+    def _bind_options(self):
+        return (str(self.settings["bind_host"]), int(self.settings["registrar_port"])), "simpleoffice-sip-udp", "", False
 
     def status(self) -> dict[str, Any]:
         self._cleanup()
@@ -264,7 +250,7 @@ class SipRegistrarService:
                 for extension, item in sorted(self.registrations.items())
             ]
         return {
-            "running": self.socket is not None and not self.stop_event.is_set(),
+            "running": service_health(self),
             "bind_host": self.settings["bind_host"],
             "advertised_host": self.settings["advertised_host"],
             "port": int(self.settings["registrar_port"]),
@@ -315,6 +301,12 @@ class SipRegistrarService:
     def _challenge(self, headers: dict[str, list[str]], source_ip: str, *, stale: bool = False) -> bytes:
         nonce = secrets.token_urlsafe(24)
         with self.lock:
+            # Expiry alone is not a memory bound during an unauthenticated flood.
+            # Dict insertion order provides bounded oldest-first eviction.
+            while len(self.nonces) >= _MAX_NONCES:
+                oldest = next(iter(self.nonces))
+                del self.nonces[oldest]
+                self.nonce_counts = {key: count for key, count in self.nonce_counts.items() if key[0] != oldest}
             self.nonces[nonce] = (time.time() + _NONCE_TTL, source_ip)
         value = f'Digest realm="{self.realm}", nonce="{nonce}", algorithm=MD5, qop="auth"'
         if stale:
@@ -361,6 +353,13 @@ class SipRegistrarService:
         if not secrets.compare_digest(expected, str(values.get("response") or "").casefold()):
             return None
         with self.lock:
+            # Keep the replay check and increment atomic if callers process SIP
+            # requests concurrently. A challenge is bound to one authenticated
+            # identity, keeping the replay cache bounded by the nonce cache.
+            if nonce not in self.nonces or nc <= self.nonce_counts.get(key, 0):
+                return None
+            if any(old_nonce == nonce and old_user != username for old_nonce, old_user in self.nonce_counts):
+                return None
             self.nonce_counts[key] = nc
         return username
 
