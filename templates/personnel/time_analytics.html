@@ -69,7 +69,7 @@
     <div class="card-header"><strong>Teamstatistik</strong></div>
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0">
-        <thead><tr><th>Mitarbeiter</th><th>Arbeit</th><th>Soll</th><th>Saldo</th><th>Pause</th><th>Abwesenheit</th><th>Fehltage</th><th>Pause prüfen</th><th>Verspätet</th><th>Offen</th></tr></thead>
+        <thead><tr><th scope="col">Mitarbeiter</th><th scope="col">Arbeit</th><th scope="col">Soll</th><th scope="col">Saldo</th><th scope="col">Pause</th><th scope="col">Abwesenheit</th><th scope="col">Fehltage</th><th scope="col">Pause prüfen</th><th scope="col">Verspätet</th><th scope="col">Offen</th></tr></thead>
         <tbody>{% for row in team.rows %}<tr><td><a href="{{ url_for('personnel_time_analytics.index', employee_id=row.employee_id, period=period, start=start.isoformat(), end=end.isoformat()) }}">{{ row.name }}</a></td><td>{{ duration(row.work_minutes) }} h</td><td>{{ duration(row.target_minutes) }} h</td><td class="{{ 'text-success' if row.balance_minutes >= 0 else 'text-danger' }}">{{ '+' if row.balance_minutes > 0 else '' }}{{ duration(row.balance_minutes) }} h</td><td>{{ duration(row.break_minutes) }} h</td><td>{{ row.absence_days }} T.</td><td>{{ row.missing_days }}</td><td>{{ row.missing_break_days }}</td><td>{{ row.late_days }}</td><td>{{ row.open_days }}</td></tr>{% else %}<tr><td colspan="10" class="text-secondary">Keine Mitarbeiterdaten.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
@@ -79,14 +79,14 @@
     <div class="card-header"><strong>Standort-/Quellenstatistik</strong></div>
     <div class="card-body pb-0"><p class="small text-secondary">Arbeits- und Pausenzeiten werden je Quelle nur aus vollständigen, für sich gültigen Stempelfolgen berechnet. Gemischte oder offene Folgen werden als unvollständig markiert statt geschätzt.</p></div>
     <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0"><thead><tr><th>Standort / Quelle</th><th>Mitarbeiter</th><th>Stempel</th><th>Arbeitszeit</th><th>Pause</th><th>Unvollständige Tage</th></tr></thead><tbody>{% for row in sites %}<tr><td>{{ row.label }}{% if row.source != 'local' %}<div class="small text-secondary">{{ row.source }}</div>{% endif %}</td><td>{{ row.employee_count }}</td><td>{{ row.event_count }}</td><td>{{ duration(row.work_minutes) }} h</td><td>{{ duration(row.break_minutes) }} h</td><td>{{ row.incomplete_days }}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Keine Stempelungen im Zeitraum.</td></tr>{% endfor %}</tbody></table>
+      <table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Standort / Quelle</th><th scope="col">Mitarbeiter</th><th scope="col">Stempel</th><th scope="col">Arbeitszeit</th><th scope="col">Pause</th><th scope="col">Unvollständige Tage</th></tr></thead><tbody>{% for row in sites %}<tr><td>{{ row.label }}{% if row.source != 'local' %}<div class="small text-secondary">{{ row.source }}</div>{% endif %}</td><td>{{ row.employee_count }}</td><td>{{ row.event_count }}</td><td>{{ duration(row.work_minutes) }} h</td><td>{{ duration(row.break_minutes) }} h</td><td>{{ row.incomplete_days }}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Keine Stempelungen im Zeitraum.</td></tr>{% endfor %}</tbody></table>
     </div>
   </section>
 
   <section class="card mb-4" id="autosync">
     <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>Federation · automatische Synchronisation</strong><span class="badge {{ 'text-bg-success' if worker_enabled else 'text-bg-secondary' }}">Worker {{ 'aktiv' if worker_enabled else 'deaktiviert' }}</span></div>
     <div class="card-body"><p class="text-secondary">Nur explizit aktivierte, bereits zugeordnete Mitarbeiter werden synchronisiert. Polling: ca. alle {{ poll_seconds }} Sekunden; pro Zuordnung gilt zusätzlich das gewählte Intervall. Geschlossene Monate werden nicht verändert.</p></div>
-    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Mitarbeiter</th><th>Peer / Remote</th><th>Automatik</th><th>Intervall</th><th>Fenster</th><th>Status</th><th>Aktion</th></tr></thead><tbody>
+    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th scope="col">Mitarbeiter</th><th scope="col">Peer / Remote</th><th scope="col">Automatik</th><th scope="col">Intervall</th><th scope="col">Fenster</th><th scope="col">Status</th><th scope="col">Aktion</th></tr></thead><tbody>
       {% for row in mappings %}
       <tr>
         <td>{{ row.employee_name }}</td>
