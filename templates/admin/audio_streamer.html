@@ -26,8 +26,8 @@
         <select class="form-select mb-2" id="input-select" aria-label="Erkanntes Mikrofon auswählen"><option value="default">Systemstandard</option></select>
         <div id="input-scan-status" class="form-text mb-3" role="status" aria-live="polite">Automatische Auswahl; eine manuelle Quelle ist weiterhin möglich.</div>
         <label class="form-label" for="stream-targets">Ziele</label>
-        <textarea class="form-control mb-3" id="stream-targets" rows="4" placeholder="192.168.1.50:5004&#10;192.168.1.80:5004"></textarea>
-        <div class="form-text mb-3">Ein Ziel pro Zeile.</div>
+        <textarea class="form-control mb-3" id="stream-targets" rows="4" placeholder="192.168.1.50:5004&#10;192.168.1.80:5004" aria-describedby="stream-targets-help"></textarea>
+        <div class="form-text mb-3" id="stream-targets-help">Ein Ziel pro Zeile im Format <code>IPv4:RTP-Port</code>. Der zugehörige RTCP-Port ist jeweils RTP+1; beide Ports müssen auf dem Ziel verfügbar sein.</div>
         <div class="d-flex flex-wrap gap-2 mb-2">
           <button class="btn btn-outline-primary" id="target-scan" type="button">Empfänger suchen</button>
           <select class="form-select" id="target-select" aria-label="Erkannten RTP-Empfänger auswählen"><option value="">Empfänger auswählen</option></select>
@@ -42,7 +42,8 @@
     <div class="col-12 col-lg-6">
       <div class="card h-100"><div class="card-header fw-semibold">Receiver – Audio empfangen</div><div class="card-body">
         <label class="form-label" for="receiver-port">RTP-Port</label>
-        <input class="form-control mb-3" id="receiver-port" type="number" min="1024" max="65534" value="5004">
+        <input class="form-control mb-2" id="receiver-port" type="number" min="1024" max="65534" value="5004" aria-describedby="receiver-port-help">
+        <div class="form-text mb-3" id="receiver-port-help">RTP verwendet diesen UDP-Port, RTCP den direkt folgenden Port. Der Wert ist deshalb höchstens 65534.</div>
 
         <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
           <div class="flex-grow-1">
@@ -83,7 +84,7 @@
       </div>
       <label class="form-label mt-3" for="receiver-bind">Receiver-Netzwerkadresse</label>
       <input class="form-control" id="receiver-bind" placeholder="Automatisch: private lokale IPv4-Adresse" aria-describedby="receiver-bind-help">
-      <p id="receiver-bind-help" class="form-text">Leer wählt eine private lokale Adresse, andernfalls Loopback. Eine konkrete lokale IPv4-Adresse begrenzt den Empfang auf dieses Interface.</p>
+      <p id="receiver-bind-help" class="form-text">Leer wählt eine private lokale Adresse, andernfalls Loopback. Eine konkrete lokale IPv4-Adresse begrenzt den Empfang auf dieses Interface. Start/Neustart prüfen Programme und Einstellungen vor dem Sessionwechsel; begrenzte Recovery ersetzt keine Hardware-Wiedergabebestätigung.</p>
       <pre id="audio-diagnosis" class="small mt-3" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
     </div>
   </details>
