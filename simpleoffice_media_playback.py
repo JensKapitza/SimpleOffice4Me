@@ -369,6 +369,7 @@ class RendererPlayback:
                 self.last_error = ""
             except (OSError, RuntimeError, ValueError):
                 self.last_error = "playback_failed"
+                self.state.stop()
                 raise
 
     def status(self) -> dict[str, Any]:
