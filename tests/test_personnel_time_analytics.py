@@ -11,7 +11,7 @@ from app import db as database
 from app import personnel
 from app.contact_store import ContactStore
 from app.federation_store import FederationStore
-from app.personnel_time_analytics import ensure_schema, run_auto_sync_once, site_statistics, team_statistics
+from app.personnel_time_analytics import _csv_safe, ensure_schema, run_auto_sync_once, site_statistics, team_statistics
 
 
 class PersonnelTimeAnalyticsTest(unittest.TestCase):
@@ -175,6 +175,11 @@ class PersonnelTimeAnalyticsTest(unittest.TestCase):
         self.assertTrue(mapping["last_success_at"])
         self.assertTrue(audit_actors)
         self.assertTrue(all(int(row["actor_user_id"]) == self.user_id for row in audit_actors))
+
+    def test_csv_safe_prefixes_spreadsheet_formulas(self):
+        for value in ("=SUM(1,1)", "+1", "-1", "@A1"):
+            self.assertTrue(_csv_safe(value).startswith("'"))
+        self.assertEqual("Normaler Name", _csv_safe("Normaler Name"))
 
     def test_payroll_csv_export_uses_selected_period_and_excel_safe_format(self):
         shown = self._insert_day(self.employee_id, 8, 16)
