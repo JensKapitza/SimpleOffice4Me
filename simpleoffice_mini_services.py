@@ -49,6 +49,20 @@ def parse_blocklist_text(text: str) -> set[str]:
     return result
 
 
+def _blocklist_diagnostic_url(value: str) -> str:
+    """Return a source identifier without path/query data that may contain tokens."""
+    parsed = urlsplit(value)
+    host = parsed.hostname or "invalid"
+    if ":" in host:
+        host = f"[{host}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    authority = host if port in {None, 443} else f"{host}:{port}"
+    return f"https://{authority}"
+
+
 def refresh_blocklists(
     config: dict[str, Any],
     config_path: str | Path | None = None,
@@ -84,7 +98,7 @@ def refresh_blocklists(
             domains.update(found)
             sources.append(
                 {
-                    "url": url,
+                    "url": _blocklist_diagnostic_url(url),
                     "ok": True,
                     "domains": len(found),
                     "ms": round((time.monotonic() - started) * 1000, 1),
@@ -94,7 +108,7 @@ def refresh_blocklists(
             failed = True
             sources.append(
                 {
-                    "url": url,
+                    "url": _blocklist_diagnostic_url(url),
                     "ok": False,
                     "error": type(exc).__name__,
                     "message": "Download fehlgeschlagen; Netzwerk und Blocklisten-Adresse prüfen.",
