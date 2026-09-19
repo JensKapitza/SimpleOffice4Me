@@ -1,6 +1,8 @@
 """Team/site analytics and automatic federation sync for personnel time."""
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import threading
@@ -11,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import click
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from . import personnel
 from .auth import login_required
@@ -138,6 +140,34 @@ def team_statistics(start: date, end: date) -> dict[str, Any]:
     return {"rows": rows, "totals": dict(totals), "daily": list(daily_map.values())}
 
 
+def _csv_safe(value: Any) -> str:
+    text = str(value if value is not None else "")
+    return "'" + text if text[:1] in {"=", "+", "-", "@"} else text
+
+
+def _decimal_hours(minutes: int) -> str:
+    return f"{int(minutes) / 60:.2f}".replace(".", ",")
+
+
+def _payroll_csv(start: date, end: date) -> str:
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, delimiter=";", lineterminator="\r\n")
+    writer.writerow([
+        "Mitarbeiter", "Von", "Bis", "Soll_Stunden", "Ist_Stunden", "Saldo_Stunden",
+        "Pause_Stunden", "Abwesenheitstage", "Fehltage", "Pausenpruefung",
+        "Verspaetungstage", "Offene_Stempelfolgen",
+    ])
+    for row in team_statistics(start, end)["rows"]:
+        writer.writerow([
+            _csv_safe(row["name"]), start.isoformat(), end.isoformat(),
+            _decimal_hours(row["target_minutes"]), _decimal_hours(row["work_minutes"]),
+            _decimal_hours(row["balance_minutes"]), _decimal_hours(row["break_minutes"]),
+            row["absence_days"], row["missing_days"], row["missing_break_days"],
+            row["late_days"], row["open_days"],
+        ])
+    return "\ufeff" + output.getvalue()
+
+
 def _event_summary(rows: list[dict[str, Any]]) -> tuple[int, int, bool]:
     allowed = {"clock_out": {"clock_in"}, "clock_in": {"break_start", "clock_out"}, "break_start": {"break_end"}, "break_end": {"break_start", "clock_out"}}
     state, work, breaks, active, paused = "clock_out", 0, 0, None, None
@@ -244,12 +274,13 @@ def _open_sync_start(employee_id: int, start: date, end: date) -> date | None:
     return current if current <= end else None
 
 
-def _actor_for_mapping(mapping: dict[str, Any]):
-    db = get_db(); actor = db.execute("SELECT * FROM user WHERE id=?", (int(mapping.get("updated_by") or 0),)).fetchone()
-    actor = actor or db.execute("SELECT * FROM user WHERE is_admin=1 ORDER BY id LIMIT 1").fetchone()
+def _actor_id_for_mapping(mapping: dict[str, Any]) -> int:
+    db = get_db()
+    actor = db.execute("SELECT id FROM user WHERE id=?", (int(mapping.get("updated_by") or 0),)).fetchone()
+    actor = actor or db.execute("SELECT id FROM user WHERE is_admin=1 ORDER BY id LIMIT 1").fetchone()
     if actor is None:
         raise ValueError("Für die automatische Synchronisation ist kein Admin-Benutzer vorhanden")
-    return actor
+    return int(actor["id"])
 
 
 def _sync_mapping(mapping: dict[str, Any]) -> dict[str, int]:
@@ -268,8 +299,16 @@ def _sync_mapping(mapping: dict[str, Any]) -> dict[str, int]:
     data = _json_request(peer["base_url"] + "/federation/v1/personnel/time/punches?" + query, token=token, timeout=20)
     if data.get("employee_key") != remote_key or data.get("complete_range") is not True:
         raise ValueError("Federation-Antwort deckt den angeforderten Zeitraum nicht vollständig ab")
-    g.user = _actor_for_mapping(mapping)
-    return insights.import_federated_events(peer_id, remote_key, employee_id, data.get("events") or [], start, end, remote_label=str(data.get("employee_label") or mapping.get("remote_label") or remote_key))
+    return insights.import_federated_events(
+        peer_id,
+        remote_key,
+        employee_id,
+        data.get("events") or [],
+        start,
+        end,
+        remote_label=str(data.get("employee_label") or mapping.get("remote_label") or remote_key),
+        actor_user_id=_actor_id_for_mapping(mapping),
+    )
 
 
 def _finish_mapping(mapping: dict[str, Any], success: bool, error: str = "") -> None:
@@ -360,6 +399,22 @@ def index():
         selected_stats=selected_stats, selected_weekly=_bucket_series(selected_stats["daily"], "week"), selected_monthly=_bucket_series(selected_stats["daily"], "month"),
         team=team, team_weekly=_bucket_series(team["daily"], "week"), team_monthly=_bucket_series(team["daily"], "month"), sites=site_statistics(start, end),
         mappings=_mapping_rows(), worker_enabled=auto_sync_runtime_enabled(), poll_seconds=configured_poll_seconds())
+
+
+@bp.get("/payroll.csv")
+@login_required
+def payroll_csv():
+    _require_admin()
+    try:
+        _period_name, start, end = _period()
+    except ValueError as exc:
+        return Response(str(exc), status=400, mimetype="text/plain")
+    filename = f"arbeitszeit_{start.isoformat()}_bis_{end.isoformat()}.csv"
+    return Response(
+        _payroll_csv(start, end),
+        content_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @bp.post("/autosync/settings")
