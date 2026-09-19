@@ -171,4 +171,38 @@ CREATE TABLE IF NOT EXISTS finance_audit(
 );
 CREATE INDEX IF NOT EXISTS finance_audit_entity_idx
     ON finance_audit(entity_type, entity_id, audit_id);
+CREATE TABLE IF NOT EXISTS finance_obligation(
+    obligation_id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
+    kind TEXT NOT NULL, direction TEXT NOT NULL, amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'EUR', recurrence_unit TEXT NOT NULL,
+    interval_count INTEGER NOT NULL DEFAULT 1, due_day INTEGER,
+    starts_on TEXT NOT NULL, ends_on TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '', counterparty_name TEXT NOT NULL DEFAULT '',
+    counterparty_iban TEXT NOT NULL DEFAULT '', reference TEXT NOT NULL DEFAULT '',
+    contract_document_id TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS finance_obligation_owner_idx
+    ON finance_obligation(owner, active, name COLLATE NOCASE, obligation_id);
+CREATE TABLE IF NOT EXISTS finance_transaction_match(
+    match_id TEXT PRIMARY KEY, owner TEXT NOT NULL, transaction_id TEXT NOT NULL,
+    source_type TEXT NOT NULL, source_id TEXT NOT NULL, score INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL DEFAULT 'confirmed', note TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    UNIQUE(owner, transaction_id, source_type, source_id),
+    FOREIGN KEY(transaction_id) REFERENCES finance_bank_transaction(transaction_id)
+);
+CREATE TABLE IF NOT EXISTS finance_bank_connection(
+    connection_id TEXT PRIMARY KEY, owner TEXT NOT NULL, provider TEXT NOT NULL,
+    institution TEXT NOT NULL DEFAULT '', endpoint TEXT NOT NULL DEFAULT '',
+    login_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'configured',
+    last_successful_sync INTEGER, last_error TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    UNIQUE(owner, provider, institution, login_id)
+);
+CREATE TABLE IF NOT EXISTS finance_tax_year(
+    owner TEXT NOT NULL, tax_year INTEGER NOT NULL, status TEXT NOT NULL,
+    submitted_on TEXT NOT NULL DEFAULT '', advisor_note TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL, PRIMARY KEY(owner, tax_year)
+);
 """
