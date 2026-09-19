@@ -276,7 +276,14 @@ def projects():
             return redirect(url_for("documents.project_detail", project_id=project["project_id"]))
         except ValueError as exc:
             flash(str(exc))
-    return render_template("documents/projects.html", projects=_projects().projects())
+    actor = str(g.user["username"])
+    project_rows = _projects().projects()
+    _todos().migrate_project_tasks(project_rows, actor)
+    project_rows = [
+        {**project, "tasks": _todos().project_tasks(project["project_id"], actor)}
+        for project in project_rows
+    ]
+    return render_template("documents/projects.html", projects=project_rows)
 
 
 @bp.route("/projects/<project_id>", methods=("GET", "POST"))
