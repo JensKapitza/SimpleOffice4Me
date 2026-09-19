@@ -24,6 +24,28 @@ class NetworkUiDiagnosticsTests(unittest.TestCase):
         self.assertEqual(["192.168.50.10/24"], rows[0]["ipv4"])
         self.assertEqual("up", rows[0]["state"])
 
+    def test_interfaces_survive_missing_socket_if_nameindex(self):
+        payload = [{
+            "ifindex": 7,
+            "ifname": "Ethernet",
+            "operstate": "UP",
+            "addr_info": [{"family": "inet", "local": "192.168.60.10", "prefixlen": 24}],
+        }]
+        result = Mock(returncode=0, stdout=json.dumps(payload))
+        with patch(
+            "app.network_system_status.socket.if_nameindex",
+            side_effect=AttributeError("if_nameindex unavailable"),
+            create=True,
+        ), patch("app.network_system_status.platform.system", return_value="Linux"), patch(
+            "simpleoffice_network_gateway.platform_kind", return_value="linux"
+        ), patch(
+            "simpleoffice_network_gateway._run", return_value={"ok": True, "stdout": result.stdout}
+        ):
+            rows = network_interfaces()
+        self.assertEqual("Ethernet", rows[0]["name"])
+        self.assertEqual(["192.168.60.10/24"], rows[0]["ipv4"])
+        self.assertEqual("up", rows[0]["state"])
+
     def test_routing_status_reports_enabled(self):
         with patch("app.network_system_status.platform.system", return_value="Linux"), patch(
             "app.network_system_status.Path.read_text", return_value="1"
