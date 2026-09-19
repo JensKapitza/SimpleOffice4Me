@@ -8,7 +8,7 @@ from typing import Any
 
 from .business_documents import invoice_state, invoices
 from .finance_matching import MatchCandidate, propose_matches
-from .finance_store import FinanceStore
+from .finance_store import FinanceStore\nfrom .euer_store import EuerStore\nfrom .rental_billing import RentalBillingStore
 
 
 def _cents(value: Any) -> int:
@@ -56,7 +56,44 @@ def obligation_candidates(store: FinanceStore, actor: str) -> list[MatchCandidat
     ]
 
 
+
+def receipt_candidates(root: Path, actor: str) -> list[MatchCandidate]:
+    result: list[MatchCandidate] = []
+    for row in EuerStore(root).bookings(actor=actor):
+        amount = _cents(row.get("gross", "0"))
+        if amount <= 0:
+            continue
+        result.append(MatchCandidate(
+            source_type="receipt", source_id=str(row.get("booking_id", "")),
+            amount_cents=amount, due_date=str(row.get("booking_date", "")),
+            reference=str(row.get("reference", "")), description=str(row.get("description", "")),
+        ))
+    return result
+
+
+def rental_candidates(root: Path) -> list[MatchCandidate]:
+    result: list[MatchCandidate] = []
+    rental = RentalBillingStore(root)
+    for row in rental.ledger():
+        amount = _cents(row.get("amount", "0"))
+        if amount == 0:
+            continue
+        try:
+            contact = rental._contact(str(row.get("contact_id", "")))
+            fields = contact.get("fields", {}) if isinstance(contact, dict) else {}
+            name = str(fields.get("display_name") or fields.get("company") or "")
+        except Exception:
+            name = ""
+        result.append(MatchCandidate(
+            source_type="rental", source_id=str(row.get("ledger_id", "")),
+            amount_cents=abs(amount), due_date=str(row.get("booked_on", "")),
+            counterparty_name=name, reference=str(row.get("note", "")),
+            description=f"Mietkonto {row.get('kind', '')} {row.get('note', '')}".strip(),
+        ))
+    return result
+
+
 def proposals_for_transaction(root: Path, store: FinanceStore, transaction_id: str, actor: str, *, limit: int = 12) -> list[dict[str, Any]]:
     transaction = store.bank_transaction(transaction_id, actor)
-    candidates = invoice_candidates(root) + obligation_candidates(store, actor)
+    candidates = invoice_candidates(root) + obligation_candidates(store, actor) + receipt_candidates(root, actor) + rental_candidates(root)
     return [item.as_dict() for item in propose_matches(transaction, candidates, limit=limit)]
