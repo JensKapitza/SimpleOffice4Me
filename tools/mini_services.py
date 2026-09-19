@@ -27,12 +27,14 @@ from simpleoffice_network_gateway_runtime import (
     remember_gateway_ownership,
 )
 from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, effective_sip_settings
+from simpleoffice_media_renderer import load_media_renderer_settings, media_renderer_settings_path
+from simpleoffice_media_service import MediaRendererService
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
 from simpleoffice_mini_control import ControlStore
 from simpleoffice_network_gateway import interfaces_snapshot, binding_available, detect_interfaces, platform_kind
 
 LOG = logging.getLogger("simpleoffice.mini_services")
-SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
+SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT", "media-renderer": "Media / DLNA"}
 
 
 class Worker:
@@ -40,6 +42,7 @@ class Worker:
         self.config_path = config_path
         self.stop_event = threading.Event()
         self.dhcp = self.dns = self.tftp = self.sip = None
+        setattr(self, "media-renderer", None)
         self.sip_status = {}
         self.gateway_active = False
         self.gateway_status = {}
@@ -82,7 +85,8 @@ class Worker:
     def _signature(self):
         return tuple(self._mtime(path) for path in (
             self.config_path, boot_settings_path(self.config_path),
-            gateway_settings_path(self.config_path), telephony_db_path(self.config_path)))
+            gateway_settings_path(self.config_path), telephony_db_path(self.config_path),
+            media_renderer_settings_path(self.config_path)))
 
     def _stop_one(self, name: str) -> bool:
         state = self.states[name]
@@ -148,7 +152,12 @@ class Worker:
                 self.next_gateway_health = 0
             else:
                 factories = {"dhcp": BootAwareDhcpService, "dns": DnsService, "tftp": TftpService}
-                service = SipRegistrarService(self.config_path, self.event) if name == "sip" else factories[name](settings, self.config_path, self.event)
+                if name == "sip":
+                    service = SipRegistrarService(self.config_path, self.event)
+                elif name == "media-renderer":
+                    service = MediaRendererService(settings, self.config_path, self.event)
+                else:
+                    service = factories[name](settings, self.config_path, self.event)
                 service.start()
                 setattr(self, name, service)
             state.running()
@@ -266,12 +275,14 @@ class Worker:
             gateway["internal_interface"] = gateway["internal_interface"] or found["internal_interface"]
             gateway["external_interface"] = gateway["external_interface"] or found["external_interface"]
         sip = effective_sip_settings(self.config_path)
+        media_renderer = load_media_renderer_settings(self.config_path)
         desired = {
             "dhcp": (bool(config["dhcp"]["enabled"]), {**config["dhcp"], "_boot": boot}),
             "dns": (bool(config["dns"]["enabled"]), config["dns"]),
             "tftp": (bool(boot["enabled"] and boot["tftp_enabled"]), boot),
             "sip": (True, sip),
             "gateway": (bool(gateway["enabled"] and gateway["mode"] != "off"), {**gateway, "_server_ip": config["dhcp"]["server_ip"]}),
+            "media-renderer": (bool(media_renderer["enabled"]), media_renderer),
         }
         for name, (enabled, settings) in desired.items():
             preference = self.preferences[name]
@@ -293,7 +304,7 @@ class Worker:
             state = self.states[name]
             state.retry_count = 0
             state.config = {key: value for key, value in specification[1].items()
-                            if key in {"enabled", "bind", "port", "interface", "tftp_bind", "tftp_port", "bind_host", "registrar_port", "mode", "timeout"}}
+                            if key in {"enabled", "bind", "port", "interface", "tftp_bind", "tftp_port", "bind_host", "registrar_port", "mode", "timeout", "friendly_name", "video_mode"}}
             self._start_one(name)
         self.config_error = None
         self.config_signature = signature
@@ -313,8 +324,8 @@ class Worker:
 
     def _network_available(self, name):
         settings = self.desired.get(name, (False, {}))[1]
-        addresses = {"dhcp": ("bind", "server_ip"), "dns": ("bind",), "tftp": ("tftp_bind",), "sip": ("bind_host",), "gateway": ()}[name]
-        interfaces = ("internal_interface", "external_interface") if name == "gateway" else ("interface",)
+        addresses = {"dhcp": ("bind", "server_ip"), "dns": ("bind",), "tftp": ("tftp_bind",), "sip": ("bind_host",), "gateway": (), "media-renderer": ("bind",)}[name]
+        interfaces = ("internal_interface", "external_interface") if name == "gateway" else (() if name == "media-renderer" else ("interface",))
         return binding_available(settings, self.network_snapshot, addresses=addresses, interfaces=interfaces)
 
     def _refresh_network(self):

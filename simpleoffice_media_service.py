@@ -319,6 +319,8 @@ class MediaRendererService:
         self.stop_event = threading.Event()
         self.httpd: MediaRendererHttpServer | None = None
         self.http_thread: threading.Thread | None = None
+        self.socket = None
+        self.thread = None
         self.ssdp = SsdpAdvertiser(self.settings, self.stop_event)
 
     def start(self) -> None:
@@ -341,6 +343,8 @@ class MediaRendererService:
                 daemon=True,
             )
             self.http_thread.start()
+            self.socket = httpd.socket
+            self.thread = self.http_thread
         except Exception:
             httpd.server_close()
             self.httpd = None
@@ -358,6 +362,8 @@ class MediaRendererService:
         if self.http_thread is not None and self.http_thread is not threading.current_thread():
             self.http_thread.join(timeout=2)
         self.http_thread = None
+        self.socket = None
+        self.thread = None
         self.playback.close()
 
     def is_alive(self) -> bool:
