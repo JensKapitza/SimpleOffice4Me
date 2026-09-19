@@ -1,6 +1,10 @@
 import tempfile
 import time
 import unittest
+import os
+import sqlite3
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -69,11 +73,55 @@ class ControlStoreTests(unittest.TestCase):
 
 
 class MiniApiTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js required for frontend regression tests")
+    def test_frontend_scan_states_and_failure_feedback(self):
+        script = Path(__file__).resolve().parent / "mini_services_frontend.test.cjs"
+        result = subprocess.run([shutil.which("node"), "--test", str(script)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_sender_scan_uses_configured_backend_and_safe_configuration_errors(self):
+        url = "/api/mini-services/audio-sender/scan"
+        for backend in ("pulse", "alsa", "dshow"):
+            with self.subTest(backend=backend), patch("app.audio_streamer_config.settings", return_value={"backend": backend}), patch("app.audio_output_discovery.discover_microphone_inputs", return_value=[{"id": "mic", "backend": backend}]) as scan:
+                result = self.client.post(url, json={}, headers=self.headers)
+                self.assertEqual(200, result.status_code)
+                scan.assert_called_once_with(backend)
+                self.assertEqual(backend, result.json["targets"][0]["backend"])
+        with patch("app.audio_streamer_config.settings", side_effect=ValueError("secret-setting")), patch("app.audio_output_discovery.discover_microphone_inputs") as scan:
+            result = self.client.post(url, json={}, headers=self.headers)
+        self.assertEqual(503, result.status_code)
+        self.assertNotIn("secret-setting", result.get_data(as_text=True))
+        self.assertEqual("failed", ControlStore(self.path).scan("audio-sender")["state"])
+        scan.assert_not_called()
+
+    def test_audio_scan_publishes_progress_and_records_storage_failure(self):
+        store = ControlStore(self.path)
+        def discover():
+            self.assertEqual("scanning", store.scan("audio-output")["state"])
+            return [{"id": "speaker"}]
+        with patch("app.audio_output_discovery.discover_speaker_outputs", side_effect=discover), patch("app.audio_output_admin._store") as output_store:
+            output_store.return_value.sync_local_outputs.side_effect = sqlite3.OperationalError("secret-db-path")
+            result = self.client.post("/api/mini-services/audio-output/scan", json={}, headers=self.headers)
+        self.assertEqual(503, result.status_code)
+        self.assertNotIn("secret-db-path", result.get_data(as_text=True))
+        self.assertEqual("failed", store.scan("audio-output")["state"])
+
+    def test_windows_receiver_scan_reports_unverified_default_without_registering_sink(self):
+        with patch("app.audio_output_discovery.platform.system", return_value="Windows"), patch("app.audio_output_discovery.shutil.which", return_value="ffplay"), patch("app.audio_output_admin._store") as output_store:
+            result = self.client.post("/api/mini-services/audio-receiver/scan", json={}, headers=self.headers)
+            self.assertEqual(200, result.status_code)
+            self.assertEqual("default", result.json["targets"][0]["id"])
+            self.assertEqual("unknown", result.json["targets"][0]["state"])
+            self.assertIn("Hardware nicht geprüft", result.json["scope"])
+            output_store.assert_not_called()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "mini.json"
         self.user = {"id": 1, "is_admin": True, "is_disabled": False}
+        environment = patch.dict(os.environ, {"SIMPLEOFFICE_MINI_SERVICES_CONFIG": str(self.path)})
+        environment.start(); self.addCleanup(environment.stop)
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True, SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
@@ -123,6 +171,25 @@ class MiniApiTests(unittest.TestCase):
     def test_unknown_actions_and_settings_are_rejected(self):
         self.assertEqual(404, self.client.post("/api/mini-services/sip/shell", json={}, headers=self.headers).status_code)
         self.assertEqual(400, self.client.post("/api/mini-services/sip/settings", json={"enabled": "false"}, headers=self.headers).status_code)
+
+    def test_audio_storage_failure_does_not_hide_network_and_boot_status(self):
+        with patch("app.audio_streamer_config.settings", side_effect=sqlite3.OperationalError("sensitive")), patch("app.audio_output_worker.worker.settings", side_effect=sqlite3.OperationalError("sensitive")):
+            response = self.client.get("/api/mini-services")
+        self.assertEqual(200, response.status_code)
+        states = {row["id"]: row["state"] for row in response.json["services"]}
+        self.assertEqual("degraded", states["audio-sender"])
+        self.assertEqual("degraded", states["audio-output"])
+        self.assertIn("http-boot", states)
+        self.assertIn("dhcp", states)
+        self.assertNotIn("sensitive", response.get_data(as_text=True))
+
+    def test_common_catalog_includes_existing_audio_owners(self):
+        result = self.client.get("/api/mini-services")
+        self.assertEqual(200, result.status_code)
+        services = {row["id"]: row for row in result.json["services"]}
+        for name in ("audio-sender", "audio-receiver", "audio-output"):
+            self.assertEqual("web", services[name]["owner"])
+            self.assertIn("health", services[name])
 
 
 if __name__ == "__main__":

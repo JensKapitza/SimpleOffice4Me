@@ -20,6 +20,7 @@
         {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a><a class="nav-link" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Netzwerk scannen</a><a class="nav-link" href="{{ url_for('chat_policy_admin.index') }}"><i class="fas fa-sliders me-1" aria-hidden="true"></i>Chat-Regeln</a><a class="nav-link" href="{{ url_for('software_admin.index') }}"><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>Updates</a><a class="nav-link" href="{{ url_for('licensing_admin.index') }}"><i class="fas fa-key me-1" aria-hidden="true"></i>{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a>{% endif %}
         <a class="nav-link" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>{{ tr('documents') }}</a>
         <a class="nav-link" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}"><i class="fas fa-file-invoice-dollar me-1" aria-hidden="true"></i>{{ tr('invoice.nav') }}</a>
+        <a class="nav-link" href="{{ url_for('contact_audit.euer.finance.index') }}"><i class="fas fa-wallet me-1" aria-hidden="true"></i>Finanzen</a>
         <a class="nav-link" href="{{ url_for('eur.receipts') }}"><i class="fas fa-receipt me-1" aria-hidden="true"></i>EÜR-Belege</a>
         <a class="nav-link" href="{{ url_for('contact_audit.euer.overview') }}"><i class="fas fa-calculator me-1" aria-hidden="true"></i>EÜR-Auswertung</a>
         <a class="nav-link" href="{{ url_for('contact_audit.business_documents.template_manager') }}"><i class="fas fa-file-signature me-1" aria-hidden="true"></i>Vorlagen</a>
@@ -30,6 +31,7 @@
         <a class="nav-link" href="{{ url_for('documents.contacts') }}"><i class="fas fa-address-book me-1" aria-hidden="true"></i>{{ tr('contacts') }}</a>
         <a class="nav-link" href="{{ url_for('fritzbox_contacts.index') }}"><i class="fas fa-phone me-1" aria-hidden="true"></i>FRITZ!Box</a>
         <a class="nav-link" href="{{ url_for('personnel.index') }}"><i class="fas fa-users me-1" aria-hidden="true"></i>Personal</a>
+        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('personnel_time_analytics.index') }}"><i class="fas fa-chart-column me-1" aria-hidden="true"></i>Zeit-Analyse</a>{% endif %}
         <a class="nav-link" href="{{ url_for('mail_reader.index') }}"><i class="fas fa-envelope me-1" aria-hidden="true"></i>Mail</a>
         <a class="nav-link" href="{{ url_for('mail_index.index') }}"><i class="fas fa-clone me-1" aria-hidden="true"></i>Spam/Dubletten</a>
         <a class="nav-link" href="{{ url_for('documents.images') }}"><i class="fas fa-images me-1" aria-hidden="true"></i>{{ tr('images') }}</a>

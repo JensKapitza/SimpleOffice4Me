@@ -1,0 +1,110 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% macro duration(minutes) -%}
+  {%- set value = minutes|int -%}
+  {{ '-' if value < 0 else '' }}{{ '%d:%02d'|format((value|abs)//60, (value|abs)%60) }}
+{%- endmacro %}
+{% macro series_chart(title, rows) -%}
+<section class="card h-100">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2"><strong>{{ title }}</strong><span class="small text-secondary">Arbeit / Soll</span></div>
+  <div class="card-body">
+    {% for row in rows %}
+      <div class="mb-3">
+        <div class="d-flex justify-content-between gap-3 small"><span class="text-truncate">{{ row.label }}</span><span class="text-nowrap">{{ duration(row.work_minutes) }} / {{ duration(row.target_minutes) }} h</span></div>
+        <div class="progress mt-1" style="height:.75rem" role="img" aria-label="Arbeit {{ duration(row.work_minutes) }} Stunden"><div class="progress-bar" style="width:{{ row.work_pct }}%"></div></div>
+        <div class="progress mt-1" style="height:.35rem" role="img" aria-label="Soll {{ duration(row.target_minutes) }} Stunden"><div class="progress-bar bg-secondary" style="width:{{ row.target_pct }}%"></div></div>
+        <div class="small {{ 'text-success' if row.balance_minutes >= 0 else 'text-danger' }}">Saldo {{ '+' if row.balance_minutes > 0 else '' }}{{ duration(row.balance_minutes) }} h</div>
+      </div>
+    {% else %}
+      <div class="text-secondary">Keine Daten im Zeitraum.</div>
+    {% endfor %}
+  </div>
+</section>
+{%- endmacro %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4">
+    <div><h1 class="h2 mb-1">Stempeluhr · Team &amp; Standorte</h1><p class="text-secondary mb-0">Wochen-/Monatsverläufe, Teamkennzahlen und automatische Federation-Synchronisation.</p></div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-primary" href="{{ url_for('personnel_time_insights.index', employee_id=selected.id, period=period, start=start.isoformat(), end=end.isoformat()) }}">Einzelstatistik &amp; Federation</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('personnel_time.index', employee_id=selected.id) }}">Buchungen</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('personnel.index') }}">Personalplanung</a>
+    </div>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="card mb-4">
+    <div class="card-body">
+      <form method="get" class="row g-2 align-items-end">
+        <div class="col-lg-3"><label class="form-label" for="employee_id">Mitarbeiter für Diagramme</label><select id="employee_id" name="employee_id" class="form-select">{% for row in employees %}<option value="{{ row.id }}" {% if row.id == selected.id %}selected{% endif %}>{{ row.name }}</option>{% endfor %}</select></div>
+        <div class="col-lg-2"><label class="form-label" for="period">Zeitraum</label><select id="period" name="period" class="form-select"><option value="7d" {% if period=='7d' %}selected{% endif %}>7 Tage</option><option value="30d" {% if period=='30d' %}selected{% endif %}>30 Tage</option><option value="90d" {% if period=='90d' %}selected{% endif %}>90 Tage</option><option value="month" {% if period=='month' %}selected{% endif %}>Monat</option><option value="custom" {% if period=='custom' %}selected{% endif %}>Individuell</option></select></div>
+        <div class="col-lg-2"><label class="form-label" for="anchor">Bezugsdatum</label><input id="anchor" name="anchor" type="date" value="{{ end.isoformat() }}" class="form-control"></div>
+        <div class="col-lg-2"><label class="form-label" for="start">Von</label><input id="start" name="start" type="date" value="{{ start.isoformat() }}" class="form-control"></div>
+        <div class="col-lg-2"><label class="form-label" for="end">Bis</label><input id="end" name="end" type="date" value="{{ end.isoformat() }}" class="form-control"></div>
+        <div class="col-lg-1"><button class="btn btn-primary w-100" type="submit">Los</button></div>
+      </form>
+    </div>
+  </section>
+
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Team-Arbeitszeit</div><div class="h3 mb-0">{{ duration(team.totals.work_minutes) }} h</div><div class="small text-secondary">{{ team.totals.employees }} Mitarbeiter</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Team-Soll</div><div class="h3 mb-0">{{ duration(team.totals.target_minutes) }} h</div><div class="small text-secondary">Abwesenheiten bereits berücksichtigt</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Team-Saldo</div><div class="h3 mb-0 {{ 'text-success' if team.totals.balance_minutes >= 0 else 'text-danger' }}">{{ '+' if team.totals.balance_minutes > 0 else '' }}{{ duration(team.totals.balance_minutes) }} h</div><div class="small text-secondary">im gewählten Zeitraum</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Prüfbedarf</div><div class="h3 mb-0">{{ team.totals.missing_break_days + team.totals.open_days }}</div><div class="small text-secondary">Pause/offene Folge</div></div></div></div>
+  </div>
+
+  <h2 class="h4">{{ selected.name }} · Verlauf</h2>
+  <div class="row g-3 mb-4">
+    <div class="col-lg-6">{{ series_chart('Wochen', selected_weekly) }}</div>
+    <div class="col-lg-6">{{ series_chart('Monate', selected_monthly) }}</div>
+  </div>
+
+  <h2 class="h4">Team · Verlauf</h2>
+  <div class="row g-3 mb-4">
+    <div class="col-lg-6">{{ series_chart('Team nach Wochen', team_weekly) }}</div>
+    <div class="col-lg-6">{{ series_chart('Team nach Monaten', team_monthly) }}</div>
+  </div>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>Teamstatistik</strong></div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th scope="col">Mitarbeiter</th><th scope="col">Arbeit</th><th scope="col">Soll</th><th scope="col">Saldo</th><th scope="col">Pause</th><th scope="col">Abwesenheit</th><th scope="col">Fehltage</th><th scope="col">Pause prüfen</th><th scope="col">Verspätet</th><th scope="col">Offen</th></tr></thead>
+        <tbody>{% for row in team.rows %}<tr><td><a href="{{ url_for('personnel_time_analytics.index', employee_id=row.employee_id, period=period, start=start.isoformat(), end=end.isoformat()) }}">{{ row.name }}</a></td><td>{{ duration(row.work_minutes) }} h</td><td>{{ duration(row.target_minutes) }} h</td><td class="{{ 'text-success' if row.balance_minutes >= 0 else 'text-danger' }}">{{ '+' if row.balance_minutes > 0 else '' }}{{ duration(row.balance_minutes) }} h</td><td>{{ duration(row.break_minutes) }} h</td><td>{{ row.absence_days }} T.</td><td>{{ row.missing_days }}</td><td>{{ row.missing_break_days }}</td><td>{{ row.late_days }}</td><td>{{ row.open_days }}</td></tr>{% else %}<tr><td colspan="10" class="text-secondary">Keine Mitarbeiterdaten.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>Standort-/Quellenstatistik</strong></div>
+    <div class="card-body pb-0"><p class="small text-secondary">Arbeits- und Pausenzeiten werden je Quelle nur aus vollständigen, für sich gültigen Stempelfolgen berechnet. Gemischte oder offene Folgen werden als unvollständig markiert statt geschätzt.</p></div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Standort / Quelle</th><th scope="col">Mitarbeiter</th><th scope="col">Stempel</th><th scope="col">Arbeitszeit</th><th scope="col">Pause</th><th scope="col">Unvollständige Tage</th></tr></thead><tbody>{% for row in sites %}<tr><td>{{ row.label }}{% if row.source != 'local' %}<div class="small text-secondary">{{ row.source }}</div>{% endif %}</td><td>{{ row.employee_count }}</td><td>{{ row.event_count }}</td><td>{{ duration(row.work_minutes) }} h</td><td>{{ duration(row.break_minutes) }} h</td><td>{{ row.incomplete_days }}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Keine Stempelungen im Zeitraum.</td></tr>{% endfor %}</tbody></table>
+    </div>
+  </section>
+
+  <section class="card mb-4" id="autosync">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><strong>Federation · automatische Synchronisation</strong><span class="badge {{ 'text-bg-success' if worker_enabled else 'text-bg-secondary' }}">Worker {{ 'aktiv' if worker_enabled else 'deaktiviert' }}</span></div>
+    <div class="card-body"><p class="text-secondary">Nur explizit aktivierte, bereits zugeordnete Mitarbeiter werden synchronisiert. Polling: ca. alle {{ poll_seconds }} Sekunden; pro Zuordnung gilt zusätzlich das gewählte Intervall. Geschlossene Monate werden nicht verändert.</p></div>
+    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th scope="col">Mitarbeiter</th><th scope="col">Peer / Remote</th><th scope="col">Automatik</th><th scope="col">Intervall</th><th scope="col">Fenster</th><th scope="col">Status</th><th scope="col">Aktion</th></tr></thead><tbody>
+      {% for row in mappings %}
+      <tr>
+        <td>{{ row.employee_name }}</td>
+        <td><strong>{{ row.peer_label }}</strong><div class="small text-secondary">{{ row.remote_label or row.remote_employee_key }}</div></td>
+        <td colspan="3">
+          <form method="post" action="{{ url_for('personnel_time_analytics.save_auto_sync') }}" class="row g-2 align-items-center">
+            <input type="hidden" name="peer_id" value="{{ row.peer_id }}"><input type="hidden" name="remote_employee_key" value="{{ row.remote_employee_key }}"><input type="hidden" name="employee_id" value="{{ selected.id }}"><input type="hidden" name="period" value="{{ period }}">
+            <div class="col-lg-3"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="auto_sync" value="1" id="auto-{{ loop.index }}" {% if row.auto_sync %}checked{% endif %}><label class="form-check-label" for="auto-{{ loop.index }}">aktiv</label></div></div>
+            <div class="col-lg-4"><label class="visually-hidden" for="interval-{{ loop.index }}">Intervall Minuten</label><div class="input-group input-group-sm"><input id="interval-{{ loop.index }}" class="form-control" type="number" min="15" max="1440" name="sync_interval_minutes" value="{{ row.sync_interval_minutes }}"><span class="input-group-text">min</span></div></div>
+            <div class="col-lg-3"><label class="visually-hidden" for="window-{{ loop.index }}">Sync-Fenster Tage</label><div class="input-group input-group-sm"><input id="window-{{ loop.index }}" class="form-control" type="number" min="1" max="92" name="sync_window_days" value="{{ row.sync_window_days }}"><span class="input-group-text">Tage</span></div></div>
+            <div class="col-lg-2"><button class="btn btn-sm btn-outline-primary w-100" type="submit">Speichern</button></div>
+          </form>
+        </td>
+        <td>{% if row.last_sync_status == 'success' %}<span class="badge text-bg-success">OK</span>{% elif row.last_sync_status == 'error' %}<span class="badge text-bg-danger">Fehler</span>{% elif row.last_sync_status == 'running' %}<span class="badge text-bg-info">läuft</span>{% else %}<span class="badge text-bg-secondary">neu</span>{% endif %}{% if row.last_success_at %}<div class="small text-secondary">OK: {{ row.last_success_at }}</div>{% endif %}{% if row.last_sync_error %}<div class="small text-danger" title="{{ row.last_sync_error }}">{{ row.last_sync_error[:120] }}</div>{% endif %}</td>
+        <td><form method="post" action="{{ url_for('personnel_time_analytics.sync_now') }}"><input type="hidden" name="peer_id" value="{{ row.peer_id }}"><input type="hidden" name="remote_employee_key" value="{{ row.remote_employee_key }}"><input type="hidden" name="employee_id" value="{{ selected.id }}"><input type="hidden" name="period" value="{{ period }}"><button class="btn btn-sm btn-primary" type="submit">Jetzt sync</button></form></td>
+      </tr>
+      {% else %}<tr><td colspan="7" class="text-secondary">Noch keine Federation-Mitarbeiterzuordnungen. Lege sie zuerst in „Einzelstatistik &amp; Federation“ an.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</main>
+{% endblock %}

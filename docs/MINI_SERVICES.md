@@ -118,6 +118,35 @@ vorhandenen systemd-/Container-Pfade.
 - [Audio-Ausgabe / Durchsagen](AUDIO_OUTPUT.md)
 - [Audio-Sender und Receiver](AUDIO_STREAMER.md)
 
+### Suchstatus und Diagnose im Hub
+
+Die Servicekarten zeigen „Suche läuft“, „Suche fehlgeschlagen“, „Keine Treffer“
+oder die Trefferzahl mit Suchbereich und Zeitpunkt. Ein Scan-Fehler ist kein
+Nachweis, dass keine Geräte vorhanden sind. Fehlerhinweis und nächste mögliche
+Aktion stehen auf der Karte. Nach fehlgeschlagenen Aktionen wird der Status
+aktualisiert. Unter „Einstellungen und Diagnose“ stehen außerdem Dienstversion,
+Eigentümer sowie die gemeldeten requires/optional_requires/provides-Beziehungen.
+
+### Audio-Programmprüfung
+
+Die gemeinsame Status-API liefert für Audio-Dienste `dependencies`: Programm bzw.
+Alternativen, `required`, `available`, Zweck und `scope: executable-only`.
+Die Übersicht nennt fehlende Pflichtprogramme; alle bedingten Funktionen stehen
+unter „Einstellungen und Diagnose“. Die Prüfung sucht nur im PATH und startet
+oder installiert nichts. Hardware, Codecs, Audioberechtigungen und laufende
+PulseAudio-/PipeWire-Dienste sind dadurch nicht bestätigt. Laufzeit-Health und
+Status bleiben eigenständige Informationen.
+
+Sender benötigen FFmpeg; pactl dient bei Pulse nur der Gerätesuche. Receiver
+benötigen FFmpeg und für Lautsprecher paplay (Linux) bzw. FFplay (Windows).
+Das virtuelle Mikrofon unter Linux benötigt sowohl paplay als auch pactl, auch
+ohne ausgewählte Lautsprecher. Beide werden vor dem Ersetzen einer laufenden
+Receiver-Session geprüft. Unter Windows bleibt das virtuelle Mikrofon unsupported.
+Beim Ansage-Worker hängen Programme von der Funktion ab: pactl für Discovery,
+paplay für erkannte Ausgänge, pw-play/aplay/ffplay als Alternativen für manuelle
+lokale Ausgänge, Piper plus vorhandenes Modell nur für Sprachansagen. Fehlende
+optionale Programme verhindern daher nicht pauschal den Worker-Start.
+
 ### Gateway-Recovery nach Healthcheck
 
 Der bestehende Healthcheck läuft alle 15 Sekunden. Bestätigt er fehlende eigene
@@ -177,3 +206,94 @@ Tests decken Scope, Verlust, DAD-Status, getrennte Interfaces und fehlerhafte
 Antworten ohne Windows-Hardware ab. Reale Windows-/PowerShell-Abnahme bleibt offen.
 Referenzen: [Get-NetIPConfiguration](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipconfiguration)
 und [Get-NetIPAddress](https://learn.microsoft.com/en-us/powershell/module/nettcpip/get-netipaddress).
+
+### Konfiguration direkt aus der Dienstkarte
+
+Jede Karte der gemeinsamen Übersicht verlinkt ihre vorhandene Fachseite über
+„Konfiguration öffnen“. URLs werden serverseitig mit `url_for` erzeugt, damit
+Installationen unter einem URL-Präfix funktionieren. DHCP/DNS/Gateway verwenden
+die Netzwerkeinstellungen, SIP die Telefonie, TFTP/HTTP-Boot die Bootverwaltung
+und Audio die vorhandenen Audioseiten. Die jeweiligen Admin-Prüfungen bleiben
+bestehen. Es entsteht kein zweiter Konfigurationsspeicher.
+
+Aktiviert/Autostart besitzen direkt zugeordnete Inline-Hilfe. Konfigurationslinks
+und Diagnose-Summary erhalten sichtbaren Tastaturfokus und mindestens 44 Pixel
+hohe Interaktionsflächen. Dies ersetzt keine visuelle WCAG-/Mobilabnahme.
+
+### Fehlerhafte Linux-Inventardaten
+
+Fehlende Adresslisten, ungültige Präfixe, widersprüchliche Adressfamilien und
+ungültige Flag-Objekte führen zu `available: false`. Laufende Dienste werden
+aufgrund dieser unvollständigen Information nicht gestoppt. Leere gültige Listen
+bleiben dagegen ein bestätigter Verlust. Das verwendet dieselbe Unterscheidung
+zwischen unbekanntem Scan und fehlender Hardware wie das Windows-Inventar.
+
+## Einzelsteuerung über CLI
+
+```sh
+./start.sh mini-services status --service dns
+./start.sh mini-services restart --service dns --wait 5
+./start.sh mini-services stop --service sip
+./start.sh mini-services status --service dns --operation AKTIONS_ID
+```
+
+Unter Windows dieselben Argumente mit `start.bat`; alternativ plattformübergreifend
+`python -m tools.mini_services`. `--config DATEI` wählt wie bisher die Instanz.
+Netzwerk-Einzeldienste: dhcp, dns, tftp, sip, gateway. Ohne `--service` bleibt
+die bisherige Worker-Gruppensteuerung erhalten. Audio und HTTP-Boot verwenden
+über dieselbe CLI die bestehende Admin-API des laufenden Webprozesses (siehe unten).
+
+Einzelaktionen verwenden dieselbe private SQLite-Mailbox wie die Admin-API.
+Kein zweiter Worker, keine Installation, keine Rechteerhöhung. Ausführung bleibt
+beim vorhandenen Worker samt Validierung und Aktivierungseinstellungen. Lokaler
+Zugriff auf die Instanzdateien ist erforderlich; Dateirechte nicht lockern.
+Die Ausgabe ist JSON. Exitcode 0: abgeschlossene erfolgreiche Aktion bzw.
+laufender/eingeschränkter Dienst; 1: Fehler; 2: ungültige CLI-Argumente;
+3: noch offene Aktion oder nicht laufender/nicht erreichbarer Dienst.
+`--wait` begrenzt das Polling auf 0–60 Sekunden (Standard 5); Datenbankoperationen
+können zusätzlich bis zum bestehenden SQLite-Timeout warten. Ein Warteende ist
+kein Abbruch: Aktions-ID aufbewahren und Status prüfen. Wiederholte identische
+noch offene Aktionen werden wie in der API dedupliziert. Ein fehlender oder
+veralteter Worker-Heartbeat verhindert das Einreihen neuer Aktionen.
+
+### Audio, HTTP-Boot und Discovery über den laufenden Webprozess
+
+```sh
+./start.sh mini-services status --service audio-output --username admin
+./start.sh mini-services restart --service audio-receiver --username admin
+./start.sh mini-services scan --service audio-sender --username admin
+./start.sh mini-services scan --service dns --username admin
+./start.sh mini-services stop --service http-boot --username admin
+./start.sh mini-services status --service http-boot --username admin --web-url 'http://[::1]:8080'
+```
+
+Unterstützt: `audio-sender`, `audio-receiver`, `audio-output`, `http-boot` mit
+`start`, `stop`, `restart`, `status`, `scan`. Zusätzlich verwenden Netzwerkdienste
+`scan --service DIENST --username admin` über die vorhandene Discovery-API.
+Der Webprozess muss für diese Aktionen bereits laufen.
+Die CLI importiert keine Flask-App und startet keinen zweiten Audio-Worker.
+Gespeicherte Geräteeinstellungen und vorhandene API-Validierung bleiben wirksam.
+Ein fehlendes Bootprofil liefert beispielsweise `waiting` und Exitcode 3.
+
+Standardadresse ist `http://127.0.0.1:8080`; bei abweichendem Port oder Server
+`--web-url` verwenden. HTTP ist ausschließlich für explizite Loopback-IP-Adressen
+(IPv4 oder IPv6) zulässig, sonst ist HTTPS mit gültigem Zertifikat erforderlich.
+Nur Basisadressen ohne Unterpfad, Query oder eingebettete Zugangsdaten werden
+akzeptiert. Weiterleitungen und Umgebungs-Proxys werden nicht verwendet.
+`--config` und `--operation` gelten ausschließlich für Netzwerk-Worker.
+
+Die Anmeldung verwendet ein bestehendes SimpleOffice-Administratorkonto mit
+Passwort, Sitzungscookies im Arbeitsspeicher und den regulären CSRF-Schutz.
+Kontosperren und Login-Drosselung gelten unverändert. Das Passwort wird verdeckt
+abgefragt. Für Automatisierung erlaubt `--password-stdin` eine einzelne Zeile aus
+einem vorhandenen Secret-Manager; keine Passwörter in Befehle oder Shell-Historien
+schreiben. Cookies und Passwort werden nicht auf Datenträger gespeichert.
+Reine OAuth-Konten benötigen für diese CLI ein eingerichtetes lokales Passwort.
+
+`--web-timeout 10` begrenzt jede HTTP-Anfrage auf 1–60 Sekunden (Standard 10).
+Es gibt keine automatische Wiederholung von Aktionen. Nach Timeout kann eine
+Aktion bereits ausgeführt sein: zuerst `status` prüfen. `--wait` ist nur für das
+Polling der Netzwerk-Mailbox relevant. Start mit `starting`/`waiting`, deaktivierte
+Dienste und nicht laufender Status ergeben Exitcode 3, fehlgeschlagene Aktionen
+oder Verbindungen Exitcode 1; bestätigter Stop/Scan sowie laufender/eingeschränkter
+Dienst Exitcode 0. Diagnose und Einstellungen bleiben in der gemeinsamen UI.

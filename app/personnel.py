@@ -7,7 +7,7 @@ import re
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, has_app_context, redirect, render_template, request, url_for
 from werkzeug.security import generate_password_hash
 
 from .auth import login_required
@@ -133,6 +133,8 @@ def _local_now() -> datetime:
 
 
 def _personnel_timezone() -> ZoneInfo:
+    if not has_app_context():
+        return DEFAULT_PERSONNEL_TIMEZONE
     name = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["interface"]["timezone"]
     try:
         return ZoneInfo(name)

@@ -117,24 +117,51 @@ def _windows_inventory(data):
     return rows, defaults, [4, 6] if complete else [4]
 
 
+def _linux_inventory(data):
+    """A malformed address scan is unknown, never evidence of lost hardware."""
+    if not isinstance(data, list):
+        raise ValueError("Linux-Netzwerkinventar ungültig")
+    rows = []
+    for item in data:
+        if not isinstance(item, dict) or not item.get("ifname") or not isinstance(item.get("addr_info"), list):
+            raise ValueError("Linux-Interface unvollständig")
+        ips = []
+        for entry in item["addr_info"]:
+            if not isinstance(entry, dict):
+                raise ValueError("Linux-Adresse ungültig")
+            family = entry.get("family")
+            if family not in {"inet", "inet6"}:
+                continue
+            address = ipaddress.ip_interface(str(entry["local"]) + "/" + str(entry["prefixlen"]))
+            if address.version != (4 if family == "inet" else 6):
+                raise ValueError("Adressfamilie widersprüchlich")
+            flags = entry.get("flags", [])
+            if not isinstance(flags, list) or any(not isinstance(flag, str) for flag in flags):
+                raise ValueError("Adressflags ungültig")
+            if not entry.get("tentative") and not entry.get("dadfailed") and not {"tentative", "dadfailed"}.intersection(flags):
+                ips.append(str(address))
+        rows.append({"index": item.get("ifindex", 0), "name": str(item["ifname"]),
+                     "state": str(item.get("operstate") or ""), "addresses": ips,
+                     "loopback": item.get("link_type") == "loopback"})
+    return rows
+
+
 def interfaces_snapshot() -> dict[str, Any]:
     kind = platform_kind()
     if kind == "linux":
         addresses = _run(["ip", "-j", "address", "show"], 3); routes = _run(["ip", "-j", "route", "show", "default"], 3)
-        try: addr_data = json.loads(addresses["stdout"]) if addresses["ok"] else []
-        except json.JSONDecodeError: addr_data = None
-        try: route_data = json.loads(routes["stdout"]) if routes["ok"] else []
-        except json.JSONDecodeError: route_data = []
-        rows = []
-        for item in addr_data if isinstance(addr_data, list) else []:
-            if not isinstance(item, dict):
-                continue
-            ips = [f"{a.get('local')}/{a.get('prefixlen')}" for a in item.get("addr_info", []) if isinstance(a, dict) and a.get("family") in {"inet", "inet6"} and a.get("local")
-                   and not a.get("tentative") and not a.get("dadfailed")
-                   and not {"tentative", "dadfailed"}.intersection(a.get("flags") or [])]
-            rows.append({"index": item.get("ifindex", 0), "name": str(item.get("ifname") or ""), "state": str(item.get("operstate") or ""), "addresses": ips, "loopback": str(item.get("link_type") or "") == "loopback"})
-        defaults = [str(row.get("dev") or "") for row in route_data if isinstance(row, dict) and row.get("dev")]
-        return {"platform": kind, "available": bool(addresses["ok"] and isinstance(addr_data, list)), "address_families": [4, 6], "interfaces": rows, "default_interfaces": defaults}
+        try:
+            if not addresses["ok"]:
+                raise ValueError("Interface-Abfrage fehlgeschlagen")
+            rows = _linux_inventory(json.loads(addresses["stdout"]))
+        except (ValueError, TypeError, KeyError):
+            return {"platform": kind, "available": False, "interfaces": [], "default_interfaces": []}
+        try:
+            route_data = json.loads(routes["stdout"]) if routes["ok"] else []
+        except (ValueError, TypeError):
+            route_data = []
+        defaults = [str(row["dev"]) for row in route_data if isinstance(row, dict) and row.get("dev")] if isinstance(route_data, list) else []
+        return {"platform": kind, "available": True, "address_families": [4, 6], "interfaces": rows, "default_interfaces": defaults}
     if kind == "windows":
         script = ("$ErrorActionPreference='Stop'; "
                   "$a = @(Get-NetIPAddress -ErrorAction Stop | Select-Object InterfaceIndex,IPAddress,PrefixLength,@{Name='State';Expression={[string]$_.AddressState}}); "

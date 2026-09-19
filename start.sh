@@ -18,6 +18,10 @@ SimpleOffice4Me starten
 
 Befehle: start (Standard), status, stop, restart,
          mini-services [start|status|stop|restart] [--config DATEI]
+Einzeldienst: mini-services restart --service dns [--wait 5]
+Aktionsstatus: mini-services status --service dns --operation ID
+Audio/HTTP-Boot: mini-services status --service audio-output --username admin
+Gerätesuche: mini-services scan --service audio-receiver --username admin
 Status/Stop und der reine Mini-Worker installieren keine Pakete.
 
 Optionen:
