@@ -2,7 +2,7 @@
 {% block title %}{{ project.title }} · SimpleOffice{% endblock %}
 {% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}">{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
-{% macro project_status(value) %}<select name="status" class="form-select">{% for id, label in [('open','Offen'),('active','Aktiv'),('waiting','Wartend'),('completed','Erledigt'),('cancelled','Abgebrochen')] %}<option value="{{ id }}" {% if value == id %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% endmacro %}
+{% macro project_status(value, field_id) %}<select id="{{ field_id }}" name="status" class="form-select">{% for id, label in [('open','Offen'),('active','Aktiv'),('waiting','Wartend'),('completed','Erledigt'),('cancelled','Abgebrochen')] %}<option value="{{ id }}" {% if value == id %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% endmacro %}
 {% block body %}
 {% set project_status_labels = {'open':'Offen','active':'Aktiv','waiting':'Wartend','completed':'Erledigt','cancelled':'Abgebrochen'} %}
 {% set task_status_labels = {'open':'Offen','in_progress':'In Arbeit','waiting':'Wartend','completed':'Erledigt','cancelled':'Abgebrochen'} %}
@@ -64,7 +64,7 @@
       <div class="collapse mt-4" id="project-edit">
         <form method="post" class="row g-3 border-top pt-3">
           <div class="col-md-6"><label class="form-label" for="edit-project-title">Titel</label><input id="edit-project-title" name="title" class="form-control" required value="{{ project.title }}"></div>
-          <div class="col-md-3"><label class="form-label" for="edit-project-status">Status</label><div id="edit-project-status">{{ project_status(project.status) }}</div></div>
+          <div class="col-md-3"><label class="form-label" for="edit-project-status">Status</label>{{ project_status(project.status, 'edit-project-status') }}</div>
           <div class="col-md-3"><label class="form-label" for="edit-project-location">Ort</label><input id="edit-project-location" name="location" class="form-control" value="{{ project.location }}"></div>
           <div class="col-md-3"><label class="form-label" for="edit-project-start">Beginn</label><input id="edit-project-start" type="date" name="planned_start" class="form-control" value="{{ project.planned_start }}"></div>
           <div class="col-md-3"><label class="form-label" for="edit-project-end">Ende</label><input id="edit-project-end" type="date" name="planned_end" class="form-control" value="{{ project.planned_end }}"></div>
