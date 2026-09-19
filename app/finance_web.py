@@ -257,11 +257,13 @@ def transaction_matches(transaction_id: str):
         transaction = store.bank_transaction(transaction_id, actor)
         proposals = proposals_for_transaction(_root(), store, transaction_id, actor)
         confirmed = store.transaction_matches(transaction_id, actor)
+        allocation = store.transaction_match_allocation(transaction_id, actor)
         return render_template(
             "finance/transaction_matches.html",
             transaction=transaction,
             proposals=proposals,
             confirmed=confirmed,
+            allocation=allocation,
         )
     except ValueError as exc:
         flash(f"Zuordnung nicht möglich: {exc}")
@@ -279,6 +281,7 @@ def confirm_transaction_match(transaction_id: str):
             request.form.get("source_id", ""),
             actor,
             score=int(request.form.get("score", "0") or 0),
+            allocated_cents=int(request.form.get("allocated_cents", "0") or 0),
             note=request.form.get("note", ""),
         )
         flash("Bankumsatz wurde bestätigt zugeordnet. Die Rohbuchung blieb unverändert.")
