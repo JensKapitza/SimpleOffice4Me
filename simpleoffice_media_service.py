@@ -53,10 +53,11 @@ class MediaRendererHttpServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, settings: dict[str, Any], state: RendererState):
+    def __init__(self, address, settings: dict[str, Any], state: RendererState, playback=None):
         super().__init__(address, MediaRendererHandler)
         self.settings = settings
         self.renderer_state = state
+        self.playback = playback
 
 
 class MediaRendererHandler(BaseHTTPRequestHandler):
@@ -125,6 +126,8 @@ class MediaRendererHandler(BaseHTTPRequestHandler):
             values = dispatch_action(
                 self.server.renderer_state, service, action, arguments
             )
+            if self.server.playback is not None:
+                self.server.playback.sync(action)
             payload = soap_response(service, action, values)
             self._send(200, payload, 'text/xml; charset="utf-8"')
         except UpnpActionError as exc:
@@ -302,13 +305,17 @@ class SsdpAdvertiser:
 
 
 class MediaRendererService:
-    def __init__(self, settings: dict[str, Any], config_path=None, event=None, state=None):
+    def __init__(self, settings: dict[str, Any], config_path=None, event=None, state=None, playback=None):
         self.settings = dict(settings)
         self.config_path = config_path
         self.event = event or (lambda row: None)
         self.state = state or RendererState(
             allow_remote_media=bool(self.settings.get("allow_remote_media"))
         )
+        if playback is None:
+            from simpleoffice_media_playback import RendererPlayback
+            playback = RendererPlayback(self.state, self.settings)
+        self.playback = playback
         self.stop_event = threading.Event()
         self.httpd: MediaRendererHttpServer | None = None
         self.http_thread: threading.Thread | None = None
@@ -322,6 +329,7 @@ class MediaRendererService:
             (self.settings["bind"], int(self.settings["port"])),
             self.settings,
             self.state,
+            self.playback,
         )
         self.httpd = httpd
         try:
@@ -350,6 +358,7 @@ class MediaRendererService:
         if self.http_thread is not None and self.http_thread is not threading.current_thread():
             self.http_thread.join(timeout=2)
         self.http_thread = None
+        self.playback.close()
 
     def is_alive(self) -> bool:
         return bool(
