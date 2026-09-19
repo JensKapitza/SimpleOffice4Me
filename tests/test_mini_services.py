@@ -125,7 +125,7 @@ class MiniServicesConfigTests(unittest.TestCase):
             ]
             with mock.patch("simpleoffice_mini_services._https_open", return_value=Response()):
                 result = refresh_blocklists(config, path)
-            serialized = (path.parent / "mini-services" / "blocklists-meta.json").read_text(encoding="utf-8")
+            serialized = (path.parent / "mini-services" / "dns-blocklist-meta.json").read_text(encoding="utf-8")
             self.assertEqual("https://lists.example", result["sources"][0]["url"])
             for secret in ("request-secret", "redirect-secret", "fragment-secret", "/private/feed"):
                 self.assertNotIn(secret, serialized)
