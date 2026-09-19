@@ -11,7 +11,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .auth import login_required
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
-from .finance_store import FinanceStore\nfrom .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts\nfrom .finance_fints_sync import FinTSSyncService
+from .finance_store import FinanceStore\nfrom .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts\nfrom .finance_fints_sync import FinTSSyncService\nfrom .finance_match_adapters import proposals_for_transaction
 from .safe_paths import safe_filename
 
 bp = Blueprint("finance", __name__, url_prefix="/finances")
@@ -246,6 +246,46 @@ def sync_bank_connection(connection_id: str):
     finally:
         pin = ""
     return redirect(url_for(".index"))
+
+
+@bp.get("/transactions/<transaction_id>/matches")
+@login_required
+def transaction_matches(transaction_id: str):
+    actor = _actor()
+    try:
+        store = _store()
+        transaction = store.bank_transaction(transaction_id, actor)
+        proposals = proposals_for_transaction(_root(), store, transaction_id, actor)
+        confirmed = store.transaction_matches(transaction_id, actor)
+        return render_template(
+            "finance/transaction_matches.html",
+            transaction=transaction,
+            proposals=proposals,
+            confirmed=confirmed,
+        )
+    except ValueError as exc:
+        flash(f"Zuordnung nicht möglich: {exc}")
+        return redirect(url_for(".index"))
+
+
+@bp.post("/transactions/<transaction_id>/matches")
+@login_required
+def confirm_transaction_match(transaction_id: str):
+    actor = _actor()
+    try:
+        match = _store().confirm_transaction_match(
+            transaction_id,
+            request.form.get("source_type", ""),
+            request.form.get("source_id", ""),
+            actor,
+            score=int(request.form.get("score", "0") or 0),
+            note=request.form.get("note", ""),
+        )
+        flash("Bankumsatz wurde bestätigt zugeordnet. Die Rohbuchung blieb unverändert.")
+        return redirect(url_for(".transaction_matches", transaction_id=match["transaction_id"]))
+    except (ValueError, TypeError) as exc:
+        flash(f"Zuordnung nicht gespeichert: {exc}")
+        return redirect(url_for(".transaction_matches", transaction_id=transaction_id))
 
 
 def init_app(app) -> None:
