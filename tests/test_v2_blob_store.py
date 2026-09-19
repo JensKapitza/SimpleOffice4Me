@@ -46,7 +46,7 @@ class BlobStoreTest(unittest.TestCase):
         missing_name = missing_path.stem
         missing_path.unlink()
 
-        orphan = self.store.chunks / "0" * 32
+        orphan = self.store.chunks / ("0" * 32)
         orphan = orphan.with_suffix(".bin")
         orphan.write_bytes(b"orphan")
         os.utime(orphan, (0, 0))
