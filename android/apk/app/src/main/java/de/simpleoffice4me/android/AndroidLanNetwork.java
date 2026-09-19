@@ -46,7 +46,12 @@ final class AndroidLanNetwork {
                     addresses.add(address.getHostAddress());
                 }
             }
-            return String.join(",", addresses);
+            StringBuilder result = new StringBuilder();
+            for (String address : addresses) {
+                if (result.length() > 0) result.append(',');
+                result.append(address);
+            }
+            return result.toString();
         } catch (RuntimeException ignored) {
             return "";
         }
