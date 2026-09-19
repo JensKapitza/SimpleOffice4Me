@@ -306,26 +306,39 @@ class FinanceStore:
         sql += " ORDER BY name COLLATE NOCASE,obligation_id"
         with self._db() as db: return [dict(row) for row in db.execute(sql, params).fetchall()]
 
-    def confirm_transaction_match(self, transaction_id: str, source_type: str, source_id: str, actor: str, *, score: int = 0, note: str = "") -> dict[str, Any]:
+    def confirm_transaction_match(self, transaction_id: str, source_type: str, source_id: str, actor: str, *, score: int = 0, allocated_cents: int = 0, note: str = "") -> dict[str, Any]:
         actor = self._actor(actor); source_type = text(source_type, 40).casefold(); source_id = text(source_id, 200)
         if source_type not in SOURCE_TYPES or source_type in {"manual", "bank_transaction", "internal_allocation"}:
             raise ValueError("match source type is invalid")
         if not source_id: raise ValueError("match source id is required")
         score = max(0, min(int(score), 100))
         with self._db() as db:
-            tx = db.execute("""SELECT t.transaction_id FROM finance_bank_transaction t
+            tx = db.execute("""SELECT t.* FROM finance_bank_transaction t
                                JOIN finance_account a ON a.account_id=t.account_id
                                WHERE t.transaction_id=? AND a.owner=?""", (text(transaction_id, 100), actor)).fetchone()
             if not tx: raise ValueError("bank transaction not found")
+            tx_total = abs(int(tx["amount_cents"]))
+            allocated_cents = int(allocated_cents or tx_total)
+            if allocated_cents <= 0: raise ValueError("allocated amount must be positive")
             existing = db.execute("SELECT * FROM finance_transaction_match WHERE owner=? AND transaction_id=? AND source_type=? AND source_id=?", (actor, transaction_id, source_type, source_id)).fetchone()
             if existing: return dict(existing)
+            used = int(db.execute("SELECT COALESCE(SUM(allocated_cents),0) AS total FROM finance_transaction_match WHERE owner=? AND transaction_id=? AND state='confirmed'", (actor, transaction_id)).fetchone()["total"])
+            if used + allocated_cents > tx_total:
+                raise ValueError("allocated amount exceeds bank transaction")
             row = {"match_id": new_id("match"), "owner": actor, "transaction_id": transaction_id,
-                   "source_type": source_type, "source_id": source_id, "score": score,
+                   "source_type": source_type, "source_id": source_id, "score": score, "allocated_cents": allocated_cents,
                    "state": "confirmed", "note": text(note, 500), "created_at": _now()}
-            db.execute("""INSERT INTO finance_transaction_match(match_id,owner,transaction_id,source_type,source_id,score,state,note,created_at)
-                          VALUES(:match_id,:owner,:transaction_id,:source_type,:source_id,:score,:state,:note,:created_at)""", row)
-            self._audit(db, actor, "transaction_match_confirmed", "bank_transaction", transaction_id, {"source_type": source_type, "source_id": source_id, "score": score})
+            db.execute("""INSERT INTO finance_transaction_match(match_id,owner,transaction_id,source_type,source_id,score,allocated_cents,state,note,created_at)
+                          VALUES(:match_id,:owner,:transaction_id,:source_type,:source_id,:score,:allocated_cents,:state,:note,:created_at)""", row)
+            self._audit(db, actor, "transaction_match_confirmed", "bank_transaction", transaction_id, {"source_type": source_type, "source_id": source_id, "score": score, "allocated_cents": allocated_cents})
         return row
+
+    def transaction_match_allocation(self, transaction_id: str, actor: str) -> dict[str, int]:
+        transaction = self.bank_transaction(transaction_id, actor)
+        matches = self.transaction_matches(transaction_id, actor)
+        total = abs(int(transaction["amount_cents"]))
+        allocated = sum(int(item.get("allocated_cents") or 0) for item in matches if item.get("state") == "confirmed")
+        return {"total_cents": total, "allocated_cents": allocated, "remaining_cents": max(0, total - allocated)}
 
     def transaction_matches(self, transaction_id: str, actor: str) -> list[dict[str, Any]]:
         actor = self._actor(actor)
