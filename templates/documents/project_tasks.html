@@ -1,0 +1,133 @@
+{% extends "layout.html" %}
+{% block title %}Aufgaben · {{ project.title }} · SimpleOffice{% endblock %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}">{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% macro task_status(value, field_id) %}<select id="{{ field_id }}" name="status" class="form-select">{% for id, label in [('open','Offen'),('in_progress','In Arbeit'),('waiting','Wartend'),('completed','Erledigt'),('cancelled','Abgebrochen')] %}<option value="{{ id }}" {% if value == id %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% endmacro %}
+{% block body %}
+{% set status_labels = {'open':'Offen','in_progress':'In Arbeit','waiting':'Wartend','completed':'Erledigt','cancelled':'Abgebrochen'} %}
+{% set counts = namespace(open=0, active=0, waiting=0, completed=0, cancelled=0) %}
+{% for task in project.tasks %}
+  {% if task.status == 'open' %}{% set counts.open = counts.open + 1 %}{% endif %}
+  {% if task.status == 'in_progress' %}{% set counts.active = counts.active + 1 %}{% endif %}
+  {% if task.status == 'waiting' %}{% set counts.waiting = counts.waiting + 1 %}{% endif %}
+  {% if task.status == 'completed' %}{% set counts.completed = counts.completed + 1 %}{% endif %}
+  {% if task.status == 'cancelled' %}{% set counts.cancelled = counts.cancelled + 1 %}{% endif %}
+{% endfor %}
+<main id="main-content" class="container-xl py-4 project-ui" data-project-ui="v2" data-project-tasks>
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.project_detail', project_id=project.project_id) }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>{{ project.title }}</a>
+
+  <div class="project-page-header">
+    <div>
+      <h1 class="project-page-title">Aufgaben</h1>
+      <p class="project-page-subtitle">{{ project.title }}</p>
+    </div>
+    <button type="button" class="btn btn-primary px-3" data-bs-toggle="collapse" data-bs-target="#new-task" aria-expanded="{{ 'true' if not project.tasks else 'false' }}" aria-controls="new-task"><i class="fas fa-plus" aria-hidden="true"></i>Aufgabe anlegen</button>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="project-task-filters" aria-label="Aufgabenstatus filtern">
+    <button type="button" class="project-filter-chip active" data-task-status-filter="" aria-pressed="true">Alle ({{ project.tasks|length }})</button>
+    <button type="button" class="project-filter-chip" data-task-status-filter="open" aria-pressed="false"><span class="me-1 text-secondary">●</span>Offen ({{ counts.open }})</button>
+    <button type="button" class="project-filter-chip" data-task-status-filter="in_progress" aria-pressed="false"><span class="me-1 text-primary">●</span>In Arbeit ({{ counts.active }})</button>
+    {% if counts.waiting %}<button type="button" class="project-filter-chip" data-task-status-filter="waiting" aria-pressed="false"><span class="me-1 text-warning">●</span>Wartend ({{ counts.waiting }})</button>{% endif %}
+    <button type="button" class="project-filter-chip" data-task-status-filter="completed" aria-pressed="false"><span class="me-1 text-success">●</span>Erledigt ({{ counts.completed }})</button>
+    {% if counts.cancelled %}<button type="button" class="project-filter-chip" data-task-status-filter="cancelled" aria-pressed="false">Abgebrochen ({{ counts.cancelled }})</button>{% endif %}
+  </div>
+
+  <div class="project-toolbar">
+    <div class="project-search">
+      <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+      <label class="visually-hidden" for="project-task-search">Aufgaben suchen</label>
+      <input id="project-task-search" type="search" class="form-control" data-task-search placeholder="Aufgaben suchen …" autocomplete="off">
+    </div>
+    <a class="btn btn-outline-secondary project-filter" href="{{ url_for('documents.project_detail', project_id=project.project_id) }}"><i class="fas fa-folder-open" aria-hidden="true"></i>Projekt</a>
+  </div>
+
+  <div class="project-list-meta">
+    <span><strong data-task-count>{{ project.tasks|length }}</strong> Aufgaben sichtbar</span>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-project-summary-copy><i class="far fa-copy" aria-hidden="true"></i>Zusammenfassung</button>
+  </div>
+
+  <section id="new-task" class="collapse {% if not project.tasks %}show{% endif %} project-card project-create-card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <h2 class="h5 mb-0"><i class="fas fa-circle-plus me-2 text-success" aria-hidden="true"></i>Neue Aufgabe anlegen</h2>
+        <button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#new-task" aria-label="Schließen"></button>
+      </div>
+      <form method="post" action="{{ url_for('documents.add_project_task', project_id=project.project_id) }}" class="row g-3">
+        <input type="hidden" name="return_to" value="project_tasks">
+        <div class="col-md-6"><label class="form-label" for="new-task-title">Aufgabe</label><input id="new-task-title" name="title" class="form-control" required maxlength="300" placeholder="Aufgabenbezeichnung …"></div>
+        <div class="col-md-3"><label class="form-label" for="new-task-status">Status</label>{{ task_status('open', 'new-task-status') }}</div>
+        <div class="col-md-3"><label class="form-label" for="new-task-due">Fällig</label><input id="new-task-due" type="date" name="planned_end" class="form-control"></div>
+        <div class="col-md-6"><label class="form-label" for="new-task-resources">Ressourcen</label><input id="new-task-resources" name="resources" class="form-control" placeholder="Personen oder Ressourcen, kommagetrennt"></div>
+        <div class="col-md-6"><label class="form-label" for="new-task-predecessors">Voraussetzungen</label><select id="new-task-predecessors" name="predecessors" multiple class="form-select">{% for task in project.tasks if task.status != 'cancelled' %}<option value="{{ task.task_id }}">{{ task.title }}</option>{% endfor %}</select><div class="form-text">Mehrfachauswahl ist möglich.</div></div>
+        <div class="col-12"><label class="form-label" for="new-task-description">Beschreibung</label><textarea id="new-task-description" name="description" class="form-control" rows="3" placeholder="Beschreibung …"></textarea></div>
+        <div class="col-12 d-flex flex-wrap justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#new-task">Abbrechen</button><button type="submit" class="btn btn-primary">Aufgabe erstellen</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section aria-label="Aufgabenliste">
+    {% for task in project.tasks %}
+      {% set task_minutes = task.time_entries|default([])|sum(attribute='minutes') %}
+      <article class="project-card project-task-card" id="task-{{ task.task_id }}" data-task-card data-task-status="{{ task.status }}" data-project-task-summary>
+        <div class="project-task-card-head">
+          <span class="project-task-check" aria-hidden="true">{% if task.status == 'completed' %}<i class="fas fa-check"></i>{% endif %}</span>
+          <div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <strong class="fs-5">{{ task.title }}</strong>
+              <span class="status-chip status-{{ task.status }}">{{ status_labels.get(task.status, task.status) }}</span>
+            </div>
+            <div class="project-task-details mt-2">
+              {% if task.resources %}<span class="project-task-detail"><i class="far fa-user" aria-hidden="true"></i>{{ task.resources|join(', ') }}</span>{% endif %}
+              {% if task.planned_end %}<span class="project-task-detail"><i class="far fa-calendar" aria-hidden="true"></i>{{ task.planned_end }}</span>{% endif %}
+              <span class="project-task-detail"><i class="far fa-clock" aria-hidden="true"></i>{{ task_minutes // 60 }}:{{ '%02d'|format(task_minutes % 60) }} h</span>
+              {% if task.predecessors %}<span class="project-task-detail"><i class="fas fa-link" aria-hidden="true"></i>{% for predecessor in project.tasks if predecessor.task_id in task.predecessors %}{{ predecessor.title }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+            </div>
+            {% if task.description %}<p class="text-secondary small mb-0 mt-2">{{ task.description }}</p>{% endif %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#task-edit-{{ task.task_id }}" aria-expanded="false" aria-controls="task-edit-{{ task.task_id }}" aria-label="Aufgabe bearbeiten"><i class="fas fa-ellipsis-vertical" aria-hidden="true"></i></button>
+        </div>
+
+        <div class="collapse" id="task-edit-{{ task.task_id }}">
+          <form method="post" action="{{ url_for('documents.update_project_task', project_id=project.project_id, task_id=task.task_id) }}" class="row g-3">
+            <input type="hidden" name="return_to" value="project_tasks">
+            <div class="col-md-6"><label class="form-label" for="task-title-{{ task.task_id }}">Aufgabe</label><input id="task-title-{{ task.task_id }}" name="title" class="form-control" value="{{ task.title }}" required></div>
+            <div class="col-md-3"><label class="form-label" for="task-status-{{ task.task_id }}">Status</label>{{ task_status(task.status, 'task-status-' ~ task.task_id) }}</div>
+            <div class="col-md-3"><label class="form-label" for="task-due-{{ task.task_id }}">Fällig</label><input id="task-due-{{ task.task_id }}" type="date" name="planned_end" class="form-control" value="{{ task.planned_end }}"></div>
+            <div class="col-md-6"><label class="form-label" for="task-resources-{{ task.task_id }}">Ressourcen</label><input id="task-resources-{{ task.task_id }}" name="resources" class="form-control" value="{{ task.resources|join(', ') }}"></div>
+            <div class="col-md-6"><label class="form-label" for="task-predecessors-{{ task.task_id }}">Voraussetzungen</label><select id="task-predecessors-{{ task.task_id }}" name="predecessors" multiple class="form-select">{% for other in project.tasks if other.task_id != task.task_id %}<option value="{{ other.task_id }}" {% if other.task_id in task.predecessors %}selected{% endif %}>{{ other.title }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="task-description-{{ task.task_id }}">Beschreibung</label><textarea id="task-description-{{ task.task_id }}" name="description" class="form-control" rows="2">{{ task.description }}</textarea></div>
+            <div class="col-12"><label class="form-label" for="task-result-{{ task.task_id }}">Ergebnis</label><textarea id="task-result-{{ task.task_id }}" name="result" class="form-control" rows="2">{{ task.result }}</textarea></div>
+            <div class="col-12 d-flex justify-content-end"><button type="submit" class="btn btn-primary">Aufgabe speichern</button></div>
+          </form>
+
+          <form method="post" action="{{ url_for('documents.book_project_task_time', project_id=project.project_id, task_id=task.task_id) }}" class="row g-3 border-top pt-3 mt-3">
+            <input type="hidden" name="return_to" value="project_tasks">
+            <div class="col-md-3"><label class="form-label" for="task-date-{{ task.task_id }}">Tag</label><input id="task-date-{{ task.task_id }}" required type="date" name="date" class="form-control" value="{{ now().date().isoformat() }}"></div>
+            <div class="col-md-2"><label class="form-label" for="task-hours-{{ task.task_id }}">Stunden</label><input id="task-hours-{{ task.task_id }}" required type="number" min="0" max="24" step="1" name="hours" class="form-control" value="1"></div>
+            <div class="col-md-2"><label class="form-label" for="task-minutes-{{ task.task_id }}">Minuten</label><input id="task-minutes-{{ task.task_id }}" required type="number" min="0" max="59" step="1" name="minutes" class="form-control" value="0"></div>
+            <div class="col-md-3"><label class="form-label" for="task-note-{{ task.task_id }}">Interne Notiz</label><input id="task-note-{{ task.task_id }}" name="note" class="form-control" placeholder="z. B. Telefonat"></div>
+            <div class="col-md-2 d-flex align-items-end"><button type="submit" class="btn btn-outline-primary w-100">Zeit buchen</button></div>
+            <div class="col-12"><div class="btn-group btn-group-sm" role="group" aria-label="Datum schnell wählen"><button type="button" class="btn btn-outline-secondary" data-date-offset="0">Heute</button><button type="button" class="btn btn-outline-secondary" data-date-offset="-1">Gestern</button><button type="button" class="btn btn-outline-secondary" data-date-offset="1">Morgen</button></div>{% for entry in task.time_entries|default([])|reverse %}{% if loop.index <= 3 %}<span class="small text-secondary ms-2">{{ entry.date }}: {{ entry.minutes // 60 }}:{{ '%02d'|format(entry.minutes % 60) }} h</span>{% endif %}{% endfor %}</div>
+          </form>
+        </div>
+      </article>
+    {% else %}
+      <div class="project-empty">
+        <span class="project-empty-icon" aria-hidden="true"><i class="far fa-square-check"></i></span>
+        <h2 class="h5">Noch keine Aufgaben</h2>
+        <p class="text-secondary">Lege den ersten Arbeitsschritt für dieses Projekt an.</p>
+      </div>
+    {% endfor %}
+  </section>
+
+  <div class="project-empty" data-task-filter-empty hidden>
+    <span class="project-empty-icon" aria-hidden="true"><i class="fas fa-filter-circle-xmark"></i></span>
+    <h2 class="h6">Keine passenden Aufgaben</h2>
+    <p class="text-secondary mb-0">Passe Suche oder Statusfilter an.</p>
+  </div>
+</main>
+<script src="{{ url_for('static', filename='js/project_ui.js') }}"></script>
+{% endblock %}
