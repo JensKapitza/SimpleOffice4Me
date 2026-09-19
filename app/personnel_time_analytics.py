@@ -284,7 +284,10 @@ def _open_sync_start(employee_id: int, start: date, end: date) -> date | None:
 
 def _actor_id_for_mapping(mapping: dict[str, Any]) -> int:
     db = get_db()
-    actor = db.execute("SELECT id FROM user WHERE id=?", (int(mapping.get("updated_by") or 0),)).fetchone()
+    actor = db.execute(
+        "SELECT id FROM user WHERE id=? AND is_admin=1",
+        (int(mapping.get("updated_by") or 0),),
+    ).fetchone()
     actor = actor or db.execute("SELECT id FROM user WHERE is_admin=1 ORDER BY id LIMIT 1").fetchone()
     if actor is None:
         raise ValueError("Für die automatische Synchronisation ist kein Admin-Benutzer vorhanden")
