@@ -56,6 +56,13 @@ def local_lan_addresses() -> list[str]:
     for value in _configured_addresses():
         add(value)
 
+    # Android supplies the active Wi-Fi/Ethernet addresses through the native
+    # ConnectivityManager bridge. Do not fall back to generic socket routing on
+    # Android: a cellular or VPN route may also use RFC1918 space and must not
+    # be treated as a local federation scan network.
+    if os.environ.get("SIMPLEOFFICE_ANDROID") == "1":
+        return found[:_MAX_NETWORKS]
+
     try:
         for row in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_STREAM):
             add(row[4][0])
