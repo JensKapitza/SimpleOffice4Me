@@ -13,13 +13,13 @@
   </div></section>
 
   {% if confirmed %}
-  <div class="alert alert-success">
+  <div class="alert alert-success" role="status" aria-live="polite">
     <strong>Bestätigte Zuordnung</strong>
     {% for item in confirmed %}<div>{{ item.source_type }} · {{ item.source_id }} · Score {{ item.score }}</div>{% endfor %}
   </div>
   {% endif %}
 
-  <div class="alert alert-info">Zahlungsbetrag: {{ '%.2f'|format(allocation.total_cents / 100) }} · bereits zugeordnet: {{ '%.2f'|format(allocation.allocated_cents / 100) }} · <strong>offen: {{ '%.2f'|format(allocation.remaining_cents / 100) }}</strong></div>
+  <div class="alert alert-info" role="status" aria-live="polite">Zahlungsbetrag: {{ '%.2f'|format(allocation.total_cents / 100) }} · bereits zugeordnet: {{ '%.2f'|format(allocation.allocated_cents / 100) }} · <strong>offen: {{ '%.2f'|format(allocation.remaining_cents / 100) }}</strong></div>
   <h2 class="h4">Vorschläge</h2>
   <p class="text-secondary">Vorschläge verändern weder den Bankumsatz noch Rechnung oder Vertrag. Erst „Zuordnung bestätigen“ speichert die Verknüpfung.</p>
   {% for proposal in proposals %}
@@ -40,7 +40,7 @@
     </form>
   </div></section>
   {% else %}
-  <div class="alert alert-secondary">Keine ausreichend passenden offenen Rechnungen oder Verpflichtungen gefunden.</div>
+  <div class="alert alert-secondary" role="status" aria-live="polite">Keine ausreichend passenden offenen Rechnungen oder Verpflichtungen gefunden.</div>
   {% endfor %}
 </main>
 {% endblock %}
