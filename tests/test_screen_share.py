@@ -102,6 +102,15 @@ class ScreenSignalingTests(unittest.TestCase):
         self.assertEqual(200, self.client.get(self.url, query_string={"role": "sender"}).status_code)
         self.assertGreater(value["updated_at"], previous)
 
+    def test_connection_qr_is_owner_only_and_contains_no_store_header(self):
+        path = "/screen/api/sessions/" + self.session["session_id"] + "/connect-qr.svg"
+        response = self.client.get(path)
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        self.assertIn("image/svg+xml", response.content_type)
+        self.user["id"] = "receiver"
+        self.assertEqual(403, self.client.get(path).status_code)
+
 
 class ScreenShareTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node.js required for frontend regression tests")
