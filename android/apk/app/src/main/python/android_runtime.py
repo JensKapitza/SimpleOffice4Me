@@ -57,11 +57,24 @@ class PooledServer(WSGIServer):
         self._request_pool.shutdown(wait=False, cancel_futures=True)
 
 
+def _configure_lan_addresses(lan_addresses: str = "") -> None:
+    values = []
+    for item in str(lan_addresses or "").split(","):
+        value = item.strip()
+        if value and value not in values:
+            values.append(value)
+    if values:
+        os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"] = ",".join(values[:4])
+    else:
+        os.environ.pop("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", None)
+
+
 def _configure_environment(
     runtime_root: Path,
     error_report_url: str = "",
     account_email: str = "",
     bootstrap_token: str = "",
+    lan_addresses: str = "",
 ) -> None:
     os.chdir(runtime_root)
     if str(runtime_root) not in sys.path:
@@ -76,6 +89,7 @@ def _configure_environment(
     os.environ["SIMPLEOFFICE_OSM_INDEX"] = "0"
     os.environ["SIMPLEOFFICE_DATALOGGER"] = "0"
     os.environ["SIMPLEOFFICE_MCP"] = "0"
+    _configure_lan_addresses(lan_addresses)
 
     email = str(account_email or "").strip().casefold()
     token = str(bootstrap_token or "").strip()
@@ -106,11 +120,18 @@ def _serve() -> None:
     _SERVER.serve_forever(poll_interval=0.25)
 
 
+def set_lan_addresses(lan_addresses: str = "") -> bool:
+    """Refresh native Android LAN addresses without restarting Flask."""
+    _configure_lan_addresses(lan_addresses)
+    return True
+
+
 def start(
     runtime_root: str,
     error_report_url: str = "",
     account_email: str = "",
     bootstrap_token: str = "",
+    lan_addresses: str = "",
 ) -> bool:
     """Import the app and bind the local server before returning.
 
@@ -136,10 +157,16 @@ def start(
         # local server. Calls from NavigationActivity intentionally omit a token
         # and must not clear a valid bootstrap identity.
         if bootstrap_token:
-            _configure_environment(root, error_report_url, account_email, bootstrap_token)
+            _configure_environment(
+                root, error_report_url, account_email, bootstrap_token, lan_addresses
+            )
+        elif lan_addresses:
+            _configure_lan_addresses(lan_addresses)
         return True
 
-    _configure_environment(root, error_report_url, account_email, bootstrap_token)
+    _configure_environment(
+        root, error_report_url, account_email, bootstrap_token, lan_addresses
+    )
 
     try:
         from app import app
