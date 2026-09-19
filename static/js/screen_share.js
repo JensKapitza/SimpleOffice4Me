@@ -7,7 +7,7 @@
   const roleLabel = byId('screen-session-role');
   const stateLabel = byId('screen-session-state');
   let session = null, role = '', code = '', pc = null, stream = null;
-  let pollTimer = null, lastSequence = 0, stopping = false, pollFailures = 0;
+  let pollTimer = null, lastSequence = 0, stopping = false, pollFailures = 0, starting = false;
   const pendingCandidates = [];
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
@@ -113,6 +113,9 @@
     byId('screen-local-preview').srcObject = null; byId('screen-local-preview').classList.add('d-none');
     byId('screen-remote-video').srcObject = null; byId('screen-remote-video').classList.add('d-none');
     byId('screen-share-code-box').classList.add('d-none');
+    byId('screen-share-code').value = '';
+    const qr = byId('screen-share-qr'); qr.removeAttribute('src'); qr.classList.add('d-none');
+    byId('screen-share-start').disabled = false;
     byId('screen-share-stop').disabled = true; byId('screen-receive-stop').disabled = true; byId('screen-fullscreen').disabled = true;
     roleLabel.textContent = '–'; setState('nicht verbunden'); pollFailures = 0; stopping = false;
     if (resetMessage) show('Freigabe beendet.', 'secondary');
@@ -128,22 +131,49 @@
   };
 
   byId('screen-share-start').addEventListener('click', async () => {
+    if (starting || session || stream) return;
+    starting = true;
+    const startButton = byId('screen-share-start');
+    startButton.disabled = true;
     try {
-      await stop(false, false); role = 'sender'; roleLabel.textContent = 'Sender'; setState('Bildschirmauswahl');
-      stream = await captureDisplay();
+      role = 'sender'; roleLabel.textContent = 'Sender'; setState('Code wird erzeugt');
       const created = await api('/screen/api/sessions', {method: 'POST', body: '{}'});
       session = created.session; code = session.join_code;
-      byId('screen-share-code').value = code; byId('screen-share-code-box').classList.remove('d-none');
-      const preview = byId('screen-local-preview'); preview.srcObject = stream; preview.classList.remove('d-none');
+      byId('screen-share-code').value = code;
+      byId('screen-share-code-box').classList.remove('d-none');
+      const qr = byId('screen-share-qr');
+      qr.src = `/screen/api/sessions/${encodeURIComponent(session.session_id)}/connect-qr.svg`;
+      qr.classList.remove('d-none');
       byId('screen-share-stop').disabled = false;
+      show(`Verbindungscode ${code} ist bereit. Jetzt Bildschirmfreigabe auswählen.`, 'primary');
+      setState('Bildschirmauswahl');
+      stream = await captureDisplay();
+      const preview = byId('screen-local-preview'); preview.srcObject = stream; preview.classList.remove('d-none');
       pc = createPeer(); stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stop(true));
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
       await sendSignal('offer', pc.localDescription.toJSON()); poll();
       show(`Teilen aktiv. Verbindungscode: ${code}`, 'success'); setState('wartet auf Empfänger');
-    } catch (error) { await stop(false, false); signalFailure('Bildschirmfreigabe konnte nicht gestartet werden', error); }
+    } catch (error) {
+      await stop(false, false);
+      signalFailure('Bildschirmfreigabe konnte nicht gestartet werden', error);
+    } finally {
+      starting = false;
+      if (!session) startButton.disabled = false;
+    }
   });
   byId('screen-share-stop').addEventListener('click', () => stop(true));
+  byId('screen-copy-code').addEventListener('click', async () => {
+    const value = byId('screen-share-code').value;
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      show('Verbindungscode kopiert.', 'success');
+    } catch (_) {
+      byId('screen-share-code').select();
+      show('Verbindungscode ist markiert und kann kopiert werden.', 'secondary');
+    }
+  });
   byId('screen-receive-start').addEventListener('click', async () => {
     try {
       await stop(false, false); code = String(byId('screen-join-code').value || '').trim().toUpperCase();
