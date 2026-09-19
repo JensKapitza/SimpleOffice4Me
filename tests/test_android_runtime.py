@@ -76,7 +76,9 @@ class AndroidRuntimeTests(unittest.TestCase):
         runtime._SERVER = object()
         with mock.patch.object(runtime, "_configure_environment") as configure:
             self.assertTrue(runtime.start(str(ROOT), "", "user@example.com", "x" * 64))
-            configure.assert_called_once_with(ROOT.resolve(), "", "user@example.com", "x" * 64)
+            configure.assert_called_once_with(
+                ROOT.resolve(), "", "user@example.com", "x" * 64, ""
+            )
 
             configure.reset_mock()
             self.assertTrue(runtime.start(str(ROOT)))
