@@ -5,9 +5,9 @@
     const taskSection = document.getElementById("aufgaben");
     if (!taskSection) return;
 
-    const taskCards = Array.from(taskSection.querySelectorAll('article[id^="task-"]'));
     const main = taskSection.closest("main");
-    if (!main) return;
+    if (!main || main.dataset.projectUi === "v2") return;
+    const taskCards = Array.from(taskSection.querySelectorAll('article[id^="task-"]'));
 
     const statusLabels = {
       open: "Offen",
