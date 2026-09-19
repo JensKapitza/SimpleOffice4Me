@@ -163,6 +163,21 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             probe.connect.side_effect = OSError
             self.assertEqual(["192.168.42.7", "10.0.0.9"], local_lan_addresses())
 
+    def test_android_without_native_wifi_or_ethernet_address_does_not_use_socket_fallback(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_ANDROID": "1",
+                "SIMPLEOFFICE_FEDERATION_LAN_ADDRESS": "",
+            },
+            clear=False,
+        ), patch("app.federation_discovery_lan.socket.getaddrinfo") as getaddrinfo, patch(
+            "app.federation_discovery_lan.socket.socket"
+        ) as socket_factory:
+            self.assertEqual([], local_lan_addresses())
+        getaddrinfo.assert_not_called()
+        socket_factory.assert_not_called()
+
     def test_lan_ports_are_bounded(self):
         with patch.dict(
             os.environ,
