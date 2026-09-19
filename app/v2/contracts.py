@@ -1,0 +1,186 @@
+"""Implementation-neutral contracts for the incremental V2 migration.
+
+These types intentionally contain no Flask, HTTP, filesystem, database,
+cryptography or federation implementation details.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Generic, Mapping, Protocol, TypeVar, runtime_checkable
+
+
+T = TypeVar("T")
+
+
+class ErrorCode(str, Enum):
+    INVALID_INPUT = "invalid_input"
+    NOT_FOUND = "not_found"
+    CONFLICT = "conflict"
+    FORBIDDEN = "forbidden"
+    INTEGRITY_ERROR = "integrity_error"
+    STORAGE_UNAVAILABLE = "storage_unavailable"
+    RETRYABLE = "retryable"
+    INTERNAL_ERROR = "internal_error"
+
+
+@dataclass(frozen=True)
+class OperationError:
+    code: ErrorCode
+    message: str
+    retryable: bool = False
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class OperationResult(Generic[T]):
+    value: T | None = None
+    error: OperationError | None = None
+
+    def __post_init__(self) -> None:
+        if (self.value is None) == (self.error is None):
+            raise ValueError("exactly one of value or error is required")
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+    @classmethod
+    def success(cls, value: T) -> "OperationResult[T]":
+        return cls(value=value)
+
+    @classmethod
+    def failure(
+        cls,
+        code: ErrorCode,
+        message: str,
+        *,
+        retryable: bool = False,
+        details: Mapping[str, Any] | None = None,
+    ) -> "OperationResult[T]":
+        return cls(
+            error=OperationError(
+                code=code,
+                message=str(message),
+                retryable=bool(retryable),
+                details=dict(details or {}),
+            )
+        )
+
+
+@dataclass(frozen=True, order=True)
+class LogicalObjectId:
+    """Stable domain identity. It must never be derived from a physical path."""
+
+    value: str
+
+    def __post_init__(self) -> None:
+        if not self.value or len(self.value) > 200:
+            raise ValueError("invalid logical object id")
+
+
+@dataclass(frozen=True, order=True)
+class PhysicalBlobId:
+    """Opaque identity of one physical content representation."""
+
+    value: str
+
+    def __post_init__(self) -> None:
+        if not self.value or len(self.value) > 300:
+            raise ValueError("invalid physical blob id")
+
+
+@dataclass(frozen=True)
+class PersistentFormat:
+    family: str
+    version: int
+
+    def __post_init__(self) -> None:
+        if not self.family or self.version < 1:
+            raise ValueError("invalid persistent format version")
+
+
+class JobState(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    WAITING = "waiting"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def terminal(self) -> bool:
+        return self in {self.SUCCEEDED, self.FAILED, self.CANCELLED}
+
+
+@dataclass(frozen=True)
+class JobRecord:
+    job_id: str
+    kind: str
+    state: JobState
+    idempotency_key: str
+    payload: Mapping[str, Any] = field(default_factory=dict)
+    attempt: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.job_id or not self.kind or not self.idempotency_key:
+            raise ValueError("job identity fields are required")
+        if self.attempt < 0:
+            raise ValueError("job attempt must not be negative")
+
+
+@dataclass(frozen=True)
+class AuditEvent:
+    actor: str
+    operation: str
+    object_id: str
+    occurred_at: str
+    source: str = ""
+    correlation_id: str = ""
+    changes: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.actor or not self.operation or not self.object_id or not self.occurred_at:
+            raise ValueError("audit identity fields are required")
+
+
+@runtime_checkable
+class StoragePort(Protocol):
+    """Logical-object storage boundary.
+
+    Implementations may use the current DocumentStore, a V2 blob store or a
+    remote backend. Callers must not depend on concrete paths.
+    """
+
+    def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
+        ...
+
+    def write_bytes(
+        self,
+        object_id: LogicalObjectId,
+        content: bytes,
+        *,
+        expected_version: str | None = None,
+    ) -> OperationResult[str]:
+        ...
+
+    def delete(self, object_id: LogicalObjectId, *, expected_version: str | None = None) -> OperationResult[str]:
+        ...
+
+    def move(self, object_id: LogicalObjectId, destination: LogicalObjectId) -> OperationResult[str]:
+        ...
+
+
+@runtime_checkable
+class JobStorePort(Protocol):
+    def put(self, job: JobRecord) -> OperationResult[JobRecord]:
+        ...
+
+    def get(self, job_id: str) -> OperationResult[JobRecord]:
+        ...
+
+
+@runtime_checkable
+class AuditPort(Protocol):
+    def append(self, event: AuditEvent) -> OperationResult[str]:
+        ...
