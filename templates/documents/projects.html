@@ -23,7 +23,7 @@
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
         <h2 class="h5 mb-0">{{ 'Create project' if g.language == 'en' else 'Neues Projekt' }}</h2>
-        <button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#new-project" aria-label="{{ 'Close' if g.language == 'en' else 'Schließen' }}"></button>
+        <button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#new-project" aria-expanded="true" aria-controls="new-project" aria-label="{{ 'Close' if g.language == 'en' else 'Schließen' }}"></button>
       </div>
       <form method="post" class="row g-3">
         <div class="col-md-6">
@@ -124,7 +124,7 @@
         <span class="project-empty-icon" aria-hidden="true"><i class="far fa-folder-open"></i></span>
         <h2 class="h5">{{ 'No projects yet' if g.language == 'en' else 'Noch keine Projekte' }}</h2>
         <p class="text-secondary">{{ 'Create your first project to keep tasks, time and resources together.' if g.language == 'en' else 'Lege dein erstes Projekt an und behalte Aufgaben, Zeiten und Ressourcen gemeinsam im Blick.' }}</p>
-        <button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#new-project"><i class="fas fa-plus" aria-hidden="true"></i>{{ 'New project' if g.language == 'en' else 'Projekt anlegen' }}</button>
+        <button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#new-project" aria-expanded="false" aria-controls="new-project"><i class="fas fa-plus" aria-hidden="true"></i>{{ 'New project' if g.language == 'en' else 'Projekt anlegen' }}</button>
       </section>
     {% endfor %}
   </div>
