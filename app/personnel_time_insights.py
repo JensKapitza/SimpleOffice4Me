@@ -412,7 +412,15 @@ def _validate_sequence(employee_id: int, shown: date) -> str:
     return ""
 
 
-def _audit_import(employee_id: int, punch_id: int, action: str, before: dict[str, Any], after: dict[str, Any], peer_id: str) -> None:
+def _audit_import(
+    employee_id: int,
+    punch_id: int,
+    action: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    peer_id: str,
+    actor_user_id: int,
+) -> None:
     get_db().execute(
         """INSERT INTO employee_time_audit(
                employee_id,punch_id,action,before_json,after_json,reason,actor_user_id,created_at
@@ -424,7 +432,7 @@ def _audit_import(employee_id: int, punch_id: int, action: str, before: dict[str
             json.dumps(before, ensure_ascii=False, sort_keys=True),
             json.dumps(after, ensure_ascii=False, sort_keys=True),
             f"Federation-Import von {peer_id}",
-            int(g.user["id"]),
+            int(actor_user_id),
             utc_now(),
         ),
     )
@@ -455,6 +463,7 @@ def import_federated_events(
     end: date,
     *,
     remote_label: str = "",
+    actor_user_id: int,
 ) -> dict[str, int]:
     ensure_schema()
     peer_id = sanitize_peer_id(str(peer_id))
@@ -517,17 +526,33 @@ def import_federated_events(
                         (action, normalized_stamp, utc_now(), int(existing["id"])),
                     )
                     updated = db.execute("SELECT * FROM employee_punch WHERE id=?", (int(existing["id"]),)).fetchone()
-                    _audit_import(local_employee_id, int(existing["id"]), "federation_punch_updated", before, _punch_payload(updated), peer_id)
+                    _audit_import(
+                        local_employee_id,
+                        int(existing["id"]),
+                        "federation_punch_updated",
+                        before,
+                        _punch_payload(updated),
+                        peer_id,
+                        actor_user_id,
+                    )
                     result["updated"] += 1
             else:
                 cursor = db.execute(
                     """INSERT INTO employee_punch(
                            employee_id,action,occurred_at,recorded_by,source_kind,source_peer,source_ref,source_imported_at
                        ) VALUES(?,?,?,?,?,?,?,?)""",
-                    (local_employee_id, action, normalized_stamp, int(g.user["id"]), "federation", peer_id, source_ref, utc_now()),
+                    (local_employee_id, action, normalized_stamp, int(actor_user_id), "federation", peer_id, source_ref, utc_now()),
                 )
                 created = db.execute("SELECT * FROM employee_punch WHERE id=?", (int(cursor.lastrowid),)).fetchone()
-                _audit_import(local_employee_id, int(created["id"]), "federation_punch_imported", {}, _punch_payload(created), peer_id)
+                _audit_import(
+                    local_employee_id,
+                    int(created["id"]),
+                    "federation_punch_imported",
+                    {},
+                    _punch_payload(created),
+                    peer_id,
+                    actor_user_id,
+                )
                 result["inserted"] += 1
             affected.add(shown)
 
@@ -547,7 +572,15 @@ def import_federated_events(
             if personnel.month_is_closed(local_employee_id, shown.strftime("%Y-%m")):
                 raise ValueError(f"Monat {shown.strftime('%Y-%m')} ist bereits festgeschrieben")
             before = _punch_payload(existing)
-            _audit_import(local_employee_id, int(existing["id"]), "federation_punch_removed", before, {}, peer_id)
+            _audit_import(
+                local_employee_id,
+                int(existing["id"]),
+                "federation_punch_removed",
+                before,
+                {},
+                peer_id,
+                actor_user_id,
+            )
             db.execute("DELETE FROM employee_punch WHERE id=?", (int(existing["id"]),))
             affected.add(shown)
             result["removed"] += 1
@@ -567,7 +600,7 @@ def import_federated_events(
                VALUES(?,?,?,?,?,?) ON CONFLICT(peer_id,remote_employee_key) DO UPDATE SET
                local_employee_id=excluded.local_employee_id,remote_label=excluded.remote_label,
                updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
-            (peer_id, remote_key, local_employee_id, str(remote_label or remote_key)[:200], utc_now(), int(g.user["id"])),
+            (peer_id, remote_key, local_employee_id, str(remote_label or remote_key)[:200], utc_now(), int(actor_user_id)),
         )
         db.execute("RELEASE SAVEPOINT personnel_time_federation")
         db.commit()
@@ -660,6 +693,7 @@ def federation_import():
             start,
             end,
             remote_label=str(data.get("employee_label") or remote_key),
+            actor_user_id=int(g.user["id"]),
         )
         try:
             store.record_event("personnel_time_imported", peer_id=peer_id, detail={"employee_id": local_employee_id, **result})
