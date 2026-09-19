@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import g
+
 from app import app
 from app import db as database
 from app import personnel
@@ -152,7 +154,9 @@ class PersonnelTimeAnalyticsTest(unittest.TestCase):
             }
 
         with app.app_context(), patch("app.personnel_time_analytics._json_request", side_effect=fake_json):
+            self.assertIsNone(getattr(g, "user", None))
             result = run_auto_sync_once()
+            self.assertIsNone(getattr(g, "user", None))
             rows = database.get_db().execute(
                 "SELECT * FROM employee_punch WHERE employee_id=? AND source_kind='federation' ORDER BY occurred_at",
                 (self.employee_id,),
@@ -160,11 +164,35 @@ class PersonnelTimeAnalyticsTest(unittest.TestCase):
             mapping = database.get_db().execute(
                 "SELECT * FROM employee_time_federation_map WHERE peer_id='peer-a' AND remote_employee_key='remote-1'"
             ).fetchone()
+            audit_actors = database.get_db().execute(
+                "SELECT actor_user_id FROM employee_time_audit WHERE employee_id=? ORDER BY id",
+                (self.employee_id,),
+            ).fetchall()
         self.assertEqual(1, result["synced"])
         self.assertEqual(2, result["inserted"])
         self.assertEqual(["clock_in", "clock_out"], [row["action"] for row in rows])
         self.assertEqual("success", mapping["last_sync_status"])
         self.assertTrue(mapping["last_success_at"])
+        self.assertTrue(audit_actors)
+        self.assertTrue(all(int(row["actor_user_id"]) == self.user_id for row in audit_actors))
+
+    def test_payroll_csv_export_uses_selected_period_and_excel_safe_format(self):
+        shown = self._insert_day(self.employee_id, 8, 16)
+        response = self.client.get(
+            "/personnel/time-admin/analytics/payroll.csv",
+            query_string={
+                "period": "custom",
+                "start": shown.isoformat(),
+                "end": shown.isoformat(),
+            },
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("text/csv; charset=utf-8", response.content_type)
+        self.assertIn("attachment; filename=", response.headers["Content-Disposition"])
+        payload = response.data.decode("utf-8-sig")
+        self.assertIn("Mitarbeiter;Von;Bis;Soll_Stunden;Ist_Stunden;Saldo_Stunden", payload)
+        self.assertIn(shown.isoformat(), payload)
+        self.assertIn("8,00", payload)
 
     def test_disabled_mapping_is_not_run_automatically(self):
         self._mapping(auto_sync=0)
