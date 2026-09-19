@@ -74,16 +74,22 @@ def dashboard():
 @bp.post("/receive/start")
 @admin_required
 def start_receive():
-    state = _receive_state().start()
-    flash(f"WLAN-Empfang für 15 Minuten vorgemerkt. Ablauf: {state['expires_at']}.")
+    try:
+        state = _receive_state().start()
+        flash(f"WLAN-Empfang für 15 Minuten vorgemerkt. Ablauf: {state['expires_at']}.")
+    except Exception:
+        flash("WLAN-Empfang konnte nicht aktiviert werden. Lokalen Speicher und App-Daten prüfen.")
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
 @bp.post("/receive/stop")
 @admin_required
 def stop_receive():
-    _receive_state().stop()
-    flash("WLAN-Empfang beendet.")
+    try:
+        _receive_state().stop()
+        flash("WLAN-Empfang beendet.")
+    except Exception:
+        flash("WLAN-Empfang konnte nicht beendet werden. Lokalen Speicher und App-Daten prüfen.")
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
