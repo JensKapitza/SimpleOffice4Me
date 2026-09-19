@@ -187,6 +187,7 @@ CREATE INDEX IF NOT EXISTS finance_obligation_owner_idx
 CREATE TABLE IF NOT EXISTS finance_transaction_match(
     match_id TEXT PRIMARY KEY, owner TEXT NOT NULL, transaction_id TEXT NOT NULL,
     source_type TEXT NOT NULL, source_id TEXT NOT NULL, score INTEGER NOT NULL DEFAULT 0,
+    allocated_cents INTEGER NOT NULL DEFAULT 0,
     state TEXT NOT NULL DEFAULT 'confirmed', note TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     UNIQUE(owner, transaction_id, source_type, source_id),
