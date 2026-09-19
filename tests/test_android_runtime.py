@@ -29,6 +29,26 @@ class AndroidRuntimeTests(unittest.TestCase):
         self.assertIn('os.environ["SIMPLEOFFICE_ANDROID"] = "1"', source)
         self.assertIn('os.environ["SIMPLEOFFICE_HOST"] = "127.0.0.1"', source)
         self.assertIn('os.environ["SIMPLEOFFICE_BACKGROUND_INDEX"] = "0"', source)
+        self.assertIn('SIMPLEOFFICE_FEDERATION_LAN_ADDRESS', source)
+        self.assertIn('def set_lan_addresses(', source)
+
+    def test_runtime_accepts_native_lan_addresses_without_restarting_server(self):
+        spec = importlib.util.spec_from_file_location("android_runtime_lan_test", RUNTIME)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", None)
+            self.assertTrue(runtime.set_lan_addresses("192.168.4.22,192.168.4.22,10.0.0.8"))
+            self.assertEqual(
+                "192.168.4.22,10.0.0.8",
+                os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"],
+            )
+            runtime.set_lan_addresses("")
+            self.assertNotIn("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", os.environ)
 
     def test_runtime_receives_native_identity_and_registers_local_auth_before_serving(self):
         source = RUNTIME.read_text(encoding="utf-8")
