@@ -52,6 +52,14 @@ class FinanceStore:
     def initialize(self) -> None:
         with self._db() as db:
             db.executescript(SCHEMA)
+            # Forward-only additive migration for databases created by an
+            # earlier Finance Core draft. Never drop or rewrite finance data.
+            columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(finance_bank_connection)").fetchall()}
+            if columns and "bank_code" not in columns:
+                db.execute("ALTER TABLE finance_bank_connection ADD COLUMN bank_code TEXT NOT NULL DEFAULT ''")
+            match_columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(finance_transaction_match)").fetchall()}
+            if match_columns and "allocated_cents" not in match_columns:
+                db.execute("ALTER TABLE finance_transaction_match ADD COLUMN allocated_cents INTEGER NOT NULL DEFAULT 0")
 
     @staticmethod
     def _actor(value: Any) -> str:
@@ -134,6 +142,48 @@ class FinanceStore:
             db.execute("INSERT INTO finance_bank_transaction(transaction_id,account_id,import_batch_id,booking_date,value_date,amount_cents,currency,counterparty_name,counterparty_iban,purpose,bank_transaction_id,end_to_end_id,mandate_id,fingerprint,duplicate_state,raw_json,created_at) VALUES(:transaction_id,:account_id,:import_batch_id,:booking_date,:value_date,:amount_cents,:currency,:counterparty_name,:counterparty_iban,:purpose,:bank_transaction_id,:end_to_end_id,:mandate_id,:fingerprint,:duplicate_state,:raw_json,:created_at)", row)
             self._audit(db, actor, "bank_transaction_imported", "bank_transaction", row["transaction_id"], {"account_id": account_id, "duplicate_state": row["duplicate_state"]})
         return row, result
+
+    def latest_bank_booking_date(self, account_id: str, actor: str) -> str:
+        actor = self._actor(actor); account_id = text(account_id, 100)
+        with self._db() as db:
+            account = db.execute("SELECT owner FROM finance_account WHERE account_id=?", (account_id,)).fetchone()
+            if not account or str(account["owner"]) != actor: raise ValueError("account not found")
+            row = db.execute("SELECT MAX(booking_date) AS latest FROM finance_bank_transaction WHERE account_id=?", (account_id,)).fetchone()
+        return str(row["latest"] or "")
+
+    def fingerprint_counts(self, account_id: str, actor: str, *, start_date: str, end_date: str) -> dict[str, int]:
+        actor = self._actor(actor); account_id = text(account_id, 100)
+        start = iso_date(start_date, "start_date"); end = iso_date(end_date, "end_date")
+        with self._db() as db:
+            account = db.execute("SELECT owner FROM finance_account WHERE account_id=?", (account_id,)).fetchone()
+            if not account or str(account["owner"]) != actor: raise ValueError("account not found")
+            rows = db.execute("""SELECT fingerprint,COUNT(*) AS n FROM finance_bank_transaction
+                                 WHERE account_id=? AND booking_date>=? AND booking_date<=?
+                                 GROUP BY fingerprint""", (account_id, start, end)).fetchall()
+        return {str(row["fingerprint"]): int(row["n"]) for row in rows}
+
+    def update_bank_connection_status(self, connection_id: str, actor: str, status: str, *, error: str = "", successful: bool = False) -> dict[str, Any]:
+        actor = self._actor(actor); status = text(status, 40).casefold()
+        if status not in BANK_CONNECTION_STATUSES: raise ValueError("bank connection status is invalid")
+        connection = self.bank_connection(connection_id, actor)
+        ts = _now()
+        with self._db() as db:
+            db.execute("""UPDATE finance_bank_connection SET status=?,last_error=?,last_successful_sync=CASE WHEN ? THEN ? ELSE last_successful_sync END,updated_at=?
+                          WHERE connection_id=? AND owner=?""",
+                       (status, text(error, 1000), 1 if successful else 0, ts, ts, connection_id, actor))
+            self._audit(db, actor, "bank_connection_status_changed", "bank_connection", connection_id, {"status": status, "successful": successful})
+            row = db.execute("SELECT * FROM finance_bank_connection WHERE connection_id=? AND owner=?", (connection_id, actor)).fetchone()
+        return dict(row)
+
+    def bank_transaction(self, transaction_id: str, actor: str) -> dict[str, Any]:
+        actor = self._actor(actor)
+        with self._db() as db:
+            row = db.execute("""SELECT t.* FROM finance_bank_transaction t
+                                JOIN finance_account a ON a.account_id=t.account_id
+                                WHERE t.transaction_id=? AND a.owner=?""",
+                             (text(transaction_id, 100), actor)).fetchone()
+        if not row: raise ValueError("bank transaction not found")
+        return dict(row)
 
     def bank_transactions(self, account_id: str, actor: str, *, limit: int = 500) -> list[dict[str, Any]]:
         actor, limit = self._actor(actor), max(1, min(int(limit), 5000))
@@ -256,26 +306,39 @@ class FinanceStore:
         sql += " ORDER BY name COLLATE NOCASE,obligation_id"
         with self._db() as db: return [dict(row) for row in db.execute(sql, params).fetchall()]
 
-    def confirm_transaction_match(self, transaction_id: str, source_type: str, source_id: str, actor: str, *, score: int = 0, note: str = "") -> dict[str, Any]:
+    def confirm_transaction_match(self, transaction_id: str, source_type: str, source_id: str, actor: str, *, score: int = 0, allocated_cents: int = 0, note: str = "") -> dict[str, Any]:
         actor = self._actor(actor); source_type = text(source_type, 40).casefold(); source_id = text(source_id, 200)
         if source_type not in SOURCE_TYPES or source_type in {"manual", "bank_transaction", "internal_allocation"}:
             raise ValueError("match source type is invalid")
         if not source_id: raise ValueError("match source id is required")
         score = max(0, min(int(score), 100))
         with self._db() as db:
-            tx = db.execute("""SELECT t.transaction_id FROM finance_bank_transaction t
+            tx = db.execute("""SELECT t.* FROM finance_bank_transaction t
                                JOIN finance_account a ON a.account_id=t.account_id
                                WHERE t.transaction_id=? AND a.owner=?""", (text(transaction_id, 100), actor)).fetchone()
             if not tx: raise ValueError("bank transaction not found")
+            tx_total = abs(int(tx["amount_cents"]))
+            allocated_cents = int(allocated_cents or tx_total)
+            if allocated_cents <= 0: raise ValueError("allocated amount must be positive")
             existing = db.execute("SELECT * FROM finance_transaction_match WHERE owner=? AND transaction_id=? AND source_type=? AND source_id=?", (actor, transaction_id, source_type, source_id)).fetchone()
             if existing: return dict(existing)
+            used = int(db.execute("SELECT COALESCE(SUM(allocated_cents),0) AS total FROM finance_transaction_match WHERE owner=? AND transaction_id=? AND state='confirmed'", (actor, transaction_id)).fetchone()["total"])
+            if used + allocated_cents > tx_total:
+                raise ValueError("allocated amount exceeds bank transaction")
             row = {"match_id": new_id("match"), "owner": actor, "transaction_id": transaction_id,
-                   "source_type": source_type, "source_id": source_id, "score": score,
+                   "source_type": source_type, "source_id": source_id, "score": score, "allocated_cents": allocated_cents,
                    "state": "confirmed", "note": text(note, 500), "created_at": _now()}
-            db.execute("""INSERT INTO finance_transaction_match(match_id,owner,transaction_id,source_type,source_id,score,state,note,created_at)
-                          VALUES(:match_id,:owner,:transaction_id,:source_type,:source_id,:score,:state,:note,:created_at)""", row)
-            self._audit(db, actor, "transaction_match_confirmed", "bank_transaction", transaction_id, {"source_type": source_type, "source_id": source_id, "score": score})
+            db.execute("""INSERT INTO finance_transaction_match(match_id,owner,transaction_id,source_type,source_id,score,allocated_cents,state,note,created_at)
+                          VALUES(:match_id,:owner,:transaction_id,:source_type,:source_id,:score,:allocated_cents,:state,:note,:created_at)""", row)
+            self._audit(db, actor, "transaction_match_confirmed", "bank_transaction", transaction_id, {"source_type": source_type, "source_id": source_id, "score": score, "allocated_cents": allocated_cents})
         return row
+
+    def transaction_match_allocation(self, transaction_id: str, actor: str) -> dict[str, int]:
+        transaction = self.bank_transaction(transaction_id, actor)
+        matches = self.transaction_matches(transaction_id, actor)
+        total = abs(int(transaction["amount_cents"]))
+        allocated = sum(int(item.get("allocated_cents") or 0) for item in matches if item.get("state") == "confirmed")
+        return {"total_cents": total, "allocated_cents": allocated, "remaining_cents": max(0, total - allocated)}
 
     def transaction_matches(self, transaction_id: str, actor: str) -> list[dict[str, Any]]:
         actor = self._actor(actor)
@@ -286,8 +349,12 @@ class FinanceStore:
     def save_bank_connection(self, values: dict[str, Any], actor: str) -> dict[str, Any]:
         """Persist connection metadata only. PIN and TAN are deliberately unsupported."""
         actor = self._actor(actor)
-        forbidden = {"pin", "tan", "password", "secret"}
-        if any(text(values.get(key), 1000) for key in forbidden):
+        forbidden_tokens = ("pin", "tan", "password", "secret")
+        forbidden = [
+            str(key) for key, value in values.items()
+            if value not in {None, ""} and any(token in str(key).casefold() for token in forbidden_tokens)
+        ]
+        if forbidden:
             raise ValueError("PIN, TAN and banking secrets must never be stored")
         provider = text(values.get("provider"), 30).casefold()
         login_id = text(values.get("login_id"), 200)
@@ -299,12 +366,46 @@ class FinanceStore:
             existing = db.execute("SELECT * FROM finance_bank_connection WHERE owner=? AND provider=? AND institution=? AND login_id=?", (actor, provider, institution, login_id)).fetchone()
             if existing: return dict(existing)
             ts = _now(); row = {"connection_id": new_id("bank"), "owner": actor, "provider": provider,
-                "institution": institution, "endpoint": text(values.get("endpoint"), 500), "login_id": login_id,
+                "institution": institution, "bank_code": text(values.get("bank_code"), 20), "endpoint": text(values.get("endpoint"), 500), "login_id": login_id,
                 "status": status, "last_successful_sync": None, "last_error": "", "created_at": ts, "updated_at": ts}
-            db.execute("""INSERT INTO finance_bank_connection(connection_id,owner,provider,institution,endpoint,login_id,status,last_successful_sync,last_error,created_at,updated_at)
-                          VALUES(:connection_id,:owner,:provider,:institution,:endpoint,:login_id,:status,:last_successful_sync,:last_error,:created_at,:updated_at)""", row)
+            db.execute("""INSERT INTO finance_bank_connection(connection_id,owner,provider,institution,bank_code,endpoint,login_id,status,last_successful_sync,last_error,created_at,updated_at)
+                          VALUES(:connection_id,:owner,:provider,:institution,:bank_code,:endpoint,:login_id,:status,:last_successful_sync,:last_error,:created_at,:updated_at)""", row)
             self._audit(db, actor, "bank_connection_created", "bank_connection", row["connection_id"], {"provider": provider, "institution": institution})
         return row
+
+    def bank_connections(self, actor: str) -> list[dict[str, Any]]:
+        actor = self._actor(actor)
+        with self._db() as db:
+            return [dict(row) for row in db.execute("SELECT * FROM finance_bank_connection WHERE owner=? ORDER BY institution COLLATE NOCASE,connection_id", (actor,)).fetchall()]
+
+    def bank_connection(self, connection_id: str, actor: str) -> dict[str, Any]:
+        actor = self._actor(actor)
+        with self._db() as db:
+            row = db.execute("SELECT * FROM finance_bank_connection WHERE connection_id=? AND owner=?", (text(connection_id, 100), actor)).fetchone()
+        if not row: raise ValueError("bank connection not found")
+        return dict(row)
+
+    def map_remote_account(self, connection_id: str, remote_account_id: str, account_id: str, remote_iban: str, actor: str) -> dict[str, Any]:
+        actor = self._actor(actor); connection = self.bank_connection(connection_id, actor)
+        remote_account_id = text(remote_account_id, 200)
+        if not remote_account_id: raise ValueError("remote account id is required")
+        with self._db() as db:
+            account = db.execute("SELECT account_id FROM finance_account WHERE account_id=? AND owner=?", (text(account_id, 100), actor)).fetchone()
+            if not account: raise ValueError("account not found")
+            row = {"connection_id": connection["connection_id"], "remote_account_id": remote_account_id,
+                   "account_id": account_id, "remote_iban": normalize_iban(remote_iban)}
+            db.execute("""INSERT INTO finance_bank_connection_account(connection_id,remote_account_id,account_id,remote_iban)
+                          VALUES(:connection_id,:remote_account_id,:account_id,:remote_iban)
+                          ON CONFLICT(connection_id,remote_account_id) DO UPDATE SET account_id=excluded.account_id,remote_iban=excluded.remote_iban""", row)
+            self._audit(db, actor, "bank_account_mapped", "bank_connection", connection_id, {"remote_account_id": remote_account_id, "account_id": account_id})
+        return row
+
+    def bank_account_mappings(self, connection_id: str, actor: str) -> list[dict[str, Any]]:
+        connection = self.bank_connection(connection_id, actor)
+        with self._db() as db:
+            rows = db.execute("""SELECT m.*,a.name,a.institution,a.iban,a.currency FROM finance_bank_connection_account m
+                                 JOIN finance_account a ON a.account_id=m.account_id WHERE m.connection_id=? ORDER BY a.name COLLATE NOCASE""", (connection["connection_id"],)).fetchall()
+        return [dict(row) for row in rows]
 
     def set_tax_year_status(self, tax_year: int, status: str, actor: str, *, submitted_on: str = "", advisor_note: str = "") -> dict[str, Any]:
         actor = self._actor(actor); tax_year = int(tax_year); status = text(status, 40).casefold()
