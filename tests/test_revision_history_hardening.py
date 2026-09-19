@@ -183,6 +183,25 @@ class RevisionHistoryHardeningTest(unittest.TestCase):
             self.assertEqual("error", event["severity"])
             self.assertEqual("scanner unavailable", event["details"]["error"])
 
+    def test_record_persists_hash_chain_when_git_times_out(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            with patch("app.revision_history.shutil.which", return_value="/usr/bin/git"), patch.object(
+                history, "_git", side_effect=RuntimeError("simulated git timeout")
+            ):
+                revision = history.record(
+                    "project_updated",
+                    "jens",
+                    "projects",
+                    "project-1",
+                    {"project_id": "project-1", "status": "active"},
+                )
+
+            event_path = next((history.root / "events").glob("*.json"))
+            event = json.loads(event_path.read_text(encoding="utf-8"))
+            self.assertEqual(event["event_hash"], revision)
+            self.assertTrue(history.verify_event_chain()["valid"])
+
     def test_record_persists_hash_chain_when_git_is_not_installed(self):
         with tempfile.TemporaryDirectory() as temp:
             history = RevisionHistory(Path(temp))
