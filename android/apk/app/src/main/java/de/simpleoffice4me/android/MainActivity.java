@@ -867,16 +867,20 @@ public class MainActivity extends Activity {
     }
 
     protected final void syncLanAddressesToBackend() {
-        if (!Python.isStarted()) return;
-        executor.execute(() -> {
-            try {
-                Python.getInstance()
-                        .getModule("android_runtime")
-                        .callAttr("set_lan_addresses", AndroidLanNetwork.localPrivateIpv4(this));
-            } catch (RuntimeException ignored) {
-                // Discovery still has the normal socket-based fallback.
-            }
-        });
+        if (!Python.isStarted() || executor.isShutdown()) return;
+        try {
+            executor.execute(() -> {
+                try {
+                    Python.getInstance()
+                            .getModule("android_runtime")
+                            .callAttr("set_lan_addresses", AndroidLanNetwork.localPrivateIpv4(this));
+                } catch (RuntimeException ignored) {
+                    // Discovery still has the normal socket-based fallback.
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // Activity shutdown may race with a late Android network callback.
+        }
     }
 
     private void waitForBackend() throws Exception {
