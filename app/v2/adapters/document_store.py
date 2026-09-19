@@ -62,6 +62,11 @@ class DocumentStoreStorageAdapter:
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         try:
             metadata = self.store.get_document(object_id.value)
+            if metadata.get("system_state") == "webdav_deleted" or metadata.get("deleted_at"):
+                return OperationResult.failure(
+                    ErrorCode.NOT_FOUND,
+                    "document is deleted",
+                )
             path = resolve_file_under(self.store.root, str(metadata.get("last_path") or ""))
             content = path.read_bytes()
             expected = str(metadata.get("sha256") or "")
