@@ -15,6 +15,7 @@ from app.federation_discovery_endpoint import (
 from app.federation_discovery_lan import _targets, discover_lan, is_private_lan_ipv4, scan_ports
 from app.federation_discovery_service import discover_direct
 from app.federation_qr import decode_peer, encode_peer
+from app.federation_local_profile import local_profile
 from app.federation_rendezvous_store import FederationRendezvousStore
 from app.federation_store import FederationStore
 
@@ -177,6 +178,33 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         decoded = decode_peer(encode_peer(PROFILE))
         self.assertEqual(decoded["peer_id"], "peer-a")
         self.assertEqual(decoded["fingerprint"], "sha256:test")
+
+    def test_lan_connect_profile_works_without_public_url(self):
+        with patch.dict(os.environ, {}, clear=False), patch(
+            "app.federation_local_profile.FederationIdentity.public_identity",
+            return_value={"public_key": "test-key", "fingerprint": "sha256:test"},
+        ):
+            os.environ.pop("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", None)
+            profile = local_profile(
+                self.root, "http://192.168.50.23:8080", prefer_fallback=True
+            )
+        self.assertEqual(profile["base_url"], "http://192.168.50.23:8080")
+
+    def test_lan_connect_profile_overrides_public_url_only_when_explicit(self):
+        with patch.dict(
+            os.environ,
+            {"SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "https://public.example"},
+            clear=False,
+        ), patch(
+            "app.federation_local_profile.FederationIdentity.public_identity",
+            return_value={"public_key": "test-key", "fingerprint": "sha256:test"},
+        ):
+            normal = local_profile(self.root, "http://192.168.50.23:8080")
+            lan = local_profile(
+                self.root, "http://192.168.50.23:8080", prefer_fallback=True
+            )
+        self.assertEqual(normal["base_url"], "https://public.example")
+        self.assertEqual(lan["base_url"], "http://192.168.50.23:8080")
 
     def test_rendezvous_resolves_profile(self):
         store = FederationRendezvousStore(self.root)
