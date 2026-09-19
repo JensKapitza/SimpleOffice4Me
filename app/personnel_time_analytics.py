@@ -121,14 +121,20 @@ def team_statistics(start: date, end: date) -> dict[str, Any]:
         values = stats["totals"]
         row = {
             "employee_id": int(employee["id"]), "name": employee["name"],
+            "contract_minutes": int(values["contract_minutes"]), "absence_minutes": int(values["absence_minutes"]),
             "work_minutes": int(values["work_minutes"]), "target_minutes": int(values["presence_target_minutes"]),
             "balance_minutes": int(values["balance_minutes"]), "break_minutes": int(values["break_minutes"]),
             "absence_days": int(values["absence_days"]), "missing_days": int(values["missing_days"]),
             "missing_break_days": int(values["missing_break_days"]), "late_days": int(values["late_days"]),
-            "open_days": int(values["open_days"]),
+            "open_days": int(values["open_days"]), "over_8h_days": int(values["over_8h_days"]),
+            "over_9h_days": int(values["over_9h_days"]),
         }
         rows.append(row)
-        for key in ("work_minutes", "target_minutes", "break_minutes", "absence_days", "missing_days", "missing_break_days", "late_days", "open_days"):
+        for key in (
+            "contract_minutes", "absence_minutes", "work_minutes", "target_minutes", "break_minutes",
+            "absence_days", "missing_days", "missing_break_days", "late_days", "open_days",
+            "over_8h_days", "over_9h_days",
+        ):
             totals[key] += row[key]
         for day in stats["daily"]:
             combined = daily_map.setdefault(day["date"], {"date": day["date"], "work_minutes": 0, "presence_target_minutes": 0, "break_minutes": 0})
@@ -153,17 +159,19 @@ def _payroll_csv(start: date, end: date) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output, delimiter=";", lineterminator="\r\n")
     writer.writerow([
-        "Mitarbeiter", "Von", "Bis", "Soll_Stunden", "Ist_Stunden", "Saldo_Stunden",
-        "Pause_Stunden", "Abwesenheitstage", "Fehltage", "Pausenpruefung",
-        "Verspaetungstage", "Offene_Stempelfolgen",
+        "Mitarbeiter", "Von", "Bis", "Vertrags_Stunden", "Abwesenheit_Stunden",
+        "Anwesenheits_Soll_Stunden", "Ist_Stunden", "Saldo_Stunden", "Pause_Stunden",
+        "Abwesenheitstage", "Fehltage", "Pausenpruefung", "Verspaetungstage",
+        "Ueber_8h_Tage", "Ueber_9h_Tage", "Offene_Stempelfolgen",
     ])
     for row in team_statistics(start, end)["rows"]:
         writer.writerow([
             _csv_safe(row["name"]), start.isoformat(), end.isoformat(),
+            _decimal_hours(row["contract_minutes"]), _decimal_hours(row["absence_minutes"]),
             _decimal_hours(row["target_minutes"]), _decimal_hours(row["work_minutes"]),
             _decimal_hours(row["balance_minutes"]), _decimal_hours(row["break_minutes"]),
-            row["absence_days"], row["missing_days"], row["missing_break_days"],
-            row["late_days"], row["open_days"],
+            row["absence_days"], row["missing_days"], row["missing_break_days"], row["late_days"],
+            row["over_8h_days"], row["over_9h_days"], row["open_days"],
         ])
     return "\ufeff" + output.getvalue()
 
