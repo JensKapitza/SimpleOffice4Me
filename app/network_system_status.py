@@ -11,10 +11,14 @@ from simpleoffice_network_gateway import interfaces_snapshot
 def _interface_rows() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
-        for index, name in socket.if_nameindex():
-            rows.append({"index": int(index), "name": str(name), "state": "unknown", "ipv4": []})
-    except OSError:
-        pass
+        if_nameindex = getattr(socket, "if_nameindex", None)
+        if not callable(if_nameindex):
+            return rows
+        interface_names = if_nameindex()
+    except (AttributeError, OSError):
+        return rows
+    for index, name in interface_names:
+        rows.append({"index": int(index), "name": str(name), "state": "unknown", "ipv4": []})
     return rows
 
 
