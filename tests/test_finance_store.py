@@ -96,3 +96,18 @@ class FinanceStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_transaction_match_supports_split_allocation_without_overbooking(self):
+        account = self.store.create_account({"name": "Split"}, "jens")
+        tx, _ = self.store.import_bank_transaction({
+            "account_id": account["account_id"], "booking_date": "2026-09-19",
+            "amount_cents": -30000, "counterparty_name": "Sammelzahlung"
+        }, "jens")
+        first = self.store.confirm_transaction_match(tx["transaction_id"], "contract", "contract-a", "jens", allocated_cents=10000)
+        second = self.store.confirm_transaction_match(tx["transaction_id"], "receipt", "receipt-b", "jens", allocated_cents=20000)
+        self.assertEqual(10000, first["allocated_cents"])
+        self.assertEqual(20000, second["allocated_cents"])
+        self.assertEqual(0, self.store.transaction_match_allocation(tx["transaction_id"], "jens")["remaining_cents"])
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            self.store.confirm_transaction_match(tx["transaction_id"], "rental", "rent-c", "jens", allocated_cents=1)
+
