@@ -190,7 +190,10 @@ class PersonnelTimeAnalyticsTest(unittest.TestCase):
         self.assertEqual("text/csv; charset=utf-8", response.content_type)
         self.assertIn("attachment; filename=", response.headers["Content-Disposition"])
         payload = response.data.decode("utf-8-sig")
-        self.assertIn("Mitarbeiter;Von;Bis;Soll_Stunden;Ist_Stunden;Saldo_Stunden", payload)
+        self.assertIn(
+            "Mitarbeiter;Von;Bis;Vertrags_Stunden;Abwesenheit_Stunden;Anwesenheits_Soll_Stunden",
+            payload,
+        )
         self.assertIn(shown.isoformat(), payload)
         self.assertIn("8,00", payload)
 
