@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from simpleoffice_media_renderer import save_media_renderer_settings
 from simpleoffice_mini_control import ControlStore
@@ -31,6 +31,7 @@ class MediaRendererWorkerIntegrationTests(unittest.TestCase):
 
     def test_worker_registers_renderer_but_default_config_does_not_start_it(self):
         worker = Worker(self.path)
+        worker.control.save_preferences("sip", {"enabled": False, "autostart": False})
         self.assertIn("media-renderer", worker.states)
         with patch("tools.mini_services.MediaRendererService") as renderer:
             worker._load_network_services()
@@ -48,7 +49,9 @@ class MediaRendererWorkerIntegrationTests(unittest.TestCase):
             self.path,
         )
         worker = Worker(self.path)
-        fake = unittest.mock.Mock()
+        worker.control.save_preferences("sip", {"enabled": False, "autostart": False})
+        worker.preferences = worker.control.preferences()
+        fake = Mock()
         fake.stop_event.is_set.return_value = False
         fake.socket.fileno.return_value = 4
         fake.thread.is_alive.return_value = True
