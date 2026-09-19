@@ -43,7 +43,8 @@ setup(
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
         "security": ["pip-audit>=2.7,<3"],
-        "sftp": ["paramiko>=3.5,<6"],\n        "banking": ["fints>=4.2,<5"],
+        "sftp": ["paramiko>=3.5,<6"],
+        "banking": ["fints>=4.2,<5"],
     },
     entry_points={
         "console_scripts": [
