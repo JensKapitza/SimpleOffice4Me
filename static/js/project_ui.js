@@ -210,12 +210,27 @@
     });
   }
 
+  function openHashDetails() {
+    const raw = window.location.hash.slice(1);
+    if (!raw) return;
+    let id = raw;
+    try {
+      id = decodeURIComponent(raw);
+    } catch (_error) {
+      return;
+    }
+    const target = document.getElementById(id);
+    if (target?.tagName === "DETAILS") target.open = true;
+  }
+
   function initProjectUi() {
     initProjectOverview();
     initTaskFilters();
     initProjectDocumentSearch();
     initDateOffsets();
     initSummaryCopy();
+    openHashDetails();
+    window.addEventListener("hashchange", openHashDetails);
   }
 
   if (document.readyState === "loading") {
