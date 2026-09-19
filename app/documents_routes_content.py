@@ -353,8 +353,6 @@ def update_project_task(project_id: str, task_id: str):
     except ValueError as exc: flash(str(exc))
     if request.form.get("return_to") == "project_tasks":
         return redirect(url_for("documents.project_tasks", project_id=project_id) + f"#task-{task_id}")
-    if request.form.get("return_to") == "project_tasks":
-        return redirect(url_for("documents.project_tasks", project_id=project_id) + f"#task-{task_id}")
     return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
 
 
@@ -367,6 +365,8 @@ def book_project_task_time(project_id: str, task_id: str):
         flash(f"{entry['minutes'] // 60}:{entry['minutes'] % 60:02d} Stunden gebucht.")
     except ValueError as exc:
         flash(str(exc))
+    if request.form.get("return_to") == "project_tasks":
+        return redirect(url_for("documents.project_tasks", project_id=project_id) + f"#task-{task_id}")
     return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
 
 
