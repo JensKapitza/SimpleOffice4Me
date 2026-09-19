@@ -33,6 +33,9 @@ security = [
 sftp = [
   "paramiko>=3.5,<6",
 ]
+banking = [
+  "fints>=4.2,<5",
+]
 
 [project.scripts]
 simpleoffice-sftp = "app.sftp_server:serve"

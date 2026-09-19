@@ -48,6 +48,7 @@ setup(
     extras_require={
         "security": ["pip-audit>=2.7,<3"],
         "sftp": ["paramiko>=3.5,<6"],
+        "banking": ["fints>=4.2,<5"],
     },
     entry_points={
         "console_scripts": [

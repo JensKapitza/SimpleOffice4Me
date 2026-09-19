@@ -39,10 +39,40 @@
     </div>
   </div>
 
+  <section class="card mb-4">
+    <div class="card-header"><strong>Bankverbindungen / FinTS</strong></div>
+    <div class="card-body">
+      <p class="text-secondary">Benutzerkennung darf gespeichert werden. PIN und TAN werden ausschließlich für den aktuellen Abruf abgefragt und niemals gespeichert.</p>
+      <form method="post" action="{{ url_for('.create_bank_connection') }}" class="row g-2 mb-4">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="provider" value="fints">
+        <div class="col-md-3"><label class="form-label">Bank</label><input required class="form-control" name="institution" placeholder="z. B. ING"></div>
+        <div class="col-md-2"><label class="form-label">BLZ</label><input required class="form-control" name="bank_code" inputmode="numeric"></div>
+        <div class="col-md-3"><label class="form-label">Benutzerkennung</label><input required class="form-control" name="login_id" autocomplete="username"></div>
+        <div class="col-md-4"><label class="form-label">FinTS-URL</label><input required class="form-control" type="url" name="endpoint" placeholder="https://…"></div>
+        <div class="col-12"><button class="btn btn-outline-primary" type="submit">Bankverbindung speichern</button></div>
+      </form>
+      {% for connection in bank_connections %}
+      <form method="post" action="{{ url_for('.discover_bank_accounts', connection_id=connection.connection_id) }}" class="row g-2 align-items-end border-top pt-3 mt-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-5"><strong>{{ connection.institution or connection.provider }}</strong><div class="small text-secondary">BLZ {{ connection.bank_code }} · Benutzer {{ connection.login_id }}</div></div>
+        <div class="col-md-4"><label class="form-label" for="pin-{{ loop.index }}">PIN nur für diesen Abruf</label><input required class="form-control" id="pin-{{ loop.index }}" name="pin" type="password" autocomplete="off"></div>
+        <div class="col-md-3"><button class="btn btn-primary w-100" type="submit">Konten abrufen</button></div>
+      </form>
+      <form method="post" action="{{ url_for('.sync_bank_connection', connection_id=connection.connection_id) }}" class="row g-2 align-items-end mt-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-5"><span class="badge text-bg-secondary">{{ connection.status }}</span>{% if connection.last_successful_sync %}<span class="small text-secondary ms-2">Letzter erfolgreicher Abruf vorhanden</span>{% endif %}{% if connection.last_error %}<div class="small text-danger mt-1">{{ connection.last_error }}</div>{% endif %}</div>
+        <div class="col-md-4"><label class="form-label" for="sync-pin-{{ loop.index }}">PIN nur für Umsatzabruf</label><input required class="form-control" id="sync-pin-{{ loop.index }}" name="pin" type="password" autocomplete="off"></div>
+        <div class="col-md-3"><button class="btn btn-success w-100" type="submit">Umsätze abrufen</button></div>
+      </form>
+      {% else %}<div class="small text-secondary">Noch keine Bankverbindung gespeichert.</div>{% endfor %}
+    </div>
+  </section>
+
   <section class="card mb-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>Konten</strong><span class="badge text-bg-secondary">{{ accounts|length }}</span></div>
     <div class="list-group list-group-flush">{% for account in accounts %}<a class="list-group-item list-group-item-action {% if account.account_id == selected_account_id %}active{% endif %}" href="{{ url_for('.index', account_id=account.account_id) }}"><div class="d-flex justify-content-between gap-3"><span><strong>{{ account.name }}</strong><br><small>{{ account.institution or account.kind }}{% if account.iban %} · {{ account.iban[:4] }}…{{ account.iban[-4:] }}{% endif %}</small></span><span>{{ account.currency }}</span></div></a>{% else %}<div class="list-group-item text-secondary">Noch kein Konto angelegt. Ein Import mit IBAN kann erst nach dem Anlegen bzw. später nach der Bank-Kontodiscovery zugeordnet werden.</div>{% endfor %}</div>
   </section>
 
-  {% if selected_account_id %}<section class="card"><div class="card-header"><strong>Letzte Bankbuchungen</strong></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th scope="col">Datum</th><th scope="col">Gegenpartei / Verwendungszweck</th><th scope="col">Status</th><th scope="col" class="text-end">Betrag</th></tr></thead><tbody>{% for row in transactions %}<tr><td>{{ row.booking_date }}</td><td><strong>{{ row.counterparty_name or '—' }}</strong><br><small class="text-secondary">{{ row.purpose or row.bank_transaction_id or 'Keine Beschreibung' }}</small></td><td>{% if row.duplicate_state == 'distinct' %}<span class="badge text-bg-success">eindeutig</span>{% else %}<span class="badge text-bg-warning">{{ row.duplicate_state }}</span>{% endif %}</td><td class="text-end fw-semibold {% if row.amount_cents > 0 %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(row.amount_cents / 100) }} {{ row.currency }}</td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Bankbuchungen importiert.</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+  {% if selected_account_id %}<section class="card"><div class="card-header"><strong>Letzte Bankbuchungen</strong></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th scope="col">Datum</th><th scope="col">Gegenpartei / Verwendungszweck</th><th scope="col">Status</th><th scope="col" class="text-end">Betrag</th></tr></thead><tbody>{% for row in transactions %}<tr><td>{{ row.booking_date }}</td><td><strong>{{ row.counterparty_name or '—' }}</strong><br><small class="text-secondary">{{ row.purpose or row.bank_transaction_id or 'Keine Beschreibung' }}</small></td><td>{% if row.duplicate_state == 'distinct' %}<span class="badge text-bg-success">eindeutig</span>{% else %}<span class="badge text-bg-warning">{{ row.duplicate_state }}</span>{% endif %}</td><td class="text-end"><div class="fw-semibold {% if row.amount_cents > 0 %}text-success{% else %}text-danger{% endif %}">{{ '%.2f'|format(row.amount_cents / 100) }} {{ row.currency }}</div><a class="btn btn-sm btn-outline-primary mt-1" href="{{ url_for('.transaction_matches', transaction_id=row.transaction_id) }}">Zuordnen</a></td></tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Bankbuchungen importiert.</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
 </main>
 {% endblock %}

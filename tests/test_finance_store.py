@@ -103,6 +103,11 @@ class FinanceStoreTests(unittest.TestCase):
             self.store.save_bank_connection({
                 "provider": "fints", "institution": "ING", "login_id": "user-4712", "pin": "12345"
             }, "jens")
+        for key in ("tan", "password", "client_secret", "pin_value"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.store.save_bank_connection({
+                    "provider": "fints", "institution": "ING", "login_id": f"user-{key}", key: "do-not-store"
+                }, "jens")
 
     def test_confirmed_transaction_match_is_idempotent_and_owner_scoped(self):
         tx, _ = self.store.import_bank_transaction({
@@ -115,6 +120,67 @@ class FinanceStoreTests(unittest.TestCase):
         self.assertEqual(1, len(self.store.transaction_matches(tx["transaction_id"], "jens")))
         with self.assertRaises(ValueError):
             self.store.confirm_transaction_match(tx["transaction_id"], "contract", "other", "melanie")
+
+
+    def test_recurring_obligation_and_tax_year_workflow(self):
+        obligation = self.store.create_obligation({
+            "name": "Kita", "kind": "childcare", "direction": "expense",
+            "amount_cents": 18500, "currency": "EUR", "recurrence_unit": "monthly",
+            "starts_on": "2026-01-01", "due_day": 3, "counterparty_name": "Kita"
+        }, "jens")
+        self.assertEqual("childcare", obligation["kind"])
+        self.assertEqual(1, len(self.store.obligations("jens")))
+        self.assertEqual("collecting", self.store.set_tax_year_status(2026, "collecting", "jens")["status"])
+        submitted = self.store.set_tax_year_status(2026, "submitted", "jens", submitted_on="2027-05-01")
+        self.assertEqual("2027-05-01", submitted["submitted_on"])
+
+    def test_bank_connection_never_accepts_pin_or_tan(self):
+        connection = self.store.save_bank_connection({
+            "provider": "fints", "institution": "ING", "bank_code": "12030000",
+            "endpoint": "https://fints.example.invalid/fints/", "login_id": "user-4711"
+        }, "jens")
+        self.assertEqual("user-4711", connection["login_id"])
+        self.assertNotIn("pin", connection)
+        self.assertNotIn("tan", connection)
+        with self.assertRaises(ValueError):
+            self.store.save_bank_connection({
+                "provider": "fints", "institution": "ING", "login_id": "user-4712", "pin": "12345"
+            }, "jens")
+
+    def test_confirmed_transaction_match_is_idempotent_and_owner_scoped(self):
+        tx, _ = self.store.import_bank_transaction({
+            "account_id": self.account["account_id"], "booking_date": "2026-09-18",
+            "amount_cents": -18500, "currency": "EUR", "purpose": "Kita September"
+        }, "jens")
+        first = self.store.confirm_transaction_match(tx["transaction_id"], "contract", "kita-contract", "jens", score=90)
+        second = self.store.confirm_transaction_match(tx["transaction_id"], "contract", "kita-contract", "jens", score=10)
+        self.assertEqual(first["match_id"], second["match_id"])
+        self.assertEqual(1, len(self.store.transaction_matches(tx["transaction_id"], "jens")))
+        with self.assertRaises(ValueError):
+            self.store.confirm_transaction_match(tx["transaction_id"], "contract", "other", "melanie")
+
+    def test_transaction_match_supports_split_allocation_without_overbooking(self):
+        account = self.store.create_account({"name": "Split"}, "jens")
+        tx, _ = self.store.import_bank_transaction({
+            "account_id": account["account_id"], "booking_date": "2026-09-19",
+            "amount_cents": -30000, "counterparty_name": "Sammelzahlung"
+        }, "jens")
+        first = self.store.confirm_transaction_match(
+            tx["transaction_id"], "contract", "contract-a", "jens", allocated_cents=10000
+        )
+        second = self.store.confirm_transaction_match(
+            tx["transaction_id"], "receipt", "receipt-b", "jens", allocated_cents=20000
+        )
+        self.assertEqual(10000, first["allocated_cents"])
+        self.assertEqual(20000, second["allocated_cents"])
+        self.assertEqual(
+            0, self.store.transaction_match_allocation(tx["transaction_id"], "jens")["remaining_cents"]
+        )
+        with self.assertRaisesRegex(ValueError, "exceeds"):
+            self.store.confirm_transaction_match(
+                tx["transaction_id"], "rental", "rent-c", "jens", allocated_cents=1
+            )
+
 
 
 if __name__ == "__main__":

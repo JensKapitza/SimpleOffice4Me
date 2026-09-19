@@ -1,0 +1,33 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="mb-4">
+    <a href="{{ url_for('.index') }}" class="btn btn-sm btn-outline-secondary mb-3">← Finanzen</a>
+    <h1 class="h2">Gefundene Bankkonten</h1>
+    <p class="text-secondary">{{ connection.institution }} · {{ connection.login_id }}. PIN/TAN werden nicht gespeichert.</p>
+  </div>
+  {% for item in suggestions %}
+  <section class="card mb-3"><div class="card-body">
+    <div class="row align-items-end g-3">
+      <div class="col-lg-5">
+        <strong>{{ item.remote.iban or item.remote.account_number }}</strong>
+        <div class="small text-secondary">{{ item.remote.account_type or 'Bankkonto' }} · {{ item.remote.currency }}</div>
+      </div>
+      <div class="col-lg-7">
+        <form method="post" action="{{ url_for('.map_bank_account', connection_id=connection.connection_id) }}" class="row g-2">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="remote_account_id" value="{{ item.remote.remote_account_id }}">
+          <input type="hidden" name="remote_iban" value="{{ item.remote.iban }}">
+          <div class="col-md-8"><label class="form-label">SimpleOffice-Konto</label><select required class="form-select" name="account_id">
+            <option value="">Konto wählen</option>
+            {% for account in accounts %}<option value="{{ account.account_id }}" {% if item.local and item.local.account_id == account.account_id %}selected{% endif %}>{{ account.name }}{% if account.iban %} · {{ account.iban[-8:] }}{% endif %}</option>{% endfor %}
+          </select></div>
+          <div class="col-md-4"><button class="btn btn-primary w-100" type="submit">Zuordnen</button></div>
+        </form>
+      </div>
+    </div>
+  </div></section>
+  {% else %}<div class="alert alert-warning">Die Bank hat für diese Benutzerkennung keine SEPA-Konten geliefert.</div>{% endfor %}
+</main>
+{% endblock %}

@@ -183,26 +183,45 @@ CREATE TABLE IF NOT EXISTS finance_obligation(
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS finance_obligation_owner_idx
-    ON finance_obligation(owner, active, name COLLATE NOCASE, obligation_id);
+    ON finance_obligation(owner, active, kind, obligation_id);
 CREATE TABLE IF NOT EXISTS finance_transaction_match(
     match_id TEXT PRIMARY KEY, owner TEXT NOT NULL, transaction_id TEXT NOT NULL,
     source_type TEXT NOT NULL, source_id TEXT NOT NULL, score INTEGER NOT NULL DEFAULT 0,
+    allocated_cents INTEGER NOT NULL DEFAULT 0,
     state TEXT NOT NULL DEFAULT 'confirmed', note TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     UNIQUE(owner, transaction_id, source_type, source_id),
     FOREIGN KEY(transaction_id) REFERENCES finance_bank_transaction(transaction_id)
 );
+CREATE INDEX IF NOT EXISTS finance_match_tx_idx
+    ON finance_transaction_match(transaction_id, state);
 CREATE TABLE IF NOT EXISTS finance_bank_connection(
     connection_id TEXT PRIMARY KEY, owner TEXT NOT NULL, provider TEXT NOT NULL,
-    institution TEXT NOT NULL DEFAULT '', endpoint TEXT NOT NULL DEFAULT '',
-    login_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'configured',
-    last_successful_sync INTEGER, last_error TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    institution TEXT NOT NULL DEFAULT '', bank_code TEXT NOT NULL DEFAULT '',
+    endpoint TEXT NOT NULL DEFAULT '', login_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'configured', last_successful_sync INTEGER,
+    last_error TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
     UNIQUE(owner, provider, institution, login_id)
 );
+CREATE TABLE IF NOT EXISTS finance_bank_connection_account(
+    connection_id TEXT NOT NULL, remote_account_id TEXT NOT NULL,
+    account_id TEXT NOT NULL, remote_iban TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(connection_id, remote_account_id),
+    FOREIGN KEY(connection_id) REFERENCES finance_bank_connection(connection_id) ON DELETE CASCADE,
+    FOREIGN KEY(account_id) REFERENCES finance_account(account_id)
+);
 CREATE TABLE IF NOT EXISTS finance_tax_year(
-    owner TEXT NOT NULL, tax_year INTEGER NOT NULL, status TEXT NOT NULL,
+    owner TEXT NOT NULL, tax_year INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'collecting',
     submitted_on TEXT NOT NULL DEFAULT '', advisor_note TEXT NOT NULL DEFAULT '',
     updated_at INTEGER NOT NULL, PRIMARY KEY(owner, tax_year)
 );
+CREATE TABLE IF NOT EXISTS finance_tax_reference(
+    reference_id TEXT PRIMARY KEY, owner TEXT NOT NULL, tax_year INTEGER NOT NULL,
+    category TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '', evidence_type TEXT NOT NULL DEFAULT '',
+    carry_forward INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL,
+    UNIQUE(owner, tax_year, source_type, source_id)
+);
+CREATE INDEX IF NOT EXISTS finance_tax_reference_year_idx
+    ON finance_tax_reference(owner, tax_year, category);
 """

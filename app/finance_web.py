@@ -5,6 +5,7 @@ import hashlib
 import os
 import time
 from pathlib import Path
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
@@ -12,6 +13,9 @@ from .auth import login_required
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
+from .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts
+from .finance_fints_sync import FinTSSyncService
+from .finance_match_adapters import proposals_for_transaction
 from .safe_paths import safe_filename
 
 bp = Blueprint("finance", __name__, url_prefix="/finances")
@@ -170,6 +174,129 @@ def statement_commit():
             f"{result['possible_duplicates']} mögliche Dubletten."
         )
     return redirect(url_for(".index", account_id=account.get("account_id", request.form.get("account_id", ""))))
+
+
+@bp.post("/bank-connections")
+@login_required
+def create_bank_connection():
+    values = request.form.to_dict()
+    for key in ("pin", "tan", "password", "secret"):
+        values.pop(key, None)
+    try:
+        connection = _store().save_bank_connection(values, _actor())
+        flash("Bankverbindung gespeichert. Die PIN wurde nicht gespeichert.")
+        return redirect(url_for(".index", connection_id=connection["connection_id"]))
+    except ValueError as exc:
+        flash(f"Bankverbindung nicht gespeichert: {exc}")
+        return redirect(url_for(".index"))
+
+
+@bp.post("/bank-connections/<connection_id>/discover")
+@login_required
+def discover_bank_accounts(connection_id: str):
+    actor = _actor()
+    pin = request.form.get("pin", "")
+    try:
+        store = _store()
+        connection = store.bank_connection(connection_id, actor)
+        remote_accounts = discover_accounts(connection, pin)
+        local_accounts = store.accounts(actor)
+        suggestions = []
+        for remote in remote_accounts:
+            local = store.account_by_iban(remote.get("iban", ""), actor) if remote.get("iban") else None
+            suggestions.append({"remote": remote, "local": local})
+        return render_template("finance/bank_discovery.html", connection=connection, suggestions=suggestions, accounts=local_accounts)
+    except (ValueError, FinTSUnavailable) as exc:
+        flash(f"Konten konnten nicht abgerufen werden: {exc}")
+        return redirect(url_for(".index"))
+    finally:
+        pin = ""
+
+
+@bp.post("/bank-connections/<connection_id>/map-account")
+@login_required
+def map_bank_account(connection_id: str):
+    actor = _actor()
+    try:
+        mapping = _store().map_remote_account(connection_id, request.form.get("remote_account_id", ""), request.form.get("account_id", ""), request.form.get("remote_iban", ""), actor)
+        flash("Bankkonto wurde dem vorhandenen SimpleOffice-Konto zugeordnet.")
+        return redirect(url_for(".index", account_id=mapping["account_id"]))
+    except ValueError as exc:
+        flash(f"Kontozuordnung nicht gespeichert: {exc}")
+        return redirect(url_for(".index"))
+
+
+@bp.post("/bank-connections/<connection_id>/sync")
+@login_required
+def sync_bank_connection(connection_id: str):
+    actor = _actor()
+    pin = request.form.get("pin", "")
+    try:
+        result = FinTSSyncService(_store()).sync_connection(connection_id, pin, actor)
+        flash(
+            f"Bankabruf abgeschlossen: {result['created']} neu, "
+            f"{result['existing']} bereits vorhanden, "
+            f"{result['possible_duplicates']} mögliche Dubletten."
+        )
+    except FinTSAuthenticationRequired as exc:
+        _store().update_bank_connection_status(connection_id, actor, "authentication_required", error=str(exc))
+        flash(str(exc))
+    except (FinTSUnavailable, ValueError) as exc:
+        flash(f"Bankabruf nicht möglich: {exc}")
+    except Exception:
+        # Never surface library exception details here: a provider could include
+        # sensitive dialog material. The store contains a bounded diagnostic.
+        flash("Bankabruf fehlgeschlagen. Details stehen im Bankverbindungsstatus.")
+    finally:
+        pin = ""
+    return redirect(url_for(".index"))
+
+
+@bp.get("/transactions/<transaction_id>/matches")
+@login_required
+def transaction_matches(transaction_id: str):
+    actor = _actor()
+    try:
+        store = _store()
+        transaction = store.bank_transaction(transaction_id, actor)
+        proposals = proposals_for_transaction(_root(), store, transaction_id, actor)
+        confirmed = store.transaction_matches(transaction_id, actor)
+        allocation = store.transaction_match_allocation(transaction_id, actor)
+        return render_template(
+            "finance/transaction_matches.html",
+            transaction=transaction,
+            proposals=proposals,
+            confirmed=confirmed,
+            allocation=allocation,
+        )
+    except ValueError as exc:
+        flash(f"Zuordnung nicht möglich: {exc}")
+        return redirect(url_for(".index"))
+
+
+@bp.post("/transactions/<transaction_id>/matches")
+@login_required
+def confirm_transaction_match(transaction_id: str):
+    actor = _actor()
+    try:
+        try:
+            allocated_cents = int((Decimal(request.form.get("allocated_amount", "0").replace(",", ".")) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        except (InvalidOperation, ValueError):
+            raise ValueError("Ungültiger Zuordnungsbetrag")
+        match = _store().confirm_transaction_match(
+            transaction_id,
+            request.form.get("source_type", ""),
+            request.form.get("source_id", ""),
+            actor,
+            score=int(request.form.get("score", "0") or 0),
+            allocated_cents=allocated_cents,
+            note=request.form.get("note", ""),
+        )
+        flash("Bankumsatz wurde bestätigt zugeordnet. Die Rohbuchung blieb unverändert.")
+        return redirect(url_for(".transaction_matches", transaction_id=match["transaction_id"]))
+    except (ValueError, TypeError) as exc:
+        flash(f"Zuordnung nicht gespeichert: {exc}")
+        return redirect(url_for(".transaction_matches", transaction_id=transaction_id))
 
 
 def init_app(app) -> None:
