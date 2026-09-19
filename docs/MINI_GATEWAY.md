@@ -194,3 +194,34 @@ Reload ist keine Windows-Transaktion: Teiländerungen des gemeinsamen Forwarding
 und unklarer Ausgang bei Timeout sind möglich. Reale PowerShell-/Windows-NAT-
 Tests bleiben offen. Gemockte Systemgrenzen prüfen Befehlsreihenfolge,
 fehlende Löschbefehle, Fehlerweitergabe und Worker-Ressourcenerhalt.
+
+## Windows-Netzwechsel und Wiederherstellung
+
+Ein aktiver Wechsel von Präfix oder Modus unter demselben eigenen NAT-Namen
+verwendet weiterhin die vorhandenen Apply-/Stop-Funktionen. Scheitert die neue
+Konfiguration, wird zuerst deren Bereinigung bestätigt und anschließend die
+vorherige Konfiguration samt ursprünglicher Serveradresse wiederhergestellt.
+Die Aktion bleibt fehlgeschlagen; ein erfolgreicher Rollback wird als
+`rollback_restored` protokolliert und zunächst als `degraded` gemeldet.
+Die abgewiesene Umstellung wird nicht bei jedem Worker-Tick erneut versucht.
+Einstellungen korrigieren oder explizit erneut starten.
+
+Scheitert Stop, Bereinigung oder Wiederherstellung, erfolgt kein unkontrollierter
+Retry. Die Ownership-Datei bleibt für die noch unbestätigte Konfiguration
+erhalten; Status und eingerichtete Dienstrechte prüfen und gezielt Stop/Restart
+ausführen. Ein aktiver NAT-Namenswechsel wird vor jeder Netzwerkänderung
+abgewiesen, da der neue Name einer fremden Konfiguration gehören könnte.
+Dafür zuerst ausdrücklich stoppen; fremde NAT-Ressourcen nicht übernehmen.
+
+Das ist eine kompensierende Wiederherstellung, keine Windows-Transaktion:
+Verbindungen können während der Umstellung abbrechen, globales Forwarding wird
+nicht zurückgesetzt. Bei Prozess-/Systemabsturz während der Umstellung bleibt
+die bestehende Ownership-Crash-Bereinigung maßgeblich; eine automatische
+Wiederherstellung der alten Konfiguration über einen solchen Absturz hinweg
+wird nicht behauptet. Tests simulieren Windows-Systemgrenzen; reale
+Windows-/Paketflussabnahme bleibt erforderlich. Keine neue Abhängigkeit.
+
+Prüfstand: 50 relevante Gateway-/Recovery-/Netzwerk-/API-Tests erfolgreich;
+anschließend 13 Reload-Tests einschließlich ursprünglicher Serveradresse beim
+Rollback erneut bestanden. Policy-, Größen-, Compileall-, CRA- und Diff-Prüfung
+bestanden. `pip_audit` ist lokal nicht installiert; keine Installation vorgenommen.
