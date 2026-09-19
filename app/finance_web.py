@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from pathlib import Path
+from pathlib import Path\nfrom decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
@@ -275,13 +275,17 @@ def transaction_matches(transaction_id: str):
 def confirm_transaction_match(transaction_id: str):
     actor = _actor()
     try:
+        try:
+            allocated_cents = int((Decimal(request.form.get("allocated_amount", "0").replace(",", ".")) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        except (InvalidOperation, ValueError):
+            raise ValueError("Ungültiger Zuordnungsbetrag")
         match = _store().confirm_transaction_match(
             transaction_id,
             request.form.get("source_type", ""),
             request.form.get("source_id", ""),
             actor,
             score=int(request.form.get("score", "0") or 0),
-            allocated_cents=int(request.form.get("allocated_cents", "0") or 0),
+            allocated_cents=allocated_cents,
             note=request.form.get("note", ""),
         )
         flash("Bankumsatz wurde bestätigt zugeordnet. Die Rohbuchung blieb unverändert.")
