@@ -36,4 +36,9 @@ __all__ = [
     "StorageLocation",
     "StoredObject",
     "StoragePort",
+    "BlobIntegrityError",
+    "BlobStore",
+    "BlobVersion",
 ]
+
+from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
