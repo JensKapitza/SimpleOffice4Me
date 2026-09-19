@@ -12,7 +12,13 @@ from app.federation_discovery_endpoint import (
     normalize_endpoint,
     validate_discovery_endpoint,
 )
-from app.federation_discovery_lan import _targets, discover_lan, is_private_lan_ipv4, scan_ports
+from app.federation_discovery_lan import (
+    _targets,
+    discover_lan,
+    is_private_lan_ipv4,
+    local_lan_addresses,
+    scan_ports,
+)
 from app.federation_discovery_service import discover_direct
 from app.federation_qr import decode_peer, encode_peer
 from app.federation_rendezvous_store import FederationRendezvousStore
@@ -141,6 +147,36 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             self.assertTrue(is_private_lan_ipv4(value), value)
         for value in ("8.8.8.8", "169.254.1.1", "127.0.0.1", "::1"):
             self.assertFalse(is_private_lan_ipv4(value), value)
+
+    def test_lan_addresses_use_valid_native_override_and_ignore_non_rfc1918(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_FEDERATION_LAN_ADDRESS":
+                    "192.168.42.7,8.8.8.8,127.0.0.1,169.254.1.2,10.0.0.9,192.168.42.7"
+            },
+            clear=False,
+        ), patch("app.federation_discovery_lan.socket.getaddrinfo", side_effect=socket.gaierror), patch(
+            "app.federation_discovery_lan.socket.socket"
+        ) as socket_factory:
+            probe = socket_factory.return_value
+            probe.connect.side_effect = OSError
+            self.assertEqual(["192.168.42.7", "10.0.0.9"], local_lan_addresses())
+
+    def test_android_without_native_wifi_or_ethernet_address_does_not_use_socket_fallback(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_ANDROID": "1",
+                "SIMPLEOFFICE_FEDERATION_LAN_ADDRESS": "",
+            },
+            clear=False,
+        ), patch("app.federation_discovery_lan.socket.getaddrinfo") as getaddrinfo, patch(
+            "app.federation_discovery_lan.socket.socket"
+        ) as socket_factory:
+            self.assertEqual([], local_lan_addresses())
+        getaddrinfo.assert_not_called()
+        socket_factory.assert_not_called()
 
     def test_lan_ports_are_bounded(self):
         with patch.dict(

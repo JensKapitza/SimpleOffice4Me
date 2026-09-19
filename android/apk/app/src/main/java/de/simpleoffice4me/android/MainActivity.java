@@ -842,7 +842,13 @@ public class MainActivity extends Activity {
             if (!Python.isStarted()) Python.start(new AndroidPlatform(this));
             Python python = Python.getInstance();
             PyObject module = python.getModule("android_runtime");
-            module.callAttr("start", runtimeRoot.getAbsolutePath(), BuildConfig.ERROR_REPORT_URL);
+            module.callAttr(
+                    "start",
+                    runtimeRoot.getAbsolutePath(),
+                    BuildConfig.ERROR_REPORT_URL,
+                    "",
+                    "",
+                    AndroidLanNetwork.localPrivateIpv4(this));
             showStatus("Lokales Backend wird geprüft …", true);
             waitForBackend();
             mainHandler.post(() -> {
@@ -857,6 +863,23 @@ public class MainActivity extends Activity {
             String detail = error.getMessage();
             if (detail == null || detail.trim().isEmpty()) detail = error.getClass().getSimpleName();
             showStatus("Start fehlgeschlagen:\n" + detail, false);
+        }
+    }
+
+    protected final void syncLanAddressesToBackend() {
+        if (!Python.isStarted() || executor.isShutdown()) return;
+        try {
+            executor.execute(() -> {
+                try {
+                    Python.getInstance()
+                            .getModule("android_runtime")
+                            .callAttr("set_lan_addresses", AndroidLanNetwork.localPrivateIpv4(this));
+                } catch (RuntimeException ignored) {
+                    // Discovery still has the normal socket-based fallback.
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // Activity shutdown may race with a late Android network callback.
         }
     }
 

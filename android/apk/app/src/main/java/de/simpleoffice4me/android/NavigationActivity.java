@@ -106,6 +106,7 @@ public final class NavigationActivity extends MainActivity {
         } catch (RuntimeException ignored) {
         }
         internetAvailable = available;
+        syncLanAddressesToBackend();
         runOnUiThread(this::publishNetworkState);
     }
 
