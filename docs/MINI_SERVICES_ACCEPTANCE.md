@@ -1,6 +1,6 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 17.09.2026, gemeinsamer Stand von PR #296 und #298 einschließlich Audio-Programmprüfung und Linux-Gateway-Recovery/Reload/Regelinhaltsprüfung.
+Stand: 18.09.2026, gemeinsamer Stand von PR #296 und #298 einschließlich Audio-Programmprüfung und Linux-Gateway-Recovery/Reload/Regelinhaltsprüfung; CLI-Erweiterung aus PR #307.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
 und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
@@ -29,7 +29,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Standardwerte | V | V | V | V | V | V | V | V | V | Sichere Bindings/Opt-in; DHCP-Netz nicht automatisch erraten |
 | Validierung | V | V | V | V | V | V | V | V | V | Vor Start/Änderung; Audio-Portpaar und boolesche Schalter geprüft |
 | UI | T | T | T | T | T | T | T | T | T | Gemeinsame Aktionen und geführte Bootprofile vorhanden; vollständige visuelle Prüfung fehlt |
-| CLI | V | V | V | V | V | T | T | T | T | start.sh steuert Eigentümer; kein gleichwertiger Fach-CLI für alle Webdienste |
+| CLI | V | V | V | V | V | V | V | V | V | Einzeldienst-Lifecycle/Status über Mailbox bzw. authentifizierte bestehende Web-API; Scan über Web-API; Windows-Terminalabnahme offen |
 | API | V | V | V | V | V | V | V | V | V | Gemeinsame Admin-/CSRF-API plus bestehende Fachrouten |
 | Fehlerbehandlung | V | V | V | T | V | V | V | V | V | Verständliche Antworten, erhaltene Formulare, isolierte Speicherfehler |
 | Logging | T | T | T | T | T | T | T | T | T | Strukturierte gemeinsame Fehler; noch kein vollständiger Audit aller alten Logpfade |
@@ -98,7 +98,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 | Netzwerkdienste | IPv6-Netzwechsel | Linux-/Windows-Inventar und Binding-Recovery implementiert; reale LAN-/Windows-Abnahme offen | OS-Grenzen im Test gemockt; DHCP/Gateway bleiben IPv4-only | Reale Linkwechsel prüfen; DNS-IPv6-Loopback separat getestet |
 | HTTP/TFTP | Bedienung | Geführter Profileditor umgesetzt; tatsächlicher Booterfolg ungeprüft | Bootdateien und Kernel-Parameter hängen vom Client ab | Reale PXE-Clients mit den angelegten Profilen prüfen |
 | Alle | Mobile/Accessibility | Kein visueller Konformitätsnachweis | Browser blockiert lokale Testseite mit ERR_BLOCKED_BY_CLIENT | Desktop/Tablet/Smartphone/WebView samt Fokus/Kontrast prüfen |
-| Alle | CLI/Logs/Tests | Noch nicht jeder relevante Aspekt gleichwertig | Historische Fachpfade und unvollständige Negativfallabdeckung | Verbleibende T/F/?-Zeilen gezielt abarbeiten |
+| Alle | Logs/Tests | Noch nicht jeder relevante Aspekt gleichwertig | Historische Fachpfade und unvollständige Negativfallabdeckung | Verbleibende T/F/?-Zeilen gezielt abarbeiten |
 
 Diese Punkte sind keine pauschalen Ausnahmen vom Auftrag. Fehlende Implementierung
 bleibt offen; Umgebungsgrenzen werden getrennt davon benannt. Die PRs bleiben Draft,
@@ -281,3 +281,21 @@ Python-/JavaScript-Syntax sowie Diff geprüft. Kein Nachweis für separat defini
 pytest-Funktionen oder reale Hardware-/Mobile-Abnahme. Auf dem RTP-Commit
 f5e791a9 sind zusätzlich Android-APK, Desktop, Docker und Security-Quick-Wins
 in CI erfolgreich; Tests/Audit waren beim Abruf noch in Arbeit.
+
+### CLI-Erweiterung vom 18.09.2026 (PR #307)
+
+Audio-Sender, Audio-Receiver, Audio-Ausgabe und HTTP-Boot unterstützen jetzt
+Start/Stop/Restart/Status/Scan über `start.sh mini-services --service …`.
+Netzwerk-Scans verwenden ebenfalls die bestehende Web-API. Die Dienstverantwortung
+bleibt im bisherigen Prozess; der CLI-Client importiert keine Flask-App.
+
+32 gezielte CLI-/API-Tests bestanden, darunter echte HTTP-Anmeldung mit Cookie-
+und CSRF-Rotation, Rollenprüfung, abgewiesenes altes Token, bestehende Audio-
+Manager, HTTP-Boot-Dateispeicher, DNS-Scan, Timeout ohne Wiederholung, begrenzte
+Antwortgröße und abgewiesene Weiterleitungen. Keine neue Dependency.
+
+Technische Grenze: Webaktionen benötigen einen laufenden Webprozess und ein
+lokales Admin-Passwort; Konfiguration erfolgt weiterhin über UI/API. HTTP ist auf
+explizite Loopback-Adressen beschränkt (auch IPv6), sonst HTTPS. Diese CLI-Prüfung
+bestätigt keine IPv6-Unterstützung des zugrunde liegenden RTP-Audiotransports und
+keine physische Audioausgabe. Reale Windows-/Android-Terminaltests bleiben offen.
