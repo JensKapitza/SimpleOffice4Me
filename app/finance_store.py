@@ -57,6 +57,9 @@ class FinanceStore:
             columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(finance_bank_connection)").fetchall()}
             if columns and "bank_code" not in columns:
                 db.execute("ALTER TABLE finance_bank_connection ADD COLUMN bank_code TEXT NOT NULL DEFAULT ''")
+            match_columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(finance_transaction_match)").fetchall()}
+            if match_columns and "allocated_cents" not in match_columns:
+                db.execute("ALTER TABLE finance_transaction_match ADD COLUMN allocated_cents INTEGER NOT NULL DEFAULT 0")
 
     @staticmethod
     def _actor(value: Any) -> str:
