@@ -70,7 +70,8 @@
         <label for="announcement-remote-host" class="form-label">Private IPv4-Adresse des Empfängers</label>
         <input id="announcement-remote-host" class="form-control mb-2" inputmode="decimal" required>
         <label for="announcement-remote-port" class="form-label">RTP-Port (Folgeport für RTCP)</label>
-        <input id="announcement-remote-port" class="form-control mb-2" type="number" min="1024" max="65534" value="5004" required>
+        <input id="announcement-remote-port" class="form-control mb-2" type="number" min="1024" max="65534" value="5004" required aria-describedby="announcement-remote-port-help">
+        <div class="form-text mb-2" id="announcement-remote-port-help">RTP nutzt diesen UDP-Port, RTCP den Folgeport. „Gesendet“ bestätigt nur den Transportversuch, nicht die physische Wiedergabe am Empfänger.</div>
         <label for="announcement-remote-volume" class="form-label">Lautstärke in Prozent</label>
         <input id="announcement-remote-volume" class="form-control mb-2" type="number" min="0" max="100" value="100" required>
         <button type="submit" class="btn btn-primary">Empfänger speichern</button>
