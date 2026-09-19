@@ -1,0 +1,514 @@
+/* Project management UI: compact, mobile-first and consistent with SimpleOffice. */
+.project-ui {
+  --project-accent: var(--so-primary);
+  --project-soft: #ecfdf5;
+  --project-blue-soft: #e0f2fe;
+  --project-warning-soft: #fff7dd;
+  --project-danger-soft: #fee2e2;
+  --project-card-shadow: 0 .45rem 1.4rem rgba(15, 23, 42, .07);
+  padding-bottom: 2rem;
+}
+.project-ui .project-page-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1.4rem;
+}
+.project-ui .project-page-title {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 750;
+  letter-spacing: -.035em;
+  line-height: 1.05;
+  margin: 0;
+}
+.project-ui .project-page-subtitle {
+  color: var(--so-muted);
+  font-size: 1.05rem;
+  margin: .35rem 0 0;
+}
+.project-ui .project-card,
+.project-ui .project-panel {
+  background: var(--so-surface);
+  border: 1px solid var(--so-border);
+  border-radius: 1rem;
+  box-shadow: var(--project-card-shadow);
+}
+.project-ui .project-toolbar {
+  align-items: center;
+  display: grid;
+  gap: .75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: .75rem;
+}
+.project-ui .project-search {
+  position: relative;
+}
+.project-ui .project-search > i {
+  color: var(--so-muted);
+  left: 1rem;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.project-ui .project-search .form-control {
+  min-height: 3rem;
+  padding-left: 2.75rem;
+}
+.project-ui .project-filter {
+  min-height: 3rem;
+  min-width: 10rem;
+}
+.project-ui .project-list-meta {
+  align-items: center;
+  color: var(--so-muted);
+  display: flex;
+  font-size: .92rem;
+  justify-content: space-between;
+  margin: .85rem 0;
+}
+.project-ui .project-list {
+  display: grid;
+  gap: 1rem;
+}
+.project-ui .project-list-card {
+  padding: 1.15rem;
+}
+.project-ui .project-list-head {
+  align-items: flex-start;
+  display: grid;
+  gap: .9rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.project-ui .project-icon {
+  align-items: center;
+  background: var(--project-soft);
+  border-radius: .9rem;
+  color: #047857;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 1.35rem;
+  height: 3.25rem;
+  justify-content: center;
+  width: 3.25rem;
+}
+.project-ui .project-title-link {
+  color: var(--so-body-color);
+  font-size: 1.2rem;
+  font-weight: 750;
+  line-height: 1.25;
+  text-decoration: none;
+}
+.project-ui .project-title-link:hover {
+  color: var(--project-accent);
+}
+.project-ui .project-meta-line {
+  align-items: center;
+  color: var(--so-muted);
+  display: flex;
+  font-size: .92rem;
+  gap: .5rem;
+  margin-top: .3rem;
+}
+.project-ui .status-chip {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: .88rem;
+  font-weight: 650;
+  gap: .45rem;
+  padding: .38rem .7rem;
+  white-space: nowrap;
+}
+.project-ui .status-chip::before {
+  background: currentColor;
+  border-radius: 50%;
+  content: "";
+  height: .48rem;
+  width: .48rem;
+}
+.project-ui .status-open,
+.project-ui .status-active,
+.project-ui .status-completed {
+  background: var(--project-soft);
+  color: #047857;
+}
+.project-ui .status-in_progress {
+  background: var(--project-blue-soft);
+  color: #0369a1;
+}
+.project-ui .status-waiting {
+  background: var(--project-warning-soft);
+  color: #a16207;
+}
+.project-ui .status-cancelled {
+  background: #eef2f7;
+  color: #64748b;
+}
+.project-ui .project-progress-row {
+  align-items: center;
+  display: grid;
+  gap: .8rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin-top: 1rem;
+}
+.project-ui .project-progress-label {
+  font-size: .9rem;
+  font-weight: 650;
+  min-width: 6rem;
+}
+.project-ui .project-progress-track {
+  background: #e8edf3;
+  border-radius: 999px;
+  height: .6rem;
+  overflow: hidden;
+}
+.project-ui .project-progress-bar {
+  background: var(--project-accent);
+  border-radius: inherit;
+  height: 100%;
+  min-width: 0;
+}
+.project-ui .project-metrics {
+  border-top: 1px solid var(--so-border);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1rem;
+  padding-top: .85rem;
+}
+.project-ui .project-metric {
+  align-items: center;
+  display: flex;
+  gap: .55rem;
+  justify-content: center;
+  min-width: 0;
+  padding: .25rem .55rem;
+}
+.project-ui .project-metric + .project-metric {
+  border-left: 1px solid var(--so-border);
+}
+.project-ui .project-metric i {
+  color: var(--so-muted);
+  font-size: 1.05rem;
+}
+.project-ui .project-metric strong {
+  display: block;
+  font-size: 1.05rem;
+  line-height: 1.15;
+}
+.project-ui .project-metric span {
+  color: var(--so-muted);
+  display: block;
+  font-size: .76rem;
+  line-height: 1.15;
+}
+.project-ui .project-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 1rem;
+  margin-top: 1rem;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+.project-ui .project-empty-icon {
+  align-items: center;
+  background: var(--project-soft);
+  border-radius: 50%;
+  color: #047857;
+  display: inline-flex;
+  font-size: 1.45rem;
+  height: 3.5rem;
+  justify-content: center;
+  margin-bottom: .75rem;
+  width: 3.5rem;
+}
+.project-ui .project-create-card {
+  margin-bottom: 1.25rem;
+}
+.project-ui .project-create-card .card-body {
+  padding: 1.2rem;
+}
+.project-ui .project-hero {
+  align-items: flex-start;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-bottom: 1.25rem;
+}
+.project-ui .project-hero .project-icon {
+  height: 4rem;
+  width: 4rem;
+}
+.project-ui .project-hero h1 {
+  font-size: clamp(1.8rem, 5vw, 2.45rem);
+  font-weight: 780;
+  letter-spacing: -.035em;
+  margin: 0;
+}
+.project-ui .project-section {
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.project-ui .project-section-header {
+  align-items: center;
+  display: flex;
+  gap: .7rem;
+  justify-content: space-between;
+  padding: 1rem 1.1rem;
+}
+.project-ui .project-section-title {
+  align-items: center;
+  display: flex;
+  font-size: 1.15rem;
+  font-weight: 750;
+  gap: .6rem;
+  margin: 0;
+}
+.project-ui .project-section-body {
+  border-top: 1px solid var(--so-border);
+  padding: 1rem 1.1rem;
+}
+.project-ui .project-info-grid {
+  display: grid;
+  gap: .75rem 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.project-ui .project-info-item {
+  display: grid;
+  gap: .6rem;
+  grid-template-columns: 1.4rem 6rem minmax(0, 1fr);
+}
+.project-ui .project-info-item i,
+.project-ui .project-info-label {
+  color: var(--so-muted);
+}
+.project-ui .project-info-value {
+  font-weight: 600;
+  min-width: 0;
+}
+.project-ui .project-task-list {
+  display: grid;
+}
+.project-ui .project-task-row {
+  align-items: center;
+  display: grid;
+  gap: .75rem;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  padding: .85rem 0;
+}
+.project-ui .project-task-row + .project-task-row {
+  border-top: 1px solid var(--so-border);
+}
+.project-ui .project-task-check {
+  align-items: center;
+  border: 1.5px solid #94a3b8;
+  border-radius: 50%;
+  display: inline-flex;
+  height: 1.7rem;
+  justify-content: center;
+  width: 1.7rem;
+}
+.project-ui .project-task-row[data-task-status="completed"] .project-task-check {
+  background: var(--project-soft);
+  border-color: #10b981;
+  color: #047857;
+}
+.project-ui .project-task-title {
+  color: var(--so-body-color);
+  font-weight: 700;
+  text-decoration: none;
+}
+.project-ui .project-task-meta {
+  color: var(--so-muted);
+  font-size: .84rem;
+  margin-top: .2rem;
+}
+.project-ui .project-quick-actions {
+  display: grid;
+  gap: .65rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.project-ui .project-quick-action {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--so-border);
+  border-radius: .75rem;
+  color: var(--so-body-color);
+  display: flex;
+  flex-direction: column;
+  font-size: .83rem;
+  gap: .45rem;
+  justify-content: center;
+  min-height: 5rem;
+  padding: .65rem;
+  text-align: center;
+  text-decoration: none;
+}
+.project-ui .project-quick-action:hover {
+  background: var(--project-soft);
+  color: var(--project-accent);
+}
+.project-ui .project-quick-action i {
+  font-size: 1.2rem;
+}
+.project-ui .project-task-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem;
+  margin-bottom: 1rem;
+}
+.project-ui .project-filter-chip {
+  background: var(--so-surface);
+  border: 1px solid var(--so-border);
+  border-radius: 999px;
+  color: var(--so-body-color);
+  min-height: 2.5rem;
+  padding: .45rem .85rem;
+}
+.project-ui .project-filter-chip.active {
+  background: var(--project-soft);
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+.project-ui .project-task-card {
+  padding: 1rem;
+}
+.project-ui .project-task-card + .project-task-card {
+  margin-top: .8rem;
+}
+.project-ui .project-task-card-head {
+  align-items: start;
+  display: grid;
+  gap: .8rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.project-ui .project-task-card .collapse,
+.project-ui .project-task-card .collapsing {
+  border-top: 1px solid var(--so-border);
+  margin-top: .9rem;
+  padding-top: .9rem;
+}
+.project-ui .project-task-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1rem;
+}
+.project-ui .project-task-detail {
+  color: var(--so-muted);
+  font-size: .86rem;
+}
+.project-ui .project-task-detail i {
+  margin-right: .35rem;
+  width: 1rem;
+}
+.project-ui .advanced-project-section > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-weight: 700;
+  gap: .6rem;
+  justify-content: space-between;
+  list-style: none;
+  padding: 1rem 1.1rem;
+}
+.project-ui .advanced-project-section > summary::-webkit-details-marker {
+  display: none;
+}
+.project-ui .advanced-project-section > summary::after {
+  content: "\f078";
+  font-family: "Font Awesome 7 Free";
+  font-weight: 900;
+}
+.project-ui .advanced-project-section[open] > summary::after {
+  content: "\f077";
+}
+[data-bs-theme="dark"] .project-ui {
+  --project-soft: #0f3d38;
+  --project-blue-soft: #0c3248;
+  --project-warning-soft: #493a12;
+  --project-danger-soft: #4c1d1d;
+  --project-card-shadow: 0 .45rem 1.4rem rgba(0, 0, 0, .22);
+}
+[data-bs-theme="dark"] .project-ui .project-progress-track {
+  background: #273449;
+}
+[data-bs-theme="dark"] .project-ui .project-empty {
+  border-color: #475569;
+}
+@media (max-width: 767.98px) {
+  .project-ui .project-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .project-ui .project-filter {
+    width: 100%;
+  }
+  .project-ui .project-list-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .project-ui .project-list-head > .status-chip {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .project-ui .project-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .project-ui .project-metric:nth-child(3) {
+    border-left: 0;
+  }
+  .project-ui .project-metric:nth-child(n+3) {
+    border-top: 1px solid var(--so-border);
+    margin-top: .45rem;
+    padding-top: .65rem;
+  }
+  .project-ui .project-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .project-ui .project-hero > .status-chip {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .project-ui .project-info-grid {
+    grid-template-columns: 1fr;
+  }
+  .project-ui .project-quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 575.98px) {
+  .project-ui {
+    padding-top: 1rem !important;
+  }
+  .project-ui .project-page-header .btn {
+    width: 100%;
+  }
+  .project-ui .project-list-card {
+    padding: .95rem;
+  }
+  .project-ui .project-icon {
+    height: 2.85rem;
+    width: 2.85rem;
+  }
+  .project-ui .project-progress-row {
+    grid-template-columns: 1fr;
+    gap: .4rem;
+  }
+  .project-ui .project-task-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .project-ui .project-task-row > .status-chip {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .project-ui .project-task-row > .btn {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+  .project-ui .project-task-card-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .project-ui .project-task-card-head > .status-chip {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
