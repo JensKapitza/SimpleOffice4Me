@@ -32,6 +32,7 @@ class MediaRendererWorkerIntegrationTests(unittest.TestCase):
     def test_worker_registers_renderer_but_default_config_does_not_start_it(self):
         worker = Worker(self.path)
         worker.control.save_preferences("sip", {"enabled": False, "autostart": False})
+        worker.preferences = worker.control.preferences()
         self.assertIn("media-renderer", worker.states)
         with patch("tools.mini_services.MediaRendererService") as renderer:
             worker._load_network_services()
