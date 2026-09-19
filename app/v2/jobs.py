@@ -167,7 +167,7 @@ class PersistentJobStore:
             return current
         now = int(time.time())
         with self._db() as db:
-            row = db.execute("SELECT payload_json FROM job WHERE job_id=?", (job_id,)).fetchone()
+            row = db.execute("SELECT payload_json,lease_owner,lease_until FROM job WHERE job_id=?", (job_id,)).fetchone()
             current_payload = json.loads(row["payload_json"])
             next_payload = dict(current_payload)
             if payload:
@@ -179,8 +179,8 @@ class PersistentJobStore:
                     state.value,
                     _json(next_payload),
                     str(error)[:2000],
-                    "" if clear_lease else None,
-                    0 if clear_lease else None,
+                    "" if clear_lease else str(row["lease_owner"]),
+                    0 if clear_lease else int(row["lease_until"]),
                     now,
                     job_id,
                 ),
