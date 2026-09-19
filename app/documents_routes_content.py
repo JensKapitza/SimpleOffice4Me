@@ -276,7 +276,20 @@ def projects():
             return redirect(url_for("documents.project_detail", project_id=project["project_id"]))
         except ValueError as exc:
             flash(str(exc))
-    return render_template("documents/projects.html", projects=_projects().projects())
+    actor = str(g.user["username"])
+    project_rows = _projects().projects()
+    _todos().migrate_project_tasks(project_rows, actor)
+    project_rows = [
+        {**project, "tasks": _todos().project_tasks(project["project_id"], actor)}
+        for project in project_rows
+    ]
+    return render_template("documents/projects.html", projects=project_rows)
+
+
+def _project_with_tasks(project_id: str, actor: str) -> dict[str, Any]:
+    project = _projects().project(project_id)
+    _todos().migrate_project_tasks([project], actor)
+    return {**project, "tasks": _todos().project_tasks(project_id, actor)}
 
 
 @bp.route("/projects/<project_id>", methods=("GET", "POST"))
@@ -285,14 +298,12 @@ def project_detail(project_id: str):
     actor = str(g.user["username"])
     try:
         if request.method == "POST":
-            _projects().update_project(project_id, request.form.to_dict(), str(g.user["username"]))
+            _projects().update_project(project_id, request.form.to_dict(), actor)
             flash("Projekt gespeichert.")
             return redirect(url_for("documents.project_detail", project_id=project_id))
-        project = _projects().project(project_id)
+        project = _project_with_tasks(project_id, actor)
     except ValueError as exc:
         flash(str(exc)); return redirect(url_for("documents.projects"))
-    _todos().migrate_project_tasks([project], actor)
-    project = {**project, "tasks": _todos().project_tasks(project_id, actor)}
     linked_documents = []
     for document_id in project.get("document_ids", []):
         try:
@@ -306,6 +317,18 @@ def project_detail(project_id: str):
     )
 
 
+@bp.get("/projects/<project_id>/tasks")
+@login_required
+def project_tasks(project_id: str):
+    actor = str(g.user["username"])
+    try:
+        project = _project_with_tasks(project_id, actor)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("documents.projects"))
+    return render_template("documents/project_tasks.html", project=project)
+
+
 @bp.post("/projects/<project_id>/tasks")
 @login_required
 def add_project_task(project_id: str):
@@ -315,6 +338,8 @@ def add_project_task(project_id: str):
         _todos().add(values.get("title", ""), actor, values)
         flash("Aufgabe angelegt.")
     except ValueError as exc: flash(str(exc))
+    if request.form.get("return_to") == "project_tasks":
+        return redirect(url_for("documents.project_tasks", project_id=project_id) + "#new-task")
     return redirect(url_for("documents.project_detail", project_id=project_id) + "#aufgaben")
 
 
@@ -326,6 +351,8 @@ def update_project_task(project_id: str, task_id: str):
         _todos().update(task_id, values, str(g.user["username"]))
         flash("Aufgabe gespeichert.")
     except ValueError as exc: flash(str(exc))
+    if request.form.get("return_to") == "project_tasks":
+        return redirect(url_for("documents.project_tasks", project_id=project_id) + f"#task-{task_id}")
     return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
 
 
@@ -338,6 +365,8 @@ def book_project_task_time(project_id: str, task_id: str):
         flash(f"{entry['minutes'] // 60}:{entry['minutes'] % 60:02d} Stunden gebucht.")
     except ValueError as exc:
         flash(str(exc))
+    if request.form.get("return_to") == "project_tasks":
+        return redirect(url_for("documents.project_tasks", project_id=project_id) + f"#task-{task_id}")
     return redirect(url_for("documents.project_detail", project_id=project_id) + f"#task-{task_id}")
 
 
