@@ -53,7 +53,7 @@
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
         <h2 class="h5 mb-0"><i class="fas fa-circle-plus me-2 text-success" aria-hidden="true"></i>Neue Aufgabe anlegen</h2>
-        <button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#new-task" aria-label="Schließen"></button>
+        <button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#new-task" aria-expanded="true" aria-controls="new-task" aria-label="Schließen"></button>
       </div>
       <form method="post" action="{{ url_for('documents.add_project_task', project_id=project.project_id) }}" class="row g-3">
         <input type="hidden" name="return_to" value="project_tasks">
@@ -63,7 +63,7 @@
         <div class="col-md-6"><label class="form-label" for="new-task-resources">Ressourcen</label><input id="new-task-resources" name="resources" class="form-control" placeholder="Personen oder Ressourcen, kommagetrennt"></div>
         <div class="col-md-6"><label class="form-label" for="new-task-predecessors">Voraussetzungen</label><select id="new-task-predecessors" name="predecessors" multiple class="form-select">{% for task in project.tasks if task.status != 'cancelled' %}<option value="{{ task.task_id }}">{{ task.title }}</option>{% endfor %}</select><div class="form-text">Mehrfachauswahl ist möglich.</div></div>
         <div class="col-12"><label class="form-label" for="new-task-description">Beschreibung</label><textarea id="new-task-description" name="description" class="form-control" rows="3" placeholder="Beschreibung …"></textarea></div>
-        <div class="col-12 d-flex flex-wrap justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#new-task">Abbrechen</button><button type="submit" class="btn btn-primary">Aufgabe erstellen</button></div>
+        <div class="col-12 d-flex flex-wrap justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#new-task" aria-expanded="true" aria-controls="new-task">Abbrechen</button><button type="submit" class="btn btn-primary">Aufgabe erstellen</button></div>
       </form>
     </div>
   </section>
