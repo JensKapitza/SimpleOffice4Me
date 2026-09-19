@@ -41,7 +41,7 @@ banking = [
 simpleoffice-sftp = "app.sftp_server:serve"
 
 [tool.setuptools]
-packages = ["app", "app.library", "app.v2"]
+packages = ["app", "app.library", "app.v2", "app.v2.adapters"]
 py-modules = [
   "simpleoffice_version",
   "simpleoffice_mini_core",
