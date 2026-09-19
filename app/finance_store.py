@@ -172,6 +172,16 @@ class FinanceStore:
             row = db.execute("SELECT * FROM finance_bank_connection WHERE connection_id=? AND owner=?", (connection_id, actor)).fetchone()
         return dict(row)
 
+    def bank_transaction(self, transaction_id: str, actor: str) -> dict[str, Any]:
+        actor = self._actor(actor)
+        with self._db() as db:
+            row = db.execute("""SELECT t.* FROM finance_bank_transaction t
+                                JOIN finance_account a ON a.account_id=t.account_id
+                                WHERE t.transaction_id=? AND a.owner=?""",
+                             (text(transaction_id, 100), actor)).fetchone()
+        if not row: raise ValueError("bank transaction not found")
+        return dict(row)
+
     def bank_transactions(self, account_id: str, actor: str, *, limit: int = 500) -> list[dict[str, Any]]:
         actor, limit = self._actor(actor), max(1, min(int(limit), 5000))
         with self._db() as db:
