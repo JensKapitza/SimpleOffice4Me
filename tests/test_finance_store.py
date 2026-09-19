@@ -16,6 +16,29 @@ class FinanceStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_existing_database_upgrade_preserves_accounts_and_new_records(self):
+        # Reproduce the previous schema without the four missing tables.
+        with self.store._db() as db:
+            for table in ("finance_obligation", "finance_transaction_match",
+                          "finance_bank_connection", "finance_tax_year"):
+                db.execute("DROP TABLE " + table)
+        upgraded = FinanceStore(self.root)
+        self.assertEqual(self.account, upgraded.account_by_iban(self.account["iban"], "jens"))
+        obligation = upgraded.create_obligation({
+            "name": "Miete", "amount_cents": 10000, "starts_on": "2026-01-01"
+        }, "jens")
+        connection = upgraded.save_bank_connection({"provider": "fints", "login_id": "demo"}, "jens")
+        upgraded.set_tax_year_status(2026, "collecting", "jens")
+        reopened = FinanceStore(self.root)
+        self.assertEqual([obligation], reopened.obligations("jens"))
+        self.assertEqual([], reopened.obligations("other"))
+        self.assertEqual(connection, reopened.save_bank_connection({"provider": "fints", "login_id": "demo"}, "jens"))
+        with reopened._db() as db:
+            self.assertEqual("collecting", db.execute(
+                "SELECT status FROM finance_tax_year WHERE owner='jens' AND tax_year=2026"
+            ).fetchone()[0])
+            self.assertEqual([], db.execute("PRAGMA foreign_key_check").fetchall())
+
     def test_account_discovery_reuses_existing_iban(self):
         found = self.store.account_by_iban("DE02 1203 0000 0000 2020 51", "jens")
         self.assertEqual(self.account["account_id"], found["account_id"])

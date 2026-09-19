@@ -14,6 +14,15 @@ from app.personnel_time_analytics import ensure_schema, run_auto_sync_once, site
 
 class PersonnelTimeAnalyticsTest(unittest.TestCase):
     def setUp(self):
+        # Keep punches in an open month and in the past, regardless of wall clock.
+        now = datetime(2026, 9, 18, 18, tzinfo=personnel._personnel_timezone())
+        clock = patch("app.personnel._local_now", return_value=now)
+        clock.start()
+        self.addCleanup(clock.stop)
+        stamp_clock = patch("app.personnel_time_insights.datetime", wraps=datetime)
+        mocked_datetime = stamp_clock.start()
+        mocked_datetime.now.return_value = now.astimezone(timezone.utc)
+        self.addCleanup(stamp_clock.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
