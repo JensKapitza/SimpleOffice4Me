@@ -3,7 +3,7 @@ from flask import Blueprint, Response, current_app, flash, g, redirect, render_t
 
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
-from .federation_discovery_lan import discover_lan, scan_ports
+from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_lan_receive_state import LanReceiveState
@@ -24,6 +24,19 @@ def _root():
 
 def _receive_state():
     return LanReceiveState(_root())
+
+
+def _lan_connect_profiles():
+    port = scan_ports()[0]
+    result = []
+    for address in local_lan_addresses():
+        endpoint = f"http://{address}:{port}"
+        try:
+            profile = local_profile(_root(), endpoint, prefer_fallback=True)
+        except ValueError:
+            continue
+        result.append({"address": address, "port": port, "endpoint": endpoint, "payload": encode_peer(profile)})
+    return result
 
 
 def _unavailable_qr_svg() -> str:
@@ -67,6 +80,7 @@ def dashboard():
         peers=peers,
         own=own,
         own_qr=own_qr,
+        lan_connect_profiles=_lan_connect_profiles(),
         lan_receive=_receive_state().status(),
     )
 
@@ -96,6 +110,15 @@ def qr_svg():
     except ValueError:
         svg = _unavailable_qr_svg()
     return Response(svg, content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+
+
+@bp.get("/qr/lan/<int:index>.svg")
+@admin_required
+def lan_qr_svg(index):
+    profiles = _lan_connect_profiles()
+    if index < 0 or index >= len(profiles):
+        return Response(_unavailable_qr_svg(), status=404, content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+    return Response(render_qr_svg(profiles[index]["payload"]), content_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 
 @bp.post("/discover/lan")

@@ -13,11 +13,18 @@ def local_peer_id():
     return sanitize_peer_id(raw_id)
 
 
-def local_profile(root=None, fallback_base_url=""):
+def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
+    """Build the local public profile.
+
+    prefer_fallback is reserved for an explicitly selected local endpoint,
+    such as a LAN connect QR code. This keeps the normal published profile on
+    its configured public URL while allowing one QR code per reachable LAN
+    address without changing global configuration.
+    """
     peer_id = local_peer_id()
-    base_url = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "").strip()
-    if not base_url:
-        base_url = str(fallback_base_url or "").strip()
+    configured_url = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "").strip()
+    fallback_url = str(fallback_base_url or "").strip()
+    base_url = fallback_url if prefer_fallback and fallback_url else configured_url or fallback_url
     if not base_url:
         raise ValueError("SIMPLEOFFICE_FEDERATION_PUBLIC_URL is required for published discovery")
     identity = FederationIdentity(root).public_identity() if root is not None else {
