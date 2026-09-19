@@ -301,8 +301,6 @@ class RevisionHistory:
         key_component = _path_component(key)
         self.root.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.root / ".simpleoffice-write.lock"):
-            if git_available:
-                self._git("init", "--quiet")
             snapshot_path = self.root / "snapshots" / category_component / f"{key_component}.json"
             chain_path = self.root / "event-chain.json"
             previous_snapshot = _read_json_strict(snapshot_path)
@@ -361,32 +359,41 @@ class RevisionHistory:
                 },
             )
 
+            event_hash = str(event["event_hash"])
             if not git_available:
-                return str(event["event_hash"])
+                return event_hash
 
-            self._git("add", "snapshots", "events", "event-chain.json")
-            changed = subprocess.run(
-                ["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "diff", "--cached", "--quiet"],
-                cwd=self.root,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                timeout=GIT_TIMEOUT_SECONDS,
-                check=False,
-            ).returncode != 0
-            if not changed:
-                return ""
-            identity = hashlib.sha256(actor.encode("utf-8")).hexdigest()[:12]
-            environment = {
-                **os.environ,
-                "GIT_AUTHOR_NAME": actor,
-                "GIT_AUTHOR_EMAIL": f"{identity}@simpleoffice.local",
-                "GIT_COMMITTER_NAME": actor,
-                "GIT_COMMITTER_EMAIL": f"{identity}@simpleoffice.local",
-                "GIT_TERMINAL_PROMPT": "0",
-            }
-            self._git("commit", "--quiet", "-m", f"{action[:160]}: {category_component}/{key_component}", env=environment)
-            return self._git("rev-parse", "HEAD").strip()
+            # Git is an optional secondary history backend. The tamper-evident
+            # event chain above is the authoritative audit write. A slow,
+            # unavailable or locally broken Git executable must therefore not
+            # turn an already persisted business mutation into an HTTP 500.
+            try:
+                self._git("init", "--quiet")
+                self._git("add", "snapshots", "events", "event-chain.json")
+                changed = subprocess.run(
+                    ["git", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "diff", "--cached", "--quiet"],
+                    cwd=self.root,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    timeout=GIT_TIMEOUT_SECONDS,
+                    check=False,
+                ).returncode != 0
+                if not changed:
+                    return event_hash
+                identity = hashlib.sha256(actor.encode("utf-8")).hexdigest()[:12]
+                environment = {
+                    **os.environ,
+                    "GIT_AUTHOR_NAME": actor,
+                    "GIT_AUTHOR_EMAIL": f"{identity}@simpleoffice.local",
+                    "GIT_COMMITTER_NAME": actor,
+                    "GIT_COMMITTER_EMAIL": f"{identity}@simpleoffice.local",
+                    "GIT_TERMINAL_PROMPT": "0",
+                }
+                self._git("commit", "--quiet", "-m", f"{action[:160]}: {category_component}/{key_component}", env=environment)
+                return self._git("rev-parse", "HEAD").strip() or event_hash
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                return event_hash
 
     def verify_event_chain(self) -> dict[str, Any]:
         """Verify event content, ordering, links and the persisted chain head without crashing on corruption."""
