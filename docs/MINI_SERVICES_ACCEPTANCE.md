@@ -45,7 +45,7 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Plattformangaben | V | V | V | V | V | V | V | V | V | Unterstützung und Grenzen ausdrücklich benannt |
 | Linux | T | T | T | T | T | V | T | T | T | Loopback/Protokolltests; echte LAN-/Audio-/Gateway-Hardwareabnahme fehlt |
 | Windows | ? | ? | ? | T | ? | ? | T | T | T | Windows-Audio über DirectShow/FFplay; reale Geräteabnahme fehlt |
-| Android | – | – | – | – | ? | T | T | T | T | Native Bridge beibehalten; SDK/Gradle und Geräteabnahme fehlen |
+| Android | – | – | – | – | ? | T | T | T | T | Native Bridge beibehalten; Android-CI-Build erfolgreich, reale Geräteabnahme fehlt |
 | Performance | T | T | T | ? | T | ? | ? | ? | ? | Lifecycle-Mikrobenchmark; kein Last-/Durchsatzvergleich aller Dienste |
 | Ressourcenverbrauch | V | V | V | T | V | T | T | T | T | Begrenzte Tasks/Queues/Cache; kein vollständiges RAM-/CPU-Profil |
 | Startzeit | T | T | T | ? | T | ? | ? | ? | ? | Messwerte unten; keine Kaltstartmessung des ganzen Systems |
@@ -89,7 +89,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 | Service | Eigenschaft | Abweichung | Technischer Grund | Nächste Verbesserung |
 |---|---|---|---|---|
 | AS/AR | Windows | DirectShow-Sender und FFplay-Receiver implementiert; nur Systemstandard-Ausgabe | Gezielte Windows-Geräteauswahl und virtuelle Mikrofone fehlen; Hardwareabnahme offen | Windows-Hardwareabnahme; gezielte Ausgänge gesondert prüfen |
-| AS/AR | Android | Build und reale Hintergrund-/Geräteprüfung offen | Gradle/SDK hier nicht vorhanden; keine Installation freigegeben | In vorhandener Android-Buildumgebung bauen, anschließend Gerätetest |
+| AS/AR | Android | CI-Build erfolgreich; reale Hintergrund-/Geräteprüfung offen | Kein Android-Gerät/ADB in dieser Umgebung | Auf echtem Gerät Hintergrundbetrieb, Capture und Stop prüfen |
 | AO | Remote-Ausgabe | Explizite RTP/Opus-Bindung, Suche und Versand implementiert; Empfang unbestätigt | Bestehendes RTP-Protokoll bietet weder Verschlüsselung noch Wiedergabebestätigung; nur vertrauenswürdiges privates IPv4-Netz | Reale Empfänger-/Lautsprecherabnahme; DLNA bleibt #285 |
 | AS | Discovery | Fremde RTP-Player werden nicht erkannt | Sie veröffentlichen kein SimpleOffice-Profil | Nur tatsächlich verfügbare Protokolle ergänzen; manuelle Ziele bleiben |
 | AR | ALSA-Ausgänge | Receiver benötigt PulseAudio/PipeWire-Pulse | Vorhandener PCM-Verteiler und virtuelle Mikrofone nutzen diesen Backend | Separaten ALSA-Ausgabepfad nur mit vollständigem Cleanup/Health ergänzen |
@@ -299,3 +299,30 @@ lokales Admin-Passwort; Konfiguration erfolgt weiterhin über UI/API. HTTP ist a
 explizite Loopback-Adressen beschränkt (auch IPv6), sonst HTTPS. Diese CLI-Prüfung
 bestätigt keine IPv6-Unterstützung des zugrunde liegenden RTP-Audiotransports und
 keine physische Audioausgabe. Reale Windows-/Android-Terminaltests bleiben offen.
+
+### Diagnose-/Datenschutzprüfung vom 19.09.2026
+
+HTTP-Boot verwendet für Konfigurations-, Profil- und Föderationsfehler das
+vorhandene strukturierte Dienstlog mit Service, Event, Severity, Timestamp,
+Request-ID, Fehlertyp und begrenzten Stackpositionen. Exception-Texte, lokale
+Variablen, Quelltext, Request-Header und Bodies werden nicht übernommen.
+Dateisystemfehler erhalten HTTP 503, einen Handlungshinweis und `no-store`;
+fehlende Dateien bleiben HTTP 404. Föderationsauthentifizierung bleibt unverändert.
+
+DHCP-Fehlercallbacks übertragen keine Exception-Nutzdaten mehr. TFTP sendet bei
+Berechtigungsfehlern eine feste Protokollmeldung statt lokaler Dateipfade.
+Gateway-Fehler beim Prozessaufruf enthalten nur den Fehlertyp, nicht den Command-
+oder Exception-Text. Gezielte Tests prüfen die tatsächlichen Fehlerpfade mit
+sensiblen Sentinel-Werten sowie erhaltene Statuscodes und Zugriffsprüfungen.
+Dies schließt die gefundenen Lecks; eine pauschale Prüfung aller Projektlogs
+oder ein vollständiger Security-Audit wird daraus nicht abgeleitet.
+
+PR-Abgleich: #301, #307 und #309 sind gemergt; für die beiden letzten Heads
+sind alle acht CI-Workflows erfolgreich. Echte Hardware-/Mobilabnahmen bleiben
+offen. Der kombinierte CLI-/Basisfix-Stand bestand 1.828 Tests, 10 übersprungen.
+
+UI-Prüfversuch am 19.09.2026: Der verfügbare Cloud-Browser blockiert auch die
+neue lokale Vorschauverbindung mit `net::ERR_BLOCKED_BY_CLIENT`. Der nur für den
+Verbindungstest gestartete lokale Server wurde wieder beendet. Keine Umgehung,
+kein neuer Browser und keine neue Dependency installiert. Sichtprüfung bleibt
+ungeprüft; bestehende DOM-/Frontend-Tests werden nicht als Ersatz ausgewiesen.
