@@ -347,8 +347,8 @@ class TftpService(DatagramLifecycle):
             if "blksize" in requested: accepted["blksize"] = str(blksize)
             if "timeout" in requested: accepted["timeout"] = str(timeout)
             if requested.get("tsize") == "0": accepted["tsize"] = str(size)
-        except PermissionError as exc:
-            self._send_once(client, _error(TFTP_ERROR_ACCESS, str(exc))); return
+        except PermissionError:
+            self._send_once(client, _error(TFTP_ERROR_ACCESS, "access denied; check server permissions and TFTP file limit")); return
         except (OSError, ValueError):
             self._send_once(client, _error(TFTP_ERROR_NOT_FOUND, "not found")); return
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as transfer, self.tasks.track(transfer):

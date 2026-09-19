@@ -22,11 +22,13 @@ def application_version():
     return _project_version(PROJECT_ROOT)
 
 
-def log_service_event(service: str, event: str, *, exc: Exception | None = None, operation_id: str | None = None):
+def log_service_event(service: str, event: str, *, exc: Exception | None = None, operation_id: str | None = None, request_id: str | None = None):
     """Shared event format without exception payloads, source text or locals."""
     row = {"service": service, "event": event, "severity": "error" if exc else "info", "timestamp": time.time()}
     if operation_id:
         row["operation_id"] = operation_id
+    if request_id:
+        row["request_id"] = request_id
     if exc is not None:
         row["diagnostic"] = error_detail(exc)
         row["trace"] = [{"file": Path(frame.filename).name, "line": frame.lineno, "function": frame.name}

@@ -103,7 +103,7 @@ class LeaseStore:
         self.release(client_key)
 
 
-from simpleoffice_service_lifecycle import BoundedTasks, DatagramLifecycle
+from simpleoffice_service_lifecycle import BoundedTasks, DatagramLifecycle, error_detail
 
 
 class DhcpService(DatagramLifecycle):
@@ -141,7 +141,9 @@ class DhcpService(DatagramLifecycle):
                     payload, destination = response
                     self.socket.sendto(payload, destination)
             except Exception as exc:
-                self.event({"service": "dhcp", "level": "error", "error": type(exc).__name__, "message": str(exc)[:300]})
+                self.event({"service": "dhcp", "action": "packet_failed", "event": "packet_failed",
+                            "severity": "error", "timestamp": time.time(), "error": type(exc).__name__,
+                            "diagnostic": error_detail(exc)})
 
     def _reservation(self, mac: str, client_id: str) -> dict[str, str] | None:
         return self.reservations_by_client.get(client_id) or self.reservations_by_mac.get(mac)

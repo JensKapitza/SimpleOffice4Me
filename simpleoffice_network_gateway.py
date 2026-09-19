@@ -65,7 +65,7 @@ def _run(args: list[str], timeout: int = 10) -> dict[str, Any]:
     try:
         result = subprocess.run([executable, *args[1:]], stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", timeout=timeout, check=False)
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"ok": False, "missing": False, "stdout": "", "stderr": str(exc)[:2000], "returncode": None}
+        return {"ok": False, "missing": False, "stdout": "", "stderr": type(exc).__name__, "returncode": None}
     return {"ok": result.returncode == 0, "missing": False, "stdout": result.stdout[:200000], "stderr": result.stderr[:20000], "returncode": result.returncode}
 
 

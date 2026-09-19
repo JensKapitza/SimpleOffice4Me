@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import tempfile
 from pathlib import Path
 
-from flask import Blueprint, Response, current_app, jsonify, request, send_from_directory
+from flask import Blueprint, Response, current_app, g, jsonify, request, send_from_directory
 
 from .federation_http import _authorized
 from .federation_store import FederationStore
 from simpleoffice_mini_core import default_config_path
+from simpleoffice_service_lifecycle import log_service_event, error_detail
 from .network_boot import (
     assets_root,
     federation_manifest,
@@ -23,8 +23,26 @@ from .network_boot import (
 
 bp = Blueprint("network_boot_http", __name__, url_prefix="/network-boot")
 federation_bp = Blueprint("federation_network_boot_http", __name__, url_prefix="/federation/v1/network-boot")
-logger = logging.getLogger(__name__)
 MAX_FEDERATED_ASSET = 16 * 1024 * 1024 * 1024
+
+
+def _log_error(event: str, exc: Exception):
+    log_service_event("http-boot", event, exc=exc, request_id=getattr(g, "request_id", None))
+
+
+@bp.errorhandler(OSError)
+@federation_bp.errorhandler(OSError)
+def storage_unavailable(exc):
+    # OS errors can contain local paths and request-derived values. Never log
+    # their payload or let Flask's generic exception logger expose it.
+    _log_error("storage_unavailable", exc)
+    diagnostic = error_detail(exc)
+    diagnostic.update(message="Netzwerkboot-Speicher ist nicht verfügbar.",
+                      action="Dateirechte, freien Speicher und Boot-Konfiguration prüfen; anschließend erneut versuchen.")
+    response = jsonify(error="boot_storage_unavailable", diagnostic=diagnostic)
+    response.status_code = 503
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _config_path() -> Path:
@@ -47,8 +65,8 @@ def public_boot_enabled():
     # storing an asset must not publish it to unauthenticated LAN clients.
     try:
         enabled = load_boot_settings(_config_path())["enabled"]
-    except (OSError, ValueError):
-        logger.warning("Network boot settings unavailable", exc_info=True)
+    except (OSError, ValueError) as exc:
+        _log_error("settings_unavailable", exc)
         return Response("network boot unavailable\n", 503, {"Cache-Control": "no-store"})
     if not enabled:
         return Response("network boot disabled\n", 404, {"Cache-Control": "no-store"})
@@ -60,8 +78,8 @@ def ipxe_script():
     profile = request.args.get("profile", "").strip()[:80]
     try:
         text = render_ipxe(profile, _config_path(), request_base=request.host_url.rstrip("/"))
-    except ValueError:
-        logger.info("Network boot profile was not available", exc_info=True)
+    except ValueError as exc:
+        _log_error("profile_unavailable", exc)
         return Response("profile not found\n", 404, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
     return Response(text, 200, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
 
@@ -172,8 +190,8 @@ def store_network_boot_settings():
         # Machine-local serving state stays untouched. Storing federation data
         # must never turn TFTP/Networkboot on by itself.
         clean = save_boot_settings(merged, _config_path())
-    except ValueError:
-        logger.warning("Rejected federated network boot settings", exc_info=True)
+    except ValueError as exc:
+        _log_error("federation_settings_rejected", exc)
         return jsonify({"error": "invalid_settings"}), 400
     FederationStore(current_app.config["DOCUMENT_ROOT"]).record_event(
         "network_boot_settings_stored_for_peer", peer_id=peer_id, detail={"profiles": len(clean["profiles"])}
