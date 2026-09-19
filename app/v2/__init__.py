@@ -16,6 +16,8 @@ from .contracts import (
     OperationResult,
     PersistentFormat,
     PhysicalBlobId,
+    StorageLocation,
+    StoredObject,
     StoragePort,
 )
 
@@ -31,5 +33,7 @@ __all__ = [
     "OperationResult",
     "PersistentFormat",
     "PhysicalBlobId",
+    "StorageLocation",
+    "StoredObject",
     "StoragePort",
 ]
