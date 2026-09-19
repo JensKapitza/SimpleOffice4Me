@@ -53,6 +53,9 @@ __all__ = [
     "FederationTransferIntent",
     "PersistentJobStore",
     "FederationJobService",
+    "AuthorizationStore",
+    "CapabilityGrant",
+    "GrantRight",
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
@@ -62,3 +65,5 @@ from .crypto import CryptoService, EncryptedPayload, ProtectedMasterKey, Wrapped
 from .fragments import ErasureCodec, FragmentAssessment, FragmentDescriptor, FragmentPlan, FragmentState, RecoverySet, assess_fragments
 
 from .jobs import FederationTransferIntent, PersistentJobStore, FederationJobService
+
+from .authorization import AuthorizationStore, CapabilityGrant, GrantRight
