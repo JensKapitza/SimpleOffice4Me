@@ -43,8 +43,17 @@ __all__ = [
     "EncryptedPayload",
     "ProtectedMasterKey",
     "WrappedKey",
+    "ErasureCodec",
+    "FragmentAssessment",
+    "FragmentDescriptor",
+    "FragmentPlan",
+    "FragmentState",
+    "RecoverySet",
+    "assess_fragments",
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
 
 from .crypto import CryptoService, EncryptedPayload, ProtectedMasterKey, WrappedKey
+
+from .fragments import ErasureCodec, FragmentAssessment, FragmentDescriptor, FragmentPlan, FragmentState, RecoverySet, assess_fragments
