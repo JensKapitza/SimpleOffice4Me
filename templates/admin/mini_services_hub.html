@@ -24,7 +24,8 @@
     'http-boot': url_for('network_boot_admin.index'),
     'audio-output': url_for('audio_output_admin.index'),
     'audio-sender': url_for('audio_streamer_admin.page'),
-    'audio-receiver': url_for('audio_streamer_admin.page')
+    'audio-receiver': url_for('audio_streamer_admin.page'),
+    'media-renderer': url_for('media_renderer_admin.index')
   } %}
   <section data-settings-links="{{ settings_links|tojson|forceescape }}" id="mini-service-control" class="mb-4" data-api="{{ url_for('mini_services_api.index') }}" aria-labelledby="mini-control-title">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
@@ -89,6 +90,17 @@
           <p class="text-secondary small">Mikrofon live per Opus/RTP an andere PCs, Raspberry Pis oder kompatible Player übertragen.</p>
           <p class="small mb-3">Sender und Receiver steuern, lokale Wiedergabe wählen und ein virtuelles Mikrofon bereitstellen.</p>
           <a class="btn btn-primary mt-auto" href="{{ url_for('audio_streamer_admin.page') }}">Audio-Streamer öffnen</a>
+        </div>
+      </article>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <article class="card h-100">
+        <div class="card-body d-flex flex-column">
+          <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-tv me-2" aria-hidden="true"></i>Media / DLNA</h2><span class="badge text-bg-primary align-self-start">Mini Service</span></div>
+          <p class="text-secondary small">SimpleOffice als UPnP MediaRenderer für Audio und Video im lokalen Netzwerk.</p>
+          <p class="small mb-3">SSDP, sichere Media-URLs, Audioausgang und Fenster-/Vollbildausgabe getrennt vom Live-RTP-Streamer verwalten.</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('media_renderer_admin.index') }}">Media-Renderer öffnen</a>
         </div>
       </article>
     </div>
