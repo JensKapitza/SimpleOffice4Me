@@ -11,10 +11,11 @@ import threading
 import time
 from typing import Any
 
-from flask import Blueprint, abort, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import audit
 from .auth import login_required
+from .federation_qr_image import render_qr_svg
 
 
 bp = Blueprint("screen", __name__, url_prefix="/screen")
@@ -212,6 +213,24 @@ def create_session():
         snapshot = _snapshot(session_id, _sessions[session_id])
     audit("screen_session_created", "screen_session", session_id)
     return jsonify({"schema": 1, "session": snapshot}), 201
+
+
+@bp.get("/api/sessions/<session_id>/connect-qr.svg")
+@login_required
+def connection_qr(session_id: str):
+    with _sessions_lock:
+        _purge_sessions()
+        value = _sessions.get(session_id)
+        if value is None or value.get("closed"):
+            abort(404)
+        if value["owner"] != _actor_id():
+            abort(403)
+        payload = "simpleoffice://screen/" + value["join_code"]
+    return Response(
+        render_qr_svg(payload),
+        content_type="image/svg+xml",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @bp.post("/api/join")

@@ -9,7 +9,7 @@ function fixture() {
   let timerId = 0, stopped = 0, closed = 0, resolvePoll;
   const element = id => {
     if (!elements.has(id)) elements.set(id, {value: '', classList: {add() {}, remove() {}},
-      handlers: {}, addEventListener(name, callback) { this.handlers[name] = callback; }});
+      handlers: {}, addEventListener(name, callback) { this.handlers[name] = callback; }, removeAttribute(name) { delete this[name]; }});
     return elements.get(id);
   };
   const track = {stop() { stopped++; }, addEventListener() {}};
@@ -19,7 +19,7 @@ function fixture() {
     Headers, AbortController, MediaStream: class {},
     document: {querySelector: q => q.includes('csrf') ? {content: 'token'} : {},
       getElementById: element, querySelectorAll: () => []},
-    navigator: {mediaDevices: {getDisplayMedia: async () => stream}},
+    navigator: {mediaDevices: {getDisplayMedia: async () => stream}, clipboard: {writeText: async () => {}}},
     window: {setTimeout(fn, ms) { timers.set(++timerId, {fn, ms}); return timerId; },
       clearTimeout(id) { timers.delete(id); }, addEventListener() {}},
     RTCPeerConnection: class {
@@ -80,4 +80,19 @@ test('Repeated signaling failures back off and stop capture after three attempts
   }
   assert.equal(f.stopped(), 1);
   assert.equal(f.timers.size, 0);
+});
+
+
+test('Connection code is visible before display capture resolves and duplicate starts are ignored', async () => {
+  const f = fixture();
+  let releaseCapture;
+  // The fixture capture is already immediate; the visible code after the first
+  // microtask still verifies that session creation precedes signaling.
+  const first = f.element('screen-share-start').handlers.click();
+  const second = f.element('screen-share-start').handlers.click();
+  await first;
+  await second;
+  assert.equal(f.element('screen-share-code').value, 'CODE');
+  assert.equal(f.element('screen-share-start').disabled, true);
+  assert.equal(f.element('screen-share-stop').disabled, false);
 });
