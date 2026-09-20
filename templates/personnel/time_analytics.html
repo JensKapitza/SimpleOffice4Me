@@ -27,6 +27,7 @@
     <div><h1 class="h2 mb-1">Stempeluhr · Team &amp; Standorte</h1><p class="text-secondary mb-0">Wochen-/Monatsverläufe, Teamkennzahlen und automatische Federation-Synchronisation.</p></div>
     <div class="d-flex flex-wrap gap-2">
       <a class="btn btn-outline-primary" href="{{ url_for('personnel_time_insights.index', employee_id=selected.id, period=period, start=start.isoformat(), end=end.isoformat()) }}">Einzelstatistik &amp; Federation</a>
+      <a class="btn btn-outline-success" href="{{ url_for('personnel_time_analytics.payroll_csv', period=period, anchor=end.isoformat(), start=start.isoformat(), end=end.isoformat()) }}">CSV/Lohnexport</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('personnel_time.index', employee_id=selected.id) }}">Buchungen</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('personnel.index') }}">Personalplanung</a>
     </div>
