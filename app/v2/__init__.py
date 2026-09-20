@@ -56,6 +56,16 @@ __all__ = [
     "AuthorizationStore",
     "CapabilityGrant",
     "GrantRight",
+    "FilenameAlias",
+    "MetadataEnvelope",
+    "MetadataSource",
+    "MetadataValue",
+    "NamespaceRules",
+    "Provenance",
+    "TrustLevel",
+    "UnicodeNormalization",
+    "VerificationStatus",
+    "original_value",
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
@@ -67,3 +77,5 @@ from .fragments import ErasureCodec, FragmentAssessment, FragmentDescriptor, Fra
 from .jobs import FederationTransferIntent, PersistentJobStore, FederationJobService
 
 from .authorization import AuthorizationStore, CapabilityGrant, GrantRight
+
+from .metadata import FilenameAlias, MetadataEnvelope, MetadataSource, MetadataValue, NamespaceRules, Provenance, TrustLevel, UnicodeNormalization, VerificationStatus, original_value
