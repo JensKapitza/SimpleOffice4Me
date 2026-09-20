@@ -1,0 +1,101 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Media / DLNA Renderer</h1>
+      <p class="text-secondary mb-0">UPnP MediaRenderer für Audio und Video im lokalen Netzwerk.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
+  </div>
+
+  {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">
+      <div class="small text-secondary">Worker-Status</div>
+      <div class="fs-5">{{ status.get('state', 'unbekannt') }}</div>
+    </div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">
+      <div class="small text-secondary">Player</div>
+      <div class="fs-5">{{ 'FFplay verfügbar' if ffplay_available else 'FFplay fehlt' }}</div>
+    </div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">
+      <div class="small text-secondary">Renderer-ID</div>
+      <code class="small">{{ settings.udn }}</code>
+    </div></div></div>
+  </div>
+
+  <form method="post" class="card">
+    <div class="card-header fw-semibold">Renderer-Konfiguration</div>
+    <div class="card-body">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" id="media-enabled" type="checkbox" name="enabled" value="1" {% if settings.enabled %}checked{% endif %}>
+        <label class="form-check-label" for="media-enabled">DLNA-Fachkonfiguration aktiviert</label>
+        <div class="form-text">Zusätzlich steuern „Aktiviert“ und „Autostart“ in der Mini-Services-Übersicht den Worker-Lifecycle.</div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="media-name">Friendly Name</label>
+          <input class="form-control" id="media-name" name="friendly_name" maxlength="120" required value="{{ settings.friendly_name }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="media-bind">Lokale IPv4-Bind-Adresse</label>
+          <input class="form-control" id="media-bind" name="bind" required value="{{ settings.bind }}" list="media-interface-list" aria-describedby="media-bind-help">
+          <datalist id="media-interface-list">
+            {% for interface in interfaces %}
+              {% for address in interface.get('ipv4', []) %}
+                <option value="{{ address.split('/')[0] }}">{{ interface.get('name', '') }}</option>
+              {% endfor %}
+            {% endfor %}
+          </datalist>
+          <div class="form-text" id="media-bind-help">Explizite lokale IPv4-Adresse. Es wird kein Interface automatisch geraten und kein Wildcard-Bind verwendet.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="media-port">HTTP-Port</label>
+          <input class="form-control" id="media-port" name="port" type="number" min="1024" max="65535" required value="{{ settings.port }}">
+        </div>
+
+        <div class="col-md-6">
+          <label class="form-label" for="media-audio">Audio-Ausgang</label>
+          <input class="form-control" id="media-audio" name="audio_output" value="{{ settings.audio_output }}" list="media-audio-list" aria-describedby="media-audio-help">
+          <datalist id="media-audio-list">
+            <option value="default">Systemstandard</option>
+            {% for output in outputs %}
+              <option value="{{ output.get('id', '') }}">{{ output.get('label', output.get('id', '')) }}</option>
+            {% endfor %}
+          </datalist>
+          <div class="form-text" id="media-audio-help">Linux/PipeWire/Pulse: erkannte Sink-ID möglich. Unter Windows ist aktuell nur der Systemstandard bestätigt; andere Werte schlagen kontrolliert fehl.</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="media-video-mode">Videoausgabe</label>
+          <select class="form-select" id="media-video-mode" name="video_mode">
+            <option value="window" {% if settings.video_mode == 'window' %}selected{% endif %}>Fenster</option>
+            <option value="fullscreen" {% if settings.video_mode == 'fullscreen' %}selected{% endif %}>Vollbild</option>
+          </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <div class="form-check mb-2">
+            <input class="form-check-input" id="media-remote" type="checkbox" name="allow_remote_media" value="1" {% if settings.allow_remote_media %}checked{% endif %} aria-describedby="media-remote-help">
+            <label class="form-check-label" for="media-remote">Öffentliche Remote-Medien erlauben</label>
+          </div>
+        </div>
+        <div class="col-12 form-text" id="media-remote-help">Standardmäßig sind nur private LAN-Medienziele erlaubt. Loopback, Link-Local, Multicast, Unspecified und Reserved bleiben auch bei aktivierter Remote-Option gesperrt. Redirects werden erneut geprüft.</div>
+      </div>
+
+      <div class="alert alert-secondary mt-4 mb-0">
+        SSDP wird nur über die konfigurierte Bind-Adresse beworben. Medien-URLs werden nicht direkt an den Player übergeben, sondern über einen Loopback-Proxy mit gepinnten, validierten Zieladressen abgerufen.
+      </div>
+    </div>
+    <div class="card-footer d-flex flex-wrap gap-2">
+      <button class="btn btn-primary" type="submit">Einstellungen speichern</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Start / Stop / Autostart</a>
+    </div>
+  </form>
+</main>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mini_services.css') }}">
+{% endblock %}
