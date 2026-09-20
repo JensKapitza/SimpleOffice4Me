@@ -91,6 +91,31 @@ class PhysicalBlobId:
 
 
 @dataclass(frozen=True)
+class StorageLocation:
+    """Presentation/storage namespace location; never a logical identity."""
+
+    relative_path: str
+
+    def __post_init__(self) -> None:
+        value = str(self.relative_path or "").strip().replace("\\", "/")
+        if not value or value.startswith("/") or value in {".", ".."} or ".." in value.split("/"):
+            raise ValueError("invalid storage location")
+        object.__setattr__(self, "relative_path", value)
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    object_id: LogicalObjectId
+    version: str
+    size: int
+    location: StorageLocation
+
+    def __post_init__(self) -> None:
+        if not self.version or self.size < 0:
+            raise ValueError("invalid stored object")
+
+
+@dataclass(frozen=True)
 class PersistentFormat:
     family: str
     version: int
@@ -149,25 +174,29 @@ class StoragePort(Protocol):
     """Logical-object storage boundary.
 
     Implementations may use the current DocumentStore, a V2 blob store or a
-    remote backend. Callers must not depend on concrete paths.
+    remote backend. Callers must not depend on concrete paths. Moving or
+    renaming an object changes only its StorageLocation, never its LogicalObjectId.
     """
 
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         ...
 
-    def write_bytes(
+    def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
+        ...
+
+    def replace_bytes(
         self,
         object_id: LogicalObjectId,
         content: bytes,
         *,
         expected_version: str | None = None,
-    ) -> OperationResult[str]:
+    ) -> OperationResult[StoredObject]:
         ...
 
     def delete(self, object_id: LogicalObjectId, *, expected_version: str | None = None) -> OperationResult[str]:
         ...
 
-    def move(self, object_id: LogicalObjectId, destination: LogicalObjectId) -> OperationResult[str]:
+    def move(self, object_id: LogicalObjectId, destination: StorageLocation) -> OperationResult[StoredObject]:
         ...
 
 
