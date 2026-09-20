@@ -306,6 +306,8 @@ class OverlayImportJournal:
             raise ValueError("overlay import is not waiting for recovery")
         if stored.location != record.target:
             raise ValueError("reconciled object location does not match overlay target")
+        if stored.size != record.size:
+            raise ValueError("reconciled object size does not match staged content")
         committed = self._set_state(
             import_id,
             OverlayImportState.COMMITTED,
