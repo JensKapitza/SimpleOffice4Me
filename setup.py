@@ -44,6 +44,7 @@ setup(
         "simpleoffice_media_renderer",
         "simpleoffice_media_upnp",
         "simpleoffice_media_service",
+        "simpleoffice_media_playback",
         "simpleoffice_service_lifecycle",
         "simpleoffice_sip_runtime",
     ],
