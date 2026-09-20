@@ -66,6 +66,9 @@ __all__ = [
     "UnicodeNormalization",
     "VerificationStatus",
     "original_value",
+    "OverlayImportJournal",
+    "OverlayImportRecord",
+    "OverlayImportState",
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
@@ -79,3 +82,5 @@ from .jobs import FederationTransferIntent, PersistentJobStore, FederationJobSer
 from .authorization import AuthorizationStore, CapabilityGrant, GrantRight
 
 from .metadata import FilenameAlias, MetadataEnvelope, MetadataSource, MetadataValue, NamespaceRules, Provenance, TrustLevel, UnicodeNormalization, VerificationStatus, original_value
+
+from .overlay import OverlayImportJournal, OverlayImportRecord, OverlayImportState
