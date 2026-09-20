@@ -110,6 +110,27 @@ class MiniServicesConfigTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, r"DHCP-Option 123"):
                     validate_config(config)
 
+    def test_blocklist_diagnostics_redact_query_and_path(self):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def geturl(self): return "https://lists.example/private/feed?token=redirect-secret"
+            def read(self, _limit): return b"0.0.0.0 ads.example\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mini-services.json"
+            config = copy.deepcopy(DEFAULT_CONFIG)
+            config["dns"]["blocklist_urls"] = [
+                "https://lists.example/private/feed?token=request-secret"
+            ]
+            with mock.patch("simpleoffice_mini_services._https_open", return_value=Response()):
+                result = refresh_blocklists(config, path)
+            serialized = (path.parent / "mini-services" / "dns-blocklist-meta.json").read_text(encoding="utf-8")
+            self.assertEqual("https://lists.example", result["sources"][0]["url"])
+            for secret in ("request-secret", "redirect-secret", "/private/feed"):
+                self.assertNotIn(secret, serialized)
+
+
     def test_failed_refresh_preserves_last_active_blocklist(self):
         class Response:
             def __enter__(self): return self
