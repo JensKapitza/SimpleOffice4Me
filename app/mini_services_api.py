@@ -13,7 +13,7 @@ from .access_control import audit
 from .audio_dependencies import audio_dependencies
 
 bp = Blueprint("mini_services_api", __name__, url_prefix="/api/mini-services")
-NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
+NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT", "media-renderer": "Media / DLNA"}
 
 
 def _store():
@@ -193,10 +193,13 @@ def _scan(store, service):
         elif service == "sip":
             status = read_status(default_config_path())
             targets = status.get("sip", {}).get("registrations_detail", [])
+        elif service == "media-renderer":
+            from .audio_output_discovery import discover_speaker_outputs
+            targets = discover_speaker_outputs()
         else:
             targets = network_interfaces()
         result = {"state": "completed", "updated_at": time.time(), "count": len(targets), "targets": targets,
-                  "scope": "Registrierte Telefone" if service == "sip" else "Lokale Bootdateien" if service == "tftp" else "Lokale Netzwerkinterfaces"}
+                  "scope": "Registrierte Telefone" if service == "sip" else "Lokale Bootdateien" if service == "tftp" else "Lokale Audioausgänge" if service == "media-renderer" else "Lokale Netzwerkinterfaces"}
     except (OSError, ValueError, RuntimeError) as exc:
         result = {"state": "failed", "updated_at": time.time(), "count": 0, "targets": [], "error": error_detail(exc)}
         store.scan(service, result)
