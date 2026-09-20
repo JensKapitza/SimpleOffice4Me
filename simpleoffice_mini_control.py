@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 from simpleoffice_mini_core import state_dir
 
-NETWORK_SERVICES = ("dhcp", "dns", "tftp", "sip", "gateway")
+NETWORK_SERVICES = ("dhcp", "dns", "tftp", "sip", "gateway", "media-renderer")
 ACTIONS = ("start", "stop", "restart")
 
 
