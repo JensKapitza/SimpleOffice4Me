@@ -39,6 +39,12 @@ __all__ = [
     "BlobIntegrityError",
     "BlobStore",
     "BlobVersion",
+    "CryptoService",
+    "EncryptedPayload",
+    "ProtectedMasterKey",
+    "WrappedKey",
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
+
+from .crypto import CryptoService, EncryptedPayload, ProtectedMasterKey, WrappedKey
