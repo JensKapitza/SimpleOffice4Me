@@ -1,12 +1,13 @@
 # Cyber Resilience Act (CRA) – technische Akte
 
-Stand: 29.08.2026. Diese Datei ist eine technische Arbeitsgrundlage und keine rechtliche Konformitätserklärung. Das aktuelle technische Review steht in [SECURITY_REVIEW_2026-08-29.md](SECURITY_REVIEW_2026-08-29.md).
+Stand: 20.09.2026. Diese Datei ist eine technische Arbeitsgrundlage und keine rechtliche Konformitätserklärung. Das aktuelle technische Review steht in [SECURITY_REVIEW_2026-08-29.md](SECURITY_REVIEW_2026-08-29.md).
 
 ## Rechtsgrundlage und Geltung
 
 - [Verordnung (EU) 2024/2847 – EUR-Lex](https://eur-lex.europa.eu/eli/reg/2024/2847/oj)
 - [EU-Kommission: Cyber Resilience Act](https://digital-strategy.ec.europa.eu/en/policies/cyber-resilience-act)
 - [EU-Kommission: CRA-Meldepflichten](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)
+- Operativer Projekt-Runbook: [CRA-Meldebereitschaft](CRA_REPORTING.md)
 
 SimpleOffice4Me ist eine selbst gehostete Software mit digitalen Elementen. Ob sie im Einzelfall als Produkt auf dem Unionsmarkt bereitgestellt wird und welche Herstellerrolle gilt, ist vor Vertrieb rechtlich zu bewerten. Die volle Anwendung des CRA beginnt am 11.12.2027; die Meldepflichten nach Art. 14 gelten ab 11.09.2026.
 
@@ -20,7 +21,7 @@ SimpleOffice4Me ist eine selbst gehostete Software mit digitalen Elementen. Ob s
 | Komponenten-/Abhängigkeitsübersicht | CycloneDX-SBOM wird aus der installierten Python-Umgebung erstellt | `tools/generate_sbom.py`, Ausgabe `artifacts/sbom.cdx.json` |
 | Sicherheitsupdates und bekannte Schwachstellen | CI führt `pip-audit`, den CRA-Nachweischeck und die SBOM-Erzeugung aus; Pull Requests und Releases erhalten einen Sicherheitscheck | `.github/workflows/ci.yml`, `tools/cra_check.py`, `docs/RELEASE_SECURITY_CHECKLIST.md` |
 | Technische Dokumentation und Risikobewertung (Anhang VII) | Dieses Mapping, Architektur-/Betriebsdokumente, Tests und SBOM sind versioniert | Vor formaler Konformitätsbewertung Risikoanalyse, Supportzeitraum, Produktversion und EU-Konformitätserklärung ergänzen |
-| Incident-/Vulnerability-Reporting, Art. 14 | Fristen dokumentiert: 24 h Frühwarnung, 72 h Meldung, Abschlussbericht gemäß Vorfallart | Tatsächliche Meldung über die CRA Single Reporting Platform erfolgt organisatorisch, nicht automatisiert durch diese Anwendung |
+| Incident-/Vulnerability-Reporting, Art. 14 | Fristen dokumentiert: 24 h Frühwarnung, 72 h Meldung, Abschlussbericht gemäß Vorfallart; interner Runbook definiert Evidenz, Zuständigkeit und Zeitstempel | `docs/CRA_REPORTING.md`; tatsächliche Meldung über die CRA Single Reporting Platform erfolgt organisatorisch, nicht automatisiert durch diese Anwendung |
 
 ## Wiederholbare Prüfungen
 

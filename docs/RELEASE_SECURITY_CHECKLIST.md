@@ -11,4 +11,5 @@
 - [ ] HTTPS, Proxy-Vertrauensgrenze, HSTS und widerrufbare DAV-/MCP-Zugänge in der Zielumgebung geprüft.
 - [ ] Admin-Inventar aktualisiert; fehlende oder veraltete externe Programme und Betriebssystempakete bewertet.
 - [ ] Private Sicherheitsmeldungen erreichen eine dauerhaft überwachte Herstellerstelle; CRA-Meldeverantwortliche sind benannt.
+- [ ] Der Ablauf aus `docs/CRA_REPORTING.md` wurde für das Release geprüft; Zeitstempel, Evidenzsicherung und Eskalationsweg sind organisatorisch nutzbar.
 - [ ] Falls CRA anwendbar: technische Akte, Risikoanalyse und EU-Konformitätsprozess durch verantwortliche Stelle geprüft.
