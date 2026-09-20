@@ -10,6 +10,7 @@ from pathlib import Path
 REQUIRED = (
     "docs/CRA.md",
     "docs/SECURITY.md",
+    "docs/CRA_REPORTING.md",
     "docs/RELEASE_SECURITY_CHECKLIST.md",
     "tools/generate_sbom.py",
     "tools/path_safety_check.py",
@@ -24,6 +25,7 @@ REQUIRED_MARKERS = {
     "app/auth.py": ("record_login_failure", "GOOGLE_OAUTH_AUTO_PROVISION", "protect_value"),
     "app/admin.py": ("runtime_inventory", "refresh_inventory"),
     ".github/workflows/ci.yml": ("pip_audit", "tools/cra_check.py", "tools/generate_sbom.py"),
+    "docs/CRA_REPORTING.md": ("24 Stunden", "72 Stunden", "Single Reporting Platform", "Keine Passwörter"),
 }
 
 
@@ -45,7 +47,12 @@ def main() -> None:
     incomplete = []
     for path, markers in REQUIRED_MARKERS.items():
         content = Path(path).read_text(encoding="utf-8") if Path(path).is_file() else ""
-        incomplete.extend(f"{path}:{marker}" for marker in markers if marker not in content)
+        normalized = " ".join(content.split())
+        incomplete.extend(
+            f"{path}:{marker}"
+            for marker in markers
+            if " ".join(marker.split()) not in normalized
+        )
     if incomplete:
         raise SystemExit("CRA baseline control missing: " + ", ".join(incomplete))
     _check_path_safety()
