@@ -66,6 +66,8 @@ INVOICE_DIR = "invoices"
 INVOICE_SEQUENCE = "invoice-sequence.json"
 CREDIT_NOTE_SEQUENCE = "credit-note-sequence.json"
 ZUGFERD_FILENAMES = {"factur-x.xml", "zugferd-invoice.xml", "zugferd.xml"}
+ZUGFERD_VERSION = "2.5.2"
+ZUGFERD_PROFILE = "EN16931"
 MONEY = Decimal("0.01")
 QTY = Decimal("0.001")
 SUPPORTED_TEMPLATE_SUFFIXES = {".pdf", ".odt", ".ott", ".doc", ".docx", ".rtf", ".odp", ".ppt", ".pptx"}
@@ -181,7 +183,7 @@ def active_template(root: Path, template_id: str = "") -> dict[str, Any]:
 
 
 def business_settings(root: Path) -> dict[str, Any]:
-    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_iban": "", "seller_bic": "", "seller_bank": "", "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": "EN16931", "zugferd_version": "2.5.2", "require_zugferd_validation": True}
+    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_iban": "", "seller_bic": "", "seller_bank": "", "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": ZUGFERD_PROFILE, "zugferd_version": ZUGFERD_VERSION, "require_zugferd_validation": True}
     stored = _read_json(root / CONTROL_DIR / SETTINGS_FILE, {})
     if isinstance(stored, dict): defaults.update(stored)
     return defaults
@@ -195,7 +197,7 @@ def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> di
     except ValueError as exc: raise ValueError("default payment days must be an integer") from exc
     if not 0 <= days <= 3650: raise ValueError("default payment days must be between 0 and 3650")
     settings["default_payment_days"] = str(days); settings["seller_country"] = (settings["seller_country"] or "DE").upper()[:2]; settings["currency"] = (settings["currency"] or "EUR").upper()[:3]
-    settings["zugferd_version"] = "2.5.2"; settings["require_zugferd_validation"] = True
+    settings["zugferd_profile"] = ZUGFERD_PROFILE; settings["zugferd_version"] = ZUGFERD_VERSION; settings["require_zugferd_validation"] = True
     path = root / CONTROL_DIR / SETTINGS_FILE; path.parent.mkdir(parents=True, exist_ok=True); atomic_json_write(path, settings)
     DocumentStore(root).history.record("business_settings_updated", actor, "business-settings", "default", {key: value for key, value in settings.items() if "iban" not in key.casefold()})
     return settings
@@ -794,7 +796,7 @@ def embed_invoice_xml(pdf: bytes, xml: bytes, filename: str = "factur-x.xml") ->
         embedded=writer._root_object[NameObject("/Names")][NameObject("/EmbeddedFiles")][NameObject("/Names")]
         filespec=embedded[-1].get_object(); filespec[NameObject("/AFRelationship")]=NameObject("/Data"); writer._root_object[NameObject("/AF")]=ArrayObject([embedded[-1]])
     except Exception: pass
-    writer.add_metadata({"/Title":"Invoice", "/Subject":"ZUGFeRD/Factur-X hybrid invoice", "/ZUGFeRDVersion":"2.5.2", "/ZUGFeRDConformanceLevel":"EN16931"})
+    writer.add_metadata({"/Title":"Invoice", "/Subject":"ZUGFeRD/Factur-X hybrid invoice", "/ZUGFeRDVersion":ZUGFERD_VERSION, "/ZUGFeRDConformanceLevel":ZUGFERD_PROFILE})
     target=io.BytesIO(); writer.write(target); return target.getvalue()
 
 
