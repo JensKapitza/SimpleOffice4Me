@@ -48,8 +48,9 @@
     <div class="card-body">
       <h2 id="boot-settings-title" class="h4">Lokale Boot-Einstellungen</h2>
       <p>HTTP-Boot ist <strong>{{ 'aktiviert' if boot.enabled else 'deaktiviert' }}</strong>.
-        Start, Stop, Neustart und Dateisuche sind in der <a href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a> verfügbar.
+        Start, Stop, Neustart, Dateisuche und Autostart werden in der <a href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a> verwaltet.
         Stop sperrt öffentliche Bootdateien und beendet auch die zugehörige TFTP-Auslieferung über den Worker.</p>
+      <p class="form-text" id="boot-runtime-help">TFTP verwendet standardmäßig UDP 69 und benötigt auf vielen Systemen passende Dienstrechte. Bind-Adressen müssen lokal vorhanden sein. Fehlstarts werden begrenzt wiederholt und bleiben anschließend als Fehler sichtbar; ein Netz wird nicht geraten und Dienste werden nicht automatisch mit erhöhten Rechten gestartet.</p>
       <details {% if request.method == 'POST' %}open{% endif %}>
         <summary>Erweiterte Einstellungen, Profile und Diagnose</summary>
         <form method="post" action="{{ url_for('network_boot_admin.settings') }}" class="mt-3">
