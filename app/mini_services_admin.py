@@ -266,6 +266,7 @@ from . import app as _flask_app
 from .audio_output_admin import bp as _audio_output_admin_bp
 from .audio_streamer_admin import bp as _audio_streamer_admin_bp
 from .network_boot_admin import bp as _network_boot_admin_bp
+from .media_renderer_admin import bp as _media_renderer_admin_bp
 from .network_boot_http import bp as _network_boot_http_bp, federation_bp as _network_boot_federation_bp
 from .telephony_admin import bp as _telephony_admin_bp
 from .mini_services_api import bp as _mini_services_api_bp
@@ -275,6 +276,7 @@ for _service_bp in (
     _network_boot_federation_bp,
     _audio_output_admin_bp,
     _audio_streamer_admin_bp,
+    _media_renderer_admin_bp,
     _telephony_admin_bp,
     _mini_services_api_bp,
 ):
