@@ -43,6 +43,7 @@ setup(
         "simpleoffice_mini_control",
         "simpleoffice_media_renderer",
         "simpleoffice_media_upnp",
+        "simpleoffice_media_service",
         "simpleoffice_service_lifecycle",
         "simpleoffice_sip_runtime",
     ],
