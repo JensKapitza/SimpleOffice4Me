@@ -410,6 +410,29 @@ def copy_document(document_id: str):
     return redirect(url_for("documents.detail", document_id=document_id))
 
 
+@bp.post("/<document_id>/delete")
+@login_required
+def delete_document(document_id: str):
+    if request.form.get("confirm") != "LOESCHEN":
+        flash("Zum Löschen muss LOESCHEN bestätigt werden.")
+        return redirect(url_for("documents.detail", document_id=document_id))
+    try:
+        actor = str(g.user["username"])
+        document = _store().get_document(document_id)
+        result = _storage(actor).delete(
+            LogicalObjectId(str(document["document_id"])),
+            expected_version=str(document.get("sha256") or ""),
+        )
+        if not result.ok:
+            flash(result.error.message)
+            return redirect(url_for("documents.detail", document_id=document_id))
+        flash("Dokument wurde sicher gelöscht und kann über die Wiederherstellung zurückgeholt werden.")
+        return redirect(url_for("documents.document_recovery"))
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+        return redirect(url_for("documents.detail", document_id=document_id))
+
+
 @bp.post("/<document_id>/share")
 @login_required
 def create_share(document_id: str):

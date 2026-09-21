@@ -139,6 +139,16 @@
 <button type="submit" class="btn btn-outline-secondary">Kopieren</button>
 </form>
 <div id="copy-help" class="form-text">Erzeugt eine unabhängige Kopie mit eigener Dokument-ID.</div>
+<hr class="my-3">
+<label class="form-label">Dokument löschen</label>
+<form method="post" action="{{ url_for('documents.delete_document', document_id=document.document_id) }}">
+<div class="form-check mb-2">
+<input required class="form-check-input" type="checkbox" name="confirm" value="LOESCHEN" id="delete-document-confirm">
+<label class="form-check-label" for="delete-document-confirm">Löschen bestätigen</label>
+</div>
+<button type="submit" class="btn btn-outline-danger">Sicher löschen</button>
+</form>
+<div class="form-text">Die Datei wird in den vorhandenen Wiederherstellungsbereich verschoben und nicht endgültig vernichtet.</div>
 </div>
 </div>
 <div class="card mb-4">

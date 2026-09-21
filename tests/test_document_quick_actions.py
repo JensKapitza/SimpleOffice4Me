@@ -171,6 +171,42 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual(LogicalObjectId(document["document_id"]), calls[0][0])
         self.assertEqual(StorageLocation("Kopien/copy-me.txt"), calls[0][1])
 
+    def test_document_delete_route_uses_v2_storage_boundary_and_redirects_to_recovery(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"delete me"), "delete-me.txt", "jens")
+        calls = []
+
+        class FakeStorage:
+            def delete(self, object_id, *, expected_version=None):
+                calls.append((object_id, expected_version))
+                return OperationResult.success(expected_version or "synthetic-version")
+
+        with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), patch.object(
+            DocumentStore,
+            "soft_delete_document",
+            side_effect=AssertionError("browser route bypassed StoragePort"),
+        ):
+            response = self.client.post(
+                f"/documents/{document['document_id']}/delete",
+                data={"confirm": "LOESCHEN"},
+            )
+
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(response.headers["Location"].endswith("/documents/recovery"))
+        self.assertEqual(1, len(calls))
+        self.assertEqual(LogicalObjectId(document["document_id"]), calls[0][0])
+        self.assertEqual(document["sha256"], calls[0][1])
+
+    def test_document_delete_route_requires_explicit_confirmation(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"keep me"), "keep-me.txt", "jens")
+
+        response = self.client.post(
+            f"/documents/{document['document_id']}/delete",
+            data={"confirm": "no"},
+        )
+
+        self.assertEqual(302, response.status_code)
+        self.assertTrue((self.root / document["last_path"]).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

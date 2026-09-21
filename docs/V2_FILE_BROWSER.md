@@ -32,6 +32,19 @@ DocumentStore adapter keeps the existing verified copy implementation, metadata
 copy rules and audit/history behavior while the browser no longer calls the
 concrete V1 copy API.
 
+## Third migrated operation: delete/recovery
+
+The document detail page now exposes an explicit recoverable delete action.
+Deletion requires a deliberate confirmation and calls `StoragePort.delete`
+with the current content version as the optimistic concurrency guard.
+
+The transitional DocumentStore adapter keeps the existing soft-delete behavior:
+the active file is moved into the recovery area, audit/history remains intact,
+and the existing recovery page is the next user-visible step after success.
+
+The browser route does not call `DocumentStore.soft_delete_document` directly
+and does not manipulate recovery paths.
+
 ## Error behavior
 
 Storage errors remain represented by the V2 result contract. The browser shows
@@ -44,7 +57,6 @@ This PR intentionally migrates only the existing browser move action.
 
 Still to migrate in separate bounded changes:
 
-- delete/recovery mutations
 - content replacement/upload mutations
 - any file-browser operation that still writes through a concrete
   `DocumentStore` implementation
