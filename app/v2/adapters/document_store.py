@@ -109,6 +109,27 @@ class DocumentStoreStorageAdapter:
         except (OSError, RuntimeError, ValueError) as exc:
             return self._failure(exc)
 
+    def copy(
+        self,
+        object_id: LogicalObjectId,
+        destination: StorageLocation,
+    ) -> OperationResult[StoredObject]:
+        try:
+            metadata = self.store.copy_document(
+                object_id.value,
+                destination.relative_path,
+                self.actor,
+            )
+            stored = self._stored(metadata)
+            if stored.object_id == object_id:
+                return OperationResult.failure(
+                    ErrorCode.INTEGRITY_ERROR,
+                    "copied document reused the source identity",
+                )
+            return OperationResult.success(stored)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
     def delete(
         self,
         object_id: LogicalObjectId,
