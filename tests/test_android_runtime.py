@@ -42,9 +42,11 @@ class AndroidRuntimeTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=False):
             import os
             os.environ.pop("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", None)
-            self.assertTrue(runtime.set_lan_addresses("192.168.4.22,192.168.4.22,10.0.0.8"))
+            self.assertTrue(runtime.set_lan_addresses(
+                "192.168.4.22,192.168.4.22,10.0.0.8,172.20.10.1,100.64.0.2,169.254.8.9"
+            ))
             self.assertEqual(
-                "192.168.4.22,10.0.0.8",
+                "192.168.4.22,10.0.0.8,172.20.10.1,100.64.0.2,169.254.8.9",
                 os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"],
             )
             runtime.set_lan_addresses("")
