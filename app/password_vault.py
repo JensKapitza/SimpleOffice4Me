@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .document_store import CONTROL_DIR
+from .v2.security_classes import VAULT_SECURITY_CLASS
 
 SCHEMA_VERSION = 1
 VAULT_FORMAT = "simpleoffice-password-vault"
@@ -86,6 +87,8 @@ def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class PasswordVault:
+    security_class = VAULT_SECURITY_CLASS.value
+
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
         self.control = self.root / CONTROL_DIR
