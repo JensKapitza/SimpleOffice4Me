@@ -17,6 +17,51 @@ PRINCIPAL_TYPES = {"user", "contact"}
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 
+
+def _gtin_check_digit(body: str) -> int:
+    total = 0
+    for index, digit in enumerate(reversed(body)):
+        total += int(digit) * (3 if index % 2 == 0 else 1)
+    return (10 - (total % 10)) % 10
+
+
+def _valid_gtin(value: str) -> bool:
+    return value.isdigit() and len(value) in {8, 12, 13, 14} and _gtin_check_digit(value[:-1]) == int(value[-1])
+
+
+def _expand_upce(value: str) -> str:
+    if len(value) != 8 or not value.isdigit() or value[0] not in {"0", "1"}:
+        return ""
+    ns, payload, check = value[0], value[1:7], value[7]
+    a, b, c3, d, e, f6 = payload
+    if f6 in "012":
+        body = ns + a + b + f6 + "0000" + c3 + d + e
+    elif f6 == "3":
+        body = ns + a + b + c3 + "00000" + d + e
+    elif f6 == "4":
+        body = ns + a + b + c3 + d + "00000" + e
+    else:
+        body = ns + a + b + c3 + d + e + "0000" + f6
+    return body + check
+
+
+def normalize_barcode(value: Any) -> str:
+    """Return canonical supported EAN/UPC/GTIN digits or raise ValueError."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if not digits:
+        return ""
+    if len(digits) == 8:
+        if _valid_gtin(digits):
+            return digits
+        expanded = _expand_upce(digits)
+        if expanded and _valid_gtin(expanded):
+            return digits
+        raise ValueError("invalid EAN-8/UPC-E barcode")
+    if not _valid_gtin(digits):
+        raise ValueError("invalid EAN/UPC/GTIN barcode")
+    return digits
+
+
 class ShoppingStore:
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
@@ -232,6 +277,20 @@ class ShoppingStore:
             rows.sort(key=lambda row: (-int(row.get("priority", 0)), str(row.get("created_at", ""))))
         return dict(sorted(grouped.items(), key=lambda item: item[0].casefold()))
 
+    def find_known_barcode(self, actor: str, barcode: str) -> dict[str, Any] | None:
+        """Return the newest visible local item for a validated barcode."""
+        code = normalize_barcode(barcode)
+        if not code:
+            return None
+        rows = [
+            row for row in self.items(actor, include_bought=True)
+            if str(row.get("barcode", "")) == code
+        ]
+        if not rows:
+            return None
+        rows.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
+        return dict(rows[0])
+
     def add_item(self, list_id: str, name: str, actor: str, values: dict[str, Any] | None = None) -> dict[str, Any]:
         values = values or {}
         name = self._text(name, 300)
@@ -252,7 +311,7 @@ class ShoppingStore:
             "note": self._text(values.get("note", ""), 2000),
             "category": self._text(values.get("category", ""), 120),
             "store": self._text(values.get("store", ""), 240),
-            "barcode": self._text(values.get("barcode", ""), 80),
+            "barcode": normalize_barcode(values.get("barcode", "")),
             "priority": priority, "status": status,
             "assigned_to": self._text(values.get("assigned_to", ""), 200),
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
@@ -290,9 +349,11 @@ class ShoppingStore:
                 item["status"] = status
                 item["completed_at"] = utc_now() if status == "bought" else ""
             for key, limit in (("name", 300), ("quantity", 80), ("unit", 40), ("note", 2000),
-                               ("category", 120), ("store", 240), ("barcode", 80), ("assigned_to", 200)):
+                               ("category", 120), ("store", 240), ("assigned_to", 200)):
                 if key in values:
                     item[key] = self._text(values[key], limit)
+            if "barcode" in values:
+                item["barcode"] = normalize_barcode(values["barcode"])
             if not item.get("name"):
                 raise ValueError("shopping item name is required")
             if "priority" in values:
