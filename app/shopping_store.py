@@ -192,6 +192,46 @@ class ShoppingStore:
             rows = [row for row in rows if row.get("status") != "bought"]
         return sorted(rows, key=lambda row: (row.get("status") == "bought", -int(row.get("priority", 0)), row.get("created_at", "")))
 
+    def items_by_store(
+        self,
+        actor: str,
+        *,
+        store: str = "",
+        only_open: bool = True,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Group visible items from active lists by their effective store.
+
+        An item-specific store overrides the list default. Empty-store items are
+        grouped under an empty key so callers can still show unassigned needs.
+        No location lookup or tracking is performed here.
+        """
+        data = self._read()
+        visible_lists = {
+            str(row.get("list_id", "")): row
+            for row in data["lists"]
+            if not row.get("archived")
+            and "read" in self._share_permissions(data, str(row.get("list_id", "")), actor)
+        }
+        wanted = self._text(store, 240).casefold()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for source in data["items"]:
+            list_id = str(source.get("list_id", ""))
+            list_row = visible_lists.get(list_id)
+            if list_row is None:
+                continue
+            if only_open and source.get("status") == "bought":
+                continue
+            effective = self._text(source.get("store") or list_row.get("default_store", ""), 240)
+            if wanted and effective.casefold() != wanted:
+                continue
+            row = dict(source)
+            row["effective_store"] = effective
+            row["list_name"] = str(list_row.get("name", ""))
+            grouped.setdefault(effective, []).append(row)
+        for rows in grouped.values():
+            rows.sort(key=lambda row: (-int(row.get("priority", 0)), str(row.get("created_at", ""))))
+        return dict(sorted(grouped.items(), key=lambda item: item[0].casefold()))
+
     def add_item(self, list_id: str, name: str, actor: str, values: dict[str, Any] | None = None) -> dict[str, Any]:
         values = values or {}
         name = self._text(name, 300)
