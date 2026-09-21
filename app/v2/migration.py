@@ -5,6 +5,7 @@ new destination outside the source tree.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -82,6 +83,95 @@ def inspect_migration(root: str | Path) -> MigrationPreflight:
         ready=not blockers,
         blockers=tuple(blockers),
     )
+
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def build_migration_plan(root: str | Path) -> dict[str, Any]:
+    """Build a deterministic read-only plan for legacy document migration."""
+    source = Path(root).expanduser().resolve()
+    preflight = inspect_migration(source)
+    if not preflight.ready:
+        return {
+            "format": "simpleoffice-v2-migration-plan",
+            "format_version": 1,
+            "root": str(source),
+            "ready": False,
+            "documents": 0,
+            "ready_documents": 0,
+            "blocked_documents": 0,
+            "bytes": 0,
+            "blockers": list(preflight.blockers),
+            "entries": [],
+        }
+
+    metadata_dir = source / ".simpleoffice-meta" / "documents"
+    entries: list[dict[str, Any]] = []
+    total_bytes = 0
+    if metadata_dir.is_dir():
+        for metadata_path in sorted(metadata_dir.glob("*.json")):
+            entry: dict[str, Any] = {
+                "metadata": metadata_path.name,
+                "document_id": "",
+                "path": "",
+                "size": 0,
+                "sha256": "",
+                "status": "blocked",
+                "error": "",
+            }
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if not isinstance(metadata, dict):
+                    raise ValueError("metadata is not an object")
+                document_id = str(metadata.get("document_id") or "").strip()
+                last_path = str(metadata.get("last_path") or "").strip()
+                if not document_id:
+                    raise ValueError("document_id is missing")
+                if not last_path or last_path.startswith("[external]"):
+                    raise ValueError("document path is unavailable")
+                requested = Path(last_path)
+                candidate = requested if requested.is_absolute() else source / requested
+                resolved = candidate.resolve(strict=True)
+                resolved.relative_to(source)
+                if not resolved.is_file():
+                    raise ValueError("document path is not a regular file")
+                actual_sha = _sha256_file(resolved)
+                expected_sha = str(metadata.get("sha256") or "").strip().casefold()
+                if expected_sha and expected_sha != actual_sha:
+                    raise ValueError("document sha256 does not match metadata")
+                size = resolved.stat().st_size
+                entry.update({
+                    "document_id": document_id,
+                    "path": resolved.relative_to(source).as_posix(),
+                    "size": size,
+                    "sha256": actual_sha,
+                    "status": "ready",
+                })
+                total_bytes += size
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                entry["error"] = str(exc)
+            entries.append(entry)
+
+    blocked = [entry for entry in entries if entry["status"] != "ready"]
+    return {
+        "format": "simpleoffice-v2-migration-plan",
+        "format_version": 1,
+        "root": str(source),
+        "ready": not blocked,
+        "documents": len(entries),
+        "ready_documents": len(entries) - len(blocked),
+        "blocked_documents": len(blocked),
+        "bytes": total_bytes,
+        "blockers": [f"{entry['metadata']}: {entry['error']}" for entry in blocked],
+        "entries": entries,
+    }
 
 
 def _source_inventory(root: Path) -> dict[str, int]:
