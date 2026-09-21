@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.v2.blob_store import BlobStore
 from app.v2.contracts import LogicalObjectId
-from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, transfer_legacy_documents
+from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents
 from app.v2.recovery_cli import main
 
 
@@ -59,6 +59,7 @@ class V2MigrationPreflightTests(unittest.TestCase):
             manifest = json.loads((target / ".simpleoffice-v2" / "migration-backup.json").read_text(encoding="utf-8"))
             self.assertEqual("simpleoffice-v2-migration-backup", manifest["format"])
             self.assertEqual(1, manifest["files"])
+            self.assertEqual(64, len(manifest["tree_sha256"]))
             self.assertEqual(str(target.resolve()), result["destination"])
 
     def test_backup_refuses_destination_inside_source_or_existing_target(self):
@@ -292,6 +293,87 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertFalse(result.ready)
             self.assertEqual(1, result.v2_invalid_objects)
             self.assertTrue(any("integrity verification" in blocker for blocker in result.blockers))
+
+
+    def test_restore_roundtrip_is_atomic_and_removes_backup_marker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            (root / "inbox").mkdir()
+            (root / "inbox" / "invoice.txt").write_text("restore-me", encoding="utf-8")
+            (root / ".simpleoffice-meta").mkdir()
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            restored = base / "restored"
+
+            result = restore_migration_backup(backup, restored)
+
+            self.assertEqual("restore-me", (restored / "inbox" / "invoice.txt").read_text(encoding="utf-8"))
+            self.assertTrue((restored / ".simpleoffice-meta").is_dir())
+            self.assertFalse((restored / ".simpleoffice-v2" / "migration-backup.json").exists())
+            self.assertEqual("sha256-tree", result["integrity"])
+            self.assertEqual(str(restored.resolve()), result["destination"])
+
+    def test_restore_detects_same_size_backup_tampering(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            (root / "data.bin").write_bytes(b"AAAA")
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            (backup / "data.bin").write_bytes(b"BBBB")
+
+            with self.assertRaisesRegex(ValueError, "tree integrity"):
+                restore_migration_backup(backup, base / "restored")
+            self.assertFalse((base / "restored").exists())
+
+    def test_cli_restore_requires_explicit_apply(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            (root / "data.bin").write_bytes(b"backup")
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            restored = base / "restored"
+
+            with redirect_stdout(StringIO()) as output:
+                code = main([
+                    "--root", str(root), "migration-restore",
+                    "--backup", str(backup), "--destination", str(restored),
+                ])
+            self.assertEqual(3, code)
+            self.assertIn("--apply", output.getvalue())
+            self.assertFalse(restored.exists())
+
+            with redirect_stdout(StringIO()) as output:
+                code = main([
+                    "--root", str(root), "migration-restore",
+                    "--backup", str(backup), "--destination", str(restored), "--apply",
+                ])
+            self.assertEqual(0, code)
+            self.assertEqual(b"backup", (restored / "data.bin").read_bytes())
+            self.assertEqual("restored", json.loads(output.getvalue())["status"])
+
+    def test_restore_keeps_legacy_backup_compatibility_without_tree_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            (root / "legacy.txt").write_text("legacy-backup", encoding="utf-8")
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            manifest_path = backup / ".simpleoffice-v2" / "migration-backup.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest.pop("tree_sha256", None)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = restore_migration_backup(backup, base / "restored")
+
+            self.assertEqual("legacy-inventory-only", result["integrity"])
+            self.assertEqual("legacy-backup", (base / "restored" / "legacy.txt").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
