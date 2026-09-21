@@ -21,6 +21,7 @@ from app.federation_discovery_lan import (
 )
 from app.federation_discovery_service import discover_direct
 from app.federation_qr import decode_peer, encode_peer
+from app.federation_peer_admin import _connect_addresses
 from app.federation_local_profile import local_profile
 from app.federation_rendezvous_store import FederationRendezvousStore
 from app.federation_store import FederationStore
@@ -178,6 +179,20 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             self.assertEqual([], local_lan_addresses())
         getaddrinfo.assert_not_called()
         socket_factory.assert_not_called()
+
+    def test_connect_qr_uses_all_native_ipv4_classes(self):
+        with patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_FEDERATION_LAN_ADDRESS":
+                    "192.168.43.1,100.64.0.2,169.254.8.9,8.8.8.8,127.0.0.1,0.0.0.0,192.168.43.1"
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                ["192.168.43.1", "100.64.0.2", "169.254.8.9", "8.8.8.8"],
+                _connect_addresses(),
+            )
 
     def test_lan_ports_are_bounded(self):
         with patch.dict(
