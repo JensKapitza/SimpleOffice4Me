@@ -45,6 +45,24 @@ and the existing recovery page is the next user-visible step after success.
 The browser route does not call `DocumentStore.soft_delete_document` directly
 and does not manipulate recovery paths.
 
+## Fourth migrated operation: streaming upload/import
+
+The multi-file browser upload now calls `StoragePort.import_stream` instead of
+calling `DocumentStore.import_upload` directly.
+
+The transitional adapter deliberately delegates to the existing streaming V1
+importer. This preserves:
+
+- bounded chunked reads instead of loading large uploads fully into memory,
+- the configured upload-size limit,
+- staging and SHA-256 verification,
+- inbox versus hash-based archive placement,
+- collision-safe generated filenames,
+- existing upload audit/history events.
+
+Post-import organizational defaults such as tags/state remain on the existing
+metadata projection for now; they are not blob/storage manipulation.
+
 ## Error behavior
 
 Storage errors remain represented by the V2 result contract. The browser shows
@@ -53,11 +71,11 @@ document detail flow. No physical blob/chunk path is exposed to the route.
 
 ## Scope boundary
 
-This PR intentionally migrates only the existing browser move action.
+The browser file mutations migrated so far are move, copy, recoverable delete and streaming upload/import.
 
 Still to migrate in separate bounded changes:
 
-- content replacement/upload mutations
+- content replacement mutations
 - any file-browser operation that still writes through a concrete
   `DocumentStore` implementation
 
