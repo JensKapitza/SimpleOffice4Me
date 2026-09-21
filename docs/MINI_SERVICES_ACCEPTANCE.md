@@ -1,10 +1,55 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 18.09.2026, gemeinsamer Stand von PR #296 und #298 einschließlich Audio-Programmprüfung und Linux-Gateway-Recovery/Reload/Regelinhaltsprüfung; CLI-Erweiterung aus PR #307.
+Stand: 21.09.2026. Die historische Matrix basiert auf #296/#298 und wurde gegen den aktuellen main-Stand sowie die inzwischen gemergten Folge-PRs abgeglichen.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
 und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
 werden nicht als Nachweis für das gesamte Produkt gewertet.
+
+
+## Abgleich mit aktuellem main vom 21.09.2026
+
+Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen:
+
+- #338 ist gemergt: Blocklisten-Diagnose speichert nur noch den redigierten
+  HTTPS-Origin; Pfad, Query und Fragment erreichen die Diagnose nicht.
+- #341 ist gemergt: zugängliche Inline-Hilfen für Netzwerk, RTP/RTCP und
+  Networkboot sind wieder auf aktuellem main vorhanden.
+- #333 sowie #346–#349 sind gemergt: der DLNA/UPnP-MediaRenderer besitzt
+  Konfiguration, MediaRenderer-Protokollkern, gebundenen SSDP/HTTP-Dienst,
+  sicheren Media-Fetch/Playback sowie Mini-Services-Worker/Admin-Integration.
+  #285 bleibt für praktische Audio-/Video-/Controller-Hardwareabnahme offen;
+  die Softwarekette wird nicht erneut implementiert.
+- Die vorherigen Screen-, CLI-, Baseline-, Gateway- und Diagnosereparaturen
+  bleiben Bestandteil von main; historische Draft-/Ersatz-PRs sind kein
+  zusätzlicher offener Implementierungsstrang.
+
+Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
+
+| Klasse | Offene Punkte | Bedeutung |
+|---|---|---|
+| **Implementierungslücke** | DHCP-Konflikterkennung/geführte Netzauswahl; noch nicht gleichwertige Diagnose-/Health-Grenzen einzelner Audio-/Gateway-Funktionen; fehlende gezielte Windows-Audioauswahl, sofern ohne neue ausgeschlossene Systemkomponente sicher realisierbar | Es fehlt noch Produktcode oder eine explizite technische Entscheidung. |
+| **Prüfnachweis** | saubere Installation und Lifecycle auf realem Linux/Windows; reale LAN-/IPv6-Linkwechsel; echter Gateway-Paketfluss; reale RTP-/DLNA-/PXE-Geräte; Android-Hintergrundbetrieb/Capture/Audio; visuelle WCAG-/Touch-/Tastaturprüfung; Last-, RAM-, Durchsatz- und Langzeitleak-Messungen | Code-/CI-Nachweise existieren teilweise, ersetzen aber die praktische Abnahme nicht. |
+| **Technische Grenze** | virtuelles Windows-Mikrofon ohne freigegebene Systemkomponente; fremde RTP-Player ohne Discovery-Profil; DHCP/Gateway weiterhin IPv4-only; Windows-Ausgabe derzeit nur Systemstandard, solange keine verlässliche gezielte Gerätewahl nachgewiesen ist | Kein stilles „erledigt“; Grenze bleibt sichtbar dokumentiert und darf nicht als Fähigkeit dargestellt werden. |
+
+### Status der Issue-Checkliste
+
+- **Aktueller Stand/CI/PR-Abgleich:** softwareseitig aktualisiert; laufende neue
+  PRs außerhalb Mini Services werden nicht als Mini-Services-Nachweis gewertet.
+- **Inline-Hilfe:** durch #341 softwareseitig erledigt; visuelle Bedienabnahme
+  bleibt als Prüfnachweis offen.
+- **Diagnose-URL-Datenschutz:** durch #338 erledigt.
+- **DLNA (#285):** Softwareimplementierung vorhanden; praktische Hardware- und
+  Controller-Abnahme offen.
+- **Security-/Logprüfung:** gefundene Lecks wurden behoben; ein vollständiger
+  historischer Logpfad-Audit bleibt offen und darf nicht aus den Teilprüfungen
+  abgeleitet werden.
+- **Messungen/Gesamtabnahme:** weiterhin offen. Der vorhandene
+  Lifecycle-Mikrobenchmark ist kein Last-, RAM-, Durchsatz- oder Langzeittest.
+
+Diese Klassifizierung ersetzt keine Matrixzelle durch ein pauschales „V“. Eine
+Zelle wird erst hochgestuft, wenn der konkrete Nachweis für den jeweiligen
+Dienst vorliegt.
 
 ## Gleiche Kriterien, erneute Bewertung
 

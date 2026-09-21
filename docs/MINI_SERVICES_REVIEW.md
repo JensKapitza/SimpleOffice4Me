@@ -1,6 +1,6 @@
 # Mini Services – Bestandsaufnahme und Abnahme
 
-Ausgangsbasis: `4a9b798` (main). Inventur vom 14.09.2026. Dies ist eine
+Ausgangsbasis der historischen Inventur: `4a9b798` (main), 14.09.2026. Der aktuelle Fortschritt wird in `MINI_SERVICES_ACCEPTANCE.md` fortgeführt und am 21.09.2026 gegen den aktuellen main-Stand abgeglichen. Dies ist eine
 Arbeits- und Abnahmematrix, keine pauschale Produktionsfreigabe. Ein grüner
 Build ersetzt weder Hardwaretests noch eine Prüfung der tatsächlich nutzbaren
 Ende-zu-Ende-Funktion. Keine neue Drittanbieterabhängigkeit ist vorgesehen.
@@ -148,8 +148,7 @@ vereinheitlicht, nicht die Protokollimplementierungen ersetzt.
   VM/Podman (`app/host_services.py`) und Index-/Datalogger-Worker sind
   angrenzende Subsysteme, nicht zusätzliche Instanzen des Netzwerkworkers.
   Ihre Aufrufstellen und gemeinsamen Lifecycle-Records müssen kompatibel bleiben.
-- Issue #285: DLNA/UPnP Audio-/Video-Renderer ist offen, kein vorhandener
-  DLNA-Worker auf main. Nicht als funktionierende Discovery ausweisen.
+- Issue #285: DLNA/UPnP Audio-/Video-Renderer ist softwareseitig über die gemergte Kette #333 und #346–#349 vorhanden. Offen bleiben praktische Controller-/Audio-/Video-Hardwareabnahmen; diese Software nicht doppelt implementieren.
 - Issue #286 / offener PR #288: Bildschirmfreigabe separat. Auf main nicht
   vorhanden; WebRTC-/Miracast-/Android-Laufzeitabnahme dort gesondert nötig.
   Insbesondere erfolgreiche Kompilierung allein belegt keine Freigabe im Hintergrund.
