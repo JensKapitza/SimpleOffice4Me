@@ -64,7 +64,7 @@ def _configure_lan_addresses(lan_addresses: str = "") -> None:
         if value and value not in values:
             values.append(value)
     if values:
-        os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"] = ",".join(values[:4])
+        os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"] = ",".join(values)
     else:
         os.environ.pop("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", None)
 
