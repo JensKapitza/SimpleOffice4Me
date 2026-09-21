@@ -366,6 +366,9 @@ def create_migration_backup(root: str | Path, destination: str | Path) -> dict[s
         raise ValueError("migration backup destination must be outside the source tree")
     if target.exists():
         raise FileExistsError("migration backup destination already exists")
+    reserved_manifest = source / ".simpleoffice-v2" / "migration-backup.json"
+    if reserved_manifest.exists() or reserved_manifest.is_symlink():
+        raise ValueError("source contains the reserved migration backup manifest path")
     target.parent.mkdir(parents=True, exist_ok=True)
 
     inventory = _source_inventory(source)
