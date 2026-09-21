@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import ErrorCode, JobRecord, JobState, OperationResult
+from .authorization import AuthorizationStore, GrantRight
 
 
 SCHEMA_VERSION = 1
@@ -205,7 +206,25 @@ class FederationJobService:
     def __init__(self, store: PersistentJobStore):
         self.store = store
 
-    def create_transfer(self, intent: FederationTransferIntent, *, idempotency_key: str) -> OperationResult[JobRecord]:
+    def create_transfer(
+        self,
+        intent: FederationTransferIntent,
+        *,
+        idempotency_key: str,
+        authorization_store: AuthorizationStore | None = None,
+    ) -> OperationResult[JobRecord]:
+        if authorization_store is not None:
+            for object_ref in intent.object_refs:
+                if not authorization_store.allows(
+                    intent.authorization_ref,
+                    subject=intent.source_peer,
+                    right=GrantRight.RELAY,
+                    object_ref=object_ref,
+                ):
+                    return OperationResult.failure(
+                        ErrorCode.FORBIDDEN,
+                        "transfer authorization does not allow relay for the complete object scope",
+                    )
         payload = {
             "source_peer": intent.source_peer,
             "target_peer": intent.target_peer,
