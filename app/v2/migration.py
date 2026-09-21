@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import uuid
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -236,7 +237,7 @@ def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str,
         raise ValueError("migration plan is blocked: " + "; ".join(plan["blockers"]))
 
     identifiers = [str(entry["document_id"]) for entry in plan["entries"] if entry.get("status") == "ready"]
-    duplicates = sorted({value for value in identifiers if identifiers.count(value) > 1})
+    duplicates = sorted(value for value, count in Counter(identifiers).items() if count > 1)
     if duplicates:
         raise ValueError("migration plan contains duplicate document ids: " + ", ".join(duplicates))
 
