@@ -123,3 +123,25 @@ könnte Clients in ein falsches Segment verschieben und ist deshalb nicht vorges
 `test_mini_network_settings`, `test_mini_control_api`: Protokoll-/Optionsprüfung,
 Start/Stop/Restart, belegter Port, Fehlerisolation, Netzwerkentfernung/-rückkehr,
 Reset und geschützte Steuerung ohne Spezialhardware.
+
+
+## Geführte Netzauswahl
+
+Die Admin-Seite zeigt aus den tatsächlich erkannten lokalen IPv4-Adressen
+geeignete Kandidaten für Interface, Server-IP und Netzwerk an.
+
+Die Auswahl ist bewusst nur eine Eingabehilfe:
+
+- kein Kandidat wird automatisch übernommen,
+- DHCP wird dadurch nicht aktiviert,
+- Pool, Gateway und DNS werden nicht geraten,
+- Loopback, Link-Local und unbrauchbare /31-/32-Netze werden nicht angeboten,
+- bei mehreren lokalen Netzen bleibt die Auswahl ausdrücklich beim Administrator.
+
+Die Schaltfläche übernimmt ausschließlich Interface, lokale Server-IP und das
+zugehörige CIDR in das noch nicht gespeicherte Formular.
+
+Eine aktive Erkennung fremder DHCP-Server ist damit **nicht** behauptet. Eine
+solche Prüfung muss im privilegierten Mini-Services-Worker erfolgen und darf
+nicht als Broadcast-Probe aus dem normalen Flask-Webprozess implementiert
+werden.
