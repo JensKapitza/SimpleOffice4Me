@@ -65,7 +65,7 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          ignored = {'.git', '.venv', 'node_modules', 'dist', 'build'}
+          ignored = {'.git', '.venv', '.vscode', 'node_modules', 'dist', 'build'}
           files = [p for p in Path('.').rglob('*.json') if not ignored.intersection(p.parts)]
           for path in files:
               with path.open(encoding='utf-8') as handle:
