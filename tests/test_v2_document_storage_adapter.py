@@ -43,6 +43,12 @@ class DocumentStoreStorageAdapterTest(unittest.TestCase):
         self.assertFalse(stale.ok)
         self.assertEqual(ErrorCode.CONFLICT, stale.error.code)
 
+        copied = self.adapter.copy(object_id, StorageLocation("docs/copied.txt"))
+        self.assertTrue(copied.ok)
+        self.assertNotEqual(object_id, copied.value.object_id)
+        self.assertEqual("docs/copied.txt", copied.value.location.relative_path)
+        self.assertEqual(b"two", self.adapter.read_bytes(copied.value.object_id).value)
+
         moved = self.adapter.move(object_id, StorageLocation("docs/renamed.txt"))
         self.assertTrue(moved.ok)
         self.assertEqual(object_id, moved.value.object_id)

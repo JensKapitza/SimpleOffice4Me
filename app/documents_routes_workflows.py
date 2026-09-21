@@ -387,6 +387,29 @@ def move_document(document_id: str):
     return redirect(url_for("documents.detail", document_id=document_id))
 
 
+@bp.post("/<document_id>/copy")
+@login_required
+def copy_document(document_id: str):
+    try:
+        actor = str(g.user["username"])
+        document = _store().get_document(document_id)
+        filename = Path(str(document.get("last_path") or "")).name
+        destination_folder = request.form.get("destination_folder", "").strip()
+        destination = StorageLocation((Path(destination_folder) / filename).as_posix())
+        result = _storage(actor).copy(LogicalObjectId(str(document["document_id"])), destination)
+        if not result.ok:
+            flash(result.error.message)
+        else:
+            flash(
+                f"Dokument kopiert nach {result.value.location.relative_path}. "
+                "Die Kopie hat eine eigene Dokument-ID."
+            )
+            return redirect(url_for("documents.detail", document_id=result.value.object_id.value))
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
 @bp.post("/<document_id>/share")
 @login_required
 def create_share(document_id: str):

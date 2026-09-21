@@ -176,6 +176,7 @@ class StoragePort(Protocol):
     Implementations may use the current DocumentStore, a V2 blob store or a
     remote backend. Callers must not depend on concrete paths. Moving or
     renaming an object changes only its StorageLocation, never its LogicalObjectId.
+    Copying creates a new LogicalObjectId.
     """
 
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
@@ -191,6 +192,9 @@ class StoragePort(Protocol):
         *,
         expected_version: str | None = None,
     ) -> OperationResult[StoredObject]:
+        ...
+
+    def copy(self, object_id: LogicalObjectId, destination: StorageLocation) -> OperationResult[StoredObject]:
         ...
 
     def delete(self, object_id: LogicalObjectId, *, expected_version: str | None = None) -> OperationResult[str]:
