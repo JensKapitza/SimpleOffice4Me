@@ -301,6 +301,77 @@ def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str,
     return report
 
 
+def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
+    """Read-only verification of the completed side-by-side content transfer."""
+    source = Path(root).expanduser().resolve()
+    blockers: list[str] = []
+    transfer_path = source / ".simpleoffice-v2" / "migration-transfer.json"
+    try:
+        transfer = json.loads(transfer_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        transfer = {}
+        blockers.append("migration transfer report is missing or invalid")
+
+    if transfer and (
+        not isinstance(transfer, dict)
+        or transfer.get("format") != "simpleoffice-v2-migration-transfer"
+        or int(transfer.get("format_version", 0)) != 1
+        or transfer.get("status") != "content-copied"
+    ):
+        blockers.append("migration transfer report has an unsupported state")
+
+    plan = build_migration_plan(source)
+    if not plan["ready"]:
+        blockers.extend(str(item) for item in plan["blockers"])
+        return {
+            "format": "simpleoffice-v2-migration-verification",
+            "format_version": 1,
+            "ready": False,
+            "documents": int(plan["documents"]),
+            "verified_documents": 0,
+            "source_bytes": int(plan["bytes"]),
+            "blockers": blockers,
+        }
+
+    if transfer:
+        if int(transfer.get("documents", -1)) != int(plan["documents"]):
+            blockers.append("migration transfer document count no longer matches the V1 plan")
+        if int(transfer.get("source_bytes", -1)) != int(plan["bytes"]):
+            blockers.append("migration transfer byte count no longer matches the V1 plan")
+        transferred = int(transfer.get("migrated_documents", 0)) + int(transfer.get("already_present_documents", 0))
+        if transferred != int(plan["documents"]):
+            blockers.append("migration transfer report does not cover every V1 document")
+
+    store = BlobStore(source)
+    verified = 0
+    for entry in plan["entries"]:
+        if entry.get("status") != "ready":
+            continue
+        object_id = LogicalObjectId(str(entry["document_id"]))
+        if not store.contains(object_id):
+            blockers.append(f"V2 object is missing: {object_id.value}")
+            continue
+        try:
+            current = store.verify(object_id)
+        except (BlobIntegrityError, OSError, ValueError) as exc:
+            blockers.append(f"V2 object failed integrity verification: {object_id.value}: {exc}")
+            continue
+        if current.size != int(entry["size"]) or current.content_sha256 != str(entry["sha256"]):
+            blockers.append(f"V2 object differs from V1 source: {object_id.value}")
+            continue
+        verified += 1
+
+    return {
+        "format": "simpleoffice-v2-migration-verification",
+        "format_version": 1,
+        "ready": not blockers,
+        "documents": int(plan["documents"]),
+        "verified_documents": verified,
+        "source_bytes": int(plan["bytes"]),
+        "blockers": blockers,
+    }
+
+
 def _source_inventory(root: Path) -> dict[str, int]:
     files = 0
     directories = 0
