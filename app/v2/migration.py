@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .blob_store import BlobStore
+from .blob_store import BlobIntegrityError, BlobStore
 from .contracts import LogicalObjectId
 
 
@@ -64,12 +64,12 @@ def inspect_migration(root: str | Path) -> MigrationPreflight:
                     try:
                         manifest = store.version_manifest(manifest_path.stem)
                         store.verify(LogicalObjectId(str(manifest["object_id"])), version_id=manifest_path.stem)
-                    except (OSError, ValueError, TypeError, KeyError):
+                    except (BlobIntegrityError, OSError, ValueError, TypeError, KeyError):
                         invalid += 1
                 inventory_readable = True
                 if invalid:
                     blockers.append(f"{invalid} V2 object version(s) fail integrity verification")
-            except (OSError, ValueError, TypeError):
+            except (BlobIntegrityError, OSError, ValueError, TypeError):
                 blockers.append("V2 recovery inventory is not readable")
 
     history = (path / ".simpleoffice-history").exists() if exists else False
