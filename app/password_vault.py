@@ -34,6 +34,7 @@ KDF_P = 1
 MAX_ITEM_BYTES = 512 * 1024
 MAX_BACKUP_BYTES = 64 * 1024 * 1024
 ENTRY_TYPES = {"login", "secure_note", "identity", "card", "ssh_key", "api_key"}
+VAULT_KEY_CHECK = b"simpleoffice-password-vault:key-check:v1"
 
 
 def _now() -> int:
@@ -60,6 +61,10 @@ def _kdf(master_password: str, salt: bytes, *, n: int = KDF_N, r: int = KDF_R, p
 
 def _profile_aad(user_id: str) -> bytes:
     return f"simpleoffice-password-vault:keywrap:v1:{user_id}".encode("utf-8")
+
+
+def _key_check_aad(user_id: str) -> bytes:
+    return f"simpleoffice-password-vault:key-check:v1:{user_id}".encode("utf-8")
 
 
 def _entry_aad(user_id: str, entry_id: str, revision: int) -> bytes:
@@ -141,6 +146,11 @@ class PasswordVault:
                     ON vault_entry(user_id, updated_at DESC);
                 """
             )
+            columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(vault_profile)").fetchall()}
+            if "key_check_nonce" not in columns:
+                db.execute("ALTER TABLE vault_profile ADD COLUMN key_check_nonce BLOB")
+            if "key_check_ciphertext" not in columns:
+                db.execute("ALTER TABLE vault_profile ADD COLUMN key_check_ciphertext BLOB")
             db.execute("PRAGMA user_version=1")
         if os.name == "posix" and self.path.exists():
             try:
@@ -151,6 +161,38 @@ class PasswordVault:
     def configured(self, user_id: str) -> bool:
         with self._db() as db:
             return db.execute("SELECT 1 FROM vault_profile WHERE user_id=?", (str(user_id),)).fetchone() is not None
+
+    def _install_key_check(self, user_id: str, vault_key: bytes) -> None:
+        nonce = secrets.token_bytes(12)
+        ciphertext = AESGCM(vault_key).encrypt(nonce, VAULT_KEY_CHECK, _key_check_aad(user_id))
+        with self._db() as db:
+            db.execute(
+                "UPDATE vault_profile SET key_check_nonce=?,key_check_ciphertext=?,updated_at=? WHERE user_id=?",
+                (nonce, ciphertext, _now(), user_id),
+            )
+
+    def _require_vault_key(self, user_id: str, vault_key: bytes) -> None:
+        if not isinstance(vault_key, (bytes, bytearray)) or len(vault_key) != 32:
+            raise ValueError("Vault ist nicht entsperrt")
+        with self._db() as db:
+            row = db.execute(
+                "SELECT key_check_nonce,key_check_ciphertext FROM vault_profile WHERE user_id=?",
+                (str(user_id),),
+            ).fetchone()
+        if row is None:
+            raise ValueError("Passwort-Vault ist nicht eingerichtet")
+        nonce = row["key_check_nonce"]
+        ciphertext = row["key_check_ciphertext"]
+        if nonce is None or ciphertext is None:
+            raise ValueError("Vault muss erneut mit dem Master-Passwort entsperrt werden")
+        try:
+            marker = AESGCM(bytes(vault_key)).decrypt(
+                bytes(nonce), bytes(ciphertext), _key_check_aad(str(user_id))
+            )
+        except (InvalidTag, ValueError, TypeError) as exc:
+            raise ValueError("Vault-Key ist ungültig oder die Schlüsselprüfung wurde verändert") from exc
+        if marker != VAULT_KEY_CHECK:
+            raise ValueError("Vault-Key ist ungültig oder die Schlüsselprüfung wurde verändert")
 
     def create(self, user_id: str, master_password: str) -> bytes:
         user_id = str(user_id).strip()
@@ -163,11 +205,21 @@ class PasswordVault:
         vault_key = secrets.token_bytes(32)
         nonce = secrets.token_bytes(12)
         wrapped = AESGCM(wrapping_key).encrypt(nonce, vault_key, _profile_aad(user_id))
+        check_nonce = secrets.token_bytes(12)
+        check_ciphertext = AESGCM(vault_key).encrypt(
+            check_nonce, VAULT_KEY_CHECK, _key_check_aad(user_id)
+        )
         timestamp = _now()
         with self._db() as db:
             db.execute(
-                "INSERT INTO vault_profile(user_id,salt,wrap_nonce,wrapped_key,kdf_n,kdf_r,kdf_p,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (user_id, salt, nonce, wrapped, KDF_N, KDF_R, KDF_P, timestamp, timestamp),
+                """INSERT INTO vault_profile(
+                       user_id,salt,wrap_nonce,wrapped_key,kdf_n,kdf_r,kdf_p,created_at,updated_at,
+                       key_check_nonce,key_check_ciphertext
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    user_id, salt, nonce, wrapped, KDF_N, KDF_R, KDF_P, timestamp, timestamp,
+                    check_nonce, check_ciphertext,
+                ),
             )
         return vault_key
 
@@ -182,8 +234,18 @@ class PasswordVault:
                 master_password, bytes(row["salt"]),
                 n=int(row["kdf_n"]), r=int(row["kdf_r"]), p=int(row["kdf_p"]),
             )
-            return AESGCM(wrapping_key).decrypt(bytes(row["wrap_nonce"]), bytes(row["wrapped_key"]), _profile_aad(user_id))
+            vault_key = AESGCM(wrapping_key).decrypt(
+                bytes(row["wrap_nonce"]), bytes(row["wrapped_key"]), _profile_aad(user_id)
+            )
+            if row["key_check_nonce"] is None or row["key_check_ciphertext"] is None:
+                self._install_key_check(user_id, vault_key)
+            else:
+                self._require_vault_key(user_id, vault_key)
+            return vault_key
         except (InvalidTag, ValueError) as exc:
+            message = str(exc)
+            if message.startswith("Vault-Key"):
+                raise
             raise ValueError("Master-Passwort ist falsch oder der Vault wurde verändert") from exc
 
     def change_master_password(self, user_id: str, old_password: str, new_password: str) -> None:
@@ -201,8 +263,7 @@ class PasswordVault:
 
     def put(self, user_id: str, vault_key: bytes, payload: dict[str, Any], *, entry_id: str | None = None) -> dict[str, Any]:
         user_id = str(user_id).strip()
-        if len(vault_key) != 32 or not self.configured(user_id):
-            raise ValueError("Vault ist nicht entsperrt")
+        self._require_vault_key(user_id, vault_key)
         entry_id = str(entry_id or uuid.uuid4())
         try:
             uuid.UUID(entry_id)
@@ -230,8 +291,7 @@ class PasswordVault:
             db.execute("UPDATE vault_entry SET deleted_at=?,updated_at=? WHERE user_id=? AND entry_id=?", (_now(), _now(), str(user_id), str(entry_id)))
 
     def entries(self, user_id: str, vault_key: bytes, *, include_deleted: bool = False) -> list[dict[str, Any]]:
-        if len(vault_key) != 32:
-            raise ValueError("Vault ist nicht entsperrt")
+        self._require_vault_key(str(user_id), vault_key)
         with self._db() as db:
             if include_deleted:
                 rows = db.execute(
@@ -276,6 +336,8 @@ class PasswordVault:
                 "salt": _b64(bytes(profile["salt"])), "wrap_nonce": _b64(bytes(profile["wrap_nonce"])),
                 "wrapped_key": _b64(bytes(profile["wrapped_key"])), "kdf_n": profile["kdf_n"],
                 "kdf_r": profile["kdf_r"], "kdf_p": profile["kdf_p"],
+                "key_check_nonce": _b64(bytes(profile["key_check_nonce"])) if profile["key_check_nonce"] is not None else "",
+                "key_check_ciphertext": _b64(bytes(profile["key_check_ciphertext"])) if profile["key_check_ciphertext"] is not None else "",
                 "created_at": profile["created_at"], "updated_at": profile["updated_at"],
             },
             "entries": [
@@ -320,8 +382,16 @@ class PasswordVault:
             int(profile["kdf_n"]), int(profile["kdf_r"]), int(profile["kdf_p"]),
             int(profile["created_at"]), int(profile["updated_at"]),
         )
+        check_nonce_raw = str(profile.get("key_check_nonce") or "")
+        check_ciphertext_raw = str(profile.get("key_check_ciphertext") or "")
+        if bool(check_nonce_raw) != bool(check_ciphertext_raw):
+            raise ValueError("Vault-Profil enthält eine unvollständige Schlüsselprüfung")
+        check_nonce = _unb64(check_nonce_raw) if check_nonce_raw else None
+        check_ciphertext = _unb64(check_ciphertext_raw) if check_ciphertext_raw else None
         if len(decoded_profile[0]) != 16 or len(decoded_profile[1]) != 12:
             raise ValueError("Vault-Profil ist beschädigt")
+        if check_nonce is not None and len(check_nonce) != 12:
+            raise ValueError("Vault-Profil enthält eine ungültige Schlüsselprüfung")
         staged = []
         for item in entries:
             if not isinstance(item, dict):
@@ -343,8 +413,11 @@ class PasswordVault:
             if replace:
                 db.execute("DELETE FROM vault_profile WHERE user_id=?", (user_id,))
             db.execute(
-                "INSERT INTO vault_profile(user_id,salt,wrap_nonce,wrapped_key,kdf_n,kdf_r,kdf_p,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (user_id, *decoded_profile),
+                """INSERT INTO vault_profile(
+                       user_id,salt,wrap_nonce,wrapped_key,kdf_n,kdf_r,kdf_p,created_at,updated_at,
+                       key_check_nonce,key_check_ciphertext
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (user_id, *decoded_profile, check_nonce, check_ciphertext),
             )
             db.executemany(
                 "INSERT INTO vault_entry(user_id,entry_id,revision,nonce,ciphertext,created_at,updated_at,deleted_at) VALUES(?,?,?,?,?,?,?,?)",
