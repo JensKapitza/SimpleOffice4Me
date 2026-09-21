@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .recovery import RecoveryService
-from .migration import create_migration_backup, inspect_migration
+from .migration import build_migration_plan, create_migration_backup, inspect_migration
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -21,6 +21,7 @@ def _parser() -> argparse.ArgumentParser:
 
     sub.add_parser("inventory", help="Inspect formats, chunks and recovery state")
     sub.add_parser("migration-preflight", help="Read-only V1/V2 migration readiness check")
+    sub.add_parser("migration-plan", help="Build a read-only V1 document migration plan")
     backup = sub.add_parser("migration-backup", help="Create a source backup before migration")
     backup.add_argument("--destination", required=True)
     backup.add_argument("--apply", action="store_true")
@@ -61,6 +62,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = inspect_migration(args.root)
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0 if result.ready else 2
+
+    if args.command == "migration-plan":
+        result = build_migration_plan(args.root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["ready"] else 2
 
     if args.command == "migration-backup":
         if not args.apply:

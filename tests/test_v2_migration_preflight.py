@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -5,7 +6,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from app.v2.migration import create_migration_backup, inspect_migration
+from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration
 from app.v2.recovery_cli import main
 
 
@@ -86,6 +87,59 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertEqual(3, code)
             self.assertFalse(target.exists())
             self.assertIn("--apply", output.getvalue())
+
+
+    def test_migration_plan_is_read_only_and_verifies_legacy_documents(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            content = b"legacy-content"
+            document = root / "inbox" / "invoice.txt"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            metadata = {
+                "document_id": "doc-1",
+                "last_path": "inbox/invoice.txt",
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+            (metadata_dir / "doc-1.json").write_text(json.dumps(metadata), encoding="utf-8")
+            before = sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+
+            plan = build_migration_plan(root)
+
+            after = sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+            self.assertEqual(before, after)
+            self.assertTrue(plan["ready"])
+            self.assertEqual(1, plan["ready_documents"])
+            self.assertEqual(len(content), plan["bytes"])
+            self.assertEqual("ready", plan["entries"][0]["status"])
+            self.assertFalse((root / ".simpleoffice-v2").exists())
+
+    def test_migration_plan_blocks_hash_mismatch_and_cli_reports_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            document = root / "inbox" / "invoice.txt"
+            document.parent.mkdir()
+            document.write_bytes(b"changed")
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "doc-1.json").write_text(
+                json.dumps({
+                    "document_id": "doc-1",
+                    "last_path": "inbox/invoice.txt",
+                    "sha256": "0" * 64,
+                }),
+                encoding="utf-8",
+            )
+            output = StringIO()
+            with redirect_stdout(output):
+                code = main(["--root", str(root), "migration-plan"])
+            report = json.loads(output.getvalue())
+            self.assertEqual(2, code)
+            self.assertFalse(report["ready"])
+            self.assertEqual(1, report["blocked_documents"])
+            self.assertIn("does not match", report["entries"][0]["error"])
 
 
 if __name__ == "__main__":
