@@ -1,11 +1,16 @@
-"""Read-only V1 -> V2 migration preflight.
+"""V1 -> V2 migration safety helpers.
 
-This module never mutates an installation. It inventories the legacy stores and
-reports blockers before a future migration is allowed to run.
+Preflight is strictly read-only. Source backup is explicit and writes only to a
+new destination outside the source tree.
 """
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import uuid
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -77,3 +82,68 @@ def inspect_migration(root: str | Path) -> MigrationPreflight:
         ready=not blockers,
         blockers=tuple(blockers),
     )
+
+
+def _source_inventory(root: Path) -> dict[str, int]:
+    files = 0
+    directories = 0
+    symlinks = 0
+    bytes_total = 0
+    for entry in root.rglob("*"):
+        if entry.is_symlink():
+            symlinks += 1
+        elif entry.is_dir():
+            directories += 1
+        elif entry.is_file():
+            files += 1
+            bytes_total += entry.stat().st_size
+    return {
+        "files": files,
+        "directories": directories,
+        "symlinks": symlinks,
+        "bytes": bytes_total,
+    }
+
+
+def create_migration_backup(root: str | Path, destination: str | Path) -> dict[str, Any]:
+    """Create an atomic source-tree backup before any future migration.
+
+    Symlinks are copied as links rather than dereferenced, so a link cannot make
+    backup creation read arbitrary data outside the document root.
+    """
+    source = Path(root).expanduser().resolve()
+    target = Path(destination).expanduser().resolve()
+    preflight = inspect_migration(source)
+    if not preflight.ready:
+        raise ValueError("migration preflight failed: " + "; ".join(preflight.blockers))
+    if target == source or target.is_relative_to(source):
+        raise ValueError("migration backup destination must be outside the source tree")
+    if target.exists():
+        raise FileExistsError("migration backup destination already exists")
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    inventory = _source_inventory(source)
+    staging = target.with_name(f".{target.name}.tmp-{uuid.uuid4().hex}")
+    if staging.exists():
+        raise FileExistsError("migration backup staging path already exists")
+    try:
+        shutil.copytree(source, staging, symlinks=True)
+        metadata_dir = staging / ".simpleoffice-v2"
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "format": "simpleoffice-v2-migration-backup",
+            "format_version": 1,
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "source_name": source.name,
+            **inventory,
+        }
+        (metadata_dir / "migration-backup.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(staging, target)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return {**manifest, "destination": str(target)}
