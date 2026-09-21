@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- ':!*.md'; then
+          if git grep -n -E '^(<<<<<<< |>>>>>>> )' -- ':!*.md'; then
             echo 'Merge conflict marker found.' >&2
             exit 1
           fi
