@@ -133,6 +133,12 @@
 <button type="submit" class="btn btn-outline-primary">Verschieben</button>
 </form>
 <div id="move-help" class="form-text">Relativer Zielordner im Dokumentenspeicher. Die ID und Verknüpfungen bleiben erhalten.</div>
+<label class="form-label mt-3">In Ordner kopieren</label>
+<form method="post" action="{{ url_for('documents.copy_document', document_id=document.document_id) }}" class="input-group">
+<input required class="form-control" name="destination_folder" placeholder="z. B. Projekte/Kopien" aria-describedby="copy-help">
+<button type="submit" class="btn btn-outline-secondary">Kopieren</button>
+</form>
+<div id="copy-help" class="form-text">Erzeugt eine unabhängige Kopie mit eigener Dokument-ID.</div>
 </div>
 </div>
 <div class="card mb-4">
