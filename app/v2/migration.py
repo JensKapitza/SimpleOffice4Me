@@ -214,10 +214,15 @@ def _validate_backup_for_plan(source: Path, backup: str | Path, plan: dict[str, 
         raise ValueError("migration backup does not match the source installation")
     expected_tree = str(manifest.get("tree_sha256") or "")
     if expected_tree:
-        actual_tree = _tree_sha256(
-            target,
-            exclude={".simpleoffice-v2/migration-backup.json"},
-        )
+        excluded = {".simpleoffice-v2/migration-backup.json"}
+        v2_directory = target / ".simpleoffice-v2"
+        if (
+            manifest.get("source_v2_dir_present") is False
+            and v2_directory.is_dir()
+            and {item.name for item in v2_directory.iterdir()} == {"migration-backup.json"}
+        ):
+            excluded.add(".simpleoffice-v2")
+        actual_tree = _tree_sha256(target, exclude=excluded)
         if actual_tree != expected_tree:
             raise ValueError("migration backup tree integrity check failed")
 
@@ -372,6 +377,7 @@ def create_migration_backup(root: str | Path, destination: str | Path) -> dict[s
     target.parent.mkdir(parents=True, exist_ok=True)
 
     inventory = _source_inventory(source)
+    source_v2_dir_present = (source / ".simpleoffice-v2").is_dir()
     source_tree_sha256 = _tree_sha256(source)
     staging = target.with_name(f".{target.name}.tmp-{uuid.uuid4().hex}")
     if staging.exists():
@@ -389,6 +395,7 @@ def create_migration_backup(root: str | Path, destination: str | Path) -> dict[s
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "source_name": source.name,
             "tree_sha256": backup_tree_sha256,
+            "source_v2_dir_present": source_v2_dir_present,
             **inventory,
         }
         (metadata_dir / "migration-backup.json").write_text(
@@ -436,7 +443,22 @@ def restore_migration_backup(backup: str | Path, destination: str | Path) -> dic
             for key in ("files", "directories", "symlinks", "bytes")
         }
         inventory = _source_inventory(staging)
-        if inventory != expected_inventory and v2_directory.is_dir() and not any(v2_directory.iterdir()):
+        should_remove_added_v2_dir = manifest.get("source_v2_dir_present") is False
+        if (
+            inventory != expected_inventory
+            and should_remove_added_v2_dir
+            and v2_directory.is_dir()
+            and not any(v2_directory.iterdir())
+        ):
+            v2_directory.rmdir()
+            inventory = _source_inventory(staging)
+        elif (
+            inventory != expected_inventory
+            and "source_v2_dir_present" not in manifest
+            and v2_directory.is_dir()
+            and not any(v2_directory.iterdir())
+        ):
+            # Backward compatibility with backups created before the marker existed.
             v2_directory.rmdir()
             inventory = _source_inventory(staging)
         if inventory != expected_inventory:
