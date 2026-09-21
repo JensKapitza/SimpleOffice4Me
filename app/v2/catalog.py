@@ -241,11 +241,13 @@ class ObjectCatalog:
         return OperationResult.success(self._entry(row))
 
     def list(self, *, include_deleted: bool = False) -> list[CatalogEntry]:
-        clause = "" if include_deleted else " WHERE state <> 'deleted'"
+        query = (
+            "SELECT * FROM object_catalog ORDER BY location, object_id"
+            if include_deleted
+            else "SELECT * FROM object_catalog WHERE state <> 'deleted' ORDER BY location, object_id"
+        )
         with self._db() as db:
-            rows = db.execute(
-                "SELECT * FROM object_catalog" + clause + " ORDER BY location, object_id"
-            ).fetchall()
+            rows = db.execute(query).fetchall()
         return [self._entry(row) for row in rows]
 
     def move(
