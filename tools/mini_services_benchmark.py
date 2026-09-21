@@ -11,6 +11,7 @@ import statistics
 import tempfile
 import threading
 import time
+import tracemalloc
 from pathlib import Path
 
 from simpleoffice_mini_core import DEFAULT_CONFIG
@@ -20,23 +21,63 @@ from simpleoffice_service_lifecycle import service_health
 from simpleoffice_sip_runtime import SipRegistrarService
 
 
+def _service_factories(path):
+    def dhcp():
+        return DhcpService({**copy.deepcopy(DEFAULT_CONFIG["dhcp"]), "bind": "127.0.0.1", "interface": "", "port": 0}, path)
+
+    def dns():
+        return DnsService({**copy.deepcopy(DEFAULT_CONFIG["dns"]), "bind": ["127.0.0.1"], "port": 0}, path)
+
+    def tftp():
+        service = TftpService(copy.deepcopy(DEFAULT_BOOT_SETTINGS), path)
+        service.settings.update(tftp_bind="127.0.0.1", tftp_port=0)
+        return service
+
+    def sip():
+        service = SipRegistrarService(path)
+        service.settings.update(bind_host="127.0.0.1", registrar_port=0)
+        return service
+
+    return {"dhcp": dhcp, "dns": dns, "tftp": tftp, "sip": sip}
+
+
+def _construction_samples(factory, iterations):
+    elapsed = []
+    peak_kib = []
+    for _ in range(iterations):
+        tracemalloc.start()
+        before = time.perf_counter()
+        service = factory()
+        elapsed.append((time.perf_counter() - before) * 1000)
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        peak_kib.append(peak / 1024)
+        del service
+    return elapsed, peak_kib
+
+
 def measure(iterations=5):
     if type(iterations) is not int or not 1 <= iterations <= 50:
         raise ValueError("iterations must be an integer between 1 and 50")
     baseline = set(threading.enumerate())
     report = {"python": platform.python_version(), "platform": platform.platform(),
-              "iterations": iterations, "scope": "loopback listener lifecycle, no protocol load",
+              "iterations": iterations,
+              "scope": "loopback listener lifecycle and service-object construction; no process cold start, protocol load, LAN throughput or total RSS",
               "services": {}}
     with tempfile.TemporaryDirectory(prefix="mini-benchmark-") as temporary:
         path = Path(temporary) / "config.json"
-        dhcp = DhcpService({**copy.deepcopy(DEFAULT_CONFIG["dhcp"]), "bind": "127.0.0.1", "interface": "", "port": 0}, path)
-        dns = DnsService({**copy.deepcopy(DEFAULT_CONFIG["dns"]), "bind": ["127.0.0.1"], "port": 0}, path)
-        tftp = TftpService(copy.deepcopy(DEFAULT_BOOT_SETTINGS), path)
-        tftp.settings.update(tftp_bind="127.0.0.1", tftp_port=0)
-        sip = SipRegistrarService(path)
-        sip.settings.update(bind_host="127.0.0.1", registrar_port=0)
-        for name, service in (("dhcp", dhcp), ("dns", dns), ("tftp", tftp), ("sip", sip)):
-            samples = {"start_ms": [], "stop_ms": [], "duplicate_start_ms": [], "cpu_ms": []}
+        factories = _service_factories(path)
+        for name, factory in factories.items():
+            construct_ms, python_heap_peak_kib = _construction_samples(factory, iterations)
+            service = factory()
+            samples = {
+                "construct_ms": construct_ms,
+                "python_heap_peak_kib": python_heap_peak_kib,
+                "start_ms": [],
+                "stop_ms": [],
+                "duplicate_start_ms": [],
+                "cpu_ms": [],
+            }
             for _ in range(iterations):
                 cpu = time.process_time()
                 try:
