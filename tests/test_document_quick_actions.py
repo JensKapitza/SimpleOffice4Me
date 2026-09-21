@@ -13,6 +13,7 @@ from app.db import ensure_auth_database
 from app.document_store import DocumentStore
 from app.contact_store import ContactStore
 from app.object_store import ObjectStore
+from app.v2.contracts import LogicalObjectId, OperationResult, StorageLocation, StoredObject
 
 
 class DocumentQuickActionsTest(unittest.TestCase):
@@ -89,6 +90,53 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertIn("/documents/search?", response.headers["Location"])
         self.assertIn("q=scan-me", response.headers["Location"])
         self.assertIn("page=2", response.headers["Location"])
+
+    def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")
+
+        response = self.client.post(
+            f"/documents/{document['document_id']}/move",
+            data={"destination_folder": "Archiv/2026"},
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        moved = DocumentStore(self.root).get_document(document["document_id"])
+        self.assertEqual(document["document_id"], moved["document_id"])
+        self.assertEqual("Archiv/2026/move-me.txt", moved["last_path"])
+        self.assertEqual(b"move me", (self.root / moved["last_path"]).read_bytes())
+
+    def test_document_move_route_does_not_call_v1_move_directly(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "direct.txt", "jens")
+        calls = []
+
+        class FakeStorage:
+            def move(self, object_id, destination):
+                calls.append((object_id, destination))
+                return OperationResult.success(
+                    StoredObject(
+                        object_id=object_id,
+                        version="synthetic-version",
+                        size=7,
+                        location=destination,
+                    )
+                )
+
+        with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), patch.object(
+            DocumentStore,
+            "move_document",
+            side_effect=AssertionError("browser route bypassed StoragePort"),
+        ):
+            response = self.client.post(
+                f"/documents/{document['document_id']}/move",
+                data={"destination_folder": "Ziel"},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(LogicalObjectId(document["document_id"]), calls[0][0])
+        self.assertEqual(StorageLocation("Ziel/direct.txt"), calls[0][1])
 
 
 if __name__ == "__main__":
