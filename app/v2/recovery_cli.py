@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .recovery import RecoveryService
-from .migration import build_migration_plan, create_migration_backup, inspect_migration, transfer_legacy_documents
+from .migration import build_migration_plan, create_migration_backup, inspect_migration, transfer_legacy_documents, verify_migration_transfer
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -28,6 +28,7 @@ def _parser() -> argparse.ArgumentParser:
     transfer = sub.add_parser("migration-transfer", help="Copy verified V1 documents into the V2 blob store")
     transfer.add_argument("--backup", required=True)
     transfer.add_argument("--apply", action="store_true")
+    sub.add_parser("migration-verify", help="Verify V1/V2 content transfer without writing")
 
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
@@ -86,6 +87,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = transfer_legacy_documents(args.root, args.backup)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "migration-verify":
+        result = verify_migration_transfer(args.root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["ready"] else 2
 
     service = RecoveryService(args.root)
 
