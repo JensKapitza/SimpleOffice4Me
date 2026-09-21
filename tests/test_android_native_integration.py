@@ -59,20 +59,21 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('rememberIdentity(email)', bootstrap)
         self.assertNotIn('GoogleSignIn', bootstrap)
 
-    def test_android_passes_only_active_wifi_or_ethernet_ipv4_to_python(self):
+    def test_android_passes_all_non_loopback_ipv4_to_python(self):
         helper = self.read(JAVA / "AndroidLanNetwork.java")
         navigation = self.read(JAVA / "NavigationActivity.java")
         bootstrap = self.read(JAVA / "BootstrapActivity.java")
         activity = self.read(JAVA / "MainActivity.java")
 
-        self.assertIn("TRANSPORT_WIFI", helper)
-        self.assertIn("TRANSPORT_ETHERNET", helper)
-        self.assertNotIn("TRANSPORT_CELLULAR", helper)
+        self.assertIn("NetworkInterface.getNetworkInterfaces()", helper)
         self.assertIn("instanceof Inet4Address", helper)
-        self.assertIn("first == 10", helper)
-        self.assertIn("first == 172 && second >= 16 && second <= 31", helper)
-        self.assertIn("first == 192 && second == 168", helper)
-        self.assertIn("AndroidLanNetwork.localPrivateIpv4(this)", bootstrap)
+        self.assertIn("!address.isLoopbackAddress()", helper)
+        self.assertIn("!address.isAnyLocalAddress()", helper)
+        self.assertNotIn("TRANSPORT_WIFI", helper)
+        self.assertNotIn("TRANSPORT_ETHERNET", helper)
+        self.assertNotIn("isRfc1918", helper)
+        self.assertIn("AndroidLanNetwork.localIpv4Addresses()", bootstrap)
+        self.assertIn("AndroidLanNetwork.localIpv4Addresses()", activity)
         self.assertIn('"set_lan_addresses"', activity)
         self.assertIn("syncLanAddressesToBackend()", navigation)
 
