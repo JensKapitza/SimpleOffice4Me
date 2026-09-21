@@ -346,6 +346,13 @@ class PasswordVault:
                 "created_at": row["created_at"], "updated_at": row["updated_at"],
                 "deleted_at": row["deleted_at"], "data": payload,
             })
+        self._audit(
+            str(user_id),
+            "vault_credentials_read",
+            f"vault:{user_id}",
+            entry_count=len(result),
+            include_deleted=bool(include_deleted),
+        )
         return result
 
     def export_backup(self, user_id: str) -> bytes:
