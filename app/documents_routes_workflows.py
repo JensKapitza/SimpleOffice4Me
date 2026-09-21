@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
+from .v2.contracts import LogicalObjectId, StorageLocation
 
 @bp.post("/upload")
 @login_required
@@ -368,8 +369,19 @@ def set_state(document_id: str):
 @login_required
 def move_document(document_id: str):
     try:
-        moved = _store().move_document(document_id, request.form.get("destination_folder", ""), str(g.user["username"]))
-        flash(f"Dokument verschoben nach {moved['last_path']}. Die Dokument-ID bleibt unverändert.")
+        actor = str(g.user["username"])
+        document = _store().get_document(document_id)
+        filename = Path(str(document.get("last_path") or "")).name
+        destination_folder = request.form.get("destination_folder", "").strip()
+        destination = StorageLocation((Path(destination_folder) / filename).as_posix())
+        result = _storage(actor).move(LogicalObjectId(str(document["document_id"])), destination)
+        if not result.ok:
+            flash(result.error.message)
+        else:
+            flash(
+                f"Dokument verschoben nach {result.value.location.relative_path}. "
+                "Die Dokument-ID bleibt unverändert."
+            )
     except (OSError, ValueError) as exc:
         flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
