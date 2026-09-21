@@ -405,5 +405,19 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertFalse((root / ".simpleoffice-v2" / "blob-store").exists())
 
 
+    def test_backup_rejects_reserved_manifest_path_in_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            reserved = root / ".simpleoffice-v2" / "migration-backup.json"
+            reserved.parent.mkdir(parents=True)
+            reserved.write_text("user-data", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "reserved"):
+                create_migration_backup(root, base / "backup")
+            self.assertEqual("user-data", reserved.read_text(encoding="utf-8"))
+            self.assertFalse((base / "backup").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
