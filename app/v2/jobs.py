@@ -214,6 +214,12 @@ class FederationJobService:
         authorization_store: AuthorizationStore | None = None,
     ) -> OperationResult[JobRecord]:
         if authorization_store is not None:
+            grant = authorization_store.get(intent.authorization_ref)
+            if grant is None or grant.expires_at < intent.expires_at:
+                return OperationResult.failure(
+                    ErrorCode.FORBIDDEN,
+                    "transfer lifetime exceeds its authorization",
+                )
             for object_ref in intent.object_refs:
                 if not authorization_store.allows(
                     intent.authorization_ref,
