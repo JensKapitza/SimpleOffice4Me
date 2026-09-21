@@ -1,4 +1,4 @@
-"""Audited shopping lists with lossless personal-list CRUD."""
+"""Audited shopping lists with explicit sharing and per-list permissions."""
 from __future__ import annotations
 
 import json
@@ -12,6 +12,8 @@ from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
 
 STATUSES = {"open", "taken", "bought", "not_found", "unavailable", "deferred"}
+PERMISSIONS = {"read", "add", "edit", "complete", "manage"}
+PRINCIPAL_TYPES = {"user", "contact"}
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 
@@ -30,20 +32,56 @@ class ShoppingStore:
         if not isinstance(value, dict):
             value = {}
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "lists": list(value.get("lists", [])) if isinstance(value.get("lists"), list) else [],
             "items": list(value.get("items", [])) if isinstance(value.get("items"), list) else [],
+            "shares": list(value.get("shares", [])) if isinstance(value.get("shares"), list) else [],
         }
 
     def _write(self, data: dict[str, Any]) -> None:
+        data["schema_version"] = 2
         atomic_json_write(self.path, data)
 
     @staticmethod
     def _text(value: Any, limit: int) -> str:
         return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split())[:limit]
 
+    @staticmethod
+    def _permissions(values: Any) -> list[str]:
+        if not isinstance(values, (list, tuple, set)):
+            raise ValueError("shopping share permissions must be a list")
+        permissions = {str(value).strip() for value in values}
+        if not permissions or not permissions <= PERMISSIONS:
+            raise ValueError("invalid shopping share permissions")
+        permissions.add("read")
+        return sorted(permissions)
+
+    @staticmethod
+    def _share_permissions(data: dict[str, Any], list_id: str, actor: str) -> set[str]:
+        row = next((item for item in data["lists"] if item.get("list_id") == list_id), None)
+        if row is None:
+            return set()
+        if row.get("owner") == actor:
+            return set(PERMISSIONS)
+        result: set[str] = set()
+        for share in data["shares"]:
+            if share.get("list_id") == list_id and share.get("principal") == actor:
+                result.update(str(value) for value in share.get("permissions", []) if value in PERMISSIONS)
+        return result
+
+    def _require(self, data: dict[str, Any], list_id: str, actor: str, permission: str) -> dict[str, Any]:
+        row = next((item for item in data["lists"] if item.get("list_id") == list_id), None)
+        if row is None or permission not in self._share_permissions(data, list_id, actor):
+            raise ValueError("shopping list not found")
+        return row
+
     def lists(self, actor: str, *, include_archived: bool = False) -> list[dict[str, Any]]:
-        rows = [dict(row) for row in self._read()["lists"] if row.get("owner") == actor]
+        data = self._read()
+        visible_ids = {
+            row["list_id"] for row in data["lists"]
+            if "read" in self._share_permissions(data, str(row.get("list_id", "")), actor)
+        }
+        rows = [dict(row) for row in data["lists"] if row.get("list_id") in visible_ids]
         if not include_archived:
             rows = [row for row in rows if not row.get("archived")]
         return sorted(rows, key=lambda row: (str(row.get("name", "")).casefold(), str(row.get("created_at", ""))))
@@ -70,10 +108,70 @@ class ShoppingStore:
         self.history.record("shopping_list_created", actor, "shopping-list", list_id, row)
         return dict(row)
 
+    def share_list(
+        self,
+        list_id: str,
+        actor: str,
+        principal: str,
+        permissions: list[str],
+        *,
+        principal_type: str = "user",
+    ) -> dict[str, Any]:
+        principal = self._text(principal, 200)
+        principal_type = str(principal_type).strip()
+        if not principal or principal_type not in PRINCIPAL_TYPES:
+            raise ValueError("invalid shopping share principal")
+        granted = self._permissions(permissions)
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            self._require(data, list_id, actor, "manage")
+            row = next((
+                share for share in data["shares"]
+                if share.get("list_id") == list_id
+                and share.get("principal") == principal
+                and share.get("principal_type") == principal_type
+            ), None)
+            now = utc_now()
+            if row is None:
+                row = {
+                    "share_id": str(uuid.uuid4()), "list_id": list_id,
+                    "principal": principal, "principal_type": principal_type,
+                    "permissions": granted, "created_at": now, "created_by": actor,
+                }
+                data["shares"].append(row)
+            else:
+                row["permissions"] = granted
+            row.update({"updated_at": now, "updated_by": actor})
+            self._write(data)
+        self.history.record("shopping_list_shared", actor, "shopping-list", list_id, {
+            "principal": principal, "principal_type": principal_type, "permissions": granted,
+        })
+        return dict(row)
+
+    def revoke_share(self, list_id: str, actor: str, principal: str, *, principal_type: str = "user") -> None:
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            self._require(data, list_id, actor, "manage")
+            before = len(data["shares"])
+            data["shares"] = [
+                share for share in data["shares"]
+                if not (
+                    share.get("list_id") == list_id
+                    and share.get("principal") == principal
+                    and share.get("principal_type") == principal_type
+                )
+            ]
+            if len(data["shares"]) == before:
+                raise ValueError("shopping share not found")
+            self._write(data)
+        self.history.record("shopping_list_share_revoked", actor, "shopping-list", list_id, {
+            "principal": self._text(principal, 200), "principal_type": principal_type,
+        })
+
     def archive_list(self, list_id: str, actor: str, archived: bool = True) -> dict[str, Any]:
         with exclusive_file_lock(self.lock):
             data = self._read()
-            row = self._owned_list(data, list_id, actor)
+            row = self._require(data, list_id, actor, "manage")
             row.update({"archived": bool(archived), "updated_at": utc_now(), "updated_by": actor})
             self._write(data)
         self.history.record("shopping_list_updated", actor, "shopping-list", list_id, row)
@@ -81,10 +179,13 @@ class ShoppingStore:
 
     def items(self, actor: str, *, list_id: str = "", include_bought: bool = True) -> list[dict[str, Any]]:
         data = self._read()
-        owned = {row["list_id"] for row in data["lists"] if row.get("owner") == actor}
-        rows = [dict(row) for row in data["items"] if row.get("list_id") in owned]
+        visible = {
+            row["list_id"] for row in data["lists"]
+            if "read" in self._share_permissions(data, str(row.get("list_id", "")), actor)
+        }
+        rows = [dict(row) for row in data["items"] if row.get("list_id") in visible]
         if list_id:
-            if list_id not in owned:
+            if list_id not in visible:
                 raise ValueError("shopping list not found")
             rows = [row for row in rows if row.get("list_id") == list_id]
         if not include_bought:
@@ -119,7 +220,7 @@ class ShoppingStore:
         }
         with exclusive_file_lock(self.lock):
             data = self._read()
-            self._owned_list(data, list_id, actor)
+            self._require(data, list_id, actor, "add")
             data["items"].append(item)
             self._write(data)
         self.history.record("shopping_item_created", actor, "shopping-item", item["item_id"], item)
@@ -131,7 +232,16 @@ class ShoppingStore:
             item = next((row for row in data["items"] if row.get("item_id") == item_id), None)
             if item is None:
                 raise ValueError("shopping item not found")
-            self._owned_list(data, str(item.get("list_id", "")), actor)
+            list_id = str(item.get("list_id", ""))
+            permissions = self._share_permissions(data, list_id, actor)
+            if not permissions:
+                raise ValueError("shopping item not found")
+            content_keys = {"name", "quantity", "unit", "note", "category", "store", "barcode", "priority"}
+            completion_keys = {"status", "assigned_to"}
+            if content_keys.intersection(values) and "edit" not in permissions:
+                raise ValueError("shopping item not found")
+            if completion_keys.intersection(values) and "complete" not in permissions:
+                raise ValueError("shopping item not found")
             before = dict(item)
             if "status" in values:
                 status = str(values["status"]).strip()
@@ -155,9 +265,5 @@ class ShoppingStore:
         self.history.record("shopping_item_updated", actor, "shopping-item", item_id, {"before": before, "after": item})
         return dict(item)
 
-    @staticmethod
-    def _owned_list(data: dict[str, Any], list_id: str, actor: str) -> dict[str, Any]:
-        row = next((item for item in data["lists"] if item.get("list_id") == list_id and item.get("owner") == actor), None)
-        if row is None:
-            raise ValueError("shopping list not found")
-        return row
+    def take_item(self, item_id: str, actor: str) -> dict[str, Any]:
+        return self.update_item(item_id, actor, {"status": "taken", "assigned_to": actor})
