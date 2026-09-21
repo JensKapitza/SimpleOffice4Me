@@ -58,6 +58,63 @@ class ShoppingStoreTests(unittest.TestCase):
         events = list((self.root / ".simpleoffice-history" / "events").glob("*.json"))
         self.assertGreaterEqual(len(events), 2)
 
+    def test_shared_read_access_does_not_grant_mutation(self):
+        self.store.create_list("Familie", "alice", list_id="family")
+        item = self.store.add_item("family", "Milch", "alice")
+        self.store.share_list("family", "alice", "bob", ["read"])
+        self.assertEqual(["Familie"], [row["name"] for row in self.store.lists("bob")])
+        self.assertEqual(["Milch"], [row["name"] for row in self.store.items("bob", list_id="family")])
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.store.add_item("family", "Brot", "bob")
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.store.update_item(item["item_id"], "bob", {"status": "bought"})
+
+    def test_add_permission_does_not_grant_edit_or_complete(self):
+        self.store.create_list("Familie", "alice", list_id="family-add")
+        self.store.share_list("family-add", "alice", "bob", ["add"])
+        item = self.store.add_item("family-add", "Brot", "bob")
+        self.assertEqual("bob", item["created_by"])
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.store.update_item(item["item_id"], "bob", {"name": "Toast"})
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.store.update_item(item["item_id"], "bob", {"status": "bought"})
+
+    def test_complete_permission_can_take_and_finish_without_editing_content(self):
+        self.store.create_list("Mitbringen", "alice", list_id="bring")
+        item = self.store.add_item("bring", "Batterien", "alice")
+        self.store.share_list("bring", "alice", "bob", ["complete"])
+        taken = self.store.take_item(item["item_id"], "bob")
+        self.assertEqual("taken", taken["status"])
+        self.assertEqual("bob", taken["assigned_to"])
+        bought = self.store.update_item(item["item_id"], "bob", {"status": "bought"})
+        self.assertTrue(bought["completed_at"])
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.store.update_item(item["item_id"], "bob", {"note": "changed"})
+
+    def test_manage_permission_can_share_and_revoke(self):
+        self.store.create_list("Gruppe", "alice", list_id="managed")
+        self.store.share_list("managed", "alice", "bob", ["manage"])
+        self.store.share_list("managed", "bob", "carol", ["read"], principal_type="contact")
+        self.assertEqual(1, len(self.store.lists("carol")))
+        self.store.revoke_share("managed", "bob", "carol", principal_type="contact")
+        self.assertEqual([], self.store.lists("carol"))
+
+    def test_revoked_user_loses_access_immediately(self):
+        self.store.create_list("Liste", "alice", list_id="revoke")
+        self.store.share_list("revoke", "alice", "bob", ["read", "complete"])
+        self.assertEqual(1, len(self.store.lists("bob")))
+        self.store.revoke_share("revoke", "alice", "bob")
+        self.assertEqual([], self.store.lists("bob"))
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.store.items("bob", list_id="revoke")
+
+    def test_share_permissions_are_audited(self):
+        self.store.create_list("Audit", "alice", list_id="share-audit")
+        self.store.share_list("share-audit", "alice", "bob", ["read", "add"])
+        self.store.revoke_share("share-audit", "alice", "bob")
+        events = list((self.root / ".simpleoffice-history" / "events").glob("*.json"))
+        self.assertGreaterEqual(len(events), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
