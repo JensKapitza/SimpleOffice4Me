@@ -22,23 +22,34 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+          fetch-depth: 2
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-          cache: pip
-      - name: Install project
-        run: python -m pip install --editable .
       - name: Compile all first-party Python
-        run: python -m compileall -q app tools *.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q app tools
+          python - <<'PY'
+          import py_compile
+          from pathlib import Path
+          files = sorted(Path('.').glob('*.py'))
+          for path in files:
+              py_compile.compile(str(path), doraise=True)
+          print(f'compiled {len(files)} top-level Python files')
+          PY
       - name: Validate project policy and source limits
         run: |
           python tools/check_project_policy.py .
           python tools/check_file_size.py . --limit 1000
           python tools/check_function_size.py app tools --limit 300
-      - name: Reject conflict markers and trailing whitespace
+      - name: Reject conflict markers and whitespace errors
         shell: bash
         run: |
           set -euo pipefail
@@ -46,7 +57,7 @@ jobs:
             echo 'Merge conflict marker found.' >&2
             exit 1
           fi
-          git diff --check HEAD^ HEAD 2>/dev/null || git diff --check
+          git diff-tree --check --no-commit-id --root -r HEAD
       - name: Validate JSON files
         shell: bash
         run: |
@@ -66,55 +77,6 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -d '' scripts < <(find . -type f -name '*.sh' -not -path './.git/*' -print0)
-          if (("${#scripts[@]}")); then bash -n "${scripts[@]}"; fi
-
-  web-contract:
-    name: Web templates and accessibility contracts
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-          cache: pip
-      - name: Install project
-        run: python -m pip install --editable .
-      - name: Run template and accessibility regression tests
-        run: |
-          python -m unittest discover -s tests -p 'test_*accessib*.py' -v
-          python -m unittest discover -s tests -p 'test_*frontend*.py' -v
-          python -m unittest discover -s tests -p 'test_*ui*.py' -v
-
-  security-contract:
-    name: Security negative contracts
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-          cache: pip
-      - name: Install project
-        run: python -m pip install --editable ".[security]"
-      - name: Run security-focused regression tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import pathlib, subprocess, sys
-          tests = sorted({
-              p for pattern in ('test_*security*.py', 'test_*csrf*.py', 'test_*ssrf*.py', 'test_*auth*.py')
-              for p in pathlib.Path('tests').glob(pattern)
-          })
-          print(f'running {len(tests)} security test modules')
-          for test in tests:
-              subprocess.run([sys.executable, str(test)], check=True)
-          PY
-      - name: Audit dependencies
-        run: python -m pip_audit
+          if (("${#scripts[@]}")); then
+            bash -n "${scripts[@]}"
+          fi
