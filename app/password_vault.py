@@ -15,6 +15,7 @@ import secrets
 import sqlite3
 import time
 import uuid
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -25,6 +26,8 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .document_store import CONTROL_DIR
 from .v2.security_classes import VAULT_SECURITY_CLASS
+from .v2.contracts import AuditEvent, AuditPort
+from .v2.adapters.audit import RevisionHistoryAuditAdapter
 
 SCHEMA_VERSION = 1
 VAULT_FORMAT = "simpleoffice-password-vault"
@@ -94,11 +97,25 @@ def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
 class PasswordVault:
     security_class = VAULT_SECURITY_CLASS.value
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, *, audit_port: AuditPort | None = None):
         self.root = Path(root).expanduser().resolve()
         self.control = self.root / CONTROL_DIR
         self.path = self.control / "password-vault.sqlite3"
+        self.audit = audit_port or RevisionHistoryAuditAdapter(self.root)
         self.initialize()
+
+    def _audit(self, actor: str, operation: str, object_id: str, **changes: Any) -> None:
+        event = AuditEvent(
+            actor=str(actor or "").strip() or "system",
+            operation=operation,
+            object_id=object_id,
+            occurred_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            source="password-vault",
+            changes=changes,
+        )
+        result = self.audit.append(event)
+        if not result.ok:
+            raise RuntimeError("Vault-Audit konnte nicht gespeichert werden")
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
@@ -221,6 +238,7 @@ class PasswordVault:
                     check_nonce, check_ciphertext,
                 ),
             )
+        self._audit(user_id, "vault_created", f"vault:{user_id}")
         return vault_key
 
     def unlock(self, user_id: str, master_password: str) -> bytes:
@@ -241,6 +259,7 @@ class PasswordVault:
                 self._install_key_check(user_id, vault_key)
             else:
                 self._require_vault_key(user_id, vault_key)
+            self._audit(user_id, "vault_unlocked", f"vault:{user_id}")
             return vault_key
         except (InvalidTag, ValueError) as exc:
             message = str(exc)
@@ -260,6 +279,7 @@ class PasswordVault:
                 "UPDATE vault_profile SET salt=?,wrap_nonce=?,wrapped_key=?,kdf_n=?,kdf_r=?,kdf_p=?,updated_at=? WHERE user_id=?",
                 (salt, nonce, wrapped, KDF_N, KDF_R, KDF_P, _now(), user_id),
             )
+        self._audit(user_id, "vault_master_password_changed", f"vault:{user_id}")
 
     def put(self, user_id: str, vault_key: bytes, payload: dict[str, Any], *, entry_id: str | None = None) -> dict[str, Any]:
         user_id = str(user_id).strip()
@@ -284,11 +304,19 @@ class PasswordVault:
                      ciphertext=excluded.ciphertext,updated_at=excluded.updated_at,deleted_at=NULL""",
                 (user_id, entry_id, revision, nonce, ciphertext, created_at, timestamp),
             )
+        self._audit(
+            user_id,
+            "vault_credential_written",
+            f"vault-entry:{entry_id}",
+            revision=revision,
+            entry_type=str(normalized.get("type") or "login"),
+        )
         return {"entry_id": entry_id, "revision": revision, "updated_at": timestamp}
 
     def delete(self, user_id: str, entry_id: str) -> None:
         with self._db() as db:
             db.execute("UPDATE vault_entry SET deleted_at=?,updated_at=? WHERE user_id=? AND entry_id=?", (_now(), _now(), str(user_id), str(entry_id)))
+        self._audit(str(user_id), "vault_credential_deleted", f"vault-entry:{entry_id}")
 
     def entries(self, user_id: str, vault_key: bytes, *, include_deleted: bool = False) -> list[dict[str, Any]]:
         self._require_vault_key(str(user_id), vault_key)
@@ -353,6 +381,7 @@ class PasswordVault:
         if len(body) > MAX_BACKUP_BYTES:
             raise ValueError("Vault-Backup ist zu groß")
         envelope = {"payload": payload, "sha256": hashlib.sha256(body).hexdigest()}
+        self._audit(str(user_id), "vault_backup_exported", f"vault:{user_id}", entry_count=len(rows))
         return json.dumps(envelope, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
 
     def import_backup(self, data: bytes, *, target_user_id: str | None = None, replace: bool = False) -> dict[str, int]:
@@ -423,6 +452,7 @@ class PasswordVault:
                 "INSERT INTO vault_entry(user_id,entry_id,revision,nonce,ciphertext,created_at,updated_at,deleted_at) VALUES(?,?,?,?,?,?,?,?)",
                 staged,
             )
+        self._audit(user_id, "vault_backup_imported", f"vault:{user_id}", entry_count=len(staged), replaced=bool(replace))
         return {"profiles": 1, "entries": len(staged)}
 
 
