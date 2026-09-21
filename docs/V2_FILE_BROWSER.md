@@ -21,6 +21,17 @@ The current adapter remains `DocumentStoreStorageAdapter`, so existing audit,
 history, recovery and filesystem behavior are preserved while the browser no
 longer depends on the concrete V1 mutation API.
 
+## Second migrated operation: copy
+
+The document detail page now also exposes an explicit copy action. It calls
+`StoragePort.copy` with the stable source `LogicalObjectId` and a validated
+`StorageLocation`.
+
+Unlike move, copy must return a different logical object identity. The current
+DocumentStore adapter keeps the existing verified copy implementation, metadata
+copy rules and audit/history behavior while the browser no longer calls the
+concrete V1 copy API.
+
 ## Error behavior
 
 Storage errors remain represented by the V2 result contract. The browser shows
@@ -33,7 +44,6 @@ This PR intentionally migrates only the existing browser move action.
 
 Still to migrate in separate bounded changes:
 
-- copy/duplicate actions where exposed by the browser
 - delete/recovery mutations
 - content replacement/upload mutations
 - any file-browser operation that still writes through a concrete
