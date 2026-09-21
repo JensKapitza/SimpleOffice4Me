@@ -343,5 +343,24 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertEqual("restored", json.loads(output.getvalue())["status"])
 
 
+    def test_restore_keeps_legacy_backup_compatibility_without_tree_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            (root / "legacy.txt").write_text("legacy-backup", encoding="utf-8")
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            manifest_path = backup / ".simpleoffice-v2" / "migration-backup.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest.pop("tree_sha256", None)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = restore_migration_backup(backup, base / "restored")
+
+            self.assertEqual("legacy-inventory-only", result["integrity"])
+            self.assertEqual("legacy-backup", (base / "restored" / "legacy.txt").read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
