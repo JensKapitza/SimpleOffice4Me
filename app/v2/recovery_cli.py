@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .recovery import RecoveryService
-from .migration import inspect_migration
+from .migration import create_migration_backup, inspect_migration
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -21,6 +21,9 @@ def _parser() -> argparse.ArgumentParser:
 
     sub.add_parser("inventory", help="Inspect formats, chunks and recovery state")
     sub.add_parser("migration-preflight", help="Read-only V1/V2 migration readiness check")
+    backup = sub.add_parser("migration-backup", help="Create a source backup before migration")
+    backup.add_argument("--destination", required=True)
+    backup.add_argument("--apply", action="store_true")
 
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
@@ -53,12 +56,21 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    service = RecoveryService(args.root)
 
     if args.command == "migration-preflight":
         result = inspect_migration(args.root)
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
         return 0 if result.ready else 2
+
+    if args.command == "migration-backup":
+        if not args.apply:
+            print("read-only mode: add --apply to create the migration backup")
+            return 3
+        result = create_migration_backup(args.root, args.destination)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    service = RecoveryService(args.root)
 
     if args.command == "inventory":
         print(json.dumps(service.inventory(), indent=2, sort_keys=True))
