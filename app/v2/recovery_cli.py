@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .recovery import RecoveryService
+from .migration import inspect_migration
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -19,6 +20,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("inventory", help="Inspect formats, chunks and recovery state")
+    sub.add_parser("migration-preflight", help="Read-only V1/V2 migration readiness check")
 
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
@@ -52,6 +54,11 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     service = RecoveryService(args.root)
+
+    if args.command == "migration-preflight":
+        result = inspect_migration(args.root)
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0 if result.ready else 2
 
     if args.command == "inventory":
         print(json.dumps(service.inventory(), indent=2, sort_keys=True))
