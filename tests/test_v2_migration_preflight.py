@@ -362,5 +362,20 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertEqual("legacy-backup", (base / "restored" / "legacy.txt").read_text(encoding="utf-8"))
 
 
+    def test_preflight_reports_corrupted_v2_blob_as_blocker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = BlobStore(root, chunk_size=64 * 1024)
+            version = store.write(LogicalObjectId("corrupt-v2"), b"payload")
+            manifest = store.version_manifest(version.version_id)
+            store._chunk_path(manifest["chunks"][0]["physical_id"]).write_bytes(b"tampered")
+
+            result = inspect_migration(root)
+
+            self.assertFalse(result.ready)
+            self.assertEqual(1, result.v2_invalid_objects)
+            self.assertTrue(any("integrity verification" in blocker for blocker in result.blockers))
+
+
 if __name__ == "__main__":
     unittest.main()
