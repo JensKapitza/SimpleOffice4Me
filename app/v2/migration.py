@@ -95,6 +95,23 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _tree_sha256(root: Path) -> str:
+    digest = hashlib.sha256()
+    entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
+    for entry in entries:
+        relative = entry.relative_to(root).as_posix().encode("utf-8")
+        if entry.is_symlink():
+            digest.update(b"L\0" + relative + b"\0" + os.readlink(entry).encode("utf-8") + b"\n")
+        elif entry.is_dir():
+            digest.update(b"D\0" + relative + b"\n")
+        elif entry.is_file():
+            digest.update(
+                b"F\0" + relative + b"\0" + str(entry.stat().st_size).encode("ascii")
+                + b"\0" + _sha256_file(entry).encode("ascii") + b"\n"
+            )
+    return digest.hexdigest()
+
+
 def build_migration_plan(root: str | Path) -> dict[str, Any]:
     """Build a deterministic read-only plan for legacy document migration."""
     source = Path(root).expanduser().resolve()
@@ -340,11 +357,15 @@ def create_migration_backup(root: str | Path, destination: str | Path) -> dict[s
     target.parent.mkdir(parents=True, exist_ok=True)
 
     inventory = _source_inventory(source)
+    source_tree_sha256 = _tree_sha256(source)
     staging = target.with_name(f".{target.name}.tmp-{uuid.uuid4().hex}")
     if staging.exists():
         raise FileExistsError("migration backup staging path already exists")
     try:
         shutil.copytree(source, staging, symlinks=True)
+        backup_tree_sha256 = _tree_sha256(staging)
+        if backup_tree_sha256 != source_tree_sha256:
+            raise RuntimeError("source changed while migration backup was being created")
         metadata_dir = staging / ".simpleoffice-v2"
         metadata_dir.mkdir(parents=True, exist_ok=True)
         manifest = {
@@ -352,6 +373,7 @@ def create_migration_backup(root: str | Path, destination: str | Path) -> dict[s
             "format_version": 1,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "source_name": source.name,
+            "tree_sha256": backup_tree_sha256,
             **inventory,
         }
         (metadata_dir / "migration-backup.json").write_text(
@@ -364,3 +386,65 @@ def create_migration_backup(root: str | Path, destination: str | Path) -> dict[s
             shutil.rmtree(staging, ignore_errors=True)
         raise
     return {**manifest, "destination": str(target)}
+
+
+def restore_migration_backup(backup: str | Path, destination: str | Path) -> dict[str, Any]:
+    """Restore a migration backup atomically into a new, empty destination."""
+    source = Path(backup).expanduser().resolve(strict=True)
+    target = Path(destination).expanduser().resolve()
+    if target.exists():
+        raise FileExistsError("migration restore destination already exists")
+    if target == source or target.is_relative_to(source):
+        raise ValueError("migration restore destination must be outside the backup tree")
+
+    manifest_path = source / ".simpleoffice-v2" / "migration-backup.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("migration backup manifest is missing or invalid") from exc
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("format") != "simpleoffice-v2-migration-backup"
+        or int(manifest.get("format_version", 0)) != 1
+    ):
+        raise ValueError("unsupported migration backup format")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.with_name(f".{target.name}.restore-{uuid.uuid4().hex}")
+    try:
+        shutil.copytree(source, staging, symlinks=True)
+        copied_manifest = staging / ".simpleoffice-v2" / "migration-backup.json"
+        copied_manifest.unlink()
+        v2_directory = staging / ".simpleoffice-v2"
+        expected_inventory = {
+            key: int(manifest.get(key, -1))
+            for key in ("files", "directories", "symlinks", "bytes")
+        }
+        inventory = _source_inventory(staging)
+        if inventory != expected_inventory and v2_directory.is_dir() and not any(v2_directory.iterdir()):
+            v2_directory.rmdir()
+            inventory = _source_inventory(staging)
+        if inventory != expected_inventory:
+            raise ValueError("migration backup inventory does not match its manifest")
+        expected_tree = str(manifest.get("tree_sha256") or "")
+        actual_tree = _tree_sha256(staging)
+        if expected_tree and actual_tree != expected_tree:
+            raise ValueError("migration backup tree integrity check failed")
+        os.replace(staging, target)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    return {
+        "format": "simpleoffice-v2-migration-restore",
+        "format_version": 1,
+        "status": "restored",
+        "destination": str(target),
+        "files": inventory["files"],
+        "directories": inventory["directories"],
+        "symlinks": inventory["symlinks"],
+        "bytes": inventory["bytes"],
+        "tree_sha256": actual_tree,
+        "integrity": "sha256-tree" if expected_tree else "legacy-inventory-only",
+    }
