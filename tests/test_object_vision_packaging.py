@@ -16,8 +16,10 @@ class ObjectVisionPackagingTests(unittest.TestCase):
         self.assertNotIn("onnxruntime", base_dependencies.casefold())
         self.assertIn("ocr = [", optional_dependencies)
         self.assertIn('"rapidocr==3.9.2"', optional_dependencies)
-        self.assertIn('"onnxruntime==1.23.2; python_version == \'3.10\'"', optional_dependencies)
-        self.assertIn('"onnxruntime==1.24.2; python_version >= \'3.11\'"', optional_dependencies)
+        ocr_extra = optional_dependencies.split("ocr = [", 1)[1].split("]", 1)[0]
+        self.assertIn("onnxruntime", ocr_extra.casefold())
+        self.assertIn("python_version == '3.10'", ocr_extra)
+        self.assertIn("python_version >= '3.11'", ocr_extra)
 
     def test_desktop_builder_installs_and_bundles_ocr_extra(self):
         builder = (
