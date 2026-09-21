@@ -13,6 +13,7 @@ from typing import Iterator
 from .contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation
 
 
+FORMAT_FAMILY = "simpleoffice-v2-object-catalog"
 SCHEMA_VERSION = 1
 
 
@@ -110,11 +111,20 @@ class ObjectCatalog:
                     ON object_catalog(state, updated_at);
                 """
             )
+            family = db.execute(
+                "SELECT value FROM catalog_meta WHERE key='format_family'"
+            ).fetchone()
+            if family is not None and str(family["value"]) != FORMAT_FAMILY:
+                raise RuntimeError("unsupported V2 object catalog format family")
             row = db.execute(
                 "SELECT value FROM catalog_meta WHERE key='schema_version'"
             ).fetchone()
             if row is not None and str(row["value"]) != str(SCHEMA_VERSION):
                 raise RuntimeError("unsupported V2 object catalog schema version")
+            db.execute(
+                "INSERT OR IGNORE INTO catalog_meta(key,value) VALUES('format_family',?)",
+                (FORMAT_FAMILY,),
+            )
             db.execute(
                 "INSERT OR IGNORE INTO catalog_meta(key,value) VALUES('schema_version',?)",
                 (str(SCHEMA_VERSION),),
