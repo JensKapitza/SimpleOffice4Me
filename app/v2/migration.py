@@ -312,7 +312,7 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         transfer = {}
         blockers.append("migration transfer report is missing or invalid")
 
-    if transfer and not isinstance(transfer, dict):
+    if not isinstance(transfer, dict):
         blockers.append("migration transfer report is not a JSON object")
         transfer = {}
     elif transfer and (
