@@ -249,7 +249,14 @@ class FederationJobService:
         )
         return self.store.put(job)
 
-    def mark_verified(self, job_id: str, object_ref: str, *, observed_via: str) -> OperationResult[JobRecord]:
+    def mark_verified(
+        self,
+        job_id: str,
+        object_ref: str,
+        *,
+        observed_via: str,
+        authorization_store: AuthorizationStore | None = None,
+    ) -> OperationResult[JobRecord]:
         current = self.store.get(job_id)
         if not current.ok:
             return current
@@ -259,6 +266,20 @@ class FederationJobService:
         payload = dict(job.payload)
         if int(payload.get("expires_at", 0)) < int(time.time()):
             return self.store.transition(job_id, JobState.FAILED, error="transfer authorization expired")
+        if authorization_store is not None:
+            authorization_ref = str(payload.get("authorization_ref") or "")
+            source_peer = str(payload.get("source_peer") or "")
+            if not authorization_store.allows(
+                authorization_ref,
+                subject=source_peer,
+                right=GrantRight.RELAY,
+                object_ref=object_ref,
+            ):
+                return self.store.transition(
+                    job_id,
+                    JobState.FAILED,
+                    error="transfer authorization is no longer effective",
+                )
         expected = {str(item) for item in payload.get("object_refs", [])}
         if object_ref not in expected:
             return OperationResult.failure(ErrorCode.FORBIDDEN, "object is outside transfer scope")
