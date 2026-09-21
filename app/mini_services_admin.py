@@ -21,7 +21,7 @@ from .mini_services import (
     save_config,
     tail_dns_log,
 )
-from .network_system_status import ipv4_routing_status, network_interfaces
+from .network_system_status import dhcp_network_candidates, ipv4_routing_status, network_interfaces
 from simpleoffice_network_gateway import DEFAULT_GATEWAY_SETTINGS
 from simpleoffice_network_gateway_runtime import load_gateway_settings, save_gateway_settings
 
@@ -65,6 +65,7 @@ def _network_context():
     except (ValueError, OSError):
         gateway = DEFAULT_GATEWAY_SETTINGS
         flash("Gateway-Einstellungen sind nicht lesbar. Standardwerte werden angezeigt; erneut speichern, um die Datei zu reparieren.")
+    interfaces = network_interfaces()
     return {
         "config": config,
         "status": read_status(path),
@@ -72,7 +73,12 @@ def _network_context():
         "dns_queries": tail_dns_log(path, 200),
         "blocklist": read_blocklist_meta(path),
         "config_path": str(path),
-        "interfaces": network_interfaces(),
+        "interfaces": interfaces,
+        "dhcp_candidates": dhcp_network_candidates(
+            interfaces,
+            config["dhcp"].get("network", ""),
+            config["dhcp"].get("server_ip", ""),
+        ),
         "routing": ipv4_routing_status(),
         "gateway": gateway,
     }
