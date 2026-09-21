@@ -267,6 +267,8 @@ class ObjectCatalog:
                 ).fetchone()
                 if row is None or row["state"] == CatalogState.DELETED.value:
                     return OperationResult.failure(ErrorCode.NOT_FOUND, "catalog object not found")
+                if row["state"] != CatalogState.ACTIVE.value:
+                    return self._conflict("catalog object requires recovery before move")
                 if expected_version_id is not None and str(row["version_id"]) != str(expected_version_id):
                     return self._conflict("catalog object version changed")
                 db.execute(
@@ -297,6 +299,8 @@ class ObjectCatalog:
             ).fetchone()
             if row is None or row["state"] == CatalogState.DELETED.value:
                 return OperationResult.failure(ErrorCode.NOT_FOUND, "catalog object not found")
+            if row["state"] != CatalogState.ACTIVE.value:
+                return self._conflict("catalog object requires recovery before content update")
             if expected_version_id is not None and str(row["version_id"]) != str(expected_version_id):
                 return self._conflict("catalog object version changed")
             db.execute(
