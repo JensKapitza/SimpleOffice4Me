@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, Iterator
+from typing import Any, BinaryIO
 
 from .contracts import LogicalObjectId, PhysicalBlobId, PersistentFormat
 
@@ -96,13 +96,6 @@ class BlobStore:
         except ValueError as exc:
             raise ValueError("invalid physical chunk id") from exc
         return self.chunks / f"{normalized}.bin"
-
-    def _iter_content(self, content: bytes) -> Iterator[bytes]:
-        view = memoryview(content)
-        for offset in range(0, len(view), self.chunk_size):
-            yield bytes(view[offset:offset + self.chunk_size])
-        if not content:
-            yield b""
 
     def write(self, object_id: LogicalObjectId, content: bytes) -> BlobVersion:
         from io import BytesIO
