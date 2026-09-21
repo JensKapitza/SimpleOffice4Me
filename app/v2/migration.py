@@ -312,9 +312,11 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         transfer = {}
         blockers.append("migration transfer report is missing or invalid")
 
-    if transfer and (
-        not isinstance(transfer, dict)
-        or transfer.get("format") != "simpleoffice-v2-migration-transfer"
+    if transfer and not isinstance(transfer, dict):
+        blockers.append("migration transfer report is not a JSON object")
+        transfer = {}
+    elif transfer and (
+        transfer.get("format") != "simpleoffice-v2-migration-transfer"
         or int(transfer.get("format_version", 0)) != 1
         or transfer.get("status") != "content-copied"
     ):
