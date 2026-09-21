@@ -1,3 +1,4 @@
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,6 +61,26 @@ class DocumentStoreStorageAdapterTest(unittest.TestCase):
         missing = self.adapter.read_bytes(object_id)
         self.assertFalse(missing.ok)
         self.assertEqual(ErrorCode.NOT_FOUND, missing.error.code)
+
+    def test_import_stream_preserves_chunked_upload_and_archive_semantics(self):
+        class GuardedStream(io.BytesIO):
+            def read(self, size=-1):
+                if size < 0 or size > 1024 * 1024:
+                    raise AssertionError("stream import attempted an unbounded read")
+                return super().read(size)
+
+        payload = b"x" * (1024 * 1024 + 17)
+        imported = self.adapter.import_stream(
+            GuardedStream(payload),
+            "streamed.bin",
+            archive=True,
+            max_bytes=len(payload),
+        )
+
+        self.assertTrue(imported.ok)
+        self.assertTrue(imported.value.location.relative_path.startswith("archive/"))
+        self.assertEqual(len(payload), imported.value.size)
+        self.assertEqual(payload, self.adapter.read_bytes(imported.value.object_id).value)
 
     def test_create_conflict_does_not_overwrite_existing_file(self):
         location = StorageLocation("docs/existing.txt")
