@@ -31,6 +31,7 @@ class AndroidRuntimeTests(unittest.TestCase):
         self.assertIn('os.environ["SIMPLEOFFICE_BACKGROUND_INDEX"] = "0"', source)
         self.assertIn('SIMPLEOFFICE_FEDERATION_LAN_ADDRESS', source)
         self.assertIn('def set_lan_addresses(', source)
+        self.assertIn('make_server(\n            "0.0.0.0",', source)
 
     def test_runtime_accepts_native_lan_addresses_without_restarting_server(self):
         spec = importlib.util.spec_from_file_location("android_runtime_lan_test", RUNTIME)
