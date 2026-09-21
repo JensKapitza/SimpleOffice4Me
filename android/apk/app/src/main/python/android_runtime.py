@@ -188,8 +188,11 @@ def start(
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
 
     try:
+        # Keep the WebView on 127.0.0.1, but listen on every device interface
+        # so a peer can actually reach the Connect-QR address over WLAN,
+        # Ethernet or Android hotspot/tethering.
         _SERVER = make_server(
-            "127.0.0.1",
+            "0.0.0.0",
             8765,
             app,
             server_class=PooledServer,
