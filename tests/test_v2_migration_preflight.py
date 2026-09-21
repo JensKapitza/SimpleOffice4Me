@@ -376,5 +376,34 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertEqual("legacy-backup", (base / "restored" / "legacy.txt").read_text(encoding="utf-8"))
 
 
+    def test_transfer_rejects_tampered_rollback_backup_tree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"document"
+            document = root / "inbox" / "document.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "doc.json").write_text(
+                json.dumps({
+                    "document_id": "doc-tree-check",
+                    "last_path": "inbox/document.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            (root / "settings.txt").write_bytes(b"AAAA")
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            (backup / "settings.txt").write_bytes(b"BBBB")
+
+            with self.assertRaisesRegex(ValueError, "tree integrity"):
+                transfer_legacy_documents(root, backup)
+            self.assertFalse((root / ".simpleoffice-v2" / "blob-store").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
