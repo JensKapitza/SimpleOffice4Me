@@ -392,5 +392,33 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertTrue(any("not a JSON object" in blocker for blocker in result["blockers"]))
 
 
+    def test_migration_verification_without_transfer_report_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            content = b"legacy-only"
+            document = root / "inbox" / "legacy.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "legacy.json").write_text(
+                json.dumps({
+                    "document_id": "legacy-only",
+                    "last_path": "inbox/legacy.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            before = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+
+            result = verify_migration_transfer(root)
+
+            after = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+            self.assertFalse(result["ready"])
+            self.assertTrue(any("transfer report" in blocker for blocker in result["blockers"]))
+            self.assertEqual(before, after)
+            self.assertFalse((root / ".simpleoffice-v2").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
