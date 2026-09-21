@@ -95,11 +95,15 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _tree_sha256(root: Path) -> str:
+def _tree_sha256(root: Path, *, exclude: set[str] | None = None) -> str:
     digest = hashlib.sha256()
+    excluded = {str(value).replace("\\", "/") for value in (exclude or set())}
     entries = sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix())
     for entry in entries:
-        relative = entry.relative_to(root).as_posix().encode("utf-8")
+        relative_text = entry.relative_to(root).as_posix()
+        if relative_text in excluded:
+            continue
+        relative = relative_text.encode("utf-8")
         if entry.is_symlink():
             digest.update(b"L\0" + relative + b"\0" + os.readlink(entry).encode("utf-8") + b"\n")
         elif entry.is_dir():
@@ -208,6 +212,14 @@ def _validate_backup_for_plan(source: Path, backup: str | Path, plan: dict[str, 
         or str(manifest.get("source_name") or "") != source.name
     ):
         raise ValueError("migration backup does not match the source installation")
+    expected_tree = str(manifest.get("tree_sha256") or "")
+    if expected_tree:
+        actual_tree = _tree_sha256(
+            target,
+            exclude={".simpleoffice-v2/migration-backup.json"},
+        )
+        if actual_tree != expected_tree:
+            raise ValueError("migration backup tree integrity check failed")
 
     for entry in plan["entries"]:
         if entry.get("status") != "ready":
