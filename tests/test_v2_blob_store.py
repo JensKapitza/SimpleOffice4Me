@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 import unittest
@@ -70,6 +71,37 @@ class BlobStoreTest(unittest.TestCase):
         self.assertEqual(["old-transaction"], removed)
         self.assertFalse(old.exists())
         self.assertTrue(fresh.exists())
+
+
+    def test_stream_write_is_bounded_and_checks_expected_integrity(self):
+        class GuardedStream(io.BytesIO):
+            def read(self, size=-1):
+                if size < 0 or size > 64 * 1024:
+                    raise AssertionError("stream read exceeded configured chunk size")
+                return super().read(size)
+
+        payload = b"streamed-content-" * 10000
+        digest = __import__("hashlib").sha256(payload).hexdigest()
+        version = self.store.write_stream(
+            LogicalObjectId("streamed-document"),
+            GuardedStream(payload),
+            expected_size=len(payload),
+            expected_sha256=digest,
+        )
+        self.assertEqual(len(payload), version.size)
+        self.assertEqual(digest, version.content_sha256)
+        self.assertEqual(payload, self.store.read(LogicalObjectId("streamed-document")))
+
+    def test_stream_write_rejects_changed_source_before_publishing_pointer(self):
+        object_id = LogicalObjectId("changed-during-migration")
+        with self.assertRaisesRegex(BlobIntegrityError, "sha256"):
+            self.store.write_stream(
+                object_id,
+                io.BytesIO(b"changed"),
+                expected_size=7,
+                expected_sha256="0" * 64,
+            )
+        self.assertFalse(self.store.contains(object_id))
 
 
 if __name__ == "__main__":

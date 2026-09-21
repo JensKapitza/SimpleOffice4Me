@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .recovery import RecoveryService
-from .migration import build_migration_plan, create_migration_backup, inspect_migration
+from .migration import build_migration_plan, create_migration_backup, inspect_migration, transfer_legacy_documents
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -25,6 +25,9 @@ def _parser() -> argparse.ArgumentParser:
     backup = sub.add_parser("migration-backup", help="Create a source backup before migration")
     backup.add_argument("--destination", required=True)
     backup.add_argument("--apply", action="store_true")
+    transfer = sub.add_parser("migration-transfer", help="Copy verified V1 documents into the V2 blob store")
+    transfer.add_argument("--backup", required=True)
+    transfer.add_argument("--apply", action="store_true")
 
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
@@ -73,6 +76,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("read-only mode: add --apply to create the migration backup")
             return 3
         result = create_migration_backup(args.root, args.destination)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "migration-transfer":
+        if not args.apply:
+            print("read-only mode: add --apply to copy verified V1 content")
+            return 3
+        result = transfer_legacy_documents(args.root, args.backup)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
