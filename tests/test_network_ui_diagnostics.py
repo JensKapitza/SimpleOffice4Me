@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from app.network_system_status import ipv4_routing_status, network_interfaces
+from app.network_system_status import dhcp_network_candidates, ipv4_routing_status, network_interfaces
 
 
 class NetworkUiDiagnosticsTests(unittest.TestCase):
@@ -60,6 +60,42 @@ class NetworkUiDiagnosticsTests(unittest.TestCase):
         self.assertIn('datalist id="network-interface-list"', template)
         self.assertIn("Freitext bleibt möglich", template)
         self.assertIn("IPv4-Forwarding", template)
+
+    def test_dhcp_candidates_use_detected_ipv4_only_and_never_guess_pool(self):
+        rows = [
+            {"name": "eth0", "state": "up", "ipv4": ["192.168.50.10/24", "fe80::1/64"]},
+            {"name": "wlan0", "state": "up", "ipv4": ["10.20.30.5/24"]},
+            {"name": "lo", "state": "up", "ipv4": ["127.0.0.1/8"]},
+            {"name": "bad", "state": "up", "ipv4": ["not-an-address"]},
+        ]
+        candidates = dhcp_network_candidates(rows, "192.168.50.0/24", "192.168.50.10")
+
+        self.assertEqual(
+            [
+                {
+                    "interface": "eth0",
+                    "address": "192.168.50.10",
+                    "network": "192.168.50.0/24",
+                    "selected": True,
+                },
+                {
+                    "interface": "wlan0",
+                    "address": "10.20.30.5",
+                    "network": "10.20.30.0/24",
+                    "selected": False,
+                },
+            ],
+            candidates,
+        )
+        self.assertTrue(all("pool" not in key for row in candidates for key in row))
+
+    def test_template_requires_explicit_click_before_candidate_values_are_used(self):
+        template = (Path(__file__).resolve().parents[1] / "templates" / "admin" / "mini_services.html").read_text(encoding="utf-8")
+        self.assertIn('type="button"', template)
+        self.assertIn("dhcp-network-choice", template)
+        self.assertIn("Nichts wird automatisch aktiviert", template)
+        self.assertIn("button.addEventListener('click'", template)
+        self.assertNotIn("dhcp-enabled.checked", template)
 
 
 if __name__ == "__main__":
