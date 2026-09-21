@@ -90,6 +90,35 @@ class DocumentStoreStorageAdapter:
         except (OSError, RuntimeError, ValueError) as exc:
             return self._failure(exc)
 
+    def import_stream(
+        self,
+        stream,
+        filename: str,
+        *,
+        archive: bool = False,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        try:
+            metadata = self.store.import_upload(
+                stream,
+                filename,
+                self.actor,
+                archive=bool(archive),
+                max_bytes=int(max_bytes),
+            )
+            stored = self._stored(metadata)
+            if stored.size == 0:
+                path = resolve_file_under(self.store.root, str(metadata.get("last_path") or ""))
+                stored = StoredObject(
+                    object_id=stored.object_id,
+                    version=stored.version,
+                    size=path.stat().st_size,
+                    location=stored.location,
+                )
+            return OperationResult.success(stored)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
     def replace_bytes(
         self,
         object_id: LogicalObjectId,

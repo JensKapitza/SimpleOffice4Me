@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Generic, Mapping, Protocol, TypeVar, runtime_checkable
+from typing import Any, BinaryIO, Generic, Mapping, Protocol, TypeVar, runtime_checkable
 
 
 T = TypeVar("T")
@@ -183,6 +183,16 @@ class StoragePort(Protocol):
         ...
 
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
+        ...
+
+    def import_stream(
+        self,
+        stream: BinaryIO,
+        filename: str,
+        *,
+        archive: bool = False,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
         ...
 
     def replace_bytes(

@@ -91,6 +91,44 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertIn("q=scan-me", response.headers["Location"])
         self.assertIn("page=2", response.headers["Location"])
 
+    def test_upload_route_uses_v2_streaming_storage_boundary(self):
+        calls = []
+
+        class FakeStorage:
+            def import_stream(self, stream, filename, *, archive=False, max_bytes=0):
+                content = stream.read()
+                calls.append((filename, content, archive, max_bytes))
+                return OperationResult.success(
+                    StoredObject(
+                        object_id=LogicalObjectId("uploaded-object"),
+                        version="synthetic-version",
+                        size=len(content),
+                        location=StorageLocation("archive/example/uploaded.txt" if archive else "inbox/uploaded.txt"),
+                    )
+                )
+
+        class FakeSettings:
+            def settings(self):
+                return {"documents": {"default_tags": [], "default_state": "new"}}
+
+        with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), patch(
+            "app.documents_routes_workflows._settings", return_value=FakeSettings()
+        ), patch.object(
+            DocumentStore,
+            "import_upload",
+            side_effect=AssertionError("browser route bypassed StoragePort"),
+        ):
+            response = self.client.post(
+                "/documents/upload",
+                data={"archive": "1", "files": (io.BytesIO(b"stream me"), "stream.txt")},
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(302, response.status_code)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(("stream.txt", b"stream me", True), calls[0][:3])
+        self.assertEqual(app.config["MAX_CONTENT_LENGTH"], calls[0][3])
+
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")
 
