@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, BinaryIO, Iterator
 
 from .contracts import LogicalObjectId, PhysicalBlobId, PersistentFormat
 
@@ -105,14 +105,47 @@ class BlobStore:
             yield b""
 
     def write(self, object_id: LogicalObjectId, content: bytes) -> BlobVersion:
+        from io import BytesIO
+
         payload = bytes(content)
+        return self.write_stream(object_id, BytesIO(payload), expected_size=len(payload))
+
+    def write_stream(
+        self,
+        object_id: LogicalObjectId,
+        stream: BinaryIO,
+        *,
+        expected_size: int | None = None,
+        expected_sha256: str = "",
+    ) -> BlobVersion:
+        if expected_size is not None and (
+            isinstance(expected_size, bool) or not isinstance(expected_size, int) or expected_size < 0
+        ):
+            raise ValueError("expected blob size must be a non-negative integer")
+        expected_digest = str(expected_sha256 or "").strip().casefold()
+        if expected_digest and (
+            len(expected_digest) != 64 or any(char not in "0123456789abcdef" for char in expected_digest)
+        ):
+            raise ValueError("expected blob sha256 must be a lowercase hexadecimal digest")
+
         version_id = str(uuid.uuid4())
         transaction = self.staging / version_id
         transaction.mkdir(mode=0o700)
         chunks: list[dict[str, Any]] = []
         whole = hashlib.sha256()
+        total = 0
+        index = 0
         try:
-            for index, block in enumerate(self._iter_content(payload)):
+            while True:
+                block = stream.read(self.chunk_size)
+                if block is None:
+                    raise ValueError("blob stream returned no bytes")
+                block = bytes(block)
+                if not block and index:
+                    break
+                total += len(block)
+                if expected_size is not None and total > expected_size:
+                    raise BlobIntegrityError("streamed blob exceeds expected size")
                 chunk_id = PhysicalBlobId(str(uuid.uuid4()))
                 digest = hashlib.sha256(block).hexdigest()
                 whole.update(block)
@@ -129,14 +162,22 @@ class BlobStore:
                     "size": len(block),
                     "sha256": digest,
                 })
+                index += 1
+                if not block:
+                    break
 
+            digest = whole.hexdigest()
+            if expected_size is not None and total != expected_size:
+                raise BlobIntegrityError("streamed blob size does not match expected size")
+            if expected_digest and digest != expected_digest:
+                raise BlobIntegrityError("streamed blob sha256 does not match expected digest")
             manifest = {
                 "format": {"family": FORMAT.family, "version": FORMAT.version},
                 "object_id": object_id.value,
                 "version_id": version_id,
                 "created_at": int(time.time()),
-                "size": len(payload),
-                "content_sha256": whole.hexdigest(),
+                "size": total,
+                "content_sha256": digest,
                 "chunk_size": self.chunk_size,
                 "chunks": chunks,
             }
@@ -151,12 +192,14 @@ class BlobStore:
             )
             return self._as_version(manifest)
         except Exception:
-            # Published chunks are deliberately not deleted here: a crash or
-            # partial write must never risk deleting a chunk already referenced
-            # by another completed manifest. GC handles unreferenced chunks.
+            # Chunks published before a failed manifest remain harmless orphans
+            # and are handled by the existing explicit GC path.
             raise
         finally:
             shutil.rmtree(transaction, ignore_errors=True)
+
+    def contains(self, object_id: LogicalObjectId) -> bool:
+        return self._current_path(object_id).is_file()
 
     def current_manifest(self, object_id: LogicalObjectId) -> dict[str, Any]:
         pointer = _read_json(self._current_path(object_id))
@@ -176,12 +219,13 @@ class BlobStore:
             raise BlobIntegrityError("blob manifest chunks are invalid")
         return manifest
 
-    def read(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> bytes:
+    def _verified_blocks(self, object_id: LogicalObjectId, version_id: str | None = None) -> tuple[dict[str, Any], list[bytes]]:
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
         if manifest.get("object_id") != object_id.value:
             raise BlobIntegrityError("blob manifest object identity mismatch")
-        result = bytearray()
+        blocks: list[bytes] = []
         whole = hashlib.sha256()
+        total = 0
         for expected_index, chunk in enumerate(manifest["chunks"]):
             if not isinstance(chunk, dict) or int(chunk.get("index", -1)) != expected_index:
                 raise BlobIntegrityError("blob chunk order is invalid")
@@ -195,13 +239,22 @@ class BlobStore:
             digest = hashlib.sha256(block).hexdigest()
             if digest != chunk.get("sha256"):
                 raise BlobIntegrityError("blob chunk integrity mismatch")
-            result.extend(block)
+            blocks.append(block)
+            total += len(block)
             whole.update(block)
-        if len(result) != int(manifest.get("size", -1)):
+        if total != int(manifest.get("size", -1)):
             raise BlobIntegrityError("blob content size mismatch")
         if whole.hexdigest() != manifest.get("content_sha256"):
             raise BlobIntegrityError("blob content integrity mismatch")
-        return bytes(result)
+        return manifest, blocks
+
+    def verify(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> BlobVersion:
+        manifest, _ = self._verified_blocks(object_id, version_id)
+        return self._as_version(manifest)
+
+    def read(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> bytes:
+        _, blocks = self._verified_blocks(object_id, version_id)
+        return b"".join(blocks)
 
     def versions_for(self, object_id: LogicalObjectId) -> list[BlobVersion]:
         result: list[BlobVersion] = []
