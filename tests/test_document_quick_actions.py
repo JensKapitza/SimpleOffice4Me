@@ -138,6 +138,39 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual(LogicalObjectId(document["document_id"]), calls[0][0])
         self.assertEqual(StorageLocation("Ziel/direct.txt"), calls[0][1])
 
+    def test_document_copy_route_uses_v2_storage_boundary_and_redirects_to_copy(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"copy me"), "copy-me.txt", "jens")
+        target_id = LogicalObjectId("copied-object")
+        calls = []
+
+        class FakeStorage:
+            def copy(self, object_id, destination):
+                calls.append((object_id, destination))
+                return OperationResult.success(
+                    StoredObject(
+                        object_id=target_id,
+                        version="synthetic-version",
+                        size=7,
+                        location=destination,
+                    )
+                )
+
+        with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), patch.object(
+            DocumentStore,
+            "copy_document",
+            side_effect=AssertionError("browser route bypassed StoragePort"),
+        ):
+            response = self.client.post(
+                f"/documents/{document['document_id']}/copy",
+                data={"destination_folder": "Kopien"},
+            )
+
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(response.headers["Location"].endswith("/documents/copied-object"))
+        self.assertEqual(1, len(calls))
+        self.assertEqual(LogicalObjectId(document["document_id"]), calls[0][0])
+        self.assertEqual(StorageLocation("Kopien/copy-me.txt"), calls[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()
