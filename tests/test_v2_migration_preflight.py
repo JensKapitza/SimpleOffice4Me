@@ -6,7 +6,9 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration
+from app.v2.blob_store import BlobStore
+from app.v2.contracts import LogicalObjectId
+from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, transfer_legacy_documents
 from app.v2.recovery_cli import main
 
 
@@ -140,6 +142,141 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertFalse(report["ready"])
             self.assertEqual(1, report["blocked_documents"])
             self.assertIn("does not match", report["entries"][0]["error"])
+
+
+    def test_transfer_is_idempotent_and_keeps_v1_content_untouched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"legacy-document-content"
+            document = root / "inbox" / "invoice.txt"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            metadata = {
+                "document_id": "doc-transfer-1",
+                "last_path": "inbox/invoice.txt",
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+            (metadata_dir / "doc-transfer-1.json").write_text(json.dumps(metadata), encoding="utf-8")
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            before_content = document.read_bytes()
+            before_metadata = (metadata_dir / "doc-transfer-1.json").read_bytes()
+
+            first = transfer_legacy_documents(root, backup)
+            second = transfer_legacy_documents(root, backup)
+
+            object_id = LogicalObjectId("doc-transfer-1")
+            store = BlobStore(root)
+            self.assertEqual(content, store.read(object_id))
+            self.assertEqual(1, len(store.versions_for(object_id)))
+            self.assertEqual(1, first["migrated_documents"])
+            self.assertEqual(0, first["already_present_documents"])
+            self.assertEqual(0, second["migrated_documents"])
+            self.assertEqual(1, second["already_present_documents"])
+            self.assertEqual(before_content, document.read_bytes())
+            self.assertEqual(before_metadata, (metadata_dir / "doc-transfer-1.json").read_bytes())
+            report = json.loads((root / ".simpleoffice-v2" / "migration-transfer.json").read_text(encoding="utf-8"))
+            self.assertEqual("content-copied", report["status"])
+
+    def test_transfer_rejects_backup_that_no_longer_matches_source_plan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"original"
+            document = root / "inbox" / "file.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "doc.json").write_text(
+                json.dumps({
+                    "document_id": "doc-backup-check",
+                    "last_path": "inbox/file.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            (backup / "inbox" / "file.bin").write_bytes(b"tampered")
+
+            with self.assertRaisesRegex(ValueError, "backup integrity mismatch"):
+                transfer_legacy_documents(root, backup)
+            self.assertFalse((root / ".simpleoffice-v2" / "blob-store").exists())
+
+    def test_transfer_refuses_existing_v2_content_conflict_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"legacy"
+            document = root / "inbox" / "file.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "doc.json").write_text(
+                json.dumps({
+                    "document_id": "doc-conflict",
+                    "last_path": "inbox/file.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            store = BlobStore(root)
+            store.write(LogicalObjectId("doc-conflict"), b"different")
+
+            with self.assertRaisesRegex(ValueError, "conflicts"):
+                transfer_legacy_documents(root, backup)
+            self.assertEqual(b"different", store.read(LogicalObjectId("doc-conflict")))
+            self.assertEqual(1, len(store.versions_for(LogicalObjectId("doc-conflict"))))
+
+    def test_cli_transfer_requires_apply_and_then_copies_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"cli-transfer"
+            document = root / "inbox" / "file.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "doc.json").write_text(
+                json.dumps({
+                    "document_id": "doc-cli-transfer",
+                    "last_path": "inbox/file.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            with redirect_stdout(StringIO()) as output:
+                code = main([
+                    "--root", str(root), "migration-transfer",
+                    "--backup", str(backup),
+                ])
+            self.assertEqual(3, code)
+            self.assertIn("--apply", output.getvalue())
+            self.assertFalse((root / ".simpleoffice-v2" / "blob-store").exists())
+
+            with redirect_stdout(StringIO()) as output:
+                code = main([
+                    "--root", str(root), "migration-transfer",
+                    "--backup", str(backup), "--apply",
+                ])
+            self.assertEqual(0, code)
+            report = json.loads(output.getvalue())
+            self.assertEqual(1, report["migrated_documents"])
+            self.assertEqual(content, BlobStore(root).read(LogicalObjectId("doc-cli-transfer")))
 
 
 if __name__ == "__main__":
