@@ -62,7 +62,7 @@ def inspect_migration(root: str | Path) -> MigrationPreflight:
                 for manifest_path in sorted(versions.glob("*.json")):
                     try:
                         manifest = store.version_manifest(manifest_path.stem)
-                        store.read(LogicalObjectId(str(manifest["object_id"])), version_id=manifest_path.stem)
+                        store.verify(LogicalObjectId(str(manifest["object_id"])), version_id=manifest_path.stem)
                     except (OSError, ValueError, TypeError, KeyError):
                         invalid += 1
                 inventory_readable = True
@@ -172,6 +172,132 @@ def build_migration_plan(root: str | Path) -> dict[str, Any]:
         "blockers": [f"{entry['metadata']}: {entry['error']}" for entry in blocked],
         "entries": entries,
     }
+
+
+def _validate_backup_for_plan(source: Path, backup: str | Path, plan: dict[str, Any]) -> Path:
+    target = Path(backup).expanduser().resolve(strict=True)
+    if target == source or target.is_relative_to(source):
+        raise ValueError("migration backup must be outside the source tree")
+    manifest_path = target / ".simpleoffice-v2" / "migration-backup.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("migration backup manifest is missing or invalid") from exc
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("format") != "simpleoffice-v2-migration-backup"
+        or int(manifest.get("format_version", 0)) != 1
+        or str(manifest.get("source_name") or "") != source.name
+    ):
+        raise ValueError("migration backup does not match the source installation")
+
+    for entry in plan["entries"]:
+        if entry.get("status") != "ready":
+            continue
+        relative = str(entry["path"])
+        try:
+            candidate = (target / relative).resolve(strict=True)
+            candidate.relative_to(target)
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"migration backup is missing {relative}") from exc
+        if not candidate.is_file():
+            raise ValueError(f"migration backup entry is not a file: {relative}")
+        if candidate.stat().st_size != int(entry["size"]) or _sha256_file(candidate) != entry["sha256"]:
+            raise ValueError(f"migration backup integrity mismatch: {relative}")
+    return target
+
+
+def _write_migration_report(source: Path, report: dict[str, Any]) -> None:
+    directory = source / ".simpleoffice-v2"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / "migration-transfer.json"
+    temporary = directory / f".migration-transfer-{uuid.uuid4().hex}.tmp"
+    payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str, Any]:
+    """Copy verified V1 document content side-by-side into the V2 blob store.
+
+    V1 files and metadata are never modified. Existing matching V2 objects are
+    reused, making the operation restart-safe and idempotent.
+    """
+    source = Path(root).expanduser().resolve()
+    plan = build_migration_plan(source)
+    if not plan["ready"]:
+        raise ValueError("migration plan is blocked: " + "; ".join(plan["blockers"]))
+
+    identifiers = [str(entry["document_id"]) for entry in plan["entries"] if entry.get("status") == "ready"]
+    duplicates = sorted({value for value in identifiers if identifiers.count(value) > 1})
+    if duplicates:
+        raise ValueError("migration plan contains duplicate document ids: " + ", ".join(duplicates))
+
+    backup_path = _validate_backup_for_plan(source, backup, plan)
+    store = BlobStore(source)
+    conflicts: list[str] = []
+    for entry in plan["entries"]:
+        if entry.get("status") != "ready":
+            continue
+        object_id = LogicalObjectId(str(entry["document_id"]))
+        if not store.contains(object_id):
+            continue
+        current = store.verify(object_id)
+        if current.size != int(entry["size"]) or current.content_sha256 != str(entry["sha256"]):
+            conflicts.append(object_id.value)
+    if conflicts:
+        raise ValueError("existing V2 content conflicts with V1 documents: " + ", ".join(conflicts))
+
+    migrated = 0
+    already_present = 0
+    migrated_bytes = 0
+    for entry in plan["entries"]:
+        if entry.get("status") != "ready":
+            continue
+        object_id = LogicalObjectId(str(entry["document_id"]))
+        if store.contains(object_id):
+            current = store.verify(object_id)
+            if current.size != int(entry["size"]) or current.content_sha256 != str(entry["sha256"]):
+                raise ValueError(f"V2 content changed during migration: {object_id.value}")
+            already_present += 1
+            continue
+
+        source_path = (source / str(entry["path"])).resolve(strict=True)
+        source_path.relative_to(source)
+        with source_path.open("rb") as handle:
+            version = store.write_stream(
+                object_id,
+                handle,
+                expected_size=int(entry["size"]),
+                expected_sha256=str(entry["sha256"]),
+            )
+        verified = store.verify(object_id, version_id=version.version_id)
+        if verified.size != int(entry["size"]) or verified.content_sha256 != str(entry["sha256"]):
+            raise RuntimeError(f"V2 verification failed after migration: {object_id.value}")
+        migrated += 1
+        migrated_bytes += int(entry["size"])
+
+    report = {
+        "format": "simpleoffice-v2-migration-transfer",
+        "format_version": 1,
+        "status": "content-copied",
+        "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "documents": int(plan["documents"]),
+        "migrated_documents": migrated,
+        "already_present_documents": already_present,
+        "source_bytes": int(plan["bytes"]),
+        "migrated_bytes": migrated_bytes,
+        "backup_name": backup_path.name,
+    }
+    _write_migration_report(source, report)
+    return report
 
 
 def _source_inventory(root: Path) -> dict[str, int]:
