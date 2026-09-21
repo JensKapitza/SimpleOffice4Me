@@ -132,17 +132,13 @@ class ObjectCatalog:
     def _content(version_id: str, size: int, content_sha256: str) -> tuple[str, int, str]:
         version = str(version_id or "").strip()
         digest = str(content_sha256 or "").strip().casefold()
-        CatalogEntry(
-            LogicalObjectId("validation"),
-            StorageLocation("validation"),
-            version,
-            size,
-            digest,
-            CatalogState.ACTIVE,
-            1,
-            1,
-        )
-        return version, int(size), digest
+        if not version or len(version) > 200:
+            raise ValueError("invalid catalog blob version")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise ValueError("invalid catalog object size")
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError("invalid catalog content sha256")
+        return version, size, digest
 
     @staticmethod
     def _entry(row: sqlite3.Row) -> CatalogEntry:
@@ -345,6 +341,26 @@ class ObjectCatalog:
                 return OperationResult.failure(ErrorCode.NOT_FOUND, "catalog object not found")
             db.execute(
                 "UPDATE object_catalog SET state='recovery',updated_at=? WHERE object_id=?",
+                (now, logical.value),
+            )
+        return self.get(logical)
+
+    def mark_active(
+        self,
+        object_id: LogicalObjectId | str,
+    ) -> OperationResult[CatalogEntry]:
+        logical = self._logical(object_id)
+        now = int(time.time())
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT state FROM object_catalog WHERE object_id=?",
+                (logical.value,),
+            ).fetchone()
+            if row is None or row["state"] == CatalogState.DELETED.value:
+                return OperationResult.failure(ErrorCode.NOT_FOUND, "catalog object not found")
+            db.execute(
+                "UPDATE object_catalog SET state='active',updated_at=? WHERE object_id=?",
                 (now, logical.value),
             )
         return self.get(logical)
