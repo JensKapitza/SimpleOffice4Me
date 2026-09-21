@@ -196,5 +196,33 @@ class V2ObjectCatalogTests(unittest.TestCase):
         self.assertEqual(str(SCHEMA_VERSION), rows["schema_version"])
 
 
+    def test_recovery_state_blocks_normal_move_and_content_mutation(self):
+        self.catalog.register(
+            "doc-recovery-block",
+            "docs/recovery-block.txt",
+            version_id="v1",
+            size=4,
+            content_sha256=digest(b"data"),
+        )
+        self.catalog.mark_recovery("doc-recovery-block")
+
+        moved = self.catalog.move("doc-recovery-block", "docs/moved.txt")
+        updated = self.catalog.update_content(
+            "doc-recovery-block",
+            version_id="v2",
+            size=3,
+            content_sha256=digest(b"new"),
+        )
+
+        self.assertFalse(moved.ok)
+        self.assertEqual(ErrorCode.CONFLICT, moved.error.code)
+        self.assertFalse(updated.ok)
+        self.assertEqual(ErrorCode.CONFLICT, updated.error.code)
+        current = self.catalog.get("doc-recovery-block").value
+        self.assertEqual(CatalogState.RECOVERY, current.state)
+        self.assertEqual(StorageLocation("docs/recovery-block.txt"), current.location)
+        self.assertEqual("v1", current.version_id)
+
+
 if __name__ == "__main__":
     unittest.main()
