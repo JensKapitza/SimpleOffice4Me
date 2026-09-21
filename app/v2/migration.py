@@ -9,7 +9,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .recovery import RecoveryService
+from .blob_store import BlobStore
+from .contracts import LogicalObjectId
 
 
 @dataclass(frozen=True)
@@ -37,15 +38,32 @@ def inspect_migration(root: str | Path) -> MigrationPreflight:
     invalid = 0
     inventory_readable = False
     if exists:
-        try:
-            service = RecoveryService(path)
-            service.inventory()
-            invalid = sum(1 for item in service.verify_all() if not item.valid)
+        base = path / ".simpleoffice-v2" / "blob-store"
+        versions = base / "versions"
+        objects = base / "objects"
+        chunks = base / "chunks"
+        staging = base / "staging"
+        if not base.exists():
             inventory_readable = True
-            if invalid:
-                blockers.append(f"{invalid} V2 object version(s) fail integrity verification")
-        except (OSError, ValueError, TypeError):
+        elif not all(item.is_dir() for item in (versions, objects, chunks, staging)):
             blockers.append("V2 recovery inventory is not readable")
+        else:
+            try:
+                # BlobStore construction is safe here because all directories
+                # already exist; never construct it for a legacy-only root.
+                store = BlobStore(path)
+                store.inventory()
+                for manifest_path in sorted(versions.glob("*.json")):
+                    try:
+                        manifest = store.version_manifest(manifest_path.stem)
+                        store.read(LogicalObjectId(str(manifest["object_id"])), version_id=manifest_path.stem)
+                    except (OSError, ValueError, TypeError, KeyError):
+                        invalid += 1
+                inventory_readable = True
+                if invalid:
+                    blockers.append(f"{invalid} V2 object version(s) fail integrity verification")
+            except (OSError, ValueError, TypeError):
+                blockers.append("V2 recovery inventory is not readable")
 
     history = (path / ".simpleoffice-history").exists() if exists else False
     control = (path / ".simpleoffice-meta").exists() if exists else False
