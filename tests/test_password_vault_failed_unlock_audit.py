@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from app.password_vault import PasswordVault
-from app.v2.contracts import AuditPort, OperationResult
+from app.v2.contracts import AuditPort, ErrorCode, OperationResult
 
 
 class CapturingAudit(AuditPort):
@@ -35,7 +35,7 @@ class VaultFailedUnlockAuditTests(unittest.TestCase):
         class FailingAudit(AuditPort):
             def append(self, event):
                 return OperationResult.failure(
-                    code="storage_unavailable",
+                    code=ErrorCode.STORAGE_UNAVAILABLE,
                     message="audit unavailable",
                 )
 
