@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.v2.blob_store import BlobStore
 from app.v2.contracts import LogicalObjectId
-from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, transfer_legacy_documents
+from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, transfer_legacy_documents, verify_migration_transfer
 from app.v2.recovery_cli import main
 
 
@@ -292,6 +292,104 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertFalse(result.ready)
             self.assertEqual(1, result.v2_invalid_objects)
             self.assertTrue(any("integrity verification" in blocker for blocker in result.blockers))
+
+
+    def test_migration_verification_is_read_only_after_successful_transfer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"verify-me"
+            document = root / "inbox" / "verify.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "verify.json").write_text(
+                json.dumps({
+                    "document_id": "doc-verify",
+                    "last_path": "inbox/verify.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            before = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+
+            result = verify_migration_transfer(root)
+
+            after = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+            self.assertTrue(result["ready"])
+            self.assertEqual(1, result["verified_documents"])
+            self.assertEqual(before, after)
+
+            with redirect_stdout(StringIO()) as output:
+                code = main(["--root", str(root), "migration-verify"])
+            self.assertEqual(0, code)
+            self.assertTrue(json.loads(output.getvalue())["ready"])
+
+    def test_migration_verification_reports_missing_v2_object(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"missing-pointer"
+            document = root / "inbox" / "missing.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "missing.json").write_text(
+                json.dumps({
+                    "document_id": "doc-missing",
+                    "last_path": "inbox/missing.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            store = BlobStore(root)
+            store._current_path(LogicalObjectId("doc-missing")).unlink()
+
+            result = verify_migration_transfer(root)
+
+            self.assertFalse(result["ready"])
+            self.assertEqual(0, result["verified_documents"])
+            self.assertTrue(any("V2 object is missing" in blocker for blocker in result["blockers"]))
+
+    def test_migration_verification_fails_closed_on_malformed_transfer_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"report-test"
+            document = root / "inbox" / "report.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "report.json").write_text(
+                json.dumps({
+                    "document_id": "doc-report",
+                    "last_path": "inbox/report.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            report_path = root / ".simpleoffice-v2" / "migration-transfer.json"
+            report_path.write_text("[]", encoding="utf-8")
+
+            result = verify_migration_transfer(root)
+
+            self.assertFalse(result["ready"])
+            self.assertTrue(any("not a JSON object" in blocker for blocker in result["blockers"]))
 
 
 if __name__ == "__main__":
