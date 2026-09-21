@@ -344,6 +344,29 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         if transferred != int(plan["documents"]):
             blockers.append("migration transfer report does not cover every V1 document")
 
+    blob_base = source / ".simpleoffice-v2" / "blob-store"
+    if not transfer or blockers:
+        return {
+            "format": "simpleoffice-v2-migration-verification",
+            "format_version": 1,
+            "ready": False,
+            "documents": int(plan["documents"]),
+            "verified_documents": 0,
+            "source_bytes": int(plan["bytes"]),
+            "blockers": blockers,
+        }
+    if not blob_base.is_dir():
+        blockers.append("V2 blob store is missing after migration transfer")
+        return {
+            "format": "simpleoffice-v2-migration-verification",
+            "format_version": 1,
+            "ready": False,
+            "documents": int(plan["documents"]),
+            "verified_documents": 0,
+            "source_bytes": int(plan["bytes"]),
+            "blockers": blockers,
+        }
+
     store = BlobStore(source)
     verified = 0
     for entry in plan["entries"]:
