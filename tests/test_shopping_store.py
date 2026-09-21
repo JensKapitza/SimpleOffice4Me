@@ -115,6 +115,44 @@ class ShoppingStoreTests(unittest.TestCase):
         events = list((self.root / ".simpleoffice-history" / "events").glob("*.json"))
         self.assertGreaterEqual(len(events), 3)
 
+    def test_items_by_store_uses_item_override_then_list_default(self):
+        self.store.create_list("Woche", "alice", list_id="weekly-store", store="Aldi")
+        self.store.add_item("weekly-store", "Milch", "alice")
+        self.store.add_item("weekly-store", "Shampoo", "alice", {"store": "dm"})
+        grouped = self.store.items_by_store("alice")
+        self.assertEqual(["Milch"], [row["name"] for row in grouped["Aldi"]])
+        self.assertEqual(["Shampoo"], [row["name"] for row in grouped["dm"]])
+        self.assertEqual("Woche", grouped["Aldi"][0]["list_name"])
+
+    def test_store_view_can_filter_across_multiple_visible_lists(self):
+        self.store.create_list("Woche", "alice", list_id="weekly-filter", store="Lidl")
+        self.store.create_list("Party", "alice", list_id="party-filter")
+        self.store.add_item("weekly-filter", "Brot", "alice")
+        self.store.add_item("party-filter", "Chips", "alice", {"store": "lidl"})
+        grouped = self.store.items_by_store("alice", store="LIDL")
+        self.assertEqual({"Lidl", "lidl"}, set(grouped))
+        self.assertEqual(2, sum(len(rows) for rows in grouped.values()))
+
+    def test_store_view_defaults_to_open_items_and_excludes_archived_lists(self):
+        self.store.create_list("Aktiv", "alice", list_id="active-store", store="Markt")
+        self.store.create_list("Alt", "alice", list_id="old-store", store="Markt")
+        bought = self.store.add_item("active-store", "Schon gekauft", "alice")
+        self.store.update_item(bought["item_id"], "alice", {"status": "bought"})
+        self.store.add_item("active-store", "Noch offen", "alice")
+        self.store.add_item("old-store", "Archiviert", "alice")
+        self.store.archive_list("old-store", "alice")
+        grouped = self.store.items_by_store("alice")
+        self.assertEqual(["Noch offen"], [row["name"] for row in grouped["Markt"]])
+
+    def test_shared_reader_store_view_respects_visibility(self):
+        self.store.create_list("Geteilt", "alice", list_id="shared-store", store="IKEA")
+        self.store.create_list("Privat", "alice", list_id="private-store", store="IKEA")
+        self.store.add_item("shared-store", "Batterien", "alice")
+        self.store.add_item("private-store", "Box", "alice")
+        self.store.share_list("shared-store", "alice", "bob", ["read"])
+        grouped = self.store.items_by_store("bob", store="ikea")
+        self.assertEqual(["Batterien"], [row["name"] for rows in grouped.values() for row in rows])
+
 
 if __name__ == "__main__":
     unittest.main()
