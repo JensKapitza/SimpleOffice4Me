@@ -106,7 +106,16 @@ class DocumentStoreStorageAdapter:
                 archive=bool(archive),
                 max_bytes=int(max_bytes),
             )
-            return OperationResult.success(self._stored(metadata))
+            stored = self._stored(metadata)
+            if stored.size == 0:
+                path = resolve_file_under(self.store.root, str(metadata.get("last_path") or ""))
+                stored = StoredObject(
+                    object_id=stored.object_id,
+                    version=stored.version,
+                    size=path.stat().st_size,
+                    location=stored.location,
+                )
+            return OperationResult.success(stored)
         except (OSError, RuntimeError, ValueError) as exc:
             return self._failure(exc)
 
