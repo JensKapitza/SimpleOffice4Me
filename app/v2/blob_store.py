@@ -219,11 +219,17 @@ class BlobStore:
             raise BlobIntegrityError("blob manifest chunks are invalid")
         return manifest
 
-    def _verified_blocks(self, object_id: LogicalObjectId, version_id: str | None = None) -> tuple[dict[str, Any], list[bytes]]:
+    def _verify_content(
+        self,
+        object_id: LogicalObjectId,
+        version_id: str | None = None,
+        *,
+        collect: bool = False,
+    ) -> tuple[dict[str, Any], bytes]:
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
         if manifest.get("object_id") != object_id.value:
             raise BlobIntegrityError("blob manifest object identity mismatch")
-        blocks: list[bytes] = []
+        result = bytearray()
         whole = hashlib.sha256()
         total = 0
         for expected_index, chunk in enumerate(manifest["chunks"]):
@@ -239,22 +245,23 @@ class BlobStore:
             digest = hashlib.sha256(block).hexdigest()
             if digest != chunk.get("sha256"):
                 raise BlobIntegrityError("blob chunk integrity mismatch")
-            blocks.append(block)
+            if collect:
+                result.extend(block)
             total += len(block)
             whole.update(block)
         if total != int(manifest.get("size", -1)):
             raise BlobIntegrityError("blob content size mismatch")
         if whole.hexdigest() != manifest.get("content_sha256"):
             raise BlobIntegrityError("blob content integrity mismatch")
-        return manifest, blocks
+        return manifest, bytes(result)
 
     def verify(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> BlobVersion:
-        manifest, _ = self._verified_blocks(object_id, version_id)
+        manifest, _ = self._verify_content(object_id, version_id, collect=False)
         return self._as_version(manifest)
 
     def read(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> bytes:
-        _, blocks = self._verified_blocks(object_id, version_id)
-        return b"".join(blocks)
+        _, content = self._verify_content(object_id, version_id, collect=True)
+        return content
 
     def versions_for(self, object_id: LogicalObjectId) -> list[BlobVersion]:
         result: list[BlobVersion] = []
