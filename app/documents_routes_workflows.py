@@ -12,20 +12,32 @@ def upload():
         flash("Bitte mindestens eine Datei auswählen.")
         return redirect(url_for("documents.index"))
     stored = 0
+    actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
+    storage = _storage(actor)
+    archive = request.form.get("archive") == "1"
+    max_bytes = int(current_app.config["MAX_CONTENT_LENGTH"])
     for item in files:
         try:
-            metadata = _store().import_upload(
-                item,
+            result = storage.import_stream(
+                item.stream,
                 item.filename,
-                str(g.user["username"]),
-                request.form.get("archive") == "1",
-                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+                archive=archive,
+                max_bytes=max_bytes,
             )
-            if defaults["default_tags"]:
-                _store().set_tags(metadata["document_id"], [*metadata.get("tags", []), *defaults["default_tags"]], str(g.user["username"]))
-            if defaults["default_state"] != "new":
-                _store().set_state(metadata["document_id"], defaults["default_state"], str(g.user["username"]))
+            if not result.ok:
+                flash(f"{item.filename}: {result.error.message}")
+                continue
+            if defaults["default_tags"] or defaults["default_state"] != "new":
+                metadata = _store().get_document(result.value.object_id.value)
+                if defaults["default_tags"]:
+                    _store().set_tags(
+                        metadata["document_id"],
+                        [*metadata.get("tags", []), *defaults["default_tags"]],
+                        actor,
+                    )
+                if defaults["default_state"] != "new":
+                    _store().set_state(metadata["document_id"], defaults["default_state"], actor)
             stored += 1
         except (OSError, ValueError) as exc:
             flash(f"{item.filename}: {exc}")
