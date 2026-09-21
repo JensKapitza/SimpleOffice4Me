@@ -1,9 +1,10 @@
 import hashlib
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
-from app.v2.catalog import CatalogState, ObjectCatalog
+from app.v2.catalog import FORMAT_FAMILY, SCHEMA_VERSION, CatalogState, ObjectCatalog
 from app.v2.contracts import ErrorCode, LogicalObjectId, StorageLocation
 
 
@@ -186,6 +187,13 @@ class V2ObjectCatalogTests(unittest.TestCase):
         self.assertEqual(CatalogState.DELETED, tombstone.value.state)
         self.assertEqual([], self.catalog.list())
         self.assertEqual(1, len(self.catalog.list(include_deleted=True)))
+
+
+    def test_catalog_persists_format_family_and_schema_version(self):
+        with sqlite3.connect(self.catalog.path) as db:
+            rows = dict(db.execute("SELECT key,value FROM catalog_meta").fetchall())
+        self.assertEqual(FORMAT_FAMILY, rows["format_family"])
+        self.assertEqual(str(SCHEMA_VERSION), rows["schema_version"])
 
 
 if __name__ == "__main__":
