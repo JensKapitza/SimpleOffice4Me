@@ -206,7 +206,7 @@ class V2MigrationPreflightTests(unittest.TestCase):
             create_migration_backup(root, backup)
             (backup / "inbox" / "file.bin").write_bytes(b"tampered")
 
-            with self.assertRaisesRegex(ValueError, "backup integrity mismatch"):
+            with self.assertRaisesRegex(ValueError, "migration backup tree integrity check failed"):
                 transfer_legacy_documents(root, backup)
             self.assertFalse((root / ".simpleoffice-v2" / "blob-store").exists())
 
