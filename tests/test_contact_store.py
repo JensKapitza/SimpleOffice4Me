@@ -181,6 +181,45 @@ class ContactStoreTest(unittest.TestCase):
             exported = store.vcard(contact["contact_id"], "admin").replace("\r\n ", "")
             self.assertEqual(1, exported.count("ADR;TYPE=home:"))
 
+    def test_bulk_vcard_import_validates_every_card_before_writing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            content = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:valid-one\r\nFN:Valid\r\nEND:VCARD\r\n"
+                "BEGIN:VCARD\r\nVERSION:2.1\r\nUID:invalid-two\r\nFN:Invalid\r\nEND:VCARD\r\n"
+            )
+            with self.assertRaises(ValueError):
+                store.import_vcards(content, "admin")
+            self.assertEqual([], store.contacts("admin"))
+
+    def test_invalid_embedded_photo_is_rejected_during_import(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            card = (
+                "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:bad-photo\r\nFN:Bad Photo\r\n"
+                "PHOTO;ENCODING=B;TYPE=PNG:not-valid-base64!\r\nEND:VCARD\r\n"
+            )
+            with self.assertRaisesRegex(ValueError, "base64"):
+                store.upsert_vcard(card, "admin")
+            self.assertEqual([], store.contacts("admin"))
+
+    def test_carddav_full_vcard_can_remove_structured_address(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            card = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:address-clear\r\nFN:Ada\r\n"
+                "ADR;TYPE=HOME:;;Musterstr. 1;Berlin;;10115;DE\r\nEND:VCARD\r\n"
+            )
+            contact = store.upsert_vcard(card, "admin")
+            self.assertEqual(1, len(contact["addresses"]))
+            reduced = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:address-clear\r\nFN:Ada\r\nEND:VCARD\r\n"
+            )
+            changed = store.conditional_upsert_vcard(
+                reduced, "carddav:admin", contact["contact_id"]
+            )
+            self.assertEqual([], changed["addresses"])
+
     def test_embedded_png_photo_is_decoded_without_truncation(self):
         with tempfile.TemporaryDirectory() as temp:
             store = ContactStore(Path(temp))
