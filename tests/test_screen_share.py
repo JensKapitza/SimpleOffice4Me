@@ -145,6 +145,10 @@ class ScreenShareTests(unittest.TestCase):
         self.assertIn("SimpleOfficeNativeScreen?.startShare", source)
         self.assertIn("navigator.mediaDevices?.getDisplayMedia", source)
         self.assertIn("pendingCandidates", source)
+        self.assertIn("loadIceServers", source)
+        self.assertIn("iceServers: servers", source)
+        template = (ROOT / "templates" / "screen" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("connectivity_relay_ice.ice", template)
 
     def test_electron_ipc_handlers_are_present_and_validated(self):
         source = (ROOT / "desktop/electron/main.js").read_text(encoding="utf-8")
