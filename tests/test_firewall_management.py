@@ -124,6 +124,47 @@ class FirewallSafetyTests(unittest.TestCase):
         self.assertEqual("allowed", firewall.firewall_decision(ufw, "tcp", 8080, 8080)["state"])
         self.assertEqual("local-only", firewall.firewall_decision(ufw, "tcp", 8080, 8080, "127.0.0.1")["state"])
 
+    def test_firewalld_multiple_zones_stay_unknown_and_accept_target_is_honored(self):
+        multiple = {
+            "backend": "firewalld", "active": True, "conflict": False,
+            "active_zones": ["public", "home"], "zones": [], "rules": [],
+        }
+        self.assertEqual("unknown", firewall.firewall_decision(multiple, "tcp", 8080, 8080, "192.168.1.2")["state"])
+        accepting = {
+            "backend": "firewalld", "active": True, "conflict": False,
+            "active_zones": ["trusted"], "zones": [{"zone": "trusted", "target": "ACCEPT"}], "rules": [],
+        }
+        self.assertEqual("allowed", firewall.firewall_decision(accepting, "tcp", 8080, 8080)["state"])
+
+    def test_partial_confirmation_cleans_owned_rules_before_returning_to_pending(self):
+        ident = "c" * 32
+        applied = [
+            firewall.normalize_rule({"effect": "allow", "protocol": "tcp", "port": 8081}),
+            firewall.normalize_rule({"effect": "allow", "protocol": "tcp", "port": 8082}),
+        ]
+        plan = {
+            "id": ident, "backend": "ufw", "status": "pending",
+            "expires_at": agent.time.time() + 60, "applied": applied,
+            "confirmation_changes": [],
+        }
+        cleaned = []
+        lock = unittest.mock.MagicMock()
+        with patch("simpleoffice_firewall_agent._locked_plan", return_value=lock), \
+             patch("simpleoffice_firewall_agent._read_plan", return_value=plan), \
+             patch("simpleoffice_firewall_agent._write_plan"), \
+             patch("simpleoffice_firewall_agent._ufw_add_managed", side_effect=[None, RuntimeError("fail")]), \
+             patch("simpleoffice_firewall_agent._remove_confirmation_change", side_effect=lambda change: cleaned.append(change["marker"])):
+            with self.assertRaises(RuntimeError):
+                agent.confirm_test(ident)
+        self.assertEqual("pending", plan["status"])
+        self.assertEqual([], plan["confirmation_changes"])
+        self.assertEqual(2, len(cleaned))
+        lock.close.assert_called_once()
+
+    def test_agent_rejects_extra_fields_per_action(self):
+        with self.assertRaises(ValueError):
+            agent.handle_request({"action": "snapshot", "rules": []})
+
     def test_service_inventory_uses_current_configured_ports(self):
         with patch("simpleoffice_firewall.read_status", return_value={"services": {}}),              patch("simpleoffice_firewall.load_config", return_value={
                  "dhcp": {"enabled": True, "bind": "192.168.1.2", "port": 1067},
