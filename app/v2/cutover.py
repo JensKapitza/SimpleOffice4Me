@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .migration import build_migration_plan, verify_migration_transfer
+from .blob_store import BlobIntegrityError, BlobStore
+from .contracts import LogicalObjectId
+from .migration import _catalog_snapshot_read_only, build_migration_plan, verify_migration_transfer
 
 
 FORMAT_FAMILY = "simpleoffice-v2-storage-cutover"
@@ -66,6 +68,170 @@ def migration_fingerprint(root: str | Path) -> str:
     ]
     payload = json.dumps(entries, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            block = handle.read(1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _shadow_inventory(root: str | Path) -> tuple[list[dict[str, Any]], list[str]]:
+    source = Path(root).expanduser().resolve()
+    metadata_dir = source / ".simpleoffice-meta" / "documents"
+    if not metadata_dir.exists():
+        return [], []
+    if not metadata_dir.is_dir() or metadata_dir.is_symlink():
+        return [], ["legacy document metadata directory is unavailable"]
+
+    entries: list[dict[str, Any]] = []
+    blockers: list[str] = []
+    seen: set[str] = set()
+    for metadata_path in sorted(metadata_dir.glob("*.json")):
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if not isinstance(metadata, dict):
+                raise ValueError("metadata is not an object")
+            object_id = str(metadata.get("document_id") or "").strip()
+            if not object_id:
+                raise ValueError("document_id is missing")
+            if object_id in seen:
+                raise ValueError("duplicate document_id")
+            seen.add(object_id)
+            expected_sha = str(metadata.get("sha256") or "").strip().casefold()
+            if len(expected_sha) != 64 or any(char not in "0123456789abcdef" for char in expected_sha):
+                raise ValueError("document sha256 is missing or invalid")
+
+            deleted = bool(
+                metadata.get("deleted_at")
+                or metadata.get("system_state") == "webdav_deleted"
+            )
+            if deleted:
+                location = str(metadata.get("deleted_from") or "").strip()
+                recovery = str(metadata.get("recovery_path") or "").strip()
+                if not location or not recovery:
+                    raise ValueError("deleted document recovery metadata is incomplete")
+                candidate = (source / ".simpleoffice-meta" / recovery).resolve(strict=True)
+                candidate.relative_to((source / ".simpleoffice-meta").resolve())
+                if not candidate.is_file() or candidate.is_symlink():
+                    raise ValueError("deleted document recovery payload is unavailable")
+                state = "deleted"
+            else:
+                location = str(metadata.get("last_path") or "").strip()
+                if not location or location.startswith("[external]"):
+                    raise ValueError("active document path is unavailable")
+                requested = Path(location)
+                candidate = requested if requested.is_absolute() else source / requested
+                candidate = candidate.resolve(strict=True)
+                candidate.relative_to(source)
+                if not candidate.is_file() or candidate.is_symlink():
+                    raise ValueError("active document path is not a regular file")
+                location = candidate.relative_to(source).as_posix()
+                state = "active"
+
+            actual_sha = _sha256_file(candidate)
+            if actual_sha != expected_sha:
+                raise ValueError("document content does not match metadata sha256")
+            entries.append({
+                "document_id": object_id,
+                "state": state,
+                "location": location,
+                "size": candidate.stat().st_size,
+                "sha256": actual_sha,
+            })
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            blockers.append(f"{metadata_path.name}: {exc}")
+    return entries, blockers
+
+
+def _shadow_fingerprint(entries: list[dict[str, Any]]) -> str:
+    payload = json.dumps(
+        sorted(entries, key=lambda row: str(row["document_id"])),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def verify_shadow_consistency(root: str | Path) -> dict[str, Any]:
+    """Read-only comparison of the current V1 projection with V2 catalog/blob state."""
+    source = Path(root).expanduser().resolve()
+    entries, blockers = _shadow_inventory(source)
+    fingerprint = _shadow_fingerprint(entries)
+
+    try:
+        catalog = _catalog_snapshot_read_only(source)
+    except ValueError as exc:
+        catalog = {}
+        blockers.append(str(exc))
+
+    blob_base = source / ".simpleoffice-v2" / "blob-store"
+    if entries and not blob_base.is_dir():
+        blockers.append("V2 blob store is missing")
+        store = None
+    else:
+        store = BlobStore(source) if blob_base.is_dir() else None
+
+    expected_ids = {str(row["document_id"]) for row in entries}
+    extra_ids = sorted(set(catalog) - expected_ids)
+    for object_id in extra_ids:
+        blockers.append(f"V2 catalog contains object without V1 metadata: {object_id}")
+
+    verified = 0
+    active = 0
+    deleted = 0
+    for entry in entries:
+        object_id = str(entry["document_id"])
+        if entry["state"] == "deleted":
+            deleted += 1
+        else:
+            active += 1
+        row = catalog.get(object_id)
+        if row is None:
+            blockers.append(f"V2 catalog object is missing: {object_id}")
+            continue
+        if (
+            str(row.get("state") or "") != str(entry["state"])
+            or str(row.get("location") or "") != str(entry["location"])
+            or int(row.get("size") or -1) != int(entry["size"])
+            or str(row.get("content_sha256") or "") != str(entry["sha256"])
+        ):
+            blockers.append(f"V1/V2 catalog state differs: {object_id}")
+            continue
+        if store is None:
+            continue
+        logical = LogicalObjectId(object_id)
+        try:
+            version = store.verify(logical, version_id=str(row.get("version_id") or ""))
+        except (BlobIntegrityError, OSError, ValueError, TypeError) as exc:
+            blockers.append(f"V2 blob verification failed: {object_id}: {exc}")
+            continue
+        if (
+            version.size != int(entry["size"])
+            or version.content_sha256 != str(entry["sha256"])
+            or version.version_id != str(row.get("version_id") or "")
+        ):
+            blockers.append(f"V1/V2 blob state differs: {object_id}")
+            continue
+        verified += 1
+
+    return {
+        "format": "simpleoffice-v2-shadow-verification",
+        "format_version": 1,
+        "ready": not blockers,
+        "documents": len(entries),
+        "active_documents": active,
+        "deleted_documents": deleted,
+        "verified_documents": verified,
+        "fingerprint": fingerprint,
+        "blockers": blockers,
+    }
 
 
 def load_cutover_state(root: str | Path) -> CutoverState:
@@ -128,12 +294,16 @@ def _write_cutover_state(root: str | Path, state: CutoverState) -> CutoverState:
 
 
 def cutover_status(root: str | Path) -> dict[str, Any]:
-    """Return persisted state plus a fresh read-only migration verification."""
+    """Return persisted state plus a fresh read-only V1/V2 verification."""
     state = load_cutover_state(root)
-    verification = verify_migration_transfer(root)
-    current_fingerprint = ""
-    if verification.get("ready"):
-        current_fingerprint = migration_fingerprint(root)
+    if state.mode == "shadow":
+        verification = verify_shadow_consistency(root)
+        current_fingerprint = str(verification.get("fingerprint") or "")
+        ready_for_shadow = bool(verification.get("ready"))
+    else:
+        verification = verify_migration_transfer(root)
+        current_fingerprint = migration_fingerprint(root) if verification.get("ready") else ""
+        ready_for_shadow = bool(verification.get("ready"))
     fingerprint_matches = bool(
         state.migration_fingerprint
         and current_fingerprint
@@ -145,7 +315,8 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
         "verification_blockers": list(verification.get("blockers") or []),
         "current_migration_fingerprint": current_fingerprint,
         "fingerprint_matches": fingerprint_matches,
-        "ready_for_shadow": bool(verification.get("ready")),
+        "ready_for_shadow": ready_for_shadow,
+        "shadow_dirty": bool(state.dirty),
         "ready_for_v2_activation": False,
         "v2_activation_blocker": (
             "runtime cutover is not enabled until all required read/write consumers "
@@ -155,25 +326,40 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
 
 
 def prepare_shadow(root: str | Path, *, apply: bool = False) -> dict[str, Any]:
-    """Verify V1/V2 equivalence and optionally persist explicit shadow mode."""
-    verification = verify_migration_transfer(root)
+    """Verify V1/V2 equivalence and optionally persist or refresh shadow mode."""
+    state = load_cutover_state(root)
+    if state.mode == "shadow":
+        verification = verify_shadow_consistency(root)
+        label = "shadow"
+    else:
+        migration = verify_migration_transfer(root)
+        if not migration.get("ready"):
+            raise ValueError(
+                "V2 shadow mode requires a clean migration verification: "
+                + "; ".join(str(item) for item in migration.get("blockers") or [])
+            )
+        verification = verify_shadow_consistency(root)
+        label = "migration"
     if not verification.get("ready"):
         raise ValueError(
-            "V2 shadow mode requires a clean migration verification: "
+            f"V2 shadow mode requires clean {label} consistency: "
             + "; ".join(str(item) for item in verification.get("blockers") or [])
         )
-    fingerprint = migration_fingerprint(root)
+    fingerprint = str(verification.get("fingerprint") or "")
     preview = {
         "mode": "shadow",
         "migration_fingerprint": fingerprint,
         "verified_documents": int(verification.get("verified_documents", 0)),
-        "source_bytes": int(verification.get("source_bytes", 0)),
+        "source_bytes": sum(
+            int(row.get("size") or 0)
+            for row in _shadow_inventory(root)[0]
+        ),
         "applied": bool(apply),
     }
     if not apply:
         return preview
     now = _now()
-    state = CutoverState(
+    refreshed = CutoverState(
         mode="shadow",
         migration_fingerprint=fingerprint,
         verified_at=now,
@@ -181,7 +367,7 @@ def prepare_shadow(root: str | Path, *, apply: bool = False) -> dict[str, Any]:
         dirty=False,
         dirty_reason="",
     )
-    _write_cutover_state(root, state)
+    _write_cutover_state(root, refreshed)
     return preview
 
 
