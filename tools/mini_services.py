@@ -411,21 +411,16 @@ class Worker:
         try:
             result = agent_request({"action": "snapshot"}, timeout=4)
             result.pop("ok", None)
+            result["agent_reachable"] = True
             self.firewall_control.set_snapshot(result)
         except Exception:
             current = self.firewall_control.snapshot()
-            if current.get("backend") == "unavailable":
-                self.firewall_control.set_snapshot({
-                    "backend": "unavailable",
-                    "active": False,
-                    "writable": False,
-                    "conflict": False,
-                    "installed": {},
-                    "active_zones": [],
-                    "rules": [],
-                    "tests": [],
-                    "message": "Firewall-Agent ist nicht erreichbar. Dienst und Socket prüfen.",
-                })
+            current.update({
+                "writable": False,
+                "agent_reachable": False,
+                "message": "Firewall-Agent ist nicht erreichbar. Letzter Regelstand ist nur Diagnose; Änderungen sind gesperrt.",
+            })
+            self.firewall_control.set_snapshot(current)
 
     def _execute_firewall(self, command) -> None:
         action = command["action"]
@@ -438,11 +433,19 @@ class Worker:
             else:
                 snapshot = agent_request({"action": "snapshot"})
                 snapshot.pop("ok", None)
+            snapshot["agent_reachable"] = True
             self.firewall_control.set_snapshot(snapshot)
             self.firewall_control.finish(command["id"], True, result)
             self.next_firewall_snapshot = time.monotonic() + 15
             self.event({"service": "firewall", "action": action, "operation_id": command["id"]})
         except Exception:
+            current = self.firewall_control.snapshot()
+            current.update({
+                "writable": False,
+                "agent_reachable": False,
+                "message": "Firewall-Agent ist nicht erreichbar oder hat die Aktion abgelehnt. Änderungen sind gesperrt.",
+            })
+            self.firewall_control.set_snapshot(current)
             self.firewall_control.finish(command["id"], False, {
                 "error": "Firewall-Agent ist nicht erreichbar oder hat die Aktion abgelehnt. Firewallstatus und Agent-Protokoll prüfen."
             })
