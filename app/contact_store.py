@@ -619,15 +619,21 @@ class ContactStore:
         """Import vCards; an existing UID updates the existing contact."""
         self._require_actor(actor)
         cards: list[str] = []
-        current: list[str] = []
+        current: list[str] | None = None
         for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             if line.upper() == "BEGIN:VCARD":
+                if current is not None:
+                    raise ValueError("nested BEGIN:VCARD is not allowed")
                 current = [line]
-            elif current:
+            elif current is not None:
                 current.append(line)
                 if line.upper() == "END:VCARD":
                     cards.append("\r\n".join(current) + "\r\n")
-                    current = []
+                    current = None
+            elif line.strip():
+                raise ValueError("unexpected data outside vCard records")
+        if current is not None:
+            raise ValueError("unterminated vCard record")
         if not cards:
             raise ValueError("no vCard records found")
         for card in cards:
