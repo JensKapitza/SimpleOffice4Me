@@ -126,7 +126,10 @@ class ContactStoreTest(unittest.TestCase):
             decoded, media_type = store.photo(contact["contact_id"], "admin")
             self.assertEqual(payload, decoded)
             self.assertEqual("image/png", media_type)
-            self.assertIn(encoded, store.vcard(contact["contact_id"], "admin"))
+            exported = store.vcard(contact["contact_id"], "admin")
+            unfolded = exported.replace("\r\n ", "")
+            self.assertIn(encoded, unfolded)
+            self.assertTrue(all(len(line.encode("utf-8")) <= 75 for line in exported.split("\r\n") if line))
 
     def test_structured_address_keeps_state_and_formats_by_country(self):
         with tempfile.TemporaryDirectory() as temp:
