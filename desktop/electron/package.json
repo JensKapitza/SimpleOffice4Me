@@ -1,6 +1,6 @@
 {
   "name": "simpleoffice4me-desktop",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Electron desktop wrapper for SimpleOffice4Me",
   "homepage": "https://github.com/JensKapitza/SimpleOffice4Me",
