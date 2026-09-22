@@ -5,7 +5,7 @@
 {% block body %}
 {% set username = g.user['username'] %}
 {% set can_manage = is_owner or username in contact.managers|default([]) %}
-{% set standard_fields = ['first_name','last_name','display_name','nickname','email','phone','birthday','company','company_contact_id','department','title','role','website','note'] %}
+{% set standard_fields = ['first_name','last_name','display_name','nickname','email','phone','birthday','company','company_contact_id','department','title','role','website','note','vcard_uid'] %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
     <div>
@@ -38,8 +38,8 @@
             <div class="col-md-6"><label class="form-label">Position / Titel</label><input class="form-control" name="title" value="{{ contact.fields.title|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Rolle</label><input class="form-control" name="role" value="{{ contact.fields.role|default('') }}"></div>
             <div class="col-12"><label class="form-label">Notiz</label><textarea class="form-control" name="note" rows="5">{{ contact.fields.note|default('') }}</textarea></div>
-            {% for key, value in contact.fields.items() if key not in standard_fields %}
-              {% if key.startswith('vcard_') and 'photo' not in key %}
+            {% for key, value in contact.fields.items() if key not in standard_fields and 'photo' not in key %}
+              {% if key.startswith('vcard_') %}
               <div class="col-12"><label class="form-label">Weitere vCard-Eigenschaft</label><textarea class="form-control font-monospace" name="custom_{{ key }}" rows="2">{{ value }}</textarea><div class="form-text">Unbekanntes oder zusätzliches Thunderbird-Feld. Die komplette vCard-Zeile bleibt beim Synchronisieren erhalten.</div></div>
               {% else %}
               <div class="col-md-6"><label class="form-label">{{ key }}</label><input class="form-control" name="custom_{{ key }}" value="{{ value }}"></div>
@@ -69,7 +69,7 @@
       <div class="card mt-4">
         <div class="card-header">Adressen</div>
         <div class="card-body">
-          {% for address in contact.addresses|default([]) %}<div class="border rounded p-2 mb-2"><strong>{{ address.label }}</strong><br>{{ address.value }}<div class="small text-secondary">von {{ address.created_by }}</div></div>{% else %}<p class="text-secondary">Keine interne Adresse hinterlegt. Thunderbird-ADR-Felder werden zusätzlich oben als vCard-Eigenschaft angezeigt.</p>{% endfor %}
+          {% for address in contact.addresses|default([]) %}<div class="border rounded p-2 mb-2"><strong>{{ address.label }}</strong><br>{{ address.value }}<div class="small text-secondary">von {{ address.created_by }}</div></div>{% else %}<p class="text-secondary">Keine Adresse hinterlegt. Importierte vCard-/CardDAV-ADR-Felder werden hier strukturiert übernommen.</p>{% endfor %}
           {% if can_manage %}<form method="post" action="{{ url_for('documents.add_contact_address', contact_id=contact.contact_id) }}" class="row g-2 mt-2" data-address-compose autocomplete="off">
             <div class="col-md-3"><label class="form-label small">Typ</label><input class="form-control" name="label" placeholder="z. B. Privat"></div>
             <div class="col-md-9 position-relative" data-address-autocomplete data-address-endpoint="{{ url_for('contact_audit.crm_address_search') }}"><div class="row g-2">

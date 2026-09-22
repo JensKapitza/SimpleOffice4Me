@@ -22,8 +22,12 @@ erhält die dort angezeigte HTTPS-URL, den Web-Benutzernamen und dieses
 App-Passwort.
 
 Der Endpunkt unterstützt das Standard-Adressbuch mit `PROPFIND`, `REPORT`,
-`GET`, `PUT` und `DELETE`, inklusive ETags. Ein öffentlich erreichbarer
-CardDAV-Endpunkt muss hinter HTTPS betrieben werden.
+`GET`, `PUT` und `DELETE`. `addressbook-multiget` und
+`addressbook-query` mit den üblichen Property-/Text-/Parameterfiltern werden
+ausgewertet. ETags werden aus der tatsächlich ausgelieferten vCard berechnet;
+auch der Collection-CTag ändert sich deshalb, wenn sich nur die globale
+vCard-Feldfreigabe ändert. Ein öffentlich erreichbarer CardDAV-Endpunkt muss
+hinter HTTPS betrieben werden.
 
 ### Kompatibler vCard-Import
 
@@ -35,22 +39,43 @@ Kommas oder Semikolons sowie mehrzeilige Anzeigenamen aus Thunderbird, Google
 Kontakte und anderen vCard-Anwendungen erhalten. Strukturierte Namensfelder
 werden nur an nicht maskierten Semikolons getrennt.
 
-Unterstützt wird die verwendete UTF-8-Teilmenge von vCard 3.0 und 4.0. Es ist
-keine Konfiguration erforderlich. Binäre Felder, eingebettete Fotos,
-Quoted-Printable aus älteren vCard-2.1-Dateien und unbekannte Erweiterungen
-werden weiterhin nicht übernommen. Unbekannte Maskierungsfolgen bleiben
-unverändert, statt Daten stillschweigend umzuschreiben.
+Als Eingabe werden vollständige UTF-8-vCards der Versionen 3.0 und 4.0
+akzeptiert. Jede Einzelkarte muss genau ein `BEGIN:VCARD`, direkt danach eine
+unterstützte `VERSION`, mindestens ein `FN` und genau ein abschließendes
+`END:VCARD` enthalten. Unvollständige, verschachtelte oder nicht unterstützte
+Karten werden vor einer Änderung abgewiesen. Der CardDAV-Server veröffentlicht
+als auslieferbares Format ausschließlich vCard 4.0, weil auch der kanonische
+SimpleOffice-Export 4.0 erzeugt.
 
-Der Import verwendet weiterhin die bestehende Rechteprüfung, UID-basierte
-Aktualisierung und Audit-Historie. Er gibt keine Kontakte frei und überträgt
-keine Daten an externe Dienste. Ungültige Karten ohne verwertbaren Namen werden
-wie bisher abgelehnt; bereits gespeicherte Kontakte bleiben dabei unverändert.
-Getestet sind Zeilenfaltung, Gruppenpräfixe, maskierte Trennzeichen,
-Zeilenumbrüche und der erneute Export. Zur Deaktivierung genügt die Rückkehr zur
-vorherigen Programmversion; das gespeicherte Kontaktformat wurde nicht geändert.
+Unbekannte Erweiterungen und zusätzliche Standardfelder bleiben roundtrip-fähig.
+Eingebettete Base64-Fotos in PNG, JPEG, GIF oder WebP werden mit Typ- und
+Größenprüfung übernommen; der dekodierte Bildinhalt ist auf 8 MiB begrenzt.
+Quoted-Printable aus älteren vCard-2.1-Dateien gehört weiterhin nicht zum
+unterstützten Importformat. Lange Exportzeilen werden UTF-8-sicher nach RFC
+6350 auf höchstens 75 Octets gefaltet.
 
-Grundlage ist vCard 4.0 nach RFC 6350, insbesondere Zeilenfaltung und
-Maskierung von Eigenschaftswerten.
+`ADR` wird nicht mehr nur als rohe vCard-Zeile konserviert, sondern in die
+strukturierten SimpleOffice-Adressen übernommen. Postfach, erweiterte
+Adressangabe, Straße, Ort, Region, Postleitzahl und Land bleiben dabei erhalten.
+Beim erneuten Export wird daraus genau eine ADR-Eigenschaft erzeugt, sodass
+keine Doppeladressen entstehen.
+
+Eine externe `UID` bleibt als vCard-Identität erhalten. Für den internen
+Web-/CardDAV-Ressourcenpfad werden URI-artige oder anderweitig ungeeignete UIDs
+deterministisch auf eine sichere lokale ID abgebildet; beim Export erscheint
+weiter die ursprüngliche UID. Dadurch können beispielsweise `urn:uuid:...`
+oder UIDs mit Schrägstrichen keine ungültigen Ressourcenpfade erzeugen.
+
+Der Import verwendet weiterhin Rechteprüfung, UID-basierte Aktualisierung und
+Audit-Historie und überträgt keine Daten an externe Dienste. Bei CardDAV gelten
+ausgelieferte Standard-vCard-Eigenschaften als vom Client verwaltbar: entfernt
+ein Client beispielsweise eine zusätzliche E-Mail, Telefonnummer, ADR, PHOTO
+oder IMPP-Eigenschaft, wird diese Entfernung übernommen. Nicht standardisierte
+serverseitige Erweiterungen bleiben dagegen erhalten. Felder, die durch die
+vCard-Freigabepolitik verborgen sind, werden durch einen CardDAV-`PUT` niemals
+gelöscht.
+
+Grundlage sind vCard 4.0 nach RFC 6350 und CardDAV nach RFC 6352.
 
 ### Konfliktschutz bei parallelen Änderungen
 

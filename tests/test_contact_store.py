@@ -115,6 +115,111 @@ class ContactStoreTest(unittest.TestCase):
             self.assertIn("FN:Dr. Amy\\, Beispiel\\nWerkstatt", exported)
             self.assertIn("N:Bei\\;spiel;A\\,my;;;", exported)
 
+    def test_single_vcard_requires_complete_supported_envelope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            invalid = (
+                "FN:Amy\r\n",
+                "BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Amy\r\nEND:VCARD\r\n",
+                "BEGIN:VCARD\r\nFN:Amy\r\nVERSION:4.0\r\nEND:VCARD\r\n",
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nEND:VCARD\r\n",
+            )
+            for card in invalid:
+                with self.subTest(card=card):
+                    with self.assertRaises(ValueError):
+                        store.upsert_vcard(card, "admin")
+            self.assertEqual([], store.contacts("admin"))
+
+    def test_uri_uid_gets_safe_resource_id_but_roundtrips_original_uid(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            uid = "urn:uuid:amy/example?device=phone"
+            card = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\n"
+                f"UID:{uid}\r\nFN:Amy Beispiel\r\nEND:VCARD\r\n"
+            )
+            contact = store.upsert_vcard(card, "admin")
+            self.assertTrue(contact["contact_id"].startswith("vcard-"))
+            self.assertNotIn("/", contact["contact_id"])
+            self.assertEqual(uid, contact["fields"]["vcard_uid"])
+            self.assertIn(f"UID:{uid}\r\n", store.vcard(contact["contact_id"], "admin"))
+
+            again = store.upsert_vcard(card.replace("Amy Beispiel", "Amy Neu"), "admin")
+            self.assertEqual(contact["contact_id"], again["contact_id"])
+            self.assertEqual("Amy Neu", again["fields"]["display_name"])
+
+    def test_long_utf8_lines_are_folded_to_75_octets_and_unfold_cleanly(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            note = "Grüße " + ("äöüß" * 80)
+            contact = store.upsert(
+                {"display_name": "Langer Kontakt", "note": note},
+                "admin",
+                "long-contact",
+            )
+            exported = store.vcard(contact["contact_id"], "admin")
+            physical = [line for line in exported.split("\r\n") if line]
+            self.assertTrue(all(len(line.encode("utf-8")) <= 75 for line in physical))
+            reimported = store.upsert_vcard(exported, "admin", "roundtrip")
+            self.assertEqual(note, reimported["fields"]["note"])
+
+    def test_imported_adr_is_structured_and_not_duplicated_on_export(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            card = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:addressed\r\nFN:Ada Example\r\n"
+                "ADR;TYPE=HOME:Postfach 3;Haus 2;Musterstr. 1;Berlin;BE;10115;DE\r\n"
+                "END:VCARD\r\n"
+            )
+            contact = store.upsert_vcard(card, "admin")
+            self.assertEqual(1, len(contact["addresses"]))
+            components = contact["addresses"][0]["components"]
+            self.assertEqual("Postfach 3", components["po_box"])
+            self.assertEqual("Haus 2", components["extended"])
+            self.assertEqual("Musterstr. 1", components["street"])
+            self.assertFalse(any(key.startswith("vcard_") and str(value).startswith("ADR") for key, value in contact["fields"].items()))
+            exported = store.vcard(contact["contact_id"], "admin").replace("\r\n ", "")
+            self.assertEqual(1, exported.count("ADR;TYPE=home:"))
+
+    def test_bulk_vcard_import_validates_every_card_before_writing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            content = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:valid-one\r\nFN:Valid\r\nEND:VCARD\r\n"
+                "BEGIN:VCARD\r\nVERSION:2.1\r\nUID:invalid-two\r\nFN:Invalid\r\nEND:VCARD\r\n"
+            )
+            with self.assertRaises(ValueError):
+                store.import_vcards(content, "admin")
+            self.assertEqual([], store.contacts("admin"))
+
+    def test_invalid_embedded_photo_is_rejected_during_import(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            card = (
+                "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:bad-photo\r\nFN:Bad Photo\r\n"
+                "PHOTO;ENCODING=B;TYPE=PNG:not-valid-base64!\r\nEND:VCARD\r\n"
+            )
+            with self.assertRaisesRegex(ValueError, "base64"):
+                store.upsert_vcard(card, "admin")
+            self.assertEqual([], store.contacts("admin"))
+
+    def test_carddav_full_vcard_can_remove_structured_address(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            card = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:address-clear\r\nFN:Ada\r\n"
+                "ADR;TYPE=HOME:;;Musterstr. 1;Berlin;;10115;DE\r\nEND:VCARD\r\n"
+            )
+            contact = store.upsert_vcard(card, "admin")
+            self.assertEqual(1, len(contact["addresses"]))
+            reduced = (
+                "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:address-clear\r\nFN:Ada\r\nEND:VCARD\r\n"
+            )
+            changed = store.conditional_upsert_vcard(
+                reduced, "carddav:admin", contact["contact_id"]
+            )
+            self.assertEqual([], changed["addresses"])
+
     def test_embedded_png_photo_is_decoded_without_truncation(self):
         with tempfile.TemporaryDirectory() as temp:
             store = ContactStore(Path(temp))
@@ -126,7 +231,10 @@ class ContactStoreTest(unittest.TestCase):
             decoded, media_type = store.photo(contact["contact_id"], "admin")
             self.assertEqual(payload, decoded)
             self.assertEqual("image/png", media_type)
-            self.assertIn(encoded, store.vcard(contact["contact_id"], "admin"))
+            exported = store.vcard(contact["contact_id"], "admin")
+            unfolded = exported.replace("\r\n ", "")
+            self.assertIn(encoded, unfolded)
+            self.assertTrue(all(len(line.encode("utf-8")) <= 75 for line in exported.split("\r\n") if line))
 
     def test_structured_address_keeps_state_and_formats_by_country(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -63,6 +63,34 @@ class ContactVcardFieldPolicyTests(unittest.TestCase):
         self.assertNotIn("EMAIL:", exported)
         self.assertNotIn("ORG:", exported)
 
+    def test_carddav_put_preserves_hidden_secondary_email_and_address(self):
+        card = (
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:policy-extra\r\nFN:Policy Extra\r\n"
+            "EMAIL:main@example.invalid\r\nEMAIL;TYPE=WORK:work@example.invalid\r\n"
+            "ADR;TYPE=HOME:;;Musterstr. 1;Berlin;;10115;DE\r\nEND:VCARD\r\n"
+        )
+        contact = self.store.upsert_vcard(card, "admin")
+        schema = self.store.schema()
+        aliases = dict(schema["aliases"])
+        aliases[VCARD_EXPORT_CONFIG_KEY] = [
+            field for field in VCARD_EXPORT_FIELDS
+            if field not in {"email", "addresses"}
+        ]
+        self.store.save_schema(schema["required"], aliases, "admin")
+
+        reduced = self.store.vcard(contact["contact_id"], "admin")
+        changed = self.store.conditional_upsert_vcard(
+            reduced, "carddav:admin", contact["contact_id"]
+        )
+
+        self.assertEqual("main@example.invalid", changed["fields"]["email"])
+        self.assertTrue(any(
+            str(value) == "EMAIL;TYPE=WORK:work@example.invalid"
+            for key, value in changed["fields"].items()
+            if key.startswith("vcard_")
+        ))
+        self.assertEqual(1, len(changed["addresses"]))
+
     def test_carddav_put_preserves_fields_hidden_by_export_policy(self):
         schema = self.store.schema()
         aliases = dict(schema["aliases"])

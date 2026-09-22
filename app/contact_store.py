@@ -16,6 +16,14 @@ from typing import Any
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
+from .vcard_utils import (
+    MAX_CONTACT_PHOTO_BYTES,
+    MAX_RAW_PHOTO_LINE_CHARS,
+    property_name as vcard_property_name,
+    safe_resource_id,
+    serialize_folded,
+    validate_single_vcard,
+)
 
 
 VCARD_EXPORT_CONFIG_KEY = "__vcard_export_fields__"
@@ -251,7 +259,7 @@ class ContactStore:
             raise ValueError(f"required contact fields missing: {', '.join(missing)}")
         return fields
 
-    def _upsert_locked(self, fields: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None, payload: dict[str, Any] | None = None, metadata: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    def _upsert_locked(self, fields: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None, payload: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or self._read(self.contacts_path, {"contacts": []})
         existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
         if existing is None and source and source.get("source_id"):
@@ -269,15 +277,20 @@ class ContactStore:
                 changes.append({"field": field, "old": old_fields.get(field, ""), "new": fields.get(field, ""), "at": changed_at, "actor": actor})
         tags = list(existing.get("tags", [])) if existing else []
         groups = list(existing.get("groups", [])) if existing else []
+        addresses = list(existing.get("addresses", [])) if existing else []
         if metadata is not None:
             if "tags" in metadata:
                 tags = self._clean_metadata_values(metadata.get("tags", []))
             if "groups" in metadata:
                 groups = self._clean_metadata_values(metadata.get("groups", []))
+            if "addresses" in metadata:
+                addresses = self._materialize_vcard_addresses(
+                    metadata.get("addresses", []), addresses, actor, changed_at
+                )
         contact = {
             "contact_id": contact_id or str(uuid.uuid4()),
             "fields": fields,
-            "addresses": existing.get("addresses", []) if existing else [],
+            "addresses": addresses,
             "owner": existing.get("owner") or principal if existing else principal,
             "managers": existing.get("managers", []) if existing else [],
             "readers": existing.get("readers", []) if existing else [],
@@ -313,22 +326,79 @@ class ContactStore:
         return sorted({" ".join(str(value).strip().split()) for value in values if str(value).strip()}, key=str.casefold)[:100]
 
     @staticmethod
+    def _address_identity(item: dict[str, Any]) -> tuple[str, tuple[tuple[str, str], ...]]:
+        label = " ".join(str(item.get("label", "")).strip().casefold().split())
+        components = tuple(
+            sorted(
+                (str(key), " ".join(str(value).strip().casefold().split()))
+                for key, value in dict(item.get("components", {})).items()
+                if str(value).strip()
+            )
+        )
+        if components:
+            return label, components
+        value = " ".join(str(item.get("value", "")).strip().casefold().split())
+        return label, (("value", value),)
+
+    @classmethod
+    def _materialize_vcard_addresses(
+        cls,
+        incoming: list[dict[str, Any]],
+        existing: list[dict[str, Any]],
+        actor: str,
+        changed_at: str,
+    ) -> list[dict[str, Any]]:
+        """Keep stable ids for unchanged addresses while applying a full vCard ADR set."""
+        reusable: dict[tuple[str, tuple[tuple[str, str], ...]], list[dict[str, Any]]] = {}
+        for item in existing:
+            reusable.setdefault(cls._address_identity(item), []).append(item)
+        result: list[dict[str, Any]] = []
+        for raw in incoming[:100]:
+            if not isinstance(raw, dict):
+                continue
+            components = {
+                str(key): str(value).strip()
+                for key, value in dict(raw.get("components", {})).items()
+                if str(value).strip()
+            }
+            value = str(raw.get("value", "")).strip() or cls.format_postal_address(components)
+            if not value:
+                continue
+            item = {
+                "label": str(raw.get("label", "")).strip() or "Adresse",
+                "value": value,
+                "normalized": " ".join(value.casefold().split()),
+                "components": components,
+            }
+            matches = reusable.get(cls._address_identity(item), [])
+            previous = matches.pop(0) if matches else None
+            item.update({
+                "id": str(previous.get("id")) if previous else str(uuid.uuid4()),
+                "created_at": str(previous.get("created_at")) if previous else changed_at,
+                "created_by": str(previous.get("created_by")) if previous else actor,
+            })
+            result.append(item)
+        return result
+
+    @staticmethod
     def format_postal_address(components: dict[str, str]) -> str:
         """Format a structured address without discarding country-specific parts."""
         clean = {key: " ".join(str(value).strip().split()) for key, value in components.items()}
         street, city = clean.get("street", ""), clean.get("city", "")
         state, postal = clean.get("state", ""), clean.get("postal", "")
         country = clean.get("country", "").upper()
+        prefix = tuple(part for part in (clean.get("po_box", ""), clean.get("extended", "")) if part)
+        street_rows = (*prefix, street) if street else prefix
         if country in {"US", "CA", "AU"}:
             locality = ", ".join(part for part in (city, state) if part)
             locality = " ".join(part for part in (locality, postal) if part)
-            rows = (street, locality, country)
+            rows = (*street_rows, locality, country)
         elif country == "JP":
-            rows = (postal, " ".join(part for part in (state, city) if part), street, country)
+            rows = (postal, " ".join(part for part in (state, city) if part), *street_rows, country)
         elif country in {"GB", "IE"}:
-            rows = (street, city, postal, country)
+            rows = (*street_rows, city, postal, country)
         else:
-            rows = (street, " ".join(part for part in (postal, city) if part), state, country)
+            rows = (*street_rows, " ".join(part for part in (postal, city) if part), state, country)
         return "\n".join(row for row in rows if row)
 
     def add_address(self, contact_id: str, label: str, address: str, actor: str, components: dict[str, str] | None = None) -> dict[str, Any]:
@@ -396,24 +466,23 @@ class ContactStore:
         if "BEGIN:VCARD" in line.upper() or "END:VCARD" in line.upper():
             return ""
         key, sep, _ = line.partition(":")
-        name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
+        name = vcard_property_name(line)
         if not sep or not re.fullmatch(r"[A-Z0-9-]{1,80}", name):
             return ""
         if name in {"BEGIN", "END", "VERSION", "UID", "FN", "N", "BDAY", "ORG", "NICKNAME", "TITLE", "ROLE", "URL", "NOTE", "CATEGORIES", "X-SIMPLEOFFICE-GROUP"}:
             return ""
-        # Binary PHOTO values are frequently folded into one very long base64
-        # line.  Truncating them made otherwise valid contact pictures corrupt.
-        return line[:10 * 1024 * 1024] if name == "PHOTO" else line[:4000]
+        if name == "PHOTO":
+            return line if len(line) <= MAX_RAW_PHOTO_LINE_CHARS else ""
+        return line[:4000]
 
-    def photo(self, contact_id: str, actor: str = "") -> tuple[bytes, str]:
-        """Decode a safe raster PHOTO property retained from a vCard."""
-        fields = self.get(contact_id, actor).get("fields", {})
-        raw = next((str(value) for key, value in fields.items() if key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO"), "")
-        header, separator, encoded = raw.partition(":")
+    @staticmethod
+    def _decode_embedded_photo_line(raw: str) -> tuple[bytes, str]:
+        header, separator, encoded = str(raw).partition(":")
         if not separator:
             raise ValueError("contact has no embedded photo")
         params = header.upper().split(";")[1:]
-        if not any(item in {"ENCODING=B", "ENCODING=BASE64"} for item in params) and not encoded.casefold().startswith("data:image/"):
+        embedded = any(item in {"ENCODING=B", "ENCODING=BASE64"} for item in params)
+        if not embedded and not encoded.casefold().startswith("data:image/"):
             raise ValueError("contact photo is not embedded base64")
         declared = next((item.split("=", 1)[1] for item in params if item.startswith("TYPE=") or item.startswith("MEDIATYPE=")), "")
         if encoded.casefold().startswith("data:image/"):
@@ -423,7 +492,7 @@ class ContactStore:
             payload = base64.b64decode(re.sub(r"\s+", "", encoded), validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("contact photo contains invalid base64") from exc
-        if not payload or len(payload) > 8 * 1024 * 1024:
+        if not payload or len(payload) > MAX_CONTACT_PHOTO_BYTES:
             raise ValueError("contact photo size is invalid")
         signatures = ((b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"), (b"GIF87a", "image/gif"), (b"GIF89a", "image/gif"))
         media_type = next((mime for magic, mime in signatures if payload.startswith(magic)), "")
@@ -433,12 +502,18 @@ class ContactStore:
             raise ValueError(f"unsupported embedded contact photo type: {declared or 'unknown'}")
         return payload, media_type
 
+    def photo(self, contact_id: str, actor: str = "") -> tuple[bytes, str]:
+        """Decode a safe raster PHOTO property retained from a vCard."""
+        fields = self.get(contact_id, actor).get("fields", {})
+        raw = next((str(value) for key, value in fields.items() if key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO"), "")
+        return self._decode_embedded_photo_line(raw)
+
     def has_photo(self, contact: dict[str, Any]) -> bool:
         return any(key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO" for key, value in contact.get("fields", {}).items())
 
     @staticmethod
     def _vcard_property_name(line: str) -> str:
-        return line.partition(":")[0].split(";", 1)[0].rsplit(".", 1)[-1].upper()
+        return vcard_property_name(line)
 
     @staticmethod
     def _vcard_property_signature(line: str) -> str:
@@ -465,14 +540,15 @@ class ContactStore:
         for key in sorted(fields):
             if key.startswith("vcard_"):
                 raw = self._safe_raw_vcard_line(fields[key])
-                if raw:
+                if raw and not (self._vcard_property_name(raw) == "ADR" and contact.get("addresses")):
                     extras.append(raw)
         org = value("company")
         if fields.get("department"):
             org += ";" + value("department")
 
+        external_uid = str(fields.get("vcard_uid") or contact["contact_id"]).replace("\r", "").replace("\n", "")
         raw_lines = [
-            "BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}",
+            "BEGIN:VCARD", "VERSION:4.0", f"UID:{external_uid}", f"FN:{value('display_name')}",
             f"N:{value('last_name')};{value('first_name')};;;",
             *([f"NICKNAME:{value('nickname')}"] if fields.get("nickname") else []),
             *([f"EMAIL:{value('email')}"] if fields.get("email") else []),
@@ -492,9 +568,9 @@ class ContactStore:
             "FN": "display_name", "N": "name", "NICKNAME": "nickname", "EMAIL": "email",
             "TEL": "phone", "BDAY": "birthday", "ORG": "company", "TITLE": "title",
             "ROLE": "role", "URL": "website", "NOTE": "note", "CATEGORIES": "categories",
-            "X-SIMPLEOFFICE-GROUP": "groups",
+            "ADR": "addresses", "X-SIMPLEOFFICE-GROUP": "groups",
         }
-        lines = ["BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}"]
+        lines = ["BEGIN:VCARD", "VERSION:4.0", f"UID:{external_uid}"]
         for line in raw_lines[3:]:
             name = self._vcard_property_name(line)
             field = property_to_field.get(name)
@@ -520,7 +596,15 @@ class ContactStore:
                 label = str(address.get("label", "")).strip().casefold()
                 address_type = "work" if label in {"firma", "arbeit", "work", "office"} else "home" if label in {"privat", "home"} else "other"
                 if components:
-                    parts = ("", "", components.get("street", ""), components.get("city", ""), components.get("state", ""), components.get("postal", ""), components.get("country", ""))
+                    parts = (
+                        components.get("po_box", ""),
+                        components.get("extended", ""),
+                        components.get("street", ""),
+                        components.get("city", ""),
+                        components.get("state", ""),
+                        components.get("postal", ""),
+                        components.get("country", ""),
+                    )
                     lines.append(f"ADR;TYPE={address_type}:" + ";".join(text(part) for part in parts))
                 else:
                     lines.append(f"ADR;TYPE={address_type}:;;{text(address_value)};;;;")
@@ -529,8 +613,8 @@ class ContactStore:
             if field in released and fields.get(field):
                 lines.append(f"{property_name}:{value(field)}")
 
-        lines.extend(["END:VCARD", ""])
-        return "\r\n".join(lines)
+        lines.append("END:VCARD")
+        return serialize_folded(lines)
 
     def export_vcards(self, actor: str = "") -> str:
         """Export all contacts as one portable vCard 4.0 file."""
@@ -540,17 +624,26 @@ class ContactStore:
         """Import vCards; an existing UID updates the existing contact."""
         self._require_actor(actor)
         cards: list[str] = []
-        current: list[str] = []
+        current: list[str] | None = None
         for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
             if line.upper() == "BEGIN:VCARD":
+                if current is not None:
+                    raise ValueError("nested BEGIN:VCARD is not allowed")
                 current = [line]
-            elif current:
+            elif current is not None:
                 current.append(line)
                 if line.upper() == "END:VCARD":
                     cards.append("\r\n".join(current) + "\r\n")
-                    current = []
+                    current = None
+            elif line.strip():
+                raise ValueError("unexpected data outside vCard records")
+        if current is not None:
+            raise ValueError("unterminated vCard record")
         if not cards:
             raise ValueError("no vCard records found")
+        for card in cards:
+            values, _contact_id, _metadata = self._vcard_values(card)
+            self._validated_fields(values)
         for card in cards:
             self.upsert_vcard(card, actor)
         self.history.record("contacts_imported", actor, "contacts", "vcard-import", {"count": len(cards)})
@@ -584,6 +677,7 @@ class ContactStore:
         return hmac.compare_digest(actual, bytes.fromhex(account["password_hash"]))
 
     def upsert_vcard(self, card: str, actor: str, contact_id: str = "") -> dict[str, Any]:
+        self._require_actor(actor)
         values, contact_id, metadata = self._vcard_values(card, contact_id)
         fields = self._validated_fields(values)
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
@@ -606,6 +700,12 @@ class ContactStore:
                 raise ContactConflict(existing)
             if existing is not None:
                 fields = self._preserve_carddav_fields(fields, existing.get("fields", {}), released)
+                if "categories" not in released:
+                    metadata.pop("tags", None)
+                if "groups" not in released:
+                    metadata.pop("groups", None)
+                if "addresses" not in released:
+                    metadata.pop("addresses", None)
             return self._upsert_locked(fields, actor, contact_id, payload=payload, metadata=metadata)
 
     def _preserve_carddav_fields(self, incoming: dict[str, str], existing: dict[str, str], released: set[str]) -> dict[str, str]:
@@ -642,60 +742,137 @@ class ContactStore:
                 if candidates:
                     candidates.pop(0)
                     continue
+                name = self._vcard_property_name(safe)
+                raw_policy = {"EMAIL": "email", "TEL": "phone", "ADR": "addresses"}
+                standard_raw = {
+                    "PHOTO", "IMPP", "GEO", "LANG", "TZ", "GENDER", "ANNIVERSARY",
+                    "KEY", "KIND", "MEMBER", "RELATED", "SOURCE", "XML", "LOGO",
+                    "SOUND", "FBURL", "CALADRURI", "CALURI", "REV", "PRODID",
+                }
+                policy_key = raw_policy.get(name, "unknown_properties")
+                client_can_manage = (
+                    (name in raw_policy and policy_key in released)
+                    or (name in standard_raw and "unknown_properties" in released)
+                )
+                if client_can_manage:
+                    continue
                 target = key
                 while target in merged:
                     preserved_index += 1
-                    target = f"vcard_preserved_{preserved_index:03d}_{self._vcard_property_name(safe).casefold()}"
+                    target = f"vcard_preserved_{preserved_index:03d}_{name.casefold()}"
                 merged[target] = safe
                 continue
             policy_key = field_policy.get(key, key)
-            if policy_key not in released:
+            if key in set(VCARD_EXTENSION_FIELDS.values()) or policy_key not in released:
                 merged[key] = value
         return merged
 
     @staticmethod
-    def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str, dict[str, list[str]]]:
+    def _vcard_address(raw: str) -> dict[str, Any]:
+        header, separator, raw_value = raw.partition(":")
+        if not separator:
+            raise ValueError("ADR property is malformed")
+        parts = ContactStore._split_vcard_components(raw_value)
+        parts += [""] * (7 - len(parts))
+        components = {
+            key: parts[index]
+            for index, key in enumerate(("po_box", "extended", "street", "city", "state", "postal", "country"))
+            if parts[index]
+        }
+        address_types: list[str] = []
+        for parameter in header.split(";")[1:]:
+            name, equals, value = parameter.partition("=")
+            if equals and name.strip().upper() == "TYPE":
+                address_types.extend(item.strip().casefold() for item in value.split(",") if item.strip())
+            elif not equals and parameter.strip():
+                address_types.append(parameter.strip().casefold())
+        if "work" in address_types:
+            label = "Arbeit"
+        elif "home" in address_types:
+            label = "Privat"
+        elif address_types:
+            label = address_types[0].replace("-", " ").title()
+        else:
+            label = "Adresse"
+        formatted = ContactStore.format_postal_address(components)
+        return {
+            "label": label,
+            "value": formatted,
+            "normalized": " ".join(formatted.casefold().split()),
+            "components": components,
+        }
+
+    @staticmethod
+    def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str, dict[str, Any]]:
         values: dict[str, str] = {}
-        metadata: dict[str, list[str]] = {}
-        lines: list[str] = []
-        for physical_line in card.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            if physical_line.startswith((" ", "\t")) and lines:
-                lines[-1] += physical_line[1:]
-            else:
-                lines.append(physical_line)
+        metadata: dict[str, Any] = {"tags": [], "addresses": []}
+        lines, _version = validate_single_vcard(card)
         seen_email = False
         seen_phone = False
+        seen_uid = False
         extra_index = 0
-        for raw in lines:
+        for raw in lines[2:-1]:
             key, separator, raw_value = raw.partition(":")
             if not separator:
-                continue
-            name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
+                raise ValueError("vCard property is malformed")
+            name = vcard_property_name(raw)
             value = ContactStore._unescape_vcard_text(raw_value)
-            if name == "FN": values["display_name"] = value
+            if name == "FN":
+                values["display_name"] = value
             elif name == "N":
                 parts = ContactStore._split_vcard_components(raw_value)
                 values["last_name"] = parts[0] if parts else ""
                 values["first_name"] = parts[1] if len(parts) > 1 else ""
-            elif name == "NICKNAME": values["nickname"] = value
+            elif name == "NICKNAME":
+                values["nickname"] = value
             elif name == "EMAIL" and not seen_email:
-                values["email"] = value; seen_email = True
+                values["email"] = value
+                seen_email = True
             elif name == "TEL" and not seen_phone:
-                values["phone"] = value; seen_phone = True
-            elif name == "BDAY": values["birthday"] = value
+                values["phone"] = value
+                seen_phone = True
+            elif name == "BDAY":
+                values["birthday"] = value
             elif name == "ORG":
                 parts = ContactStore._split_vcard_components(raw_value)
                 values["company"] = parts[0] if parts else ""
                 values["department"] = parts[1] if len(parts) > 1 else ""
-            elif name == "TITLE": values["title"] = value
-            elif name == "ROLE": values["role"] = value
-            elif name == "URL": values["website"] = value
-            elif name == "NOTE": values["note"] = value
-            elif name == "CATEGORIES": metadata["tags"] = ContactStore._split_vcard_list(raw_value)
-            elif name == "X-SIMPLEOFFICE-GROUP": metadata["groups"] = ContactStore._split_vcard_list(raw_value)
-            elif name in VCARD_EXTENSION_FIELDS: values[f"custom_{VCARD_EXTENSION_FIELDS[name]}"] = value
-            elif name == "UID" and not contact_id: contact_id = value
+            elif name == "TITLE":
+                values["title"] = value
+            elif name == "ROLE":
+                values["role"] = value
+            elif name == "URL":
+                values["website"] = value
+            elif name == "NOTE":
+                values["note"] = value
+            elif name == "ADR":
+                metadata["addresses"].append(ContactStore._vcard_address(raw))
+            elif name == "CATEGORIES":
+                metadata["tags"] = ContactStore._split_vcard_list(raw_value)
+            elif name == "X-SIMPLEOFFICE-GROUP":
+                metadata["groups"] = ContactStore._split_vcard_list(raw_value)
+            elif name in VCARD_EXTENSION_FIELDS:
+                values[f"custom_{VCARD_EXTENSION_FIELDS[name]}"] = value
+            elif name == "UID":
+                if seen_uid:
+                    raise ValueError("vCard contains more than one UID")
+                seen_uid = True
+                uid = value.strip()
+                if "\r" in uid or "\n" in uid:
+                    raise ValueError("vCard UID must not contain line breaks")
+                if uid:
+                    mapped_uid = safe_resource_id(uid)
+                    values["custom_vcard_uid"] = uid
+                    if not contact_id:
+                        contact_id = mapped_uid
             elif name not in {"BEGIN", "END", "VERSION"}:
+                if name == "PHOTO":
+                    if len(raw) > MAX_RAW_PHOTO_LINE_CHARS:
+                        raise ValueError("embedded contact photo is too large")
+                    header = raw.partition(":")[0].upper().split(";")[1:]
+                    encoded = raw.partition(":")[2]
+                    if any(item in {"ENCODING=B", "ENCODING=BASE64"} for item in header) or encoded.casefold().startswith("data:image/"):
+                        ContactStore._decode_embedded_photo_line(raw)
                 safe = ContactStore._safe_raw_vcard_line(raw)
                 if safe:
                     values[f"custom_vcard_{extra_index:03d}_{name.casefold()}"] = safe

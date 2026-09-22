@@ -62,6 +62,16 @@ def _external_update_values(contact: dict[str, Any]) -> dict[str, str]:
     values.update({key: "" for key in EXTERNAL_TYPED_FIELDS})
     values.update({key: "" for key in EXTERNAL_ADDRESS_FIELDS})
     values["tags"] = ", ".join(contact.get("tags", []))
+    addresses = contact.get("addresses", [])
+    if addresses:
+        components = dict(addresses[0].get("components", {}))
+        values.update({
+            "address_street": str(components.get("street", "")),
+            "address_city": str(components.get("city", "")),
+            "address_state": str(components.get("state", "")),
+            "address_postal": str(components.get("postal", "")),
+            "address_country": str(components.get("country", "")),
+        })
     for key, raw in fields.items():
         if not key.startswith("vcard_") or not ContactStore._safe_raw_vcard_line(raw):
             continue
@@ -92,17 +102,57 @@ def _raw_field_changes(fields: dict[str, str], accepted: set[str], proposed: dic
         value = proposed.get(target, "").strip()
         if value:
             changes[f"vcard_external_{target}_{uuid.uuid4().hex[:8]}"] = f"{property_name};TYPE={type_name}:{_vcard_escape(value)}"
-    if accepted.intersection(EXTERNAL_ADDRESS_FIELDS):
-        current = _external_update_values({"fields": fields})
-        address = {key: proposed.get(key, current.get(key, "")) if key in accepted else current.get(key, "") for key in EXTERNAL_ADDRESS_FIELDS}
-        replaced = False
-        for key, raw in fields.items():
-            if key.startswith("vcard_") and ContactStore._vcard_property_name(raw) == "ADR" and not replaced:
-                changes[key] = ""; replaced = True
-        if any(address.values()):
-            components = ("", "", address["address_street"], address["address_city"], address["address_state"], address["address_postal"], address["address_country"])
-            changes[f"vcard_external_address_{uuid.uuid4().hex[:8]}"] = "ADR;TYPE=HOME:" + ";".join(_vcard_escape(value) for value in components)
     return changes
+
+
+def _replace_external_address(
+    store: ContactStore,
+    contact_id: str,
+    actor: str,
+    accepted: set[str],
+    proposed: dict[str, str],
+) -> None:
+    if not accepted.intersection(EXTERNAL_ADDRESS_FIELDS):
+        return
+    with exclusive_file_lock(store.control / ".contacts-write.lock"):
+        payload = store._read(store.contacts_path, {"contacts": []})
+        contact = next(
+            (item for item in payload.get("contacts", []) if item.get("contact_id") == contact_id),
+            None,
+        )
+        if contact is None or not store._can_manage(contact, store._principal(actor)):
+            raise ValueError("contact is not shared with this user")
+        addresses = list(contact.get("addresses", []))
+        current_values = _external_update_values(contact)
+        updated = {
+            key: proposed.get(key, current_values.get(key, ""))
+            if key in accepted
+            else current_values.get(key, "")
+            for key in EXTERNAL_ADDRESS_FIELDS
+        }
+        components = {
+            "street": updated["address_street"],
+            "city": updated["address_city"],
+            "state": updated["address_state"],
+            "postal": updated["address_postal"],
+            "country": updated["address_country"],
+        }
+        components = {key: value for key, value in components.items() if str(value).strip()}
+        replacement: list[dict[str, Any]] = []
+        if components:
+            replacement.append({
+                "label": str(addresses[0].get("label", "Privat")) if addresses else "Privat",
+                "components": components,
+                "value": store.format_postal_address(components),
+            })
+        replacement.extend(addresses[1:])
+        store._upsert_locked(
+            dict(contact.get("fields", {})),
+            actor,
+            contact_id,
+            payload=payload,
+            metadata={"addresses": replacement},
+        )
 
 
 class ContactCRMStore:
@@ -241,6 +291,9 @@ class ContactCRMStore:
                 field_changes.update(_raw_field_changes(contact.get("fields", {}), accepted, proposed))
                 if field_changes:
                     store.patch_fields(proposal["contact_id"], field_changes, actor)
+                _replace_external_address(
+                    store, proposal["contact_id"], actor, accepted, proposed
+                )
                 if "tags" in accepted:
                     current = store.get(proposal["contact_id"], actor)
                     ContactManagement(self.root).update_metadata(proposal["contact_id"], actor, proposed.get("tags", "").split(","), current.get("groups", []))
