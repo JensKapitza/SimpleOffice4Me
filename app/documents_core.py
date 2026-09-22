@@ -38,10 +38,8 @@ from .preview_service import PreviewService
 from .db import get_db
 from .setup_store import SetupStore
 from .mail_client import MailStore, SmtpSubmission
-from .v2.adapters.document_store import DocumentStoreStorageAdapter
-from .v2.adapters.shadow import ShadowDocumentStorageAdapter
 from .v2.contracts import StoragePort
-from .v2.cutover import load_cutover_state
+from .v2.storage_runtime import storage_for
 
 
 bp = Blueprint("documents", "app.documents", url_prefix="/documents")
@@ -52,12 +50,8 @@ def _store() -> DocumentStore:
 
 
 def _storage(actor: str) -> StoragePort:
-    """Return the explicit storage mode used by browser file mutations."""
-    root = current_app.config["DOCUMENT_ROOT"]
-    state = load_cutover_state(root)
-    if state.mode == "shadow":
-        return ShadowDocumentStorageAdapter(root, actor)
-    return DocumentStoreStorageAdapter(root, actor)
+    """Return the shared runtime storage boundary used by document clients."""
+    return storage_for(current_app.config["DOCUMENT_ROOT"], actor)
 
 
 def _contacts() -> ContactStore:
