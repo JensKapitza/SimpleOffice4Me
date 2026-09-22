@@ -46,12 +46,11 @@ class ChatContactVCardTests(unittest.TestCase):
             item for item in schema["vcard_export_fields"]
             if item not in {"note", "phone"}
         ]
+        aliases = dict(schema["aliases"])
+        aliases["__vcard_export_fields__"] = released
         self.contacts.save_schema(
-            {
-                "required": schema["required"],
-                "aliases": schema["aliases"],
-                "vcard_export_fields": released,
-            },
+            schema["required"],
+            aliases,
             "alice",
         )
         card = build_share_card(
