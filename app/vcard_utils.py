@@ -10,7 +10,7 @@ MAX_VCARD_BYTES = 16 * 1024 * 1024
 MAX_CONTACT_PHOTO_BYTES = 8 * 1024 * 1024
 # 8 MiB binary payloads expand to roughly 10.67 MiB in base64. Keep enough
 # headroom for the property header/data-URI without silently truncating data.
-MAX_RAW_PHOTO_LINE_CHARS = 12 * 1024 * 1024
+MAX_RAW_PHOTO_LINE_CHARS = 4 * ((MAX_CONTACT_PHOTO_BYTES + 2) // 3) + 4096
 MAX_VCARD_UID_BYTES = 2048
 VCARD_VERSIONS = {"3.0", "4.0"}
 _SAFE_RESOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$")
