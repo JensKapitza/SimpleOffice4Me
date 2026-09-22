@@ -79,6 +79,8 @@ Es gibt absichtlich keine Laufzeit-Einstellung fuer die Master-URL. Ein installi
 - beim Build erzeugtes Wheelhouse fuer Offline-Installation
 - Kommando `/usr/bin/simpleoffice4me`
 - systemd-Unit `simpleoffice4me.service`
+- systemd-Unit `simpleoffice-mini-services.service`
+- socket-aktivierter Firewall-Agent `simpleoffice-firewall-agent.socket` / `.service`
 - Laufzeitkonfiguration `/etc/simpleoffice4me/simpleoffice.env`
 - persistente Instanzdaten unter `/var/lib/simpleoffice4me`
 
