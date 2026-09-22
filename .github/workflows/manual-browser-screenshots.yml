@@ -1,0 +1,114 @@
+name: Manual browser screenshot test
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Seitenumfang fuer den Browser-Test
+        required: true
+        default: core
+        type: choice
+        options:
+          - core
+          - all-navigation
+      fail_on_console_errors:
+        description: Browser-Console-Errors als Testfehler behandeln
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-browser-screenshot-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  BASE_URL: http://127.0.0.1:8080
+
+jobs:
+  browser-screenshot:
+    name: Browser smoke test and screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+
+      - name: Build SimpleOffice4Me image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull -t simpleoffice4me:browser-test .
+
+      - name: Start SimpleOffice4Me
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -d             --name simpleoffice-browser-test             -p 127.0.0.1:8080:8080             -e SIMPLEOFFICE_BACKGROUND_INDEX=0             -e SIMPLEOFFICE_OSM_INDEX=0             -e SIMPLEOFFICE_DATALOGGER=0             -e SIMPLEOFFICE_MCP=0             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0             simpleoffice4me:browser-test
+
+      - name: Wait for web service
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent --show-error "$BASE_URL/auth/login" >/dev/null; then
+              echo "SimpleOffice4Me is ready."
+              exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx simpleoffice-browser-test; then
+              echo "SimpleOffice4Me container stopped unexpectedly."
+              docker logs simpleoffice-browser-test || true
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "SimpleOffice4Me did not become ready."
+          docker logs simpleoffice-browser-test || true
+          exit 1
+
+      - name: Run browser screenshot test
+        env:
+          BROWSER_SCREENSHOT_SCOPE: ${{ inputs.scope }}
+          BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ inputs.fail_on_console_errors }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/browser/manual_screenshot_smoke.py
+
+      - name: Collect server log
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p test-results/browser
+          docker logs simpleoffice-browser-test > test-results/browser/server.log 2>&1 || true
+
+      - name: Stop service
+        if: always()
+        shell: bash
+        run: docker stop simpleoffice-browser-test >/dev/null 2>&1 || true
+
+      - name: Upload screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-screenshots-${{ github.run_id }}
+          path: test-results/browser/
+          if-no-files-found: warn
+          retention-days: 14
