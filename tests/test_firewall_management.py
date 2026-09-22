@@ -75,6 +75,17 @@ Default: deny (incoming), allow (outgoing), disabled (routed)
         self.assertEqual("eth0", meta["interfaces"][0])
         self.assertTrue(any(row["effect"] == "allow" and row["port_start"] == 8080 for row in rules))
         self.assertTrue(any(row["effect"] == "deny" and row["port_start"] == 2222 for row in rules))
+        source_listing = """public (active)
+  target: default
+  interfaces: eth0
+  services:
+  ports:
+  rich rules:
+    rule priority="-100" source address="192.168.50.0/24" port port="8443" protocol="tcp" accept
+"""
+        with patch("simpleoffice_firewall_agent._firewalld_service_ports", return_value=[]):
+            source_rules, _ = agent.parse_firewalld_zone("public", source_listing)
+        self.assertEqual("192.168.50.0/24", source_rules[0]["source"])
 
     def test_two_active_managers_block_writes(self):
         with patch("simpleoffice_firewall_agent._firewalld_snapshot", return_value={"installed": True, "active": True, "rules": [], "active_zones": ["public"], "zones": []}),              patch("simpleoffice_firewall_agent._ufw_snapshot", return_value={"installed": True, "active": True, "rules": [], "default_incoming": "deny"}),              patch("simpleoffice_firewall_agent._pending_tests", return_value=[]),              patch("simpleoffice_firewall_agent.shutil.which", return_value="/usr/sbin/nft"):
@@ -136,6 +147,11 @@ class FirewallSafetyTests(unittest.TestCase):
             ],
         }
         self.assertEqual("unknown", firewall.firewall_decision(mixed, "tcp", 8080, 8080, "")["state"])
+        restricted = {
+            "backend": "ufw", "active": True, "conflict": False, "default_incoming": "deny",
+            "rules": [{"effect": "allow", "protocol": "tcp", "port_start": 8443, "port_end": 8443, "order": 1, "family": "ipv4", "source": "192.168.50.0/24"}],
+        }
+        self.assertEqual("unknown", firewall.firewall_decision(restricted, "tcp", 8443, 8443, "0.0.0.0")["state"])
 
     def test_firewalld_multiple_zones_stay_unknown_and_accept_target_is_honored(self):
         multiple = {
@@ -148,6 +164,12 @@ class FirewallSafetyTests(unittest.TestCase):
             "active_zones": ["trusted"], "zones": [{"zone": "trusted", "target": "ACCEPT"}], "rules": [],
         }
         self.assertEqual("allowed", firewall.firewall_decision(accepting, "tcp", 8080, 8080)["state"])
+        restricted = {
+            "backend": "firewalld", "active": True, "conflict": False,
+            "active_zones": ["public"], "zones": [{"zone": "public", "target": "default"}],
+            "rules": [{"effect": "allow", "protocol": "tcp", "port_start": 8443, "port_end": 8443, "zone": "public", "source": "192.168.50.0/24"}],
+        }
+        self.assertEqual("unknown", firewall.firewall_decision(restricted, "tcp", 8443, 8443)["state"])
 
     def test_partial_confirmation_cleans_owned_rules_before_returning_to_pending(self):
         ident = "c" * 32
