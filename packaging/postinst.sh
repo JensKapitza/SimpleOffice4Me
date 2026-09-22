@@ -10,6 +10,9 @@ VENV="$APP_DIR/.venv"
 if ! getent group simpleoffice >/dev/null 2>&1; then
     addgroup --system simpleoffice >/dev/null 2>&1 || groupadd --system simpleoffice
 fi
+if ! getent group simpleoffice-firewall >/dev/null 2>&1; then
+    addgroup --system simpleoffice-firewall >/dev/null 2>&1 || groupadd --system simpleoffice-firewall
+fi
 if ! id simpleoffice >/dev/null 2>&1; then
     adduser --system --ingroup simpleoffice --home "$STATE_DIR" --no-create-home --shell /usr/sbin/nologin simpleoffice >/dev/null 2>&1 \
       || useradd --system --gid simpleoffice --home-dir "$STATE_DIR" --shell /usr/sbin/nologin simpleoffice
@@ -34,6 +37,7 @@ fi
 
 chown -R root:root "$APP_DIR"
 chown -R simpleoffice:simpleoffice "$STATE_DIR"
+install -d -o root -g root -m 0700 "$STATE_DIR/firewall-agent" "$STATE_DIR/firewall-agent/tests"
 
 CONFIG="$INSTANCE_DIR/simpleoffice.json"
 if [ ! -f "$CONFIG" ]; then
@@ -53,6 +57,7 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     systemctl enable simpleoffice4me.service >/dev/null 2>&1 || true
     systemctl enable simpleoffice-mini-services.service >/dev/null 2>&1 || true
+    systemctl enable --now simpleoffice-firewall-agent.socket >/dev/null 2>&1 || true
     # The worker itself is safe to run immediately because DHCP and DNS are
     # disabled in the default configuration. It then watches the admin-managed
     # config file and activates services without granting sudo to the web app.
@@ -66,6 +71,7 @@ Status:  systemctl status simpleoffice4me
 Log:     journalctl -u simpleoffice4me -f
 Mini:    systemctl status simpleoffice-mini-services
 MiniLog: journalctl -u simpleoffice-mini-services -f
+Firewall: systemctl status simpleoffice-firewall-agent.socket
 Direkt:  simpleoffice4me
 Konfig:  /etc/simpleoffice4me/simpleoffice.env
 Daten:   /var/lib/simpleoffice4me
