@@ -688,7 +688,6 @@ def contact_detail(contact_id: str):
     except ValueError:
         abort(404)
     users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
-    video_chat_users = [row["username"] for row in get_db().execute("SELECT username FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE").fetchall()]
     store = _contacts(); visible = store.contacts(actor); company_id = str(contact.get("fields", {}).get("company_contact_id", ""))
     linked_company = next((item for item in visible if item.get("contact_id") == company_id), None)
     company_contacts = [{"contact_id": item["contact_id"], "name": store.company_name(item)} for item in visible if item.get("contact_id") != contact_id and store.company_name(item)]
@@ -885,6 +884,12 @@ def calendar():
     previous = (shown_month.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     following = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
     users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
+    video_chat_users = [
+        row["username"]
+        for row in get_db().execute(
+            "SELECT username FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
+        ).fetchall()
+    ]
     for event in events:
         # Events created before calendar sharing was introduced do not have
         # these fields.  Normalize only the in-memory view so opening the
