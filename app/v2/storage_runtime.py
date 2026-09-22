@@ -12,6 +12,7 @@ from app.document_store import DocumentStore
 
 from .adapters.document_store import DocumentStoreStorageAdapter
 from .adapters.shadow import ShadowDocumentStorageAdapter
+from .adapters.authoritative import V2AuthoritativeStorageAdapter
 from .contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoragePort
 from .cutover import load_cutover_state
 
@@ -20,6 +21,8 @@ def storage_for(root: str | Path, actor: str) -> StoragePort:
     state = load_cutover_state(root)
     if state.mode == "shadow":
         return ShadowDocumentStorageAdapter(root, actor)
+    if state.mode == "v2":
+        return V2AuthoritativeStorageAdapter(root, actor)
     return DocumentStoreStorageAdapter(root, actor)
 
 
