@@ -30,6 +30,7 @@ REQUIRED_CI_MARKERS = (
     "python tools/check_function_size.py app tools --limit 300",
     "python -m compileall -q app tools",
     "python -m unittest discover -s tests -v",
+    "python tools/check_secret_leaks.py .",
     "python -m pip_audit",
     "python tools/cra_check.py",
     "python tools/generate_sbom.py",

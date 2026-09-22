@@ -24,6 +24,7 @@ python-version: ["3.10", "3.14"]
 python tools/check_project_policy.py .
 python tools/check_file_size.py . --limit 1000
 python tools/check_function_size.py app tools --limit 300
+python tools/check_secret_leaks.py .
 python -m compileall -q app tools
 python -m unittest discover -s tests -v
 python -m pip_audit
