@@ -735,6 +735,14 @@ def save_contact():
     contact_id = request.form.get("contact_id", "")
     try:
         store = _contacts(); actor = str(g.user["username"]); values = request.form.to_dict(); company_id = values.get("company_contact_id", "").strip()
+        if contact_id:
+            existing = store.get(contact_id, actor)
+            for key, raw in existing.get("fields", {}).items():
+                if key == "vcard_uid" or (
+                    key.startswith("vcard_")
+                    and store._vcard_property_name(str(raw)) == "PHOTO"
+                ):
+                    values.setdefault(f"custom_{key}", str(raw))
         candidates = store.contacts(actor); company_contact = None
         if company_id:
             if company_id == contact_id: raise ValueError("Ein Kontakt kann nicht sich selbst als Firma zugeordnet werden")
