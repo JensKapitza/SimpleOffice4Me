@@ -502,7 +502,18 @@ class _DocumentStorePart4:
         configured = policy.get("scan", {}) if isinstance(policy.get("scan", {}), dict) else {}
         return {"follow_symlinks": configured.get("follow_symlinks") is True, "allow_other_filesystems": configured.get("allow_other_filesystems") is True}
 
-    def _scan_file(self, path: Path, force_hash: bool = False) -> tuple[bool, bool, bool]:
+    def _scan_file(
+        self,
+        path: Path,
+        force_hash: bool = False,
+        document_id_hint: str = "",
+    ) -> tuple[bool, bool, bool]:
+        forced_id = ""
+        if document_id_hint:
+            try:
+                forced_id = str(uuid.UUID(str(document_id_hint)))
+            except (ValueError, AttributeError, TypeError):
+                raise ValueError("document identity hint must be a UUID") from None
         stat = path.stat(); relative_path = self.relative(path); now = utc_now(); cached: tuple[str, str] | None = None; previous_same_path = None; previous_path = ""
         if not force_hash:
             with self._db() as db:
@@ -519,9 +530,17 @@ class _DocumentStorePart4:
                     if moved:
                         previous_path, document_id, digest = moved; cached = (document_id, digest)
 
-        xattrs = self._read_xattrs(path); known_identity = cached is not None or bool(xattrs.get("document_id"))
-        if cached: document_id, digest = cached
-        else: digest = sha256_file(path); document_id = xattrs.get("document_id") or str(uuid.uuid4())
+        xattrs = self._read_xattrs(path); discovered_id = str(xattrs.get("document_id") or "")
+        known_identity = cached is not None or bool(discovered_id)
+        if cached:
+            document_id, digest = cached
+            if forced_id and str(document_id) != forced_id:
+                raise ValueError("document identity hint conflicts with indexed identity")
+        else:
+            digest = sha256_file(path)
+            if forced_id and discovered_id and discovered_id != forced_id:
+                raise ValueError("document identity hint conflicts with filesystem identity")
+            document_id = forced_id or discovered_id or str(uuid.uuid4())
         metadata_path = self.documents / f"{document_id}.json"; metadata_exists = metadata_path.exists()
         if previous_same_path and previous_same_path[1] == digest and metadata_exists:
             metadata = self._read_json(metadata_path, {})
