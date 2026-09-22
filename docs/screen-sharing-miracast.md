@@ -69,7 +69,7 @@ SimpleOffice4Me stellt zwei Wege bereit:
 
 Sender und Empfänger öffnen **Bildschirm**. Der Sender wählt **Teilen starten** und übermittelt den angezeigten achtstelligen Verbindungscode. Der Empfänger trägt den Code ein und wählt **Verbinden**. Die Bildspur wird per WebRTC übertragen; der Flask-Endpunkt transportiert ausschließlich Offer, Answer und ICE-Signale. Im normalen Browser bleibt `navigator.mediaDevices.getDisplayMedia()` der Capture-Pfad.
 
-Die aktuelle Signaling-Implementierung verwendet keine externen STUN-/TURN-Dienste und ist damit für direkte Verbindungen im erreichbaren lokalen Netz ausgelegt. Für Verbindungen über NAT wäre ein bewusst konfigurierter ICE-Dienst erforderlich.
+Standardmäßig bleibt die ICE-Liste leer und WebRTC versucht die direkte Verbindung. Wird unter **Mini Services → Connectivity Relay** ein authentifizierter STUN/TURN-Knoten aktiviert, lädt die Bildschirmfreigabe kurzlebige ICE-Zugangsdaten über den angemeldeten SimpleOffice-Endpunkt. Damit kann die Medienverbindung bei NAT-/Firewall-Problemen über TURN relayed werden. Fällt der Relay aus oder ist er deaktiviert, bleibt der direkte Pfad als Fallback erhalten.
 
 ## Sicherheitsmodell
 
