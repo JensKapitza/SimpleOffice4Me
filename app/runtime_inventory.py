@@ -49,6 +49,7 @@ EXTERNAL_TOOLS = (
     ("rsync", "rsync", ("rsync", "--version")),
     ("restic-Sicherung", "restic backup", ("restic", "version")),
     ("OpenSSH-Client", "OpenSSH client", ("ssh", "-V")),
+    ("coturn / TURN-Relay", "coturn / TURN relay", ("turnserver", "--version")),
 )
 
 
