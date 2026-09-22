@@ -404,14 +404,14 @@ class ContactStore:
         if "BEGIN:VCARD" in line.upper() or "END:VCARD" in line.upper():
             return ""
         key, sep, _ = line.partition(":")
-        name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
+        name = vcard_property_name(line)
         if not sep or not re.fullmatch(r"[A-Z0-9-]{1,80}", name):
             return ""
-        if name in {"BEGIN", "END", "VERSION", "UID", "FN", "N", "BDAY", "ORG", "NICKNAME", "TITLE", "ROLE", "URL", "NOTE", "CATEGORIES", "X-SIMPLEOFFICE-GROUP"}:
+        if name in {"BEGIN", "END", "VERSION", "UID", "FN", "N", "BDAY", "ORG", "NICKNAME", "TITLE", "ROLE", "URL", "NOTE", "CATEGORIES", "X-SIMPLEOFFICE-GROUP", "ADR"}:
             return ""
-        # Binary PHOTO values are frequently folded into one very long base64
-        # line.  Truncating them made otherwise valid contact pictures corrupt.
-        return line[:10 * 1024 * 1024] if name == "PHOTO" else line[:4000]
+        if name == "PHOTO":
+            return line if len(line) <= MAX_RAW_PHOTO_LINE_CHARS else ""
+        return line[:4000]
 
     def photo(self, contact_id: str, actor: str = "") -> tuple[bytes, str]:
         """Decode a safe raster PHOTO property retained from a vCard."""
@@ -431,7 +431,7 @@ class ContactStore:
             payload = base64.b64decode(re.sub(r"\s+", "", encoded), validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("contact photo contains invalid base64") from exc
-        if not payload or len(payload) > 8 * 1024 * 1024:
+        if not payload or len(payload) > MAX_CONTACT_PHOTO_BYTES:
             raise ValueError("contact photo size is invalid")
         signatures = ((b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"), (b"GIF87a", "image/gif"), (b"GIF89a", "image/gif"))
         media_type = next((mime for magic, mime in signatures if payload.startswith(magic)), "")
@@ -446,7 +446,7 @@ class ContactStore:
 
     @staticmethod
     def _vcard_property_name(line: str) -> str:
-        return line.partition(":")[0].split(";", 1)[0].rsplit(".", 1)[-1].upper()
+        return vcard_property_name(line)
 
     @staticmethod
     def _vcard_property_signature(line: str) -> str:
