@@ -676,6 +676,12 @@ class ContactStore:
                 raise ContactConflict(existing)
             if existing is not None:
                 fields = self._preserve_carddav_fields(fields, existing.get("fields", {}), released)
+                if "categories" not in released:
+                    metadata.pop("tags", None)
+                if "groups" not in released:
+                    metadata.pop("groups", None)
+                if "addresses" not in released:
+                    metadata.pop("addresses", None)
             return self._upsert_locked(fields, actor, contact_id, payload=payload, metadata=metadata)
 
     def _preserve_carddav_fields(self, incoming: dict[str, str], existing: dict[str, str], released: set[str]) -> dict[str, str]:
@@ -712,10 +718,24 @@ class ContactStore:
                 if candidates:
                     candidates.pop(0)
                     continue
+                name = self._vcard_property_name(safe)
+                raw_policy = {"EMAIL": "email", "TEL": "phone"}
+                standard_raw = {
+                    "PHOTO", "IMPP", "GEO", "LANG", "TZ", "GENDER", "ANNIVERSARY",
+                    "KEY", "KIND", "MEMBER", "RELATED", "SOURCE", "XML", "LOGO",
+                    "SOUND", "FBURL", "CALADRURI", "CALURI", "REV", "PRODID",
+                }
+                policy_key = raw_policy.get(name, "unknown_properties")
+                client_can_manage = (
+                    (name in raw_policy and policy_key in released)
+                    or (name in standard_raw and "unknown_properties" in released)
+                )
+                if client_can_manage:
+                    continue
                 target = key
                 while target in merged:
                     preserved_index += 1
-                    target = f"vcard_preserved_{preserved_index:03d}_{self._vcard_property_name(safe).casefold()}"
+                    target = f"vcard_preserved_{preserved_index:03d}_{name.casefold()}"
                 merged[target] = safe
                 continue
             policy_key = field_policy.get(key, key)
@@ -724,48 +744,103 @@ class ContactStore:
         return merged
 
     @staticmethod
-    def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str, dict[str, list[str]]]:
+    def _vcard_address(raw: str) -> dict[str, Any]:
+        header, separator, raw_value = raw.partition(":")
+        if not separator:
+            raise ValueError("ADR property is malformed")
+        parts = ContactStore._split_vcard_components(raw_value)
+        parts += [""] * (7 - len(parts))
+        components = {
+            key: parts[index]
+            for index, key in enumerate(("po_box", "extended", "street", "city", "state", "postal", "country"))
+            if parts[index]
+        }
+        address_types: list[str] = []
+        for parameter in header.split(";")[1:]:
+            name, equals, value = parameter.partition("=")
+            if equals and name.strip().upper() == "TYPE":
+                address_types.extend(item.strip().casefold() for item in value.split(",") if item.strip())
+            elif not equals and parameter.strip():
+                address_types.append(parameter.strip().casefold())
+        if "work" in address_types:
+            label = "Arbeit"
+        elif "home" in address_types:
+            label = "Privat"
+        elif address_types:
+            label = address_types[0].replace("-", " ").title()
+        else:
+            label = "Adresse"
+        formatted = ContactStore.format_postal_address(components)
+        return {
+            "label": label,
+            "value": formatted,
+            "normalized": " ".join(formatted.casefold().split()),
+            "components": components,
+        }
+
+    @staticmethod
+    def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str, dict[str, Any]]:
         values: dict[str, str] = {}
-        metadata: dict[str, list[str]] = {}
-        lines: list[str] = []
-        for physical_line in card.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            if physical_line.startswith((" ", "\t")) and lines:
-                lines[-1] += physical_line[1:]
-            else:
-                lines.append(physical_line)
+        metadata: dict[str, Any] = {"tags": [], "groups": [], "addresses": []}
+        lines, _version = validate_single_vcard(card)
         seen_email = False
         seen_phone = False
+        seen_uid = False
         extra_index = 0
-        for raw in lines:
+        for raw in lines[2:-1]:
             key, separator, raw_value = raw.partition(":")
             if not separator:
-                continue
-            name = key.split(";", 1)[0].rsplit(".", 1)[-1].upper()
+                raise ValueError("vCard property is malformed")
+            name = vcard_property_name(raw)
             value = ContactStore._unescape_vcard_text(raw_value)
-            if name == "FN": values["display_name"] = value
+            if name == "FN":
+                values["display_name"] = value
             elif name == "N":
                 parts = ContactStore._split_vcard_components(raw_value)
                 values["last_name"] = parts[0] if parts else ""
                 values["first_name"] = parts[1] if len(parts) > 1 else ""
-            elif name == "NICKNAME": values["nickname"] = value
+            elif name == "NICKNAME":
+                values["nickname"] = value
             elif name == "EMAIL" and not seen_email:
-                values["email"] = value; seen_email = True
+                values["email"] = value
+                seen_email = True
             elif name == "TEL" and not seen_phone:
-                values["phone"] = value; seen_phone = True
-            elif name == "BDAY": values["birthday"] = value
+                values["phone"] = value
+                seen_phone = True
+            elif name == "BDAY":
+                values["birthday"] = value
             elif name == "ORG":
                 parts = ContactStore._split_vcard_components(raw_value)
                 values["company"] = parts[0] if parts else ""
                 values["department"] = parts[1] if len(parts) > 1 else ""
-            elif name == "TITLE": values["title"] = value
-            elif name == "ROLE": values["role"] = value
-            elif name == "URL": values["website"] = value
-            elif name == "NOTE": values["note"] = value
-            elif name == "CATEGORIES": metadata["tags"] = ContactStore._split_vcard_list(raw_value)
-            elif name == "X-SIMPLEOFFICE-GROUP": metadata["groups"] = ContactStore._split_vcard_list(raw_value)
-            elif name in VCARD_EXTENSION_FIELDS: values[f"custom_{VCARD_EXTENSION_FIELDS[name]}"] = value
-            elif name == "UID" and not contact_id: contact_id = value
+            elif name == "TITLE":
+                values["title"] = value
+            elif name == "ROLE":
+                values["role"] = value
+            elif name == "URL":
+                values["website"] = value
+            elif name == "NOTE":
+                values["note"] = value
+            elif name == "ADR":
+                metadata["addresses"].append(ContactStore._vcard_address(raw))
+            elif name == "CATEGORIES":
+                metadata["tags"] = ContactStore._split_vcard_list(raw_value)
+            elif name == "X-SIMPLEOFFICE-GROUP":
+                metadata["groups"] = ContactStore._split_vcard_list(raw_value)
+            elif name in VCARD_EXTENSION_FIELDS:
+                values[f"custom_{VCARD_EXTENSION_FIELDS[name]}"] = value
+            elif name == "UID":
+                if seen_uid:
+                    raise ValueError("vCard contains more than one UID")
+                seen_uid = True
+                uid = value.strip()
+                if uid:
+                    values["custom_vcard_uid"] = uid
+                    if not contact_id:
+                        contact_id = safe_resource_id(uid)
             elif name not in {"BEGIN", "END", "VERSION"}:
+                if name == "PHOTO" and len(raw) > MAX_RAW_PHOTO_LINE_CHARS:
+                    raise ValueError("embedded contact photo is too large")
                 safe = ContactStore._safe_raw_vcard_line(raw)
                 if safe:
                     values[f"custom_vcard_{extra_index:03d}_{name.casefold()}"] = safe
