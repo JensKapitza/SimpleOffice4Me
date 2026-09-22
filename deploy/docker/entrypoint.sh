@@ -49,9 +49,6 @@ if [ "$ROLE" = "error-relay" ]; then
     fi
     export SIMPLEOFFICE_ERROR_RELAY_ENABLED=${SIMPLEOFFICE_ERROR_RELAY_ENABLED:-1}
     export SIMPLEOFFICE_GITHUB_ERROR_REPORTING=${SIMPLEOFFICE_GITHUB_ERROR_REPORTING:-1}
-    # Container logs belong on stderr/stdout. Keep /opt/simpleoffice4me immutable
-    # rather than granting the application user write access just for log files.
-    export SIMPLEOFFICE_LOG_STDERR_ONLY=1
     export SIMPLEOFFICE_BACKGROUND_INDEX=0
     export SIMPLEOFFICE_OSM_INDEX=0
     export SIMPLEOFFICE_DATALOGGER=0
@@ -60,6 +57,9 @@ fi
 
 case "$ROLE" in
     web|error-relay)
+        # Container logs belong on stderr/stdout. /opt/simpleoffice4me is
+        # intentionally root-owned and must not be made writable for log files.
+        export SIMPLEOFFICE_LOG_STDERR_ONLY=1
         export SIMPLEOFFICE_HOST=${SIMPLEOFFICE_HOST:-0.0.0.0}
         if [ "$(id -u)" = "0" ]; then
             exec gosu simpleoffice "$@"
