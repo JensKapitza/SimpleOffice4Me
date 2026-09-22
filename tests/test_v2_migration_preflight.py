@@ -7,6 +7,7 @@ from io import StringIO
 from pathlib import Path
 
 from app.v2.blob_store import BlobStore
+from app.v2.catalog import ObjectCatalog
 from app.v2.contracts import LogicalObjectId
 from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
 from app.v2.recovery_cli import main
@@ -173,10 +174,18 @@ class V2MigrationPreflightTests(unittest.TestCase):
             store = BlobStore(root)
             self.assertEqual(content, store.read(object_id))
             self.assertEqual(1, len(store.versions_for(object_id)))
+            catalog = ObjectCatalog(root).get(object_id)
+            self.assertTrue(catalog.ok)
+            self.assertEqual("inbox/invoice.txt", catalog.value.location.relative_path)
+            self.assertEqual(store.verify(object_id).version_id, catalog.value.version_id)
             self.assertEqual(1, first["migrated_documents"])
             self.assertEqual(0, first["already_present_documents"])
+            self.assertEqual(1, first["cataloged_documents"])
+            self.assertEqual(0, first["already_cataloged_documents"])
             self.assertEqual(0, second["migrated_documents"])
             self.assertEqual(1, second["already_present_documents"])
+            self.assertEqual(0, second["cataloged_documents"])
+            self.assertEqual(1, second["already_cataloged_documents"])
             self.assertEqual(before_content, document.read_bytes())
             self.assertEqual(before_metadata, (metadata_dir / "doc-transfer-1.json").read_bytes())
             report = json.loads((root / ".simpleoffice-v2" / "migration-transfer.json").read_text(encoding="utf-8"))
@@ -329,6 +338,41 @@ class V2MigrationPreflightTests(unittest.TestCase):
                 code = main(["--root", str(root), "migration-verify"])
             self.assertEqual(0, code)
             self.assertTrue(json.loads(output.getvalue())["ready"])
+
+    def test_migration_verification_detects_catalog_namespace_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"catalog-drift"
+            document = root / "inbox" / "drift.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "drift.json").write_text(
+                json.dumps({
+                    "document_id": "doc-drift",
+                    "last_path": "inbox/drift.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            moved = ObjectCatalog(root).move("doc-drift", "archive/drift.bin")
+            self.assertTrue(moved.ok)
+            before = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+
+            result = verify_migration_transfer(root)
+
+            after = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+            self.assertFalse(result["ready"])
+            self.assertEqual(before, after)
+            self.assertTrue(
+                any("catalog object differs from V1 source" in blocker for blocker in result["blockers"])
+            )
 
     def test_migration_verification_reports_missing_v2_object(self):
         with tempfile.TemporaryDirectory() as temp:
