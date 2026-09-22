@@ -47,7 +47,10 @@ class ThunderbirdContactFieldTests(unittest.TestCase):
         raw = [value for key, value in fields.items() if key.startswith("vcard_")]
         self.assertTrue(any("EMAIL;TYPE=WORK:max@firma.test" == value for value in raw))
         self.assertTrue(any("TEL;TYPE=WORK:+495678" == value for value in raw))
-        self.assertTrue(any(value.startswith("ADR;TYPE=HOME:") for value in raw))
+        self.assertFalse(any(value.startswith("ADR;TYPE=HOME:") for value in raw))
+        self.assertEqual("Musterstr. 1", contact["addresses"][0]["components"]["street"])
+        self.assertEqual("Berlin", contact["addresses"][0]["components"]["city"])
+        self.assertEqual("10115", contact["addresses"][0]["components"]["postal"])
         self.assertIn("IMPP:xmpp:max@example.test", raw)
         self.assertIn("X-MOZILLA-HTML:TRUE", raw)
 
@@ -90,7 +93,7 @@ class ThunderbirdContactFieldTests(unittest.TestCase):
         exported = self.store.vcard(updated["contact_id"], "admin")
 
         self.assertIn("FN:Max Neu", exported)
-        self.assertIn("IMPP:xmpp:max@example.test", exported)
+        self.assertNotIn("IMPP:xmpp:max@example.test", exported)
         self.assertIn("X-MOZILLA-HTML:TRUE", exported)
 
     def test_carddav_raw_key_reindexing_keeps_multiple_emails_and_phones(self):
@@ -111,8 +114,9 @@ class ThunderbirdContactFieldTests(unittest.TestCase):
         self.store.conditional_upsert_vcard(reindexed, "carddav:admin", contact["contact_id"])
         exported = self.store.vcard(contact["contact_id"], "admin")
 
-        for expected in ("one@work.test", "two@work.test", "+49222", "+49333", "IMPP:xmpp:multi@example.test"):
-            self.assertIn(expected, exported)
+        for removed in ("one@work.test", "two@work.test", "+49222", "+49333"):
+            self.assertNotIn(removed, exported)
+        self.assertIn("IMPP:xmpp:multi@example.test", exported)
 
     def test_simpleoffice_extension_fields_survive_vcard_roundtrip(self):
         contact = self.store.upsert(
