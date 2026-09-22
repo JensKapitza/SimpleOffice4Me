@@ -39,7 +39,9 @@ from .db import get_db
 from .setup_store import SetupStore
 from .mail_client import MailStore, SmtpSubmission
 from .v2.adapters.document_store import DocumentStoreStorageAdapter
+from .v2.adapters.shadow import ShadowDocumentStorageAdapter
 from .v2.contracts import StoragePort
+from .v2.cutover import load_cutover_state
 
 
 bp = Blueprint("documents", "app.documents", url_prefix="/documents")
@@ -50,8 +52,12 @@ def _store() -> DocumentStore:
 
 
 def _storage(actor: str) -> StoragePort:
-    """Return the V2 mutation boundary used by browser file operations."""
-    return DocumentStoreStorageAdapter(current_app.config["DOCUMENT_ROOT"], actor)
+    """Return the explicit storage mode used by browser file mutations."""
+    root = current_app.config["DOCUMENT_ROOT"]
+    state = load_cutover_state(root)
+    if state.mode == "shadow":
+        return ShadowDocumentStorageAdapter(root, actor)
+    return DocumentStoreStorageAdapter(root, actor)
 
 
 def _contacts() -> ContactStore:
