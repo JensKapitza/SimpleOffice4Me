@@ -255,6 +255,9 @@ app.register_blueprint(photo_upload.bp)
 from . import task_management
 app.register_blueprint(task_management.bp)
 
+from . import shopping_web
+app.register_blueprint(shopping_web.bp)
+
 from . import personnel
 app.register_blueprint(personnel.bp)
 
