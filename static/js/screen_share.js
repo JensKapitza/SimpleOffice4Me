@@ -8,6 +8,7 @@
   const stateLabel = byId('screen-session-state');
   let session = null, role = '', code = '', pc = null, stream = null;
   let pollTimer = null, lastSequence = 0, stopping = false, pollFailures = 0, starting = false;
+  let iceServers = [], iceLoaded = false;
   const pendingCandidates = [];
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
@@ -45,8 +46,24 @@
     if (!pc?.remoteDescription) return;
     while (pendingCandidates.length) await pc.addIceCandidate(pendingCandidates.shift());
   };
-  const createPeer = () => {
-    const peer = new RTCPeerConnection({iceServers: []});
+  const loadIceServers = async () => {
+    if (iceLoaded) return iceServers;
+    iceLoaded = true;
+    const endpoint = root.dataset?.iceUrl || '';
+    if (!endpoint) return iceServers;
+    try {
+      const data = await api(endpoint);
+      if (Array.isArray(data.iceServers)) iceServers = data.iceServers;
+    } catch (_) {
+      // Relay is optional. Direct ICE remains available when the relay endpoint
+      // is disabled or temporarily unavailable.
+      iceServers = [];
+    }
+    return iceServers;
+  };
+  const createPeer = async () => {
+    const servers = await loadIceServers();
+    const peer = new RTCPeerConnection({iceServers: servers});
     peer.onicecandidate = (event) => {
       if (event.candidate) sendSignal('ice', event.candidate.toJSON())
         .catch((error) => signalFailure('ICE-Kandidat konnte nicht übertragen werden', error));
@@ -149,7 +166,7 @@
       setState('Bildschirmauswahl');
       stream = await captureDisplay();
       const preview = byId('screen-local-preview'); preview.srcObject = stream; preview.classList.remove('d-none');
-      pc = createPeer(); stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      pc = await createPeer(); stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stop(true));
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
       await sendSignal('offer', pc.localDescription.toJSON()); poll();
@@ -180,7 +197,7 @@
       if (!code) throw new Error('Verbindungscode fehlt.');
       const resolved = await api('/screen/api/join', {method: 'POST', body: JSON.stringify({code})});
       session = resolved.session; role = 'receiver'; roleLabel.textContent = 'Empfänger'; setState('verbindet');
-      pc = createPeer();
+      pc = await createPeer();
       pc.ontrack = (event) => {
         const video = byId('screen-remote-video'); video.srcObject = event.streams[0];
         video.classList.remove('d-none'); byId('screen-fullscreen').disabled = false;
