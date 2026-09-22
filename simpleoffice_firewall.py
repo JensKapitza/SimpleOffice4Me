@@ -177,6 +177,15 @@ class FirewallControlStore:
         value["result"] = json.loads(value["result"]) if value["result"] else None
         return value
 
+    def latest_operation(self) -> dict[str, Any] | None:
+        with self.connect() as db:
+            row = db.execute("SELECT id,action,state,updated,result FROM operations ORDER BY updated DESC LIMIT 1").fetchone()
+        if not row:
+            return None
+        value = dict(row)
+        value["result"] = json.loads(value["result"]) if value["result"] else None
+        return value
+
     def recover_interrupted(self) -> None:
         with self.connect() as db:
             db.execute("UPDATE operations SET state='failed', updated=?, result=? WHERE state IN ('running','queued')", (time.time(), json.dumps({"error": "Worker wurde neu gestartet. Ein bereits laufender Firewall-Test wird weiterhin vom Agenten automatisch zurückgerollt."})))
@@ -498,7 +507,13 @@ def firewall_status(config_path: str | Path | None = None) -> dict[str, Any]:
             service["diagnosis"] = "Kein unterstützter aktiver Firewall-Manager; Listenerstatus separat prüfen."
         else:
             service["diagnosis"] = "Firewallzustand ist nicht eindeutig bestimmbar."
-    return {"snapshot": snapshot, "services": services, "agent_socket": str(AGENT_SOCKET), "listener_tool": bool(shutil.which("ss"))}
+    return {
+        "snapshot": snapshot,
+        "services": services,
+        "last_operation": store.latest_operation(),
+        "agent_socket": str(AGENT_SOCKET),
+        "listener_tool": bool(shutil.which("ss")),
+    }
 
 
 def rules_for_service(service: dict[str, Any], effect: str) -> list[dict[str, Any]]:
