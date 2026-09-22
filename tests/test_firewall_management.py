@@ -1,6 +1,7 @@
 """Regression tests for safe Mini Services firewall management."""
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,6 +28,17 @@ class FirewallValidationTests(unittest.TestCase):
         service = {"name": "lokal", "bind": "127.0.0.1", "ports": [{"protocol": "tcp", "port_start": 8080, "port_end": 8080}]}
         with self.assertRaises(ValueError):
             firewall.rules_for_service(service, "allow")
+
+    def test_tcp_deny_covering_management_port_is_rejected_by_core_check(self):
+        rules = firewall.normalize_rules([
+            {"effect": "deny", "protocol": "tcp", "port_start": 8000, "port_end": 9000},
+        ])
+        self.assertTrue(firewall.deny_rules_hit_ports(rules, {8080}))
+        self.assertFalse(firewall.deny_rules_hit_ports(rules, {443}))
+        udp = firewall.normalize_rules([
+            {"effect": "deny", "protocol": "udp", "port": 8080},
+        ])
+        self.assertFalse(firewall.deny_rules_hit_ports(udp, {8080}))
 
     def test_control_store_queues_only_validated_actions(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -132,6 +144,58 @@ class FirewallSafetyTests(unittest.TestCase):
         self.assertEqual("ufw", result["backend"])
         self.assertLess(order.index("watchdog"), order.index("apply"))
         self.assertEqual("plan", order[order.index("apply") - 1])
+
+    def test_expired_confirmation_rolls_back_instead_of_confirming(self):
+        ident = "d" * 32
+        plan = {
+            "id": ident, "backend": "ufw", "status": "pending",
+            "expires_at": agent.time.time() - 1, "applied": [],
+            "confirmation_changes": [],
+        }
+        lock = unittest.mock.MagicMock()
+        with patch("simpleoffice_firewall_agent._locked_plan", return_value=lock), \
+             patch("simpleoffice_firewall_agent._read_plan", return_value=plan), \
+             patch("simpleoffice_firewall_agent._rollback_plan_locked") as rollback:
+            with self.assertRaises(ValueError):
+                agent.confirm_test(ident)
+        rollback.assert_called_once_with(plan)
+        lock.close.assert_called_once()
+
+    def test_explicit_rollback_marks_test_rolled_back(self):
+        ident = "e" * 32
+        plan = {
+            "id": ident, "backend": "ufw", "status": "pending",
+            "applied": [{"marker": "simpleoffice-test-" + ident, "preexisting": False}],
+            "confirmation_changes": [],
+        }
+        with patch("simpleoffice_firewall_agent._ufw_delete_marker") as delete, \
+             patch("simpleoffice_firewall_agent._write_plan"):
+            result = agent._rollback_plan_locked(plan)
+        self.assertEqual("rolled_back", result["state"])
+        self.assertEqual("rolled_back", plan["status"])
+        delete.assert_called_once_with("simpleoffice-test-" + ident)
+
+    def test_agent_recovery_reschedules_pending_watchdog(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            plans = root / "tests"
+            plans.mkdir()
+            ident = "f" * 32
+            (plans / f"{ident}.json").write_text(json.dumps({
+                "id": ident,
+                "backend": "ufw",
+                "status": "pending",
+                "expires_at": agent.time.time() + 30,
+                "applied": [],
+                "confirmation_changes": [],
+            }), encoding="utf-8")
+            with patch.object(agent, "STATE_ROOT", root), \
+                 patch.object(agent, "PLAN_DIR", plans), \
+                 patch("simpleoffice_firewall_agent._schedule_rollback", return_value="process") as schedule:
+                agent.recover_pending()
+            schedule.assert_called_once()
+            recovered = json.loads((plans / f"{ident}.json").read_text(encoding="utf-8"))
+            self.assertEqual("process", recovered["watchdog"])
 
     def test_firewall_decision_keeps_listener_and_policy_semantics_conservative(self):
         ufw = {"backend": "ufw", "active": True, "conflict": False, "default_incoming": "deny", "rules": []}
