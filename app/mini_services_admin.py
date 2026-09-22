@@ -275,6 +275,7 @@ from .network_boot_admin import bp as _network_boot_admin_bp
 from .network_boot_http import bp as _network_boot_http_bp, federation_bp as _network_boot_federation_bp
 from .telephony_admin import bp as _telephony_admin_bp
 from .mini_services_api import bp as _mini_services_api_bp
+from .connectivity_relay_admin import bp as _connectivity_relay_admin_bp, ice_bp as _connectivity_relay_ice_bp
 for _service_bp in (
     _network_boot_admin_bp,
     _network_boot_http_bp,
@@ -283,6 +284,8 @@ for _service_bp in (
     _audio_streamer_admin_bp,
     _telephony_admin_bp,
     _mini_services_api_bp,
+    _connectivity_relay_admin_bp,
+    _connectivity_relay_ice_bp,
 ):
     if _service_bp.name not in _flask_app.blueprints:
         _flask_app.register_blueprint(_service_bp)
