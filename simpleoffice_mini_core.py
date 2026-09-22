@@ -482,7 +482,7 @@ def read_status(path: str | Path | None = None) -> dict[str, Any]:
     if stale and data.get("state") != "stopped":
         data["state"] = "unavailable"
         data["message"] = "Keine aktuelle Rückmeldung vom Mini-Services Worker. Status prüfen oder Worker neu starten."
-        for name in ("dhcp", "dns", "tftp", "sip", "gateway"):
+        for name in ("dhcp", "dns", "tftp", "sip", "gateway", "relay"):
             data[name + "_running"] = False
         services = data.get("services", {})
         for service in (services.values() if isinstance(services, dict) else []):
