@@ -101,7 +101,13 @@ def _handle_tree_put(username: str, resource, document, is_collection: bool, key
         if scan_error is not None:
             return scan_error
         try:
-            updated = _store().replace_content(document["document_id"], content, f"webdav:{username}", expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+            updated = _vfs().write_bytes(
+                f"webdav:{username}",
+                resource,
+                content,
+                expected_sha256=_etag_value(current_etag),
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+            )
         except ValueError as exc:
             status = 412 if "changed since" in str(exc) else 423 if "locked" in str(exc) or "staged" in str(exc) else 400
             return Response(str(exc), status)
@@ -127,7 +133,12 @@ def _handle_tree_put(username: str, resource, document, is_collection: bool, key
     if scan_error is not None:
         return scan_error
     try:
-        created = _store().create_document_at(_store().relative(resource), content, f"webdav:{username}", max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+        created = _vfs().write_bytes(
+            f"webdav:{username}",
+            resource,
+            content,
+            max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+        )
     except FileExistsError:
         return Response("resource already exists", 412)
     except ValueError as exc:
@@ -150,7 +161,11 @@ def _handle_tree_delete(username: str, identity, resource, document, is_collecti
         if precondition_error is not None:
             return precondition_error
         try:
-            _store().soft_delete_document(document["document_id"], f"webdav:{username}")
+            _vfs().remove(
+                f"webdav:{username}",
+                resource,
+                expected_sha256=_etag_value(_etag(document)),
+            )
         except ValueError as exc:
             return Response(str(exc), 423)
         _release_lock(key)
@@ -305,27 +320,26 @@ def _handle_tree_copy_move(username: str, identity, resource, document, is_colle
                 _store().relative(resource), destination_relative, f"webdav:{username}",
             )
             _release_collection_locks_after_move(username, resource)
-        elif request.method == "COPY" and replacing_document is not None:
-            result = _store().replace_document_via_copy(
-                document["document_id"], replacing_document["document_id"], f"webdav:{username}",
-                expected_source_sha256=_etag_value(current_etag),
-                expected_destination_sha256=_etag_value(destination_etag),
-                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
-            )
         elif request.method == "COPY":
-            result = _store().copy_document(document["document_id"], destination_relative, f"webdav:{username}")
-            _copy_dead_properties(username, resource, document, destination, result)
-        elif replacing_document is not None:
-            replacement = _store().replace_document_via_move(
-                document["document_id"], replacing_document["document_id"], f"webdav:{username}",
+            result = _vfs().copy_file(
+                f"webdav:{username}",
+                resource,
+                destination,
+                replace=replacing_document is not None,
                 expected_source_sha256=_etag_value(current_etag),
                 expected_destination_sha256=_etag_value(destination_etag),
-                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             )
-            result = replacement["document"]
+            if replacing_document is None:
+                _copy_dead_properties(username, resource, document, destination, result)
         else:
-            with exclusive_file_lock(_store().control / ".document-content.lock"):
-                result = _store().move_document(document["document_id"], _store().relative(destination.parent), f"webdav:{username}", destination_name=destination.name)
+            result = _vfs().rename(
+                f"webdav:{username}",
+                resource,
+                destination,
+                replace=replacing_document is not None,
+                expected_source_sha256=_etag_value(current_etag),
+                expected_destination_sha256=_etag_value(destination_etag),
+            )
     except OSError:
         return _quota_error(username, request.method, destination, 0, "sufficient-disk-space")
     except (FileExistsError, RuntimeError, ValueError) as exc:
@@ -708,9 +722,12 @@ def endpoint(path: str):
         if scan_error is not None:
             return scan_error
         try:
-            updated = _store().replace_content(
-                document["document_id"], content, f"webdav:{username}",
-                expected_sha256=_etag_value(current_etag), max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
+            updated = _vfs().write_bytes(
+                f"webdav:{username}",
+                document_path,
+                content,
+                expected_sha256=_etag_value(current_etag),
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             )
         except ValueError as exc:
             message = str(exc)
