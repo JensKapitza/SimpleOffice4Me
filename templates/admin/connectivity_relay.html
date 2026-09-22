@@ -1,0 +1,99 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Connectivity Relay</h1>
+      <p class="text-secondary mb-0">STUN/TURN für NAT-Traversal sowie ein eng begrenzter HTTPS-CONNECT-Pfad für freigegebene administrative Ziele.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
+  </div>
+
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="alert {{ 'alert-danger' if category == 'error' else 'alert-info' }}" role="status">{{ message }}</div>
+  {% endfor %}
+
+  <div class="alert alert-warning">
+    <strong>Kein automatisches Firewall-Loch:</strong> SimpleOffice öffnet hier weder Router noch Host-Firewall automatisch. TURN und HTTPS-Tunnel sind nur für eigene bzw. administrierte Knoten gedacht. Ein offener/anonymer Proxy wird nicht eingerichtet.
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Mini-Service</div><div class="fs-5 fw-semibold">{{ relay_state.state|default('unavailable') }}</div><div class="small text-secondary">{% if relay_state.health %}{{ relay_state.health.message }}{% endif %}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">coturn / turnserver</div><div class="fs-5 fw-semibold">{{ 'gefunden' if turnserver_available else 'fehlt' }}</div><div class="small text-secondary text-break">{{ turnserver_path or 'Systempaket coturn installieren, wenn dieser Knoten selbst TURN bereitstellen soll.' }}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">HTTPS-CONNECT</div><div class="fs-5 fw-semibold">{{ 'aktiv' if settings.https_proxy_enabled else 'aus' }}</div><div class="small text-secondary">{{ settings.tunnel_targets|length }} freigegebene(s) Ziel(e)</div></div></div></div>
+  </div>
+
+  <form method="post" action="{{ url_for('connectivity_relay_admin.save') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+    <section class="card mb-4">
+      <div class="card-header"><strong>STUN / TURN</strong></div>
+      <div class="card-body">
+        <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="relay-enabled" {% if settings.enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="relay-enabled">Connectivity Relay aktivieren</label></div>
+        <p class="small text-secondary">Der Worker startet einen vorhandenen <code>turnserver</code>-Prozess mit REST-Shared-Secret. Browser erhalten ausschließlich kurzlebige Zugangsdaten.</p>
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Öffentlicher Hostname / IP</label><input class="form-control" name="public_host" value="{{ settings.public_host }}" placeholder="relay.example.de"><div class="form-text">Adresse, die entfernte Clients erreichen können.</div></div>
+          <div class="col-md-3"><label class="form-label">Listening-IP</label><input class="form-control font-monospace" name="listen_ip" value="{{ settings.listen_ip }}" required></div>
+          <div class="col-md-3"><label class="form-label">Relay-IP</label><input class="form-control font-monospace" name="relay_ip" value="{{ settings.relay_ip }}" required></div>
+          <div class="col-md-6"><label class="form-label">Externe NAT-IP optional</label><input class="form-control font-monospace" name="external_ip" value="{{ settings.external_ip }}" placeholder="203.0.113.10"><div class="form-text">Nur setzen, wenn TURN selbst hinter NAT steht.</div></div>
+          <div class="col-md-6"><label class="form-label">Realm</label><input class="form-control" name="realm" value="{{ settings.realm }}" required></div>
+          <div class="col-md-3"><label class="form-label">TURN-Port</label><input class="form-control" type="number" min="1" max="65535" name="turn_port" value="{{ settings.turn_port }}" required></div>
+          <div class="col-md-3"><label class="form-label">Relay-Port von</label><input class="form-control" type="number" min="1" max="65535" name="min_port" value="{{ settings.min_port }}" required></div>
+          <div class="col-md-3"><label class="form-label">Relay-Port bis</label><input class="form-control" type="number" min="1" max="65535" name="max_port" value="{{ settings.max_port }}" required></div>
+          <div class="col-md-3"><label class="form-label">Credential TTL (s)</label><input class="form-control" type="number" min="300" max="86400" name="credential_ttl" value="{{ settings.credential_ttl }}" required></div>
+        </div>
+
+        <hr>
+        <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="tls_enabled" value="1" id="relay-tls" {% if settings.tls_enabled %}checked{% endif %}><label class="form-check-label" for="relay-tls">TURN über TLS/TCP zusätzlich aktivieren</label></div>
+        <div class="row g-3">
+          <div class="col-md-3"><label class="form-label">TURN-TLS-Port</label><input class="form-control" type="number" min="1" max="65535" name="turn_tls_port" value="{{ settings.turn_tls_port }}"></div>
+          <div class="col-md-4"><label class="form-label">TLS-Zertifikat</label><input class="form-control font-monospace" name="tls_cert" value="{{ settings.tls_cert }}" placeholder="/etc/letsencrypt/.../fullchain.pem"></div>
+          <div class="col-md-5"><label class="form-label">TLS-Key</label><input class="form-control font-monospace" name="tls_key" value="{{ settings.tls_key }}" placeholder="/etc/letsencrypt/.../privkey.pem"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card mb-4">
+      <div class="card-header"><strong>HTTPS-CONNECT / SSH-Tunnel</strong></div>
+      <div class="card-body">
+        <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="https_proxy_enabled" value="1" id="proxy-enabled" {% if settings.https_proxy_enabled %}checked{% endif %}><label class="form-check-label fw-semibold" for="proxy-enabled">Vorhandenen authentifizierten HTTPS-CONNECT-Proxy verwenden</label></div>
+        <p class="small text-secondary">Dieser Teil startet bewusst keinen offenen Proxy. Der lokale Tunnel-Client verbindet sich nur zu den unten explizit erlaubten <code>Host:Port</code>-Zielen.</p>
+        <div class="row g-3">
+          <div class="col-md-7"><label class="form-label">HTTPS-Proxy</label><input class="form-control" name="https_proxy_url" value="{{ settings.https_proxy_url }}" placeholder="https://relay.example.de:443"></div>
+          <div class="col-md-5"><label class="form-label">Proxy-Benutzer</label><input class="form-control" name="https_proxy_username" value="{{ settings.https_proxy_username }}"></div>
+          <div class="col-md-6"><label class="form-label">Proxy-Passwort</label><input class="form-control" type="password" name="https_proxy_password" autocomplete="new-password" placeholder="{{ 'bereits gesetzt – leer lassen zum Beibehalten' if proxy.password_configured else 'Passwort' }}"></div>
+          <div class="col-md-6"><label class="form-label">Eigene CA optional</label><input class="form-control font-monospace" name="https_proxy_ca_file" value="{{ settings.https_proxy_ca_file }}" placeholder="/etc/ssl/certs/relay-ca.pem"></div>
+          <div class="col-12"><label class="form-label">Freigegebene Tunnel-Ziele</label><textarea class="form-control font-monospace" name="tunnel_targets" rows="5" placeholder="server.example.de:22&#10;10.20.0.5:22">{{ settings.tunnel_targets|join('\n') }}</textarea><div class="form-text">Keine Wildcards. Für SSH muss das konkrete Ziel inklusive Port eingetragen sein.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="d-flex flex-wrap gap-2 mb-4">
+      <button class="btn btn-primary" type="submit">Relay-Einstellungen speichern</button>
+    </div>
+  </form>
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>TURN-Zugangsschlüssel</strong></div>
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <p class="mb-0 small text-secondary">Der Shared Secret wird nicht angezeigt. Clients erhalten daraus zeitlich begrenzte TURN-Zugangsdaten.</p>
+      <form method="post" action="{{ url_for('connectivity_relay_admin.rotate_turn_secret') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-warning" type="submit">TURN-Secret erneuern</button></form>
+    </div>
+  </section>
+
+  {% if ssh_commands %}
+  <section class="card mb-4">
+    <div class="card-header"><strong>SSH über HTTPS-CONNECT</strong></div>
+    <div class="card-body">
+      <p class="small text-secondary">Diese Befehle verwenden nur die gespeicherte Proxy-Konfiguration und die explizite Ziel-Allowlist.</p>
+      {% for row in ssh_commands %}
+      <div class="mb-3"><div class="small fw-semibold">{{ row.target }}</div><code class="d-block text-break">ProxyCommand {{ row.command }}</code></div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <p class="small text-secondary">Konfigurationspfad: <code>{{ config_path }}</code></p>
+</main>
+{% endblock %}

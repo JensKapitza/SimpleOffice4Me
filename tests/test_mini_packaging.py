@@ -28,6 +28,6 @@ class MiniPackagingTests(unittest.TestCase):
                     for name in modules:
                         shutil.copyfile(ROOT / (name + ".py"), Path(folder) / (name + ".py"))
                     result = subprocess.run([sys.executable, "-I", "-c",
-                        "import sys; sys.path.insert(0, sys.argv[1]); import simpleoffice_network_gateway_runtime; import simpleoffice_mini_control; import simpleoffice_service_lifecycle; import simpleoffice_sip_runtime", folder],
+                        "import sys; sys.path.insert(0, sys.argv[1]); import simpleoffice_network_gateway_runtime; import simpleoffice_mini_control; import simpleoffice_service_lifecycle; import simpleoffice_sip_runtime; import simpleoffice_connection_relay; import simpleoffice_https_connect_tunnel", folder],
                         cwd=folder, capture_output=True, text=True, timeout=20)
                     self.assertEqual(0, result.returncode, result.stdout + result.stderr)

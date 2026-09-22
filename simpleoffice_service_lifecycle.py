@@ -37,9 +37,12 @@ def log_service_event(service: str, event: str, *, exc: Exception | None = None,
 
 
 def service_health(service: Any) -> bool:
-    """A bound socket AND live listener are required, not object existence."""
+    """A live owned listener/process is required, not object existence."""
     if service is None or service.stop_event.is_set():
         return False
+    if hasattr(service, "process"):
+        process = getattr(service, "process", None)
+        return process is not None and process.poll() is None
     sockets = getattr(service, "sockets", None)
     threads = getattr(service, "threads", None)
     if sockets is None:
@@ -93,7 +96,7 @@ class ServiceState:
         self.retry_at = None
 
     def snapshot(self, pid: int) -> dict[str, Any]:
-        ports = [self.config[key] for key in ("port", "tftp_port", "registrar_port") if key in self.config]
+        ports = [self.config[key] for key in ("port", "tftp_port", "registrar_port", "turn_port", "turn_tls_port") if key in self.config]
         return {"id": self.id, "name": self.name, "version": application_version(), "state": self.state,
                 "started_at": self.started_at,
                 "uptime_seconds": max(0, int(time.time() - self.started_at)) if self.state == "running" and self.started_at else 0,

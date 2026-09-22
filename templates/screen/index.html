@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-3 py-md-4" data-screen-root>
+<main id="main-content" class="container-xl py-3 py-md-4" data-screen-root data-ice-url="{{ url_for('connectivity_relay_ice.ice') }}">
   <div class="mb-3">
     <h1 class="h2 mb-1">Bildschirm</h1>
     <p class="text-secondary mb-0">Bildschirm sicher zwischen SimpleOffice-Geräten teilen oder empfangen.</p>

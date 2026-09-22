@@ -102,6 +102,6 @@ sudo systemctl restart simpleoffice4me
 
 ## Abhaengigkeiten und Daten
 
-Als zwingende Debian-Laufzeitabhaengigkeiten werden Python >= 3.10, `python3-venv`, `git` und `ca-certificates` eingetragen. Weitere Funktionspakete wie Poppler, Tesseract OCR, ImageMagick, Ghostscript, FFmpeg, ClamAV und LibreOffice werden als Recommends hinterlegt.
+Als zwingende Debian-Laufzeitabhaengigkeiten werden Python >= 3.10, `python3-venv`, `git` und `ca-certificates` eingetragen. Weitere Funktionspakete wie Poppler, Tesseract OCR, ImageMagick, Ghostscript, FFmpeg, ClamAV, LibreOffice und optional `coturn` für den STUN/TURN-Connectivity-Relay werden als Recommends hinterlegt.
 
 Programmdateien liegen unter `/opt`, Benutzerdaten und Instanzkonfiguration unter `/var/lib/simpleoffice4me`. Paketupdates ueberschreiben keine Dokumente oder Instanzdaten. Auch `apt purge` loescht `/var/lib/simpleoffice4me` absichtlich nicht automatisch.

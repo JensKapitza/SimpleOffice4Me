@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import sqlite3
+import shutil
 from flask import Blueprint, abort, jsonify, request
 
 from simpleoffice_mini_control import ControlStore, NETWORK_SERVICES
@@ -13,7 +14,7 @@ from .access_control import audit
 from .audio_dependencies import audio_dependencies
 
 bp = Blueprint("mini_services_api", __name__, url_prefix="/api/mini-services")
-NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
+NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT", "relay": "STUN / TURN Relay"}
 
 
 def _store():
@@ -190,13 +191,25 @@ def _scan(store, service):
     try:
         if service == "tftp":
             targets = list_assets(default_config_path(), include_hash=False, max_entries=512)
+            scope = "Lokale Bootdateien"
         elif service == "sip":
             status = read_status(default_config_path())
             targets = status.get("sip", {}).get("registrations_detail", [])
+            scope = "Registrierte Telefone"
+        elif service == "relay":
+            from simpleoffice_connection_relay import https_proxy_profile, load_relay_settings
+            settings = load_relay_settings(default_config_path())
+            proxy = https_proxy_profile(default_config_path())
+            targets = [
+                {"kind": "turnserver", "available": bool(shutil.which("turnserver")), "path": shutil.which("turnserver") or ""},
+                {"kind": "turn", "public_host": settings["public_host"], "port": settings["turn_port"], "tls": settings["tls_enabled"]},
+                {"kind": "https-connect", "enabled": proxy["enabled"], "targets": proxy["targets"], "password_configured": proxy["password_configured"]},
+            ]
+            scope = "Lokale Relay-Abhängigkeiten und freigegebene Ziele"
         else:
             targets = network_interfaces()
-        result = {"state": "completed", "updated_at": time.time(), "count": len(targets), "targets": targets,
-                  "scope": "Registrierte Telefone" if service == "sip" else "Lokale Bootdateien" if service == "tftp" else "Lokale Netzwerkinterfaces"}
+            scope = "Lokale Netzwerkinterfaces"
+        result = {"state": "completed", "updated_at": time.time(), "count": len(targets), "targets": targets, "scope": scope}
     except (OSError, ValueError, RuntimeError) as exc:
         result = {"state": "failed", "updated_at": time.time(), "count": 0, "targets": [], "error": error_detail(exc)}
         store.scan(service, result)

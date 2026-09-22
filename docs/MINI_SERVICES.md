@@ -10,7 +10,7 @@ zur Verfügung. Weitere Startskripte sind nicht erforderlich; `start2.sh` bleibt
 nur als Kompatibilitätsweiterleitung bestehen.
 
 SIP startet automatisch auf einer privaten lokalen IPv4-Adresse, sonst Loopback.
-DHCP, DNS, TFTP und Routing benötigen eine bewusste Aktivierung. Ein automatisch
+DHCP, DNS, TFTP, Routing und der Connectivity Relay benötigen eine bewusste Aktivierung. Ein automatisch
 gestarteter konkurrierender DHCP-Server oder geänderte Host-Routingregeln wären
 keine sinnvollen Standardwerte. Audio-Autostart und Hardwarebedingungen sind in
 [Audio-Streamer](AUDIO_STREAMER.md) und [Audio-Ausgabe](AUDIO_OUTPUT.md) beschrieben.
@@ -92,6 +92,7 @@ Worker-Autostart-Schalter an.
 | TFTP | Mini-Services-Worker, lokale Bootdateien | DHCP/PXE-Ankündigung | lesende TFTP-Transfers |
 | Routing/NAT | Mini-Services-Worker, OS-Werkzeuge/-Rechte | DHCP-Netz, WAN-Schnittstelle | lokale Forwarding-/NAT-Regeln |
 | SIP | Mini-Services-Worker, Telefoniedatenbank | private LAN-Adresse, SIP-Endgeräte | Registrar und lokale Redirects |
+| Connectivity Relay | Mini-Services-Worker, optional coturn | öffentlich erreichbarer Host, TLS | authentifiziertes STUN/TURN für WebRTC |
 | HTTP/PXE | Webserver, Bootprofil/-dateien | DHCP, TFTP, Föderations-Peers | Bootskript und HTTP-Dateien |
 
 ## Plattformen und technische Grenzen
@@ -102,6 +103,11 @@ IPv6-Bindings des DNS-Servers werden durch den derzeitigen IPv4-Inventarvergleic
 nicht auf Netzwerkwechsel geprüft. Der Socket-/Listener-Healthcheck bleibt aktiv.
 Android WebView kann die Oberfläche bedienen; privilegierte Netzwerkserver auf
 Android sind kein Standardbetrieb.
+
+STUN/TURN und der allowlist-basierte HTTPS-CONNECT-Client sind unter
+[Connectivity Relay](CONNECTIVITY_RELAY.md) beschrieben. Der Relay bleibt opt-in;
+SimpleOffice öffnet keine Firewallregel automatisch und stellt keinen offenen
+Proxy bereit.
 
 Für reale LAN-/Firewall-/Audiohardware, Windows und Android ist zusätzliche
 Abnahme erforderlich. Die [Qualitätsmatrix](MINI_SERVICES_REVIEW.md) dokumentiert
