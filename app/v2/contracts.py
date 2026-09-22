@@ -207,6 +207,28 @@ class StoragePort(Protocol):
     def copy(self, object_id: LogicalObjectId, destination: StorageLocation) -> OperationResult[StoredObject]:
         ...
 
+    def copy_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        ...
+
+    def move_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        ...
+
     def delete(self, object_id: LogicalObjectId, *, expected_version: str | None = None) -> OperationResult[str]:
         ...
 
