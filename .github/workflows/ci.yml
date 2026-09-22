@@ -109,6 +109,8 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
+      - name: Enforce repository secret-leak gate
+        run: python tools/check_secret_leaks.py .
       - name: Install project and auditor
         run: |
           python -m pip install --upgrade pip
