@@ -1,0 +1,43 @@
+[Unit]
+Description=SimpleOffice4Me Privileged Firewall Agent
+Documentation=https://github.com/JensKapitza/SimpleOffice4Me
+After=network.target
+Requires=simpleoffice-firewall-agent.socket
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/simpleoffice4me
+Environment=PYTHONPATH=/opt/simpleoffice4me
+Environment=SIMPLEOFFICE_FIREWALL_AGENT_STATE=/var/lib/simpleoffice4me/firewall-agent
+ExecStart=/opt/simpleoffice4me/.venv/bin/python -m simpleoffice_firewall_agent --serve
+Restart=on-failure
+RestartSec=1
+TimeoutStopSec=10
+UMask=0077
+
+# The agent accepts only structured firewall operations from the Mini Services
+# worker. It never executes caller-provided commands or shell strings.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE CAP_FOWNER
+ReadWritePaths=/var/lib/simpleoffice4me/firewall-agent /run/simpleoffice4me
+ReadWritePaths=-/etc/ufw
+
+[Install]
+WantedBy=multi-user.target
