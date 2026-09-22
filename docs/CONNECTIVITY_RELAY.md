@@ -62,7 +62,7 @@ Für jedes freigegebene Ziel zeigt die Oberfläche einen OpenSSH-
 Host interner-server
     HostName server.example.net
     User admin
-    ProxyCommand /pfad/python /opt/simpleoffice4me/tools/https_connect_tunnel.py --config /var/lib/simpleoffice4me/instance/mini-services.json --target server.example.net:22
+    ProxyCommand /opt/simpleoffice4me/.venv/bin/python -m simpleoffice_https_connect_tunnel --config /var/lib/simpleoffice4me/instance/mini-services.json --target server.example.net:22
 ```
 
 Der Helper baut TLS zum konfigurierten Proxy auf, authentifiziert sich dort und
