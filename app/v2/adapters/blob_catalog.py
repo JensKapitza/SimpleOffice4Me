@@ -307,6 +307,123 @@ class BlobCatalogStorageAdapter:
             )
         return result
 
+    @staticmethod
+    def _matches_expected(entry: CatalogEntry, expected: str) -> bool:
+        value = str(expected or "")
+        return bool(value) and value in {entry.version_id, entry.content_sha256}
+
+    def copy_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        source = self._active(source_id)
+        destination = self._active(destination_id)
+        if not source.ok:
+            return self._catalog_failure(source)
+        if not destination.ok:
+            return self._catalog_failure(destination)
+        source_entry = source.value
+        destination_entry = destination.value
+        if source_id == destination_id:
+            return OperationResult.failure(ErrorCode.CONFLICT, "source and destination are identical")
+        if not self._matches_expected(source_entry, expected_source_version):
+            return OperationResult.failure(ErrorCode.CONFLICT, "source content changed since it was opened")
+        if not self._matches_expected(destination_entry, expected_destination_version):
+            return OperationResult.failure(ErrorCode.CONFLICT, "destination content changed since it was opened")
+        content = self.read_bytes(source_id)
+        if not content.ok:
+            return OperationResult(error=content.error)
+        if len(content.value) > int(max_bytes):
+            return OperationResult.failure(
+                ErrorCode.INVALID_INPUT,
+                "document exceeds the configured upload size limit",
+            )
+        try:
+            version = self.blobs.write(destination_id, content.value)
+        except (BlobIntegrityError, OSError, ValueError, TypeError) as exc:
+            return self._failure(exc)
+        updated = self.catalog.update_content(
+            destination_id,
+            version_id=version.version_id,
+            size=version.size,
+            content_sha256=version.content_sha256,
+            expected_version_id=destination_entry.version_id,
+        )
+        if not updated.ok:
+            return self._catalog_failure(updated)
+        entry = updated.value
+        audit = self._audit(
+            entry,
+            "storage_copy_replaced",
+            source_object_id=source_id.value,
+            previous_version=destination_entry.version_id,
+            version=entry.version_id,
+            size=entry.size,
+        )
+        if not audit.ok:
+            return OperationResult(error=audit.error)
+        return OperationResult.success(self._stored(entry))
+
+    def move_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        source = self._active(source_id)
+        destination = self._active(destination_id)
+        if not source.ok:
+            return self._catalog_failure(source)
+        if not destination.ok:
+            return self._catalog_failure(destination)
+        source_entry = source.value
+        destination_entry = destination.value
+        copied = self.copy_replace(
+            source_id,
+            destination_id,
+            expected_source_version=expected_source_version,
+            expected_destination_version=expected_destination_version,
+            max_bytes=max_bytes,
+        )
+        if not copied.ok:
+            return copied
+        deleted = self.catalog.mark_deleted(
+            source_id,
+            expected_version_id=source_entry.version_id,
+        )
+        if not deleted.ok:
+            rollback = self.catalog.update_content(
+                destination_id,
+                version_id=destination_entry.version_id,
+                size=destination_entry.size,
+                content_sha256=destination_entry.content_sha256,
+                expected_version_id=copied.value.version,
+            )
+            if not rollback.ok:
+                return OperationResult.failure(
+                    ErrorCode.STORAGE_UNAVAILABLE,
+                    "move replacement failed and destination rollback failed",
+                    retryable=True,
+                )
+            return self._catalog_failure(deleted)
+        audit = self._audit(
+            deleted.value,
+            "storage_move_source_deleted",
+            destination_object_id=destination_id.value,
+            destination_version=copied.value.version,
+        )
+        if not audit.ok:
+            return OperationResult(error=audit.error)
+        return copied
+
     def delete(
         self,
         object_id: LogicalObjectId,
