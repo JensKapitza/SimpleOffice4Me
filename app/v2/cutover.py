@@ -337,6 +337,7 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
             state.mode == "shadow"
             and not state.dirty
             and verification.get("ready")
+            and fingerprint_matches
             and state.protection_mode == LOCAL_PLAINTEXT
         ),
         "v2_activation_blocker": (
@@ -346,6 +347,8 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
             if state.mode != "shadow"
             else "shadow state is dirty or verification is not clean"
             if state.dirty or not verification.get("ready")
+            else "shadow fingerprint changed; refresh verified shadow mode before activation"
+            if not fingerprint_matches
             else "storage protection mode must be explicitly selected"
             if state.protection_mode != LOCAL_PLAINTEXT
             else ""
@@ -443,9 +446,14 @@ def activate_v2(
             "V2 activation requires clean shadow consistency: "
             + "; ".join(str(item) for item in verification.get("blockers") or [])
         )
+    current_fingerprint = str(verification.get("fingerprint") or "")
+    if not state.migration_fingerprint or state.migration_fingerprint != current_fingerprint:
+        raise ValueError(
+            "V2 activation requires the current shadow fingerprint to be explicitly reverified"
+        )
     if state.protection_mode != LOCAL_PLAINTEXT:
         raise ValueError("V2 activation requires an explicit storage protection mode")
-    if not acknowledge_local_plaintext:
+    if apply and not acknowledge_local_plaintext:
         raise ValueError(
             "authoritative V2 storage is currently local plaintext; explicit acknowledgement required"
         )
@@ -458,6 +466,7 @@ def activate_v2(
         "protection_mode": state.protection_mode,
         "encrypted_at_rest": False,
         "federation_storage_allowed": False,
+        "plaintext_acknowledged": bool(acknowledge_local_plaintext),
     }
     if not apply:
         return result
