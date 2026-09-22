@@ -16,6 +16,7 @@ from .document_store import DocumentStore
 from .document_store_core import CONTROL_DIR, HISTORY_DIR, POLICY_FILE, PREVIEW_CACHE_DIR
 from .google_drive_client import DriveClient, FOLDER_MIME, GOOGLE_NATIVE_PREFIX
 from .google_tokens import GOOGLE_DRIVE_SCOPE, google_access_token
+from .v2.storage_runtime import create_document, replace_document
 
 DRIVE_ROOT_NAME = "SimpleOffice4Me"
 LOCAL_SYNC_FOLDER = "GoogleDrive"
@@ -256,11 +257,21 @@ def _write_remote_file(
             store._scan_file(target, force_hash=True)
             document = store.get_document(relative_path)
         expected = sha256_file(target)
-        return store.replace_content(
-            document["document_id"], content, actor,
-            expected_sha256=expected, source="google-drive", max_bytes=max_bytes,
+        return replace_document(
+            store.root,
+            actor,
+            document["document_id"],
+            content,
+            expected_version=expected,
+            max_bytes=max_bytes,
         )
-    return store.create_document_at(relative_path, content, actor, max_bytes=max_bytes)
+    return create_document(
+        store.root,
+        actor,
+        relative_path,
+        content,
+        max_bytes=max_bytes,
+    )
 
 
 def _process_remote_item(
