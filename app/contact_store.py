@@ -475,15 +475,14 @@ class ContactStore:
             return line if len(line) <= MAX_RAW_PHOTO_LINE_CHARS else ""
         return line[:4000]
 
-    def photo(self, contact_id: str, actor: str = "") -> tuple[bytes, str]:
-        """Decode a safe raster PHOTO property retained from a vCard."""
-        fields = self.get(contact_id, actor).get("fields", {})
-        raw = next((str(value) for key, value in fields.items() if key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO"), "")
-        header, separator, encoded = raw.partition(":")
+    @staticmethod
+    def _decode_embedded_photo_line(raw: str) -> tuple[bytes, str]:
+        header, separator, encoded = str(raw).partition(":")
         if not separator:
             raise ValueError("contact has no embedded photo")
         params = header.upper().split(";")[1:]
-        if not any(item in {"ENCODING=B", "ENCODING=BASE64"} for item in params) and not encoded.casefold().startswith("data:image/"):
+        embedded = any(item in {"ENCODING=B", "ENCODING=BASE64"} for item in params)
+        if not embedded and not encoded.casefold().startswith("data:image/"):
             raise ValueError("contact photo is not embedded base64")
         declared = next((item.split("=", 1)[1] for item in params if item.startswith("TYPE=") or item.startswith("MEDIATYPE=")), "")
         if encoded.casefold().startswith("data:image/"):
@@ -502,6 +501,12 @@ class ContactStore:
         if not media_type:
             raise ValueError(f"unsupported embedded contact photo type: {declared or 'unknown'}")
         return payload, media_type
+
+    def photo(self, contact_id: str, actor: str = "") -> tuple[bytes, str]:
+        """Decode a safe raster PHOTO property retained from a vCard."""
+        fields = self.get(contact_id, actor).get("fields", {})
+        raw = next((str(value) for key, value in fields.items() if key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO"), "")
+        return self._decode_embedded_photo_line(raw)
 
     def has_photo(self, contact: dict[str, Any]) -> bool:
         return any(key.startswith("vcard_") and self._vcard_property_name(str(value)) == "PHOTO" for key, value in contact.get("fields", {}).items())
@@ -861,8 +866,13 @@ class ContactStore:
                     if not contact_id:
                         contact_id = mapped_uid
             elif name not in {"BEGIN", "END", "VERSION"}:
-                if name == "PHOTO" and len(raw) > MAX_RAW_PHOTO_LINE_CHARS:
-                    raise ValueError("embedded contact photo is too large")
+                if name == "PHOTO":
+                    if len(raw) > MAX_RAW_PHOTO_LINE_CHARS:
+                        raise ValueError("embedded contact photo is too large")
+                    header = raw.partition(":")[0].upper().split(";")[1:]
+                    encoded = raw.partition(":")[2]
+                    if any(item in {"ENCODING=B", "ENCODING=BASE64"} for item in header) or encoded.casefold().startswith("data:image/"):
+                        ContactStore._decode_embedded_photo_line(raw)
                 safe = ContactStore._safe_raw_vcard_line(raw)
                 if safe:
                     values[f"custom_vcard_{extra_index:03d}_{name.casefold()}"] = safe
