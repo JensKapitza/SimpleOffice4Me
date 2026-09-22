@@ -848,7 +848,7 @@ public class MainActivity extends Activity {
                     BuildConfig.ERROR_REPORT_URL,
                     "",
                     "",
-                    AndroidLanNetwork.localPrivateIpv4(this));
+                    AndroidLanNetwork.localIpv4Addresses());
             showStatus("Lokales Backend wird geprüft …", true);
             waitForBackend();
             mainHandler.post(() -> {
@@ -873,7 +873,7 @@ public class MainActivity extends Activity {
                 try {
                     Python.getInstance()
                             .getModule("android_runtime")
-                            .callAttr("set_lan_addresses", AndroidLanNetwork.localPrivateIpv4(this));
+                            .callAttr("set_lan_addresses", AndroidLanNetwork.localIpv4Addresses());
                 } catch (RuntimeException ignored) {
                     // Discovery still has the normal socket-based fallback.
                 }

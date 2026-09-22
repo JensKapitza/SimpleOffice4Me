@@ -66,7 +66,7 @@
 
 <div class="card card-body mb-3">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
-    <div><h2 class="h5 mb-1">Connect QR-Codes</h2><p class="small text-secondary mb-0">Auf dem anderen Gerät scannen. Für jede aktuell erkannte private LAN-IP wird ein eigener Connect-Code erzeugt.</p></div>
+    <div><h2 class="h5 mb-1">Connect QR-Codes</h2><p class="small text-secondary mb-0">Auf dem anderen Gerät scannen. Für jede aktuell erkannte IPv4-Adresse dieses Geräts wird ein eigener Connect-Code erzeugt – auch bei Hotspot/Tethering.</p></div>
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}"><i class="fas fa-rotate me-1" aria-hidden="true"></i>Aktualisieren</a>
   </div>
   {% if lan_connect_profiles %}
@@ -76,13 +76,13 @@
       <div class="border rounded p-2 h-100 text-center bg-white">
         <img class="img-fluid" style="max-width:220px" src="{{ url_for('federation_peer_admin.lan_qr_svg', index=loop.index0) }}" alt="Connect QR-Code für {{ connect.address }}" loading="lazy" decoding="async">
         <div class="fw-semibold"><code>{{ connect.address }}:{{ connect.port }}</code></div>
-        <div class="small text-secondary">LAN</div>
+        <div class="small text-secondary">Geräte-IP</div>
       </div>
     </div>
     {% endfor %}
   </div>
   {% else %}
-  <div class="alert alert-secondary mb-0">Keine private LAN-IP erkannt. Netzwerkverbindung prüfen und anschließend aktualisieren.</div>
+  <div class="alert alert-secondary mb-0">Keine nutzbare Geräte-IPv4 erkannt. Netzwerkverbindung oder Hotspot prüfen und anschließend aktualisieren.</div>
   {% endif %}
   {% if own_qr %}
   <details class="mt-3"><summary>Öffentliches Profil / QR-Payload anzeigen</summary><div class="row g-3 mt-1"><div class="col-md-7"><textarea class="form-control font-monospace" rows="3" readonly>{{ own_qr }}</textarea></div><div class="col-md-5"><img class="img-fluid border rounded p-2 bg-white" src="{{ url_for('federation_peer_admin.qr_svg') }}" alt="Federation Peer QR-Code" loading="lazy" decoding="async"></div></div></details>

@@ -1,4 +1,6 @@
 """Admin routes for federation discovery and directed trust."""
+import ipaddress
+import os
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
 
 from .federation_admin import admin_required
@@ -26,10 +28,30 @@ def _receive_state():
     return LanReceiveState(_root())
 
 
+def _connect_addresses():
+    """Return device IPv4 addresses for QR connect, without RFC1918 filtering."""
+    values = []
+    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", "")
+    for item in raw.split(","):
+        text = item.strip().split("%", 1)[0]
+        if not text:
+            continue
+        try:
+            address = ipaddress.ip_address(text)
+        except ValueError:
+            continue
+        if address.version != 4 or address.is_loopback or address.is_unspecified:
+            continue
+        canonical = address.compressed
+        if canonical not in values:
+            values.append(canonical)
+    return values or local_lan_addresses()
+
+
 def _lan_connect_profiles():
     port = scan_ports()[0]
     result = []
-    for address in local_lan_addresses():
+    for address in _connect_addresses():
         endpoint = f"http://{address}:{port}"
         try:
             profile = local_profile(_root(), endpoint, prefer_fallback=True)

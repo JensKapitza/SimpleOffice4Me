@@ -180,7 +180,7 @@ public final class BootstrapActivity extends Activity {
                         BuildConfig.ERROR_REPORT_URL,
                         accountEmail == null ? "" : accountEmail,
                         bootstrapToken,
-                        AndroidLanNetwork.localPrivateIpv4(this));
+                        AndroidLanNetwork.localIpv4Addresses());
                 showStatus("Lokales Benutzerkonto wird vorbereitet …", true);
                 waitForBackend();
                 establishNativeSession(bootstrapToken);
