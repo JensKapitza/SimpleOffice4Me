@@ -21,10 +21,10 @@ def _text(value: Any, limit: int = 240) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
-def _contact_card(root: str | Path, object_id: str, actor: str) -> dict[str, Any]:
+def _contact_card(root: str | Path, object_id: str, actor: str, *, include_vcard: bool = False) -> dict[str, Any]:
     item = ContactStore(root).get(object_id, actor)
     fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
-    return {
+    card = {
         "kind": "contact",
         "object_id": str(item.get("contact_id") or object_id),
         "title": _text(fields.get("display_name") or "Kontakt", 200),
@@ -32,6 +32,9 @@ def _contact_card(root: str | Path, object_id: str, actor: str) -> dict[str, Any
         "email": _text(fields.get("email"), 320),
         "phone": _text(fields.get("phone"), 120),
     }
+    if include_vcard:
+        card["vcard"] = ContactStore(root).vcard(object_id, actor)
+    return card
 
 
 def _task_card(root: str | Path, object_id: str, actor: str) -> dict[str, Any]:
@@ -76,13 +79,13 @@ def _document_card(root: str | Path, object_id: str, actor: str) -> dict[str, An
     }
 
 
-def build_share_card(root: str | Path, kind: str, object_id: str, actor: str) -> dict[str, Any]:
+def build_share_card(root: str | Path, kind: str, object_id: str, actor: str, *, include_vcard: bool = False) -> dict[str, Any]:
     kind = str(kind or "").strip().casefold()
     object_id = str(object_id or "").strip()
     if kind not in SHARE_KINDS or not object_id:
         raise ValueError("Ungültiges Chat-Objekt")
     if kind == "contact":
-        return _contact_card(root, object_id, actor)
+        return _contact_card(root, object_id, actor, include_vcard=include_vcard)
     if kind == "task":
         return _task_card(root, object_id, actor)
     if kind == "event":
