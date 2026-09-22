@@ -20,6 +20,7 @@ from typing import Any
 
 from .document_store import DocumentStore
 from .mail_client import ImapArchive, MailStore, MAX_MESSAGE_BYTES, _owner_key
+from .v2.storage_runtime import create_document
 
 
 MAX_BROWSER_MESSAGES = 200
@@ -222,7 +223,7 @@ class MailReader:
                 document = documents.get_document(path)
                 duplicate = True
             else:
-                document = documents.create_document_at(path, raw, actor, max_bytes=MAX_MESSAGE_BYTES)
+                document = create_document(documents.root, actor, path, raw, max_bytes=MAX_MESSAGE_BYTES)
                 documents.set_tags(document["document_id"], ["email", "source:imap", f"imap-account:{account['id']}", f"imap-folder:{folder[:120]}"], actor)
                 duplicate = False
             message = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
