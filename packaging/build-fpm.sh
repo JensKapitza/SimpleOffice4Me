@@ -158,6 +158,7 @@ fpm \
   --deb-recommends "imagemagick" \
   --deb-recommends "ghostscript" \
   --deb-recommends "ffmpeg" \
+  --deb-recommends "coturn" \
   --deb-recommends "clamav" \
   --deb-recommends "libreoffice" \
   --config-files "/etc/simpleoffice4me/simpleoffice.env" \
