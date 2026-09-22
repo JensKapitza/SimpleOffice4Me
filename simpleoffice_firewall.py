@@ -391,6 +391,11 @@ def _bind_families(value: str) -> set[str]:
     return families or {"ipv4", "ipv6"}
 
 
+def _source_restricted(rule: dict[str, Any]) -> bool:
+    source = str(rule.get("source") or "").strip().lower()
+    return source not in {"", "anywhere", "0.0.0.0/0", "::/0"}
+
+
 def _port_matches(rule: dict[str, Any], protocol: str, start: int, end: int) -> bool:
     if rule.get("protocol") not in {protocol, "any", None, ""}:
         return False
@@ -418,11 +423,18 @@ def firewall_decision(snapshot: dict[str, Any], protocol: str, start: int, end: 
             family_rules = [row for row in matching if row.get("family") in {None, "", family}]
             family_rules.sort(key=lambda row: int(row.get("order", 999999)))
             if family_rules:
-                effect = family_rules[0].get("effect")
-                decisions[family] = (
-                    "allowed" if effect == "allow" else "blocked",
-                    str(family_rules[0].get("summary") or "Passende UFW-Regel"),
-                )
+                first = family_rules[0]
+                if _source_restricted(first):
+                    decisions[family] = (
+                        "unknown",
+                        str(first.get("summary") or "Quellbeschränkte UFW-Regel") + "; Wirkung hängt von der Client-IP ab.",
+                    )
+                else:
+                    effect = first.get("effect")
+                    decisions[family] = (
+                        "allowed" if effect == "allow" else "blocked",
+                        str(first.get("summary") or "Passende UFW-Regel"),
+                    )
             elif default in {"deny", "reject"}:
                 decisions[family] = ("blocked", f"UFW-Standard für eingehend: {default}.")
             elif default == "allow":
@@ -443,6 +455,9 @@ def firewall_decision(snapshot: dict[str, Any], protocol: str, start: int, end: 
         zone = zones[0] if len(zones) == 1 else ""
         if zone:
             relevant = [rule for rule in matching if not rule.get("zone") or rule.get("zone") == zone]
+        restricted = [rule for rule in relevant if _source_restricted(rule)]
+        if restricted:
+            return {"state": "unknown", "reason": "Passende firewalld-Regel ist auf eine Quelle begrenzt; Wirkung hängt von der Client-IP ab."}
         denies = [rule for rule in relevant if rule.get("effect") == "deny"]
         allows = [rule for rule in relevant if rule.get("effect") == "allow"]
         if denies:
