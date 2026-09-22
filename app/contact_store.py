@@ -637,6 +637,9 @@ class ContactStore:
         if not cards:
             raise ValueError("no vCard records found")
         for card in cards:
+            values, _contact_id, _metadata = self._vcard_values(card)
+            self._validated_fields(values)
+        for card in cards:
             self.upsert_vcard(card, actor)
         self.history.record("contacts_imported", actor, "contacts", "vcard-import", {"count": len(cards)})
         return len(cards)
@@ -669,6 +672,7 @@ class ContactStore:
         return hmac.compare_digest(actual, bytes.fromhex(account["password_hash"]))
 
     def upsert_vcard(self, card: str, actor: str, contact_id: str = "") -> dict[str, Any]:
+        self._require_actor(actor)
         values, contact_id, metadata = self._vcard_values(card, contact_id)
         fields = self._validated_fields(values)
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
@@ -754,7 +758,7 @@ class ContactStore:
                 merged[target] = safe
                 continue
             policy_key = field_policy.get(key, key)
-            if policy_key not in released:
+            if key in set(VCARD_EXTENSION_FIELDS.values()) or policy_key not in released:
                 merged[key] = value
         return merged
 
@@ -796,7 +800,7 @@ class ContactStore:
     @staticmethod
     def _vcard_values(card: str, contact_id: str = "") -> tuple[dict[str, str], str, dict[str, Any]]:
         values: dict[str, str] = {}
-        metadata: dict[str, Any] = {"tags": [], "groups": [], "addresses": []}
+        metadata: dict[str, Any] = {"tags": [], "addresses": []}
         lines, _version = validate_single_vcard(card)
         seen_email = False
         seen_phone = False
