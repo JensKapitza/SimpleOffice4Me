@@ -50,12 +50,14 @@ Default: deny (incoming), allow (outgoing), disabled (routed)
 """
         numbered = """[ 1] 53/udp                     ALLOW IN    Anywhere
 [ 2] 5004:5005/udp              DENY IN     10.0.0.0/8 # simpleoffice-test-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+[ 3] 53/udp (v6)                DENY IN     Anywhere (v6)
 """
         result = agent.parse_ufw_status(verbose, numbered)
         self.assertTrue(result["active"])
         self.assertEqual("deny", result["default_incoming"])
         self.assertEqual(("allow", 53, 53), (result["rules"][0]["effect"], result["rules"][0]["port_start"], result["rules"][0]["port_end"]))
         self.assertEqual((5004, 5005), (result["rules"][1]["port_start"], result["rules"][1]["port_end"]))
+        self.assertEqual("ipv6", result["rules"][2]["family"])
 
     def test_firewalld_zones_and_ports_are_normalized(self):
         self.assertEqual(["public", "home"], agent.parse_firewalld_active_zones("public\n  interfaces: eth0\nhome\n  interfaces: wlan0\n"))
@@ -123,6 +125,14 @@ class FirewallSafetyTests(unittest.TestCase):
         ufw["rules"] = [{"effect": "allow", "protocol": "tcp", "port_start": 8080, "port_end": 8080, "order": 1, "summary": "allow"}]
         self.assertEqual("allowed", firewall.firewall_decision(ufw, "tcp", 8080, 8080)["state"])
         self.assertEqual("local-only", firewall.firewall_decision(ufw, "tcp", 8080, 8080, "127.0.0.1")["state"])
+        mixed = {
+            "backend": "ufw", "active": True, "conflict": False, "default_incoming": "deny",
+            "rules": [
+                {"effect": "allow", "protocol": "tcp", "port_start": 8080, "port_end": 8080, "order": 1, "family": "ipv4"},
+                {"effect": "deny", "protocol": "tcp", "port_start": 8080, "port_end": 8080, "order": 2, "family": "ipv6"},
+            ],
+        }
+        self.assertEqual("unknown", firewall.firewall_decision(mixed, "tcp", 8080, 8080, "")["state"])
 
     def test_firewalld_multiple_zones_stay_unknown_and_accept_target_is_honored(self):
         multiple = {
