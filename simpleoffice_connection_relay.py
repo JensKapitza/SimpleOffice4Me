@@ -11,6 +11,8 @@ import re
 import secrets
 import shutil
 import ssl
+import shlex
+import sys
 import subprocess
 import threading
 import time
@@ -425,7 +427,12 @@ def ssh_proxy_command(config_path: str | Path | None, target: str) -> str:
     if normalized not in settings["tunnel_targets"]:
         raise ValueError("SSH-Ziel ist nicht für den HTTPS-Tunnel freigegeben")
     config = str(Path(config_path or default_config_path()).expanduser().resolve())
-    return (
-        "python -m tools.https_connect_tunnel "
-        f"--config {json.dumps(config)} --target {json.dumps(normalized)}"
-    )
+    helper = Path(__file__).resolve().parent / "tools" / "https_connect_tunnel.py"
+    return shlex.join([
+        sys.executable,
+        str(helper),
+        "--config",
+        config,
+        "--target",
+        normalized,
+    ])
