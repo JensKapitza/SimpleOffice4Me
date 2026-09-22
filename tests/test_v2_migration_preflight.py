@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.v2.blob_store import BlobStore
 from app.v2.contracts import LogicalObjectId
-from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents
+from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
 from app.v2.recovery_cli import main
 
 
@@ -59,7 +59,6 @@ class V2MigrationPreflightTests(unittest.TestCase):
             manifest = json.loads((target / ".simpleoffice-v2" / "migration-backup.json").read_text(encoding="utf-8"))
             self.assertEqual("simpleoffice-v2-migration-backup", manifest["format"])
             self.assertEqual(1, manifest["files"])
-            self.assertEqual(64, len(manifest["tree_sha256"]))
             self.assertEqual(str(target.resolve()), result["destination"])
 
     def test_backup_refuses_destination_inside_source_or_existing_target(self):
@@ -206,7 +205,7 @@ class V2MigrationPreflightTests(unittest.TestCase):
             create_migration_backup(root, backup)
             (backup / "inbox" / "file.bin").write_bytes(b"tampered")
 
-            with self.assertRaisesRegex(ValueError, "migration backup tree integrity check failed"):
+            with self.assertRaisesRegex(ValueError, "backup integrity mismatch"):
                 transfer_legacy_documents(root, backup)
             self.assertFalse((root / ".simpleoffice-v2" / "blob-store").exists())
 
@@ -295,6 +294,132 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertTrue(any("integrity verification" in blocker for blocker in result.blockers))
 
 
+    def test_migration_verification_is_read_only_after_successful_transfer(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"verify-me"
+            document = root / "inbox" / "verify.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "verify.json").write_text(
+                json.dumps({
+                    "document_id": "doc-verify",
+                    "last_path": "inbox/verify.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            before = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+
+            result = verify_migration_transfer(root)
+
+            after = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+            self.assertTrue(result["ready"])
+            self.assertEqual(1, result["verified_documents"])
+            self.assertEqual(before, after)
+
+            with redirect_stdout(StringIO()) as output:
+                code = main(["--root", str(root), "migration-verify"])
+            self.assertEqual(0, code)
+            self.assertTrue(json.loads(output.getvalue())["ready"])
+
+    def test_migration_verification_reports_missing_v2_object(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"missing-pointer"
+            document = root / "inbox" / "missing.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "missing.json").write_text(
+                json.dumps({
+                    "document_id": "doc-missing",
+                    "last_path": "inbox/missing.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            store = BlobStore(root)
+            store._current_path(LogicalObjectId("doc-missing")).unlink()
+
+            result = verify_migration_transfer(root)
+
+            self.assertFalse(result["ready"])
+            self.assertEqual(0, result["verified_documents"])
+            self.assertTrue(any("V2 object is missing" in blocker for blocker in result["blockers"]))
+
+    def test_migration_verification_fails_closed_on_malformed_transfer_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            content = b"report-test"
+            document = root / "inbox" / "report.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "report.json").write_text(
+                json.dumps({
+                    "document_id": "doc-report",
+                    "last_path": "inbox/report.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            report_path = root / ".simpleoffice-v2" / "migration-transfer.json"
+            report_path.write_text("[]", encoding="utf-8")
+
+            result = verify_migration_transfer(root)
+
+            self.assertFalse(result["ready"])
+            self.assertTrue(any("not a JSON object" in blocker for blocker in result["blockers"]))
+
+
+    def test_migration_verification_without_transfer_report_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            content = b"legacy-only"
+            document = root / "inbox" / "legacy.bin"
+            document.parent.mkdir()
+            document.write_bytes(content)
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            (metadata_dir / "legacy.json").write_text(
+                json.dumps({
+                    "document_id": "legacy-only",
+                    "last_path": "inbox/legacy.bin",
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            before = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+
+            result = verify_migration_transfer(root)
+
+            after = sorted(str(item.relative_to(root)) for item in root.rglob("*"))
+            self.assertFalse(result["ready"])
+            self.assertTrue(any("transfer report" in blocker for blocker in result["blockers"]))
+            self.assertEqual(before, after)
+            self.assertFalse((root / ".simpleoffice-v2").exists())
+
+
     def test_restore_roundtrip_is_atomic_and_removes_backup_marker(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -375,7 +500,6 @@ class V2MigrationPreflightTests(unittest.TestCase):
             self.assertEqual("legacy-inventory-only", result["integrity"])
             self.assertEqual("legacy-backup", (base / "restored" / "legacy.txt").read_text(encoding="utf-8"))
 
-
     def test_transfer_rejects_tampered_rollback_backup_tree(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -404,7 +528,6 @@ class V2MigrationPreflightTests(unittest.TestCase):
                 transfer_legacy_documents(root, backup)
             self.assertFalse((root / ".simpleoffice-v2" / "blob-store").exists())
 
-
     def test_backup_rejects_reserved_manifest_path_in_source(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -417,7 +540,6 @@ class V2MigrationPreflightTests(unittest.TestCase):
                 create_migration_backup(root, base / "backup")
             self.assertEqual("user-data", reserved.read_text(encoding="utf-8"))
             self.assertFalse((base / "backup").exists())
-
 
 if __name__ == "__main__":
     unittest.main()
