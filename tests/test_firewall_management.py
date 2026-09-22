@@ -112,10 +112,12 @@ class FirewallSafetyTests(unittest.TestCase):
     def test_watchdog_is_armed_before_first_mutation(self):
         order = []
         rule = firewall.normalize_rule({"effect": "allow", "protocol": "tcp", "port": 8081})
+        lock = unittest.mock.MagicMock()
         with patch("simpleoffice_firewall_agent.firewall_snapshot", return_value={
                 "backend": "ufw", "active": True, "writable": True, "conflict": False,
-                "active_zones": [], "rules": [], "tests": []}),              patch("simpleoffice_firewall_agent._write_plan", side_effect=lambda _plan: order.append("plan")),              patch("simpleoffice_firewall_agent._schedule_rollback", side_effect=lambda _ident, _delay: order.append("watchdog") or "process"),              patch("simpleoffice_firewall_agent._ufw_apply_test", side_effect=lambda value, marker: order.append("apply") or {**value, "marker": marker, "preexisting": False}):
+                "active_zones": [], "rules": [], "tests": []}),              patch("simpleoffice_firewall_agent._write_plan", side_effect=lambda _plan: order.append("plan")),              patch("simpleoffice_firewall_agent._locked_plan", return_value=lock),              patch("simpleoffice_firewall_agent._schedule_rollback", side_effect=lambda _ident, _delay: order.append("watchdog") or "process"),              patch("simpleoffice_firewall_agent._ufw_apply_test", side_effect=lambda value, marker: order.append("apply") or {**value, "marker": marker, "preexisting": False}):
             result = agent.test_rules([rule])
+        lock.close.assert_called_once()
         self.assertEqual("ufw", result["backend"])
         self.assertLess(order.index("watchdog"), order.index("apply"))
 
