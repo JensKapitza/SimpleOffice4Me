@@ -155,10 +155,11 @@
       body.className = 'card-body';
       const title = document.createElement('h3');
       title.className = 'h5';
-      title.textContent = `${test.backend} · Test ${String(test.id).slice(0, 8)}`;
+      title.textContent = `${test.backend} · Test ${String(test.id).slice(0, 8)} · ${test.status || 'pending'}`;
       const countdown = document.createElement('p');
       countdown.className = 'fw-semibold';
       countdown.dataset.expires = String(test.expires_at || 0);
+      countdown.dataset.status = test.status || 'pending';
       const rule = document.createElement('p');
       rule.className = 'small';
       rule.textContent = (test.rules || []).map(portLabel).join(', ');
@@ -166,6 +167,7 @@
       confirm.type = 'button';
       confirm.className = 'btn btn-success me-2';
       confirm.textContent = 'Änderung bestätigen';
+      confirm.disabled = (test.status || 'pending') !== 'pending';
       confirm.addEventListener('click', async () => {
         try {
           await perform(`/test/${encodeURIComponent(test.id)}/confirm`, {}, 'Firewalländerung wird bestätigt …');
@@ -196,6 +198,19 @@
 
   const updateCountdowns = () => {
     document.querySelectorAll('[data-expires]').forEach(node => {
+      const status = node.dataset.status || 'pending';
+      if (status === 'rollback_failed') {
+        node.textContent = 'Rollback fehlgeschlagen – erneut zurückrollen und Agent-Protokoll prüfen.';
+        return;
+      }
+      if (status === 'confirming') {
+        node.textContent = 'Bestätigung wird sicher übernommen …';
+        return;
+      }
+      if (status === 'preparing') {
+        node.textContent = 'Test wird vorbereitet; Rollback-Watchdog ist maßgeblich.';
+        return;
+      }
       const left = Math.max(0, Math.ceil(Number(node.dataset.expires) - Date.now() / 1000));
       node.textContent = left ? `Automatischer Rollback in ${left} s` : 'Rollback läuft / Status aktualisieren';
     });
@@ -213,6 +228,12 @@
     document.getElementById('fw-zones').textContent = (snapshot.active_zones || []).length
       ? `Aktive Zonen: ${snapshot.active_zones.join(', ')}`
       : 'Keine firewalld-Zone gemeldet.';
+
+    const last = data.last_operation;
+    const lastResult = last?.result?.state || last?.result?.error || '';
+    document.getElementById('fw-last-operation').textContent = last
+      ? `Letzte Aktion: ${last.action} · ${last.state}${lastResult ? ' · ' + lastResult : ''}`
+      : 'Letzte Aktion: –';
 
     zoneSelect.replaceChildren(new Option('automatisch', ''));
     (snapshot.active_zones || []).forEach(zone => zoneSelect.appendChild(new Option(zone, zone)));
