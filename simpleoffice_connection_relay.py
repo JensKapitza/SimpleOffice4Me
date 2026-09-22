@@ -283,6 +283,10 @@ def turn_rest_credentials(
     expires_at = timestamp + int(settings["credential_ttl"])
     username = f"{expires_at}:{clean_principal}"
     secret = ensure_turn_secret(config_path)
+    # coturn's TURN REST API intentionally defines the temporary password
+    # as base64(HMAC-SHA1(shared-secret, timestamp:username)). This is protocol
+    # compatibility, not password hashing or an integrity primitive chosen by us.
+    # codeql[py/weak-sensitive-data-hashing]
     credential = base64.b64encode(
         hmac.new(secret.encode("utf-8"), username.encode("utf-8"), hashlib.sha1).digest()
     ).decode("ascii")
