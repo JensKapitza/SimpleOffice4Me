@@ -129,12 +129,12 @@ def main() -> int:
 
             page.locator("#username").fill(USERNAME)
             page.locator("#password").fill(PASSWORD)
-            page.get_by_role("button", name="Lokales Konto erstellen").click()
+            page.get_by_role("button", name="Lokales Konto erstellen", exact=True).click()
             page.wait_for_url("**/auth/login")
 
             page.locator("#username").fill(USERNAME)
             page.locator("#password").fill(PASSWORD)
-            page.get_by_role("button", name="Anmelden").click()
+            page.get_by_role("button", name="Anmelden", exact=True).click()
             page.wait_for_load_state("domcontentloaded")
             if "/auth/login" in page.url:
                 raise RuntimeError("Anmeldung des Browser-Testbenutzers ist fehlgeschlagen.")

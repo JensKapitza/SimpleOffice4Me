@@ -16,7 +16,6 @@ on:
         required: true
         default: true
         type: boolean
-
 permissions:
   contents: read
 
@@ -61,7 +60,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm -d             --name simpleoffice-browser-test             -p 127.0.0.1:8080:8080             -e SIMPLEOFFICE_BACKGROUND_INDEX=0             -e SIMPLEOFFICE_OSM_INDEX=0             -e SIMPLEOFFICE_DATALOGGER=0             -e SIMPLEOFFICE_MCP=0             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0             simpleoffice4me:browser-test
+          docker run -d \
+            --name simpleoffice-browser-test \
+            -p 127.0.0.1:8080:8080 \
+            -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
+            -e SIMPLEOFFICE_OSM_INDEX=0 \
+            -e SIMPLEOFFICE_DATALOGGER=0 \
+            -e SIMPLEOFFICE_MCP=0 \
+            -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
+            simpleoffice4me:browser-test
 
       - name: Wait for web service
         shell: bash
@@ -75,18 +82,20 @@ jobs:
             if ! docker ps --format '{{.Names}}' | grep -qx simpleoffice-browser-test; then
               echo "SimpleOffice4Me container stopped unexpectedly."
               docker logs simpleoffice-browser-test || true
+              docker inspect simpleoffice-browser-test || true
               exit 1
             fi
             sleep 2
           done
           echo "SimpleOffice4Me did not become ready."
           docker logs simpleoffice-browser-test || true
+          docker inspect simpleoffice-browser-test || true
           exit 1
 
       - name: Run browser screenshot test
         env:
-          BROWSER_SCREENSHOT_SCOPE: ${{ inputs.scope }}
-          BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ inputs.fail_on_console_errors }}
+          BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'core' }}
+          BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ github.event_name == 'workflow_dispatch' && inputs.fail_on_console_errors || true }}
         shell: bash
         run: |
           set -euo pipefail
@@ -98,11 +107,12 @@ jobs:
         run: |
           mkdir -p test-results/browser
           docker logs simpleoffice-browser-test > test-results/browser/server.log 2>&1 || true
+          docker inspect simpleoffice-browser-test > test-results/browser/container-inspect.json 2>&1 || true
 
       - name: Stop service
         if: always()
         shell: bash
-        run: docker stop simpleoffice-browser-test >/dev/null 2>&1 || true
+        run: docker rm -f simpleoffice-browser-test >/dev/null 2>&1 || true
 
       - name: Upload screenshots and diagnostics
         if: always()
