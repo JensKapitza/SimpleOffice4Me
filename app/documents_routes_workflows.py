@@ -785,8 +785,8 @@ def import_contacts():
     try:
         imported = _contacts().import_vcards(uploaded.read().decode("utf-8-sig"), str(g.user["username"]))
         flash(f"{imported} Kontakt(e) importiert.")
-    except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Kontaktimport fehlgeschlagen: {exc}")
+    except (UnicodeDecodeError, ValueError):
+        flash("Kontaktimport fehlgeschlagen. Datei und vCard-Format prüfen.")
     return redirect(url_for("documents.contacts"))
 
 

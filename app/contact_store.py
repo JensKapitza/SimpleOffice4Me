@@ -523,10 +523,12 @@ class ContactStore:
         normalized_parameters = sorted(parameter.strip().upper() for parameter in parameters if parameter.strip())
         return ";".join((property_part.strip().upper(), *normalized_parameters))
 
-    def vcard(self, contact_id: str, actor: str = "") -> str:
+    def vcard(self, contact_id: str, actor: str = "", selected_fields: set[str] | None = None) -> str:
         contact = self.get(contact_id, actor)
         fields = contact["fields"]
         released = self.vcard_export_fields()
+        if selected_fields is not None:
+            released &= {str(field).strip() for field in selected_fields if str(field).strip()}
 
         def value(key: str) -> str:
             return str(fields.get(key, "")).replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
