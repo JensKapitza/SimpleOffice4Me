@@ -541,8 +541,9 @@ class ContactStore:
         if fields.get("department"):
             org += ";" + value("department")
 
+        external_uid = str(fields.get("vcard_uid") or contact["contact_id"]).replace("\r", "").replace("\n", "")
         raw_lines = [
-            "BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}", f"FN:{value('display_name')}",
+            "BEGIN:VCARD", "VERSION:4.0", f"UID:{external_uid}", f"FN:{value('display_name')}",
             f"N:{value('last_name')};{value('first_name')};;;",
             *([f"NICKNAME:{value('nickname')}"] if fields.get("nickname") else []),
             *([f"EMAIL:{value('email')}"] if fields.get("email") else []),
@@ -564,7 +565,7 @@ class ContactStore:
             "ROLE": "role", "URL": "website", "NOTE": "note", "CATEGORIES": "categories",
             "X-SIMPLEOFFICE-GROUP": "groups",
         }
-        lines = ["BEGIN:VCARD", "VERSION:4.0", f"UID:{contact['contact_id']}"]
+        lines = ["BEGIN:VCARD", "VERSION:4.0", f"UID:{external_uid}"]
         for line in raw_lines[3:]:
             name = self._vcard_property_name(line)
             field = property_to_field.get(name)
@@ -590,7 +591,15 @@ class ContactStore:
                 label = str(address.get("label", "")).strip().casefold()
                 address_type = "work" if label in {"firma", "arbeit", "work", "office"} else "home" if label in {"privat", "home"} else "other"
                 if components:
-                    parts = ("", "", components.get("street", ""), components.get("city", ""), components.get("state", ""), components.get("postal", ""), components.get("country", ""))
+                    parts = (
+                        components.get("po_box", ""),
+                        components.get("extended", ""),
+                        components.get("street", ""),
+                        components.get("city", ""),
+                        components.get("state", ""),
+                        components.get("postal", ""),
+                        components.get("country", ""),
+                    )
                     lines.append(f"ADR;TYPE={address_type}:" + ";".join(text(part) for part in parts))
                 else:
                     lines.append(f"ADR;TYPE={address_type}:;;{text(address_value)};;;;")
@@ -599,8 +608,8 @@ class ContactStore:
             if field in released and fields.get(field):
                 lines.append(f"{property_name}:{value(field)}")
 
-        lines.extend(["END:VCARD", ""])
-        return "\r\n".join(lines)
+        lines.append("END:VCARD")
+        return serialize_folded(lines)
 
     def export_vcards(self, actor: str = "") -> str:
         """Export all contacts as one portable vCard 4.0 file."""
@@ -834,6 +843,8 @@ class ContactStore:
                     raise ValueError("vCard contains more than one UID")
                 seen_uid = True
                 uid = value.strip()
+                if "\r" in uid or "\n" in uid:
+                    raise ValueError("vCard UID must not contain line breaks")
                 if uid:
                     values["custom_vcard_uid"] = uid
                     if not contact_id:
