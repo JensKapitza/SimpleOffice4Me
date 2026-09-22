@@ -37,6 +37,7 @@ def _connect(config_path: Path, target: str, timeout: float = 15.0) -> socket.so
     target_authority = f"[{target_host}]:{target_port}" if ":" in target_host else f"{target_host}:{target_port}"
 
     context = ssl.create_default_context(cafile=settings["https_proxy_ca_file"] or None)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     raw = socket.create_connection((proxy_host, proxy_port), timeout=timeout)
     try:
         tunnel = context.wrap_socket(raw, server_hostname=proxy_host)
