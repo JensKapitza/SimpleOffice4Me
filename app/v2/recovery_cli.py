@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from .cutover import cutover_status, prepare_shadow, return_to_v1
+from .cutover import activate_v2, cutover_status, prepare_shadow, return_to_v1
 from .recovery import RecoveryService
 from .migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
 
@@ -37,6 +37,10 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("storage-cutover-status", help="Show explicit V2 storage cutover state and verification")
     shadow = sub.add_parser("storage-shadow", help="Prepare or enter verified V2 shadow mode")
     shadow.add_argument("--apply", action="store_true")
+    shadow.add_argument("--acknowledge-local-plaintext", action="store_true")
+    activate = sub.add_parser("storage-v2", help="Promote verified shadow mode to authoritative V2 storage")
+    activate.add_argument("--apply", action="store_true")
+    activate.add_argument("--acknowledge-local-plaintext", action="store_true")
     shadow.add_argument(
         "--acknowledge-local-plaintext",
         action="store_true",
