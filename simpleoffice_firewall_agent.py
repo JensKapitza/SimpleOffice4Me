@@ -25,7 +25,7 @@ from simpleoffice_firewall import AGENT_SOCKET, normalize_rules, validate_test_i
 STATE_ROOT = Path(os.environ.get("SIMPLEOFFICE_FIREWALL_AGENT_STATE", "/var/lib/simpleoffice4me/firewall-agent"))
 PLAN_DIR = STATE_ROOT / "tests"
 COMMAND_TIMEOUT = 6
-_UFW_LINE = re.compile(r"^\[\s*(\d+)\]\s+(\S+)\s+(ALLOW|DENY|REJECT)(?:\s+(IN|OUT))?\s+(.+)$", re.I)
+_UFW_LINE = re.compile(r"^\[\s*(\d+)\]\s+(\S+?)(?:\s+\((v6)\))?\s+(ALLOW|DENY|REJECT|LIMIT)(?:\s+(IN|OUT))?\s+(.+)$", re.I)
 _RICH_PORT = re.compile(r'port\s+port="(\d+)(?:-(\d+))?"\s+protocol="(tcp|udp)"', re.I)
 
 
@@ -156,7 +156,12 @@ def parse_ufw_status(verbose: str, numbered: str) -> dict[str, Any]:
         match = _UFW_LINE.match(line)
         if not match:
             continue
-        order = int(match.group(1)); destination = match.group(2); action = match.group(3).upper(); direction = (match.group(4) or "IN").upper(); source = match.group(5)
+        order = int(match.group(1))
+        destination = match.group(2)
+        family = "ipv6" if match.group(3) else "ipv4"
+        action = match.group(4).upper()
+        direction = (match.group(5) or "IN").upper()
+        source = match.group(6)
         if direction == "OUT":
             continue
         parsed = _parse_port_spec(destination)
@@ -165,9 +170,12 @@ def parse_ufw_status(verbose: str, numbered: str) -> dict[str, Any]:
         if not parsed:
             continue
         start, end, protocol = parsed
-        effect = "allow" if action == "ALLOW" else "deny"
+        effect = "allow" if action in {"ALLOW", "LIMIT"} else "deny"
         comment = source.split("#", 1)[1].strip() if "#" in source else ""
-        rules.append({"effect": effect, "protocol": protocol, "port_start": start, "port_end": end, "order": order, "source": source.split("#", 1)[0].strip(), "comment": comment, "origin": "ufw", "summary": f"UFW #{order}: {action} {destination}"})
+        clean_source = source.split("#", 1)[0].strip()
+        if family == "ipv6" and clean_source.endswith("(v6)"):
+            clean_source = clean_source[:-4].strip()
+        rules.append({"effect": effect, "protocol": protocol, "port_start": start, "port_end": end, "order": order, "family": family, "source": clean_source, "comment": comment, "origin": "ufw", "summary": f"UFW #{order}: {action} {destination} ({family})"})
     return {"active": active, "default_incoming": default_match.group(1).lower() if default_match else "unknown", "rules": rules}
 
 
