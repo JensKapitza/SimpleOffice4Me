@@ -105,6 +105,10 @@
 
       const fw = document.createElement('td');
       fw.appendChild(badge(service.firewall_state));
+      const diagnosis = document.createElement('div');
+      diagnosis.className = 'small fw-semibold mt-1';
+      diagnosis.textContent = service.diagnosis || '';
+      fw.appendChild(diagnosis);
       (service.port_status || []).forEach(p => {
         const detail = document.createElement('div');
         detail.className = 'small text-secondary mt-1';
