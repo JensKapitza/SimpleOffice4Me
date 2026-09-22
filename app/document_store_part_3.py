@@ -1,6 +1,8 @@
 """DocumentStore implementation part 3 of 5."""
 from __future__ import annotations
 
+from io import BytesIO
+
 from .document_store_core import *  # noqa: F401,F403
 
 
@@ -239,6 +241,89 @@ class _DocumentStorePart3:
         )
         return self.get_document(destination["document_id"])
 
+    def create_document_stream_at(
+        self,
+        relative_path: str,
+        stream: Any,
+        actor: str,
+        *,
+        max_bytes: int = 512 * 1024 * 1024,
+        document_id: str = "",
+    ) -> dict[str, Any]:
+        """Atomically create one managed file from a bounded stream."""
+        self._require_actor(actor)
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise ValueError("document size limit must be a positive number of bytes")
+        relative = self._safe_managed_relative_path(relative_path, require_name=True)
+        destination = self.root / relative
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise ValueError("destination collection does not exist")
+        self.ensure_folder_policy(destination.parent)
+        self.initialize()
+        normalized_id = ""
+        if document_id:
+            try:
+                normalized_id = str(uuid.UUID(str(document_id)))
+            except (ValueError, AttributeError, TypeError):
+                raise ValueError("document identity must be a UUID") from None
+            if (self.documents / f"{normalized_id}.json").exists():
+                raise ValueError("document identity already exists")
+        from .file_lock import exclusive_file_lock
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            if destination.exists():
+                raise FileExistsError("destination resource already exists")
+            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
+            written = 0
+            source = getattr(stream, "stream", stream)
+            try:
+                with temporary.open("xb") as handle:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if chunk is None:
+                            raise ValueError("document stream returned no bytes")
+                        chunk = bytes(chunk)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise ValueError("document exceeds the configured upload size limit")
+                        handle.write(chunk)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                temporary.replace(destination)
+            finally:
+                temporary.unlink(missing_ok=True)
+            self._scan_file(
+                destination,
+                force_hash=True,
+                document_id_hint=normalized_id,
+            )
+            metadata = self.get_document(destination)
+            metadata.setdefault("content_history", []).append({
+                "number": 1,
+                "at": utc_now(),
+                "actor": actor,
+                "source": "v2-storage-projection" if normalized_id else "webdav",
+                "previous_sha256": "",
+                "sha256": metadata["sha256"],
+                "previous_size": 0,
+                "size": written,
+                "archive": "",
+            })
+            metadata["content_revision"] = 1
+            self._save_document(metadata)
+            self._event("document_created", {
+                "document_id": metadata["document_id"],
+                "path": self.relative(destination),
+                "actor": actor,
+                "sha256": metadata["sha256"],
+            })
+            self._record_revision(
+                "document_created", actor, "documents", metadata["document_id"], metadata
+            )
+            return metadata
+
     def create_document_at(
         self,
         relative_path: str,
@@ -246,51 +331,26 @@ class _DocumentStorePart3:
         actor: str,
         *,
         max_bytes: int = 512 * 1024 * 1024,
+        document_id: str = "",
     ) -> dict[str, Any]:
         """Atomically create a new regular file at an existing managed folder."""
-        self._require_actor(actor)
-        if len(content) > max_bytes:
-            raise ValueError("document exceeds the configured upload size limit")
-        relative = self._safe_managed_relative_path(relative_path, require_name=True)
-        destination = self.root / relative
-        if not destination.parent.is_dir() or destination.parent.is_symlink():
-            raise ValueError("destination collection does not exist")
-        self.ensure_folder_policy(destination.parent)
-        self.initialize()
-        from .file_lock import exclusive_file_lock
+        payload = bytes(content)
+        return self.create_document_stream_at(
+            relative_path,
+            BytesIO(payload),
+            actor,
+            max_bytes=max_bytes,
+            document_id=document_id,
+        )
 
-        with exclusive_file_lock(self.control / ".document-content.lock"):
-            if destination.exists():
-                raise FileExistsError("destination resource already exists")
-            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
-            try:
-                with temporary.open("xb") as handle:
-                    handle.write(content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                temporary.replace(destination)
-            finally:
-                temporary.unlink(missing_ok=True)
-            self._scan_file(destination, force_hash=True)
-            metadata = self.get_document(destination)
-            metadata.setdefault("content_history", []).append({
-                "number": 1,
-                "at": utc_now(),
-                "actor": actor,
-                "source": "webdav",
-                "previous_sha256": "",
-                "sha256": metadata["sha256"],
-                "previous_size": 0,
-                "size": len(content),
-                "archive": "",
-            })
-            metadata["content_revision"] = 1
-            self._save_document(metadata)
-            self._event("document_created", {"document_id": metadata["document_id"], "path": self.relative(destination), "actor": actor, "sha256": metadata["sha256"]})
-            self._record_revision("document_created", actor, "documents", metadata["document_id"], metadata)
-            return metadata
-
-    def copy_document(self, reference: str, destination_path: str, actor: str) -> dict[str, Any]:
+    def copy_document(
+        self,
+        reference: str,
+        destination_path: str,
+        actor: str,
+        *,
+        document_id: str = "",
+    ) -> dict[str, Any]:
         """Create an independent, audited copy without carrying access grants."""
         self._require_actor(actor)
         source_metadata = self.get_document(reference)
@@ -304,6 +364,14 @@ class _DocumentStorePart3:
         if not destination.parent.is_dir() or destination.parent.is_symlink():
             raise ValueError("destination collection does not exist")
         self.ensure_folder_policy(destination.parent)
+        normalized_id = ""
+        if document_id:
+            try:
+                normalized_id = str(uuid.UUID(str(document_id)))
+            except (ValueError, AttributeError, TypeError):
+                raise ValueError("document identity must be a UUID") from None
+            if (self.documents / f"{normalized_id}.json").exists():
+                raise ValueError("document identity already exists")
         from .file_lock import exclusive_file_lock
 
         with exclusive_file_lock(self.control / ".document-content.lock"):
@@ -317,7 +385,7 @@ class _DocumentStorePart3:
                 temporary.replace(destination)
             finally:
                 temporary.unlink(missing_ok=True)
-            self._scan_file(destination, force_hash=True)
+            self._scan_file(destination, force_hash=True, document_id_hint=normalized_id)
             copied = self.get_document(destination)
             copied["tags"] = list(source_metadata.get("tags", []))
             copied["tagged_at"] = dict(source_metadata.get("tagged_at", {}))
