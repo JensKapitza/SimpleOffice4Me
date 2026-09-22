@@ -26,7 +26,7 @@ class V2StorageRuntimeHelpersTests(unittest.TestCase):
         backup = self.base / "backup"
         create_migration_backup(self.root, backup)
         transfer_legacy_documents(self.root, backup)
-        prepare_shadow(self.root, apply=True)
+        prepare_shadow(self.root, apply=True, acknowledge_local_plaintext=True)
         self.catalog = ObjectCatalog(self.root)
         self.blobs = BlobStore(self.root)
 

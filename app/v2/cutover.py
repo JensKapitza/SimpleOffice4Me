@@ -24,6 +24,8 @@ from .migration import _catalog_snapshot_read_only, build_migration_plan, verify
 FORMAT_FAMILY = "simpleoffice-v2-storage-cutover"
 FORMAT_VERSION = 1
 MODES = {"v1", "shadow"}
+PROTECTION_MODES = {"unspecified", "local-plaintext"}
+LOCAL_PLAINTEXT = "local-plaintext"
 
 
 def _now() -> str:
@@ -33,6 +35,7 @@ def _now() -> str:
 @dataclass(frozen=True)
 class CutoverState:
     mode: str = "v1"
+    protection_mode: str = "unspecified"
     migration_fingerprint: str = ""
     verified_at: str = ""
     updated_at: str = ""
@@ -250,11 +253,15 @@ def load_cutover_state(root: str | Path) -> CutoverState:
     mode = str(raw.get("mode") or "")
     if mode not in MODES:
         raise ValueError("unsupported V2 storage cutover mode")
+    protection_mode = str(raw.get("protection_mode") or "unspecified")
+    if protection_mode not in PROTECTION_MODES:
+        raise ValueError("unsupported V2 storage protection mode")
     fingerprint = str(raw.get("migration_fingerprint") or "")
     if fingerprint and (len(fingerprint) != 64 or any(char not in "0123456789abcdef" for char in fingerprint)):
         raise ValueError("invalid V2 migration fingerprint")
     return CutoverState(
         mode=mode,
+        protection_mode=protection_mode,
         migration_fingerprint=fingerprint,
         verified_at=str(raw.get("verified_at") or ""),
         updated_at=str(raw.get("updated_at") or ""),
@@ -317,6 +324,15 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
         "fingerprint_matches": fingerprint_matches,
         "ready_for_shadow": ready_for_shadow,
         "shadow_dirty": bool(state.dirty),
+        "protection_mode": state.protection_mode,
+        "encrypted_at_rest": False,
+        "federation_storage_allowed": False,
+        "storage_protection_warning": (
+            "V2 local storage is explicitly unencrypted at rest; do not use this blob store "
+            "as ciphertext storage for federation or P2P peers."
+            if state.protection_mode == LOCAL_PLAINTEXT
+            else "V2 storage protection mode has not been explicitly selected."
+        ),
         "ready_for_v2_activation": False,
         "v2_activation_blocker": (
             "runtime cutover is not enabled until all required read/write consumers "
@@ -325,7 +341,12 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
     }
 
 
-def prepare_shadow(root: str | Path, *, apply: bool = False) -> dict[str, Any]:
+def prepare_shadow(
+    root: str | Path,
+    *,
+    apply: bool = False,
+    acknowledge_local_plaintext: bool = False,
+) -> dict[str, Any]:
     """Verify V1/V2 equivalence and optionally persist or refresh shadow mode."""
     state = load_cutover_state(root)
     if state.mode == "shadow":
@@ -346,10 +367,18 @@ def prepare_shadow(root: str | Path, *, apply: bool = False) -> dict[str, Any]:
             + "; ".join(str(item) for item in verification.get("blockers") or [])
         )
     fingerprint = str(verification.get("fingerprint") or "")
+    if apply and not acknowledge_local_plaintext:
+        raise ValueError(
+            "V2 shadow mode currently uses local plaintext storage; explicit acknowledgement required"
+        )
     preview = {
         "mode": "shadow",
         "migration_fingerprint": fingerprint,
         "verified_documents": int(verification.get("verified_documents", 0)),
+        "protection_mode": LOCAL_PLAINTEXT,
+        "encrypted_at_rest": False,
+        "federation_storage_allowed": False,
+        "plaintext_acknowledged": bool(acknowledge_local_plaintext),
         "source_bytes": sum(
             int(row.get("size") or 0)
             for row in _shadow_inventory(root)[0]
@@ -361,6 +390,7 @@ def prepare_shadow(root: str | Path, *, apply: bool = False) -> dict[str, Any]:
     now = _now()
     refreshed = CutoverState(
         mode="shadow",
+        protection_mode=LOCAL_PLAINTEXT,
         migration_fingerprint=fingerprint,
         verified_at=now,
         updated_at=now,
@@ -395,5 +425,8 @@ def return_to_v1(root: str | Path, *, apply: bool = False) -> dict[str, Any]:
         "applied": bool(apply),
     }
     if apply:
-        _write_cutover_state(root, CutoverState(mode="v1", updated_at=_now()))
+        _write_cutover_state(
+            root,
+            CutoverState(mode="v1", protection_mode="unspecified", updated_at=_now()),
+        )
     return result

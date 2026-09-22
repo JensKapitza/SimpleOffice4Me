@@ -27,7 +27,7 @@ class ShadowStorageAdapterTests(unittest.TestCase):
         backup = Path(self.temp.name) / "backup"
         create_migration_backup(self.root, backup)
         transfer_legacy_documents(self.root, backup)
-        prepare_shadow(self.root, apply=True)
+        prepare_shadow(self.root, apply=True, acknowledge_local_plaintext=True)
         self.adapter = ShadowDocumentStorageAdapter(self.root, "test-user")
         self.catalog = ObjectCatalog(self.root)
         self.blobs = BlobStore(self.root)
