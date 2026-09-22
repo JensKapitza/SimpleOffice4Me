@@ -531,6 +531,16 @@ def firewall_status(config_path: str | Path | None = None) -> dict[str, Any]:
     }
 
 
+def deny_rules_hit_ports(rules: list[dict[str, Any]], ports: set[int]) -> bool:
+    """Return whether any normalized TCP deny covers a protected local port."""
+    return any(
+        rule.get("effect") == "deny"
+        and rule.get("protocol") == "tcp"
+        and any(int(rule.get("port_start", 0)) <= port <= int(rule.get("port_end", 0)) for port in ports)
+        for rule in rules
+    )
+
+
 def rules_for_service(service: dict[str, Any], effect: str) -> list[dict[str, Any]]:
     if effect not in EFFECTS:
         raise ValueError("Aktion muss allow oder deny sein")
