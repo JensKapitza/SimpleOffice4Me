@@ -469,7 +469,7 @@ class ContactStore:
         name = vcard_property_name(line)
         if not sep or not re.fullmatch(r"[A-Z0-9-]{1,80}", name):
             return ""
-        if name in {"BEGIN", "END", "VERSION", "UID", "FN", "N", "BDAY", "ORG", "NICKNAME", "TITLE", "ROLE", "URL", "NOTE", "CATEGORIES", "X-SIMPLEOFFICE-GROUP", "ADR"}:
+        if name in {"BEGIN", "END", "VERSION", "UID", "FN", "N", "BDAY", "ORG", "NICKNAME", "TITLE", "ROLE", "URL", "NOTE", "CATEGORIES", "X-SIMPLEOFFICE-GROUP"}:
             return ""
         if name == "PHOTO":
             return line if len(line) <= MAX_RAW_PHOTO_LINE_CHARS else ""
@@ -535,7 +535,7 @@ class ContactStore:
         for key in sorted(fields):
             if key.startswith("vcard_"):
                 raw = self._safe_raw_vcard_line(fields[key])
-                if raw:
+                if raw and not (self._vcard_property_name(raw) == "ADR" and contact.get("addresses")):
                     extras.append(raw)
         org = value("company")
         if fields.get("department"):
@@ -734,7 +734,7 @@ class ContactStore:
                     candidates.pop(0)
                     continue
                 name = self._vcard_property_name(safe)
-                raw_policy = {"EMAIL": "email", "TEL": "phone"}
+                raw_policy = {"EMAIL": "email", "TEL": "phone", "ADR": "addresses"}
                 standard_raw = {
                     "PHOTO", "IMPP", "GEO", "LANG", "TZ", "GENDER", "ANNIVERSARY",
                     "KEY", "KIND", "MEMBER", "RELATED", "SOURCE", "XML", "LOGO",
