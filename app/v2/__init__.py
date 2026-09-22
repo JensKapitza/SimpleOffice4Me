@@ -69,6 +69,9 @@ __all__ = [
     "OverlayImportJournal",
     "OverlayImportRecord",
     "OverlayImportState",
+    "CatalogEntry",
+    "CatalogState",
+    "ObjectCatalog",
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
@@ -84,3 +87,5 @@ from .authorization import AuthorizationStore, CapabilityGrant, GrantRight
 from .metadata import FilenameAlias, MetadataEnvelope, MetadataSource, MetadataValue, NamespaceRules, Provenance, TrustLevel, UnicodeNormalization, VerificationStatus, original_value
 
 from .overlay import OverlayImportJournal, OverlayImportRecord, OverlayImportState
+
+from .catalog import CatalogEntry, CatalogState, ObjectCatalog
