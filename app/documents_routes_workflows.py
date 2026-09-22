@@ -688,6 +688,7 @@ def contact_detail(contact_id: str):
     except ValueError:
         abort(404)
     users = [row["username"] for row in get_db().execute("SELECT username FROM user ORDER BY username COLLATE NOCASE").fetchall()]
+    video_chat_users = [row["username"] for row in get_db().execute("SELECT username FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE").fetchall()]
     store = _contacts(); visible = store.contacts(actor); company_id = str(contact.get("fields", {}).get("company_contact_id", ""))
     linked_company = next((item for item in visible if item.get("contact_id") == company_id), None)
     company_contacts = [{"contact_id": item["contact_id"], "name": store.company_name(item)} for item in visible if item.get("contact_id") != contact_id and store.company_name(item)]
@@ -920,6 +921,6 @@ def calendar():
     for event in events:
         if label_counts[event["invite_search_label"]] > 1:
             event["invite_search_label"] += f" · #{str(event.get('event_id') or '')[:8]}"
-    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=contacts, users=users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), booking_url=url_for("documents.book_calendar_slot", _external=True), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
+    return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=contacts, users=users, video_chat_users=video_chat_users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), booking_url=url_for("documents.book_calendar_slot", _external=True), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
 
 
