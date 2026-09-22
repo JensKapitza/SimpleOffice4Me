@@ -230,7 +230,7 @@ class DocumentStoreStorageAdapter:
             target = Path(destination.relative_path)
             metadata = self.store.move_document(
                 object_id.value,
-                target.parent.as_posix() if target.parent.as_posix() != "." else "",
+                target.parent.as_posix(),
                 self.actor,
                 destination_name=target.name,
             )
