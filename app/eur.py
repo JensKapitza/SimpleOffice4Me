@@ -13,6 +13,7 @@ from .auth import login_required
 from .document_store import DocumentStore
 from .eur_store import EurReceiptStore
 from .safe_paths import resolve_under, safe_filename
+from .v2.storage_runtime import import_document
 
 
 bp = Blueprint("eur", __name__, url_prefix="/documents/accounting")
@@ -53,7 +54,7 @@ def create_receipt():
         flash("Bitte den Originalbeleg als Datei auswählen.")
         return redirect(url_for("eur.receipts", year=_year()))
     try:
-        document = DocumentStore(_root()).import_upload(upload, upload.filename, _actor(), archive=True, max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
+        document = import_document(_root(), _actor(), upload, upload.filename, archive=True, max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]))
         receipt = EurReceiptStore(_root()).create(request.form, document, _actor())
         flash("Beleg gespeichert." if receipt["complete"] else "Beleg gespeichert; die Prüfung zeigt noch fehlende Angaben.")
     except (OSError, ValueError) as exc:
