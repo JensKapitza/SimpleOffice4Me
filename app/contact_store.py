@@ -16,6 +16,14 @@ from typing import Any
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
+from .vcard_utils import (
+    MAX_CONTACT_PHOTO_BYTES,
+    MAX_RAW_PHOTO_LINE_CHARS,
+    property_name as vcard_property_name,
+    safe_resource_id,
+    serialize_folded,
+    validate_single_vcard,
+)
 
 
 VCARD_EXPORT_CONFIG_KEY = "__vcard_export_fields__"
