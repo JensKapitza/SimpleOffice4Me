@@ -164,7 +164,7 @@ def _parameter_matches(params: dict[str, list[str]], node: ET.Element) -> bool:
     for child in children:
         if child.tag != f"{{{CARD}}}text-match":
             raise ValueError("unsupported CardDAV param-filter child")
-    return bool(values) and all(_text_match(value, child) for child in children for value in values)
+    return bool(values) and any(all(_text_match(value, child) for child in children) for value in values)
 
 
 def _property_matches(
@@ -221,6 +221,8 @@ def _report_contacts(store: ContactStore, username: str) -> list[dict]:
     raw = request.get_data(cache=True)
     if not raw:
         return contacts
+    if len(raw) > 1024 * 1024:
+        raise ValueError("CardDAV REPORT body is too large")
     try:
         root = DefusedET.fromstring(raw)
     except (ET.ParseError, DefusedXmlException) as exc:
@@ -311,15 +313,15 @@ def endpoint(path: str):
             try: contact=store.conditional_upsert_vcard(request.get_data(as_text=True),f"carddav:{username}",cid,expected_updated_at=expected,create_only=create_only)
             except ContactConflict as exc: return _precondition_failed(_etag(store,username,exc.contact) if exc.contact else "")
             except ValueError as exc: return Response(str(exc),400)
-            return Response("",201 if created else 204,{"ETag":_etag(contact),"Location":base+contact["contact_id"]+".vcf"})
+            return Response("",201 if created else 204,{"ETag":_etag(store,username,contact),"Location":base+contact["contact_id"]+".vcf"})
         if request.method == "DELETE":
             try: existing=store.get(cid,username)
             except ValueError: return Response("not found",404)
             if not store.can_manage(cid,username): return Response("forbidden",403)
-            current=_etag(existing)
+            current=_etag(store,username,existing)
             if request.headers.get("If-Match") and not _etag_matches(request.headers["If-Match"],current): return _precondition_failed(current)
             try: store.delete(cid,f"carddav:{username}",existing.get("updated_at","") if request.headers.get("If-Match") else None)
-            except ContactConflict as exc: return _precondition_failed(_etag(exc.contact) if exc.contact else "")
+            except ContactConflict as exc: return _precondition_failed(_etag(store,username,exc.contact) if exc.contact else "")
             except ValueError: return Response("not found",404)
             return Response("",204)
     return Response("not found",404)
