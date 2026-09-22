@@ -852,9 +852,10 @@ class ContactStore:
                 if "\r" in uid or "\n" in uid:
                     raise ValueError("vCard UID must not contain line breaks")
                 if uid:
+                    mapped_uid = safe_resource_id(uid)
                     values["custom_vcard_uid"] = uid
                     if not contact_id:
-                        contact_id = safe_resource_id(uid)
+                        contact_id = mapped_uid
             elif name not in {"BEGIN", "END", "VERSION"}:
                 if name == "PHOTO" and len(raw) > MAX_RAW_PHOTO_LINE_CHARS:
                     raise ValueError("embedded contact photo is too large")
