@@ -174,6 +174,18 @@ class FirewallSafetyTests(unittest.TestCase):
         self.assertEqual(2, len(cleaned))
         lock.close.assert_called_once()
 
+    def test_firewalld_runtime_rule_can_be_confirmed_permanently_without_owning_runtime(self):
+        rule = {
+            "effect": "allow", "protocol": "tcp", "port_start": 8080,
+            "port_end": 8080, "zone": "public", "preexisting": True,
+        }
+        with patch("simpleoffice_firewall_agent._run", return_value={
+            "ok": False, "missing": False, "stdout": "", "stderr": "", "returncode": 1,
+        }):
+            change = agent._firewalld_permanent_change(rule)
+        self.assertTrue(change["owned"])
+        self.assertTrue(change["rule"]["preexisting"])
+
     def test_agent_rejects_extra_fields_per_action(self):
         with self.assertRaises(ValueError):
             agent.handle_request({"action": "snapshot", "rules": []})
