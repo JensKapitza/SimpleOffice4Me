@@ -328,6 +328,7 @@ def _handle_tree_copy_move(username: str, identity, resource, document, is_colle
                 replace=replacing_document is not None,
                 expected_source_sha256=_etag_value(current_etag),
                 expected_destination_sha256=_etag_value(destination_etag),
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             )
             if replacing_document is None:
                 _copy_dead_properties(username, resource, document, destination, result)
@@ -339,6 +340,7 @@ def _handle_tree_copy_move(username: str, identity, resource, document, is_colle
                 replace=replacing_document is not None,
                 expected_source_sha256=_etag_value(current_etag),
                 expected_destination_sha256=_etag_value(destination_etag),
+                max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             )
     except OSError:
         return _quota_error(username, request.method, destination, 0, "sufficient-disk-space")
