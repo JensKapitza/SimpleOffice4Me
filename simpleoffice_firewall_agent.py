@@ -280,7 +280,8 @@ def _locked_plan(ident: str):
 def _firewalld_rich(rule: dict[str, Any]) -> str:
     port = str(rule["port_start"]) if rule["port_start"] == rule["port_end"] else f"{rule['port_start']}-{rule['port_end']}"
     source = f' source address="{rule["source"]}"' if rule.get("source") else ""
-    return f'rule priority="-100"{source} port port="{port}" protocol="{rule["protocol"]}" reject'
+    action = "accept" if rule["effect"] == "allow" else "reject"
+    return f'rule priority="-100"{source} port port="{port}" protocol="{rule["protocol"]}" {action}'
 
 
 def _firewalld_zone(rule: dict[str, Any], snapshot: dict[str, Any]) -> str:
@@ -297,7 +298,7 @@ def _firewalld_prepare_test(rule: dict[str, Any], snapshot: dict[str, Any]) -> d
     zone = _firewalld_zone(rule, snapshot)
     changed = dict(rule)
     changed["zone"] = zone
-    if rule["effect"] == "allow":
+    if rule["effect"] == "allow" and not rule.get("source"):
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
         query = _run(["firewall-cmd", "--zone", zone, "--query-port", spec])
     else:
@@ -312,11 +313,11 @@ def _firewalld_apply_prepared(rule: dict[str, Any]) -> None:
     if rule.get("preexisting"):
         return
     zone = str(rule["zone"])
-    if rule["effect"] == "allow":
+    if rule.get("rich_rule"):
+        result = _run(["firewall-cmd", "--zone", zone, "--add-rich-rule", str(rule["rich_rule"])])
+    else:
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
         result = _run(["firewall-cmd", "--zone", zone, "--add-port", spec])
-    else:
-        result = _run(["firewall-cmd", "--zone", zone, "--add-rich-rule", str(rule["rich_rule"])])
     if not result["ok"]:
         raise RuntimeError("firewalld-Testregel konnte nicht angewendet werden")
 
@@ -331,18 +332,18 @@ def _firewalld_remove_runtime(rule: dict[str, Any]) -> None:
     if rule.get("preexisting"):
         return
     zone = str(rule["zone"])
-    if rule["effect"] == "allow":
-        spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
-        query = _run(["firewall-cmd", "--zone", zone, "--query-port", spec])
-        if not query["ok"]:
-            return
-        result = _run(["firewall-cmd", "--zone", zone, "--remove-port", spec])
-    else:
+    if rule.get("rich_rule"):
         rich = str(rule["rich_rule"])
         query = _run(["firewall-cmd", "--zone", zone, "--query-rich-rule", rich])
         if not query["ok"]:
             return
         result = _run(["firewall-cmd", "--zone", zone, "--remove-rich-rule", rich])
+    else:
+        spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
+        query = _run(["firewall-cmd", "--zone", zone, "--query-port", spec])
+        if not query["ok"]:
+            return
+        result = _run(["firewall-cmd", "--zone", zone, "--remove-port", spec])
     if not result["ok"]:
         raise RuntimeError("firewalld-Testregel konnte nicht zurückgerollt werden")
 
@@ -352,11 +353,11 @@ def _firewalld_permanent_change(rule: dict[str, Any]) -> dict[str, Any]:
     # Confirmation still checks the independent permanent configuration and may
     # add the same requested rule there when it is not permanent yet.
     zone = str(rule["zone"])
-    if rule["effect"] == "allow":
+    if rule.get("rich_rule"):
+        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-rich-rule", str(rule["rich_rule"])])
+    else:
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
         query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-port", spec])
-    else:
-        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-rich-rule", str(rule["rich_rule"])])
     return {"backend": "firewalld", "owned": not query["ok"], "rule": rule}
 
 
@@ -365,11 +366,11 @@ def _firewalld_add_permanent(change: dict[str, Any]) -> None:
         return
     rule = change["rule"]
     zone = str(rule["zone"])
-    if rule["effect"] == "allow":
+    if rule.get("rich_rule"):
+        result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--add-rich-rule", str(rule["rich_rule"])])
+    else:
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
         result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--add-port", spec])
-    else:
-        result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--add-rich-rule", str(rule["rich_rule"])])
     if not result["ok"]:
         raise RuntimeError("firewalld-Regel konnte nicht dauerhaft gespeichert werden")
 
@@ -379,18 +380,18 @@ def _firewalld_remove_permanent(change: dict[str, Any]) -> None:
         return
     rule = change["rule"]
     zone = str(rule["zone"])
-    if rule["effect"] == "allow":
-        spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
-        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-port", spec])
-        if not query["ok"]:
-            return
-        result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--remove-port", spec])
-    else:
+    if rule.get("rich_rule"):
         rich = str(rule["rich_rule"])
         query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-rich-rule", rich])
         if not query["ok"]:
             return
         result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--remove-rich-rule", rich])
+    else:
+        spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
+        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-port", spec])
+        if not query["ok"]:
+            return
+        result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--remove-port", spec])
     if not result["ok"]:
         raise RuntimeError("Teilweise bestätigte firewalld-Regel konnte nicht bereinigt werden")
 
