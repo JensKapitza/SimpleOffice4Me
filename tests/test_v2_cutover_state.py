@@ -7,12 +7,16 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from app.document_store import DocumentStore
+from app.v2.adapters.shadow import ShadowDocumentStorageAdapter
+from app.v2.contracts import LogicalObjectId, StorageLocation
 from app.v2.cutover import (
     cutover_status,
     load_cutover_state,
     mark_shadow_dirty,
     prepare_shadow,
     return_to_v1,
+    verify_shadow_consistency,
 )
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
 from app.v2.recovery_cli import main
@@ -113,6 +117,70 @@ class V2CutoverStateTests(unittest.TestCase):
             self.assertEqual("v1", load_cutover_state(root).mode)
             self.assertTrue(blob_store.is_dir())
             self.assertTrue(catalog.is_file())
+
+    def test_live_shadow_mutation_is_verified_and_can_rebaseline_fingerprint(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root, _ = self._migrated_root(base)
+            prepare_shadow(root, apply=True)
+            original_fingerprint = load_cutover_state(root).migration_fingerprint
+            adapter = ShadowDocumentStorageAdapter(root, "test-user")
+
+            created = adapter.create_bytes(
+                StorageLocation("inbox/later.txt"),
+                b"later",
+            )
+            self.assertTrue(created.ok)
+            verification = verify_shadow_consistency(root)
+            status = cutover_status(root)
+
+            self.assertTrue(verification["ready"])
+            self.assertEqual(2, verification["verified_documents"])
+            self.assertTrue(status["verification_ready"])
+            self.assertFalse(status["fingerprint_matches"])
+            self.assertNotEqual(original_fingerprint, verification["fingerprint"])
+
+            refreshed = prepare_shadow(root, apply=True)
+            self.assertTrue(refreshed["applied"])
+            self.assertTrue(cutover_status(root)["fingerprint_matches"])
+
+    def test_shadow_verification_accepts_recoverable_delete_tombstone(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root, _ = self._migrated_root(base)
+            prepare_shadow(root, apply=True)
+            adapter = ShadowDocumentStorageAdapter(root, "test-user")
+            metadata = DocumentStore(root).get_document("doc-cutover")
+
+            deleted = adapter.delete(
+                LogicalObjectId("doc-cutover"),
+                expected_version=metadata["sha256"],
+            )
+            self.assertTrue(deleted.ok)
+            verification = verify_shadow_consistency(root)
+
+            self.assertTrue(verification["ready"])
+            self.assertEqual(0, verification["active_documents"])
+            self.assertEqual(1, verification["deleted_documents"])
+            self.assertEqual(1, verification["verified_documents"])
+
+    def test_direct_v1_mutation_is_visible_as_shadow_divergence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root, _ = self._migrated_root(base)
+            prepare_shadow(root, apply=True)
+
+            DocumentStore(root).create_document_at(
+                "inbox/bypass.txt",
+                b"bypass",
+                "legacy-direct",
+            )
+            verification = verify_shadow_consistency(root)
+
+            self.assertFalse(verification["ready"])
+            self.assertTrue(
+                any("catalog object is missing" in item for item in verification["blockers"])
+            )
 
     def test_malformed_state_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
