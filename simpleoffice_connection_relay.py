@@ -10,7 +10,6 @@ import os
 import re
 import secrets
 import shutil
-import ssl
 import shlex
 import sys
 import subprocess
@@ -67,6 +66,12 @@ def _read_json(path: Path, fallback: Any) -> Any:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return deepcopy(fallback)
+    return value
+
+
+def _bool(value: Any, field: str) -> bool:
+    if type(value) is not bool:
+        raise ValueError(f"{field} muss true oder false sein")
     return value
 
 
@@ -162,14 +167,14 @@ def validate_relay_settings(candidate: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Relay-Einstellungen müssen ein JSON-Objekt sein")
     settings = deepcopy(DEFAULT_RELAY_SETTINGS)
     settings.update(deepcopy(candidate))
-    settings["enabled"] = bool(settings.get("enabled"))
+    settings["enabled"] = _bool(settings.get("enabled"), "enabled")
     settings["public_host"] = _host(settings.get("public_host"), "Öffentlicher Relay-Host", allow_empty=not settings["enabled"])
     settings["listen_ip"] = _ip(settings.get("listen_ip"), "Listening-IP")
     settings["relay_ip"] = _ip(settings.get("relay_ip"), "Relay-IP")
     settings["external_ip"] = _ip(settings.get("external_ip"), "Externe IP", allow_empty=True)
     settings["realm"] = _host(settings.get("realm"), "TURN-Realm")
     settings["turn_port"] = _port(settings.get("turn_port"), "TURN-Port")
-    settings["tls_enabled"] = bool(settings.get("tls_enabled"))
+    settings["tls_enabled"] = _bool(settings.get("tls_enabled"), "tls_enabled")
     settings["turn_tls_port"] = _port(settings.get("turn_tls_port"), "TURN-TLS-Port")
     settings["min_port"] = _port(settings.get("min_port"), "Relay-Port von")
     settings["max_port"] = _port(settings.get("max_port"), "Relay-Port bis")
@@ -185,7 +190,7 @@ def validate_relay_settings(candidate: dict[str, Any]) -> dict[str, Any]:
     settings["tls_key"] = str(settings.get("tls_key") or "").strip()
     if settings["tls_enabled"] and (not settings["tls_cert"] or not settings["tls_key"]):
         raise ValueError("TURN-TLS benötigt Zertifikat und privaten Schlüssel")
-    settings["https_proxy_enabled"] = bool(settings.get("https_proxy_enabled"))
+    settings["https_proxy_enabled"] = _bool(settings.get("https_proxy_enabled"), "https_proxy_enabled")
     settings["https_proxy_url"] = _proxy_url(settings.get("https_proxy_url"), enabled=settings["https_proxy_enabled"])
     settings["https_proxy_username"] = str(settings.get("https_proxy_username") or "").strip()[:200]
     settings["https_proxy_ca_file"] = str(settings.get("https_proxy_ca_file") or "").strip()
