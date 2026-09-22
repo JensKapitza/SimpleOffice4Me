@@ -21,6 +21,7 @@ from simpleoffice_connection_relay import (
     save_relay_secrets,
     save_relay_settings,
     ssh_proxy_command,
+    validate_relay_settings,
 )
 
 
@@ -96,8 +97,11 @@ def save():
         "tunnel_targets": _targets(request.form.get("tunnel_targets", "")),
     }
     try:
-        clean = save_relay_settings(candidate, path)
+        clean = validate_relay_settings(candidate)
         password = request.form.get("https_proxy_password", "")
+        if clean["https_proxy_enabled"] and not (password or proxy_password(path)):
+            raise ValueError("HTTPS-CONNECT benötigt ein Proxy-Passwort")
+        save_relay_settings(clean, path)
         if password:
             save_relay_secrets(path, proxy_password=password)
         if clean["enabled"]:
