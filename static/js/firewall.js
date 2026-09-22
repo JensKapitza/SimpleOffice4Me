@@ -118,13 +118,13 @@
       open.type = 'button';
       open.className = 'btn btn-sm btn-outline-success me-2';
       open.textContent = 'Öffnen testen';
-      open.disabled = service.firewall_state === 'local-only';
+      open.disabled = !lastData?.snapshot?.writable || service.firewall_state === 'local-only';
       open.addEventListener('click', () => serviceAction(service, 'allow'));
       const close = document.createElement('button');
       close.type = 'button';
       close.className = 'btn btn-sm btn-outline-danger';
       close.textContent = 'Sperren testen';
-      close.disabled = service.critical || service.firewall_state === 'local-only';
+      close.disabled = !lastData?.snapshot?.writable || service.critical || service.firewall_state === 'local-only';
       close.addEventListener('click', () => serviceAction(service, 'deny'));
       actions.append(open, close);
 
@@ -255,7 +255,7 @@
     }
   });
 
-  load(true).then(() => report('Firewallstatus geladen.')).catch(error => report(error.message, true));
+  load(false).then(() => report('Firewallstatus geladen.')).catch(error => report(error.message, true));
   setInterval(() => {
     updateCountdowns();
     if (!document.hidden && !busy) load(false).catch(() => {});
