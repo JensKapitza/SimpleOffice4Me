@@ -212,6 +212,10 @@ class FirewallPackagingTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         prerm = (root / "packaging/prerm.sh").read_text(encoding="utf-8")
         self.assertIn("--rollback-pending", prerm)
+        self.assertNotIn("--rollback-pending >/dev/null 2>&1 || true", prerm)
+        service = (root / "packaging/simpleoffice-firewall-agent.service").read_text(encoding="utf-8")
+        self.assertIn("/var/lib/simpleoffice4me-firewall-agent", service)
+        self.assertNotIn("/var/lib/simpleoffice4me/firewall-agent", service)
         build = (root / "packaging/build-fpm.sh").read_text(encoding="utf-8")
         self.assertIn("simpleoffice-firewall-agent.socket", build)
         self.assertIn("simpleoffice-firewall-agent.service", build)
