@@ -387,16 +387,18 @@ class ContactStore:
         street, city = clean.get("street", ""), clean.get("city", "")
         state, postal = clean.get("state", ""), clean.get("postal", "")
         country = clean.get("country", "").upper()
+        prefix = tuple(part for part in (clean.get("po_box", ""), clean.get("extended", "")) if part)
+        street_rows = (*prefix, street) if street else prefix
         if country in {"US", "CA", "AU"}:
             locality = ", ".join(part for part in (city, state) if part)
             locality = " ".join(part for part in (locality, postal) if part)
-            rows = (street, locality, country)
+            rows = (*street_rows, locality, country)
         elif country == "JP":
-            rows = (postal, " ".join(part for part in (state, city) if part), street, country)
+            rows = (postal, " ".join(part for part in (state, city) if part), *street_rows, country)
         elif country in {"GB", "IE"}:
-            rows = (street, city, postal, country)
+            rows = (*street_rows, city, postal, country)
         else:
-            rows = (street, " ".join(part for part in (postal, city) if part), state, country)
+            rows = (*street_rows, " ".join(part for part in (postal, city) if part), state, country)
         return "\n".join(row for row in rows if row)
 
     def add_address(self, contact_id: str, label: str, address: str, actor: str, components: dict[str, str] | None = None) -> dict[str, Any]:
