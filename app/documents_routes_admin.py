@@ -245,7 +245,9 @@ def _has_simpleoffice_video_chat(event: dict) -> bool:
 def _requested_video_chat_users(actor: str, owner: str = "") -> list[str]:
     active = {
         str(row["username"])
-        for row in get_db().execute("SELECT username FROM user").fetchall()
+        for row in get_db().execute(
+            "SELECT username FROM user WHERE is_disabled=0"
+        ).fetchall()
     }
     selected = {
         str(value).strip()
