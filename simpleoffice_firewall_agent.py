@@ -348,8 +348,9 @@ def _firewalld_remove_runtime(rule: dict[str, Any]) -> None:
 
 
 def _firewalld_permanent_change(rule: dict[str, Any]) -> dict[str, Any]:
-    if rule.get("preexisting"):
-        return {"backend": "firewalld", "owned": False, "rule": rule}
+    # A runtime rule may predate SimpleOffice and is never removed by rollback.
+    # Confirmation still checks the independent permanent configuration and may
+    # add the same requested rule there when it is not permanent yet.
     zone = str(rule["zone"])
     if rule["effect"] == "allow":
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
