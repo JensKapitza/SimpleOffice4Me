@@ -481,6 +481,23 @@ def firewall_status(config_path: str | Path | None = None) -> dict[str, Any]:
         else:
             service["firewall_state"] = "unknown"
         service["listening"] = any(row["listening"] for row in port_states)
+        firewall_state = service["firewall_state"]
+        if firewall_state == "local-only":
+            service["diagnosis"] = "Nur lokal gebunden – keine LAN-Freigabe erforderlich."
+        elif firewall_state == "blocked" and service["listening"]:
+            service["diagnosis"] = "Dienst lauscht, Firewall blockiert."
+        elif firewall_state == "blocked":
+            service["diagnosis"] = "Firewall sperrt den Port; Dienst lauscht derzeit nicht."
+        elif firewall_state == "allowed" and service["listening"]:
+            service["diagnosis"] = "Dienst lauscht und die Host-Firewall erlaubt den Port."
+        elif firewall_state == "allowed":
+            service["diagnosis"] = "Port offen, Dienst lauscht nicht."
+        elif firewall_state == "partial":
+            service["diagnosis"] = "Nur ein Teil der benötigten Ports ist freigegeben."
+        elif firewall_state == "inactive":
+            service["diagnosis"] = "Kein unterstützter aktiver Firewall-Manager; Listenerstatus separat prüfen."
+        else:
+            service["diagnosis"] = "Firewallzustand ist nicht eindeutig bestimmbar."
     return {"snapshot": snapshot, "services": services, "agent_socket": str(AGENT_SOCKET), "listener_tool": bool(shutil.which("ss"))}
 
 
