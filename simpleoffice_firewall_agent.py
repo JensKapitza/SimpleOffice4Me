@@ -198,8 +198,16 @@ def _pending_tests() -> list[dict[str, Any]]:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if isinstance(data, dict) and data.get("status") == "pending":
-            rows.append({"id": data.get("id"), "backend": data.get("backend"), "created_at": data.get("created_at"), "expires_at": data.get("expires_at"), "rules": data.get("rules", [])})
+        if isinstance(data, dict) and data.get("status") in {"preparing", "pending", "confirming", "rollback_failed"}:
+            rows.append({
+                "id": data.get("id"),
+                "backend": data.get("backend"),
+                "status": data.get("status"),
+                "created_at": data.get("created_at"),
+                "expires_at": data.get("expires_at"),
+                "rules": data.get("rules", []),
+                "rollback_error": data.get("rollback_error", ""),
+            })
     return rows
 
 
