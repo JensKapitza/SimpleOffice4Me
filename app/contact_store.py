@@ -259,7 +259,7 @@ class ContactStore:
             raise ValueError(f"required contact fields missing: {', '.join(missing)}")
         return fields
 
-    def _upsert_locked(self, fields: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None, payload: dict[str, Any] | None = None, metadata: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    def _upsert_locked(self, fields: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None, payload: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or self._read(self.contacts_path, {"contacts": []})
         existing = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None) if contact_id else None
         if existing is None and source and source.get("source_id"):
@@ -277,15 +277,20 @@ class ContactStore:
                 changes.append({"field": field, "old": old_fields.get(field, ""), "new": fields.get(field, ""), "at": changed_at, "actor": actor})
         tags = list(existing.get("tags", [])) if existing else []
         groups = list(existing.get("groups", [])) if existing else []
+        addresses = list(existing.get("addresses", [])) if existing else []
         if metadata is not None:
             if "tags" in metadata:
                 tags = self._clean_metadata_values(metadata.get("tags", []))
             if "groups" in metadata:
                 groups = self._clean_metadata_values(metadata.get("groups", []))
+            if "addresses" in metadata:
+                addresses = self._materialize_vcard_addresses(
+                    metadata.get("addresses", []), addresses, actor, changed_at
+                )
         contact = {
             "contact_id": contact_id or str(uuid.uuid4()),
             "fields": fields,
-            "addresses": existing.get("addresses", []) if existing else [],
+            "addresses": addresses,
             "owner": existing.get("owner") or principal if existing else principal,
             "managers": existing.get("managers", []) if existing else [],
             "readers": existing.get("readers", []) if existing else [],
@@ -319,6 +324,61 @@ class ContactStore:
     @staticmethod
     def _clean_metadata_values(values: list[str]) -> list[str]:
         return sorted({" ".join(str(value).strip().split()) for value in values if str(value).strip()}, key=str.casefold)[:100]
+
+    @staticmethod
+    def _address_identity(item: dict[str, Any]) -> tuple[str, tuple[tuple[str, str], ...]]:
+        label = " ".join(str(item.get("label", "")).strip().casefold().split())
+        components = tuple(
+            sorted(
+                (str(key), " ".join(str(value).strip().casefold().split()))
+                for key, value in dict(item.get("components", {})).items()
+                if str(value).strip()
+            )
+        )
+        if components:
+            return label, components
+        value = " ".join(str(item.get("value", "")).strip().casefold().split())
+        return label, (("value", value),)
+
+    @classmethod
+    def _materialize_vcard_addresses(
+        cls,
+        incoming: list[dict[str, Any]],
+        existing: list[dict[str, Any]],
+        actor: str,
+        changed_at: str,
+    ) -> list[dict[str, Any]]:
+        """Keep stable ids for unchanged addresses while applying a full vCard ADR set."""
+        reusable: dict[tuple[str, tuple[tuple[str, str], ...]], list[dict[str, Any]]] = {}
+        for item in existing:
+            reusable.setdefault(cls._address_identity(item), []).append(item)
+        result: list[dict[str, Any]] = []
+        for raw in incoming[:100]:
+            if not isinstance(raw, dict):
+                continue
+            components = {
+                str(key): str(value).strip()
+                for key, value in dict(raw.get("components", {})).items()
+                if str(value).strip()
+            }
+            value = str(raw.get("value", "")).strip() or cls.format_postal_address(components)
+            if not value:
+                continue
+            item = {
+                "label": str(raw.get("label", "")).strip() or "Adresse",
+                "value": value,
+                "normalized": " ".join(value.casefold().split()),
+                "components": components,
+            }
+            matches = reusable.get(cls._address_identity(item), [])
+            previous = matches.pop(0) if matches else None
+            item.update({
+                "id": str(previous.get("id")) if previous else str(uuid.uuid4()),
+                "created_at": str(previous.get("created_at")) if previous else changed_at,
+                "created_by": str(previous.get("created_by")) if previous else actor,
+            })
+            result.append(item)
+        return result
 
     @staticmethod
     def format_postal_address(components: dict[str, str]) -> str:
