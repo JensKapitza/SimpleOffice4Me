@@ -16,6 +16,10 @@ on:
         required: true
         default: true
         type: boolean
+  pull_request:
+    paths:
+      - '.github/workflows/manual-browser-screenshots.yml'
+      - 'tests/browser/manual_screenshot_smoke.py'
 
 permissions:
   contents: read
@@ -85,8 +89,8 @@ jobs:
 
       - name: Run browser screenshot test
         env:
-          BROWSER_SCREENSHOT_SCOPE: ${{ inputs.scope }}
-          BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ inputs.fail_on_console_errors }}
+          BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'core' }}
+          BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ github.event_name == 'workflow_dispatch' && inputs.fail_on_console_errors || true }}
         shell: bash
         run: |
           set -euo pipefail
