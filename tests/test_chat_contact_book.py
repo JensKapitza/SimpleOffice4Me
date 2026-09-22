@@ -89,7 +89,7 @@ class ChatContactBookTests(unittest.TestCase):
         )
         self.assertEqual(200, response.status_code)
         self.assertIn("kein erreichbarer lokaler Chat-Benutzer", response.get_data(as_text=True))
-        self.assertEqual(1, len(ChatStore(self.root).rooms_for("alice")) if ChatStore(self.root).rooms_for("alice") else 0)
+        self.assertEqual(0, len(ChatStore(self.root).rooms_for("alice")))
 
 
 if __name__ == "__main__":
