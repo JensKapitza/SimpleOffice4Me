@@ -401,17 +401,24 @@ def firewall_decision(snapshot: dict[str, Any], protocol: str, start: int, end: 
         return {"state": "unknown", "reason": "UFW-Standardregel konnte nicht bestimmt werden."}
     if snapshot.get("backend") == "firewalld":
         zones = snapshot.get("active_zones", []) if isinstance(snapshot.get("active_zones"), list) else []
+        if len(zones) > 1:
+            return {"state": "unknown", "reason": "Mehrere firewalld-Zonen sind aktiv; die Dienstzone ist ohne eindeutige Interface-Zuordnung nicht sicher bestimmbar."}
         relevant = matching
-        if len(zones) == 1:
-            relevant = [rule for rule in matching if not rule.get("zone") or rule.get("zone") == zones[0]]
-        elif len(zones) > 1 and not bind:
-            return {"state": "unknown", "reason": "Mehrere firewalld-Zonen sind aktiv; die Dienstzone ist ohne Interface-Bindung nicht eindeutig."}
+        zone = zones[0] if len(zones) == 1 else ""
+        if zone:
+            relevant = [rule for rule in matching if not rule.get("zone") or rule.get("zone") == zone]
         denies = [rule for rule in relevant if rule.get("effect") == "deny"]
         allows = [rule for rule in relevant if rule.get("effect") == "allow"]
         if denies:
             return {"state": "blocked", "reason": str(denies[0].get("summary") or "Passende firewalld-Sperrregel")}
         if allows:
             return {"state": "allowed", "reason": str(allows[0].get("summary") or "Passende firewalld-Freigabe")}
+        zone_meta = next((item for item in snapshot.get("zones", []) if isinstance(item, dict) and item.get("zone") == zone), {})
+        target = str(zone_meta.get("target") or "").upper()
+        if target == "ACCEPT":
+            return {"state": "allowed", "reason": f"firewalld-Zone {zone} hat Target ACCEPT."}
+        if target in {"DROP", "REJECT"}:
+            return {"state": "blocked", "reason": f"firewalld-Zone {zone} hat Target {target}."}
         return {"state": "blocked", "reason": "In der aktiven firewalld-Zone ist keine passende Freigabe vorhanden."}
     return {"state": "unknown", "reason": "Firewall-Backend ist nicht eindeutig auswertbar."}
 
