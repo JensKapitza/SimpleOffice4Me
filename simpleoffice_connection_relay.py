@@ -432,10 +432,10 @@ def ssh_proxy_command(config_path: str | Path | None, target: str) -> str:
     if normalized not in settings["tunnel_targets"]:
         raise ValueError("SSH-Ziel ist nicht für den HTTPS-Tunnel freigegeben")
     config = str(Path(config_path or default_config_path()).expanduser().resolve())
-    helper = Path(__file__).resolve().parent / "tools" / "https_connect_tunnel.py"
     return shlex.join([
         sys.executable,
-        str(helper),
+        "-m",
+        "simpleoffice_https_connect_tunnel",
         "--config",
         config,
         "--target",
