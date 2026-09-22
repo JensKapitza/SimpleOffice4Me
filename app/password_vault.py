@@ -264,7 +264,12 @@ class PasswordVault:
         except (InvalidTag, ValueError) as exc:
             message = str(exc)
             try:
-                self._audit(user_id, "vault_unlock_failed", f"vault:{user_id}", reason="invalid_credentials_or_integrity")
+                self._audit(
+                    user_id,
+                    "vault_unlock_failed",
+                    f"vault:{user_id}",
+                    reason="invalid_credentials_or_integrity",
+                )
             except RuntimeError:
                 pass
             if message.startswith("Vault-Key"):
