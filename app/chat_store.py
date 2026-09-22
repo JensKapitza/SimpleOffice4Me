@@ -104,6 +104,32 @@ class ChatStore:
         if row is None: raise ValueError("Chat nicht gefunden")
         return self._room(row)
 
+    def direct_local_room(self, first: str, second: str) -> dict[str, Any] | None:
+        """Return an existing non-federated 1:1 room with exactly these users."""
+        first, second = _user(first), _user(second)
+        wanted = {first, second}
+        if len(wanted) != 2:
+            return None
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT r.*
+                   FROM chat_room r
+                   WHERE r.archived=0 AND COALESCE(r.remote_peer_id,'')=''
+                   ORDER BY r.updated_at DESC"""
+            ).fetchall()
+        for row in rows:
+            room = self._room(row)
+            participants = self.participants(room["room_id"])
+            local = {
+                str(item.get("username") or "")
+                for item in participants
+                if item.get("participant_kind") == "local"
+            }
+            remote = [item for item in participants if item.get("participant_kind") == "remote"]
+            if not remote and local == wanted and len(participants) == 2:
+                return room
+        return None
+
     def rooms_for(self, username: str, *, is_admin: bool=False) -> list[dict[str, Any]]:
         username = _user(username)
         with self._db() as db:

@@ -14,6 +14,7 @@ from .chat_documents import guessed_mime, save_attachment
 from .chat_features import ALLOWED_REACTIONS, ChatFeatureStore
 from .chat_federation import send_interaction, send_message
 from .chat_share import build_share_card, share_choices
+from .contact_store import ContactStore
 from .chat_store import ChatStore
 from .db import get_db
 from .document_store import DocumentStore, sha256_file
@@ -38,6 +39,55 @@ def _active_users() -> list[dict]:
 
 
 def _admin_users() -> list[str]: return [x["username"] for x in _active_users() if x["is_admin"]]
+
+
+def _contact_user_map() -> dict[str, dict]:
+    """Map only explicitly linked visible contact IDs to active local users."""
+    db = get_db()
+    table = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='employee'"
+    ).fetchone()
+    if table is None:
+        return {}
+    rows = db.execute(
+        """SELECT employee.contact_id,user.username,user.display_name
+           FROM employee
+           JOIN user ON user.id=employee.user_id
+           WHERE employee.active=1 AND user.is_disabled=0"""
+    ).fetchall()
+    return {
+        str(row["contact_id"]): {
+            "username": str(row["username"]),
+            "display_name": str(row["display_name"] or row["username"]),
+        }
+        for row in rows
+        if str(row["contact_id"] or "").strip()
+    }
+
+
+def _chat_contacts() -> list[dict]:
+    links = _contact_user_map()
+    rows = []
+    for contact in ContactStore(_root()).contacts(_actor()):
+        fields = contact.get("fields") if isinstance(contact.get("fields"), dict) else {}
+        contact_id = str(contact.get("contact_id") or "")
+        linked = links.get(contact_id)
+        rows.append({
+            "contact_id": contact_id,
+            "display_name": str(fields.get("display_name") or "Kontakt")[:200],
+            "company": str(fields.get("company") or "")[:200],
+            "reachable": bool(linked and linked["username"] != _actor()),
+            "chat_username": linked["username"] if linked and linked["username"] != _actor() else "",
+        })
+    return sorted(rows, key=lambda item: item["display_name"].casefold())
+
+
+def _contact_chat_target(contact_id: str) -> tuple[dict, dict]:
+    contact = ContactStore(_root()).get(str(contact_id), _actor())
+    linked = _contact_user_map().get(str(contact.get("contact_id") or ""))
+    if not linked or linked["username"] == _actor():
+        raise ValueError("Für diesen Kontakt ist kein erreichbarer lokaler Chat-Benutzer verknüpft")
+    return contact, linked
 
 
 def _send_peers() -> list[dict]:
@@ -145,7 +195,25 @@ def _attachment_file(attachment_id: str):
 def index():
     store=_store(); rooms=store.rooms_for(_actor(),is_admin=_is_admin())
     for room in rooms: room["participants"]=store.participants(room["room_id"])
-    return render_template("chat/index.html",rooms=rooms,users=_active_users(),peers=_send_peers())
+    return render_template("chat/index.html",rooms=rooms,users=_active_users(),peers=_send_peers(),chat_contacts=_chat_contacts())
+
+
+@bp.post("/contacts/<contact_id>/start")
+@login_required
+def start_contact_chat(contact_id: str):
+    try:
+        contact, target = _contact_chat_target(contact_id)
+        store = _store()
+        existing = store.direct_local_room(_actor(), target["username"])
+        if existing is not None:
+            return redirect(url_for("chat.room", room_id=existing["room_id"]))
+        fields = contact.get("fields") if isinstance(contact.get("fields"), dict) else {}
+        title = str(fields.get("display_name") or target["display_name"] or target["username"])[:200]
+        room = store.create_room(title, _actor(), [target["username"]])
+        return redirect(url_for("chat.room", room_id=room["room_id"]))
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("chat.index"))
 
 
 @bp.post("/rooms")

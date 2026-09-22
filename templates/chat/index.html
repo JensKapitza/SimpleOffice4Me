@@ -3,6 +3,7 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-3 py-md-4" style="padding-bottom:calc(2rem + env(safe-area-inset-bottom));">
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div><h1 class="h3 mb-1">Chat</h1><p class="text-secondary mb-0">Direkte Nachrichten, Dokumentanhänge und Federation.</p></div>
     <a class="btn btn-primary d-xl-none" href="#new-chat"><i class="fas fa-plus me-1" aria-hidden="true"></i>Neuer Chat</a>
@@ -41,6 +42,34 @@
           </div>
         </div>
       {% endif %}
+    </section>
+    <section class="col-xl-8" aria-labelledby="chat-contact-book-heading">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <strong id="chat-contact-book-heading">Kontaktbuch</strong>
+          <span class="badge text-bg-secondary">{{ chat_contacts|length }}</span>
+        </div>
+        <div class="list-group list-group-flush">
+          {% for contact in chat_contacts %}
+          <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+            <div class="min-w-0">
+              <strong class="d-block text-truncate">{{ contact.display_name }}</strong>
+              {% if contact.company %}<span class="small text-secondary">{{ contact.company }}</span>{% endif %}
+            </div>
+            {% if contact.reachable %}
+            <form method="post" action="{{ url_for('chat.start_contact_chat', contact_id=contact.contact_id) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-comment me-1" aria-hidden="true"></i>Chat starten</button>
+            </form>
+            {% else %}
+            <span class="badge text-bg-light border">kein Chat-Konto verknüpft</span>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="list-group-item text-secondary">Keine sichtbaren Kontakte vorhanden.</div>
+          {% endfor %}
+        </div>
+      </div>
     </section>
     <aside class="col-xl-4" id="new-chat">
       <div class="card shadow-sm position-xl-sticky" style="top:5rem;">
