@@ -361,6 +361,37 @@ class CalendarWebTest(unittest.TestCase):
             store.export_ics("jens"),
         )
 
+    def test_calendar_video_chat_rejects_disabled_local_user(self):
+        with app.app_context():
+            db = database.get_db()
+            db.execute(
+                "INSERT INTO user (username, password, is_disabled) VALUES (?, ?, ?)",
+                ("disabled-user", "unused", 1),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/documents/calendar",
+            data={
+                "calendar_id": "default",
+                "owner": "jens",
+                "title": "Video mit gesperrtem Konto",
+                "reason": "Test",
+                "start": "2026-08-10T10:00",
+                "end": "2026-08-10T11:00",
+                "visibility": "private",
+                "create_video_chat": "1",
+                "video_chat_users": "disabled-user",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertIn(
+            "Unbekannter lokaler Videochat-Teilnehmer.",
+            response.get_data(as_text=True),
+        )
+        self.assertEqual([], CalendarStore(app.config["DOCUMENT_ROOT"]).events("jens"))
+
     def test_calendar_video_chat_requires_another_local_user(self):
         response = self.client.post(
             "/documents/calendar",
