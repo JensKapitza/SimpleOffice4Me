@@ -144,7 +144,7 @@ class ConnectivityRelayConfigTests(unittest.TestCase):
         )
         save_relay_secrets(self.config, proxy_password="secret")
         command = ssh_proxy_command(self.config, "server.example.test:22")
-        self.assertIn("https_connect_tunnel.py", command)
+        self.assertIn("-m simpleoffice_https_connect_tunnel", command)
         self.assertIn("server.example.test:22", command)
         with self.assertRaisesRegex(ValueError, "nicht.*freigegeben"):
             ssh_proxy_command(self.config, "other.example.test:22")
