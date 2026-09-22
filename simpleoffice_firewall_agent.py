@@ -314,9 +314,22 @@ def _firewalld_remove_runtime(rule: dict[str, Any]) -> None:
         raise RuntimeError("firewalld-Testregel konnte nicht zurückgerollt werden")
 
 
-def _firewalld_confirm(rule: dict[str, Any]) -> None:
+def _firewalld_permanent_change(rule: dict[str, Any]) -> dict[str, Any]:
     if rule.get("preexisting"):
+        return {"backend": "firewalld", "owned": False, "rule": rule}
+    zone = str(rule["zone"])
+    if rule["effect"] == "allow":
+        spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
+        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-port", spec])
+    else:
+        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-rich-rule", str(rule["rich_rule"])])
+    return {"backend": "firewalld", "owned": not query["ok"], "rule": rule}
+
+
+def _firewalld_add_permanent(change: dict[str, Any]) -> None:
+    if not change.get("owned"):
         return
+    rule = change["rule"]
     zone = str(rule["zone"])
     if rule["effect"] == "allow":
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
@@ -325,6 +338,27 @@ def _firewalld_confirm(rule: dict[str, Any]) -> None:
         result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--add-rich-rule", str(rule["rich_rule"])])
     if not result["ok"]:
         raise RuntimeError("firewalld-Regel konnte nicht dauerhaft gespeichert werden")
+
+
+def _firewalld_remove_permanent(change: dict[str, Any]) -> None:
+    if not change.get("owned"):
+        return
+    rule = change["rule"]
+    zone = str(rule["zone"])
+    if rule["effect"] == "allow":
+        spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
+        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-port", spec])
+        if not query["ok"]:
+            return
+        result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--remove-port", spec])
+    else:
+        rich = str(rule["rich_rule"])
+        query = _run(["firewall-cmd", "--permanent", "--zone", zone, "--query-rich-rule", rich])
+        if not query["ok"]:
+            return
+        result = _run(["firewall-cmd", "--permanent", "--zone", zone, "--remove-rich-rule", rich])
+    if not result["ok"]:
+        raise RuntimeError("Teilweise bestätigte firewalld-Regel konnte nicht bereinigt werden")
 
 
 def _ufw_command(rule: dict[str, Any], marker: str) -> list[str]:
@@ -366,11 +400,28 @@ def _ufw_delete_marker(marker: str) -> None:
             raise RuntimeError("Markierte UFW-Testregel konnte nicht entfernt werden")
 
 
-def _ufw_confirm(rule: dict[str, Any], test_marker: str, managed_marker: str) -> None:
-    result = _run(_ufw_command(rule, managed_marker))
+def _ufw_managed_change(rule: dict[str, Any], ident: str, index: int) -> dict[str, Any]:
+    return {
+        "backend": "ufw",
+        "owned": True,
+        "rule": rule,
+        "marker": f"simpleoffice-managed-{ident[:12]}-{index}",
+    }
+
+
+def _ufw_add_managed(change: dict[str, Any]) -> None:
+    result = _run(_ufw_command(change["rule"], str(change["marker"])))
     if not result["ok"]:
         raise RuntimeError("UFW-Regel konnte nicht dauerhaft bestätigt werden")
-    _ufw_delete_marker(test_marker)
+
+
+def _remove_confirmation_change(change: dict[str, Any]) -> None:
+    if not change.get("owned"):
+        return
+    if change.get("backend") == "firewalld":
+        _firewalld_remove_permanent(change)
+    elif change.get("backend") == "ufw":
+        _ufw_delete_marker(str(change["marker"]))
 
 
 def _schedule_rollback(ident: str, delay: int = 20) -> str:
@@ -399,7 +450,7 @@ def test_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
         raise ValueError("Genau ein aktiver UFW- oder firewalld-Manager ist für Änderungen erforderlich")
     ident = os.urandom(16).hex()
     now = time.time()
-    plan: dict[str, Any] = {"id": ident, "backend": backend, "status": "preparing", "created_at": now, "expires_at": now + 20, "rules": rules, "applied": [], "watchdog": ""}
+    plan: dict[str, Any] = {"id": ident, "backend": backend, "status": "preparing", "created_at": now, "expires_at": now + 20, "rules": rules, "applied": [], "confirmation_changes": [], "watchdog": ""}
     _write_plan(plan)
     plan["watchdog"] = _schedule_rollback(ident, 20)
     _write_plan(plan)
@@ -423,6 +474,11 @@ def _rollback_plan_locked(plan: dict[str, Any]) -> dict[str, Any]:
     if plan.get("status") in {"rolled_back", "confirmed"}:
         return {"test_id": plan["id"], "state": plan["status"]}
     errors = []
+    for change in reversed(plan.get("confirmation_changes", [])):
+        try:
+            _remove_confirmation_change(change)
+        except Exception as exc:
+            errors.append(type(exc).__name__)
     for rule in reversed(plan.get("applied", [])):
         try:
             if plan["backend"] == "firewalld":
@@ -462,18 +518,58 @@ def confirm_test(ident: str) -> dict[str, Any]:
         if time.time() >= float(plan.get("expires_at", 0)):
             _rollback_plan_locked(plan)
             raise ValueError("Firewall-Test ist abgelaufen und wurde zurückgerollt")
-        for index, rule in enumerate(plan.get("applied", [])):
-            if plan["backend"] == "firewalld":
-                _firewalld_confirm(rule)
-            elif plan["backend"] == "ufw":
-                marker = str(rule.get("marker") or f"simpleoffice-test-{ident}")
-                managed = f"simpleoffice-managed-{ident[:12]}-{index}"
-                _ufw_confirm(rule, marker, managed)
+
+        plan["status"] = "confirming"
+        plan["confirmation_changes"] = []
+        _write_plan(plan)
+        try:
+            for index, rule in enumerate(plan.get("applied", [])):
+                if plan["backend"] == "firewalld":
+                    change = _firewalld_permanent_change(rule)
+                    plan["confirmation_changes"].append(change)
+                    _write_plan(plan)
+                    _firewalld_add_permanent(change)
+                elif plan["backend"] == "ufw":
+                    change = _ufw_managed_change(rule, ident, index)
+                    plan["confirmation_changes"].append(change)
+                    _write_plan(plan)
+                    _ufw_add_managed(change)
+        except Exception:
+            cleanup_errors = []
+            for change in reversed(plan.get("confirmation_changes", [])):
+                try:
+                    _remove_confirmation_change(change)
+                except Exception as exc:
+                    cleanup_errors.append(type(exc).__name__)
+            if cleanup_errors:
+                plan["status"] = "rollback_failed"
+                plan["rollback_error"] = "Teilweise bestätigte Regeln konnten nicht vollständig bereinigt werden"
+            else:
+                plan["status"] = "pending"
+                plan["confirmation_changes"] = []
+            _write_plan(plan)
+            raise
+
+        # All permanent/managed rules exist before the watchdog is cancelled.
+        # A crash before this write still leaves status=confirming, so recovery
+        # removes the partially confirmed rules and the test rules.
         plan["status"] = "confirmed"
         plan["confirmed_at"] = time.time()
+        plan["cleanup_pending"] = plan["backend"] == "ufw"
         _write_plan(plan)
         _cancel_systemd_watchdog(ident)
-        return {"test_id": ident, "state": "confirmed", "backend": plan["backend"]}
+
+        if plan["backend"] == "ufw":
+            try:
+                _ufw_delete_marker(f"simpleoffice-test-{ident}")
+                plan["cleanup_pending"] = False
+                _write_plan(plan)
+            except Exception:
+                # The managed rules already carry the confirmed policy. A
+                # remaining same-effect test marker is harmless and is retried
+                # on the next agent start.
+                pass
+        return {"test_id": ident, "state": "confirmed", "backend": plan["backend"], "cleanup_pending": bool(plan.get("cleanup_pending"))}
     finally:
         lock.close()
 
@@ -486,7 +582,12 @@ def recover_pending() -> None:
             continue
         try:
             plan = _read_plan(ident)
-            if plan.get("status") not in {"pending", "preparing"}:
+            if plan.get("status") == "confirmed" and plan.get("cleanup_pending") and plan.get("backend") == "ufw":
+                _ufw_delete_marker(f"simpleoffice-test-{ident}")
+                plan["cleanup_pending"] = False
+                _write_plan(plan)
+                continue
+            if plan.get("status") not in {"pending", "preparing", "confirming", "rollback_failed"}:
                 continue
             remaining = int(float(plan.get("expires_at", 0)) - time.time())
             if remaining <= 0:
@@ -509,7 +610,7 @@ def rollback_all_pending() -> dict[str, int]:
             continue
         try:
             plan = _read_plan(ident)
-            if plan.get("status") not in {"pending", "preparing", "rollback_failed"}:
+            if plan.get("status") not in {"pending", "preparing", "confirming", "rollback_failed"}:
                 continue
             rollback_test(ident)
             rolled_back += 1
@@ -522,15 +623,15 @@ def handle_request(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - {"action", "rules", "test_id"}:
         raise ValueError("Ungültige Firewall-Agent-Anfrage")
     action = str(payload.get("action") or "")
-    if action == "snapshot":
+    if action == "snapshot" and set(payload) == {"action"}:
         return {"ok": True, **firewall_snapshot()}
-    if action == "test":
+    if action == "test" and set(payload) == {"action", "rules"}:
         return {"ok": True, **test_rules(payload.get("rules"))}
-    if action == "confirm":
+    if action == "confirm" and set(payload) == {"action", "test_id"}:
         return {"ok": True, **confirm_test(validate_test_id(payload.get("test_id")))}
-    if action == "rollback":
+    if action == "rollback" and set(payload) == {"action", "test_id"}:
         return {"ok": True, **rollback_test(validate_test_id(payload.get("test_id")))}
-    raise ValueError("Unbekannte Firewall-Agent-Aktion")
+    raise ValueError("Unbekannte oder unvollständige Firewall-Agent-Aktion")
 
 
 def _serve_connection(connection: socket.socket) -> None:
