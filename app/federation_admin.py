@@ -76,7 +76,15 @@ def _document_choices(query: str, limit: int = 60) -> list[dict]:
     return result
 
 
+_DASHBOARD_VIEWS = {"overview", "files", "peers", "transfers"}
+
+
 def _redirect_dashboard(**values):
+    view = str(values.get("view") or request.form.get("_return_view") or "").strip()
+    if view in _DASHBOARD_VIEWS:
+        values["view"] = view
+    else:
+        values.pop("view", None)
     args = {key: value for key, value in values.items() if value}
     return redirect(url_for("federation_admin.dashboard", **args))
 
@@ -104,6 +112,10 @@ def dashboard():
     remote_query = request.args.get("remote_q", "").strip()[:200]
     remote_peer = request.args.get("remote_peer", "").strip()[:128]
     selected_id = request.args.get("document_id", "").strip()
+    active_view = request.args.get("view", "overview").strip()
+    if active_view not in _DASHBOARD_VIEWS:
+        active_view = "overview"
+    edit_peer_id = request.args.get("edit_peer", "").strip()[:128]
     selected = None
     if selected_id:
         try:
@@ -119,6 +131,7 @@ def dashboard():
     peers = store.list_peers()
     for peer in peers:
         peer["chat_policy"] = chat_policy_state(peer.get("policy"))
+    edit_peer = next((peer for peer in peers if peer.get("peer_id") == edit_peer_id), None)
     transfers = store.list_transfers(200)
     if selected:
         transfers = [item for item in transfers if item.get("blob_hash") == selected["federation_sha256"]]
@@ -138,6 +151,8 @@ def dashboard():
         catalog_events=catalog.events(100),
         catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in peers},
         chat_action_labels=ACTION_LABELS,
+        active_view=active_view,
+        edit_peer=edit_peer,
     )
 
 
@@ -162,7 +177,7 @@ def backfill_origin_tags():
 @bp.get("/documents/<document_id>")
 @admin_required
 def document_federation(document_id: str):
-    return _redirect_dashboard(document_id=document_id)
+    return _redirect_dashboard(document_id=document_id, view="files")
 
 
 @bp.post("/documents/<document_id>/send")
@@ -259,11 +274,17 @@ def save_peer():
         policy = json.loads(request.form.get("policy_json", "{}") or "{}")
         if not isinstance(policy, dict):
             raise ValueError("Policy muss ein JSON-Objekt sein")
+        if request.form.get("_documents_policy_form") == "1":
+            policy["documents"] = {
+                "send": request.form.get("documents_send") == "1",
+                "receive": request.form.get("documents_receive") == "1",
+                "seed": request.form.get("documents_seed") == "1",
+            }
         _store().save_peer(peer_id, label, base_url, token, policy, request.form.get("enabled") == "1")
         flash("Federation-Peer gespeichert.")
     except (ValueError, json.JSONDecodeError) as exc:
         flash(f"Peer konnte nicht gespeichert werden: {exc}")
-    return _redirect_dashboard()
+    return _redirect_dashboard(view="peers")
 
 
 @bp.post("/peers/<peer_id>/chat-policy")
