@@ -22,7 +22,7 @@ from typing import Any
 
 from simpleoffice_firewall import AGENT_SOCKET, normalize_rules, validate_test_id
 
-STATE_ROOT = Path(os.environ.get("SIMPLEOFFICE_FIREWALL_AGENT_STATE", "/var/lib/simpleoffice4me/firewall-agent"))
+STATE_ROOT = Path(os.environ.get("SIMPLEOFFICE_FIREWALL_AGENT_STATE", "/var/lib/simpleoffice4me-firewall-agent"))
 PLAN_DIR = STATE_ROOT / "tests"
 COMMAND_TIMEOUT = 6
 _UFW_LINE = re.compile(r"^\[\s*(\d+)\]\s+(\S+?)(?:\s+\((v6)\))?\s+(ALLOW|DENY|REJECT|LIMIT)(?:\s+(IN|OUT))?\s+(.+)$", re.I)
