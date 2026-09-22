@@ -104,6 +104,40 @@ class BlobCatalogStorageAdapterTests(unittest.TestCase):
             operations,
         )
 
+    def test_replace_copy_and_move_preserve_destination_identity(self):
+        source = self.adapter.create_bytes(StorageLocation("docs/source.txt"), b"source")
+        destination = self.adapter.create_bytes(StorageLocation("docs/destination.txt"), b"destination")
+        self.assertTrue(source.ok)
+        self.assertTrue(destination.ok)
+
+        copied = self.adapter.copy_replace(
+            source.value.object_id,
+            destination.value.object_id,
+            expected_source_version=source.value.version,
+            expected_destination_version=destination.value.version,
+            max_bytes=100,
+        )
+        self.assertTrue(copied.ok)
+        self.assertEqual(destination.value.object_id, copied.value.object_id)
+        self.assertEqual(b"source", self.adapter.read_bytes(destination.value.object_id).value)
+        self.assertEqual(b"source", self.adapter.read_bytes(source.value.object_id).value)
+
+        move_source = self.adapter.create_bytes(StorageLocation("docs/move-source.txt"), b"moved")
+        move_destination = self.adapter.create_bytes(StorageLocation("docs/move-destination.txt"), b"old")
+        moved = self.adapter.move_replace(
+            move_source.value.object_id,
+            move_destination.value.object_id,
+            expected_source_version=move_source.value.version,
+            expected_destination_version=move_destination.value.version,
+            max_bytes=100,
+        )
+        self.assertTrue(moved.ok)
+        self.assertEqual(move_destination.value.object_id, moved.value.object_id)
+        self.assertEqual(b"moved", self.adapter.read_bytes(move_destination.value.object_id).value)
+        missing = self.adapter.read_bytes(move_source.value.object_id)
+        self.assertFalse(missing.ok)
+        self.assertEqual(ErrorCode.NOT_FOUND, missing.error.code)
+
     def test_create_conflict_never_replaces_existing_logical_location(self):
         location = StorageLocation("docs/existing.txt")
         first = self.adapter.create_bytes(location, b"first")
