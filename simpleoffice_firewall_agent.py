@@ -566,8 +566,11 @@ def serve(socket_path: str | Path = AGENT_SOCKET) -> None:
         except FileNotFoundError:
             pass
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        listener.bind(str(path))
-        os.chmod(path, 0o660)
+        previous_umask = os.umask(0o117)
+        try:
+            listener.bind(str(path))
+        finally:
+            os.umask(previous_umask)
         listener.listen(16)
     listener.settimeout(2)
     while True:
