@@ -37,7 +37,15 @@ fi
 
 chown -R root:root "$APP_DIR"
 chown -R simpleoffice:simpleoffice "$STATE_DIR"
-install -d -o root -g root -m 0700 "$STATE_DIR/firewall-agent" "$STATE_DIR/firewall-agent/tests"
+FIREWALL_STATE_DIR=/var/lib/simpleoffice4me-firewall-agent
+if [ -L "$FIREWALL_STATE_DIR" ]; then
+    echo "Unsicherer Firewall-Agent-State: $FIREWALL_STATE_DIR ist ein Symlink." >&2
+    exit 1
+fi
+install -d -o root -g root -m 0700 "$FIREWALL_STATE_DIR" "$FIREWALL_STATE_DIR/tests"
+chown -hR root:root "$FIREWALL_STATE_DIR"
+find "$FIREWALL_STATE_DIR" -xdev -type d -exec chmod 0700 {} +
+find "$FIREWALL_STATE_DIR" -xdev -type f -exec chmod 0600 {} +
 
 CONFIG="$INSTANCE_DIR/simpleoffice.json"
 if [ ! -f "$CONFIG" ]; then
