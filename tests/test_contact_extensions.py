@@ -75,9 +75,34 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertEqual("Support", updated["fields"]["department"])
         self.assertEqual(["Kunde", "Newsletter"], updated["tags"])
         self.assertIn("TEL;TYPE=CELL:+49333", exported)
-        self.assertIn("ADR;TYPE=HOME:;;Weserstr. 27;Duisburg;;47137;DE", exported)
+        self.assertIn("ADR;TYPE=HOME:;;WESERSTR. 27;DUISBURG;;47137;DE", exported.upper())
+        self.assertEqual("Duisburg", updated["addresses"][0]["components"]["city"])
+        self.assertEqual("Weserstr. 27", updated["addresses"][0]["components"]["street"])
         self.assertIn("EMAIL;TYPE=WORK:ada@work.test", exported)
         self.assertIn("IMPP:xmpp:ada@example.test", exported)
+
+    def test_external_update_values_prefers_structured_contact_address(self):
+        contact = {
+            "fields": {"display_name": "Person"},
+            "addresses": [{
+                "label": "Privat",
+                "value": "Weserstr. 27\n47137 Duisburg\nDE",
+                "components": {
+                    "street": "Weserstr. 27",
+                    "city": "Duisburg",
+                    "postal": "47137",
+                    "country": "DE",
+                },
+            }],
+            "tags": [],
+        }
+
+        values = _external_update_values(contact)
+
+        self.assertEqual("Weserstr. 27", values["address_street"])
+        self.assertEqual("Duisburg", values["address_city"])
+        self.assertEqual("47137", values["address_postal"])
+        self.assertEqual("DE", values["address_country"])
 
     def test_external_update_values_exposes_typed_vcard_fields(self):
         contact = {"fields": {
