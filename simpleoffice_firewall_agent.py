@@ -329,10 +329,13 @@ def _firewalld_confirm(rule: dict[str, Any]) -> None:
 
 def _ufw_command(rule: dict[str, Any], marker: str) -> list[str]:
     action = "allow" if rule["effect"] == "allow" else "deny"
+    # Insert at the front so the test has deterministic precedence over an
+    # existing opposite rule. Confirmation keeps the same precedence.
+    prefix = ["ufw", "--force", "insert", "1", action]
     if rule.get("source"):
         port = str(rule["port_start"]) if rule["port_start"] == rule["port_end"] else f"{rule['port_start']}:{rule['port_end']}"
-        return ["ufw", "--force", action, "proto", rule["protocol"], "from", rule["source"], "to", "any", "port", port, "comment", marker]
-    return ["ufw", "--force", action, _port_spec(rule["port_start"], rule["port_end"], rule["protocol"], ufw=True), "comment", marker]
+        return [*prefix, "proto", rule["protocol"], "from", rule["source"], "to", "any", "port", port, "comment", marker]
+    return [*prefix, _port_spec(rule["port_start"], rule["port_end"], rule["protocol"], ufw=True), "comment", marker]
 
 
 def _ufw_apply_test(rule: dict[str, Any], marker: str) -> dict[str, Any]:
