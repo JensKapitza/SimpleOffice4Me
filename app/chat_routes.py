@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime
 
-from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
 from .chat_calls import call_settings, sip_uri
@@ -357,7 +357,7 @@ def share_object(room_id: str):
     room_data=_require_room(room_id); store=_store()
     if not store.is_participant(room_id,_actor()): abort(403)
     try:
-        kind=str(request.form.get("kind") or "").strip().casefold(); card=build_share_card(_root(),kind,str(request.form.get("object_id") or "").strip(),_actor())
+        kind=str(request.form.get("kind") or "").strip().casefold(); card=build_share_card(_root(),kind,str(request.form.get("object_id") or "").strip(),_actor(),include_vcard=(kind=="contact" and request.form.get("include_vcard")=="1"))
         message_type="contact" if kind=="contact" else "request"
         message=store.add_message(room_id,_actor(),str(request.form.get("comment") or "").strip(),message_type=message_type,payload={"share":card,**_reply_payload(room_id)})
         if kind=="document":
@@ -369,6 +369,28 @@ def share_object(room_id: str):
         return redirect(url_for("chat.room",room_id=room_id)+"#latest")
     except (ValueError,OSError,RuntimeError) as exc:
         flash(f"Objekt konnte nicht geteilt werden: {exc}"); return redirect(url_for("chat.room",room_id=room_id))
+
+
+@bp.get("/messages/<message_id>/contact.vcf")
+@login_required
+def contact_vcard(message_id: str):
+    try:
+        message = _store().message(message_id)
+        _require_room(message["room_id"])
+        share = message.get("payload", {}).get("share", {})
+        if message.get("message_type") != "contact" or share.get("kind") != "contact":
+            abort(404)
+        card = str(share.get("vcard") or "")
+        if not card.startswith("BEGIN:VCARD"):
+            abort(404)
+        filename = "contact.vcf"
+        return Response(
+            card,
+            mimetype="text/vcard; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except (ValueError, PermissionError):
+        abort(404)
 
 
 @bp.post("/messages/<message_id>/reaction")
