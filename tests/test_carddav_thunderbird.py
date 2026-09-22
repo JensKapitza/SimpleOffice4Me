@@ -36,7 +36,7 @@ class ThunderbirdCardDavCompatibilityTest(unittest.TestCase):
         self.assertIn("/carddav/addressbooks/admin/default/ruby.vcf", body)
         self.assertIn("getetag", body)
 
-    def test_collection_advertises_carddav_reports_and_vcard_versions(self):
+    def test_collection_advertises_reports_and_actual_vcard_output_version(self):
         response = self.client.open(
             "/carddav/addressbooks/admin/default/",
             method="PROPFIND",
@@ -46,7 +46,7 @@ class ThunderbirdCardDavCompatibilityTest(unittest.TestCase):
         self.assertIn("supported-report-set", body)
         self.assertIn("addressbook-query", body)
         self.assertIn("addressbook-multiget", body)
-        self.assertIn('version="3.0"', body)
+        self.assertNotIn('version="3.0"', body)
         self.assertIn('version="4.0"', body)
         self.assertIn("getctag", body)
 
