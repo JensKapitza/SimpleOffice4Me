@@ -60,6 +60,7 @@
                   <select class="form-select" id="share-{{ kind }}" name="object_id" required><option value="">{{ label }} auswählen …</option>{% for item in share_choices[kind] %}<option value="{{ item.id }}">{{ item.label }}</option>{% endfor %}</select>
                   <button class="btn btn-outline-primary" type="submit">Teilen</button>
                 </div>
+                {% if kind == 'contact' %}<label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="include_vcard" value="1"><span class="form-check-label small">vCard zum Import mitsenden</span></label>{% endif %}
               </form>
             </div>
           {% endfor %}
