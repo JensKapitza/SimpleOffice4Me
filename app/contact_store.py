@@ -568,7 +568,7 @@ class ContactStore:
             "FN": "display_name", "N": "name", "NICKNAME": "nickname", "EMAIL": "email",
             "TEL": "phone", "BDAY": "birthday", "ORG": "company", "TITLE": "title",
             "ROLE": "role", "URL": "website", "NOTE": "note", "CATEGORIES": "categories",
-            "X-SIMPLEOFFICE-GROUP": "groups",
+            "ADR": "addresses", "X-SIMPLEOFFICE-GROUP": "groups",
         }
         lines = ["BEGIN:VCARD", "VERSION:4.0", f"UID:{external_uid}"]
         for line in raw_lines[3:]:
