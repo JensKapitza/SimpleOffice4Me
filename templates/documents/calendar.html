@@ -50,10 +50,12 @@
     });
     const calendars = {{ calendars|tojson }};
     const events = {{ events|tojson }};
+    const localUsers = {{ video_chat_users|tojson }};
+    const currentUsername = {{ current_username|tojson }};
     const appointmentTypes = document.createElement('datalist'); appointmentTypes.id = 'appointment-type-options';
-    ['Beratung', 'Vor-Ort-Termin', 'Kundentermin', 'Wartung', 'Besprechung'].forEach(value => { const option = document.createElement('option'); option.value = value; appointmentTypes.append(option); });
+    ['Beratung', 'Vor-Ort-Termin', 'Kundentermin', 'Videotermin', 'Wartung', 'Besprechung'].forEach(value => { const option = document.createElement('option'); option.value = value; appointmentTypes.append(option); });
     document.body.append(appointmentTypes);
-    const writable = calendars.filter(item => item.owner === {{ current_username|tojson }} || item.access[{{ current_username|tojson }}] === 'edit');
+    const writable = calendars.filter(item => item.owner === currentUsername || item.access[currentUsername] === 'edit');
     const selectGroup = (selected = 'default') => {
       const group = document.createElement('div'); group.className = 'col-md-6';
       const label = document.createElement('label'); label.className = 'form-label'; label.textContent = 'Kalender';
@@ -74,6 +76,43 @@
       group.querySelector('[name="conferences"]').value = (event.conferences || []).map(item => `${item.uri} | ${item.label || ''} | ${(item.features || []).join(',')}`).join('\n');
       return group;
     };
+    const videoChatFields = (event = {}) => {
+      const group = document.createElement('fieldset'); group.className = 'col-12 border rounded p-3';
+      const legend = document.createElement('legend'); legend.className = 'h6'; legend.textContent = 'SimpleOffice-Videochat';
+      group.append(legend);
+      const existing = (event.conferences || []).find(item => (item.label || '') === 'SimpleOffice Videochat' && String(item.uri || '').includes('/chat/rooms/'));
+      if (existing) {
+        const note = document.createElement('p'); note.className = 'small text-secondary mb-2'; note.textContent = 'Für diesen Termin ist bereits ein interner Videochat verknüpft.';
+        const link = document.createElement('a'); link.className = 'btn btn-outline-success btn-sm'; link.href = existing.uri; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Videochat öffnen';
+        group.append(note, link);
+        return group;
+      }
+      const available = localUsers.filter(username => username !== currentUsername);
+      const toggleWrap = document.createElement('div'); toggleWrap.className = 'form-check form-switch mb-2';
+      const toggle = document.createElement('input'); toggle.className = 'form-check-input'; toggle.type = 'checkbox'; toggle.name = 'create_video_chat'; toggle.value = '1';
+      const toggleId = 'video-chat-' + (event.event_id || 'new'); toggle.id = toggleId;
+      const toggleLabel = document.createElement('label'); toggleLabel.className = 'form-check-label fw-semibold'; toggleLabel.htmlFor = toggleId; toggleLabel.textContent = 'Videochat-Termin erstellen';
+      toggleWrap.append(toggle, toggleLabel);
+      const help = document.createElement('p'); help.className = 'small text-secondary mb-2';
+      help.textContent = available.length
+        ? 'Beim Speichern wird ein geschützter SimpleOffice-Chatraum angelegt und als iCalendar-Konferenz hinterlegt. Der Termineigentümer wird automatisch aufgenommen.'
+        : 'Für einen internen Videochat ist mindestens ein weiterer lokaler SimpleOffice-Benutzer erforderlich. Externe Konferenzlinks kannst du weiterhin oben manuell eintragen.';
+      const usersBox = document.createElement('div'); usersBox.className = 'border rounded p-2 vstack gap-1'; usersBox.style.maxHeight = '10rem'; usersBox.style.overflow = 'auto';
+      available.forEach((username, index) => {
+        const row = document.createElement('label'); row.className = 'form-check';
+        const input = document.createElement('input'); input.className = 'form-check-input'; input.type = 'checkbox'; input.name = 'video_chat_users'; input.value = username; input.disabled = true; input.id = toggleId + '-user-' + index;
+        const text = document.createElement('span'); text.className = 'form-check-label'; text.textContent = username;
+        row.append(input, text); usersBox.append(row);
+      });
+      if (!available.length) {
+        toggle.disabled = true;
+        const empty = document.createElement('span'); empty.className = 'small text-secondary'; empty.textContent = 'Keine weiteren lokalen Benutzer vorhanden.';
+        usersBox.append(empty);
+      }
+      toggle.addEventListener('change', () => usersBox.querySelectorAll('input').forEach(input => { input.disabled = !toggle.checked; }));
+      group.append(toggleWrap, help, usersBox);
+      return group;
+    };
     const billingFields = (event = {}) => {
       const billing = event.billing || {};
       const group = document.createElement('fieldset'); group.className = 'col-12 border rounded p-3';
@@ -90,10 +129,10 @@
     };
     const creationHeader = [...document.querySelectorAll('.card-header')].find(node => node.textContent.trim() === 'Termin anlegen');
     const creationForm = creationHeader?.nextElementSibling?.querySelector('form');
-    if (creationForm) { creationForm.prepend(selectGroup()); const target = creationForm.querySelector('button')?.closest('.col-12'); target?.before(metadataFields()); target?.before(billingFields()); }
+    if (creationForm) { creationForm.prepend(selectGroup()); const target = creationForm.querySelector('button')?.closest('.col-12'); target?.before(metadataFields()); target?.before(videoChatFields()); target?.before(billingFields()); }
     events.forEach(event => {
       const modal = document.getElementById(`calendar-event-${event.event_id}`); const editForm = modal?.querySelector(`form[action$="/calendar/${event.event_id}"]`);
-      if (editForm) { editForm.prepend(selectGroup(event.calendar_id || 'default')); const target = editForm.querySelector('button')?.closest('.col-12'); target?.before(metadataFields(event)); target?.before(billingFields(event)); }
+      if (editForm) { editForm.prepend(selectGroup(event.calendar_id || 'default')); const target = editForm.querySelector('button')?.closest('.col-12'); target?.before(metadataFields(event)); target?.before(videoChatFields(event)); target?.before(billingFields(event)); }
       if (modal && event.can_edit) {
         const form = document.createElement('form'); form.method = 'post'; form.action = `{{ url_for('documents.calendar') }}/${event.event_id}/participants`; form.className = 'border-top mt-3 pt-3';
         const heading = document.createElement('h3'); heading.className = 'h6'; heading.textContent = 'Teilnehmer';

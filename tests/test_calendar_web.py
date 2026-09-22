@@ -12,6 +12,7 @@ from app import db as database
 from app.calendar_store import CalendarStore
 from app.calendar_collections import CalendarCollections
 from app.contact_store import ContactStore
+from app.chat_store import ChatStore
 from app.mail_client import MailStore
 
 
@@ -295,6 +296,123 @@ class CalendarWebTest(unittest.TestCase):
         invalid = self.client.get("/documents/calendar/reminders.json?from=2026-01-01T00:00:00Z&to=2026-03-01T00:00:00Z")
         self.assertEqual(400, invalid.status_code)
         self.assertIn("at most 31 days", invalid.get_json()["error"])
+
+
+    def test_calendar_can_create_linked_simpleoffice_video_chat(self):
+        with app.app_context():
+            db = database.get_db()
+            db.execute(
+                "INSERT INTO user (username, password) VALUES (?, ?)",
+                ("amy", "unused"),
+            )
+            db.commit()
+
+        page = self.client.get("/documents/calendar")
+        body = page.get_data(as_text=True)
+        self.assertEqual(200, page.status_code)
+        self.assertIn("Videochat-Termin erstellen", body)
+        self.assertIn("video_chat_users", body)
+        self.assertIn("Videotermin", body)
+
+        created = self.client.post(
+            "/documents/calendar",
+            data={
+                "calendar_id": "default",
+                "owner": "jens",
+                "title": "Video-Beratung",
+                "reason": "Projekt per Video besprechen",
+                "start": "2026-08-10T10:00",
+                "end": "2026-08-10T11:00",
+                "visibility": "private",
+                "appointment_type": "Videotermin",
+                "create_video_chat": "1",
+                "video_chat_users": "amy",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(200, created.status_code)
+        self.assertIn(
+            "Kalendertermin gespeichert und SimpleOffice-Videochat erstellt.",
+            created.get_data(as_text=True),
+        )
+
+        store = CalendarStore(app.config["DOCUMENT_ROOT"])
+        event = store.events("jens")[0]
+        self.assertEqual("Videotermin", event["appointment_type"])
+        self.assertEqual(1, len(event["conferences"]))
+        conference = event["conferences"][0]
+        self.assertEqual("SimpleOffice Videochat", conference["label"])
+        self.assertEqual(["audio", "chat", "video"], conference["features"])
+        self.assertTrue(
+            conference["uri"].startswith(
+                "http://localhost/chat/rooms/"
+            )
+        )
+
+        room_id = conference["uri"].rstrip("/").rsplit("/", 1)[-1]
+        participants = {
+            row["username"]
+            for row in ChatStore(app.config["DOCUMENT_ROOT"]).participants(room_id)
+        }
+        self.assertEqual({"jens", "amy"}, participants)
+        self.assertIn(
+            'CONFERENCE;FEATURE=AUDIO,CHAT,VIDEO;LABEL="SimpleOffice Videochat":'
+            "http://localhost/chat/rooms/",
+            store.export_ics("jens"),
+        )
+
+    def test_calendar_video_chat_rejects_disabled_local_user(self):
+        with app.app_context():
+            db = database.get_db()
+            db.execute(
+                "INSERT INTO user (username, password, is_disabled) VALUES (?, ?, ?)",
+                ("disabled-user", "unused", 1),
+            )
+            db.commit()
+
+        response = self.client.post(
+            "/documents/calendar",
+            data={
+                "calendar_id": "default",
+                "owner": "jens",
+                "title": "Video mit gesperrtem Konto",
+                "reason": "Test",
+                "start": "2026-08-10T10:00",
+                "end": "2026-08-10T11:00",
+                "visibility": "private",
+                "create_video_chat": "1",
+                "video_chat_users": "disabled-user",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertIn(
+            "Unbekannter lokaler Videochat-Teilnehmer.",
+            response.get_data(as_text=True),
+        )
+        self.assertEqual([], CalendarStore(app.config["DOCUMENT_ROOT"]).events("jens"))
+
+    def test_calendar_video_chat_requires_another_local_user(self):
+        response = self.client.post(
+            "/documents/calendar",
+            data={
+                "calendar_id": "default",
+                "owner": "jens",
+                "title": "Video ohne Teilnehmer",
+                "reason": "Test",
+                "start": "2026-08-10T10:00",
+                "end": "2026-08-10T11:00",
+                "visibility": "private",
+                "create_video_chat": "1",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertIn(
+            "mindestens einen weiteren lokalen Benutzer",
+            response.get_data(as_text=True),
+        )
+        self.assertEqual([], CalendarStore(app.config["DOCUMENT_ROOT"]).events("jens"))
 
 
 if __name__ == "__main__":

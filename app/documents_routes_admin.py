@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
+from .chat_store import ChatStore
 
 @bp.post("/calendar/<event_id>/invite-email")
 @login_required
@@ -230,6 +231,74 @@ def preview_calendar_import():
     )
 
 
+_SIMPLEOFFICE_VIDEO_CHAT_LABEL = "SimpleOffice Videochat"
+
+def _has_simpleoffice_video_chat(event: dict) -> bool:
+    return any(
+        str(item.get("label") or "") == _SIMPLEOFFICE_VIDEO_CHAT_LABEL
+        and "/chat/rooms/" in str(item.get("uri") or "")
+        for item in (event.get("conferences") or [])
+        if isinstance(item, dict)
+    )
+
+
+def _requested_video_chat_users(actor: str, owner: str = "") -> list[str]:
+    active = {
+        str(row["username"])
+        for row in get_db().execute(
+            "SELECT username FROM user WHERE is_disabled=0"
+        ).fetchall()
+    }
+    selected = {
+        str(value).strip()
+        for value in request.form.getlist("video_chat_users")
+        if str(value).strip()
+    }
+    if selected - active:
+        raise ValueError("Unbekannter lokaler Videochat-Teilnehmer.")
+    owner = str(owner or "").strip()
+    if owner and owner in active and owner != actor:
+        selected.add(owner)
+    selected.discard(actor)
+    if not selected:
+        raise ValueError(
+            "Für einen SimpleOffice-Videochat mindestens einen weiteren lokalen Benutzer auswählen."
+        )
+    return sorted(selected, key=str.casefold)
+
+
+def _attach_simpleoffice_video_chat(event: dict, actor: str, participants: list[str]) -> dict:
+    if _has_simpleoffice_video_chat(event):
+        return event
+    conferences = list(event.get("conferences") or [])
+    if len(conferences) >= 8:
+        raise ValueError("Für diesen Termin sind bereits acht Konferenzzugänge hinterlegt.")
+    room = ChatStore(current_app.config["DOCUMENT_ROOT"]).create_room(
+        f"Termin: {event.get('title') or 'Videochat'}"[:200],
+        actor,
+        participants,
+    )
+    conference = {
+        "uri": url_for("chat.room", room_id=room["room_id"], _external=True),
+        "label": _SIMPLEOFFICE_VIDEO_CHAT_LABEL,
+        "features": ["audio", "chat", "video"],
+    }
+    return _calendar().update(
+        event["event_id"],
+        event["title"],
+        event.get("reason", ""),
+        event["start"],
+        event.get("end", ""),
+        event.get("contact_id") or "",
+        actor,
+        event.get("visibility", "private"),
+        event.get("public_notice", ""),
+        list(event.get("tags") or []),
+        event.get("calendar_id", "default"),
+        {"conferences": [*conferences, conference]},
+    )
+
+
 @bp.post("/calendar")
 @login_required
 def add_calendar_event():
@@ -242,11 +311,17 @@ def add_calendar_event():
         calendar_id = request.form.get("calendar_id", "default")
         _calendars().get(calendar_id, actor, write=True)
         metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
+        create_video_chat = request.form.get("create_video_chat") == "1"
+        video_chat_users = _requested_video_chat_users(actor, owner) if create_video_chat else []
+        if create_video_chat and len(metadata.get("conferences") or []) >= 8:
+            raise ValueError("Für diesen Termin sind bereits acht Konferenzzugänge hinterlegt.")
         event = _calendar().add(request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), owner, calendar_id, metadata)
         if request.form.get("rrule", "").strip() or request.form.get("rdates", "").strip():
             event = _calendar().set_recurrence(event["event_id"], {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "Europe/Berlin")}, actor, event.get("updated_at", ""))
+        if create_video_chat:
+            event = _attach_simpleoffice_video_chat(event, actor, video_chat_users)
         _calendars().record_event_move(event, calendar_id, actor)
-        flash("Kalendertermin gespeichert.")
+        flash("Kalendertermin gespeichert und SimpleOffice-Videochat erstellt." if create_video_chat else "Kalendertermin gespeichert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
@@ -258,11 +333,18 @@ def update_calendar_event(event_id: str):
     try:
         actor = str(g.user["username"]); calendar_id = request.form.get("calendar_id", "")
         if calendar_id: _calendars().get(calendar_id, actor, write=True)
-        source_calendar_id = _calendar().get(event_id, actor).get("calendar_id") or "default"
+        previous = _calendar().get(event_id, actor)
+        source_calendar_id = previous.get("calendar_id") or "default"
         metadata = {**_calendar_metadata(), "description_html": request.form.get("description_html", ""), "description_format": request.form.get("description_format", "text")}
+        create_video_chat = request.form.get("create_video_chat") == "1" and not _has_simpleoffice_video_chat(previous)
+        video_chat_users = _requested_video_chat_users(actor, previous.get("owner", "")) if create_video_chat else []
+        if create_video_chat and len(metadata.get("conferences") or []) >= 8:
+            raise ValueError("Für diesen Termin sind bereits acht Konferenzzugänge hinterlegt.")
         event = _calendar().update(event_id, request.form.get("title", ""), request.form.get("reason", ""), request.form.get("start", ""), request.form.get("end", ""), request.form.get("contact_id", ""), actor, request.form.get("visibility", "private"), request.form.get("public_notice", ""), _calendar_tags(), calendar_id, metadata)
+        if create_video_chat:
+            event = _attach_simpleoffice_video_chat(event, actor, video_chat_users)
         _calendars().record_event_move(event, source_calendar_id, actor)
-        flash("Kalendertermin geändert.")
+        flash("Kalendertermin geändert und SimpleOffice-Videochat erstellt." if create_video_chat else "Kalendertermin geändert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
