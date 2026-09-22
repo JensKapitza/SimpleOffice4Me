@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+from .cutover import cutover_status, prepare_shadow, return_to_v1
 from .recovery import RecoveryService
 from .migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
 
@@ -33,6 +34,11 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("--destination", required=True)
     restore.add_argument("--apply", action="store_true")
     sub.add_parser("migration-verify", help="Verify V1/V2 content transfer without writing")
+    sub.add_parser("storage-cutover-status", help="Show explicit V2 storage cutover state and verification")
+    shadow = sub.add_parser("storage-shadow", help="Prepare or enter verified V2 shadow mode")
+    shadow.add_argument("--apply", action="store_true")
+    legacy = sub.add_parser("storage-v1", help="Return explicitly to V1 compatibility mode")
+    legacy.add_argument("--apply", action="store_true")
 
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
@@ -104,6 +110,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = verify_migration_transfer(args.root)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["ready"] else 2
+
+    if args.command == "storage-cutover-status":
+        result = cutover_status(args.root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["verification_ready"] else 2
+
+    if args.command == "storage-shadow":
+        result = prepare_shadow(args.root, apply=bool(args.apply))
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if args.apply else 3
+
+    if args.command == "storage-v1":
+        result = return_to_v1(args.root, apply=bool(args.apply))
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if args.apply else 3
 
     service = RecoveryService(args.root)
 

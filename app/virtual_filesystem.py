@@ -24,6 +24,8 @@ from .document_store import (
 )
 from .file_lock import exclusive_file_lock
 from .safe_paths import normalize_path, resolve_for_write_under, resolve_under
+from .v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation
+from .v2.storage_runtime import storage_for
 
 
 ROLES = {"read": 1, "write": 2, "manage": 3}
@@ -45,6 +47,24 @@ class VirtualFileSystem:
         self.store = DocumentStore(root)
         self.root = normalize_path(self.store.root, strict=True)
         self.administrators = {value.strip() for value in administrators if value.strip()}
+
+    def _storage(self, actor: str):
+        return storage_for(self.root, actor)
+
+    @staticmethod
+    def _storage_value(result: OperationResult):
+        if result.ok:
+            return result.value
+        error = result.error
+        message = error.message if error else "storage operation failed"
+        code = error.code if error else ErrorCode.INTERNAL_ERROR
+        if code is ErrorCode.NOT_FOUND:
+            raise FileNotFoundError(message)
+        if code is ErrorCode.INTEGRITY_ERROR:
+            raise RuntimeError(message)
+        if code in {ErrorCode.STORAGE_UNAVAILABLE, ErrorCode.RETRYABLE}:
+            raise OSError(message)
+        raise ValueError(message)
 
     @staticmethod
     def username(actor: str) -> str:
@@ -181,7 +201,12 @@ class VirtualFileSystem:
         if not resource.is_file() or resource.is_symlink():
             raise FileNotFoundError(self.relative(resource))
         resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
-        return resource.read_bytes()
+        document = self.store.get_document(resource)
+        return self._storage_value(
+            self._storage(actor).read_bytes(
+                LogicalObjectId(str(document["document_id"]))
+            )
+        )
 
     def write_bytes(
         self,
@@ -192,21 +217,32 @@ class VirtualFileSystem:
         expected_sha256: str = "",
         max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any]:
+        payload = bytes(content)
+        if len(payload) > int(max_bytes):
+            raise ValueError("document exceeds the configured upload size limit")
         resource = self.resolve(path)
+        storage = self._storage(actor)
         if resource.exists():
             self.require(actor, resource, "write")
             resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
             document = self.store.get_document(resource)
-            return self.store.replace_content(
-                document["document_id"], content, actor,
-                expected_sha256=expected_sha256 or str(document.get("sha256", "")),
-                max_bytes=max_bytes,
+            stored = self._storage_value(
+                storage.replace_bytes(
+                    LogicalObjectId(str(document["document_id"])),
+                    payload,
+                    expected_version=expected_sha256 or str(document.get("sha256", "")),
+                )
             )
+            return self.store.get_document(stored.object_id.value)
         self.require(actor, resource.parent, "write")
         resource = resolve_for_write_under(self.root, resource.relative_to(self.root))
-        return self.store.create_document_at(
-            self.relative(resource), content, actor, max_bytes=max_bytes,
+        stored = self._storage_value(
+            storage.create_bytes(
+                StorageLocation(self.relative(resource)),
+                payload,
+            )
         )
+        return self.store.get_document(stored.object_id.value)
 
     def mkdir(self, actor: str, path: str | Path) -> Path:
         resource = self.resolve(path)
@@ -222,8 +258,11 @@ class VirtualFileSystem:
             self.store.delete_empty_collection(self.relative(resource), actor)
         else:
             document = self.store.get_document(resource)
-            self.store.soft_delete_document(
-                document["document_id"], actor, expected_sha256=expected_sha256,
+            self._storage_value(
+                self._storage(actor).delete(
+                    LogicalObjectId(str(document["document_id"])),
+                    expected_version=expected_sha256 or None,
+                )
             )
 
     def rename(
@@ -259,9 +298,11 @@ class VirtualFileSystem:
             self.store.move_collection(self.relative(source_path), self.relative(destination_path), actor)
         else:
             document = self.store.get_document(source_path)
-            self.store.move_document(
-                document["document_id"], self.relative(destination_path.parent), actor,
-                destination_name=destination_path.name,
+            self._storage_value(
+                self._storage(actor).move(
+                    LogicalObjectId(str(document["document_id"])),
+                    StorageLocation(self.relative(destination_path)),
+                )
             )
 
     def set_times(

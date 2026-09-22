@@ -1,0 +1,136 @@
+"""Runtime selection for the document StoragePort.
+
+The selector is deliberately centralized so browser, WebDAV/SFTP VFS and other
+document consumers cannot silently choose different storage modes.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import BinaryIO
+
+from app.document_store import DocumentStore
+
+from .adapters.document_store import DocumentStoreStorageAdapter
+from .adapters.shadow import ShadowDocumentStorageAdapter
+from .contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoragePort
+from .cutover import load_cutover_state
+
+
+def storage_for(root: str | Path, actor: str) -> StoragePort:
+    state = load_cutover_state(root)
+    if state.mode == "shadow":
+        return ShadowDocumentStorageAdapter(root, actor)
+    return DocumentStoreStorageAdapter(root, actor)
+
+
+def result_or_raise(result: OperationResult):
+    if result.ok:
+        return result.value
+    error = result.error
+    message = error.message if error else "storage operation failed"
+    code = error.code if error else ErrorCode.INTERNAL_ERROR
+    if code is ErrorCode.NOT_FOUND:
+        raise FileNotFoundError(message)
+    if code is ErrorCode.INTEGRITY_ERROR:
+        raise RuntimeError(message)
+    if code in {ErrorCode.STORAGE_UNAVAILABLE, ErrorCode.RETRYABLE}:
+        raise OSError(message)
+    if code is ErrorCode.FORBIDDEN:
+        raise PermissionError(message)
+    raise ValueError(message)
+
+
+def _metadata(root: str | Path, object_id: LogicalObjectId):
+    return DocumentStore(root).get_document(object_id.value)
+
+
+def create_document(
+    root: str | Path,
+    actor: str,
+    relative_path: str,
+    content: bytes,
+    *,
+    max_bytes: int = 512 * 1024 * 1024,
+):
+    payload = bytes(content)
+    if len(payload) > int(max_bytes):
+        raise ValueError("document exceeds the configured upload size limit")
+    stored = result_or_raise(
+        storage_for(root, actor).create_bytes(
+            StorageLocation(relative_path),
+            payload,
+        )
+    )
+    return _metadata(root, stored.object_id)
+
+
+def replace_document(
+    root: str | Path,
+    actor: str,
+    object_id: str,
+    content: bytes,
+    *,
+    expected_version: str | None = None,
+    max_bytes: int = 512 * 1024 * 1024,
+):
+    payload = bytes(content)
+    if len(payload) > int(max_bytes):
+        raise ValueError("document exceeds the configured upload size limit")
+    stored = result_or_raise(
+        storage_for(root, actor).replace_bytes(
+            LogicalObjectId(str(object_id)),
+            payload,
+            expected_version=expected_version,
+        )
+    )
+    return _metadata(root, stored.object_id)
+
+
+def import_document(
+    root: str | Path,
+    actor: str,
+    stream: BinaryIO,
+    filename: str,
+    *,
+    archive: bool = False,
+    max_bytes: int = 512 * 1024 * 1024,
+):
+    stored = result_or_raise(
+        storage_for(root, actor).import_stream(
+            stream,
+            filename,
+            archive=archive,
+            max_bytes=max_bytes,
+        )
+    )
+    return _metadata(root, stored.object_id)
+
+
+def delete_document(
+    root: str | Path,
+    actor: str,
+    object_id: str,
+    *,
+    expected_version: str | None = None,
+):
+    return result_or_raise(
+        storage_for(root, actor).delete(
+            LogicalObjectId(str(object_id)),
+            expected_version=expected_version,
+        )
+    )
+
+
+def move_document(
+    root: str | Path,
+    actor: str,
+    object_id: str,
+    destination: str,
+):
+    stored = result_or_raise(
+        storage_for(root, actor).move(
+            LogicalObjectId(str(object_id)),
+            StorageLocation(destination),
+        )
+    )
+    return _metadata(root, stored.object_id)

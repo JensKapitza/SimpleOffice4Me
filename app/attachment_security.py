@@ -20,6 +20,7 @@ from typing import Any
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_under
+from .v2.storage_runtime import import_document
 
 MAX_PARTS = 100
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
@@ -269,7 +270,7 @@ class AttachmentSecurity:
                     record["action"] = "allowed_import"
                     self._record_scan(record)
                     with quarantine_path.open("rb") as handle:
-                        imported = DocumentStore(self.root).import_upload(handle, row["filename"], actor, max_bytes=MAX_ATTACHMENT_BYTES)
+                        imported = import_document(self.root, actor, handle, row["filename"], max_bytes=MAX_ATTACHMENT_BYTES)
                     tags = ["attachment", "source:eml", f"source-document:{manifest['document_id']}", f"source-message:{hashlib.sha256(manifest['message']['message_id'].encode()).hexdigest()[:16] if manifest['message']['message_id'] else 'unknown'}"]
                     store = DocumentStore(self.root)
                     store.set_tags(imported["document_id"], [*imported.get("tags", []), *tags], actor)
