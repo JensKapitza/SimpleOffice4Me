@@ -23,7 +23,7 @@ from .migration import _catalog_snapshot_read_only, build_migration_plan, verify
 
 FORMAT_FAMILY = "simpleoffice-v2-storage-cutover"
 FORMAT_VERSION = 1
-MODES = {"v1", "shadow"}
+MODES = {"v1", "shadow", "v2"}
 PROTECTION_MODES = {"unspecified", "local-plaintext"}
 LOCAL_PLAINTEXT = "local-plaintext"
 
@@ -303,7 +303,7 @@ def _write_cutover_state(root: str | Path, state: CutoverState) -> CutoverState:
 def cutover_status(root: str | Path) -> dict[str, Any]:
     """Return persisted state plus a fresh read-only V1/V2 verification."""
     state = load_cutover_state(root)
-    if state.mode == "shadow":
+    if state.mode in {"shadow", "v2"}:
         verification = verify_shadow_consistency(root)
         current_fingerprint = str(verification.get("fingerprint") or "")
         ready_for_shadow = bool(verification.get("ready"))
@@ -333,10 +333,25 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
             if state.protection_mode == LOCAL_PLAINTEXT
             else "V2 storage protection mode has not been explicitly selected."
         ),
-        "ready_for_v2_activation": False,
+        "ready_for_v2_activation": bool(
+            state.mode == "shadow"
+            and not state.dirty
+            and verification.get("ready")
+            and fingerprint_matches
+            and state.protection_mode == LOCAL_PLAINTEXT
+        ),
         "v2_activation_blocker": (
-            "runtime cutover is not enabled until all required read/write consumers "
-            "use the V2 storage boundary"
+            ""
+            if state.mode == "v2"
+            else "verified shadow mode is required before authoritative V2 activation"
+            if state.mode != "shadow"
+            else "shadow state is dirty or verification is not clean"
+            if state.dirty or not verification.get("ready")
+            else "shadow fingerprint changed; refresh verified shadow mode before activation"
+            if not fingerprint_matches
+            else "storage protection mode must be explicitly selected"
+            if state.protection_mode != LOCAL_PLAINTEXT
+            else ""
         ),
     }
 
@@ -399,6 +414,76 @@ def prepare_shadow(
     )
     _write_cutover_state(root, refreshed)
     return preview
+
+
+def activate_v2(
+    root: str | Path,
+    *,
+    apply: bool = False,
+    acknowledge_local_plaintext: bool = False,
+) -> dict[str, Any]:
+    """Promote a clean shadow projection to authoritative V2 storage."""
+    state = load_cutover_state(root)
+    if state.mode == "v2":
+        verification = verify_shadow_consistency(root)
+        return {
+            "mode": "v2",
+            "applied": bool(apply),
+            "already_active": True,
+            "verification_ready": bool(verification.get("ready")),
+            "verified_documents": int(verification.get("verified_documents", 0)),
+            "protection_mode": state.protection_mode,
+            "encrypted_at_rest": False,
+            "federation_storage_allowed": False,
+        }
+    if state.mode != "shadow":
+        raise ValueError("V2 activation requires verified shadow mode")
+    if state.dirty:
+        raise ValueError("V2 activation is blocked because shadow state is dirty")
+    verification = verify_shadow_consistency(root)
+    if not verification.get("ready"):
+        raise ValueError(
+            "V2 activation requires clean shadow consistency: "
+            + "; ".join(str(item) for item in verification.get("blockers") or [])
+        )
+    current_fingerprint = str(verification.get("fingerprint") or "")
+    if not state.migration_fingerprint or state.migration_fingerprint != current_fingerprint:
+        raise ValueError(
+            "V2 activation requires the current shadow fingerprint to be explicitly reverified"
+        )
+    if state.protection_mode != LOCAL_PLAINTEXT:
+        raise ValueError("V2 activation requires an explicit storage protection mode")
+    if apply and not acknowledge_local_plaintext:
+        raise ValueError(
+            "authoritative V2 storage is currently local plaintext; explicit acknowledgement required"
+        )
+    result = {
+        "mode": "v2",
+        "applied": bool(apply),
+        "already_active": False,
+        "verification_ready": True,
+        "verified_documents": int(verification.get("verified_documents", 0)),
+        "protection_mode": state.protection_mode,
+        "encrypted_at_rest": False,
+        "federation_storage_allowed": False,
+        "plaintext_acknowledged": bool(acknowledge_local_plaintext),
+    }
+    if not apply:
+        return result
+    now = _now()
+    _write_cutover_state(
+        root,
+        CutoverState(
+            mode="v2",
+            protection_mode=state.protection_mode,
+            migration_fingerprint=str(verification.get("fingerprint") or ""),
+            verified_at=now,
+            updated_at=now,
+            dirty=False,
+            dirty_reason="",
+        ),
+    )
+    return result
 
 
 def mark_shadow_dirty(root: str | Path, reason: str) -> CutoverState:
