@@ -37,6 +37,11 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("storage-cutover-status", help="Show explicit V2 storage cutover state and verification")
     shadow = sub.add_parser("storage-shadow", help="Prepare or enter verified V2 shadow mode")
     shadow.add_argument("--apply", action="store_true")
+    shadow.add_argument(
+        "--acknowledge-local-plaintext",
+        action="store_true",
+        help="Explicitly acknowledge that V2 local blob storage is not encrypted at rest",
+    )
     legacy = sub.add_parser("storage-v1", help="Return explicitly to V1 compatibility mode")
     legacy.add_argument("--apply", action="store_true")
 
@@ -117,7 +122,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result["verification_ready"] else 2
 
     if args.command == "storage-shadow":
-        result = prepare_shadow(args.root, apply=bool(args.apply))
+        if args.apply and not args.acknowledge_local_plaintext:
+            print("refusing write: add --acknowledge-local-plaintext for the current local plaintext V2 store")
+            return 3
+        result = prepare_shadow(
+            args.root,
+            apply=bool(args.apply),
+            acknowledge_local_plaintext=bool(args.acknowledge_local_plaintext),
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if args.apply else 3
 

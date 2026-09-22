@@ -64,7 +64,7 @@ class V2CutoverStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with self.assertRaisesRegex(ValueError, "clean migration verification"):
-                prepare_shadow(root, apply=True)
+                prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
             self.assertFalse((root / ".simpleoffice-v2" / "storage-cutover.json").exists())
 
             base = Path(temp) / "ready"
@@ -79,7 +79,7 @@ class V2CutoverStateTests(unittest.TestCase):
             base = Path(temp)
             root, _ = self._migrated_root(base)
 
-            result = prepare_shadow(root, apply=True)
+            result = prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
             state = load_cutover_state(root)
             status = cutover_status(root)
 
@@ -89,6 +89,9 @@ class V2CutoverStateTests(unittest.TestCase):
             self.assertTrue(status["verification_ready"])
             self.assertTrue(status["fingerprint_matches"])
             self.assertFalse(status["ready_for_v2_activation"])
+            self.assertEqual("local-plaintext", state.protection_mode)
+            self.assertFalse(status["encrypted_at_rest"])
+            self.assertFalse(status["federation_storage_allowed"])
             path = root / ".simpleoffice-v2" / "storage-cutover.json"
             self.assertTrue(path.is_file())
             if os.name == "posix":
@@ -98,7 +101,7 @@ class V2CutoverStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             root, _ = self._migrated_root(base)
-            prepare_shadow(root, apply=True)
+            prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
             blob_store = root / ".simpleoffice-v2" / "blob-store"
             catalog = root / ".simpleoffice-v2" / "catalog.sqlite3"
             self.assertTrue(blob_store.is_dir())
@@ -122,7 +125,7 @@ class V2CutoverStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             root, _ = self._migrated_root(base)
-            prepare_shadow(root, apply=True)
+            prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
             original_fingerprint = load_cutover_state(root).migration_fingerprint
             adapter = ShadowDocumentStorageAdapter(root, "test-user")
 
@@ -140,7 +143,7 @@ class V2CutoverStateTests(unittest.TestCase):
             self.assertFalse(status["fingerprint_matches"])
             self.assertNotEqual(original_fingerprint, verification["fingerprint"])
 
-            refreshed = prepare_shadow(root, apply=True)
+            refreshed = prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
             self.assertTrue(refreshed["applied"])
             self.assertTrue(cutover_status(root)["fingerprint_matches"])
 
@@ -148,7 +151,7 @@ class V2CutoverStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             root, _ = self._migrated_root(base)
-            prepare_shadow(root, apply=True)
+            prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
             adapter = ShadowDocumentStorageAdapter(root, "test-user")
             metadata = DocumentStore(root).get_document("doc-cutover")
 
@@ -168,7 +171,7 @@ class V2CutoverStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             root, _ = self._migrated_root(base)
-            prepare_shadow(root, apply=True)
+            prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
 
             DocumentStore(root).create_document_at(
                 "inbox/bypass.txt",
@@ -192,6 +195,15 @@ class V2CutoverStateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsupported"):
                 load_cutover_state(root)
 
+    def test_shadow_apply_requires_explicit_plaintext_acknowledgement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root, _ = self._migrated_root(base)
+
+            with self.assertRaisesRegex(ValueError, "acknowledgement"):
+                prepare_shadow(root, apply=True)
+            self.assertEqual("v1", load_cutover_state(root).mode)
+
     def test_recovery_cli_requires_apply_for_shadow_transition(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -203,9 +215,21 @@ class V2CutoverStateTests(unittest.TestCase):
             self.assertFalse(json.loads(output.getvalue())["applied"])
 
             with redirect_stdout(StringIO()) as output:
-                applied_code = main(["--root", str(root), "storage-shadow", "--apply"])
+                refused_code = main(["--root", str(root), "storage-shadow", "--apply"])
+            self.assertEqual(3, refused_code)
+            self.assertIn("acknowledge-local-plaintext", output.getvalue())
+            self.assertEqual("v1", load_cutover_state(root).mode)
+
+            with redirect_stdout(StringIO()) as output:
+                applied_code = main([
+                    "--root", str(root), "storage-shadow", "--apply",
+                    "--acknowledge-local-plaintext",
+                ])
             self.assertEqual(0, applied_code)
-            self.assertTrue(json.loads(output.getvalue())["applied"])
+            payload = json.loads(output.getvalue())
+            self.assertTrue(payload["applied"])
+            self.assertEqual("local-plaintext", payload["protection_mode"])
+            self.assertFalse(payload["federation_storage_allowed"])
             self.assertEqual("shadow", load_cutover_state(root).mode)
 
 
