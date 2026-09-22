@@ -215,6 +215,15 @@ def _validate_backup_for_plan(source: Path, backup: str | Path, plan: dict[str, 
     ):
         raise ValueError("migration backup does not match the source installation")
 
+    expected_tree = str(manifest.get("tree_sha256") or "")
+    if expected_tree:
+        excluded = {".simpleoffice-v2/migration-backup.json"}
+        if manifest.get("source_v2_dir_present") is False:
+            excluded.add(".simpleoffice-v2")
+        actual_tree = _tree_sha256(target, exclude=excluded)
+        if actual_tree != expected_tree:
+            raise ValueError("migration backup tree integrity check failed")
+
     for entry in plan["entries"]:
         if entry.get("status") != "ready":
             continue
@@ -236,7 +245,7 @@ def _catalog_snapshot_read_only(source: Path) -> dict[str, dict[str, Any]]:
     path = source / ".simpleoffice-v2" / "catalog.sqlite3"
     if not path.is_file():
         return {}
-    uri = path.resolve().as_uri() + "?mode=ro"
+    uri = path.resolve().as_uri() + "?mode=ro&immutable=1"
     try:
         with sqlite3.connect(uri, uri=True) as db:
             db.row_factory = sqlite3.Row
