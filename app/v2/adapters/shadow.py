@@ -207,6 +207,58 @@ class ShadowDocumentStorageAdapter:
             self._dirty(f"{object_id.value}: V2 shadow move failed: {self._message(moved)}")
         return result
 
+    def copy_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        result = self.legacy.copy_replace(
+            source_id,
+            destination_id,
+            expected_source_version=expected_source_version,
+            expected_destination_version=expected_destination_version,
+            max_bytes=max_bytes,
+        )
+        return self._mirror_result(result)
+
+    def move_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        result = self.legacy.move_replace(
+            source_id,
+            destination_id,
+            expected_source_version=expected_source_version,
+            expected_destination_version=expected_destination_version,
+            max_bytes=max_bytes,
+        )
+        if not result.ok:
+            return result
+        mirrored = self._mirror_result(result)
+        row = self.catalog.get(source_id)
+        if row.ok:
+            deleted = self.catalog.mark_deleted(
+                source_id,
+                expected_version_id=row.value.version_id,
+            )
+            if not deleted.ok:
+                self._dirty(
+                    f"{source_id.value}: V2 shadow move-replace delete failed: "
+                    f"{self._message(deleted)}"
+                )
+        else:
+            self._dirty(f"{source_id.value}: V2 shadow move-replace source is missing")
+        return mirrored
+
     def delete(
         self,
         object_id: LogicalObjectId,

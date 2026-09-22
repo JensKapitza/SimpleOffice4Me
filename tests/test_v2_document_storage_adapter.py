@@ -62,6 +62,20 @@ class DocumentStoreStorageAdapterTest(unittest.TestCase):
         self.assertFalse(missing.ok)
         self.assertEqual(ErrorCode.NOT_FOUND, missing.error.code)
 
+    def test_move_can_rename_a_document_into_the_store_root(self):
+        created = self.adapter.create_bytes(StorageLocation("docs/root-move.txt"), b"root")
+
+        moved = self.adapter.move(
+            created.value.object_id,
+            StorageLocation("renamed-at-root.txt"),
+        )
+
+        self.assertTrue(moved.ok)
+        self.assertEqual(created.value.object_id, moved.value.object_id)
+        self.assertEqual("renamed-at-root.txt", moved.value.location.relative_path)
+        self.assertFalse((self.root / "docs" / "root-move.txt").exists())
+        self.assertEqual(b"root", (self.root / "renamed-at-root.txt").read_bytes())
+
     def test_import_stream_preserves_chunked_upload_and_archive_semantics(self):
         class GuardedStream(io.BytesIO):
             def read(self, size=-1):

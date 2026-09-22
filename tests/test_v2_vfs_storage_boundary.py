@@ -65,6 +65,57 @@ class V2VirtualFileSystemStorageBoundaryTests(unittest.TestCase):
         self.assertEqual(CatalogState.DELETED, tombstone.value.state)
         self.assertFalse(load_cutover_state(self.root).dirty)
 
+    def test_vfs_copy_uses_storage_boundary_and_new_identity(self):
+        copied = self.vfs.copy_file(
+            "admin",
+            "team/existing.txt",
+            "team/copied.txt",
+            expected_source_sha256=self.existing["sha256"],
+        )
+
+        self.assertNotEqual(self.existing["document_id"], copied["document_id"])
+        copied_id = LogicalObjectId(copied["document_id"])
+        row = self.catalog.get(copied_id)
+        self.assertTrue(row.ok)
+        self.assertEqual("team/copied.txt", row.value.location.relative_path)
+        self.assertEqual(b"existing", self.vfs.read_bytes("admin", "team/copied.txt"))
+
+    def test_vfs_copy_overwrite_preserves_destination_identity(self):
+        destination = self.vfs.write_bytes("admin", "team/destination.txt", b"old")
+        result = self.vfs.copy_file(
+            "admin",
+            "team/existing.txt",
+            "team/destination.txt",
+            replace=True,
+            expected_source_sha256=self.existing["sha256"],
+            expected_destination_sha256=destination["sha256"],
+        )
+
+        self.assertEqual(destination["document_id"], result["document_id"])
+        self.assertEqual(b"existing", self.vfs.read_bytes("admin", "team/destination.txt"))
+
+    def test_vfs_move_overwrite_replaces_destination_and_deletes_source(self):
+        source = self.vfs.write_bytes("admin", "team/source.txt", b"source")
+        destination = self.vfs.write_bytes("admin", "team/target.txt", b"target")
+
+        result = self.vfs.rename(
+            "admin",
+            "team/source.txt",
+            "team/target.txt",
+            replace=True,
+            expected_source_sha256=source["sha256"],
+            expected_destination_sha256=destination["sha256"],
+        )
+
+        self.assertEqual(destination["document_id"], result["document_id"])
+        self.assertEqual(b"source", self.vfs.read_bytes("admin", "team/target.txt"))
+        source_row = self.catalog.get(
+            LogicalObjectId(source["document_id"]),
+            include_deleted=True,
+        )
+        self.assertTrue(source_row.ok)
+        self.assertEqual(CatalogState.DELETED, source_row.value.state)
+
     def test_vfs_read_detects_v2_divergence_while_returning_v1_projection(self):
         object_id = LogicalObjectId(self.existing["document_id"])
         row = self.catalog.get(object_id).value
