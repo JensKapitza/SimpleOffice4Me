@@ -42,6 +42,7 @@ setup(
         "simpleoffice_gateway_rule_content",
         "simpleoffice_mini_control",
         "simpleoffice_connection_relay",
+        "simpleoffice_https_connect_tunnel",
         "simpleoffice_media_renderer",
         "simpleoffice_media_upnp",
         "simpleoffice_service_lifecycle",
