@@ -11,6 +11,10 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from simpleoffice_connection_relay import (
     load_relay_settings,
     normalize_tunnel_target,
