@@ -25,6 +25,7 @@ from .file_lock import exclusive_file_lock
 from .mail_client import ImapArchive, MailStore, MAX_MESSAGE_BYTES, _owner_key
 from .mail_index import FUZZY_MAX_HAMMING, MIN_FUZZY_CHARS, MailSearchIndex, fingerprints, hamming_distance
 from .mail_webclient import _encode_modified_utf7
+from .v2.storage_runtime import create_document
 
 MAX_LOCATE_QUERIES = 100
 MAX_MATCHES_PER_QUERY = 20
@@ -567,7 +568,7 @@ def recover_source(root: str | Path, mail_store: MailStore, actor: str, account_
         if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
             document = documents.get_document(relative); duplicate = True
         else:
-            document = documents.create_document_at(relative, raw, actor, max_bytes=MAX_MESSAGE_BYTES); duplicate = False
+            document = create_document(documents.root, actor, relative, raw, max_bytes=MAX_MESSAGE_BYTES); duplicate = False
             documents.set_tags(document["document_id"], ["email", "source:federation", f"federation-peer:{peer['peer_id']}", "federation-recovered"], actor)
         documents.set_attribute(document["document_id"], "email_federation_origin", {
             "peer_id": peer["peer_id"], "remote_locator": source["remote_locator"], "match_kind": source["match_kind"],
