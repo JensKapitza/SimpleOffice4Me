@@ -227,7 +227,7 @@ def _write_plan(data: dict[str, Any]) -> None:
     if STATE_ROOT.exists():
         os.chmod(STATE_ROOT, 0o700)
     path = _plan_path(str(data["id"]))
-    temp = path.with_suffix(".tmp")
+    temp = path.with_name(f".{path.name}.{os.urandom(6).hex()}.tmp")
     fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -495,6 +495,26 @@ def recover_pending() -> None:
             continue
 
 
+def rollback_all_pending() -> dict[str, int]:
+    """Immediately roll back every unfinished test, e.g. before package removal."""
+    PLAN_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    rolled_back = 0
+    failed = 0
+    for path in sorted(PLAN_DIR.glob("*.json")):
+        ident = path.stem
+        if not re.fullmatch(r"[a-f0-9]{32}", ident):
+            continue
+        try:
+            plan = _read_plan(ident)
+            if plan.get("status") not in {"pending", "preparing", "rollback_failed"}:
+                continue
+            rollback_test(ident)
+            rolled_back += 1
+        except Exception:
+            failed += 1
+    return {"rolled_back": rolled_back, "failed": failed}
+
+
 def handle_request(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - {"action", "rules", "test_id"}:
         raise ValueError("Ungültige Firewall-Agent-Anfrage")
@@ -559,6 +579,7 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="SimpleOffice4Me privilegierter Firewall-Agent")
     parser.add_argument("--serve", action="store_true")
     parser.add_argument("--rollback-plan")
+    parser.add_argument("--rollback-pending", action="store_true")
     parser.add_argument("--delay", type=int, default=0)
     args = parser.parse_args(argv)
     if args.rollback_plan:
@@ -570,8 +591,13 @@ def main(argv=None) -> None:
         except ValueError:
             pass
         return
+    if args.rollback_pending:
+        result = rollback_all_pending()
+        if result["failed"]:
+            raise SystemExit(1)
+        return
     if not args.serve:
-        parser.error("--serve oder --rollback-plan erforderlich")
+        parser.error("--serve, --rollback-plan oder --rollback-pending erforderlich")
     serve()
 
 
