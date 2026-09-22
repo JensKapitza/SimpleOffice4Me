@@ -16,6 +16,7 @@ from .chat_federation import send_interaction, send_message
 from .chat_share import build_share_card, share_choices
 from .contact_store import ContactStore
 from .chat_store import ChatStore
+from .chat_status import ChatStatusStore
 from .db import get_db
 from .document_store import DocumentStore, sha256_file
 from .federation_store import FederationStore
@@ -29,6 +30,7 @@ _PREVIEW_PREFIXES = ("image/", "audio/", "video/")
 def _root(): return current_app.config["DOCUMENT_ROOT"]
 def _store(): return ChatStore(_root())
 def _features(): return ChatFeatureStore(_root())
+def _statuses(): return ChatStatusStore(_root())
 def _actor(): return str(g.user["username"])
 def _is_admin(): return bool(g.user["is_admin"] and not g.user["is_disabled"])
 
@@ -214,6 +216,83 @@ def start_contact_chat(contact_id: str):
     except ValueError as exc:
         flash(str(exc))
         return redirect(url_for("chat.index"))
+
+
+@bp.get("/status")
+@login_required
+def status_page():
+    users = [
+        user for user in _active_users()
+        if user["username"] != _actor()
+    ]
+    return render_template(
+        "chat/status.html",
+        visible_statuses=_statuses().visible_for(_actor()),
+        own_statuses=_statuses().own(_actor()),
+        users=users,
+        forward_rooms=_forward_rooms(""),
+    )
+
+
+@bp.post("/status")
+@login_required
+def publish_status():
+    active = {user["username"] for user in _active_users() if user["username"] != _actor()}
+    viewers = [value for value in request.form.getlist("viewers") if value in active]
+    try:
+        _statuses().publish(_actor(), request.form.get("body", ""), viewers=viewers)
+        flash("Status veröffentlicht. Er läuft automatisch nach spätestens 24 Stunden ab.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("chat.status_page"))
+
+
+@bp.post("/status/<status_id>/forward")
+@login_required
+def forward_status(status_id: str):
+    try:
+        status = _statuses().get_for_actor(status_id, _actor())
+        target_id = str(request.form.get("target_room_id") or "").strip()
+        room = _require_room(target_id)
+        store = _store()
+        if not store.is_participant(target_id, _actor()):
+            abort(403)
+        participants = store.participants(target_id)
+        if any(item.get("participant_kind") != "local" for item in participants):
+            raise ValueError("Status kann nicht an föderierte Teilnehmer weitergeleitet werden")
+        audience = {str(status["owner"]), *[str(value) for value in status.get("viewers", [])]}
+        target_users = {str(item.get("username") or "") for item in participants}
+        if not target_users <= audience:
+            raise ValueError("Der Zielchat enthält Teilnehmer außerhalb der Statusfreigabe")
+        store.add_message(
+            target_id,
+            _actor(),
+            str(status.get("body") or ""),
+            message_type="request",
+            payload={
+                "share": {
+                    "kind": "status",
+                    "status_id": str(status["status_id"]),
+                    "owner": str(status["owner"]),
+                }
+            },
+        )
+        flash("Status in den Chat weitergeleitet.")
+        return redirect(url_for("chat.room", room_id=target_id) + "#latest")
+    except (ValueError, PermissionError) as exc:
+        flash(str(exc))
+        return redirect(url_for("chat.status_page"))
+
+
+@bp.post("/status/<status_id>/delete")
+@login_required
+def delete_status(status_id: str):
+    try:
+        _statuses().remove(status_id, _actor())
+        flash("Status entfernt.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("chat.status_page"))
 
 
 @bp.post("/rooms")
