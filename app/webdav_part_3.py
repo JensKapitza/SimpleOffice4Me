@@ -227,8 +227,10 @@ def _lock_request(username: str, resource: Path, document: dict | None, href: st
                 provisional_key, username, token, _timeout_seconds(), owner,
                 href=href, depth="0", resource=_store().relative(resource),
             )
-            document = _store().create_document_at(
-                _store().relative(resource), b"", f"webdav:{username}",
+            document = _vfs().write_bytes(
+                f"webdav:{username}",
+                resource,
+                b"",
                 max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             )
         except (FileExistsError, ValueError) as exc:
