@@ -59,7 +59,7 @@ class ThunderbirdContactFieldTests(unittest.TestCase):
             "NICKNAME:Maxi", "ORG:Beispiel GmbH;Entwicklung", "TITLE:Entwickler",
             "ROLE:Engineer", "URL:https://example.test/max", "NOTE:Mehrzeilige\\nNotiz",
             "EMAIL;TYPE=WORK:max@firma.test", "TEL;TYPE=WORK:+495678",
-            "ADR;TYPE=HOME:;;Musterstr. 1;Berlin;;10115;Deutschland",
+            "ADR;TYPE=home:;;Musterstr. 1;Berlin;;10115;Deutschland",
             "IMPP:xmpp:max@example.test", "X-MOZILLA-HTML:TRUE",
         ):
             self.assertIn(expected, exported)
