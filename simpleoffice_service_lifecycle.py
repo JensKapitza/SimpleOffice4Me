@@ -40,9 +40,9 @@ def service_health(service: Any) -> bool:
     """A live owned listener/process is required, not object existence."""
     if service is None or service.stop_event.is_set():
         return False
-    process = getattr(service, "process", None)
-    if process is not None:
-        return process.poll() is None
+    if hasattr(service, "process"):
+        process = getattr(service, "process", None)
+        return process is not None and process.poll() is None
     sockets = getattr(service, "sockets", None)
     threads = getattr(service, "threads", None)
     if sockets is None:
