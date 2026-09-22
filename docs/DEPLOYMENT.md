@@ -100,6 +100,18 @@ Danach Routing/NAT in SimpleOffice aktivieren. Der Worker verwaltet eigene nftab
 
 DNS braucht TCP/UDP 53, DHCPv4 UDP 67 und TFTP UDP 69. `systemd-resolved`, dnsmasq, libvirt oder vorhandene DHCP-Dienste können diese Ports belegen. Nicht blind abschalten: zuerst feststellen, welcher Prozess den Port nutzt und welche Folgen das Abschalten hätte.
 
+### Optionaler Connectivity Relay
+
+Für WebRTC hinter NAT kann auf einem bewusst öffentlich erreichbaren Knoten
+`coturn` installiert und unter **Mini Services → Connectivity Relay** aktiviert
+werden. TURN bleibt standardmäßig aus. SimpleOffice öffnet keine Firewall oder
+Portweiterleitung. Freigegeben werden müssen nur die tatsächlich konfigurierten
+TURN-/TLS- und Relay-Ports.
+
+Ein vorhandener authentifizierter HTTPS-CONNECT-Proxy kann zusätzlich für
+explizit erlaubte TCP-Ziele wie SSH verwendet werden. Es gibt keinen globalen
+Proxy und keine Wildcard-Zielliste. Details: [Connectivity Relay](CONNECTIVITY_RELAY.md).
+
 ## 3. Linux-VM
 
 Für den vollständigen Funktionsumfang ist eine Debian-/Ubuntu-VM die robusteste Variante. Für Web/Federation reicht auch eine NAT-NIC. Für DHCP/PXE/Routing muss die relevante virtuelle Netzwerkkarte als **Bridge/External Network** direkt mit dem LAN verbunden sein; Hypervisor-NAT reicht für DHCP-Broadcasts nicht aus.
