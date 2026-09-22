@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -17,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from .blob_store import BlobIntegrityError, BlobStore
-from .contracts import LogicalObjectId
+from .catalog import FORMAT_FAMILY as CATALOG_FORMAT_FAMILY, SCHEMA_VERSION as CATALOG_SCHEMA_VERSION, ObjectCatalog
+from .contracts import LogicalObjectId, StorageLocation
 
 
 @dataclass(frozen=True)
@@ -229,6 +231,73 @@ def _validate_backup_for_plan(source: Path, backup: str | Path, plan: dict[str, 
     return target
 
 
+def _catalog_snapshot_read_only(source: Path) -> dict[str, dict[str, Any]]:
+    """Read the V2 catalog without creating or modifying it."""
+    path = source / ".simpleoffice-v2" / "catalog.sqlite3"
+    if not path.is_file():
+        return {}
+    uri = path.resolve().as_uri() + "?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True) as db:
+            db.row_factory = sqlite3.Row
+            meta = dict(db.execute("SELECT key,value FROM catalog_meta").fetchall())
+            if (
+                str(meta.get("format_family") or "") != CATALOG_FORMAT_FAMILY
+                or str(meta.get("schema_version") or "") != str(CATALOG_SCHEMA_VERSION)
+            ):
+                raise ValueError("unsupported V2 object catalog format")
+            rows = db.execute(
+                """SELECT object_id,location,version_id,size,content_sha256,state
+                   FROM object_catalog"""
+            ).fetchall()
+    except (sqlite3.Error, OSError) as exc:
+        raise ValueError("V2 object catalog is unreadable") from exc
+    return {str(row["object_id"]): dict(row) for row in rows}
+
+
+def _catalog_conflicts_for_plan(
+    source: Path,
+    plan: dict[str, Any],
+    store: BlobStore,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    snapshot = _catalog_snapshot_read_only(source)
+    by_location = {
+        str(row["location"]): str(row["object_id"])
+        for row in snapshot.values()
+        if str(row.get("state") or "") != "deleted"
+    }
+    conflicts: list[str] = []
+    for entry in plan["entries"]:
+        if entry.get("status") != "ready":
+            continue
+        object_id = LogicalObjectId(str(entry["document_id"]))
+        expected_location = StorageLocation(str(entry["path"]))
+        row = snapshot.get(object_id.value)
+        if row is not None:
+            if (
+                str(row.get("state") or "") != "active"
+                or str(row.get("location") or "") != expected_location.relative_path
+                or int(row.get("size") or -1) != int(entry["size"])
+                or str(row.get("content_sha256") or "") != str(entry["sha256"])
+            ):
+                conflicts.append(f"{object_id.value}: catalog state differs from V1")
+                continue
+            try:
+                verified = store.verify(object_id, version_id=str(row.get("version_id") or ""))
+            except (BlobIntegrityError, OSError, ValueError, TypeError):
+                conflicts.append(f"{object_id.value}: catalog blob version is unavailable")
+                continue
+            if verified.size != int(entry["size"]) or verified.content_sha256 != str(entry["sha256"]):
+                conflicts.append(f"{object_id.value}: catalog blob differs from V1")
+                continue
+        owner = by_location.get(expected_location.relative_path)
+        if owner and owner != object_id.value:
+            conflicts.append(
+                f"{object_id.value}: location {expected_location.relative_path} belongs to {owner}"
+            )
+    return snapshot, conflicts
+
+
 def _write_migration_report(source: Path, report: dict[str, Any]) -> None:
     directory = source / ".simpleoffice-v2"
     directory.mkdir(parents=True, exist_ok=True)
@@ -247,64 +316,96 @@ def _write_migration_report(source: Path, report: dict[str, Any]) -> None:
 
 
 def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str, Any]:
-    """Copy verified V1 document content side-by-side into the V2 blob store.
+    """Copy verified V1 content and register its logical V2 catalog state.
 
-    V1 files and metadata are never modified. Existing matching V2 objects are
-    reused, making the operation restart-safe and idempotent.
+    V1 files and metadata remain untouched. Matching BlobStore and ObjectCatalog
+    records are reused, making the operation restart-safe and idempotent.
     """
     source = Path(root).expanduser().resolve()
     plan = build_migration_plan(source)
     if not plan["ready"]:
         raise ValueError("migration plan is blocked: " + "; ".join(plan["blockers"]))
 
-    identifiers = [str(entry["document_id"]) for entry in plan["entries"] if entry.get("status") == "ready"]
+    identifiers = [
+        str(entry["document_id"])
+        for entry in plan["entries"]
+        if entry.get("status") == "ready"
+    ]
     duplicates = sorted(value for value, count in Counter(identifiers).items() if count > 1)
     if duplicates:
         raise ValueError("migration plan contains duplicate document ids: " + ", ".join(duplicates))
 
     backup_path = _validate_backup_for_plan(source, backup, plan)
     store = BlobStore(source)
-    conflicts: list[str] = []
+    catalog_snapshot, catalog_conflicts = _catalog_conflicts_for_plan(source, plan, store)
+    blob_conflicts: list[str] = []
     for entry in plan["entries"]:
         if entry.get("status") != "ready":
             continue
         object_id = LogicalObjectId(str(entry["document_id"]))
-        if not store.contains(object_id):
+        if object_id.value in catalog_snapshot or not store.contains(object_id):
             continue
         current = store.verify(object_id)
         if current.size != int(entry["size"]) or current.content_sha256 != str(entry["sha256"]):
-            conflicts.append(object_id.value)
+            blob_conflicts.append(object_id.value)
+    conflicts = [*blob_conflicts, *catalog_conflicts]
     if conflicts:
-        raise ValueError("existing V2 content conflicts with V1 documents: " + ", ".join(conflicts))
+        raise ValueError("existing V2 state conflicts with V1 documents: " + "; ".join(conflicts))
 
+    catalog = ObjectCatalog(source)
     migrated = 0
     already_present = 0
+    cataloged = 0
+    already_cataloged = 0
     migrated_bytes = 0
     for entry in plan["entries"]:
         if entry.get("status") != "ready":
             continue
         object_id = LogicalObjectId(str(entry["document_id"]))
-        if store.contains(object_id):
-            current = store.verify(object_id)
-            if current.size != int(entry["size"]) or current.content_sha256 != str(entry["sha256"]):
-                raise ValueError(f"V2 content changed during migration: {object_id.value}")
+        existing_catalog = catalog_snapshot.get(object_id.value)
+        if existing_catalog is not None:
+            version = store.verify(
+                object_id,
+                version_id=str(existing_catalog["version_id"]),
+            )
             already_present += 1
+            already_cataloged += 1
             continue
 
-        source_path = (source / str(entry["path"])).resolve(strict=True)
-        source_path.relative_to(source)
-        with source_path.open("rb") as handle:
-            version = store.write_stream(
-                object_id,
-                handle,
-                expected_size=int(entry["size"]),
-                expected_sha256=str(entry["sha256"]),
+        if store.contains(object_id):
+            version = store.verify(object_id)
+            if version.size != int(entry["size"]) or version.content_sha256 != str(entry["sha256"]):
+                raise ValueError(f"V2 content changed during migration: {object_id.value}")
+            already_present += 1
+        else:
+            source_path = (source / str(entry["path"])).resolve(strict=True)
+            source_path.relative_to(source)
+            with source_path.open("rb") as handle:
+                version = store.write_stream(
+                    object_id,
+                    handle,
+                    expected_size=int(entry["size"]),
+                    expected_sha256=str(entry["sha256"]),
+                )
+            verified = store.verify(object_id, version_id=version.version_id)
+            if verified.size != int(entry["size"]) or verified.content_sha256 != str(entry["sha256"]):
+                raise RuntimeError(f"V2 verification failed after migration: {object_id.value}")
+            migrated += 1
+            migrated_bytes += int(entry["size"])
+
+        registered = catalog.register(
+            object_id,
+            StorageLocation(str(entry["path"])),
+            version_id=version.version_id,
+            size=version.size,
+            content_sha256=version.content_sha256,
+        )
+        if not registered.ok:
+            raise ValueError(
+                f"V2 catalog changed during migration: {object_id.value}: "
+                f"{registered.error.message if registered.error else 'unknown conflict'}"
             )
-        verified = store.verify(object_id, version_id=version.version_id)
-        if verified.size != int(entry["size"]) or verified.content_sha256 != str(entry["sha256"]):
-            raise RuntimeError(f"V2 verification failed after migration: {object_id.value}")
-        migrated += 1
-        migrated_bytes += int(entry["size"])
+        cataloged += 1
 
     report = {
         "format": "simpleoffice-v2-migration-transfer",
@@ -314,16 +415,18 @@ def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str,
         "documents": int(plan["documents"]),
         "migrated_documents": migrated,
         "already_present_documents": already_present,
+        "cataloged_documents": cataloged,
+        "already_cataloged_documents": already_cataloged,
         "source_bytes": int(plan["bytes"]),
         "migrated_bytes": migrated_bytes,
         "backup_name": backup_path.name,
+        "catalog_format_version": CATALOG_SCHEMA_VERSION,
     }
     _write_migration_report(source, report)
     return report
 
-
 def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
-    """Read-only verification of the completed side-by-side content transfer."""
+    """Read-only V1 -> BlobStore -> ObjectCatalog consistency verification."""
     source = Path(root).expanduser().resolve()
     blockers: list[str] = []
     transfer_path = source / ".simpleoffice-v2" / "migration-transfer.json"
@@ -361,11 +464,23 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
             blockers.append("migration transfer document count no longer matches the V1 plan")
         if int(transfer.get("source_bytes", -1)) != int(plan["bytes"]):
             blockers.append("migration transfer byte count no longer matches the V1 plan")
-        transferred = int(transfer.get("migrated_documents", 0)) + int(transfer.get("already_present_documents", 0))
+        transferred = int(transfer.get("migrated_documents", 0)) + int(
+            transfer.get("already_present_documents", 0)
+        )
         if transferred != int(plan["documents"]):
             blockers.append("migration transfer report does not cover every V1 document")
+        cataloged = int(transfer.get("cataloged_documents", 0)) + int(
+            transfer.get("already_cataloged_documents", 0)
+        )
+        if cataloged != int(plan["documents"]):
+            blockers.append("migration transfer report does not cover every V2 catalog entry")
 
     blob_base = source / ".simpleoffice-v2" / "blob-store"
+    catalog_path = source / ".simpleoffice-v2" / "catalog.sqlite3"
+    if not blob_base.is_dir():
+        blockers.append("V2 blob store is missing after migration transfer")
+    if not catalog_path.is_file():
+        blockers.append("V2 object catalog is missing after migration transfer")
     if not transfer or blockers:
         return {
             "format": "simpleoffice-v2-migration-verification",
@@ -376,8 +491,13 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
             "source_bytes": int(plan["bytes"]),
             "blockers": blockers,
         }
-    if not blob_base.is_dir():
-        blockers.append("V2 blob store is missing after migration transfer")
+
+    try:
+        catalog = _catalog_snapshot_read_only(source)
+    except ValueError as exc:
+        blockers.append(str(exc))
+        catalog = {}
+    if blockers:
         return {
             "format": "simpleoffice-v2-migration-verification",
             "format_version": 1,
@@ -394,16 +514,35 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         if entry.get("status") != "ready":
             continue
         object_id = LogicalObjectId(str(entry["document_id"]))
+        row = catalog.get(object_id.value)
+        if row is None:
+            blockers.append(f"V2 catalog object is missing: {object_id.value}")
+            continue
+        if (
+            str(row.get("state") or "") != "active"
+            or str(row.get("location") or "") != str(entry["path"])
+            or int(row.get("size") or -1) != int(entry["size"])
+            or str(row.get("content_sha256") or "") != str(entry["sha256"])
+        ):
+            blockers.append(f"V2 catalog object differs from V1 source: {object_id.value}")
+            continue
         if not store.contains(object_id):
             blockers.append(f"V2 object is missing: {object_id.value}")
             continue
         try:
-            current = store.verify(object_id)
+            current = store.verify(
+                object_id,
+                version_id=str(row.get("version_id") or ""),
+            )
         except (BlobIntegrityError, OSError, ValueError) as exc:
             blockers.append(f"V2 object failed integrity verification: {object_id.value}: {exc}")
             continue
-        if current.size != int(entry["size"]) or current.content_sha256 != str(entry["sha256"]):
-            blockers.append(f"V2 object differs from V1 source: {object_id.value}")
+        if (
+            current.version_id != str(row.get("version_id") or "")
+            or current.size != int(entry["size"])
+            or current.content_sha256 != str(entry["sha256"])
+        ):
+            blockers.append(f"V2 object differs from V1/catalog state: {object_id.value}")
             continue
         verified += 1
 
@@ -416,7 +555,6 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         "source_bytes": int(plan["bytes"]),
         "blockers": blockers,
     }
-
 
 def _source_inventory(root: Path) -> dict[str, int]:
     files = 0
