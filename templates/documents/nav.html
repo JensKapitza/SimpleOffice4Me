@@ -1,51 +1,130 @@
 <nav class="navbar navbar-expand-xxl navbar-dark app-navbar sticky-top" aria-label="Hauptnavigation">
   <div class="container-fluid">
-    <a class="navbar-brand fw-semibold" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-box-archive me-2" aria-hidden="true"></i>SimpleOffice</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-navigation" aria-controls="main-navigation" aria-expanded="false" aria-label="Navigation öffnen"><span class="navbar-toggler-icon"></span></button>
+    <a class="navbar-brand fw-semibold" href="{{ url_for('documents.dashboard') }}">
+      <i class="fas fa-box-archive me-2" aria-hidden="true"></i>SimpleOffice
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-navigation" aria-controls="main-navigation" aria-expanded="false" aria-label="Navigation öffnen">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
     <div class="collapse navbar-collapse" id="main-navigation">
       <div class="navbar-nav navigation-primary me-auto gap-xxl-1">
-        <a class="nav-link" href="{{ url_for('documents.dashboard') }}"><i class="fas fa-gauge me-1" aria-hidden="true"></i>{{ tr('overview') }}</a>
-        <a class="nav-link" href="{{ url_for('documents.projects') }}"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>Projekte</a>
-        <a class="nav-link" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
-        <a class="nav-link" href="{{ url_for('chat.index') }}"><i class="fas fa-comments me-1" aria-hidden="true"></i>Chat</a>
-        <a class="nav-link" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1" aria-hidden="true"></i>Objekte</a>
-        <a class="nav-link" href="{{ url_for('documents.forms') }}"><i class="fas fa-table-list me-1" aria-hidden="true"></i>{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a>
-        <a class="nav-link" href="{{ url_for('rentals.index') }}"><i class="fas fa-building me-1" aria-hidden="true"></i>Vermietung</a>
-        <a class="nav-link" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode me-1" aria-hidden="true"></i>Inventar Scan</a>
-        <a class="nav-link" href="{{ url_for('library.index') }}"><i class="fas fa-book-open me-1" aria-hidden="true"></i>Bibliothek</a>
-        <a class="nav-link" href="{{ url_for('gamification.index') }}"><i class="fas fa-dice me-1" aria-hidden="true"></i>Daten-Roulette</a>
-        <a class="nav-link" href="{{ url_for('printershare.index') }}"><i class="fas fa-print me-1" aria-hidden="true"></i>Drucken</a>
-        <a class="nav-link" href="{{ url_for('screen.index') }}"><i class="fas fa-display me-1" aria-hidden="true"></i>Bildschirm</a>
-        <a class="nav-link" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive me-1" aria-hidden="true"></i>Speicher</a>
-        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</a><a class="nav-link" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Netzwerk scannen</a><a class="nav-link" href="{{ url_for('chat_policy_admin.index') }}"><i class="fas fa-sliders me-1" aria-hidden="true"></i>Chat-Regeln</a><a class="nav-link" href="{{ url_for('software_admin.index') }}"><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>Updates</a><a class="nav-link" href="{{ url_for('licensing_admin.index') }}"><i class="fas fa-key me-1" aria-hidden="true"></i>{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a>{% endif %}
-        <a class="nav-link" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>{{ tr('documents') }}</a>
-        <a class="nav-link" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}"><i class="fas fa-file-invoice-dollar me-1" aria-hidden="true"></i>{{ tr('invoice.nav') }}</a>
-        <a class="nav-link" href="{{ url_for('contact_audit.euer.finance.index') }}"><i class="fas fa-wallet me-1" aria-hidden="true"></i>Finanzen</a>
-        <a class="nav-link" href="{{ url_for('eur.receipts') }}"><i class="fas fa-receipt me-1" aria-hidden="true"></i>EÜR-Belege</a>
-        <a class="nav-link" href="{{ url_for('contact_audit.euer.overview') }}"><i class="fas fa-calculator me-1" aria-hidden="true"></i>EÜR-Auswertung</a>
-        <a class="nav-link" href="{{ url_for('contact_audit.business_documents.template_manager') }}"><i class="fas fa-file-signature me-1" aria-hidden="true"></i>Vorlagen</a>
-        <a class="nav-link" href="{{ url_for('documents.document_recovery') }}"><i class="fas fa-clock-rotate-left me-1" aria-hidden="true"></i>Wiederherstellen</a>
-        <a class="nav-link" href="{{ url_for('documents.document_search') }}"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Suchen</a>
-        <a class="nav-link" href="{{ url_for('documents.retention_overview') }}"><i class="fas fa-hourglass-half me-1" aria-hidden="true"></i>Fristen</a>
-        <a class="nav-link" href="{{ url_for('documents.calendar') }}"><i class="fas fa-calendar-days me-1" aria-hidden="true"></i>{{ tr('calendar') }}</a>
-        <a class="nav-link" href="{{ url_for('documents.contacts') }}"><i class="fas fa-address-book me-1" aria-hidden="true"></i>{{ tr('contacts') }}</a>
-        <a class="nav-link" href="{{ url_for('fritzbox_contacts.index') }}"><i class="fas fa-phone me-1" aria-hidden="true"></i>FRITZ!Box</a>
-        <a class="nav-link" href="{{ url_for('personnel.index') }}"><i class="fas fa-users me-1" aria-hidden="true"></i>Personal</a>
-        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('personnel_time_analytics.index') }}"><i class="fas fa-chart-column me-1" aria-hidden="true"></i>Zeit-Analyse</a>{% endif %}
-        <a class="nav-link" href="{{ url_for('mail_reader.index') }}"><i class="fas fa-envelope me-1" aria-hidden="true"></i>Mail</a>
-        <a class="nav-link" href="{{ url_for('mail_index.index') }}"><i class="fas fa-clone me-1" aria-hidden="true"></i>Spam/Dubletten</a>
-        <a class="nav-link" href="{{ url_for('documents.images') }}"><i class="fas fa-images me-1" aria-hidden="true"></i>{{ tr('images') }}</a>
-        <a class="nav-link" href="{{ url_for('datalogger.index') }}"><i class="fas fa-chart-line me-1" aria-hidden="true"></i>Datenlogger</a>
-        <a class="nav-link" href="{{ url_for('documents.security_center') }}"><i class="fas fa-shield-virus me-1" aria-hidden="true"></i>Sicherheit</a>
+        <a class="nav-link" href="{{ url_for('documents.dashboard') }}">
+          <i class="fas fa-gauge me-1" aria-hidden="true"></i>{{ tr('overview') }}
+        </a>
+
+        <div class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="nav-work" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-briefcase me-1" aria-hidden="true"></i>Arbeit
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="nav-work">
+            <li><a class="dropdown-item" href="{{ url_for('documents.projects') }}"><i class="fas fa-diagram-project fa-fw me-2" aria-hidden="true"></i>Projekte</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check fa-fw me-2" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes fa-fw me-2" aria-hidden="true"></i>Objekte</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.forms') }}"><i class="fas fa-table-list fa-fw me-2" aria-hidden="true"></i>{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('rentals.index') }}"><i class="fas fa-building fa-fw me-2" aria-hidden="true"></i>Vermietung</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode fa-fw me-2" aria-hidden="true"></i>Inventar Scan</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}"><i class="fas fa-file-invoice-dollar fa-fw me-2" aria-hidden="true"></i>{{ tr('invoice.nav') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('contact_audit.euer.finance.index') }}"><i class="fas fa-wallet fa-fw me-2" aria-hidden="true"></i>Finanzen</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('eur.receipts') }}"><i class="fas fa-receipt fa-fw me-2" aria-hidden="true"></i>EÜR-Belege</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('contact_audit.euer.overview') }}"><i class="fas fa-calculator fa-fw me-2" aria-hidden="true"></i>EÜR-Auswertung</a></li>
+          </ul>
+        </div>
+
+        <div class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="nav-communication" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-comments me-1" aria-hidden="true"></i>Kommunikation
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="nav-communication">
+            <li><a class="dropdown-item" href="{{ url_for('chat.index') }}"><i class="fas fa-comments fa-fw me-2" aria-hidden="true"></i>Chat</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('mail_reader.index') }}"><i class="fas fa-envelope fa-fw me-2" aria-hidden="true"></i>Mail</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.calendar') }}"><i class="fas fa-calendar-days fa-fw me-2" aria-hidden="true"></i>{{ tr('calendar') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.contacts') }}"><i class="fas fa-address-book fa-fw me-2" aria-hidden="true"></i>{{ tr('contacts') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('fritzbox_contacts.index') }}"><i class="fas fa-phone fa-fw me-2" aria-hidden="true"></i>FRITZ!Box</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('mail_index.index') }}"><i class="fas fa-clone fa-fw me-2" aria-hidden="true"></i>Spam/Dubletten</a></li>
+            {% if g.user['is_admin'] %}
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="{{ url_for('telephony_admin.index') }}"><i class="fas fa-phone-volume fa-fw me-2" aria-hidden="true"></i>Telefonie</a></li>
+            {% endif %}
+          </ul>
+        </div>
+
+        <div class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="nav-documents" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-folder-open me-1" aria-hidden="true"></i>{{ tr('documents') }}
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="nav-documents">
+            <li><a class="dropdown-item" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open fa-fw me-2" aria-hidden="true"></i>{{ tr('documents') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.document_search') }}"><i class="fas fa-magnifying-glass fa-fw me-2" aria-hidden="true"></i>Suchen</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive fa-fw me-2" aria-hidden="true"></i>Speicher</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('contact_audit.business_documents.template_manager') }}"><i class="fas fa-file-signature fa-fw me-2" aria-hidden="true"></i>Vorlagen</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.document_recovery') }}"><i class="fas fa-clock-rotate-left fa-fw me-2" aria-hidden="true"></i>Wiederherstellen</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.retention_overview') }}"><i class="fas fa-hourglass-half fa-fw me-2" aria-hidden="true"></i>Fristen</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.images') }}"><i class="fas fa-images fa-fw me-2" aria-hidden="true"></i>{{ tr('images') }}</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('library.index') }}"><i class="fas fa-book-open fa-fw me-2" aria-hidden="true"></i>Bibliothek</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}"><i class="fas fa-print fa-fw me-2" aria-hidden="true"></i>Drucken</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('screen.index') }}"><i class="fas fa-display fa-fw me-2" aria-hidden="true"></i>Bildschirm</a></li>
+          </ul>
+        </div>
+
+        <div class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="nav-admin" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-sliders me-1" aria-hidden="true"></i>Verwaltung
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="nav-admin">
+            <li><a class="dropdown-item" href="{{ url_for('personnel.index') }}"><i class="fas fa-users fa-fw me-2" aria-hidden="true"></i>Personal</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.security_center') }}"><i class="fas fa-shield-virus fa-fw me-2" aria-hidden="true"></i>Sicherheit</a></li>
+            {% if g.user['is_admin'] %}
+              <li><a class="dropdown-item" href="{{ url_for('personnel_time_analytics.index') }}"><i class="fas fa-chart-column fa-fw me-2" aria-hidden="true"></i>Zeit-Analyse</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="{{ url_for('federation_admin.dashboard') }}"><i class="fas fa-network-wired fa-fw me-2" aria-hidden="true"></i>Federation</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan"><i class="fas fa-magnifying-glass fa-fw me-2" aria-hidden="true"></i>Netzwerk scannen</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('chat_policy_admin.index') }}"><i class="fas fa-sliders fa-fw me-2" aria-hidden="true"></i>Chat-Regeln</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('software_admin.index') }}"><i class="fas fa-arrows-rotate fa-fw me-2" aria-hidden="true"></i>Updates</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('licensing_admin.index') }}"><i class="fas fa-key fa-fw me-2" aria-hidden="true"></i>{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear fa-fw me-2" aria-hidden="true"></i>Administration</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}"><i class="fas fa-server fa-fw me-2" aria-hidden="true"></i>Mini Services</a></li>
+            {% endif %}
+          </ul>
+        </div>
+
+        <div class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="nav-more" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-ellipsis me-1" aria-hidden="true"></i>Mehr
+          </a>
+          <ul class="dropdown-menu" aria-labelledby="nav-more">
+            <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}"><i class="fas fa-dice fa-fw me-2" aria-hidden="true"></i>Daten-Roulette</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}"><i class="fas fa-chart-line fa-fw me-2" aria-hidden="true"></i>Datenlogger</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}"><i class="fas fa-note-sticky fa-fw me-2" aria-hidden="true"></i>{{ tr('notes') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}"><i class="fas fa-book fa-fw me-2" aria-hidden="true"></i>{{ tr('logbook') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}"><i class="fas fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Einrichten</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}"><i class="fas fa-cog fa-fw me-2" aria-hidden="true"></i>{{ tr('settings') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('google_drive_admin.index') }}"><i class="fab fa-google-drive fa-fw me-2" aria-hidden="true"></i>Drive</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}"><i class="fas fa-plug fa-fw me-2" aria-hidden="true"></i>MCP</a></li>
+          </ul>
+        </div>
       </div>
+
       <form method="get" action="{{ url_for('documents.quick_search') }}" class="d-flex my-2 my-xxl-0 me-xxl-2" role="search" aria-label="{{ 'Global quick search' if g.language == 'en' else 'Globale Schnellsuche' }}">
         <label class="visually-hidden" for="global-quick-search">{{ 'Quick search' if g.language == 'en' else 'Schnellsuche' }}</label>
-        <div class="input-group input-group-sm"><input id="global-quick-search" class="form-control" type="search" name="q" value="{{ query if request.endpoint == 'documents.quick_search' else '' }}" placeholder="{{ 'Quick search…' if g.language == 'en' else 'Schnellsuche…' }}"><button type="submit" class="btn btn-outline-light" title="{{ 'Search' if g.language == 'en' else 'Suchen' }}"><i class="fas fa-magnifying-glass" aria-hidden="true"></i><span class="visually-hidden">{{ 'Search' if g.language == 'en' else 'Suchen' }}</span></button></div>
+        <div class="input-group input-group-sm">
+          <input id="global-quick-search" class="form-control" type="search" name="q" value="{{ query if request.endpoint == 'documents.quick_search' else '' }}" placeholder="{{ 'Quick search…' if g.language == 'en' else 'Schnellsuche…' }}">
+          <button type="submit" class="btn btn-outline-light" title="{{ 'Search' if g.language == 'en' else 'Suchen' }}">
+            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+            <span class="visually-hidden">{{ 'Search' if g.language == 'en' else 'Suchen' }}</span>
+          </button>
+        </div>
       </form>
+
       <div class="navbar-nav navigation-actions border-top border-xxl-0 pt-2 pt-xxl-0 align-items-xxl-center">
         {% if document is defined and document.document_id is defined %}
           {% set roulette = namespace(released=false) %}
-          {% for tag in document.tags|default([]) %}{% if tag|lower in ['gamification','gamification-freigegeben','daten-roulette','spiel-freigabe'] %}{% set roulette.released = true %}{% endif %}{% endfor %}
+          {% for tag in document.tags|default([]) %}
+            {% if tag|lower in ['gamification','gamification-freigegeben','daten-roulette','spiel-freigabe'] %}{% set roulette.released = true %}{% endif %}
+          {% endfor %}
           <form method="post" action="{{ url_for('gamification_leaderboard.document_release', document_id=document.document_id) }}" class="px-xxl-1">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="released" value="{{ '0' if roulette.released else '1' }}">
@@ -54,16 +133,22 @@
             </button>
           </form>
         {% endif %}
-        <a class="nav-link" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a>
-        <a class="nav-link" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a>
-        <a class="nav-link" href="{{ url_for('documents.first_run_setup') }}"><i class="fas fa-wand-magic-sparkles me-1" aria-hidden="true"></i>Einrichten</a>
-        <a class="nav-link" href="{{ url_for('documents.settings') }}"><i class="fas fa-cog me-1" aria-hidden="true"></i>{{ tr('settings') }}</a>
-        <a class="nav-link" href="{{ url_for('google_drive_admin.index') }}"><i class="fab fa-google-drive me-1" aria-hidden="true"></i>Drive</a>
-        <a class="nav-link" href="{{ url_for('mcp.settings') }}"><i class="fas fa-plug me-1" aria-hidden="true"></i>MCP</a>
-        <form method="post" action="{{ url_for('documents.set_language') }}" class="px-xxl-2"><label class="visually-hidden" for="language">Language</label><select class="form-select form-select-sm" id="language" name="language" onchange="this.form.submit()" aria-label="Language"><option value="de" {% if g.language == 'de' %}selected{% endif %}>DE</option><option value="en" {% if g.language == 'en' %}selected{% endif %}>EN</option></select></form>
-        {% if g.user['is_admin'] %}<a class="nav-link" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear me-1" aria-hidden="true"></i>Administration</a><a class="nav-link" href="{{ url_for('mini_services_admin.index') }}"><i class="fas fa-server me-1" aria-hidden="true"></i>Mini Services</a><a class="nav-link" href="{{ url_for('telephony_admin.index') }}"><i class="fas fa-phone-volume me-1" aria-hidden="true"></i>Telefonie</a>{% endif %}
+
+        <form method="post" action="{{ url_for('documents.set_language') }}" class="px-xxl-2">
+          <label class="visually-hidden" for="language">Language</label>
+          <select class="form-select form-select-sm" id="language" name="language" onchange="this.form.submit()" aria-label="Language">
+            <option value="de" {% if g.language == 'de' %}selected{% endif %}>DE</option>
+            <option value="en" {% if g.language == 'en' %}selected{% endif %}>EN</option>
+          </select>
+        </form>
+
         <span class="navbar-text px-xxl-2 small text-nowrap" title="Build {{ app_build.build_timestamp or 'unbekannt' }} · Revision {{ app_build.revision[:12] if app_build.revision else 'unbekannt' }}">Version {{ app_build.version }}</span>
-        <span class="navbar-text px-xxl-2 small">{{ g.user['display_name'] or g.user['username'] }}</span>{% if android_local_account is not defined or not android_local_account %}<form method="post" action="{{ url_for('auth.logout') }}"><button class="nav-link border-0 bg-transparent" type="submit">{{ tr('logout') }}</button></form>{% endif %}
+        <span class="navbar-text px-xxl-2 small text-nowrap">{{ g.user['display_name'] or g.user['username'] }}</span>
+        {% if android_local_account is not defined or not android_local_account %}
+          <form method="post" action="{{ url_for('auth.logout') }}">
+            <button class="nav-link border-0 bg-transparent" type="submit">{{ tr('logout') }}</button>
+          </form>
+        {% endif %}
       </div>
     </div>
   </div>
