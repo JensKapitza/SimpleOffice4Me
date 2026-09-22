@@ -460,21 +460,37 @@ def test_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
     now = time.time()
     plan: dict[str, Any] = {"id": ident, "backend": backend, "status": "preparing", "created_at": now, "expires_at": now + 20, "rules": rules, "applied": [], "confirmation_changes": [], "watchdog": ""}
     _write_plan(plan)
-    plan["watchdog"] = _schedule_rollback(ident, 20)
-    _write_plan(plan)
-    marker = f"simpleoffice-test-{ident}"
+    lock = _locked_plan(ident)
     try:
-        for rule in rules:
-            applied = _firewalld_apply_test(rule, snapshot) if backend == "firewalld" else _ufw_apply_test(rule, marker)
-            plan["applied"].append(applied)
-            _write_plan(plan)
-        plan["status"] = "pending"
-        _write_plan(plan)
-    except Exception:
         try:
-            _rollback_plan_locked(plan)
-        finally:
+            plan["watchdog"] = _schedule_rollback(ident, 20)
+            _write_plan(plan)
+        except Exception:
+            plan["status"] = "rolled_back"
+            plan["rolled_back_at"] = time.time()
+            _write_plan(plan)
             raise
+
+        marker = f"simpleoffice-test-{ident}"
+        try:
+            for rule in rules:
+                applied = _firewalld_apply_test(rule, snapshot) if backend == "firewalld" else _ufw_apply_test(rule, marker)
+                plan["applied"].append(applied)
+                _write_plan(plan)
+            if time.time() >= float(plan["expires_at"]):
+                _rollback_plan_locked(plan)
+                raise RuntimeError("Firewall-Test konnte nicht innerhalb des sicheren Zeitfensters vorbereitet werden")
+            plan["status"] = "pending"
+            _write_plan(plan)
+        except Exception:
+            if plan.get("status") not in {"rolled_back", "rollback_failed"}:
+                try:
+                    _rollback_plan_locked(plan)
+                finally:
+                    pass
+            raise
+    finally:
+        lock.close()
     return {"test_id": ident, "backend": backend, "expires_at": plan["expires_at"], "rules": rules, "watchdog": plan["watchdog"]}
 
 
