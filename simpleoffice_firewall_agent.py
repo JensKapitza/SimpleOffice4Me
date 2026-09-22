@@ -27,6 +27,7 @@ PLAN_DIR = STATE_ROOT / "tests"
 COMMAND_TIMEOUT = 6
 _UFW_LINE = re.compile(r"^\[\s*(\d+)\]\s+(\S+?)(?:\s+\((v6)\))?\s+(ALLOW|DENY|REJECT|LIMIT)(?:\s+(IN|OUT))?\s+(.+)$", re.I)
 _RICH_PORT = re.compile(r'port\s+port="(\d+)(?:-(\d+))?"\s+protocol="(tcp|udp)"', re.I)
+_RICH_SOURCE = re.compile(r'source\s+address="([^"]+)"', re.I)
 
 
 def _safe_error(_exc: BaseException) -> str:
@@ -118,8 +119,10 @@ def parse_firewalld_zone(zone: str, text: str) -> tuple[list[dict[str, Any]], di
             continue
         start = int(match.group(1)); end = int(match.group(2) or start); protocol = match.group(3).lower()
         effect = "deny" if re.search(r"\b(drop|reject)\b", value) else "allow" if re.search(r"\baccept\b", value) else "unknown"
+        source_match = _RICH_SOURCE.search(value)
+        source = source_match.group(1) if source_match else ""
         if effect != "unknown":
-            rules.append({"effect": effect, "protocol": protocol, "port_start": start, "port_end": end, "zone": zone, "origin": "rich-rule", "summary": f"firewalld {zone}: Rich Rule ({effect})"})
+            rules.append({"effect": effect, "protocol": protocol, "port_start": start, "port_end": end, "zone": zone, "source": source, "origin": "rich-rule", "summary": f"firewalld {zone}: Rich Rule ({effect}{', Quelle ' + source if source else ''})"})
     meta = {"zone": zone, "target": fields.get("target", ""), "interfaces": fields.get("interfaces", "").split(), "sources": fields.get("sources", "").split(), "services": fields.get("services", "").split(), "rich_rules": rich[:128]}
     return rules, meta
 
