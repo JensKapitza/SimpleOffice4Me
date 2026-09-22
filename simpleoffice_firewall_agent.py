@@ -284,28 +284,38 @@ def _firewalld_zone(rule: dict[str, Any], snapshot: dict[str, Any]) -> str:
     return str(zones[0])
 
 
-def _firewalld_apply_test(rule: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+def _firewalld_prepare_test(rule: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Resolve exact rollback identity before the external mutation occurs."""
     zone = _firewalld_zone(rule, snapshot)
-    changed = dict(rule); changed["zone"] = zone
+    changed = dict(rule)
+    changed["zone"] = zone
     if rule["effect"] == "allow":
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
         query = _run(["firewall-cmd", "--zone", zone, "--query-port", spec])
-        if query["ok"]:
-            changed["preexisting"] = True
-            return changed
-        result = _run(["firewall-cmd", "--zone", zone, "--add-port", spec])
     else:
         rich = _firewalld_rich(changed)
-        query = _run(["firewall-cmd", "--zone", zone, "--query-rich-rule", rich])
-        if query["ok"]:
-            changed["preexisting"] = True
-            changed["rich_rule"] = rich
-            return changed
-        result = _run(["firewall-cmd", "--zone", zone, "--add-rich-rule", rich])
         changed["rich_rule"] = rich
+        query = _run(["firewall-cmd", "--zone", zone, "--query-rich-rule", rich])
+    changed["preexisting"] = bool(query["ok"])
+    return changed
+
+
+def _firewalld_apply_prepared(rule: dict[str, Any]) -> None:
+    if rule.get("preexisting"):
+        return
+    zone = str(rule["zone"])
+    if rule["effect"] == "allow":
+        spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
+        result = _run(["firewall-cmd", "--zone", zone, "--add-port", spec])
+    else:
+        result = _run(["firewall-cmd", "--zone", zone, "--add-rich-rule", str(rule["rich_rule"])])
     if not result["ok"]:
         raise RuntimeError("firewalld-Testregel konnte nicht angewendet werden")
-    changed["preexisting"] = False
+
+
+def _firewalld_apply_test(rule: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    changed = _firewalld_prepare_test(rule, snapshot)
+    _firewalld_apply_prepared(changed)
     return changed
 
 
@@ -315,9 +325,16 @@ def _firewalld_remove_runtime(rule: dict[str, Any]) -> None:
     zone = str(rule["zone"])
     if rule["effect"] == "allow":
         spec = _port_spec(rule["port_start"], rule["port_end"], rule["protocol"])
+        query = _run(["firewall-cmd", "--zone", zone, "--query-port", spec])
+        if not query["ok"]:
+            return
         result = _run(["firewall-cmd", "--zone", zone, "--remove-port", spec])
     else:
-        result = _run(["firewall-cmd", "--zone", zone, "--remove-rich-rule", str(rule["rich_rule"])])
+        rich = str(rule["rich_rule"])
+        query = _run(["firewall-cmd", "--zone", zone, "--query-rich-rule", rich])
+        if not query["ok"]:
+            return
+        result = _run(["firewall-cmd", "--zone", zone, "--remove-rich-rule", rich])
     if not result["ok"]:
         raise RuntimeError("firewalld-Testregel konnte nicht zurückgerollt werden")
 
@@ -380,11 +397,16 @@ def _ufw_command(rule: dict[str, Any], marker: str) -> list[str]:
     return [*prefix, _port_spec(rule["port_start"], rule["port_end"], rule["protocol"], ufw=True), "comment", marker]
 
 
-def _ufw_apply_test(rule: dict[str, Any], marker: str) -> dict[str, Any]:
-    result = _run(_ufw_command(rule, marker))
+def _ufw_apply_prepared(rule: dict[str, Any]) -> None:
+    result = _run(_ufw_command(rule, str(rule["marker"])))
     if not result["ok"]:
         raise RuntimeError("UFW-Testregel konnte nicht angewendet werden")
-    return {**rule, "marker": marker, "preexisting": False}
+
+
+def _ufw_apply_test(rule: dict[str, Any], marker: str) -> dict[str, Any]:
+    changed = {**rule, "marker": marker, "preexisting": False}
+    _ufw_apply_prepared(changed)
+    return changed
 
 
 def _ufw_marker_numbers(marker: str) -> list[int]:
@@ -474,9 +496,20 @@ def test_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
         marker = f"simpleoffice-test-{ident}"
         try:
             for rule in rules:
-                applied = _firewalld_apply_test(rule, snapshot) if backend == "firewalld" else _ufw_apply_test(rule, marker)
+                applied = (
+                    _firewalld_prepare_test(rule, snapshot)
+                    if backend == "firewalld"
+                    else {**rule, "marker": marker, "preexisting": False}
+                )
+                # Persist the exact rollback identity before mutating the host.
+                # A hard crash after the external command can therefore still
+                # be recovered by the independent watchdog.
                 plan["applied"].append(applied)
                 _write_plan(plan)
+                if backend == "firewalld":
+                    _firewalld_apply_prepared(applied)
+                else:
+                    _ufw_apply_prepared(applied)
             if time.time() >= float(plan["expires_at"]):
                 _rollback_plan_locked(plan)
                 raise RuntimeError("Firewall-Test konnte nicht innerhalb des sicheren Zeitfensters vorbereitet werden")
