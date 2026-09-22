@@ -27,19 +27,22 @@ from simpleoffice_network_gateway_runtime import (
     remember_gateway_ownership,
 )
 from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, effective_sip_settings
+from simpleoffice_connection_relay import (
+    TurnRelayService, load_relay_settings, relay_secrets_path, relay_settings_path,
+)
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
 from simpleoffice_mini_control import ControlStore
 from simpleoffice_network_gateway import interfaces_snapshot, binding_available, detect_interfaces, platform_kind
 
 LOG = logging.getLogger("simpleoffice.mini_services")
-SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT"}
+SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT", "relay": "STUN / TURN Relay"}
 
 
 class Worker:
     def __init__(self, config_path: Path):
         self.config_path = config_path
         self.stop_event = threading.Event()
-        self.dhcp = self.dns = self.tftp = self.sip = None
+        self.dhcp = self.dns = self.tftp = self.sip = self.relay = None
         self.sip_status = {}
         self.gateway_active = False
         self.gateway_status = {}
@@ -82,7 +85,8 @@ class Worker:
     def _signature(self):
         return tuple(self._mtime(path) for path in (
             self.config_path, boot_settings_path(self.config_path),
-            gateway_settings_path(self.config_path), telephony_db_path(self.config_path)))
+            gateway_settings_path(self.config_path), telephony_db_path(self.config_path),
+            relay_settings_path(self.config_path), relay_secrets_path(self.config_path)))
 
     def _stop_one(self, name: str) -> bool:
         state = self.states[name]
@@ -148,7 +152,12 @@ class Worker:
                 self.next_gateway_health = 0
             else:
                 factories = {"dhcp": BootAwareDhcpService, "dns": DnsService, "tftp": TftpService}
-                service = SipRegistrarService(self.config_path, self.event) if name == "sip" else factories[name](settings, self.config_path, self.event)
+                if name == "sip":
+                    service = SipRegistrarService(self.config_path, self.event)
+                elif name == "relay":
+                    service = TurnRelayService(settings, self.config_path)
+                else:
+                    service = factories[name](settings, self.config_path, self.event)
                 service.start()
                 setattr(self, name, service)
             state.running()
@@ -266,12 +275,14 @@ class Worker:
             gateway["internal_interface"] = gateway["internal_interface"] or found["internal_interface"]
             gateway["external_interface"] = gateway["external_interface"] or found["external_interface"]
         sip = effective_sip_settings(self.config_path)
+        relay = load_relay_settings(self.config_path)
         desired = {
             "dhcp": (bool(config["dhcp"]["enabled"]), {**config["dhcp"], "_boot": boot}),
             "dns": (bool(config["dns"]["enabled"]), config["dns"]),
             "tftp": (bool(boot["enabled"] and boot["tftp_enabled"]), boot),
             "sip": (True, sip),
             "gateway": (bool(gateway["enabled"] and gateway["mode"] != "off"), {**gateway, "_server_ip": config["dhcp"]["server_ip"]}),
+            "relay": (bool(relay["enabled"]), relay),
         }
         for name, (enabled, settings) in desired.items():
             preference = self.preferences[name]
@@ -293,7 +304,7 @@ class Worker:
             state = self.states[name]
             state.retry_count = 0
             state.config = {key: value for key, value in specification[1].items()
-                            if key in {"enabled", "bind", "port", "interface", "tftp_bind", "tftp_port", "bind_host", "registrar_port", "mode", "timeout"}}
+                            if key in {"enabled", "bind", "port", "interface", "tftp_bind", "tftp_port", "bind_host", "registrar_port", "mode", "timeout", "listen_ip", "public_host", "turn_port", "tls_enabled", "turn_tls_port", "min_port", "max_port"}}
             self._start_one(name)
         self.config_error = None
         self.config_signature = signature
@@ -313,8 +324,8 @@ class Worker:
 
     def _network_available(self, name):
         settings = self.desired.get(name, (False, {}))[1]
-        addresses = {"dhcp": ("bind", "server_ip"), "dns": ("bind",), "tftp": ("tftp_bind",), "sip": ("bind_host",), "gateway": ()}[name]
-        interfaces = ("internal_interface", "external_interface") if name == "gateway" else ("interface",)
+        addresses = {"dhcp": ("bind", "server_ip"), "dns": ("bind",), "tftp": ("tftp_bind",), "sip": ("bind_host",), "gateway": (), "relay": ("listen_ip",)}[name]
+        interfaces = ("internal_interface", "external_interface") if name == "gateway" else (() if name == "relay" else ("interface",))
         return binding_available(settings, self.network_snapshot, addresses=addresses, interfaces=interfaces)
 
     def _refresh_network(self):
@@ -449,8 +460,9 @@ class Worker:
             "state": "degraded" if state == "running" and failed else state,
             "pid": os.getpid(), "started_at": self.started_at,
             "uptime_seconds": max(0, int(time.time() - self.started_at)),
-            **{name + "_running": service_health(getattr(self, name)) for name in ("dhcp", "dns", "tftp", "sip")},
+            **{name + "_running": service_health(getattr(self, name)) for name in ("dhcp", "dns", "tftp", "sip", "relay")},
             "sip": self.sip.status() if self.sip is not None else self.sip_status,
+            "relay": self.relay.status() if self.relay is not None else {},
             "gateway_running": self.gateway_active, "gateway": self.gateway_status,
             "services": services, "config_error": self.config_error,
             "config_signature": list(self.config_signature),
