@@ -174,6 +174,21 @@ class FirewallSafetyTests(unittest.TestCase):
         self.assertEqual(2, len(cleaned))
         lock.close.assert_called_once()
 
+    def test_firewalld_source_limited_allow_uses_accept_rich_rule(self):
+        rule = firewall.normalize_rule({
+            "effect": "allow", "protocol": "tcp", "port": 8443,
+            "source": "192.168.50.0/24", "zone": "public",
+        })
+        with patch("simpleoffice_firewall_agent._run", return_value={
+            "ok": False, "missing": False, "stdout": "", "stderr": "", "returncode": 1,
+        }):
+            prepared = agent._firewalld_prepare_test(rule, {
+                "active_zones": ["public"],
+            })
+        self.assertIn('source address="192.168.50.0/24"', prepared["rich_rule"])
+        self.assertIn('port="8443"', prepared["rich_rule"])
+        self.assertTrue(prepared["rich_rule"].endswith(" accept"))
+
     def test_firewalld_runtime_rule_can_be_confirmed_permanently_without_owning_runtime(self):
         rule = {
             "effect": "allow", "protocol": "tcp", "port_start": 8080,
