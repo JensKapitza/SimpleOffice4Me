@@ -3,6 +3,7 @@
 from .document_store import DocumentStoreStorageAdapter
 from .shadow import ShadowDocumentStorageAdapter
 from .blob_catalog import BlobCatalogStorageAdapter
+from .authoritative import V2AuthoritativeStorageAdapter
 from .audit import RevisionHistoryAuditAdapter
 
 __all__ = ["BlobCatalogStorageAdapter", "DocumentStoreStorageAdapter", "RevisionHistoryAuditAdapter", "ShadowDocumentStorageAdapter"]
