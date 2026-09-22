@@ -11,6 +11,8 @@ from typing import Any
 from .chat_access import CHAT_ATTRIBUTE
 from .document_store import DocumentStore, atomic_json_write
 from .safe_paths import resolve_file_under
+from .v2.contracts import LogicalObjectId
+from .v2.storage_runtime import create_document, import_document, result_or_raise, storage_for
 
 
 _ROOM_RE = re.compile(r"^[0-9a-f-]{36}$")
@@ -52,9 +54,9 @@ def save_attachment(root: str | Path, content: bytes, filename: str, actor: str,
     if visibility == "chat":
         folder = _configure_private_folder(store, room_id, local_users, admin_users)
         relative = (folder / f"{attachment_id[:8]}-{safe_name}").relative_to(store.root).as_posix()
-        document = store.create_document_at(relative, content, actor, max_bytes=max_bytes)
+        document = create_document(store.root, actor, relative, content, max_bytes=max_bytes)
     elif visibility == "documents":
-        document = store.import_upload(io.BytesIO(content), safe_name, actor, archive=True, max_bytes=max_bytes)
+        document = import_document(store.root, actor, io.BytesIO(content), safe_name, archive=True, max_bytes=max_bytes)
     else:
         raise ValueError("Ungültige Anhang-Sichtbarkeit")
     digest = hashlib.sha256(content).hexdigest()
@@ -74,10 +76,11 @@ def save_attachment(root: str | Path, content: bytes, filename: str, actor: str,
 
 
 def attachment_bytes(root: str | Path, document_id: str) -> bytes:
-    store = DocumentStore(root)
-    document = store.get_document(document_id)
-    path = resolve_file_under(store.root, str(document.get("last_path", "")))
-    return path.read_bytes()
+    return result_or_raise(
+        storage_for(root, "chat-attachment-read").read_bytes(
+            LogicalObjectId(str(document_id))
+        )
+    )
 
 
 def guessed_mime(filename: str) -> str:

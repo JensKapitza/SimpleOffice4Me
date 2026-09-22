@@ -26,6 +26,7 @@ from .attachment_security import AttachmentSecurity
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
+from .v2.storage_runtime import create_document
 
 MAX_MESSAGE_BYTES = 100 * 1024 * 1024
 MAX_MESSAGES_PER_RUN = 1000
@@ -292,7 +293,7 @@ class MailStore:
         if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
             document = documents.get_document(path)
         else:
-            document = documents.create_document_at(path, raw, actor, max_bytes=MAX_OUTBOUND_BYTES)
+            document = create_document(documents.root, actor, path, raw, max_bytes=MAX_OUTBOUND_BYTES)
             documents.set_tags(document["document_id"], ["email", "source:smtp", "direction:outbound", f"imap-account:{account['id']}"], actor)
         origin = {"account_id": account["id"], "sha512": digest, "state": state, **detail}
         documents.set_attribute(document["document_id"], "email_origin", origin, actor)
@@ -546,7 +547,7 @@ class ImapArchive:
                         known.add(digest)
                         result["duplicates"] += 1
                         continue
-                    document = doc_store.create_document_at(path, raw, actor, max_bytes=MAX_MESSAGE_BYTES)
+                    document = create_document(doc_store.root, actor, path, raw, max_bytes=MAX_MESSAGE_BYTES)
                     known.add(digest)
                     doc_store.set_tags(document["document_id"], ["email", "source:imap", f"imap-account:{account['id']}"], actor)
                     doc_store.set_attribute(document["document_id"], "email_origin", {"account_id": account["id"], "folder": account["folder"], "uidvalidity": uidvalidity, "uid": uid.decode(), "sha512": digest, "message_id": str(message.get("Message-ID", ""))[:500], "subject": str(message.get("Subject", ""))[:500], "from": str(message.get("From", ""))[:500]}, actor)
