@@ -368,6 +368,20 @@ def _is_loopback_bind(value: str) -> bool:
         return False
 
 
+def _bind_families(value: str) -> set[str]:
+    binds = [item.strip() for item in str(value or "").split(",") if item.strip()]
+    if not binds:
+        return {"ipv4", "ipv6"}
+    families: set[str] = set()
+    for item in binds:
+        try:
+            address = ipaddress.ip_address(item.split("%", 1)[0])
+        except ValueError:
+            return {"ipv4", "ipv6"}
+        families.add("ipv4" if address.version == 4 else "ipv6")
+    return families or {"ipv4", "ipv6"}
+
+
 def _port_matches(rule: dict[str, Any], protocol: str, start: int, end: int) -> bool:
     if rule.get("protocol") not in {protocol, "any", None, ""}:
         return False
@@ -389,16 +403,29 @@ def firewall_decision(snapshot: dict[str, Any], protocol: str, start: int, end: 
     rules = snapshot.get("rules", []) if isinstance(snapshot.get("rules"), list) else []
     matching = [rule for rule in rules if isinstance(rule, dict) and _port_matches(rule, protocol, start, end)]
     if snapshot.get("backend") == "ufw":
-        matching.sort(key=lambda row: int(row.get("order", 999999)))
-        if matching:
-            effect = matching[0].get("effect")
-            return {"state": "allowed" if effect == "allow" else "blocked", "reason": str(matching[0].get("summary") or "Passende UFW-Regel")}
         default = str(snapshot.get("default_incoming") or "unknown").lower()
-        if default in {"deny", "reject"}:
-            return {"state": "blocked", "reason": f"UFW-Standard für eingehend: {default}."}
-        if default == "allow":
-            return {"state": "allowed", "reason": "UFW-Standard erlaubt eingehenden Verkehr."}
-        return {"state": "unknown", "reason": "UFW-Standardregel konnte nicht bestimmt werden."}
+        decisions: dict[str, tuple[str, str]] = {}
+        for family in _bind_families(bind):
+            family_rules = [row for row in matching if row.get("family") in {None, "", family}]
+            family_rules.sort(key=lambda row: int(row.get("order", 999999)))
+            if family_rules:
+                effect = family_rules[0].get("effect")
+                decisions[family] = (
+                    "allowed" if effect == "allow" else "blocked",
+                    str(family_rules[0].get("summary") or "Passende UFW-Regel"),
+                )
+            elif default in {"deny", "reject"}:
+                decisions[family] = ("blocked", f"UFW-Standard für eingehend: {default}.")
+            elif default == "allow":
+                decisions[family] = ("allowed", "UFW-Standard erlaubt eingehenden Verkehr.")
+            else:
+                decisions[family] = ("unknown", "UFW-Standardregel konnte nicht bestimmt werden.")
+        states = {value[0] for value in decisions.values()}
+        if len(states) > 1:
+            details = ", ".join(f"{family}: {state}" for family, (state, _reason) in sorted(decisions.items()))
+            return {"state": "unknown", "reason": f"UFW-Regeln unterscheiden sich nach IP-Familie ({details})."}
+        state, reason = next(iter(decisions.values()))
+        return {"state": state, "reason": reason}
     if snapshot.get("backend") == "firewalld":
         zones = snapshot.get("active_zones", []) if isinstance(snapshot.get("active_zones"), list) else []
         if len(zones) > 1:
