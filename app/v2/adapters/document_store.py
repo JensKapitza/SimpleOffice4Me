@@ -159,6 +159,50 @@ class DocumentStoreStorageAdapter:
         except (OSError, RuntimeError, ValueError) as exc:
             return self._failure(exc)
 
+    def copy_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        try:
+            metadata = self.store.replace_document_via_copy(
+                source_id.value,
+                destination_id.value,
+                self.actor,
+                expected_source_sha256=str(expected_source_version or ""),
+                expected_destination_sha256=str(expected_destination_version or ""),
+                max_bytes=int(max_bytes),
+            )
+            return OperationResult.success(self._stored(metadata))
+        except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
+    def move_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        try:
+            result = self.store.replace_document_via_move(
+                source_id.value,
+                destination_id.value,
+                self.actor,
+                expected_source_sha256=str(expected_source_version or ""),
+                expected_destination_sha256=str(expected_destination_version or ""),
+                max_bytes=int(max_bytes),
+            )
+            return OperationResult.success(self._stored(result["document"]))
+        except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
     def delete(
         self,
         object_id: LogicalObjectId,
