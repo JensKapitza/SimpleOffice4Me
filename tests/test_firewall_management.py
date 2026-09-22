@@ -115,11 +115,12 @@ class FirewallSafetyTests(unittest.TestCase):
         lock = unittest.mock.MagicMock()
         with patch("simpleoffice_firewall_agent.firewall_snapshot", return_value={
                 "backend": "ufw", "active": True, "writable": True, "conflict": False,
-                "active_zones": [], "rules": [], "tests": []}),              patch("simpleoffice_firewall_agent._write_plan", side_effect=lambda _plan: order.append("plan")),              patch("simpleoffice_firewall_agent._locked_plan", return_value=lock),              patch("simpleoffice_firewall_agent._schedule_rollback", side_effect=lambda _ident, _delay: order.append("watchdog") or "process"),              patch("simpleoffice_firewall_agent._ufw_apply_test", side_effect=lambda value, marker: order.append("apply") or {**value, "marker": marker, "preexisting": False}):
+                "active_zones": [], "rules": [], "tests": []}),              patch("simpleoffice_firewall_agent._write_plan", side_effect=lambda _plan: order.append("plan")),              patch("simpleoffice_firewall_agent._locked_plan", return_value=lock),              patch("simpleoffice_firewall_agent._schedule_rollback", side_effect=lambda _ident, _delay: order.append("watchdog") or "process"),              patch("simpleoffice_firewall_agent._ufw_apply_prepared", side_effect=lambda _value: order.append("apply")):
             result = agent.test_rules([rule])
         lock.close.assert_called_once()
         self.assertEqual("ufw", result["backend"])
         self.assertLess(order.index("watchdog"), order.index("apply"))
+        self.assertEqual("plan", order[order.index("apply") - 1])
 
     def test_firewall_decision_keeps_listener_and_policy_semantics_conservative(self):
         ufw = {"backend": "ufw", "active": True, "conflict": False, "default_incoming": "deny", "rules": []}
