@@ -153,6 +153,30 @@ class ChatStatusStore:
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_for_actor(self, status_id: str, actor: str, *, now: int | None = None) -> dict:
+        actor = self._principal(actor)
+        timestamp = int(time.time() if now is None else now)
+        with self._db() as db:
+            row = db.execute(
+                """SELECT * FROM chat_status
+                   WHERE status_id=? AND deleted_at IS NULL AND expires_at>?""",
+                (str(status_id), timestamp),
+            ).fetchone()
+            if row is None:
+                raise ValueError("status not found")
+            viewers = [
+                str(item["viewer"])
+                for item in db.execute(
+                    "SELECT viewer FROM chat_status_viewer WHERE status_id=? ORDER BY viewer",
+                    (str(status_id),),
+                ).fetchall()
+            ]
+        result = dict(row)
+        if actor != result["owner"] and actor not in viewers:
+            raise ValueError("status not found")
+        result["viewers"] = viewers
+        return result
+
     def can_view(self, status_id: str, viewer: str, *, now: int | None = None) -> bool:
         viewer = self._principal(viewer)
         timestamp = int(time.time() if now is None else now)
