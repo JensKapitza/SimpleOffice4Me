@@ -328,7 +328,6 @@ class CalendarWebTest(unittest.TestCase):
                 "create_video_chat": "1",
                 "video_chat_users": "amy",
             },
-            base_url="http://office.example.test",
             follow_redirects=True,
         )
         self.assertEqual(200, created.status_code)
@@ -346,7 +345,7 @@ class CalendarWebTest(unittest.TestCase):
         self.assertEqual(["audio", "chat", "video"], conference["features"])
         self.assertTrue(
             conference["uri"].startswith(
-                "http://office.example.test/chat/rooms/"
+                "http://localhost/chat/rooms/"
             )
         )
 
@@ -358,7 +357,7 @@ class CalendarWebTest(unittest.TestCase):
         self.assertEqual({"jens", "amy"}, participants)
         self.assertIn(
             'CONFERENCE;FEATURE=AUDIO,CHAT,VIDEO;LABEL="SimpleOffice Videochat":'
-            "http://office.example.test/chat/rooms/",
+            "http://localhost/chat/rooms/",
             store.export_ics("jens"),
         )
 
