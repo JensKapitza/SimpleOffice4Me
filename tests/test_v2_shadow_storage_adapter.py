@@ -61,10 +61,11 @@ class ShadowStorageAdapterTests(unittest.TestCase):
             b"replacement",
             self.blobs.read(object_id, version_id=row.value.version_id),
         )
+        metadata = self.legacy.get_document(object_id.value)
+        self.assertEqual("inbox/original.txt", metadata["last_path"])
         self.assertEqual(
             b"replacement",
-            self.legacy.get_document(object_id.value)["last_path"]
-            and (self.root / "inbox" / "original.txt").read_bytes(),
+            (self.root / metadata["last_path"]).read_bytes(),
         )
         self.assertFalse(load_cutover_state(self.root).dirty)
 
