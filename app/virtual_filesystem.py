@@ -253,6 +253,7 @@ class VirtualFileSystem:
         replace: bool = False,
         expected_source_sha256: str = "",
         expected_destination_sha256: str = "",
+        max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any]:
         source_path = self.require(actor, source, "read")
         destination_path = self.resolve(destination)
@@ -264,8 +265,6 @@ class VirtualFileSystem:
         if not source_path.is_file() or source_path.is_symlink():
             raise ValueError("COPY source must be a regular file")
         source_document = self.store.get_document(source_path)
-        if expected_source_sha256 and expected_source_sha256 != str(source_document.get("sha256", "")):
-            raise ValueError("source content changed since it was opened")
         storage = self._storage(actor)
         source_id = LogicalObjectId(str(source_document["document_id"]))
         if destination_path.exists():
@@ -278,18 +277,18 @@ class VirtualFileSystem:
             if not destination_path.is_file() or destination_path.is_symlink():
                 raise ValueError("COPY replacement requires a regular destination file")
             destination_document = self.store.get_document(destination_path)
-            content = self._storage_value(storage.read_bytes(source_id))
             stored = self._storage_value(
-                storage.replace_bytes(
+                storage.copy_replace(
+                    source_id,
                     LogicalObjectId(str(destination_document["document_id"])),
-                    content,
-                    expected_version=(
-                        expected_destination_sha256
-                        or str(destination_document.get("sha256", ""))
-                    ),
+                    expected_source_version=expected_source_sha256,
+                    expected_destination_version=expected_destination_sha256,
+                    max_bytes=max_bytes,
                 )
             )
             return self.store.get_document(stored.object_id.value)
+        if expected_source_sha256 and expected_source_sha256 != str(source_document.get("sha256", "")):
+            raise ValueError("source content changed since it was opened")
         stored = self._storage_value(
             storage.copy(
                 source_id,
@@ -328,6 +327,7 @@ class VirtualFileSystem:
         replace: bool = False,
         expected_source_sha256: str = "",
         expected_destination_sha256: str = "",
+        max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any] | None:
         source_path = self.require(actor, source, "write")
         destination_path = self.resolve(destination)
@@ -344,54 +344,23 @@ class VirtualFileSystem:
             destination_path = resolve_under(
                 self.root, destination_path.relative_to(self.root), strict=True
             )
-            if source_path.is_dir() or destination_path.is_dir():
+            if not source_path.is_file() or not destination_path.is_file():
                 raise ValueError("POSIX replacement is limited to regular files")
             source_document = self.store.get_document(source_path)
             destination_document = self.store.get_document(destination_path)
-            if expected_source_sha256 and expected_source_sha256 != str(source_document.get("sha256", "")):
-                raise ValueError("source content changed since it was opened")
-            storage = self._storage(actor)
-            source_id = LogicalObjectId(str(source_document["document_id"]))
-            destination_id = LogicalObjectId(str(destination_document["document_id"]))
-            source_content = self._storage_value(storage.read_bytes(source_id))
-            previous_destination = self._storage_value(storage.read_bytes(destination_id))
-            updated = self._storage_value(
-                storage.replace_bytes(
-                    destination_id,
-                    source_content,
-                    expected_version=(
-                        expected_destination_sha256
-                        or str(destination_document.get("sha256", ""))
-                    ),
+            stored = self._storage_value(
+                self._storage(actor).move_replace(
+                    LogicalObjectId(str(source_document["document_id"])),
+                    LogicalObjectId(str(destination_document["document_id"])),
+                    expected_source_version=expected_source_sha256,
+                    expected_destination_version=expected_destination_sha256,
+                    max_bytes=max_bytes,
                 )
             )
-            try:
-                self._storage_value(
-                    storage.delete(
-                        source_id,
-                        expected_version=(
-                            expected_source_sha256
-                            or str(source_document.get("sha256", ""))
-                        ),
-                    )
-                )
-            except Exception as exc:
-                rollback = storage.replace_bytes(
-                    destination_id,
-                    previous_destination,
-                    expected_version=updated.version,
-                )
-                if not rollback.ok:
-                    raise RuntimeError(
-                        "MOVE replacement rollback failed after source deletion error"
-                    ) from exc
-                raise
-            return self.store.get_document(destination_id.value)
+            return self.store.get_document(stored.object_id.value)
         if source_path.is_dir():
             self.store.move_collection(
-                self.relative(source_path),
-                self.relative(destination_path),
-                actor,
+                self.relative(source_path), self.relative(destination_path), actor
             )
             return None
         document = self.store.get_document(source_path)
