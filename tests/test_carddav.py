@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from app import app
-from app.contact_store import ContactConflict, ContactStore
+from app.contact_store import ContactConflict, ContactStore, VCARD_EXPORT_CONFIG_KEY, VCARD_EXPORT_FIELDS
 
 
 VCARD = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Amy Beispiel\r\nEND:VCARD\r\n"
@@ -44,7 +44,9 @@ class CardDavTest(unittest.TestCase):
         self.assertIn("http://localhost/carddav/addressbooks/admin/", principal.get_data(as_text=True))
         self.assertEqual(207, home.status_code)
         self.assertIn("http://localhost/carddav/addressbooks/admin/default/", home.get_data(as_text=True))
-        self.assertIn('content-type="text/vcard" version="4.0"', home.get_data(as_text=True))
+        discovery = home.get_data(as_text=True)
+        self.assertIn('content-type="text/vcard" version="4.0"', discovery)
+        self.assertNotIn('content-type="text/vcard" version="3.0"', discovery)
 
     def test_legacy_contacts_collection_alias_works(self):
         self.store.upsert({"display_name": "Amy Beispiel"}, "admin", "amy")
@@ -88,10 +90,123 @@ class CardDavTest(unittest.TestCase):
             data=malicious,
             headers={**self.auth, "Content-Type": "application/xml"},
         )
+        self.assertEqual(400, response.status_code)
+        self.assertNotIn("Amy Beispiel", response.get_data(as_text=True))
+        self.assertNotIn("Ruby Beispiel", response.get_data(as_text=True))
+
+    def test_addressbook_query_filters_exported_properties(self):
+        self.store.upsert({"display_name": "Amy Beispiel", "email": "amy@example.test"}, "admin", "amy")
+        self.store.upsert({"display_name": "Ruby Beispiel", "email": "ruby@work.test"}, "admin", "ruby")
+        query = b'''<?xml version="1.0"?>
+<card:addressbook-query xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:d="DAV:">
+  <d:prop><d:getetag/><card:address-data/></d:prop>
+  <card:filter test="allof">
+    <card:prop-filter name="EMAIL">
+      <card:text-match collation="i;unicode-casemap" match-type="contains">ruby</card:text-match>
+    </card:prop-filter>
+  </card:filter>
+</card:addressbook-query>'''
+        response = self.client.open(
+            "/carddav/addressbooks/admin/default/",
+            method="REPORT",
+            data=query,
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
         body = response.get_data(as_text=True)
         self.assertEqual(207, response.status_code)
-        self.assertIn("amy.vcf", body)
         self.assertIn("ruby.vcf", body)
+        self.assertIn("Ruby Beispiel", body)
+        self.assertNotIn("amy.vcf", body)
+
+    def test_addressbook_query_can_filter_property_parameters(self):
+        card = (
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:typed\r\nFN:Typed Contact\r\n"
+            "EMAIL:main@example.test\r\nEMAIL;TYPE=WORK:work@example.test\r\nEND:VCARD\r\n"
+        )
+        self.store.upsert_vcard(card, "admin")
+        query = b'''<card:addressbook-query xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <card:filter>
+    <card:prop-filter name="EMAIL">
+      <card:param-filter name="TYPE"><card:text-match>work</card:text-match></card:param-filter>
+    </card:prop-filter>
+  </card:filter>
+</card:addressbook-query>'''
+        response = self.client.open(
+            "/carddav/addressbooks/admin/default/",
+            method="REPORT",
+            data=query,
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+        self.assertEqual(207, response.status_code)
+        self.assertIn("typed.vcf", response.get_data(as_text=True))
+
+    def test_addressbook_query_rejects_unsupported_collation(self):
+        self.store.upsert({"display_name": "Amy Beispiel"}, "admin", "amy")
+        query = b'''<card:addressbook-query xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <card:filter><card:prop-filter name="FN">
+    <card:text-match collation="x-unsupported">Amy</card:text-match>
+  </card:prop-filter></card:filter>
+</card:addressbook-query>'''
+        response = self.client.open(
+            "/carddav/addressbooks/admin/default/",
+            method="REPORT",
+            data=query,
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
+        self.assertEqual(400, response.status_code)
+
+    def test_etag_and_ctag_follow_visible_vcard_representation(self):
+        self.store.upsert(
+            {"display_name": "Amy Beispiel", "email": "amy@example.test"},
+            "admin",
+            "amy",
+        )
+        first = self.client.get(self.url, headers=self.auth)
+        before_etag = first.headers["ETag"]
+        before_home = self.client.open(
+            "/carddav/addressbooks/admin/default/",
+            method="PROPFIND",
+            headers=self.auth,
+        ).get_data(as_text=True)
+
+        schema = self.store.schema()
+        aliases = dict(schema["aliases"])
+        aliases[VCARD_EXPORT_CONFIG_KEY] = [
+            field for field in VCARD_EXPORT_FIELDS if field != "email"
+        ]
+        self.store.save_schema(schema["required"], aliases, "admin")
+
+        second = self.client.get(self.url, headers=self.auth)
+        after_home = self.client.open(
+            "/carddav/addressbooks/admin/default/",
+            method="PROPFIND",
+            headers=self.auth,
+        ).get_data(as_text=True)
+        self.assertNotEqual(before_etag, second.headers["ETag"])
+        self.assertNotIn("EMAIL:", second.get_data(as_text=True))
+        self.assertNotEqual(before_home, after_home)
+
+    def test_put_rejects_incomplete_or_unsupported_vcard(self):
+        missing_envelope = self.client.put(
+            self.url,
+            data="FN:Amy Beispiel\r\n",
+            headers=self.auth,
+        )
+        unsupported = self.client.put(
+            self.url,
+            data="BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Amy Beispiel\r\nEND:VCARD\r\n",
+            headers=self.auth,
+        )
+        misplaced_version = self.client.put(
+            self.url,
+            data="BEGIN:VCARD\r\nFN:Amy Beispiel\r\nVERSION:4.0\r\nEND:VCARD\r\n",
+            headers=self.auth,
+        )
+        self.assertEqual(400, missing_envelope.status_code)
+        self.assertEqual(400, unsupported.status_code)
+        self.assertEqual(400, misplaced_version.status_code)
+        with self.assertRaises(ValueError):
+            self.store.get("amy", "admin")
 
     def test_diagnostics_distinguishes_visible_and_hidden_contacts(self):
         self.store.upsert({"display_name": "Admin Kontakt"}, "admin", "admin-contact")
