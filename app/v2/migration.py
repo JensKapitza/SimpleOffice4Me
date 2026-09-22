@@ -222,7 +222,7 @@ def _validate_backup_for_plan(source: Path, backup: str | Path, plan: dict[str, 
             excluded.add(".simpleoffice-v2")
         actual_tree = _tree_sha256(target, exclude=excluded)
         if actual_tree != expected_tree:
-            raise ValueError("migration backup tree integrity check failed")
+            raise ValueError("migration backup integrity mismatch: tree integrity check failed")
 
     for entry in plan["entries"]:
         if entry.get("status") != "ready":
@@ -696,7 +696,7 @@ def restore_migration_backup(backup: str | Path, destination: str | Path) -> dic
         expected_tree = str(manifest.get("tree_sha256") or "")
         actual_tree = _tree_sha256(staging)
         if expected_tree and actual_tree != expected_tree:
-            raise ValueError("migration backup tree integrity check failed")
+            raise ValueError("migration backup integrity mismatch: tree integrity check failed")
         os.replace(staging, target)
     except Exception:
         if staging.exists():
