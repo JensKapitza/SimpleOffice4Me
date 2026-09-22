@@ -16,12 +16,6 @@ on:
         required: true
         default: true
         type: boolean
-  pull_request:
-    paths:
-      - '.github/workflows/manual-browser-screenshots.yml'
-      - 'tests/browser/manual_screenshot_smoke.py'
-      - 'deploy/docker/entrypoint.sh'
-
 permissions:
   contents: read
 
