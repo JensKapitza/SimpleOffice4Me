@@ -12,6 +12,7 @@ from .mini_services_admin import admin_required
 from simpleoffice_firewall import (
     FirewallControlStore,
     firewall_status,
+    deny_rules_hit_ports,
     normalize_rules,
     rules_for_service,
     service_port_inventory,
@@ -51,12 +52,7 @@ def _deny_hits_management(rules: list[dict]) -> bool:
         if port.get("protocol") == "tcp" and port.get("port_start") == port.get("port_end")
     }
     web_ports.add(_current_web_port())
-    return any(
-        rule["effect"] == "deny"
-        and rule["protocol"] == "tcp"
-        and any(rule["port_start"] <= port <= rule["port_end"] for port in web_ports)
-        for rule in rules
-    )
+    return deny_rules_hit_ports(rules, web_ports)
 
 
 def _test_rules(data: dict) -> tuple[list[dict], str]:
