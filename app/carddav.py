@@ -286,8 +286,8 @@ def endpoint(path: str):
         if normalized != f"addressbooks/{username}/default": return Response("not found",404)
         try:
             contacts = _report_contacts(store, username)
-        except ValueError as exc:
-            return Response(str(exc), 400)
+        except ValueError:
+            return Response("invalid or unsupported CardDAV REPORT", 400)
         return _xml([_contact_item(store, username, c, True) for c in contacts])
 
     if normalized.endswith(".vcf"):
@@ -312,7 +312,7 @@ def endpoint(path: str):
             elif request.headers.get("If-Match"): return _precondition_failed()
             try: contact=store.conditional_upsert_vcard(request.get_data(as_text=True),f"carddav:{username}",cid,expected_updated_at=expected,create_only=create_only)
             except ContactConflict as exc: return _precondition_failed(_etag(store,username,exc.contact) if exc.contact else "")
-            except ValueError as exc: return Response(str(exc),400)
+            except ValueError: return Response("invalid vCard",400)
             return Response("",201 if created else 204,{"ETag":_etag(store,username,contact),"Location":base+contact["contact_id"]+".vcf"})
         if request.method == "DELETE":
             try: existing=store.get(cid,username)
