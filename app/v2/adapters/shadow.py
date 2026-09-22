@@ -125,10 +125,18 @@ class ShadowDocumentStorageAdapter:
             self._dirty(f"{object_id.value}: V1/V2 shadow content mismatch")
             return
         digest = hashlib.sha256(content).hexdigest()
+        try:
+            metadata = self.legacy.store.get_document(object_id.value)
+            legacy_location = str(metadata.get("last_path") or "")
+            legacy_digest = str(metadata.get("sha256") or "")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._dirty(f"{object_id.value}: V1 metadata read failed during shadow compare: {exc}")
+            return
         if (
-            row.value.location.relative_path == ""
+            row.value.location.relative_path != legacy_location
             or row.value.size != len(content)
             or row.value.content_sha256 != digest
+            or (legacy_digest and legacy_digest != digest)
         ):
             self._dirty(f"{object_id.value}: V2 shadow catalog metadata mismatch")
 
