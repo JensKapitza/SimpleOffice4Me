@@ -263,6 +263,15 @@ class PasswordVault:
             return vault_key
         except (InvalidTag, ValueError) as exc:
             message = str(exc)
+            try:
+                self._audit(
+                    user_id,
+                    "vault_unlock_failed",
+                    f"vault:{user_id}",
+                    reason="invalid_credentials_or_integrity",
+                )
+            except RuntimeError:
+                pass
             if message.startswith("Vault-Key"):
                 raise
             raise ValueError("Master-Passwort ist falsch oder der Vault wurde verändert") from exc
