@@ -50,7 +50,7 @@
     });
     const calendars = {{ calendars|tojson }};
     const events = {{ events|tojson }};
-    const localUsers = {{ users|tojson }};
+    const localUsers = {{ video_chat_users|tojson }};
     const currentUsername = {{ current_username|tojson }};
     const appointmentTypes = document.createElement('datalist'); appointmentTypes.id = 'appointment-type-options';
     ['Beratung', 'Vor-Ort-Termin', 'Kundentermin', 'Videotermin', 'Wartung', 'Besprechung'].forEach(value => { const option = document.createElement('option'); option.value = value; appointmentTypes.append(option); });
