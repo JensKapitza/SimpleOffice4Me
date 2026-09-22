@@ -111,6 +111,8 @@ class ConnectivityRelayConfigTests(unittest.TestCase):
         save_relay_secrets(self.config, turn_secret=secret)
         credentials = turn_rest_credentials(self.config, "amy", now=1_700_000_000)
         self.assertEqual("1700000900:amy", credentials["username"])
+        # coturn TURN REST specifies HMAC-SHA1 for this temporary credential.
+        # codeql[py/weak-sensitive-data-hashing]
         expected = base64.b64encode(
             hmac.new(secret.encode(), credentials["username"].encode(), hashlib.sha1).digest()
         ).decode("ascii")
