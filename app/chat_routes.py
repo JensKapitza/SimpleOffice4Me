@@ -162,6 +162,7 @@ def status_page():
         visible_statuses=_statuses().visible_for(_actor()),
         own_statuses=_statuses().own(_actor()),
         users=users,
+        forward_rooms=_forward_rooms(""),
     )
 
 
@@ -176,6 +177,43 @@ def publish_status():
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("chat.status_page"))
+
+
+@bp.post("/status/<status_id>/forward")
+@login_required
+def forward_status(status_id: str):
+    try:
+        status = _statuses().get_for_actor(status_id, _actor())
+        target_id = str(request.form.get("target_room_id") or "").strip()
+        room = _require_room(target_id)
+        store = _store()
+        if not store.is_participant(target_id, _actor()):
+            abort(403)
+        participants = store.participants(target_id)
+        if any(item.get("participant_kind") != "local" for item in participants):
+            raise ValueError("Status kann nicht an föderierte Teilnehmer weitergeleitet werden")
+        audience = {str(status["owner"]), *[str(value) for value in status.get("viewers", [])]}
+        target_users = {str(item.get("username") or "") for item in participants}
+        if not target_users <= audience:
+            raise ValueError("Der Zielchat enthält Teilnehmer außerhalb der Statusfreigabe")
+        store.add_message(
+            target_id,
+            _actor(),
+            str(status.get("body") or ""),
+            message_type="request",
+            payload={
+                "share": {
+                    "kind": "status",
+                    "status_id": str(status["status_id"]),
+                    "owner": str(status["owner"]),
+                }
+            },
+        )
+        flash("Status in den Chat weitergeleitet.")
+        return redirect(url_for("chat.room", room_id=target_id) + "#latest")
+    except (ValueError, PermissionError) as exc:
+        flash(str(exc))
+        return redirect(url_for("chat.status_page"))
 
 
 @bp.post("/status/<status_id>/delete")
