@@ -213,7 +213,7 @@ def start_contact_chat(contact_id: str):
         return redirect(url_for("chat.room", room_id=room["room_id"]))
     except ValueError as exc:
         flash(str(exc))
-        return redirect(request.referrer or url_for("chat.index"))
+        return redirect(url_for("chat.index"))
 
 
 @bp.post("/rooms")
