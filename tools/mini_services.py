@@ -33,6 +33,7 @@ from simpleoffice_connection_relay import (
 from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
 from simpleoffice_mini_control import ControlStore
 from simpleoffice_network_gateway import interfaces_snapshot, binding_available, detect_interfaces, platform_kind
+from simpleoffice_firewall import FirewallControlStore, agent_request
 
 LOG = logging.getLogger("simpleoffice.mini_services")
 SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "tftp": "TFTP / Netzwerkboot", "sip": "SIP", "gateway": "Routing / NAT", "relay": "STUN / TURN Relay"}
@@ -58,12 +59,14 @@ class Worker:
         self.config_error = None
         self.config_loaded = False
         self.control = ControlStore(config_path)
+        self.firewall_control = FirewallControlStore(config_path)
         self.preferences = self.control.preferences()
         self.manual_states = {}
         self.next_blocklist_refresh = time.monotonic() + 5
         self.blocklist_thread = None
         self.network_snapshot = {"available": False, "interfaces": []}
         self.next_network_scan = 0
+        self.next_firewall_snapshot = 0
 
     def event(self, row: dict[str, object]) -> None:
         # Exception strings may contain packets, URLs or credentials.
@@ -357,10 +360,14 @@ class Worker:
         command = self.control.claim()
         if command:
             self._execute(command)
+        firewall_command = self.firewall_control.claim()
+        if firewall_command:
+            self._execute_firewall(firewall_command)
         try:
             self._refresh_network()
         except (OSError, ValueError, RuntimeError) as exc:
             self.event({"service": "worker", "action": "network_scan_failed", "error": type(exc).__name__})
+        self._refresh_firewall()
         if self.gateway_active and time.monotonic() >= self.next_gateway_health:
             self.gateway_health = gateway_health(self.gateway_status)
             self.next_gateway_health = time.monotonic() + 15
@@ -397,8 +404,54 @@ class Worker:
                 self.next_blocklist_refresh = time.monotonic() + max(3600, int(dns["blocklist_refresh_hours"]) * 3600)
         self.write_status("running")
 
+    def _refresh_firewall(self, *, force: bool = False) -> None:
+        if not force and time.monotonic() < self.next_firewall_snapshot:
+            return
+        self.next_firewall_snapshot = time.monotonic() + 15
+        try:
+            result = agent_request({"action": "snapshot"}, timeout=4)
+            result.pop("ok", None)
+            self.firewall_control.set_snapshot(result)
+        except Exception:
+            current = self.firewall_control.snapshot()
+            if current.get("backend") == "unavailable":
+                self.firewall_control.set_snapshot({
+                    "backend": "unavailable",
+                    "active": False,
+                    "writable": False,
+                    "conflict": False,
+                    "installed": {},
+                    "active_zones": [],
+                    "rules": [],
+                    "tests": [],
+                    "message": "Firewall-Agent ist nicht erreichbar. Dienst und Socket prüfen.",
+                })
+
+    def _execute_firewall(self, command) -> None:
+        action = command["action"]
+        try:
+            request_payload = {"action": action, **command["payload"]}
+            result = agent_request(request_payload)
+            result.pop("ok", None)
+            if action == "snapshot":
+                snapshot = dict(result)
+            else:
+                snapshot = agent_request({"action": "snapshot"})
+                snapshot.pop("ok", None)
+            self.firewall_control.set_snapshot(snapshot)
+            self.firewall_control.finish(command["id"], True, result)
+            self.next_firewall_snapshot = time.monotonic() + 15
+            self.event({"service": "firewall", "action": action, "operation_id": command["id"]})
+        except Exception:
+            self.firewall_control.finish(command["id"], False, {
+                "error": "Firewall-Agent ist nicht erreichbar oder hat die Aktion abgelehnt. Firewallstatus und Agent-Protokoll prüfen."
+            })
+            self.event({"service": "firewall", "action": action, "operation_id": command["id"], "error": "FirewallAgentError"})
+            self.next_firewall_snapshot = 0
+
     def start(self) -> None:
         self.control.recover_interrupted()
+        self.firewall_control.recover_interrupted()
         self.tick()
         while not self.stop_event.wait(2):
             self.tick()
@@ -464,6 +517,7 @@ class Worker:
             "sip": self.sip.status() if self.sip is not None else self.sip_status,
             "relay": self.relay.status() if self.relay is not None else {},
             "gateway_running": self.gateway_active, "gateway": self.gateway_status,
+            "firewall": self.firewall_control.snapshot(),
             "services": services, "config_error": self.config_error,
             "config_signature": list(self.config_signature),
             "blocklist": read_blocklist_meta(self.config_path), "events": events,
