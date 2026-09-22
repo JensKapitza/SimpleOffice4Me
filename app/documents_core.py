@@ -38,8 +38,8 @@ from .preview_service import PreviewService
 from .db import get_db
 from .setup_store import SetupStore
 from .mail_client import MailStore, SmtpSubmission
-from .v2.adapters.document_store import DocumentStoreStorageAdapter
 from .v2.contracts import StoragePort
+from .v2.storage_runtime import storage_for
 
 
 bp = Blueprint("documents", "app.documents", url_prefix="/documents")
@@ -50,8 +50,8 @@ def _store() -> DocumentStore:
 
 
 def _storage(actor: str) -> StoragePort:
-    """Return the V2 mutation boundary used by browser file operations."""
-    return DocumentStoreStorageAdapter(current_app.config["DOCUMENT_ROOT"], actor)
+    """Return the shared runtime storage boundary used by document clients."""
+    return storage_for(current_app.config["DOCUMENT_ROOT"], actor)
 
 
 def _contacts() -> ContactStore:
