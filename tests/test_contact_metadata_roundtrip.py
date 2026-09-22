@@ -41,7 +41,7 @@ class ContactMetadataRoundtripTest(unittest.TestCase):
             self.assertIn("CATEGORIES:Kunde,VIP", exported)
             self.assertIn("X-SIMPLEOFFICE-GROUP:Familie,Projekt A", exported)
 
-    def test_carddav_update_without_categories_preserves_existing_metadata(self):
+    def test_carddav_update_can_clear_categories_but_preserves_server_groups(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             store = ContactStore(root)
@@ -51,7 +51,7 @@ class ContactMetadataRoundtripTest(unittest.TestCase):
 
             changed = store.conditional_upsert_vcard(card, "carddav:admin", "ruby-1")
 
-            self.assertEqual(["Privat"], changed["tags"])
+            self.assertEqual([], changed["tags"])
             self.assertEqual(["Familie"], changed["groups"])
 
 
