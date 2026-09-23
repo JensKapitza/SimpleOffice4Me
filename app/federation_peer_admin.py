@@ -487,12 +487,14 @@ def set_route_policy(peer_id):
         max_hops_text = str(request.form.get("max_hops", "") or "").strip()
         max_hops = int(max_hops_text) if max_hops_text else None
         allowed_relays = _csv_values(request.form.get("allowed_relays", ""))
+        denied_relays = _csv_values(request.form.get("denied_relays", ""))
         constraint = _policy_store().set_route_constraint(
             peer_id,
             scope=scope,
             direct_only=direct_only,
             max_hops=max_hops,
             allowed_relays=allowed_relays if allowed_relays else None,
+            denied_relays=denied_relays if denied_relays else None,
             created_by=_actor(),
         )
         audited = _audit_policy(
@@ -503,6 +505,7 @@ def set_route_policy(peer_id):
                 "direct_only": constraint.direct_only,
                 "max_hops": constraint.max_hops,
                 "allowed_relays": list(constraint.allowed_relays or ()),
+                "denied_relays": list(constraint.denied_relays or ()),
             },
         )
         flash(
