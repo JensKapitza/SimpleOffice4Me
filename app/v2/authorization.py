@@ -189,12 +189,12 @@ class AuthorizationStore:
         ]
         if not grant_ids:
             return 0
-        placeholders = ",".join("?" for _ in grant_ids)
         with self._db() as db:
-            return db.execute(
-                f"UPDATE capability_grant SET revoked=1 WHERE grant_id IN ({placeholders})",
-                tuple(grant_ids),
-            ).rowcount
+            cursor = db.executemany(
+                "UPDATE capability_grant SET revoked=1 WHERE grant_id=?",
+                [(grant_id,) for grant_id in grant_ids],
+            )
+            return cursor.rowcount
 
     def get(self, grant_id: str) -> CapabilityGrant | None:
         with self._db() as db:
