@@ -61,6 +61,18 @@ rotation and recovery-bundle export generate V2 audit events. Events contain
 profile hashes/generations and generic failure reasons only; passwords,
 recovery keys and master keys are never audit payloads.
 
+## Concurrent mutation and crash behavior
+
+Profile creation, password changes and recovery-key rotation use an atomic
+per-profile directory lock. A second writer fails instead of silently replacing
+a key profile. If a process crashes while holding the lock, the stale lock is
+left in place and the next mutation fails closed; an operator can remove that
+empty lock directory only after verifying that no key-management process is
+still active.
+
+Profile JSON writes use a same-directory temporary file, fsync and atomic
+replace. Reads reject symlink/non-regular profile files.
+
 ## Storage activation
 
 This component does not automatically unlock encrypted storage at process
