@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Firewall</h1>
+      <p class="text-secondary mb-0">UFW oder firewalld erkennen, Dienste prüfen und Änderungen mit automatischem 20-Sekunden-Rollback testen.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Zurück zu Mini Services</a>
+  </div>
+
+  <section id="firewall-control" data-api="{{ url_for('firewall_api.status') }}" aria-labelledby="firewall-status-title">
+    <div id="firewall-feedback" class="alert alert-secondary" role="status" aria-live="polite">Firewallstatus wird geladen …</div>
+    <div class="row g-3 mb-4">
+      <div class="col-md-4"><article class="card h-100"><div class="card-body"><h2 id="firewall-status-title" class="h5">Backend</h2><div id="fw-backend" class="fs-5 fw-semibold">–</div><div id="fw-backend-detail" class="small text-secondary mt-2"></div></div></article></div>
+      <div class="col-md-4"><article class="card h-100"><div class="card-body"><h2 class="h5">Installiert</h2><div id="fw-installed" class="small">–</div><div id="fw-zones" class="small text-secondary mt-2"></div></div></article></div>
+      <div class="col-md-4"><article class="card h-100"><div class="card-body"><h2 class="h5">Sicherer Testmodus</h2><p class="small mb-2">Jede Änderung wird zuerst nur getestet. Ohne Bestätigung innerhalb von 20 Sekunden erfolgt der Rollback unabhängig von der Weboberfläche.</p><button id="fw-refresh" class="btn btn-outline-primary" type="button">Neu einlesen</button><div id="fw-last-operation" class="small text-secondary mt-3">Letzte Aktion: –</div></div></article></div>
+    </div>
+
+    <section class="mb-4" aria-labelledby="pending-title">
+      <h2 id="pending-title" class="h4">Laufende Tests</h2>
+      <div id="fw-tests" class="row g-3"><p class="text-secondary">Keine laufenden Tests.</p></div>
+    </section>
+
+    <section class="mb-4" aria-labelledby="services-title">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <h2 id="services-title" class="h4 mb-0">Bekannte Dienste</h2>
+        <span class="small text-secondary">Listener und Firewall werden getrennt bewertet.</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th scope="col">Dienst</th><th scope="col">Status / Bind</th><th scope="col">Ports / Listener</th><th scope="col">Firewall</th><th scope="col">Aktionen</th></tr></thead>
+          <tbody id="fw-services"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card mb-4" aria-labelledby="manual-title">
+      <div class="card-body">
+        <h2 id="manual-title" class="h4">Manuelle Portregel testen</h2>
+        <p class="small text-secondary">Für Ports außerhalb der bekannten Mini Services. Der aktuelle Verwaltungsport kann hier nicht gesperrt werden.</p>
+        <form id="fw-manual" class="row g-3" method="post">
+          <div class="col-md-2"><label class="form-label" for="fw-effect">Aktion</label><select id="fw-effect" class="form-select"><option value="allow">Öffnen</option><option value="deny">Sperren</option></select></div>
+          <div class="col-md-2"><label class="form-label" for="fw-protocol">Protokoll</label><select id="fw-protocol" class="form-select"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
+          <div class="col-md-2"><label class="form-label" for="fw-port-start">Startport</label><input id="fw-port-start" class="form-control" type="number" min="1" max="65535" required></div>
+          <div class="col-md-2"><label class="form-label" for="fw-port-end">Endport</label><input id="fw-port-end" class="form-control" type="number" min="1" max="65535" placeholder="wie Start"></div>
+          <div class="col-md-2"><label class="form-label" for="fw-source">Quelle/CIDR</label><input id="fw-source" class="form-control" placeholder="optional"></div>
+          <div class="col-md-2"><label class="form-label" for="fw-zone">firewalld-Zone</label><select id="fw-zone" class="form-select"><option value="">automatisch</option></select></div>
+          <div class="col-12"><button class="btn btn-primary" type="submit">20-Sekunden-Test starten</button></div>
+        </form>
+      </div>
+    </section>
+
+    <details class="mb-4"><summary>Normalisierte Regeln / Diagnose</summary><pre id="fw-diagnostic" class="small mt-3"></pre></details>
+  </section>
+</main>
+<script src="{{ url_for('static', filename='js/firewall.js') }}" defer></script>
+{% endblock %}

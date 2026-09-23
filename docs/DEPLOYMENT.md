@@ -96,6 +96,26 @@ sudo sysctl --system
 
 Danach Routing/NAT in SimpleOffice aktivieren. Der Worker verwaltet eigene nftables-Tabellen und soll fremde Firewall-Tabellen nicht ersetzen. Auf Hosts mit vorhandener Router-, Firewall-, Kubernetes- oder Container-Gateway-Funktion Regeln vorher prüfen.
 
+### Host-Firewall
+
+Das Debian-Paket aktiviert den Socket `simpleoffice-firewall-agent.socket`.
+Nur der Mini-Services-Worker erhält über die zusätzliche systemd-Gruppe Zugriff
+auf diesen Socket; der Webprozess bleibt unprivilegiert.
+
+Unter **Mini Services → Firewall** werden UFW oder firewalld automatisch
+ausgelesen. Änderungen erfolgen ausschließlich als 20-Sekunden-Test mit
+vorbereitetem Rollback. SimpleOffice aktiviert keine zuvor deaktivierte Firewall.
+Sind UFW und firewalld gleichzeitig aktiv, sind Schreibaktionen gesperrt.
+
+Status und Agent-Protokoll:
+
+```bash
+systemctl status simpleoffice-firewall-agent.socket
+journalctl -u simpleoffice-firewall-agent.service
+```
+
+Details: [Linux-Firewall](FIREWALL.md).
+
 ### Portkonflikte
 
 DNS braucht TCP/UDP 53, DHCPv4 UDP 67 und TFTP UDP 69. `systemd-resolved`, dnsmasq, libvirt oder vorhandene DHCP-Dienste können diese Ports belegen. Nicht blind abschalten: zuerst feststellen, welcher Prozess den Port nutzt und welche Folgen das Abschalten hätte.

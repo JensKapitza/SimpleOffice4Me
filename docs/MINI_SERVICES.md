@@ -109,6 +109,11 @@ STUN/TURN und der allowlist-basierte HTTPS-CONNECT-Client sind unter
 SimpleOffice öffnet keine Firewallregel automatisch und stellt keinen offenen
 Proxy bereit.
 
+Die Linux-Firewallverwaltung erkennt UFW und firewalld und verwendet für jede
+Änderung einen bestätigungspflichtigen 20-Sekunden-Test mit unabhängigem
+Rollback-Watchdog. Der Webprozess bleibt unprivilegiert; Details stehen unter
+[Linux-Firewall](FIREWALL.md).
+
 Für reale LAN-/Firewall-/Audiohardware, Windows und Android ist zusätzliche
 Abnahme erforderlich. Die [Qualitätsmatrix](MINI_SERVICES_REVIEW.md) dokumentiert
 den Fortschritt und offene Punkte. [Deployment](DEPLOYMENT.md) beschreibt die
@@ -119,6 +124,7 @@ vorhandenen systemd-/Container-Pfade.
 - [DHCP](MINI_DHCP.md)
 - [DNS](MINI_DNS.md)
 - [Routing / NAT](MINI_GATEWAY.md)
+- [Linux-Firewall](FIREWALL.md)
 - [SIP / Telefonie](TELEPHONY.md)
 - [HTTP/PXE und TFTP](NETWORK_BOOT.md)
 - [Audio-Ausgabe / Durchsagen](AUDIO_OUTPUT.md)

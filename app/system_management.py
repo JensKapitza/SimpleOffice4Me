@@ -31,7 +31,7 @@ COCKPIT_PARITY = (
     ("overview", "Systemübersicht und Hardware", "partial"),
     ("storage", "Storage, RAID, LVM und Verschlüsselung", "partial"),
     ("network", "Netzwerkgeräte, Adressen und Routen", "partial"),
-    ("firewall", "Firewall", "planned"),
+    ("firewall", "Firewall", "partial"),
     ("services", "systemd-Dienste", "planned"),
     ("logs", "Systemprotokolle / Journal", "partial"),
     ("updates", "Software-Updates", "partial"),

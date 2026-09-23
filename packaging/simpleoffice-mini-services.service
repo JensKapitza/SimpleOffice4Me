@@ -8,6 +8,7 @@ Wants=network-online.target
 Type=simple
 User=simpleoffice
 Group=simpleoffice
+SupplementaryGroups=simpleoffice-firewall
 WorkingDirectory=/opt/simpleoffice4me
 Environment=PYTHONPATH=/opt/simpleoffice4me
 ExecStart=/opt/simpleoffice4me/.venv/bin/python -m tools.mini_services --config /var/lib/simpleoffice4me/instance/mini-services.json

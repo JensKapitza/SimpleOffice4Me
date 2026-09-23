@@ -132,6 +132,8 @@ python3 -m pip wheel \
 install -D -m 0755 "$ROOT/packaging/simpleoffice4me-wrapper.sh" "$STAGE/usr/bin/simpleoffice4me"
 install -D -m 0644 "$ROOT/packaging/simpleoffice4me.service" "$STAGE/lib/systemd/system/simpleoffice4me.service"
 install -D -m 0644 "$ROOT/packaging/simpleoffice-mini-services.service" "$STAGE/lib/systemd/system/simpleoffice-mini-services.service"
+install -D -m 0644 "$ROOT/packaging/simpleoffice-firewall-agent.service" "$STAGE/lib/systemd/system/simpleoffice-firewall-agent.service"
+install -D -m 0644 "$ROOT/packaging/simpleoffice-firewall-agent.socket" "$STAGE/lib/systemd/system/simpleoffice-firewall-agent.socket"
 install -D -m 0644 "$ROOT/packaging/simpleoffice.env" "$STAGE/etc/simpleoffice4me/simpleoffice.env"
 install -D -m 0644 "$ROOT/packaging/README-system-package.md" "$STAGE/usr/share/doc/simpleoffice4me/README.system-package.md"
 
