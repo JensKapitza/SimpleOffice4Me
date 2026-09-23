@@ -179,6 +179,53 @@ def _load_json_bytes(data: bytes, *, expected_format: str) -> dict[str, Any]:
     return value
 
 
+def _read_regular_bounded(path: str | Path, maximum: int, label: str) -> bytes:
+    target = Path(path).expanduser().resolve(strict=False)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(target, flags)
+    except OSError as exc:
+        raise ValueError(f"{label} could not be opened") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size <= 0 or metadata.st_size > maximum:
+            raise ValueError(f"{label} size or file type is invalid")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            payload = handle.read(maximum + 1)
+        if len(payload) > maximum:
+            raise ValueError(f"{label} is too large")
+        return payload
+    finally:
+        os.close(descriptor)
+
+
+def load_recovery_bundle_file(path: str | Path) -> bytes:
+    return _read_regular_bounded(path, MAX_PROFILE_BYTES, "recovery bundle")
+
+
+def load_recovery_key_file(path: str | Path) -> bytes:
+    raw = _read_regular_bounded(path, 256, "recovery key file")
+    try:
+        text = raw.decode("ascii").strip()
+    except UnicodeError as exc:
+        raise ValueError("recovery key file must contain base64url text") from exc
+    return decode_recovery_key(text)
+
+
+def recovery_bundle_info(bundle: bytes) -> dict[str, Any]:
+    value = _load_json_bytes(bytes(bundle), expected_format=RECOVERY_FORMAT)
+    protected = _protected_from_dict(value.get("recovery"))
+    return {
+        "format": RECOVERY_FORMAT,
+        "profile_hash": str(value["profile_hash"]),
+        "recovery_method": protected.method,
+        "contains_raw_master_key": False,
+        "contains_raw_recovery_key": False,
+    }
+
+
 def recover_master_key_from_bundle(
     bundle: bytes,
     recovery_key: bytes,
