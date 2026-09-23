@@ -1,6 +1,7 @@
 """Persistent V2 jobs and federation desired-state transfer intents."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import time
@@ -258,6 +259,9 @@ class FederationJobService:
     ) -> OperationResult[JobRecord]:
         if policy_store is not None:
             checked_route = list(route) if route is not None else [intent.source_peer, intent.target_peer]
+            request_correlation = hashlib.sha256(
+                str(idempotency_key).encode("utf-8", "replace")
+            ).hexdigest()[:24]
             try:
                 decision = policy_store.decision(
                     checked_route,
@@ -276,7 +280,7 @@ class FederationJobService:
                     route=checked_route,
                     allowed=False,
                     reason="policy_invalid",
-                    correlation_id=str(idempotency_key),
+                    correlation_id=request_correlation,
                 )
                 return OperationResult.failure(
                     ErrorCode.FORBIDDEN,
@@ -292,7 +296,7 @@ class FederationJobService:
                 allowed=decision.allowed,
                 reason=decision.reason,
                 blocked_peer=decision.blocked_peer,
-                correlation_id=str(idempotency_key),
+                correlation_id=request_correlation,
             )
             if not audited:
                 return OperationResult.failure(
