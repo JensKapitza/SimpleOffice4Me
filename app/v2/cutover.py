@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .blob_store import BlobIntegrityError, BlobStore
+from .encrypted_blob_store import EncryptedBlobIntegrityError, EncryptedBlobStore
 from .contracts import LogicalObjectId
 from .migration import _catalog_snapshot_read_only, build_migration_plan, verify_migration_transfer
 
@@ -24,8 +25,9 @@ from .migration import _catalog_snapshot_read_only, build_migration_plan, verify
 FORMAT_FAMILY = "simpleoffice-v2-storage-cutover"
 FORMAT_VERSION = 1
 MODES = {"v1", "shadow", "v2"}
-PROTECTION_MODES = {"unspecified", "local-plaintext"}
+PROTECTION_MODES = {"unspecified", "local-plaintext", "local-encrypted-blob"}
 LOCAL_PLAINTEXT = "local-plaintext"
+LOCAL_ENCRYPTED_BLOB = "local-encrypted-blob"
 
 
 def _now() -> str:
@@ -162,7 +164,11 @@ def _shadow_fingerprint(entries: list[dict[str, Any]]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def verify_shadow_consistency(root: str | Path) -> dict[str, Any]:
+def verify_shadow_consistency(
+    root: str | Path,
+    *,
+    blob_store: Any | None = None,
+) -> dict[str, Any]:
     """Read-only comparison of the current V1 projection with V2 catalog/blob state."""
     source = Path(root).expanduser().resolve()
     entries, blockers = _shadow_inventory(source)
@@ -174,12 +180,15 @@ def verify_shadow_consistency(root: str | Path) -> dict[str, Any]:
         catalog = {}
         blockers.append(str(exc))
 
-    blob_base = source / ".simpleoffice-v2" / "blob-store"
-    if entries and not blob_base.is_dir():
-        blockers.append("V2 blob store is missing")
-        store = None
+    if blob_store is not None:
+        store = blob_store
     else:
-        store = BlobStore(source) if blob_base.is_dir() else None
+        blob_base = source / ".simpleoffice-v2" / "blob-store"
+        if entries and not blob_base.is_dir():
+            blockers.append("V2 blob store is missing")
+            store = None
+        else:
+            store = BlobStore(source) if blob_base.is_dir() else None
 
     expected_ids = {str(row["document_id"]) for row in entries}
     extra_ids = sorted(set(catalog) - expected_ids)
@@ -212,7 +221,7 @@ def verify_shadow_consistency(root: str | Path) -> dict[str, Any]:
         logical = LogicalObjectId(object_id)
         try:
             version = store.verify(logical, version_id=str(row.get("version_id") or ""))
-        except (BlobIntegrityError, OSError, ValueError, TypeError) as exc:
+        except (BlobIntegrityError, EncryptedBlobIntegrityError, OSError, ValueError, TypeError) as exc:
             blockers.append(f"V2 blob verification failed: {object_id}: {exc}")
             continue
         if (
@@ -300,11 +309,37 @@ def _write_cutover_state(root: str | Path, state: CutoverState) -> CutoverState:
     return state
 
 
-def cutover_status(root: str | Path) -> dict[str, Any]:
+def cutover_status(
+    root: str | Path,
+    *,
+    master_key: bytes | None = None,
+) -> dict[str, Any]:
     """Return persisted state plus a fresh read-only V1/V2 verification."""
+
     state = load_cutover_state(root)
     if state.mode in {"shadow", "v2"}:
-        verification = verify_shadow_consistency(root)
+        if state.protection_mode == LOCAL_ENCRYPTED_BLOB:
+            if master_key is None:
+                entries, blockers = _shadow_inventory(root)
+                verification = {
+                    "ready": False,
+                    "verified_documents": 0,
+                    "fingerprint": _shadow_fingerprint(entries),
+                    "blockers": blockers + [
+                        "encrypted V2 blob verification requires an unlocked storage master key"
+                    ],
+                }
+            else:
+                verification = verify_shadow_consistency(
+                    root,
+                    blob_store=EncryptedBlobStore(
+                        root,
+                        bytes(master_key),
+                        initialize=False,
+                    ),
+                )
+        else:
+            verification = verify_shadow_consistency(root)
         current_fingerprint = str(verification.get("fingerprint") or "")
         ready_for_shadow = bool(verification.get("ready"))
     else:
@@ -325,13 +360,19 @@ def cutover_status(root: str | Path) -> dict[str, Any]:
         "ready_for_shadow": ready_for_shadow,
         "shadow_dirty": bool(state.dirty),
         "protection_mode": state.protection_mode,
+        "encrypted_blob_backend": state.protection_mode == LOCAL_ENCRYPTED_BLOB,
         "encrypted_at_rest": False,
         "federation_storage_allowed": False,
         "storage_protection_warning": (
             "V2 local storage is explicitly unencrypted at rest; do not use this blob store "
             "as ciphertext storage for federation or P2P peers."
             if state.protection_mode == LOCAL_PLAINTEXT
-            else "V2 storage protection mode has not been explicitly selected."
+            else (
+                "The V2 blob backend is encrypted, but the legacy compatibility projection "
+                "still stores plaintext files. Full local encryption at rest is not active."
+                if state.protection_mode == LOCAL_ENCRYPTED_BLOB
+                else "V2 storage protection mode has not been explicitly selected."
+            )
         ),
         "ready_for_v2_activation": bool(
             state.mode == "shadow"
@@ -425,6 +466,19 @@ def activate_v2(
     """Promote a clean shadow projection to authoritative V2 storage."""
     state = load_cutover_state(root)
     if state.mode == "v2":
+        if state.protection_mode == LOCAL_ENCRYPTED_BLOB:
+            return {
+                "mode": "v2",
+                "applied": bool(apply),
+                "already_active": True,
+                "verification_ready": False,
+                "verification_requires_master_key": True,
+                "verified_documents": 0,
+                "protection_mode": state.protection_mode,
+                "encrypted_blob_backend": True,
+                "encrypted_at_rest": False,
+                "federation_storage_allowed": False,
+            }
         verification = verify_shadow_consistency(root)
         return {
             "mode": "v2",
@@ -433,6 +487,7 @@ def activate_v2(
             "verification_ready": bool(verification.get("ready")),
             "verified_documents": int(verification.get("verified_documents", 0)),
             "protection_mode": state.protection_mode,
+            "encrypted_blob_backend": False,
             "encrypted_at_rest": False,
             "federation_storage_allowed": False,
         }
