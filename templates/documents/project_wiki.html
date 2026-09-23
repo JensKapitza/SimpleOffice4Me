@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+{% block title %}Wiki · {{ project.title }} · SimpleOffice{% endblock %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/project_tracker.css') }}">{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4 project-ui">
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Projekte</a>
+  <div class="project-hero compact-project-hero"><span class="project-icon" aria-hidden="true"><i class="fas fa-book"></i></span><div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Wiki · Markdown</p></div></div>
+  {% set active_project_tab = 'wiki' %}{% include "documents/project_workspace_nav.html" %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <aside class="col-lg-3">
+      <section class="project-panel">
+        <div class="project-section-header"><h2 class="project-section-title">Seiten</h2></div>
+        <div class="project-wiki-nav">{% for item in pages %}<a class="{% if page and item.slug == page.slug %}active{% endif %}" href="{{ url_for('documents.project_wiki', project_id=project.project_id, page=item.slug) }}">{{ item.title }}<small>r{{ item.revision }}</small></a>{% else %}<p class="text-secondary p-3 mb-0">Noch keine Wiki-Seiten.</p>{% endfor %}</div>
+      </section>
+    </aside>
+    <div class="col-lg-9">
+      {% if page %}
+      <section class="project-panel project-section">
+        <div class="project-section-header"><div><h2 class="project-section-title">{{ page.title }}</h2><small class="text-secondary">Revision {{ page.revision }} · {{ page.updated_by }} · {{ page.updated_at }}</small></div><button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#wiki-edit">Bearbeiten</button></div>
+        <div class="project-section-body markdown-body">{{ page.body_html }}</div>
+      </section>
+      {% endif %}
+      <section class="project-panel project-section">
+        <div class="project-section-header"><h2 class="project-section-title">{% if page %}Wiki-Seite bearbeiten{% else %}Erste Wiki-Seite anlegen{% endif %}</h2></div>
+        <div class="project-section-body{% if page %} collapse{% endif %}" {% if page %}id="wiki-edit"{% endif %}>
+          <form method="post" class="row g-3">
+            <input type="hidden" name="expected_revision" value="{{ page.revision if page else 0 }}">
+            <div class="col-md-8"><label class="form-label" for="wiki-title">Titel</label><input id="wiki-title" name="title" class="form-control" maxlength="200" required value="{{ page.title if page else 'Home' }}"></div>
+            <div class="col-md-4"><label class="form-label" for="wiki-slug">Slug</label><input id="wiki-slug" name="slug" class="form-control font-monospace" maxlength="80" value="{{ page.slug if page else 'home' }}" {% if page %}readonly{% endif %}></div>
+            <div class="col-12"><label class="form-label" for="wiki-body">Markdown</label><textarea id="wiki-body" name="body_markdown" class="form-control font-monospace project-wiki-editor" rows="18" maxlength="200000">{{ page.body_markdown if page else '# ' ~ project.title ~ '
+
+Projekt-Wiki.' }}</textarea></div>
+            <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary" type="submit">Wiki speichern</button></div>
+          </form>
+        </div>
+      </section>
+      {% if page %}
+      <section class="project-panel project-section">
+        <div class="project-section-header"><h2 class="project-section-title">Neue Seite</h2><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wiki-new">Anlegen</button></div>
+        <div class="collapse project-section-body" id="wiki-new">
+          <form method="post" class="row g-3">
+            <input type="hidden" name="expected_revision" value="0">
+            <div class="col-md-8"><label class="form-label" for="new-wiki-title">Titel</label><input id="new-wiki-title" name="title" class="form-control" required></div>
+            <div class="col-md-4"><label class="form-label" for="new-wiki-slug">Slug optional</label><input id="new-wiki-slug" name="slug" class="form-control font-monospace"></div>
+            <div class="col-12"><label class="form-label" for="new-wiki-body">Markdown</label><textarea id="new-wiki-body" name="body_markdown" class="form-control font-monospace" rows="10"></textarea></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Seite anlegen</button></div>
+          </form>
+        </div>
+      </section>
+      {% endif %}
+    </div>
+  </div>
+</main>
+{% endblock %}
