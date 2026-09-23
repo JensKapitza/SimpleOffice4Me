@@ -29,12 +29,13 @@ class ProjectTrackerTests(unittest.TestCase):
         first = self.store.create_issue(self.project["project_id"], {"title": "Bug", "type": "bug"}, "alice")
         second = self.store.create_issue(self.project["project_id"], {"title": "Feature", "type": "feature"}, "alice")
         self.store.add_comment(self.project["project_id"], first["number"], "**Hinweis**", "bob")
+        current = self.store.issue(self.project["project_id"], first["number"])
         updated = self.store.update_issue(
             self.project["project_id"],
             first["number"],
-            {**first, "title": "Bug fix", "status": "in_progress", "labels": "backend, security"},
+            {**current, "title": "Bug fix", "status": "in_progress", "labels": "backend, security"},
             "alice",
-            expected_updated_at=first["updated_at"],
+            expected_updated_at=current["updated_at"],
         )
 
         self.assertEqual(1, first["number"])
