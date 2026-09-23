@@ -590,18 +590,24 @@ class FederationBlockPolicyTests(unittest.TestCase):
         self.assertEqual(JobState.FAILED, checked.value.state)
         self.assertTrue(checked.value.payload["policy_denied"])
 
-    def test_block_revokes_capability_for_blocked_peer(self):
+    def test_block_revokes_only_capabilities_for_transferred_objects(self):
         auth = AuthorizationStore(self.root)
+        now = int(time.time())
         grant = auth.issue_root(
             issuer="peer-a", subject="peer-c",
             rights=(GrantRight.RELAY,), object_refs=("object-1",),
-            expires_at=int(time.time()) + 600,
+            expires_at=now + 600,
+        )
+        unrelated = auth.issue_root(
+            issuer="peer-a", subject="peer-c",
+            rights=(GrantRight.RELAY,), object_refs=("object-2",),
+            expires_at=now + 600,
         )
         service = FederationJobService(PersistentJobStore(self.root))
         intent = FederationTransferIntent(
             source_peer="peer-a", target_peer="peer-c",
             object_refs=("object-1",), authorization_ref=grant.grant_id,
-            expires_at=int(time.time()) + 300,
+            expires_at=now + 300,
         )
         created = service.create_transfer(
             intent, idempotency_key="revoke-block",
@@ -612,6 +618,45 @@ class FederationBlockPolicyTests(unittest.TestCase):
             created.value.job_id, policy_store=self.policy, authorization_store=auth
         )
         self.assertTrue(auth.get(grant.grant_id).revoked)
+        self.assertFalse(auth.get(unrelated.grant_id).revoked)
+
+    def test_route_constraint_denial_does_not_revoke_capabilities(self):
+        auth = AuthorizationStore(self.root)
+        now = int(time.time())
+        relay_grant = auth.issue_root(
+            issuer="peer-a", subject="peer-b",
+            rights=(GrantRight.RELAY,), object_refs=("object-1",),
+            expires_at=now + 600,
+        )
+        transfer_grant = auth.issue_root(
+            issuer="controller", subject="peer-a",
+            rights=(GrantRight.RELAY,), object_refs=("object-1",),
+            expires_at=now + 600,
+        )
+        self.policy.set_route_constraint(
+            "peer-c",
+            scope="relay",
+            allowed_relays=("peer-x",),
+        )
+        service = FederationJobService(PersistentJobStore(self.root))
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref=transfer_grant.grant_id,
+            expires_at=now + 300,
+        )
+
+        denied = service.create_transfer(
+            intent,
+            idempotency_key="route-deny-no-revoke",
+            authorization_store=auth,
+            policy_store=self.policy,
+            route=("peer-a", "peer-b", "peer-c"),
+        )
+
+        self.assertFalse(denied.ok)
+        self.assertFalse(auth.get(relay_grant.grant_id).revoked)
 
     def test_blocked_peer_relay_grant_from_target_denies_transfer(self):
         auth = AuthorizationStore(self.root)
