@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -217,7 +218,7 @@ class ProjectGitService:
             "PAGER": "cat",
             "LC_ALL": "C",
         })
-        result = subprocess.run(
+        process = subprocess.Popen(
             [
                 self.git,
                 "-c", "color.ui=false",
@@ -231,16 +232,69 @@ class ProjectGitService:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=8,
-            check=False,
         )
-        if result.returncode not in accepted_returncodes:
-            message = result.stderr.decode("utf-8", "replace").strip().splitlines()
-            detail = message[-1][:300] if message else f"Git exited with {result.returncode}"
-            raise ProjectGitError(detail)
-        if len(result.stdout) > maximum:
+        stdout_parts: list[bytes] = []
+        stderr_parts: list[bytes] = []
+        stdout_overflow = threading.Event()
+        stderr_overflow = threading.Event()
+        stdout_thread = threading.Thread(
+            target=self._drain_bounded,
+            args=(process.stdout, maximum, stdout_parts, stdout_overflow),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=self._drain_bounded,
+            args=(process.stderr, 64 * 1024, stderr_parts, stderr_overflow),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        try:
+            returncode = process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            raise
+        finally:
+            stdout_thread.join(timeout=2)
+            stderr_thread.join(timeout=2)
+
+        stdout = b"".join(stdout_parts)
+        stderr = b"".join(stderr_parts)
+        if stdout_overflow.is_set():
             raise ProjectGitError("Git-Ausgabe überschreitet das Sicherheitslimit")
-        return bytes(result.stdout)
+        if returncode not in accepted_returncodes:
+            message = stderr.decode("utf-8", "replace").strip().splitlines()
+            detail = message[-1][:300] if message else f"Git exited with {returncode}"
+            raise ProjectGitError(detail)
+        return stdout
+
+    @staticmethod
+    def _drain_bounded(
+        stream: Any,
+        maximum: int,
+        parts: list[bytes],
+        overflow: threading.Event,
+    ) -> None:
+        """Drain a child pipe while retaining at most maximum+1 bytes."""
+
+        if stream is None:
+            return
+        retained = 0
+        try:
+            while True:
+                block = stream.read(64 * 1024)
+                if not block:
+                    break
+                if retained <= maximum:
+                    keep = block[: max(0, maximum + 1 - retained)]
+                    if keep:
+                        parts.append(keep)
+                        retained += len(keep)
+                    if retained > maximum:
+                        overflow.set()
+        finally:
+            stream.close()
 
     def _inside_allowed_root(self, candidate: Path) -> bool:
         for root in self._allowed_roots():
