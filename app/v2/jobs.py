@@ -219,7 +219,17 @@ class FederationJobService:
     ) -> OperationResult[JobRecord]:
         if policy_store is not None:
             checked_route = list(route) if route is not None else [intent.source_peer, intent.target_peer]
-            decision = policy_store.decision(checked_route, scope=policy_scope)
+            try:
+                decision = policy_store.decision(
+                    checked_route,
+                    scope=policy_scope,
+                    target_peer=intent.target_peer,
+                )
+            except (RuntimeError, ValueError):
+                return OperationResult.failure(
+                    ErrorCode.FORBIDDEN,
+                    "federation policy could not be evaluated safely",
+                )
             if not decision.allowed:
                 return OperationResult.failure(
                     ErrorCode.FORBIDDEN,
@@ -282,10 +292,19 @@ class FederationJobService:
             str(payload.get("source_peer") or ""),
             str(payload.get("target_peer") or ""),
         ]
-        decision = policy_store.decision(
-            route,
-            scope=str(payload.get("policy_scope") or "relay"),
-        )
+        try:
+            decision = policy_store.decision(
+                route,
+                scope=str(payload.get("policy_scope") or "relay"),
+                target_peer=str(payload.get("target_peer") or ""),
+            )
+        except (RuntimeError, ValueError):
+            return self.store.transition(
+                job_id,
+                JobState.FAILED,
+                error="federation policy could not be evaluated safely",
+                payload={"policy_denied": True, "policy_denied_reason": "policy_invalid"},
+            )
         if decision.allowed:
             return current
         if authorization_store is not None and decision.blocked_peer:
