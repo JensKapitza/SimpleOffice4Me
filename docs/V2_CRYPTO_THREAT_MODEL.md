@@ -54,6 +54,9 @@ Master-key rotation rewraps CEKs without re-encrypting payload bytes.
 ## Algorithms and policy
 
 - Payload AEAD: AES-256-GCM from `cryptography`.
+- Large/storage payloads may use independently authenticated chunks with one
+  random CEK per payload/version. Each chunk uses a fresh 96-bit nonce and binds
+  purpose, chunk index and plaintext size as associated data.
 - Key wrapping: AES-256-GCM with an independent random nonce and domain-specific
   associated data.
 - Password KDF: Argon2id using the project dependency, with parameters encoded
@@ -69,6 +72,7 @@ introduced.
 Associated data uses separate fixed domains for:
 
 - payload encryption
+- chunk-level payload encryption
 - CEK wrapping
 - password protection of the master key
 - recovery-key protection of the master key
@@ -82,12 +86,22 @@ Every AES-GCM operation receives a fresh 96-bit random nonce generated at the
 operation boundary. Callers cannot provide or reuse nonces through the public
 service API.
 
+For chunked payloads the caller cannot provide a nonce either. The chunk index
+is authenticated but is not used as a nonce. Re-encrypting the same chunk
+therefore produces unrelated ciphertext.
+
 ## Integrity and substitution resistance
 
 AEAD authentication failure is fatal. Ciphertext, nonce, purpose or wrapped-key
 substitution must fail closed. The blob manifest integrity layer remains
 separate: storage hashes detect corruption before/without decryption while AEAD
 authenticates protected content cryptographically.
+
+Chunked encryption additionally authenticates the expected chunk index and
+plaintext length. Reordering, truncation or substitution must fail before
+plaintext is accepted. The storage layer still needs a final object-level size
+and digest check so omission of a complete authenticated chunk cannot be hidden
+by otherwise valid neighboring chunks.
 
 ## Logging and audit
 
@@ -140,6 +154,8 @@ cryptographic private-set-intersection remains separate future work.
 - same plaintext encrypted twice produces different ciphertext
 - wrong master/password/recovery key fails
 - modified ciphertext fails authentication
+- chunk index/size substitution fails authentication
+- repeated chunk plaintext produces different ciphertext
 - purpose substitution fails
 - master-key rotation changes only wrapped-key material
 - password/recovery protection round-trips
