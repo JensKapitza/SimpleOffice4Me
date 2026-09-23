@@ -13,13 +13,13 @@
     <div class="col-lg-8">
       <section class="project-panel project-section">
         <div class="project-section-header"><h2 class="project-section-title">Beschreibung</h2></div>
-        <div class="project-section-body markdown-body">{% if issue.body_markdown %}{{ issue.body_html }}{% else %}<p class="text-secondary">Keine Beschreibung.</p>{% endif %}</div>
+        <div class="project-section-body markdown-body">{% if issue.body_markdown %}{{ issue.body_html|safe }}{% else %}<p class="text-secondary">Keine Beschreibung.</p>{% endif %}</div>
       </section>
       <section class="project-panel project-section">
         <div class="project-section-header"><h2 class="project-section-title">Kommentare</h2><span class="text-secondary">{{ issue.comments|length }}</span></div>
         <div class="project-section-body">
           {% for comment in issue.comments %}
-            <article class="issue-comment"><header><strong>{{ comment.created_by }}</strong><time datetime="{{ comment.created_at }}">{{ comment.created_at }}</time></header><div class="markdown-body">{{ comment.body_html }}</div></article>
+            <article class="issue-comment"><header><strong>{{ comment.created_by }}</strong><time datetime="{{ comment.created_at }}">{{ comment.created_at }}</time></header><div class="markdown-body">{{ comment.body_html|safe }}</div></article>
           {% else %}<p class="text-secondary">Noch keine Kommentare.</p>{% endfor %}
           <form method="post" action="{{ url_for('documents.project_issue_comment', project_id=project.project_id, issue_number=issue.number) }}" class="mt-4">
             <label class="form-label" for="issue-comment">Kommentar (Markdown)</label>
