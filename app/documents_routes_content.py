@@ -298,7 +298,11 @@ def project_detail(project_id: str):
     actor = str(g.user["username"])
     try:
         if request.method == "POST":
-            _projects().update_project(project_id, request.form.to_dict(), actor)
+            values = request.form.to_dict()
+            if not bool(g.user["is_admin"]):
+                current = _projects().project(project_id)
+                values["repository_path"] = current.get("repository_path", "")
+            _projects().update_project(project_id, values, actor)
             flash("Projekt gespeichert.")
             return redirect(url_for("documents.project_detail", project_id=project_id))
         project = _project_with_tasks(project_id, actor)
