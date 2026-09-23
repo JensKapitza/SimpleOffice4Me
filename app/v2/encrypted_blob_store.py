@@ -43,6 +43,7 @@ class EncryptedBlobVersion:
     object_id: LogicalObjectId
     version_id: str
     size: int
+    content_sha256: str
     chunk_count: int
 
 
@@ -322,7 +323,7 @@ class EncryptedBlobStore:
                     "version_id": version_id,
                 },
             )
-            return EncryptedBlobVersion(object_id, version_id, total, len(chunks))
+            return EncryptedBlobVersion(object_id, version_id, total, digest, len(chunks))
         finally:
             shutil.rmtree(transaction, ignore_errors=True)
 
@@ -402,6 +403,112 @@ class EncryptedBlobStore:
         ):
             raise EncryptedBlobIntegrityError("encrypted blob final integrity check failed")
         return bytes(result)
+
+    def verify(
+        self,
+        object_id: LogicalObjectId,
+        *,
+        version_id: str | None = None,
+    ) -> EncryptedBlobVersion:
+        content = self.read(object_id, version_id=version_id)
+        manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
+        return EncryptedBlobVersion(
+            object_id=object_id,
+            version_id=str(manifest["version_id"]),
+            size=len(content),
+            content_sha256=hashlib.sha256(content).hexdigest(),
+            chunk_count=len(manifest["chunks"]),
+        )
+
+    def versions_for(self, object_id: LogicalObjectId) -> list[EncryptedBlobVersion]:
+        result: list[EncryptedBlobVersion] = []
+        for path in sorted(self.versions.glob("*.json")):
+            try:
+                manifest = _read_json(path)
+                if manifest.get("object_id") != object_id.value:
+                    continue
+                version_id = str(manifest.get("version_id") or "")
+                result.append(self.verify(object_id, version_id=version_id))
+            except (EncryptedBlobIntegrityError, OSError, ValueError, TypeError):
+                continue
+        return sorted(result, key=lambda row: row.version_id)
+
+    def inventory(self) -> dict[str, Any]:
+        manifests = 0
+        referenced: set[str] = set()
+        invalid_manifests: list[str] = []
+        for path in self.versions.glob("*.json"):
+            try:
+                manifest = _read_json(path)
+                if manifest.get("format") != {"family": FORMAT.family, "version": FORMAT.version}:
+                    raise EncryptedBlobIntegrityError("unsupported encrypted blob manifest format")
+                chunks = manifest.get("chunks")
+                if not isinstance(chunks, list):
+                    raise EncryptedBlobIntegrityError("encrypted blob manifest chunks are invalid")
+                seen: set[str] = set()
+                for expected_index, row in enumerate(chunks):
+                    if not isinstance(row, dict) or int(row.get("index", -1)) != expected_index:
+                        raise EncryptedBlobIntegrityError("encrypted blob chunk order is invalid")
+                    physical_id = uuid.UUID(str(row.get("physical_id") or "")).hex
+                    if physical_id in seen:
+                        raise EncryptedBlobIntegrityError("encrypted blob manifest repeats a physical id")
+                    seen.add(physical_id)
+                    referenced.add(physical_id)
+                manifests += 1
+            except (EncryptedBlobIntegrityError, KeyError, TypeError, ValueError):
+                invalid_manifests.append(path.name)
+
+        present = {path.stem for path in self.chunks.glob("*.bin") if path.is_file() and not path.is_symlink()}
+        staging = [
+            path.name
+            for path in self.staging.iterdir()
+            if path.is_dir() and not path.is_symlink()
+        ]
+        return {
+            "format": {"family": FORMAT.family, "version": FORMAT.version},
+            "encrypted_at_rest": True,
+            "manifests": manifests,
+            "chunks": len(present),
+            "referenced_chunks": len(referenced),
+            "missing_chunks": sorted(referenced - present),
+            "orphan_chunks": sorted(present - referenced),
+            "invalid_manifests": sorted(invalid_manifests),
+            "staging_transactions": sorted(staging),
+        }
+
+    def collect_orphans(
+        self,
+        *,
+        dry_run: bool = True,
+        minimum_age_seconds: int = 86400,
+    ) -> list[str]:
+        inventory = self.inventory()
+        removed: list[str] = []
+        cutoff = time.time() - max(0, int(minimum_age_seconds))
+        for chunk_id in inventory["orphan_chunks"]:
+            path = self.chunks / f"{chunk_id}.bin"
+            try:
+                metadata = path.stat()
+                if path.is_symlink() or not path.is_file() or metadata.st_mtime > cutoff:
+                    continue
+                removed.append(chunk_id)
+                if not dry_run:
+                    path.unlink()
+            except OSError:
+                continue
+        return removed
+
+    def recover_staging(self, *, minimum_age_seconds: int = 3600) -> list[str]:
+        cutoff = time.time() - max(0, int(minimum_age_seconds))
+        removed: list[str] = []
+        for path in self.staging.iterdir():
+            try:
+                if path.is_dir() and not path.is_symlink() and path.stat().st_mtime <= cutoff:
+                    shutil.rmtree(path)
+                    removed.append(path.name)
+            except OSError:
+                continue
+        return sorted(removed)
 
     def rewrap_version_key(
         self,
