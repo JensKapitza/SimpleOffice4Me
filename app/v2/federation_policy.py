@@ -193,15 +193,21 @@ class FederationPolicyStore:
     def route_constraints(self, target_peer: str, *, scope: str) -> list[RouteConstraint]:
         target = self._peer(target_peer)
         checked_scope = self._scope(scope)
-        scopes = ("all",) if checked_scope == "all" else ("all", checked_scope)
-        placeholders = ",".join("?" for _ in scopes)
         with self._db() as db:
-            rows = db.execute(
-                f"""SELECT * FROM route_constraint
-                    WHERE target_peer=? AND scope IN ({placeholders})
-                    ORDER BY CASE WHEN scope='all' THEN 0 ELSE 1 END""",
-                (target, *scopes),
-            ).fetchall()
+            if checked_scope == "all":
+                rows = db.execute(
+                    """SELECT * FROM route_constraint
+                       WHERE target_peer=? AND scope='all'
+                       ORDER BY CASE WHEN scope='all' THEN 0 ELSE 1 END""",
+                    (target,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT * FROM route_constraint
+                       WHERE target_peer=? AND scope IN ('all', ?)
+                       ORDER BY CASE WHEN scope='all' THEN 0 ELSE 1 END""",
+                    (target, checked_scope),
+                ).fetchall()
         result: list[RouteConstraint] = []
         for row in rows:
             raw_relays = row["allowed_relays_json"]
