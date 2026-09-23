@@ -142,6 +142,8 @@ class FederationPolicyStore:
                 raise ValueError("max federation route hops must be in range 1..32")
         normalized_relays = None
         if allowed_relays is not None:
+            if isinstance(allowed_relays, (str, bytes)):
+                raise ValueError("allowed relay peers must be an iterable of peer ids")
             normalized_relays = tuple(sorted({
                 self._peer(peer) for peer in allowed_relays
                 if str(peer or "").strip()
@@ -261,6 +263,8 @@ class FederationPolicyStore:
                     return PolicyDecision(False, "explicit_block", peer, checked_scope)
         if not peers:
             return PolicyDecision(True, "allowed", scope=checked_scope)
+        if target_peer is not None and not str(target_peer or "").strip():
+            return PolicyDecision(False, "route_target_unknown", scope=checked_scope)
         target = self._peer(target_peer) if target_peer is not None else peers[-1]
         return self._route_constraint_decision(
             peers,
