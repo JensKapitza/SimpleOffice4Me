@@ -374,7 +374,16 @@ class EncryptedBlobStore:
             )
             return EncryptedBlobVersion(object_id, version_id, total, digest, len(chunks))
         finally:
-            shutil.rmtree(transaction, ignore_errors=True)
+            try:
+                shutil.rmtree(transaction)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                logger.warning(
+                    "encrypted blob staging cleanup failed transaction=%s error=%s",
+                    version_id,
+                    type(exc).__name__,
+                )
 
     def contains(self, object_id: LogicalObjectId) -> bool:
         return self._current_path(object_id).is_file()
@@ -479,8 +488,12 @@ class EncryptedBlobStore:
                     continue
                 version_id = str(manifest.get("version_id") or "")
                 result.append(self.verify(object_id, version_id=version_id))
-            except (EncryptedBlobIntegrityError, OSError, ValueError, TypeError):
-                continue
+            except (EncryptedBlobIntegrityError, OSError, ValueError, TypeError) as exc:
+                logger.warning(
+                    "encrypted blob version skipped during listing file=%s error=%s",
+                    path.name,
+                    type(exc).__name__,
+                )
         return sorted(result, key=lambda row: row.version_id)
 
     def inventory(self) -> dict[str, Any]:
