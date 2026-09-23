@@ -10,12 +10,12 @@
     <div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Issues · Bugs, Features, Aufgaben und Ideen</p></div>
   </div>
   {% set active_project_tab = 'issues' %}{% include "documents/project_workspace_nav.html" %}
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <section class="project-panel project-section">
     <div class="project-section-header">
       <h2 class="project-section-title"><i class="fas fa-circle-plus" aria-hidden="true"></i>Neues Issue</h2>
-      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-issue">Anlegen</button>
+      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-issue" aria-expanded="false" aria-controls="new-issue">Anlegen</button>
     </div>
     <div class="collapse" id="new-issue">
       <div class="project-section-body border-top">
