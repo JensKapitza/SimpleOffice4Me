@@ -30,7 +30,6 @@ from .zfec_codec import codec_for_plan
 
 
 _FRAGMENT_COMMANDS = {"fragment-assess", "fragment-recover"}
-_PORTABLE_COMMANDS = _FRAGMENT_COMMANDS | {"master-key-recovery-check"}
 
 
 def _add_fragment_inputs(parser: argparse.ArgumentParser) -> None:
