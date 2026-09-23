@@ -33,7 +33,7 @@ details.
 - hardware-backed key storage
 - remote attestation
 - post-quantum cryptography
-- privacy-preserving cross-peer deduplication
+- full OPRF/PSI-based cross-peer deduplication beyond the session-scoped equality protocol
 - trustee quorum policy
 - browser extension protocol
 
@@ -108,6 +108,32 @@ and actor, not key bytes.
   key, then retire the old record/key according to recovery policy.
 
 Revocation semantics across devices/federation are a later authorization layer.
+
+## Session-scoped federation deduplication
+
+V2 cross-peer block reuse must not publish stable block hashes as equality
+identifiers. The transitional V2 protocol derives short-lived HMAC equality
+tokens from the existing peer secret and a signed, blob-bound session nonce.
+
+Properties:
+
+- the same local block produces the same token only inside one short session,
+- a new session produces unrelated tokens for the same block,
+- sessions are bound to one blob hash and expire after a short lifetime,
+- the V2 manifest exposes scoped tokens but no SHA-512 block hashes,
+- block download requires the session plus the exact scoped proof for the
+  requested block index,
+- there is no V2 arbitrary block-availability endpoint.
+
+The old SOFP v1 raw SHA-512 block interface remains compatibility-only for old
+peers. Current V2 download code does not use it. If a peer does not support the
+scoped V2 path, the client falls back to the ordinary per-blob chunk transfer
+instead of the raw cross-file hash-dedup path.
+
+This is a bounded transitional equality protocol, not an OPRF or PSI. A peer
+that already has both the shared federation secret and a scoped manifest can
+still test candidate content within that authorized session. Stronger
+cryptographic private-set-intersection remains separate future work.
 
 ## Required tests
 

@@ -233,14 +233,33 @@ Kontakte, Kalender und Aufgaben verwenden weiterhin Manifest-/Cursor-Sync. Dokum
 
 ## Deduplizierung
 
-Vor jeder Uebertragung wird geprueft:
+SOFP v1 besitzt aus Kompatibilitaetsgruenden noch content-addressed
+SHA-512-Blockendpunkte. Diese Hashes sind stabile Gleichheitskennungen und
+duerfen in V2 nicht als allgemeines Bestands- oder Deduplizierungs-Orakel
+verwendet werden.
 
-1. logische Objekt-Revision bereits vorhanden,
-2. `content_hash` vorhanden,
-3. `blob_hash` vorhanden,
-4. einzelne Chunk-Hashes vorhanden.
+Der V2-Pfad verwendet deshalb sitzungsgebundene Gleichheitstoken:
 
-Ein vorhandener Gesamtblob wird nie erneut uebertragen. Bei einem teilweise vorhandenen Blob werden nur fehlende oder korrupte Chunks angefordert. Chunks koennen optional blobuebergreifend dedupliziert werden, wenn ihre Hashes identisch sind.
+1. Der Quellpeer erzeugt eine kurze, signierte und an den angefragten Blob
+   gebundene Session.
+2. Fuer jeden internen SHA-512-Blockhash wird mit dem gemeinsamen
+   Peer-Credential ein HMAC-Token abgeleitet.
+3. Nur Token, Index, Offset und Laenge werden uebertragen. Der rohe
+   SHA-512-Blockhash bleibt lokal.
+4. Der Empfaenger berechnet fuer seine lokalen Bloecke dieselben Token nur fuer
+   diese Session und kann dadurch vorhandene Daten wiederverwenden.
+5. Ein fehlender Block wird nur ueber Blob, Index, Session und den passenden
+   Token-Proof abgerufen.
+6. Nach Ablauf oder bei einer neuen Session sind die Token fuer denselben Inhalt
+   verschieden.
+
+Der V2-Pfad bietet bewusst keinen freien `availability`-Endpunkt fuer
+beliebige Blockhashes. Wenn ein alter Peer V2 nicht beherrscht, faellt ein
+aktueller Client auf den normalen blobgebundenen Chunk-Transfer zurueck und
+nicht auf den alten globalen Cross-File-Hashabgleich.
+
+Das ist eine pragmatische, peer- und sitzungsgebundene Zwischenstufe. OPRF/PSI
+fuer staerkere Equality-Privacy bleibt ein separates Protokollthema.
 
 ## Konflikte und Loeschungen
 
