@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from .blob_store import BlobIntegrityError
 from .contracts import LogicalObjectId, PhysicalBlobId, PersistentFormat
 from .crypto import (
     CHUNK_CRYPTO_FORMAT,
@@ -37,7 +38,7 @@ _GCM_TAG_BYTES = 16
 logger = logging.getLogger(__name__)
 
 
-class EncryptedBlobIntegrityError(RuntimeError):
+class EncryptedBlobIntegrityError(BlobIntegrityError):
     pass
 
 
