@@ -364,7 +364,9 @@ def run_peer_to_peer(
         ).click()
         page_a.wait_for_load_state("domcontentloaded")
         page_a.get_by_text(message_a, exact=True).wait_for()
-        page_a.get_by_text(chat_filename, exact=False).wait_for()
+        page_a.locator(
+            "a[href*='/chat/attachments/']"
+        ).filter(has_text=chat_filename).last.wait_for()
         record_p2p_check(
             summary,
             "chat_file_sent_a_to_b",
@@ -391,9 +393,9 @@ def run_peer_to_peer(
         room_link.click()
         page_b.wait_for_load_state("domcontentloaded")
         page_b.get_by_text(message_a, exact=True).wait_for()
-        page_b.get_by_text(
-            chat_filename, exact=False
-        ).wait_for()
+        page_b.locator(
+            "a[href*='/chat/attachments/']"
+        ).filter(has_text=chat_filename).last.wait_for()
         record_p2p_check(
             summary,
             "chat_received_on_b",
