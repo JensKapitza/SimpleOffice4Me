@@ -136,6 +136,10 @@ class FederationPolicyStore:
     ) -> RouteConstraint:
         target = self._peer(target_peer)
         checked_scope = self._scope(scope)
+        if not isinstance(direct_only, bool):
+            raise ValueError("direct_only must be boolean")
+        if isinstance(max_hops, bool):
+            raise ValueError("max federation route hops must be an integer")
         if max_hops is not None:
             max_hops = int(max_hops)
             if max_hops < 1 or max_hops > 32:
