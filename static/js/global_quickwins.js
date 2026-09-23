@@ -36,10 +36,18 @@
     return Object.entries(autocompleteByKey).find(([candidate]) => key.includes(candidate))?.[1] || "";
   };
 
+  const autocompleteInputTypes = new Set([
+    "color", "date", "datetime-local", "email", "hidden", "month",
+    "number", "password", "range", "search", "tel", "text", "time",
+    "url", "week",
+  ]);
+
   const enhanceInputHints = (control) => {
     if (!(control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement)) return;
     const key = keyFor(control);
-    if (!control.hasAttribute("autocomplete")) {
+    const autocompleteAllowed = !(control instanceof HTMLInputElement)
+      || autocompleteInputTypes.has(control.type);
+    if (autocompleteAllowed && !control.hasAttribute("autocomplete")) {
       const value = findAutocomplete(control);
       if (value) control.autocomplete = value;
     }
