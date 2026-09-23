@@ -29,9 +29,9 @@
             <input type="hidden" name="expected_revision" value="{{ page.revision if page else 0 }}">
             <div class="col-md-8"><label class="form-label" for="wiki-title">Titel</label><input id="wiki-title" name="title" class="form-control" maxlength="200" required value="{{ page.title if page else 'Home' }}"></div>
             <div class="col-md-4"><label class="form-label" for="wiki-slug">Slug</label><input id="wiki-slug" name="slug" class="form-control font-monospace" maxlength="80" value="{{ page.slug if page else 'home' }}" {% if page %}readonly{% endif %}></div>
-            <div class="col-12"><label class="form-label" for="wiki-body">Markdown</label><textarea id="wiki-body" name="body_markdown" class="form-control font-monospace project-wiki-editor" rows="18" maxlength="200000">{{ page.body_markdown if page else '# ' ~ project.title ~ '
+            <div class="col-12"><label class="form-label" for="wiki-body">Markdown</label><textarea id="wiki-body" name="body_markdown" class="form-control font-monospace project-wiki-editor" rows="18" maxlength="200000">{% if page %}{{ page.body_markdown }}{% else %}# {{ project.title }}
 
-Projekt-Wiki.' }}</textarea></div>
+Projekt-Wiki.{% endif %}</textarea></div>
             <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary" type="submit">Wiki speichern</button></div>
           </form>
         </div>
