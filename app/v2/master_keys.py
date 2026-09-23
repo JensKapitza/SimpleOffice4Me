@@ -180,7 +180,9 @@ def _load_json_bytes(data: bytes, *, expected_format: str) -> dict[str, Any]:
 
 
 def _read_regular_bounded(path: str | Path, maximum: int, label: str) -> bytes:
-    target = Path(path).expanduser().resolve(strict=False)
+    target = Path(path).expanduser()
+    if not target.is_absolute():
+        target = (Path.cwd() / target).absolute()
     flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
