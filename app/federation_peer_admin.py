@@ -3,6 +3,7 @@ import ipaddress
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
 
 from .federation_admin import admin_required
@@ -45,17 +46,30 @@ def _actor():
 
 
 def _audit_policy(operation, peer_id, changes):
-    result = RevisionHistoryAuditAdapter(_root()).append(
-        AuditEvent(
-            actor=_actor(),
-            operation=str(operation)[:200],
-            object_id=f"federation-peer-policy:{peer_id}",
-            occurred_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-            source="federation-peer-admin",
-            changes=dict(changes or {}),
+    try:
+        result = RevisionHistoryAuditAdapter(_root()).append(
+            AuditEvent(
+                actor=_actor(),
+                operation=str(operation)[:200],
+                object_id=f"federation-peer-policy:{peer_id}",
+                occurred_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                source="federation-peer-admin",
+                changes=dict(changes or {}),
+            )
         )
-    )
-    return bool(result.ok)
+        return bool(result.ok)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return False
+
+
+def _authorization_store_if_present():
+    path = Path(_root()).expanduser().resolve() / ".simpleoffice-v2" / "authorization.sqlite3"
+    return AuthorizationStore(_root()) if path.is_file() else None
+
+
+def _job_service_if_present():
+    path = Path(_root()).expanduser().resolve() / ".simpleoffice-v2" / "jobs.sqlite3"
+    return FederationJobService(PersistentJobStore(_root())) if path.is_file() else None
 
 
 def _known_peer(peer_id):
@@ -405,13 +419,20 @@ def block_peer(peer_id):
             created_by=_actor(),
             expires_at=expires_at,
         )
-        authorization = AuthorizationStore(_root())
-        revoked = authorization.revoke_for_peer(peer_id) if scope == "all" else 0
-        stopped = FederationJobService(
-            PersistentJobStore(_root())
-        ).stop_blocked_jobs(
-            policy_store=policy_store,
-            authorization_store=authorization,
+        authorization = _authorization_store_if_present()
+        revoked = (
+            authorization.revoke_for_peer(peer_id)
+            if scope == "all" and authorization is not None
+            else 0
+        )
+        service = _job_service_if_present()
+        stopped = (
+            service.stop_blocked_jobs(
+                policy_store=policy_store,
+                authorization_store=authorization,
+            )
+            if service is not None
+            else 0
         )
         audited = _audit_policy(
             "federation_peer_blocked",
@@ -535,9 +556,14 @@ def set_confirmation_policy(peer_id):
                 "quorum": requirement.quorum,
             },
         )
-        stopped = FederationJobService(PersistentJobStore(_root())).stop_blocked_jobs(
-            policy_store=_policy_store(),
-            authorization_store=AuthorizationStore(_root()),
+        service = _job_service_if_present()
+        stopped = (
+            service.stop_blocked_jobs(
+                policy_store=_policy_store(),
+                authorization_store=_authorization_store_if_present(),
+            )
+            if service is not None
+            else 0
         )
         flash(
             f"Bestätiger-Regel gespeichert; {stopped} aktive Job(s) neu bewertet."
@@ -578,7 +604,7 @@ def preview_policy(peer_id):
             route,
             scope=scope,
             target_peer=peer_id,
-            authorization_store=AuthorizationStore(_root()),
+            authorization_store=_authorization_store_if_present(),
             object_refs=object_refs or None,
         )
         _audit_policy(
