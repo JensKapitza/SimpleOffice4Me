@@ -21,12 +21,18 @@ from .document_store import DocumentStoreStorageAdapter
 
 
 class V2AuthoritativeStorageAdapter:
-    def __init__(self, root: str | Path, actor: str):
+    def __init__(
+        self,
+        root: str | Path,
+        actor: str,
+        *,
+        primary: BlobCatalogStorageAdapter | None = None,
+    ):
         self.root = Path(root).expanduser().resolve()
         self.actor = str(actor or "").strip()
         if not self.actor:
             raise ValueError("storage adapter requires an actor")
-        self.primary = BlobCatalogStorageAdapter(self.root, self.actor)
+        self.primary = primary or BlobCatalogStorageAdapter(self.root, self.actor)
         self.catalog: ObjectCatalog = self.primary.catalog
         self.legacy = DocumentStoreStorageAdapter(self.root, self.actor)
         self.store: DocumentStore = self.legacy.store
