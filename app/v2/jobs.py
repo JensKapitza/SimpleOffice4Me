@@ -251,6 +251,8 @@ class FederationJobService:
             "expires_at": intent.expires_at,
             "desired_state": intent.desired_state,
             "verified_object_refs": [],
+            "route": checked_route if policy_store is not None else [intent.source_peer, intent.target_peer],
+            "policy_scope": policy_scope,
         }
         job = JobRecord(
             job_id=str(uuid.uuid4()),
@@ -261,6 +263,65 @@ class FederationJobService:
         )
         return self.store.put(job)
 
+    def enforce_policy(
+        self,
+        job_id: str,
+        *,
+        policy_store: FederationPolicyStore,
+        authorization_store: AuthorizationStore | None = None,
+    ) -> OperationResult[JobRecord]:
+        """Re-check policy immediately before work and stop newly forbidden jobs."""
+        current = self.store.get(job_id)
+        if not current.ok:
+            return current
+        job = current.value
+        if job.kind != self.KIND:
+            return OperationResult.failure(ErrorCode.INVALID_INPUT, "job is not a federation transfer")
+        payload = dict(job.payload)
+        route = payload.get("route") or [
+            str(payload.get("source_peer") or ""),
+            str(payload.get("target_peer") or ""),
+        ]
+        decision = policy_store.decision(
+            route,
+            scope=str(payload.get("policy_scope") or "relay"),
+        )
+        if decision.allowed:
+            return current
+        if authorization_store is not None and decision.blocked_peer:
+            authorization_store.revoke_for_peer(decision.blocked_peer)
+        return self.store.transition(
+            job_id,
+            JobState.FAILED,
+            error=f"federation policy denied transfer: {decision.reason}:{decision.blocked_peer}",
+            payload={"policy_denied": True, "policy_denied_peer": decision.blocked_peer},
+        )
+
+    def stop_blocked_jobs(
+        self,
+        *,
+        policy_store: FederationPolicyStore,
+        authorization_store: AuthorizationStore | None = None,
+    ) -> int:
+        """Re-evaluate all non-terminal federation jobs after policy changes."""
+        stopped = 0
+        with self.store._db() as db:
+            rows = db.execute(
+                """SELECT job_id FROM job
+                   WHERE kind=? AND state IN ('queued','waiting','running')""",
+                (self.KIND,),
+            ).fetchall()
+        for row in rows:
+            before = self.store.get(str(row["job_id"]))
+            result = self.enforce_policy(
+                str(row["job_id"]),
+                policy_store=policy_store,
+                authorization_store=authorization_store,
+            )
+            if before.ok and result.ok and before.value.state != result.value.state:
+                stopped += 1
+        return stopped
+
     def mark_verified(
         self,
         job_id: str,
@@ -268,7 +329,12 @@ class FederationJobService:
         *,
         observed_via: str,
         authorization_store: AuthorizationStore | None = None,
+        policy_store: FederationPolicyStore | None = None,
     ) -> OperationResult[JobRecord]:
+        if policy_store is not None:
+            checked = self.enforce_policy(job_id, policy_store=policy_store, authorization_store=authorization_store)
+            if not checked.ok or checked.value.state == JobState.FAILED:
+                return checked
         current = self.store.get(job_id)
         if not current.ok:
             return current
