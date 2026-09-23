@@ -47,6 +47,156 @@ class FederationBlockPolicyTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual("route_unknown", decision.reason)
 
+    def test_direct_only_constraint_rejects_relay_or_downstream_peer(self):
+        self.policy.set_route_constraint("peer-c", scope="relay", direct_only=True)
+
+        self.assertTrue(
+            self.policy.decision(
+                ["peer-a", "peer-c"],
+                scope="relay",
+                target_peer="peer-c",
+            ).allowed
+        )
+        denied = self.policy.decision(
+            ["peer-a", "peer-c", "peer-b"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        self.assertFalse(denied.allowed)
+        self.assertEqual("direct_only", denied.reason)
+
+    def test_max_hops_constraint_limits_complete_known_route(self):
+        self.policy.set_route_constraint("peer-d", scope="relay", max_hops=2)
+
+        self.assertTrue(
+            self.policy.decision(
+                ["peer-a", "peer-c", "peer-d"],
+                scope="relay",
+                target_peer="peer-d",
+            ).allowed
+        )
+        denied = self.policy.decision(
+            ["peer-a", "peer-b", "peer-c", "peer-d"],
+            scope="relay",
+            target_peer="peer-d",
+        )
+        self.assertFalse(denied.allowed)
+        self.assertEqual("max_hops_exceeded", denied.reason)
+
+    def test_relay_allowlist_rejects_unlisted_intermediary(self):
+        self.policy.set_route_constraint(
+            "peer-d",
+            scope="relay",
+            allowed_relays=("peer-c",),
+        )
+
+        allowed = self.policy.decision(
+            ["peer-a", "peer-c", "peer-d"],
+            scope="relay",
+            target_peer="peer-d",
+        )
+        denied = self.policy.decision(
+            ["peer-a", "peer-b", "peer-d"],
+            scope="relay",
+            target_peer="peer-d",
+        )
+        self.assertTrue(allowed.allowed)
+        self.assertFalse(denied.allowed)
+        self.assertEqual("relay_not_allowed", denied.reason)
+        self.assertEqual("peer-b", denied.blocked_peer)
+
+    def test_global_and_scope_constraints_both_apply(self):
+        self.policy.set_route_constraint("peer-d", scope="all", max_hops=3)
+        self.policy.set_route_constraint(
+            "peer-d",
+            scope="documents",
+            allowed_relays=("peer-c",),
+        )
+
+        denied = self.policy.decision(
+            ["peer-a", "peer-b", "peer-d"],
+            scope="documents",
+            target_peer="peer-d",
+        )
+        self.assertFalse(denied.allowed)
+        self.assertEqual("relay_not_allowed", denied.reason)
+
+    def test_explicit_block_wins_before_positive_route_constraint(self):
+        self.policy.set_route_constraint(
+            "peer-d",
+            scope="relay",
+            allowed_relays=("peer-c",),
+        )
+        self.policy.block("peer-c", scope="relay")
+
+        denied = self.policy.decision(
+            ["peer-a", "peer-c", "peer-d"],
+            scope="relay",
+            target_peer="peer-d",
+        )
+        self.assertFalse(denied.allowed)
+        self.assertEqual("explicit_block", denied.reason)
+        self.assertEqual("peer-c", denied.blocked_peer)
+
+    def test_route_cycle_and_missing_target_fail_closed(self):
+        cycle = self.policy.decision(
+            ["peer-a", "peer-c", "peer-a"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        missing = self.policy.decision(
+            ["peer-a", "peer-b"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        self.assertFalse(cycle.allowed)
+        self.assertEqual("route_cycle", cycle.reason)
+        self.assertFalse(missing.allowed)
+        self.assertEqual("route_target_unknown", missing.reason)
+
+    def test_job_creation_applies_target_route_constraint(self):
+        self.policy.set_route_constraint("peer-c", scope="relay", direct_only=True)
+        service = FederationJobService(PersistentJobStore(self.root))
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref="grant-1",
+            expires_at=int(time.time()) + 600,
+        )
+
+        denied = service.create_transfer(
+            intent,
+            idempotency_key="direct-only-denied",
+            policy_store=self.policy,
+            route=("peer-a", "peer-c", "peer-b"),
+        )
+        self.assertFalse(denied.ok)
+
+    def test_corrupt_stored_constraint_fails_job_closed(self):
+        self.policy.set_route_constraint("peer-c", scope="relay", allowed_relays=("peer-b",))
+        with self.policy._db() as db:
+            db.execute(
+                "UPDATE route_constraint SET allowed_relays_json='not-json' "
+                "WHERE target_peer='peer-c' AND scope='relay'"
+            )
+        service = FederationJobService(PersistentJobStore(self.root))
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref="grant-1",
+            expires_at=int(time.time()) + 600,
+        )
+
+        denied = service.create_transfer(
+            intent,
+            idempotency_key="corrupt-policy",
+            policy_store=self.policy,
+            route=("peer-a", "peer-b", "peer-c"),
+        )
+        self.assertFalse(denied.ok)
+
     def test_job_creation_checks_complete_known_route(self):
         self.policy.block("peer-b")
         service = FederationJobService(PersistentJobStore(self.root))
