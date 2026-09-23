@@ -120,6 +120,11 @@ class ShoppingStore:
             raise ValueError("shopping list not found")
         return row
 
+    def permissions(self, actor: str, list_id: str) -> set[str]:
+        """Return effective permissions without exposing private list metadata."""
+        data = self._read()
+        return set(self._share_permissions(data, str(list_id), str(actor)))
+
     def lists(self, actor: str, *, include_archived: bool = False) -> list[dict[str, Any]]:
         data = self._read()
         visible_ids = {
