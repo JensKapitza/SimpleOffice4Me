@@ -28,7 +28,7 @@
     <span class="status-chip status-{{ project.status }}" data-project-status>{{ project_status_labels.get(project.status, project.status) }}</span>
   </div>
 
-  {% set active_project_tab = 'overview' %}{% include "documents/project_workspace_nav.html" %}
+  {% set active_project_tab = 'overview' %}{% include "documents/project_workspace_nav.jinja" %}
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <section class="project-panel project-section" aria-labelledby="project-progress-title">
