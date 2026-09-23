@@ -20,6 +20,7 @@ from .cutover import (
     return_to_v1,
 )
 from .encrypted_cutover import encrypted_blob_cutover
+from .encrypted_recovery import EncryptedRecoveryService, recover_storage_master_key
 from .fragment_recovery_io import (
     assessment_to_dict,
     export_recovered_payload,
@@ -43,6 +44,19 @@ from .zfec_codec import codec_for_plan
 
 
 _FRAGMENT_COMMANDS = {"fragment-assess", "fragment-recover"}
+
+
+def _add_encrypted_recovery_inputs(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--bundle",
+        required=True,
+        help="Portable V2 storage recovery bundle",
+    )
+    parser.add_argument(
+        "--recovery-key-file",
+        required=True,
+        help="File containing the offline recovery key; raw key values are never accepted as arguments",
+    )
 
 
 def _add_fragment_inputs(parser: argparse.ArgumentParser) -> None:
@@ -142,6 +156,31 @@ def _parser() -> argparse.ArgumentParser:
         help="File containing the base64url recovery key; the key itself is never accepted as an argument",
     )
 
+    encrypted_inventory = sub.add_parser(
+        "encrypted-recovery-inventory",
+        help="Inspect the encrypted V2 store using only portable offline recovery material",
+    )
+    _add_encrypted_recovery_inputs(encrypted_inventory)
+
+    encrypted_verify = sub.add_parser(
+        "encrypted-recovery-verify",
+        help="Verify encrypted V2 objects independently of the live application",
+    )
+    _add_encrypted_recovery_inputs(encrypted_verify)
+    encrypted_verify.add_argument("--object-id", default="")
+    encrypted_verify.add_argument("--version-id", default="")
+
+    encrypted_export = sub.add_parser(
+        "encrypted-recovery-export",
+        help="Export independently verified plaintext from the encrypted V2 store",
+    )
+    _add_encrypted_recovery_inputs(encrypted_export)
+    encrypted_export.add_argument("--object-id", required=True)
+    encrypted_export.add_argument("--version-id", default="")
+    encrypted_export.add_argument("--output", required=True)
+    encrypted_export.add_argument("--overwrite", action="store_true")
+    encrypted_export.add_argument("--apply", action="store_true")
+
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
     verify.add_argument("--version-id", default="")
@@ -229,6 +268,85 @@ def _storage_master_key(root: str | Path) -> bytes:
     return profile.unlock_with_password(STORAGE_PROFILE_ID, password)
 
 
+def _run_encrypted_recovery_command(args: argparse.Namespace) -> int:
+    try:
+        master_key = recover_storage_master_key(
+            args.bundle,
+            args.recovery_key_file,
+            forbidden_root=args.root,
+        )
+        service = EncryptedRecoveryService(args.root, master_key)
+        del master_key
+    except (OSError, RuntimeError, ValueError):
+        print(json.dumps({
+            "valid": False,
+            "error": "encrypted recovery material or store is invalid",
+        }, indent=2, sort_keys=True))
+        return 2
+
+    if args.command == "encrypted-recovery-inventory":
+        print(json.dumps(service.inventory(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "encrypted-recovery-verify":
+        if args.object_id:
+            result = service.verify(
+                args.object_id,
+                args.version_id or None,
+            )
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0 if result.valid else 2
+        results = service.verify_all()
+        print(json.dumps([item.to_dict() for item in results], indent=2, sort_keys=True))
+        return 0 if all(item.valid for item in results) else 2
+
+    try:
+        output_path = Path(args.output).expanduser().resolve(strict=False)
+        protected_inputs = {
+            Path(args.bundle).expanduser().resolve(strict=True),
+            Path(args.recovery_key_file).expanduser().resolve(strict=True),
+        }
+    except OSError:
+        print(json.dumps({
+            "valid": False,
+            "error": "encrypted recovery input paths are unavailable",
+        }, indent=2, sort_keys=True))
+        return 2
+    if output_path in protected_inputs:
+        print(json.dumps({
+            "valid": False,
+            "error": "recovery output must not replace recovery credentials",
+        }, indent=2, sort_keys=True))
+        return 2
+
+    check = service.verify(
+        args.object_id,
+        args.version_id or None,
+    )
+    if not check.valid:
+        print(json.dumps(check.to_dict(), indent=2, sort_keys=True))
+        return 2
+    if not args.apply:
+        print(json.dumps(check.to_dict(), indent=2, sort_keys=True))
+        print("read-only mode: add --apply to export verified encrypted content")
+        return 3
+    try:
+        target = service.export(
+            args.object_id,
+            args.output,
+            version_id=args.version_id or None,
+            overwrite=bool(args.overwrite),
+        )
+    except (FileExistsError, OSError, RuntimeError, ValueError) as exc:
+        print(json.dumps({
+            "valid": False,
+            "error": str(exc),
+        }, indent=2, sort_keys=True))
+        return 2
+    print(str(target))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -239,6 +357,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_master_key_recovery_check(args)
     if not args.root:
         parser.error("--root is required for this command")
+    if args.command in {
+        "encrypted-recovery-inventory",
+        "encrypted-recovery-verify",
+        "encrypted-recovery-export",
+    }:
+        return _run_encrypted_recovery_command(args)
 
     if args.command == "migration-preflight":
         result = inspect_migration(args.root)
