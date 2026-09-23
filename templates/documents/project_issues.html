@@ -9,7 +9,7 @@
     <span class="project-icon" aria-hidden="true"><i class="far fa-folder"></i></span>
     <div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Issues · Bugs, Features, Aufgaben und Ideen</p></div>
   </div>
-  {% set active_project_tab = 'issues' %}{% include "documents/project_workspace_nav.html" %}
+  {% set active_project_tab = 'issues' %}{% include "documents/project_workspace_nav.jinja" %}
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <section class="project-panel project-section">
