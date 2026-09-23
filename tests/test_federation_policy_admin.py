@@ -55,6 +55,22 @@ class FederationPolicyAdminTests(unittest.TestCase):
         audit.assert_called_once()
         self.assertIn("Peer gesperrt", self._latest_flash())
 
+    def test_global_block_does_not_create_empty_job_or_authorization_stores(self):
+        with patch("app.federation_peer_admin._audit_policy", return_value=True):
+            response = self.client.post(
+                "/admin/federation/peer-discovery/policy/peer-c/block",
+                data={"scope": "all"},
+                headers=self.headers,
+            )
+
+        self.assertEqual(302, response.status_code)
+        self.assertFalse(
+            (self.root / ".simpleoffice-v2" / "authorization.sqlite3").exists()
+        )
+        self.assertFalse(
+            (self.root / ".simpleoffice-v2" / "jobs.sqlite3").exists()
+        )
+
     def test_scope_block_can_be_removed_without_changing_trust(self):
         trust = FederationTrustStore(self.root)
         trust.set_trust("peer-c", "HIGH", "VERIFIED_ADMIN")
@@ -122,8 +138,13 @@ class FederationPolicyAdminTests(unittest.TestCase):
         self.assertEqual(("peer-x", "peer-y", "peer-z"), rules[0].verifier_peers)
         self.assertEqual(2, rules[0].quorum)
 
-    def test_preview_reports_explicit_block_without_creating_transfer(self):
+    def test_preview_reports_explicit_block_without_creating_transfer_or_auth_store(self):
         FederationPolicyStore(self.root).block("peer-c", scope="relay")
+        authorization_path = self.root / ".simpleoffice-v2" / "authorization.sqlite3"
+        jobs_path = self.root / ".simpleoffice-v2" / "jobs.sqlite3"
+        self.assertFalse(authorization_path.exists())
+        self.assertFalse(jobs_path.exists())
+
         with patch("app.federation_peer_admin._audit_policy", return_value=True):
             response = self.client.post(
                 "/admin/federation/peer-discovery/policy/peer-c/preview",
@@ -136,6 +157,8 @@ class FederationPolicyAdminTests(unittest.TestCase):
             )
 
         self.assertEqual(302, response.status_code)
+        self.assertFalse(authorization_path.exists())
+        self.assertFalse(jobs_path.exists())
         message = self._latest_flash()
         self.assertIn("abgelehnt", message)
         self.assertIn("explicit_block", message)
