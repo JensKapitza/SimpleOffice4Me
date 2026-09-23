@@ -20,6 +20,12 @@ from .fragment_recovery_io import (
 from .fragments import assess_fragments, recover_payload
 from .recovery import RecoveryService
 from .migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
+from .master_keys import (
+    load_recovery_bundle_file,
+    load_recovery_key_file,
+    recover_master_key_from_bundle,
+    recovery_bundle_info,
+)
 from .zfec_codec import codec_for_plan
 
 
@@ -84,6 +90,17 @@ def _parser() -> argparse.ArgumentParser:
     fragment_recover.add_argument("--overwrite", action="store_true")
     fragment_recover.add_argument("--apply", action="store_true")
 
+    master_check = sub.add_parser(
+        "master-key-recovery-check",
+        help="Verify an offline V2 master-key recovery bundle without exporting the key",
+    )
+    master_check.add_argument("--bundle", required=True)
+    master_check.add_argument(
+        "--recovery-key-file",
+        required=True,
+        help="File containing the base64url recovery key; the key itself is never accepted as an argument",
+    )
+
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
     verify.add_argument("--version-id", default="")
@@ -138,12 +155,36 @@ def _run_fragment_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_master_key_recovery_check(args: argparse.Namespace) -> int:
+    try:
+        bundle = load_recovery_bundle_file(args.bundle)
+        recovery_key = load_recovery_key_file(args.recovery_key_file)
+        info = recovery_bundle_info(bundle)
+        master_key = recover_master_key_from_bundle(bundle, recovery_key)
+        del master_key
+    except (OSError, ValueError):
+        print(json.dumps({
+            "valid": False,
+            "error": "recovery inputs are invalid or authentication failed",
+        }, indent=2, sort_keys=True))
+        return 2
+
+    print(json.dumps({
+        **info,
+        "valid": True,
+        "master_key_exported": False,
+    }, indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
 
     if args.command in _FRAGMENT_COMMANDS:
         return _run_fragment_command(args)
+    if args.command == "master-key-recovery-check":
+        return _run_master_key_recovery_check(args)
     if not args.root:
         parser.error("--root is required for this command")
 
