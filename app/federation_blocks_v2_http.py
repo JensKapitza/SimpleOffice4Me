@@ -62,7 +62,7 @@ def _blob_path(digest: str):
     if row is None:
         raise ValueError("blob unavailable")
     try:
-        path = resolve_under(documents.root, str(row["relative_path"]), strict=True)
+        path = resolve_under(documents.root, str(row[0]), strict=True)
     except (OSError, ValueError) as exc:
         raise ValueError("blob unavailable") from exc
     if not path.is_file() or path.is_symlink():
