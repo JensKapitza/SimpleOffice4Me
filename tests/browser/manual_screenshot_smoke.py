@@ -468,6 +468,9 @@ def run_peer_to_peer(
                 "input[type='file'][name='files']"
             )
         ).first
+        archive = upload_form.locator("input[name='archive']")
+        if archive.count() and archive.is_checked():
+            archive.uncheck()
         upload_form.locator(
             "input[type='file'][name='files']"
         ).set_input_files(str(peer_b_fixture))
@@ -477,10 +480,20 @@ def run_peer_to_peer(
             exact=True,
         ).click()
         page_b.wait_for_load_state("domcontentloaded")
-        if peer_b_filename not in page_b.locator("body").inner_text():
+        upload_result = compact(page_b.locator("body").inner_text())
+        if "Datei(en) vollständig und hashbasiert importiert." not in upload_result:
             raise RuntimeError(
-                "Die nur auf Peer B hochgeladene Datei ist nicht sichtbar."
+                "Der Upload auf Peer B wurde nicht erfolgreich bestätigt."
             )
+        quick_search = page_b.locator("input[name='quick']")
+        quick_search.fill(peer_b_filename)
+        page_b.get_by_role(
+            "button", name="Finden", exact=True
+        ).click()
+        page_b.wait_for_load_state("domcontentloaded")
+        page_b.get_by_text(
+            peer_b_filename, exact=False
+        ).first.wait_for()
         record_p2p_check(
             summary,
             "peer_b_document_uploaded",
