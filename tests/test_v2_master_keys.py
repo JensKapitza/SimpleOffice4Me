@@ -162,6 +162,20 @@ class MasterKeyProfileStoreTest(unittest.TestCase):
 
         self.assertEqual(expected, self.store.unlock_with_password(self.profile, self.password))
 
+    @unittest.skipUnless(os.name == "posix", "symlink hardening test requires POSIX semantics")
+    def test_symlinked_master_key_directory_is_rejected_for_reads(self):
+        other = self.root / "other-master-keys"
+        other.mkdir()
+        base = self.root / ".simpleoffice-v2" / "master-keys"
+        for child in base.iterdir():
+            if child.is_file():
+                child.unlink()
+        base.rmdir()
+        base.symlink_to(other, target_is_directory=True)
+
+        with self.assertRaisesRegex(ValueError, "must be a real directory"):
+            self.store.configured(self.profile)
+
     def test_recovery_key_text_encoding_is_strict_and_round_trips(self):
         material = self.store.create(self.profile, self.password)
         text = encode_recovery_key(material.recovery_key)
