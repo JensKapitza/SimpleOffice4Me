@@ -176,13 +176,19 @@ class ProjectGitService:
         if not self.git:
             raise ProjectGitError("Git ist nicht installiert")
         env = {
-            "PATH": os.environ.get("PATH", ""),
+            key: os.environ[key]
+            for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE")
+            if key in os.environ
+        }
+        env.update({
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_PAGER": "cat",
+            "PAGER": "cat",
             "LC_ALL": "C",
-        }
+        })
         result = subprocess.run(
             [
                 self.git,
