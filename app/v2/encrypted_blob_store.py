@@ -410,11 +410,12 @@ class EncryptedBlobStore:
         *,
         version_id: str | None = None,
     ) -> EncryptedBlobVersion:
-        content = self.read(object_id, version_id=version_id)
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
+        resolved_version = str(manifest["version_id"])
+        content = self.read(object_id, version_id=resolved_version)
         return EncryptedBlobVersion(
             object_id=object_id,
-            version_id=str(manifest["version_id"]),
+            version_id=resolved_version,
             size=len(content),
             content_sha256=hashlib.sha256(content).hexdigest(),
             chunk_count=len(manifest["chunks"]),
