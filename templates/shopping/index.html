@@ -1,0 +1,108 @@
+{% extends "layout.html" %}
+{% block title %}Einkaufen · SimpleOffice{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/shopping.js') }}"></script>{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-3 py-md-4" id="main-content">
+  <div id="shopping-app" data-barcode-url="{{ url_for('shopping.barcode_lookup') }}"></div>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div><h1 class="h2 mb-1">Einkaufen</h1><p class="text-secondary mb-0">Private und geteilte Listen, Mitbring-Aufträge und lokaler Barcode-Scan.</p></div>
+    <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="collapse" data-bs-target="#new-shopping-list" aria-controls="new-shopping-list" aria-expanded="false"><i class="fas fa-plus me-1"></i>Neue Liste</button>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="collapse card shadow-sm mb-3" id="new-shopping-list">
+    <div class="card-body">
+      <form method="post" action="{{ url_for('shopping.create_list') }}" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7"><label class="form-label" for="shopping-list-name">Name</label><input id="shopping-list-name" name="name" class="form-control form-control-lg" maxlength="200" required placeholder="Wocheneinkauf"></div>
+        <div class="col-md-5"><label class="form-label" for="shopping-list-store">Standard-Laden</label><input id="shopping-list-store" name="store" class="form-control form-control-lg" maxlength="240" placeholder="optional"></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Liste anlegen</button></div>
+      </form>
+    </div>
+  </section>
+
+  <div class="row g-3 align-items-start">
+    <aside class="col-lg-3">
+      <div class="card shadow-sm">
+        <div class="card-header"><strong>Meine Listen</strong></div>
+        <div class="list-group list-group-flush">
+          {% for row in lists %}
+          <a class="list-group-item list-group-item-action {% if selected and selected.list_id == row.list_id %}active{% endif %}" href="{{ url_for('shopping.index', list_id=row.list_id) }}">
+            <span class="d-block fw-semibold">{{ row.name }}</span>{% if row.default_store %}<small>{{ row.default_store }}</small>{% endif %}
+          </a>
+          {% else %}<div class="list-group-item text-secondary">Noch keine Einkaufsliste.</div>{% endfor %}
+        </div>
+      </div>
+
+      {% if store_groups %}
+      <div class="card shadow-sm mt-3">
+        <div class="card-header"><strong>Offen nach Laden</strong></div>
+        <div class="card-body p-2">
+          {% for store_name, rows in store_groups.items() %}
+          <div class="d-flex justify-content-between gap-2 py-1"><span>{{ store_name or 'Ohne Laden' }}</span><span class="badge text-bg-secondary">{{ rows|length }}</span></div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </aside>
+
+    <section class="col-lg-9">
+      {% if selected %}
+      <div class="card shadow-sm mb-3">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div><strong>{{ selected.name }}</strong>{% if selected.default_store %}<span class="text-secondary ms-2">{{ selected.default_store }}</span>{% endif %}</div>
+          <div class="d-flex gap-2">
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('shopping.index', list_id=selected.list_id, show_bought='0' if show_bought else '1') }}">{{ 'Gekaufte ausblenden' if show_bought else 'Gekaufte anzeigen' }}</a>
+            {% if 'manage' in permissions %}<form method="post" action="{{ url_for('shopping.archive_list', list_id=selected.list_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Archivieren</button></form>{% endif %}
+          </div>
+        </div>
+
+        {% if 'add' in permissions %}
+        <div class="card-body border-bottom">
+          <form method="post" action="{{ url_for('shopping.add_item', list_id=selected.list_id) }}" class="row g-2" id="shopping-item-form">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-7"><label class="form-label" for="shopping-name">Artikel</label><input id="shopping-name" name="name" class="form-control form-control-lg" maxlength="300" required autocomplete="off" placeholder="Milch"></div>
+            <div class="col-6 col-md-2"><label class="form-label" for="shopping-quantity">Menge</label><input id="shopping-quantity" name="quantity" class="form-control form-control-lg" maxlength="80" inputmode="decimal"></div>
+            <div class="col-6 col-md-3"><label class="form-label" for="shopping-unit">Einheit</label><input id="shopping-unit" name="unit" class="form-control form-control-lg" maxlength="40" placeholder="Stk., l, kg"></div>
+            <div class="col-md-6"><label class="form-label" for="shopping-store">Laden</label><input id="shopping-store" name="store" class="form-control" maxlength="240" value="{{ selected.default_store }}"></div>
+            <div class="col-md-6"><label class="form-label" for="shopping-category">Kategorie</label><input id="shopping-category" name="category" class="form-control" maxlength="120"></div>
+            <div class="col-md-8"><label class="form-label" for="shopping-barcode">EAN / UPC / GTIN</label><div class="input-group"><input id="shopping-barcode" name="barcode" class="form-control" inputmode="numeric" autocomplete="off" maxlength="32"><button class="btn btn-outline-primary" type="button" id="shopping-barcode-check">Prüfen</button><button class="btn btn-primary" type="button" id="shopping-barcode-scan"><i class="fas fa-camera me-1"></i>Scannen</button></div><div class="form-text">Kamera ist optional; der Code kann immer manuell eingegeben werden.</div></div>
+            <div class="col-md-4"><label class="form-label" for="shopping-priority">Priorität</label><input id="shopping-priority" name="priority" type="number" class="form-control" min="0" max="9" value="0"></div>
+            <div class="col-12"><div id="shopping-scan-status" class="alert alert-secondary py-2 mb-2" role="status" aria-live="polite">Noch kein Barcode geprüft.</div><div id="shopping-camera-box" class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-2" hidden><video id="shopping-camera" autoplay playsinline muted></video></div><button id="shopping-camera-stop" type="button" class="btn btn-sm btn-outline-secondary mb-2" hidden>Kamera stoppen</button></div>
+            <div class="col-12"><label class="form-label" for="shopping-note">Notiz</label><input id="shopping-note" name="note" class="form-control" maxlength="2000"></div>
+            <div class="col-12 d-grid d-sm-block"><button type="submit" class="btn btn-success btn-lg"><i class="fas fa-plus me-1"></i>Hinzufügen</button></div>
+          </form>
+        </div>
+        {% endif %}
+
+        <div class="list-group list-group-flush">
+          {% for item in items %}
+          <article class="list-group-item py-3" id="shopping-item-{{ item.item_id }}">
+            <div class="d-flex flex-wrap justify-content-between gap-2">
+              <div class="flex-grow-1">
+                <div class="d-flex flex-wrap align-items-center gap-2"><strong class="fs-5">{{ item.name }}</strong><span class="badge text-bg-{{ 'success' if item.status == 'bought' else 'primary' if item.status == 'taken' else 'secondary' }}">{{ status_labels.get(item.status, item.status) }}</span>{% if item.priority %}<span class="badge text-bg-warning">P{{ item.priority }}</span>{% endif %}</div>
+                <div class="small text-secondary mt-1">{% if item.quantity %}{{ item.quantity }} {{ item.unit }}{% endif %}{% if item.store %} · {{ item.store }}{% endif %}{% if item.assigned_to %} · {{ item.assigned_to }}{% endif %}</div>
+                {% if item.note %}<div class="mt-1">{{ item.note }}</div>{% endif %}
+                {% if item.barcode %}<div class="small font-monospace mt-1">Barcode {{ item.barcode }}</div>{% endif %}
+              </div>
+              {% if 'complete' in permissions %}
+              <div class="d-flex flex-wrap gap-1 align-content-start">
+                {% for status, label in [('taken','Übernehmen'),('bought','Gekauft'),('not_found','Nicht gefunden'),('unavailable','Nicht verfügbar'),('deferred','Zurückstellen'),('open','Wieder öffnen')] %}
+                {% if item.status != status %}<form method="post" action="{{ url_for('shopping.item_status', item_id=item.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="list_id" value="{{ selected.list_id }}"><input type="hidden" name="status" value="{{ status }}"><button class="btn btn-sm {{ 'btn-success' if status == 'bought' else 'btn-outline-secondary' }}" type="submit">{{ label }}</button></form>{% endif %}
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+          </article>
+          {% else %}<div class="list-group-item text-secondary py-4 text-center">Keine passenden Artikel.</div>{% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="alert alert-secondary">Lege deine erste Einkaufsliste an.</div>
+      {% endif %}
+    </section>
+  </div>
+</main>
+{% endblock %}

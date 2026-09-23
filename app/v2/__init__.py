@@ -39,17 +39,28 @@ __all__ = [
     "BlobIntegrityError",
     "BlobStore",
     "BlobVersion",
+    "EncryptedBlobIntegrityError",
+    "EncryptedBlobStore",
+    "EncryptedBlobVersion",
     "CryptoService",
+    "ChunkCryptoSession",
+    "EncryptedChunk",
     "EncryptedPayload",
     "ProtectedMasterKey",
     "WrappedKey",
+    "EncodedRecoverySet",
     "ErasureCodec",
     "FragmentAssessment",
     "FragmentDescriptor",
     "FragmentPlan",
+    "FragmentRecoveryError",
     "FragmentState",
     "RecoverySet",
     "assess_fragments",
+    "encode_recovery_set",
+    "recover_payload",
+    "recovery_set_from_dict",
+    "recovery_set_to_dict",
     "FederationTransferIntent",
     "PersistentJobStore",
     "FederationJobService",
@@ -75,10 +86,25 @@ __all__ = [
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
+from .encrypted_blob_store import EncryptedBlobIntegrityError, EncryptedBlobStore, EncryptedBlobVersion
 
-from .crypto import CryptoService, EncryptedPayload, ProtectedMasterKey, WrappedKey
+from .crypto import ChunkCryptoSession, CryptoService, EncryptedChunk, EncryptedPayload, ProtectedMasterKey, WrappedKey
 
-from .fragments import ErasureCodec, FragmentAssessment, FragmentDescriptor, FragmentPlan, FragmentState, RecoverySet, assess_fragments
+from .fragments import (
+    EncodedRecoverySet,
+    ErasureCodec,
+    FragmentAssessment,
+    FragmentDescriptor,
+    FragmentPlan,
+    FragmentRecoveryError,
+    FragmentState,
+    RecoverySet,
+    assess_fragments,
+    encode_recovery_set,
+    recover_payload,
+    recovery_set_from_dict,
+    recovery_set_to_dict,
+)
 
 from .jobs import FederationTransferIntent, PersistentJobStore, FederationJobService
 

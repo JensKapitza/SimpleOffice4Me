@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import simpleoffice_mini_core as core
-from simpleoffice_mini_runtime import DhcpService, DnsService
+from simpleoffice_mini_runtime import DhcpService, DnsService, detect_foreign_dhcp_servers
 from simpleoffice_network_boot import DEFAULT_BOOT_SETTINGS, TftpService
 from simpleoffice_service_lifecycle import BoundedTasks, ServiceState, error_detail, service_health
 from simpleoffice_sip_runtime import SipRegistrarService
@@ -148,6 +148,65 @@ class SocketLifecycleTests(unittest.TestCase):
         tasks.reset()
 
 
+class DhcpConflictProbeTests(unittest.TestCase):
+    def test_probe_detects_offer_without_accepting_a_lease(self):
+        class ProbeSocket:
+            def __init__(self):
+                self.sent = None
+                self.responses = 0
+
+            def setsockopt(self, *_args):
+                return None
+
+            def bind(self, address):
+                self.bound = address
+
+            def settimeout(self, _timeout):
+                return None
+
+            def sendto(self, packet, destination):
+                self.sent = packet
+                self.destination = destination
+
+            def recvfrom(self, _size):
+                if self.responses:
+                    raise socket.timeout()
+                self.responses += 1
+                xid = core.DHCP_HEADER.unpack_from(self.sent)[4]
+                server = socket.inet_aton("192.168.50.1")
+                header = core.DHCP_HEADER.pack(
+                    2, 1, 6, 0, xid, 0, 0x8000,
+                    b"\0" * 4, socket.inet_aton("192.168.50.100"),
+                    b"\0" * 4, b"\0" * 4, b"\0" * 16, b"", b"",
+                )
+                payload = (
+                    header + core.DHCP_MAGIC
+                    + bytes((53, 1, core.DHCP_OFFER, 54, 4))
+                    + server + bytes((255,))
+                )
+                return payload, ("192.168.50.1", 67)
+
+            def close(self):
+                return None
+
+        config = {
+            **core.DEFAULT_CONFIG["dhcp"],
+            "bind": "192.168.50.2",
+            "server_ip": "192.168.50.2",
+            "network": "192.168.50.0/24",
+            "pool_start": "192.168.50.20",
+            "pool_end": "192.168.50.200",
+        }
+        fake = ProbeSocket()
+        with patch("simpleoffice_mini_runtime.socket.socket", return_value=fake):
+            servers = detect_foreign_dhcp_servers(config, timeout=0.1)
+
+        self.assertEqual(["192.168.50.1"], servers)
+        self.assertEqual(("192.168.50.2", 68), fake.bound)
+        self.assertEqual(("255.255.255.255", 67), fake.destination)
+
+
+
 class WorkerLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -171,6 +230,46 @@ class WorkerLifecycleTests(unittest.TestCase):
             for _ in range(5):
                 self.worker._start_one("dhcp")
             self.assertIsNone(self.worker.states["dhcp"].retry_at)
+
+    def test_foreign_dhcp_server_blocks_our_listener(self):
+        settings = {
+            **copy.deepcopy(core.DEFAULT_CONFIG["dhcp"]),
+            "enabled": True,
+            "bind": "192.168.50.2",
+            "server_ip": "192.168.50.2",
+            "network": "192.168.50.0/24",
+            "pool_start": "192.168.50.20",
+            "pool_end": "192.168.50.200",
+        }
+        self.worker.desired["dhcp"] = (True, settings)
+        with patch.object(self.worker, "_network_available", return_value=True), patch(
+            "tools.mini_services.detect_foreign_dhcp_servers", return_value=["192.168.50.1"]
+        ), patch("tools.mini_services.BootAwareDhcpService") as factory:
+            self.worker._start_one("dhcp")
+
+        factory.assert_not_called()
+        self.assertEqual("failed", self.worker.states["dhcp"].state)
+        self.assertEqual("dhcp_conflict", self.worker.states["dhcp"].last_error["code"])
+
+    def test_unavailable_dhcp_probe_fails_closed(self):
+        settings = {
+            **copy.deepcopy(core.DEFAULT_CONFIG["dhcp"]),
+            "enabled": True,
+            "bind": "192.168.50.2",
+            "server_ip": "192.168.50.2",
+            "network": "192.168.50.0/24",
+            "pool_start": "192.168.50.20",
+            "pool_end": "192.168.50.200",
+        }
+        self.worker.desired["dhcp"] = (True, settings)
+        with patch.object(self.worker, "_network_available", return_value=True), patch(
+            "tools.mini_services.detect_foreign_dhcp_servers", side_effect=OSError("probe unavailable")
+        ), patch("tools.mini_services.BootAwareDhcpService") as factory:
+            self.worker._start_one("dhcp")
+
+        factory.assert_not_called()
+        self.assertEqual("failed", self.worker.states["dhcp"].state)
+        self.assertEqual("dhcp_probe_unavailable", self.worker.states["dhcp"].last_error["code"])
 
     def test_noop_reload_preserves_sip_and_other_listeners(self):
         with patch("tools.mini_services.DnsService"), patch("tools.mini_services.BootAwareDhcpService"), patch(

@@ -58,6 +58,7 @@
         button.addEventListener('click', () => {
           selectEvent(event.id);
           if (window.bootstrap) window.bootstrap.Modal.getInstance(modal)?.hide();
+          document.querySelector('[data-calendar-tab="booking"]')?.click();
           document.getElementById('smtp-invitation')?.scrollIntoView({behavior: 'smooth', block: 'start'});
           window.setTimeout(() => search.focus(), 250);
         });

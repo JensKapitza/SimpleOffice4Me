@@ -12,6 +12,7 @@ from typing import Any
 from .document_store import DocumentStore, sha256_file
 from .federation_blocks import FederationBlockStore, content_manifest_valid, normalize_sha512, sha512_bytes
 from .federation_catalog import FederationCatalog
+from .federation_scoped_dedup import scoped_deduplicated_download
 from .federation_core import complete, preallocate, verify_chunk, verify_file, write_chunk
 from .federation_store import FederationStore
 from .federation_worker import _json_request, _request, remote_blob_manifest
@@ -292,7 +293,7 @@ def process_download(root: str | Path, request_id: str) -> dict[str, Any]:
         detail={"effective_priority": request_row.get("effective_priority", 0), "attempts": attempts},
     )
     try:
-        partial = _deduplicated_download(root, request_row, peer, token, federation)
+        partial = scoped_deduplicated_download(root, request_row, peer, token, federation)
         if partial is None:
             partial = _legacy_chunk_download(root, request_row, peer, token, federation, legacy_manifest)
         metadata = _finalize_document(root, request_row, partial)

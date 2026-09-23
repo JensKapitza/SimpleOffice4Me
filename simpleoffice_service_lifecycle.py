@@ -15,6 +15,14 @@ from typing import Any
 from pathlib import Path
 
 
+class DhcpConflictDetected(RuntimeError):
+    """Starting DHCP would conflict with another server on the target LAN."""
+
+
+class DhcpConflictProbeUnavailable(RuntimeError):
+    """The safety probe could not establish whether another DHCP server exists."""
+
+
 @lru_cache(maxsize=1)
 def application_version():
     # Status must stay cheap and independent of external git subprocesses.
@@ -55,7 +63,15 @@ def service_health(service: Any) -> bool:
 def error_detail(exc: Exception) -> dict[str, str]:
     """Do not expose exception strings: they can contain credentials or packets."""
     code, message, action = "runtime_error", "Dienst konnte nicht gestartet werden.", "Diagnose und Einstellungen prüfen."
-    if isinstance(exc, PermissionError):
+    if isinstance(exc, DhcpConflictDetected):
+        code = "dhcp_conflict"
+        message = "Im Zielnetz wurde bereits ein anderer DHCP-Server erkannt."
+        action = "Fremden DHCP-Dienst prüfen oder SimpleOffice-DHCP deaktiviert lassen."
+    elif isinstance(exc, DhcpConflictProbeUnavailable):
+        code = "dhcp_probe_unavailable"
+        message = "DHCP-Konfliktprüfung konnte nicht sicher ausgeführt werden."
+        action = "Dienstrechte, Interface und UDP-Port 68 prüfen; DHCP wurde nicht gestartet."
+    elif isinstance(exc, PermissionError):
         code, message, action = "permission_denied", "Berechtigung für den Dienst fehlt.", "Port und eingerichtete Dienstrechte prüfen; keine automatische Rechteerhöhung."
     elif isinstance(exc, OSError) and exc.errno == errno.EADDRINUSE:
         code, message, action = "address_in_use", "Adresse oder Port wird bereits verwendet.", "Anderen Dienst prüfen oder Port ändern."

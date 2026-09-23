@@ -149,6 +149,18 @@ class AuthorizationStore:
         if not changed:
             raise ValueError("unknown grant")
 
+    def revoke_for_peer(self, peer_id: str) -> int:
+        """Revoke effective grants issued by or assigned to a blocked peer."""
+        peer = str(peer_id or "").strip()
+        if not peer:
+            raise ValueError("peer id is required")
+        with self._db() as db:
+            return db.execute(
+                """UPDATE capability_grant SET revoked=1
+                   WHERE revoked=0 AND (issuer=? OR subject=?)""",
+                (peer, peer),
+            ).rowcount
+
     def get(self, grant_id: str) -> CapabilityGrant | None:
         with self._db() as db:
             row = db.execute(

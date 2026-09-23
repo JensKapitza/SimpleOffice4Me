@@ -41,6 +41,8 @@ setup(
         "simpleoffice_network_gateway_runtime",
         "simpleoffice_gateway_rule_content",
         "simpleoffice_mini_control",
+        "simpleoffice_firewall",
+        "simpleoffice_firewall_agent",
         "simpleoffice_connection_relay",
         "simpleoffice_https_connect_tunnel",
         "simpleoffice_media_renderer",
@@ -53,6 +55,7 @@ setup(
         "security": ["pip-audit>=2.7,<3"],
         "sftp": ["paramiko>=3.5,<6"],
         "banking": ["fints>=4.2,<6"],
+        "erasure": ["zfec>=1.6.0.0,<2"],
     },
     entry_points={
         "console_scripts": [

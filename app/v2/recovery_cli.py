@@ -11,13 +11,35 @@ from pathlib import Path
 from typing import Sequence
 
 from .cutover import activate_v2, cutover_status, prepare_shadow, return_to_v1
+from .fragment_recovery_io import (
+    assessment_to_dict,
+    export_recovered_payload,
+    load_fragment_specs,
+    load_recovery_descriptor,
+)
+from .fragments import assess_fragments, recover_payload
 from .recovery import RecoveryService
 from .migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
+from .zfec_codec import codec_for_plan
+
+
+_FRAGMENT_COMMANDS = {"fragment-assess", "fragment-recover"}
+
+
+def _add_fragment_inputs(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--descriptor", required=True, help="Portable fragment recovery-set JSON")
+    parser.add_argument(
+        "--fragment",
+        action="append",
+        default=[],
+        metavar="INDEX=PATH",
+        help="Path for one fragment; repeat for every available fragment",
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="simpleoffice-v2-recovery")
-    parser.add_argument("--root", required=True, help="SimpleOffice document root")
+    parser.add_argument("--root", help="SimpleOffice document root")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("inventory", help="Inspect formats, chunks and recovery state")
@@ -48,6 +70,20 @@ def _parser() -> argparse.ArgumentParser:
     legacy = sub.add_parser("storage-v1", help="Return explicitly to V1 compatibility mode")
     legacy.add_argument("--apply", action="store_true")
 
+    fragment_assess = sub.add_parser(
+        "fragment-assess",
+        help="Assess valid, corrupt and missing k-of-n recovery fragments",
+    )
+    _add_fragment_inputs(fragment_assess)
+    fragment_recover = sub.add_parser(
+        "fragment-recover",
+        help="Reconstruct and export content from a verified k-of-n recovery set",
+    )
+    _add_fragment_inputs(fragment_recover)
+    fragment_recover.add_argument("--output", required=True)
+    fragment_recover.add_argument("--overwrite", action="store_true")
+    fragment_recover.add_argument("--apply", action="store_true")
+
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
     verify.add_argument("--version-id", default="")
@@ -77,8 +113,39 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_fragment_command(args: argparse.Namespace) -> int:
+    recovery_set = load_recovery_descriptor(args.descriptor)
+    available = load_fragment_specs(recovery_set, args.fragment)
+    assessment = assess_fragments(recovery_set, available)
+    report = assessment_to_dict(assessment)
+
+    if args.command == "fragment-assess":
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if assessment.recoverable else 2
+
+    if not assessment.recoverable:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 2
+    if not args.apply:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        print("read-only mode: add --apply to export reconstructed content")
+        return 3
+
+    codec = codec_for_plan(recovery_set.plan)
+    payload = recover_payload(recovery_set, available, codec)
+    target = export_recovered_payload(payload, args.output, overwrite=bool(args.overwrite))
+    print(str(target))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+
+    if args.command in _FRAGMENT_COMMANDS:
+        return _run_fragment_command(args)
+    if not args.root:
+        parser.error("--root is required for this command")
 
     if args.command == "migration-preflight":
         result = inspect_migration(args.root)
