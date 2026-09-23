@@ -7,7 +7,7 @@
   <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Projekte</a>
   <div class="project-hero compact-project-hero"><span class="project-icon" aria-hidden="true"><i class="fas fa-book"></i></span><div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Wiki · Markdown</p></div></div>
   {% set active_project_tab = 'wiki' %}{% include "documents/project_workspace_nav.jinja" %}
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-4">
     <aside class="col-lg-3">
       <section class="project-panel">
@@ -18,7 +18,7 @@
     <div class="col-lg-9">
       {% if page %}
       <section class="project-panel project-section">
-        <div class="project-section-header"><div><h2 class="project-section-title">{{ page.title }}</h2><small class="text-secondary">Revision {{ page.revision }} · {{ page.updated_by }} · {{ page.updated_at }}</small></div><button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#wiki-edit">Bearbeiten</button></div>
+        <div class="project-section-header"><div><h2 class="project-section-title">{{ page.title }}</h2><small class="text-secondary">Revision {{ page.revision }} · {{ page.updated_by }} · {{ page.updated_at }}</small></div><button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#wiki-edit" aria-expanded="false" aria-controls="wiki-edit">Bearbeiten</button></div>
         <div class="project-section-body markdown-body">{{ page.body_html|safe }}</div>
       </section>
       {% endif %}
@@ -38,7 +38,7 @@ Projekt-Wiki.{% endif %}</textarea></div>
       </section>
       {% if page %}
       <section class="project-panel project-section">
-        <div class="project-section-header"><h2 class="project-section-title">Neue Seite</h2><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wiki-new">Anlegen</button></div>
+        <div class="project-section-header"><h2 class="project-section-title">Neue Seite</h2><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wiki-new" aria-expanded="false" aria-controls="wiki-new">Anlegen</button></div>
         <div class="collapse project-section-body" id="wiki-new">
           <form method="post" class="row g-3">
             <input type="hidden" name="expected_revision" value="0">
