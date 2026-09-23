@@ -15,7 +15,7 @@ import time
 from collections import deque
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .document_store import CONTROL_DIR, DocumentStore
 from .safe_paths import resolve_under
@@ -237,6 +237,42 @@ class FederationBlockStore:
         for digest in requested:
             if self.cache_path(digest).is_file(): result.add(digest)
         return result
+
+    def match_scoped_tokens(
+        self,
+        tokens,
+        token_for_digest: Callable[[str], str],
+    ) -> dict[str, str]:
+        requested = {str(value) for value in tokens if str(value)}
+        if not requested:
+            return {}
+        matched: dict[str, str] = {}
+        seen: set[str] = set()
+
+        def consider(value: str) -> None:
+            try:
+                digest = normalize_sha512(value)
+            except ValueError:
+                return
+            if digest in seen:
+                return
+            seen.add(digest)
+            token = token_for_digest(digest)
+            if token in requested:
+                matched[token] = digest
+
+        with self._db() as db:
+            for row in db.execute("SELECT DISTINCT sha512 FROM block_source"):
+                consider(str(row[0]))
+                if len(matched) == len(requested):
+                    return matched
+
+        for path in self.cache.glob("*/*/*.block"):
+            if path.is_file() and not path.is_symlink():
+                consider(path.stem)
+                if len(matched) == len(requested):
+                    break
+        return matched
 
     def cache_path(self,digest:str)->Path:
         digest=normalize_sha512(digest); return self.cache/digest[:2]/digest[2:4]/f"{digest}.block"
