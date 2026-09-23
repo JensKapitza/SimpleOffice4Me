@@ -36,6 +36,9 @@ sftp = [
 banking = [
   "fints>=4.2,<6",
 ]
+erasure = [
+  "zfec>=1.6.0.0,<2",
+]
 
 [project.scripts]
 simpleoffice-sftp = "app.sftp_server:serve"
