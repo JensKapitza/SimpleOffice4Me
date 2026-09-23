@@ -21,6 +21,7 @@ from .cutover import (
     _now,
     _write_cutover_state,
     load_cutover_state,
+    verify_shadow_consistency,
 )
 from .encrypted_blob_store import EncryptedBlobIntegrityError, EncryptedBlobStore
 
@@ -67,6 +68,19 @@ def _source_inventory_blockers(store: BlobStore) -> list[str]:
     return blockers
 
 
+def _compatibility_projection_report(
+    root: Path,
+    blob_store: Any,
+    *,
+    label: str,
+) -> tuple[dict[str, Any], list[str]]:
+    report = verify_shadow_consistency(root, blob_store=blob_store)
+    return report, [
+        f"{label}: {item}"
+        for item in report.get("blockers", [])
+    ]
+
+
 def _verify_active_encrypted_backend(
     catalog: ObjectCatalog,
     encrypted: EncryptedBlobStore,
@@ -82,6 +96,13 @@ def _verify_active_encrypted_backend(
         blockers.append("encrypted V2 store contains referenced chunks that are missing")
     if inventory["staging_transactions"]:
         blockers.append("encrypted V2 store contains unfinished staging transactions")
+
+    projection, projection_blockers = _compatibility_projection_report(
+        encrypted.root,
+        encrypted,
+        label="encrypted compatibility projection",
+    )
+    blockers.extend(projection_blockers)
 
     checked = 0
     for entry in entries:
@@ -121,6 +142,7 @@ def _verify_active_encrypted_backend(
         "catalog_fingerprint": _catalog_fingerprint(entries),
         "blockers": blockers,
         "encrypted_blob_backend_active": not blockers,
+        "compatibility_projection_ready": bool(projection.get("ready")),
         "plaintext_blob_store_retained": True,
         "legacy_plaintext_projection_retained": True,
         "encrypted_at_rest": False,
@@ -194,6 +216,12 @@ def encrypted_blob_cutover(
     entries = catalog.list(include_deleted=True)
     before_fingerprint = _catalog_fingerprint(entries)
     blockers = _source_inventory_blockers(plaintext)
+    source_projection, source_projection_blockers = _compatibility_projection_report(
+        source,
+        plaintext,
+        label="plaintext compatibility projection",
+    )
+    blockers.extend(source_projection_blockers)
     if blockers and apply:
         return {
             "format": FORMAT,
@@ -326,6 +354,15 @@ def encrypted_blob_cutover(
     if before_fingerprint != after_fingerprint:
         blockers.append("V2 object catalog changed during encrypted migration; rerun during maintenance")
 
+    encrypted_projection: dict[str, Any] | None = None
+    if apply and encrypted is not None:
+        encrypted_projection, encrypted_projection_blockers = _compatibility_projection_report(
+            source,
+            encrypted,
+            label="encrypted compatibility projection",
+        )
+        blockers.extend(encrypted_projection_blockers)
+
     ready = not blockers and (apply or pending == 0)
     activated = state.protection_mode == LOCAL_ENCRYPTED_BLOB
     if apply and ready and not activated:
@@ -355,6 +392,9 @@ def encrypted_blob_cutover(
         "catalog_fingerprint": after_fingerprint,
         "blockers": blockers,
         "encrypted_blob_backend_active": bool(activated and ready),
+        "compatibility_projection_ready": bool(
+            (encrypted_projection or source_projection).get("ready")
+        ),
         "plaintext_blob_store_retained": True,
         "legacy_plaintext_projection_retained": True,
         "encrypted_at_rest": False,
