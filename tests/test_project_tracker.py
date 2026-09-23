@@ -123,6 +123,50 @@ class ProjectTrackerTests(unittest.TestCase):
             with self.assertRaises(ProjectGitError):
                 denied.repository_path()
 
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_empty_git_repository_stays_browsable_and_untracked_files_are_dirty(self):
+        repo = self.root / "empty-repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        service = ProjectGitService(
+            self.root,
+            {**self.project, "repository_path": "empty-repo"},
+        )
+
+        self.assertTrue(service.available())
+        clean = service.summary()
+        self.assertFalse(clean["has_head"])
+        self.assertEqual([], clean["commits"])
+        self.assertFalse(clean["dirty"])
+
+        (repo / "untracked.txt").write_text("local\n", encoding="utf-8")
+        self.assertTrue(service.summary()["dirty"])
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_git_metadata_must_stay_inside_an_allowed_repository_root(self):
+        with tempfile.TemporaryDirectory() as outside:
+            worktree = self.root / "linked-worktree"
+            git_dir = Path(outside) / "git-metadata"
+            subprocess.run(
+                [
+                    "git",
+                    "init",
+                    "--separate-git-dir",
+                    str(git_dir),
+                    str(worktree),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            service = ProjectGitService(
+                self.root,
+                {**self.project, "repository_path": "linked-worktree"},
+            )
+
+            self.assertFalse(service.available())
+            with self.assertRaisesRegex(ProjectGitError, "Git-Metadaten"):
+                service.repository_path()
+
     def test_project_repository_path_is_preserved_on_other_edits(self):
         created = self.projects.create_project({"title": "Repo", "repository_path": "source/repo"}, "alice")
         changed = self.projects.update_project(created["project_id"], {"title": "Repo 2"}, "alice")

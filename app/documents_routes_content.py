@@ -271,7 +271,10 @@ def add_object_note(object_id: str):
 def projects():
     if request.method == "POST":
         try:
-            project = _projects().create_project(request.form.to_dict(), str(g.user["username"]))
+            values = request.form.to_dict()
+            if not bool(g.user["is_admin"]):
+                values.pop("repository_path", None)
+            project = _projects().create_project(values, str(g.user["username"]))
             flash("Projekt angelegt.")
             return redirect(url_for("documents.project_detail", project_id=project["project_id"]))
         except ValueError as exc:
@@ -298,7 +301,11 @@ def project_detail(project_id: str):
     actor = str(g.user["username"])
     try:
         if request.method == "POST":
-            _projects().update_project(project_id, request.form.to_dict(), actor)
+            values = request.form.to_dict()
+            if not bool(g.user["is_admin"]):
+                current = _projects().project(project_id)
+                values["repository_path"] = current.get("repository_path", "")
+            _projects().update_project(project_id, values, actor)
             flash("Projekt gespeichert.")
             return redirect(url_for("documents.project_detail", project_id=project_id))
         project = _project_with_tasks(project_id, actor)

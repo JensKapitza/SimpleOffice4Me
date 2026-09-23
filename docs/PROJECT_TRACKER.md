@@ -61,9 +61,15 @@ eingeblendet, wenn alle folgenden Bedingungen erfüllt sind:
 2. Im Projekt ist `repository_path` gesetzt.
 3. Der Pfad liegt im Dokumentroot oder unter einem explizit freigegebenen
    Repository-Root.
-4. Der Pfad zeigt exakt auf die Wurzel eines vorhandenen Git-Working-Trees.
+4. Das zugehörige Git-Metadatenverzeichnis liegt ebenfalls innerhalb eines
+   freigegebenen Repository-Roots.
+5. Der Pfad zeigt exakt auf die Wurzel eines vorhandenen Git-Working-Trees.
 
 Standardmäßig sind nur Repositories innerhalb von `DOCUMENT_ROOT` erlaubt.
+Nur Administratoren können den Repository-Pfad eines Projekts konfigurieren.
+Normale Projektbenutzer können einen bereits freigegebenen Code-Bereich nutzen,
+aber den Serverpfad nicht auf ein anderes Repository umstellen.
+
 Weitere Wurzeln können per Pfadliste freigegeben werden:
 
 ```text
@@ -73,9 +79,11 @@ SIMPLEOFFICE_PROJECT_REPO_ROOTS=/srv/git:/opt/company-repos
 Unter Windows wird der jeweilige Plattform-Pfadtrenner verwendet.
 
 Der aktuelle Codebereich ist absichtlich read-only. Angezeigt werden Branch,
-HEAD, Arbeitsbaumstatus, Commit-Historie, Verzeichnisbaum und UTF-8-Textdateien
-bis 512 KiB. Markdown-Dateien aus dem Repository werden mit demselben sicheren
-Renderer dargestellt.
+HEAD, Arbeitsbaumstatus einschließlich unversionierter Dateien,
+Commit-Historie, Verzeichnisbaum und UTF-8-Textdateien bis 512 KiB.
+Ein frisch initialisiertes Repository ohne ersten Commit bleibt als leerer
+Code-Bereich nutzbar. Markdown-Dateien aus dem Repository werden mit demselben
+sicheren Renderer dargestellt.
 
 Git-Aufrufe verwenden Argumentlisten ohne Shell-Interpolation, Zeitlimits,
 Ausgabelimits und deaktivieren optionale Git-Helfer wie `core.fsmonitor`.

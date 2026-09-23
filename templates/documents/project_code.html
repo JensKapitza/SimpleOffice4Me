@@ -5,7 +5,7 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4 project-ui">
   <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Projekte</a>
-  <div class="project-hero compact-project-hero"><span class="project-icon" aria-hidden="true"><i class="fas fa-code"></i></span><div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Git · {{ summary.branch }} · <code>{{ summary.head[:12] }}</code></p></div>{% if summary.dirty %}<span class="badge text-bg-warning">lokale Änderungen</span>{% else %}<span class="badge text-bg-success">sauber</span>{% endif %}</div>
+  <div class="project-hero compact-project-hero"><span class="project-icon" aria-hidden="true"><i class="fas fa-code"></i></span><div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Git · {{ summary.branch }} · {% if summary.has_head %}<code>{{ summary.head[:12] }}</code>{% else %}<span>noch kein Commit</span>{% endif %}</p></div>{% if summary.dirty %}<span class="badge text-bg-warning">lokale Änderungen</span>{% else %}<span class="badge text-bg-success">sauber</span>{% endif %}</div>
   {% set active_project_tab = 'code' %}{% include "documents/project_workspace_nav.jinja" %}
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-4">

@@ -103,7 +103,12 @@ def project_issue_detail(project_id: str, issue_number: int):
                 issue_number=issue_number,
             ))
         issue = _issue_view(tracker.issue(project_id, issue_number))
-        related_commits = git.commits_for_issue(issue_number) if code_available else []
+        related_commits = []
+        if code_available:
+            try:
+                related_commits = git.commits_for_issue(issue_number)
+            except (OSError, ProjectGitError, ValueError, subprocess.TimeoutExpired):
+                related_commits = []
     except (ProjectGitError, RuntimeError, ValueError) as exc:
         flash(str(exc))
         return redirect(url_for("documents.project_issues", project_id=project_id))
@@ -204,7 +209,7 @@ def project_code(project_id: str):
         ref = request.args.get("ref", "HEAD")
         path = request.args.get("path", "")
         summary = git.summary()
-        tree = git.tree(ref=ref, path=path)
+        tree = git.tree(ref=ref, path=path) if summary["has_head"] else []
     except (OSError, ProjectGitError, ValueError, subprocess.TimeoutExpired) as exc:
         flash(str(exc))
         return redirect(url_for("documents.project_detail", project_id=project_id))
@@ -251,6 +256,10 @@ def project_activity(project_id: str):
         project, git, code_available = _project_workspace(project_id)
         events = list(_project_tracker().activity(project_id, limit=200))
         if code_available:
+            try:
+                commits = git.commits(limit=50)
+            except (OSError, ProjectGitError, ValueError, subprocess.TimeoutExpired):
+                commits = []
             events.extend({
                 "event_id": "git:" + commit["sha"],
                 "kind": "git_commit",
@@ -259,7 +268,7 @@ def project_activity(project_id: str):
                 "actor": commit["author"],
                 "at": commit["authored_at"],
                 "short_sha": commit["short_sha"],
-            } for commit in git.commits(limit=50))
+            } for commit in commits)
         events.sort(key=lambda item: str(item.get("at", "")), reverse=True)
     except (ProjectGitError, RuntimeError, ValueError) as exc:
         flash(str(exc))

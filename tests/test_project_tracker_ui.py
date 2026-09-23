@@ -5,11 +5,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
+from app.project_git import ProjectGitError
 from app.project_store import ProjectStore
 
 
@@ -98,6 +100,93 @@ class ProjectTrackerUiTests(unittest.TestCase):
         self.assertIn("<h1>Dokumentation</h1>", wiki_body)
         self.assertIn("&lt;script&gt;", wiki_body)
         self.assertNotIn("<script>alert(1)</script>", wiki_body)
+
+    def test_non_admin_cannot_change_repository_path(self):
+        project_id = self.project["project_id"]
+        self.store.update_project(
+            project_id,
+            {"title": "Mini Tracker", "repository_path": "source"},
+            "tracker-admin",
+        )
+        with app.app_context():
+            db = database.get_db()
+            db.execute(
+                "INSERT INTO user(username,password,is_admin,created_at,updated_at) "
+                "VALUES (?,?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                ("tracker-worker", generate_password_hash("worker-password")),
+            )
+            db.commit()
+
+        worker = app.test_client()
+        login = worker.post(
+            "/auth/login",
+            data={"username": "tracker-worker", "password": "worker-password"},
+        )
+        self.assertLess(login.status_code, 400)
+
+        page = worker.get(f"/documents/projects/{project_id}")
+        self.assertEqual(200, page.status_code)
+        self.assertNotIn("edit-project-repository", page.get_data(as_text=True))
+
+        response = worker.post(
+            f"/documents/projects/{project_id}",
+            data={
+                "title": "Mini Tracker",
+                "status": "open",
+                "repository_path": "other-repository",
+            },
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertEqual(
+            "source",
+            self.store.project(project_id)["repository_path"],
+        )
+
+        created = worker.post(
+            "/documents/projects",
+            data={
+                "title": "Worker project",
+                "repository_path": "other-repository",
+            },
+        )
+        self.assertEqual(302, created.status_code)
+        worker_project = next(
+            row for row in self.store.projects()
+            if row["title"] == "Worker project"
+        )
+        self.assertEqual("", worker_project["repository_path"])
+
+    @unittest.skipUnless(shutil.which("git"), "git is required")
+    def test_issue_page_survives_git_history_failure(self):
+        project_id = self.project["project_id"]
+        repo = self.documents / "source"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        (repo / "README.md").write_text("# Repository\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "Initial"],
+            cwd=repo, check=True, capture_output=True,
+        )
+        self.store.update_project(
+            project_id,
+            {"title": "Mini Tracker", "repository_path": "source"},
+            "tracker-admin",
+        )
+        created = self.client.post(
+            f"/documents/projects/{project_id}/issues",
+            data={"title": "Git-unabhängiges Issue", "type": "bug", "priority": "normal"},
+        )
+        self.assertEqual(302, created.status_code)
+
+        with patch(
+            "app.documents_routes_project_tracker.ProjectGitService.commits_for_issue",
+            side_effect=ProjectGitError("synthetic git failure"),
+        ):
+            response = self.client.get(f"/documents/projects/{project_id}/issues/1")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Git-unabhängiges Issue", response.get_data(as_text=True))
 
     @unittest.skipUnless(shutil.which("git"), "git is required")
     def test_code_tab_appears_only_after_real_git_repository_is_configured(self):

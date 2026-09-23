@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -64,25 +65,46 @@ class ProjectGitService:
             raise ProjectGitError("Git-Arbeitsverzeichnis konnte nicht bestimmt werden") from exc
         if top_path != resolved:
             raise ProjectGitError("Repository-Pfad muss auf die Wurzel des Git-Arbeitsverzeichnisses zeigen")
+        git_dir_raw = self._run_at(
+            resolved,
+            ["rev-parse", "--absolute-git-dir"],
+            maximum=16 * 1024,
+        )
+        try:
+            git_dir = Path(git_dir_raw.decode("utf-8").strip()).resolve(strict=True)
+        except (OSError, UnicodeError) as exc:
+            raise ProjectGitError("Git-Metadatenverzeichnis konnte nicht bestimmt werden") from exc
+        if not self._inside_allowed_root(git_dir):
+            raise ProjectGitError("Git-Metadaten liegen außerhalb der freigegebenen Repo-Roots")
         return resolved
 
     def summary(self) -> dict[str, Any]:
         repo = self.repository_path()
-        branch = self._run_at(repo, ["rev-parse", "--abbrev-ref", "HEAD"], maximum=4096).decode("utf-8", "replace").strip()
-        head = self._run_at(repo, ["rev-parse", "HEAD"], maximum=4096).decode("ascii", "replace").strip()
+        branch = self._run_at(
+            repo,
+            ["symbolic-ref", "--short", "-q", "HEAD"],
+            maximum=4096,
+            accepted_returncodes=(0, 1),
+        ).decode("utf-8", "replace").strip() or "HEAD"
+        head = self._run_at(
+            repo,
+            ["rev-parse", "--verify", "--quiet", "HEAD"],
+            maximum=4096,
+            accepted_returncodes=(0, 1),
+        ).decode("ascii", "replace").strip()
         status = self._run_at(
             repo,
-            ["status", "--porcelain=v1", "--branch", "--untracked-files=no"],
+            ["status", "--porcelain=v1", "--branch", "--untracked-files=normal"],
             maximum=256 * 1024,
         ).decode("utf-8", "replace").splitlines()
         return {
             "available": True,
             "branch": branch,
             "head": head,
+            "has_head": bool(head),
             "dirty": any(line and not line.startswith("##") for line in status),
             "status_lines": status[:100],
-            "commits": self.commits(limit=30),
-            "tree": self.tree(ref="HEAD", path=""),
+            "commits": self.commits(limit=30) if head else [],
         }
 
     def commits(self, *, limit: int = 50) -> list[dict[str, str]]:
@@ -172,7 +194,14 @@ class ProjectGitService:
     def _run(self, args: list[str], *, maximum: int) -> bytes:
         return self._run_at(self.repository_path(), args, maximum=maximum)
 
-    def _run_at(self, repo: Path, args: list[str], *, maximum: int) -> bytes:
+    def _run_at(
+        self,
+        repo: Path,
+        args: list[str],
+        *,
+        maximum: int,
+        accepted_returncodes: tuple[int, ...] = (0,),
+    ) -> bytes:
         if not self.git:
             raise ProjectGitError("Git ist nicht installiert")
         env = {
@@ -189,7 +218,7 @@ class ProjectGitService:
             "PAGER": "cat",
             "LC_ALL": "C",
         })
-        result = subprocess.run(
+        process = subprocess.Popen(
             [
                 self.git,
                 "-c", "color.ui=false",
@@ -203,16 +232,71 @@ class ProjectGitService:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=8,
-            check=False,
         )
-        if result.returncode:
-            message = result.stderr.decode("utf-8", "replace").strip().splitlines()
-            detail = message[-1][:300] if message else f"Git exited with {result.returncode}"
-            raise ProjectGitError(detail)
-        if len(result.stdout) > maximum:
+        stdout_parts: list[bytes] = []
+        stderr_parts: list[bytes] = []
+        stdout_overflow = threading.Event()
+        stderr_overflow = threading.Event()
+        stdout_thread = threading.Thread(
+            target=self._drain_bounded,
+            args=(process.stdout, maximum, stdout_parts, stdout_overflow),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=self._drain_bounded,
+            args=(process.stderr, 64 * 1024, stderr_parts, stderr_overflow),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+        try:
+            returncode = process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            raise
+        finally:
+            stdout_thread.join()
+            stderr_thread.join()
+
+        stdout = b"".join(stdout_parts)
+        stderr = b"".join(stderr_parts)
+        if stdout_overflow.is_set():
             raise ProjectGitError("Git-Ausgabe überschreitet das Sicherheitslimit")
-        return bytes(result.stdout)
+        if returncode not in accepted_returncodes:
+            if stderr_overflow.is_set():
+                raise ProjectGitError("Git-Fehlerausgabe überschreitet das Sicherheitslimit")
+            message = stderr.decode("utf-8", "replace").strip().splitlines()
+            detail = message[-1][:300] if message else f"Git exited with {returncode}"
+            raise ProjectGitError(detail)
+        return stdout
+
+    @staticmethod
+    def _drain_bounded(
+        stream: Any,
+        maximum: int,
+        parts: list[bytes],
+        overflow: threading.Event,
+    ) -> None:
+        """Drain a child pipe while retaining at most maximum+1 bytes."""
+
+        if stream is None:
+            return
+        retained = 0
+        try:
+            while True:
+                block = stream.read(64 * 1024)
+                if not block:
+                    break
+                if retained <= maximum:
+                    keep = block[: max(0, maximum + 1 - retained)]
+                    if keep:
+                        parts.append(keep)
+                        retained += len(keep)
+                    if retained > maximum:
+                        overflow.set()
+        finally:
+            stream.close()
 
     def _inside_allowed_root(self, candidate: Path) -> bool:
         for root in self._allowed_roots():
