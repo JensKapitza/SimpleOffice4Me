@@ -271,7 +271,10 @@ def add_object_note(object_id: str):
 def projects():
     if request.method == "POST":
         try:
-            project = _projects().create_project(request.form.to_dict(), str(g.user["username"]))
+            values = request.form.to_dict()
+            if not bool(g.user["is_admin"]):
+                values.pop("repository_path", None)
+            project = _projects().create_project(values, str(g.user["username"]))
             flash("Projekt angelegt.")
             return redirect(url_for("documents.project_detail", project_id=project["project_id"]))
         except ValueError as exc:
