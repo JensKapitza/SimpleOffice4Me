@@ -32,6 +32,7 @@ class RouteConstraint:
     direct_only: bool = False
     max_hops: int | None = None
     allowed_relays: tuple[str, ...] | None = None
+    denied_relays: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,14 @@ class FederationPolicyStore:
                 );
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(route_constraint)").fetchall()
+            }
+            if "denied_relays_json" not in columns:
+                db.execute(
+                    "ALTER TABLE route_constraint ADD COLUMN denied_relays_json TEXT"
+                )
 
     @staticmethod
     def _peer(peer_id: str) -> str:
@@ -154,6 +163,7 @@ class FederationPolicyStore:
         direct_only: bool = False,
         max_hops: int | None = None,
         allowed_relays: Iterable[str] | None = None,
+        denied_relays: Iterable[str] | None = None,
         created_by: str = "",
     ) -> RouteConstraint:
         target = self._peer(target_peer)
@@ -174,27 +184,52 @@ class FederationPolicyStore:
                 self._peer(peer) for peer in allowed_relays
                 if str(peer or "").strip()
             }))
-        if not direct_only and max_hops is None and normalized_relays is None:
+        normalized_denied_relays = None
+        if denied_relays is not None:
+            if isinstance(denied_relays, (str, bytes)):
+                raise ValueError("denied relay peers must be an iterable of peer ids")
+            normalized_denied_relays = tuple(sorted({
+                self._peer(peer) for peer in denied_relays
+                if str(peer or "").strip()
+            }))
+        if (
+            normalized_relays is not None
+            and normalized_denied_relays is not None
+            and set(normalized_relays).intersection(normalized_denied_relays)
+        ):
+            raise ValueError("a relay peer cannot be both allowed and denied")
+        if (
+            not direct_only
+            and max_hops is None
+            and normalized_relays is None
+            and normalized_denied_relays is None
+        ):
             raise ValueError("route constraint must restrict at least one route property")
         encoded_relays = (
             None if normalized_relays is None
             else json.dumps(list(normalized_relays), separators=(",", ":"))
         )
+        encoded_denied_relays = (
+            None if normalized_denied_relays is None
+            else json.dumps(list(normalized_denied_relays), separators=(",", ":"))
+        )
         with self._db() as db:
             db.execute(
                 """INSERT INTO route_constraint(
                        target_peer,scope,direct_only,max_hops,allowed_relays_json,
-                       created_by,updated_at
-                   ) VALUES(?,?,?,?,?,?,?)
+                       denied_relays_json,created_by,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?)
                    ON CONFLICT(target_peer,scope) DO UPDATE SET
                        direct_only=excluded.direct_only,
                        max_hops=excluded.max_hops,
                        allowed_relays_json=excluded.allowed_relays_json,
+                       denied_relays_json=excluded.denied_relays_json,
                        created_by=excluded.created_by,
                        updated_at=excluded.updated_at""",
                 (
                     target, checked_scope, 1 if direct_only else 0, max_hops,
-                    encoded_relays, str(created_by)[:160], int(time.time()),
+                    encoded_relays, encoded_denied_relays,
+                    str(created_by)[:160], int(time.time()),
                 ),
             )
         return RouteConstraint(
@@ -203,6 +238,7 @@ class FederationPolicyStore:
             direct_only=bool(direct_only),
             max_hops=max_hops,
             allowed_relays=normalized_relays,
+            denied_relays=normalized_denied_relays,
         )
 
     def clear_route_constraint(self, target_peer: str, *, scope: str = "all") -> None:
@@ -233,21 +269,35 @@ class FederationPolicyStore:
         result: list[RouteConstraint] = []
         for row in rows:
             raw_relays = row["allowed_relays_json"]
+            raw_denied_relays = row["denied_relays_json"]
             relays = None
-            if raw_relays is not None:
-                try:
+            denied_relays = None
+            try:
+                if raw_relays is not None:
                     value = json.loads(str(raw_relays))
                     if not isinstance(value, list):
                         raise ValueError("relay allowlist is not a list")
                     relays = tuple(self._peer(item) for item in value)
-                except (json.JSONDecodeError, TypeError, ValueError) as exc:
-                    raise RuntimeError("stored federation route constraint is invalid") from exc
+                if raw_denied_relays is not None:
+                    denied_value = json.loads(str(raw_denied_relays))
+                    if not isinstance(denied_value, list):
+                        raise ValueError("relay denylist is not a list")
+                    denied_relays = tuple(self._peer(item) for item in denied_value)
+                if (
+                    relays is not None
+                    and denied_relays is not None
+                    and set(relays).intersection(denied_relays)
+                ):
+                    raise ValueError("relay allowlist and denylist overlap")
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise RuntimeError("stored federation route constraint is invalid") from exc
             result.append(RouteConstraint(
                 target_peer=target,
                 scope=str(row["scope"]),
                 direct_only=bool(row["direct_only"]),
                 max_hops=int(row["max_hops"]) if row["max_hops"] is not None else None,
                 allowed_relays=relays,
+                denied_relays=denied_relays,
             ))
         return result
 
@@ -442,6 +492,11 @@ class FederationPolicyStore:
                 return PolicyDecision(False, "direct_only", scope=scope)
             if constraint.max_hops is not None and hop_count > constraint.max_hops:
                 return PolicyDecision(False, "max_hops_exceeded", scope=scope)
+            if constraint.denied_relays is not None:
+                denied_set = set(constraint.denied_relays)
+                denied = next((peer for peer in relays if peer in denied_set), "")
+                if denied:
+                    return PolicyDecision(False, "relay_explicitly_denied", denied, scope)
             if constraint.allowed_relays is not None:
                 allowed = set(constraint.allowed_relays)
                 denied = next((peer for peer in relays if peer not in allowed), "")

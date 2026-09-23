@@ -10,7 +10,9 @@ A target peer can have separate route constraints per federation scope:
 - `direct_only`: the known route must contain exactly source and target;
 - `max_hops`: limits the number of route edges;
 - `allowed_relays`: every known intermediary/downstream peer other than the
-  intended target must be in the local allowlist.
+  intended target must be in the local allowlist;
+- `denied_relays`: named intermediary/downstream peers are forbidden for this
+  target and scope even when other relays remain permitted.
 
 A global (`all`) target constraint and a scope-specific constraint are both
 evaluated. The stricter result therefore wins automatically.
@@ -69,6 +71,7 @@ A route is denied when:
 - a global or scope-specific peer block matches any participant,
 - `direct_only` is violated,
 - the maximum hop count is exceeded,
+- a relay/downstream participant is explicitly present in the target denylist,
 - a relay/downstream participant is not in the configured allowlist,
 - stored policy state cannot be parsed safely.
 

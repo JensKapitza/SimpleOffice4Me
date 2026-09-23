@@ -86,7 +86,7 @@
       {% if route_constraints %}
       <div class="table-responsive mb-3">
         <table class="table table-sm align-middle">
-          <thead><tr><th scope="col">Scope</th><th scope="col">Direkt</th><th scope="col">Max. Hops</th><th scope="col">Erlaubte Relays</th><th scope="col">Aktion</th></tr></thead>
+          <thead><tr><th scope="col">Scope</th><th scope="col">Direkt</th><th scope="col">Max. Hops</th><th scope="col">Erlaubte Relays</th><th scope="col">Nie über</th><th scope="col">Aktion</th></tr></thead>
           <tbody>
           {% for rule in route_constraints %}
             <tr>
@@ -94,6 +94,7 @@
               <td>{{ 'ja' if rule.direct_only else 'nein' }}</td>
               <td>{{ rule.max_hops if rule.max_hops is not none else '—' }}</td>
               <td>{{ (rule.allowed_relays or ())|join(', ') or '—' }}</td>
+              <td>{{ (rule.denied_relays or ())|join(', ') or '—' }}</td>
               <td>
                 <form method="post" action="{{ url_for('federation_peer_admin.clear_route_policy', peer_id=peer.peer_id) }}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -121,9 +122,13 @@
             <label class="form-label" for="route-max-hops">Max. Hops</label>
             <input id="route-max-hops" class="form-control" type="number" name="max_hops" min="1" max="32" placeholder="—">
           </div>
-          <div class="col-md-7">
+          <div class="col-md-4">
             <label class="form-label" for="route-relays">Nur über diese Relays</label>
             <input id="route-relays" class="form-control" name="allowed_relays" placeholder="peer-b, peer-c">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="route-denied-relays">Nie über diese Peers</label>
+            <input id="route-denied-relays" class="form-control" name="denied_relays" placeholder="peer-x, peer-y">
           </div>
           <div class="col-12">
             <div class="form-check">
