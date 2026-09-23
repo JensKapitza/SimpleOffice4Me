@@ -193,6 +193,45 @@ class AuthorizationStore:
             and self.is_effective(grant_id, now=now)
         )
 
+    def has_effective_relationship(
+        self,
+        *,
+        issuer: str,
+        subject: str,
+        rights: Iterable[GrantRight | str],
+        object_refs: Iterable[str] | None = None,
+        now: int | None = None,
+    ) -> bool:
+        """Return whether an effective grant links issuer to subject for the requested scope."""
+
+        issuer_value = str(issuer or "").strip()
+        subject_value = str(subject or "").strip()
+        if not issuer_value or not subject_value:
+            raise ValueError("issuer and subject are required")
+        required_rights = self._normalize_rights(rights)
+        requested_scope = frozenset(
+            str(item).strip()
+            for item in (object_refs or ())
+            if str(item).strip()
+        )
+        checked_at = int(time.time()) if now is None else int(now)
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT * FROM capability_grant
+                   WHERE issuer=? AND subject=? AND revoked=0 AND expires_at>?""",
+                (issuer_value, subject_value, checked_at),
+            ).fetchall()
+        for row in rows:
+            grant = self._grant(row)
+            if not self.is_effective(grant.grant_id, now=checked_at):
+                continue
+            if not grant.rights.intersection(required_rights):
+                continue
+            if requested_scope and not grant.object_refs.intersection(requested_scope):
+                continue
+            return True
+        return False
+
     def _insert(self, grant: CapabilityGrant) -> None:
         with self._db() as db:
             db.execute(
