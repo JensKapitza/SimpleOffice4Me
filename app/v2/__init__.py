@@ -39,6 +39,9 @@ __all__ = [
     "BlobIntegrityError",
     "BlobStore",
     "BlobVersion",
+    "EncryptedBlobIntegrityError",
+    "EncryptedBlobStore",
+    "EncryptedBlobVersion",
     "CryptoService",
     "ChunkCryptoSession",
     "EncryptedChunk",
@@ -83,6 +86,7 @@ __all__ = [
 ]
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
+from .encrypted_blob_store import EncryptedBlobIntegrityError, EncryptedBlobStore, EncryptedBlobVersion
 
 from .crypto import ChunkCryptoSession, CryptoService, EncryptedChunk, EncryptedPayload, ProtectedMasterKey, WrappedKey
 
