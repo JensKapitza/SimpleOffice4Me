@@ -244,12 +244,12 @@ class FederationPolicyStore:
             }))
             if not refs:
                 raise ValueError("at least one object reference is required")
-            placeholders = ",".join("?" for _ in refs)
-            return db.execute(
-                f"""DELETE FROM peer_object_block
-                    WHERE peer_id=? AND scope=? AND object_ref IN ({placeholders})""",
-                (peer, checked_scope, *refs),
-            ).rowcount
+            cursor = db.executemany(
+                """DELETE FROM peer_object_block
+                   WHERE peer_id=? AND scope=? AND object_ref=?""",
+                [(peer, checked_scope, object_ref) for object_ref in refs],
+            )
+            return cursor.rowcount
 
     def active_object_blocks(
         self,
