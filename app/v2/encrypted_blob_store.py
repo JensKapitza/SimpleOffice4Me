@@ -470,6 +470,7 @@ class EncryptedBlobStore:
         version_id: str | None = None,
         *,
         collect: bool,
+        destination: BinaryIO | None = None,
     ) -> tuple[dict[str, Any], bytes, EncryptedBlobVersion]:
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
         if manifest.get("object_id") != object_id.value:
@@ -511,6 +512,10 @@ class EncryptedBlobStore:
                 raise EncryptedBlobIntegrityError("encrypted blob chunk authentication failed") from exc
             if collect:
                 result.extend(plaintext)
+            if destination is not None:
+                written = destination.write(plaintext)
+                if written is None or int(written) != len(plaintext):
+                    raise OSError("encrypted recovery destination did not accept the complete chunk")
             total += len(plaintext)
             whole.update(plaintext)
 
@@ -557,6 +562,23 @@ class EncryptedBlobStore:
             object_id,
             version_id,
             collect=False,
+        )
+        return version
+
+    def copy_verified_to(
+        self,
+        object_id: LogicalObjectId,
+        destination: BinaryIO,
+        *,
+        version_id: str | None = None,
+    ) -> EncryptedBlobVersion:
+        if not hasattr(destination, "write"):
+            raise ValueError("encrypted recovery destination must be writable")
+        _manifest, _content, version = self._verify_content(
+            object_id,
+            version_id,
+            collect=False,
+            destination=destination,
         )
         return version
 
