@@ -10,8 +10,6 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-from markupsafe import Markup
-
 
 _FENCE = re.compile(r"^\s*\x60\x60\x60([A-Za-z0-9_+.-]{0,40})\s*$")
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -84,7 +82,7 @@ def _is_table_separator(line: str) -> bool:
     return len(cells) >= 2 and all(_TABLE_SEPARATOR_CELL.fullmatch(cell) for cell in cells)
 
 
-def render_markdown(value: str, *, maximum_chars: int = 200_000) -> Markup:
+def render_markdown(value: str, *, maximum_chars: int = 200_000) -> str:
     """Render bounded Markdown to safe HTML without allowing raw HTML."""
 
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -233,4 +231,4 @@ def render_markdown(value: str, *, maximum_chars: int = 200_000) -> Markup:
         output.append(f"<pre><code{class_attr}>{escaped_code}</code></pre>")
     close_paragraph()
     close_list()
-    return Markup("\n".join(output))
+    return "\n".join(output)
