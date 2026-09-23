@@ -10,7 +10,7 @@
     <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="collapse" data-bs-target="#new-shopping-list" aria-controls="new-shopping-list" aria-expanded="false"><i class="fas fa-plus me-1"></i>Neue Liste</button>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <section class="collapse card shadow-sm mb-3" id="new-shopping-list">
     <div class="card-body">
