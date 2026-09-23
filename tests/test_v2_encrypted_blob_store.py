@@ -170,6 +170,42 @@ class EncryptedBlobStoreTest(unittest.TestCase):
         with self.assertRaises(EncryptedBlobIntegrityError):
             self.store.version_manifest(version.version_id)
 
+    def test_explicit_version_id_is_preserved_and_can_be_selected_current(self):
+        version_id = "11111111-1111-4111-8111-111111111111"
+        first = self.store.write(
+            self.object_id,
+            b"preserved-version",
+            version_id=version_id,
+        )
+
+        self.assertEqual(version_id, first.version_id)
+        self.assertTrue(self.store.contains_version(version_id))
+        self.store.select_current(self.object_id, version_id)
+        self.assertEqual(version_id, self.store.current_manifest(self.object_id)["version_id"])
+        with self.assertRaises(FileExistsError):
+            self.store.write(
+                self.object_id,
+                b"duplicate",
+                version_id=version_id,
+            )
+
+    def test_verify_does_not_call_collecting_read_path(self):
+        version = self.store.write(self.object_id, b"bounded-verification" * 1000)
+        original_read = self.store.read
+        self.store.read = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("verify must not call read")
+        )
+        try:
+            verified = self.store.verify(
+                self.object_id,
+                version_id=version.version_id,
+            )
+        finally:
+            self.store.read = original_read
+
+        self.assertEqual(version.content_sha256, verified.content_sha256)
+        self.assertEqual(version.size, verified.size)
+
     def test_streaming_write_is_bounded_and_checks_expected_digest(self):
         class GuardedStream(io.BytesIO):
             def read(self, size=-1):
