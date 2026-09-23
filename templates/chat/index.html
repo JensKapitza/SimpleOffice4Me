@@ -200,7 +200,7 @@
     const rows = [...document.querySelectorAll('[data-chat-row]')];
     const count = document.getElementById('chat-filter-count');
     const empty = document.getElementById('chat-filter-empty');
-    const applyChatFilter = () => {
+    const apply = () => {
       const q = chatInput.value.trim().toLocaleLowerCase();
       let visible = 0;
       rows.forEach(row => {
@@ -211,8 +211,8 @@
       count.textContent = String(visible);
       empty.hidden = visible !== 0;
     };
-    chatInput.addEventListener('input', applyChatFilter);
-    applyChatFilter();
+    chatInput.addEventListener('input',apply);
+    apply();
   }
 
   const participantInput = document.getElementById('participant-search');
