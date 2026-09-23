@@ -60,6 +60,15 @@ class ChatContactBookTests(unittest.TestCase):
         self.assertNotIn("Verborgener Kontakt", body)
         self.assertIn("Chat starten", body)
 
+    def test_chat_index_uses_compact_tabs_and_new_chat_modal(self):
+        response = self.client.get("/chat")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn('id="new-chat-modal"', body)
+        self.assertIn("Andere SimpleOffice-Instanz", body)
+        self.assertIn("Person suchen", body)
+        self.assertIn('id="contacts-tab"', body)
+
     def test_contact_start_reuses_existing_direct_room(self):
         first = self.client.post(
             f"/chat/contacts/{self.bob_contact['contact_id']}/start",

@@ -13,7 +13,7 @@ class ChatListQuickFilterTests(unittest.TestCase):
         self.assertIn('data-chat-row', template)
         self.assertIn('id="chat-filter-count"', template)
         self.assertIn('id="chat-filter-empty"', template)
-        self.assertIn("input.addEventListener('input',apply)", template)
+        self.assertIn("chatInput.addEventListener('input',apply)", template)
 
 
 if __name__ == "__main__":

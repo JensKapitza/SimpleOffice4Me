@@ -3,30 +3,68 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-3 py-md-4" style="padding-bottom:calc(2rem + env(safe-area-inset-bottom));">
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}
+    <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+  {% endfor %}
+
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-    <div><h1 class="h3 mb-1">Chat</h1><p class="text-secondary mb-0">Direkte Nachrichten, Dokumentanhänge und Federation.</p></div>
-    <a class="btn btn-primary d-xl-none" href="#new-chat"><i class="fas fa-plus me-1" aria-hidden="true"></i>Neuer Chat</a>
+    <div>
+      <h1 class="h3 mb-1">Chat</h1>
+      <p class="text-secondary mb-0">Nachrichten mit lokalen und verbundenen SimpleOffice-Benutzern.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('chat.status_page') }}">
+        <i class="fas fa-circle-dot me-1" aria-hidden="true"></i>Status
+      </a>
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-chat-modal">
+        <i class="fas fa-plus me-1" aria-hidden="true"></i>Neuer Chat
+      </button>
+    </div>
   </div>
-  <div class="row g-3">
-    <section class="col-xl-8" aria-labelledby="chat-list-heading">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-        <h2 id="chat-list-heading" class="h5 mb-0">Chats</h2>
-        {% if rooms %}<div class="d-flex align-items-center gap-2"><span class="badge text-bg-secondary" id="chat-filter-count">{{ rooms|length }}</span><label class="visually-hidden" for="chat-filter">Chats filtern</label><input class="form-control form-control-sm" id="chat-filter" type="search" autocomplete="off" placeholder="Titel oder Teilnehmer" style="min-width:15rem"></div>{% endif %}
-      </div>
+
+  <ul class="nav nav-tabs mb-3" id="chat-index-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="chats-tab" data-bs-toggle="tab" data-bs-target="#chats-pane" type="button" role="tab" aria-controls="chats-pane" aria-selected="true">
+        Chats <span class="badge text-bg-secondary ms-1">{{ rooms|length }}</span>
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="contacts-tab" data-bs-toggle="tab" data-bs-target="#contacts-pane" type="button" role="tab" aria-controls="contacts-pane" aria-selected="false">
+        Kontakte <span class="badge text-bg-secondary ms-1">{{ chat_contacts|length }}</span>
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+    <section class="tab-pane fade show active" id="chats-pane" role="tabpanel" aria-labelledby="chats-tab" tabindex="0">
       {% if rooms %}
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <h2 class="h5 mb-0">Chats</h2>
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge text-bg-secondary" id="chat-filter-count">{{ rooms|length }}</span>
+            <label class="visually-hidden" for="chat-filter">Chats filtern</label>
+            <input class="form-control form-control-sm" id="chat-filter" type="search" autocomplete="off" placeholder="Titel oder Teilnehmer" style="min-width:min(18rem,70vw)">
+          </div>
+        </div>
+
         <div class="list-group shadow-sm">
           {% for room in rooms %}
             {% set search_text = room.title ~ ' ' ~ (room.participants|map(attribute='username')|join(' ')) ~ ' ' ~ (room.remote_peer_id or '') %}
             <a class="list-group-item list-group-item-action py-3" data-chat-row data-search="{{ search_text|lower }}" href="{{ url_for('chat.room', room_id=room.room_id) }}">
               <div class="d-flex justify-content-between align-items-start gap-3">
-                <div class="min-w-0">
-                  <strong class="d-block text-truncate">{{ room.title }}</strong>
+                <div class="min-w-0 flex-grow-1">
+                  <strong class="d-block text-truncate fs-6">{{ room.title }}</strong>
                   <div class="small text-secondary mt-1 text-truncate">
-                    {% for participant in room.participants %}{{ participant.username }}{% if participant.participant_kind == 'remote' %}@{{ participant.peer_id }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+                    {% for participant in room.participants %}
+                      {{ participant.username }}{% if participant.participant_kind == 'remote' %}@{{ participant.peer_id }}{% endif %}{% if not loop.last %}, {% endif %}
+                    {% endfor %}
                   </div>
                 </div>
-                {% if room.remote_peer_id %}<span class="badge text-bg-secondary flex-shrink-0"><i class="fas fa-network-wired me-1" aria-hidden="true"></i>Federation</span>{% endif %}
+                {% if room.remote_peer_id %}
+                  <span class="badge text-bg-light border flex-shrink-0">
+                    <i class="fas fa-network-wired me-1" aria-hidden="true"></i>verbunden
+                  </span>
+                {% endif %}
               </div>
             </a>
           {% endfor %}
@@ -34,59 +72,166 @@
         <div id="chat-filter-empty" class="alert alert-secondary mt-2" hidden>Keine Chats passen zum Filter.</div>
       {% else %}
         <div class="card border-0 bg-body-tertiary shadow-sm">
-          <div class="card-body text-center py-4 py-md-5 px-3">
+          <div class="card-body text-center py-5 px-3">
             <i class="far fa-comments fa-3x text-secondary mb-3" aria-hidden="true"></i>
             <p class="mb-1 fw-semibold">Noch keine Chats</p>
-            <p class="text-secondary mb-3">Erstelle unten deinen ersten lokalen oder federierten Chat.</p>
-            <a class="btn btn-outline-primary d-xl-none" href="#new-chat"><i class="fas fa-arrow-down me-1" aria-hidden="true"></i>Chat anlegen</a>
+            <p class="text-secondary mb-3">Starte einen Chat mit einer Person aus SimpleOffice oder einer verbundenen Instanz.</p>
+            <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-chat-modal">
+              <i class="fas fa-plus me-1" aria-hidden="true"></i>Ersten Chat anlegen
+            </button>
           </div>
         </div>
       {% endif %}
     </section>
-    <section class="col-xl-8" aria-labelledby="chat-contact-book-heading">
+
+    <section class="tab-pane fade" id="contacts-pane" role="tabpanel" aria-labelledby="contacts-tab" tabindex="0">
       <div class="card shadow-sm">
         <div class="card-header d-flex justify-content-between align-items-center">
-          <strong id="chat-contact-book-heading">Kontaktbuch</strong>
+          <strong>Kontaktbuch</strong>
           <span class="badge text-bg-secondary">{{ chat_contacts|length }}</span>
         </div>
         <div class="list-group list-group-flush">
           {% for contact in chat_contacts %}
-          <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
-            <div class="min-w-0">
-              <strong class="d-block text-truncate">{{ contact.display_name }}</strong>
-              {% if contact.company %}<span class="small text-secondary">{{ contact.company }}</span>{% endif %}
+            <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-3 py-3">
+              <div class="min-w-0">
+                <strong class="d-block text-truncate">{{ contact.display_name }}</strong>
+                {% if contact.company %}<span class="small text-secondary">{{ contact.company }}</span>{% endif %}
+              </div>
+              {% if contact.reachable %}
+                <form method="post" action="{{ url_for('chat.start_contact_chat', contact_id=contact.contact_id) }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-comment me-1" aria-hidden="true"></i>Chat starten</button>
+                </form>
+              {% else %}
+                <span class="badge text-bg-light border">kein Chat-Konto verknüpft</span>
+              {% endif %}
             </div>
-            {% if contact.reachable %}
-            <form method="post" action="{{ url_for('chat.start_contact_chat', contact_id=contact.contact_id) }}">
-              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-comment me-1" aria-hidden="true"></i>Chat starten</button>
-            </form>
-            {% else %}
-            <span class="badge text-bg-light border">kein Chat-Konto verknüpft</span>
-            {% endif %}
-          </div>
           {% else %}
-          <div class="list-group-item text-secondary">Keine sichtbaren Kontakte vorhanden.</div>
+            <div class="list-group-item text-secondary text-center py-4">Keine sichtbaren Kontakte vorhanden.</div>
           {% endfor %}
         </div>
       </div>
     </section>
-    <aside class="col-xl-4" id="new-chat">
-      <div class="card shadow-sm position-xl-sticky" style="top:5rem;">
-        <div class="card-body p-3 p-md-4">
-          <h2 class="h5 mb-3"><i class="fas fa-comment-medical me-1" aria-hidden="true"></i>Neuer Chat</h2>
-          <form method="post" action="{{ url_for('chat.create_room') }}">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <div class="mb-3"><label class="form-label" for="chat-title">Titel</label><input class="form-control" id="chat-title" name="title" maxlength="200" placeholder="z. B. Projekt Müller" autocomplete="off"></div>
-            <fieldset class="mb-3"><legend class="form-label fs-6">Lokale Teilnehmer</legend><div class="vstack gap-1 border rounded p-2" style="max-height:14rem;overflow:auto;">{% for user in users %}{% if user.username != g.user['username'] %}<label class="form-check"><input class="form-check-input" type="checkbox" name="local_users" value="{{ user.username }}"><span class="form-check-label">{{ user.display_name or user.username }}{% if user.is_admin %} <span class="text-secondary">(Admin)</span>{% endif %}</span></label>{% endif %}{% endfor %}</div></fieldset>
-            <div class="mb-3"><label class="form-label" for="remote-peer">Federation-Peer <span class="text-secondary">(optional)</span></label><select class="form-select" id="remote-peer" name="remote_peer_id"><option value="">Nur lokal</option>{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} ({{ peer.peer_id }})</option>{% endfor %}</select></div>
-            <div class="mb-3"><label class="form-label" for="remote-users">Benutzer auf dem Peer</label><input class="form-control" id="remote-users" name="remote_users" placeholder="anna, peter" autocomplete="off"><div class="form-text">Mehrere Benutzernamen mit Komma trennen.</div></div>
-            <button class="btn btn-primary w-100 mb-2" type="submit"><i class="fas fa-plus me-1" aria-hidden="true"></i>Chat anlegen</button>
-          </form>
-        </div>
-      </div>
-    </aside>
   </div>
-  <script>(()=>{const input=document.getElementById('chat-filter');if(!input)return;const rows=[...document.querySelectorAll('[data-chat-row]')];const count=document.getElementById('chat-filter-count');const empty=document.getElementById('chat-filter-empty');const apply=()=>{const q=input.value.trim().toLocaleLowerCase();let visible=0;rows.forEach(row=>{const show=!q||(row.dataset.search||'').includes(q);row.hidden=!show;if(show)visible+=1;});count.textContent=String(visible);empty.hidden=visible!==0;};input.addEventListener('input',apply);apply();})();</script>
 </main>
+
+<div class="modal fade" id="new-chat-modal" tabindex="-1" aria-labelledby="new-chat-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('chat.create_room') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title h5 mb-1" id="new-chat-title">Neuer Chat</h2>
+            <p class="text-secondary small mb-0">Teilnehmer auswählen und Chat starten.</p>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label" for="chat-title">Titel <span class="text-secondary">(optional)</span></label>
+            <input class="form-control" id="chat-title" name="title" maxlength="200" placeholder="z. B. Projekt Müller" autocomplete="off">
+          </div>
+
+          <fieldset class="mb-4">
+            <legend class="h6">Personen auf diesem Server</legend>
+            <label class="visually-hidden" for="participant-search">Person suchen</label>
+            <div class="input-group mb-2">
+              <span class="input-group-text"><i class="fas fa-magnifying-glass" aria-hidden="true"></i></span>
+              <input class="form-control" id="participant-search" type="search" placeholder="Person suchen …" autocomplete="off">
+            </div>
+            <div class="vstack gap-1 border rounded p-2" style="max-height:16rem;overflow:auto;" id="participant-list">
+              {% for user in users %}
+                {% if user.username != g.user['username'] %}
+                  {% set participant_text = (user.display_name or user.username) ~ ' ' ~ user.username %}
+                  <label class="form-check rounded px-2 py-2 mb-0" data-participant-row data-search="{{ participant_text|lower }}">
+                    <input class="form-check-input ms-0 me-2" type="checkbox" name="local_users" value="{{ user.username }}">
+                    <span class="form-check-label">
+                      <strong>{{ user.display_name or user.username }}</strong>
+                      {% if user.display_name and user.display_name != user.username %}<span class="text-secondary small"> · {{ user.username }}</span>{% endif %}
+                      {% if user.is_admin %}<span class="badge text-bg-light border ms-1">Admin</span>{% endif %}
+                    </span>
+                  </label>
+                {% endif %}
+              {% else %}
+                <div class="text-secondary p-2">Keine weiteren lokalen Benutzer vorhanden.</div>
+              {% endfor %}
+              <div class="text-secondary p-2" id="participant-search-empty" hidden>Keine passende Person gefunden.</div>
+            </div>
+          </fieldset>
+
+          <details class="border rounded p-3">
+            <summary class="fw-semibold">Andere SimpleOffice-Instanz</summary>
+            <div class="pt-3">
+              {% if peers %}
+                <div class="mb-3">
+                  <label class="form-label" for="remote-peer">Server</label>
+                  <select class="form-select" id="remote-peer" name="remote_peer_id">
+                    <option value="">Keine externe Instanz</option>
+                    {% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} ({{ peer.peer_id }})</option>{% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="remote-users">Benutzer auf diesem Server</label>
+                  <input class="form-control" id="remote-users" name="remote_users" placeholder="anna, peter" autocomplete="off">
+                  <div class="form-text">Mehrere Benutzernamen mit Komma trennen.</div>
+                </div>
+              {% else %}
+                <p class="text-secondary mb-0">Aktuell ist kein Federation-Peer für Chat-Versand freigegeben.</p>
+              {% endif %}
+            </div>
+          </details>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Abbrechen</button>
+          <button class="btn btn-primary" type="submit"><i class="fas fa-comment-medical me-1" aria-hidden="true"></i>Chat anlegen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const chatInput = document.getElementById('chat-filter');
+  if (chatInput) {
+    const rows = [...document.querySelectorAll('[data-chat-row]')];
+    const count = document.getElementById('chat-filter-count');
+    const empty = document.getElementById('chat-filter-empty');
+    const apply = () => {
+      const q = chatInput.value.trim().toLocaleLowerCase();
+      let visible = 0;
+      rows.forEach(row => {
+        const show = !q || (row.dataset.search || '').includes(q);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      count.textContent = String(visible);
+      empty.hidden = visible !== 0;
+    };
+    chatInput.addEventListener('input',apply);
+    apply();
+  }
+
+  const participantInput = document.getElementById('participant-search');
+  if (participantInput) {
+    const rows = [...document.querySelectorAll('[data-participant-row]')];
+    const empty = document.getElementById('participant-search-empty');
+    const applyParticipantFilter = () => {
+      const q = participantInput.value.trim().toLocaleLowerCase();
+      let visible = 0;
+      rows.forEach(row => {
+        const show = !q || (row.dataset.search || '').includes(q);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      empty.hidden = visible !== 0;
+    };
+    participantInput.addEventListener('input', applyParticipantFilter);
+    applyParticipantFilter();
+  }
+})();
+</script>
 {% endblock %}
