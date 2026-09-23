@@ -203,9 +203,34 @@ class PersistentJobStore:
 
 class FederationJobService:
     KIND = "federation.transfer.v2"
+    _CAPABILITY_REVOKE_REASONS = frozenset({
+        "explicit_block",
+        "object_specific_block",
+        "blocked_downstream_capability",
+    })
 
     def __init__(self, store: PersistentJobStore):
         self.store = store
+
+    @classmethod
+    def _revoke_blocked_object_capabilities(
+        cls,
+        authorization_store: AuthorizationStore | None,
+        *,
+        reason: str,
+        blocked_peer: str,
+        object_refs: tuple[str, ...] | list[str],
+    ) -> int:
+        if (
+            authorization_store is None
+            or not blocked_peer
+            or reason not in cls._CAPABILITY_REVOKE_REASONS
+        ):
+            return 0
+        return authorization_store.revoke_for_peer_objects(
+            blocked_peer,
+            object_refs,
+        )
 
     def create_transfer(
         self,
@@ -233,8 +258,12 @@ class FederationJobService:
                     "federation policy could not be evaluated safely",
                 )
             if not decision.allowed:
-                if authorization_store is not None and decision.blocked_peer:
-                    authorization_store.revoke_for_peer(decision.blocked_peer)
+                self._revoke_blocked_object_capabilities(
+                    authorization_store,
+                    reason=decision.reason,
+                    blocked_peer=decision.blocked_peer,
+                    object_refs=list(intent.object_refs),
+                )
                 return OperationResult.failure(
                     ErrorCode.FORBIDDEN,
                     f"federation policy denied transfer: {decision.reason}:{decision.blocked_peer}",
@@ -313,8 +342,12 @@ class FederationJobService:
             )
         if decision.allowed:
             return current
-        if authorization_store is not None and decision.blocked_peer:
-            authorization_store.revoke_for_peer(decision.blocked_peer)
+        self._revoke_blocked_object_capabilities(
+            authorization_store,
+            reason=decision.reason,
+            blocked_peer=decision.blocked_peer,
+            object_refs=list(payload.get("object_refs") or ()),
+        )
         return self.store.transition(
             job_id,
             JobState.FAILED,
