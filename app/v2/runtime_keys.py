@@ -25,7 +25,7 @@ class _CachedMasterKey:
     password_path: str
     password_stat: tuple[int, int, int, int, int, int]
     profile_generation: int
-    master_key: bytes
+    master_key: bytearray
 
 
 class RuntimeStorageKeyProvider:
@@ -90,6 +90,9 @@ class RuntimeStorageKeyProvider:
             ):
                 return bytes(cached.master_key)
 
+            if cached is not None:
+                self._wipe(cached.master_key)
+
             try:
                 password = load_master_password_file(
                     password_path,
@@ -102,18 +105,28 @@ class RuntimeStorageKeyProvider:
                 password_path=str(password_path),
                 password_stat=fingerprint,
                 profile_generation=generation,
-                master_key=bytes(master_key),
+                master_key=bytearray(master_key),
             )
             return bytes(master_key)
 
+    @staticmethod
+    def _wipe(value: bytearray) -> None:
+        for index in range(len(value)):
+            value[index] = 0
+
     def clear(self, root: str | Path | None = None) -> None:
-        """Drop cached plaintext master-key material from this process."""
+        """Best-effort overwrite and drop cached plaintext master-key material."""
 
         with self._lock:
             if root is None:
+                for cached in self._cache.values():
+                    self._wipe(cached.master_key)
                 self._cache.clear()
                 return
-            self._cache.pop(str(Path(root).expanduser().resolve()), None)
+            key = str(Path(root).expanduser().resolve())
+            cached = self._cache.pop(key, None)
+            if cached is not None:
+                self._wipe(cached.master_key)
 
 
 _PROVIDER = RuntimeStorageKeyProvider()
