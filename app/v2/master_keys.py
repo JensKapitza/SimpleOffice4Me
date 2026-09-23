@@ -308,19 +308,16 @@ class MasterKeyProfileStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, path)
-            try:
-                os.chmod(path, 0o600)
-            except OSError:
-                pass
             if os.name == "posix":
                 try:
+                    os.chmod(path, 0o600)
                     directory = os.open(self.base, os.O_RDONLY)
                     try:
                         os.fsync(directory)
                     finally:
                         os.close(directory)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    raise ValueError("master-key profile durability or permissions could not be secured") from exc
         finally:
             temporary.unlink(missing_ok=True)
 
