@@ -166,6 +166,7 @@ class MasterKeyProfileStoreTest(unittest.TestCase):
     def test_symlinked_master_key_directory_is_rejected_for_reads(self):
         other = self.root / "other-master-keys"
         other.mkdir()
+        self.store._ensure_base()
         base = self.root / ".simpleoffice-v2" / "master-keys"
         for child in base.iterdir():
             if child.is_file():
