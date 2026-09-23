@@ -94,8 +94,17 @@ replace. Reads reject symlink/non-regular profile files.
 
 ## Storage activation
 
-This component does not automatically unlock encrypted storage at process
-startup and does not bind storage encryption to the normal web login session.
-That integration remains explicit so unattended servers, interactive users,
-recovery operation and future trustee policies can use different unlock
-policies without weakening the key hierarchy.
+The dedicated local-storage profile can be used by the encrypted V2 blob
+runtime. Its password remains separate from the normal web login session and is
+loaded only from the external file configured by
+`SIMPLEOFFICE_V2_STORAGE_PASSWORD_FILE`.
+
+The file must live outside the SimpleOffice data root and is intended for an OS
+credential/secret mount or otherwise tightly protected service configuration.
+The unlocked master key is cached only in process memory and the runtime fails
+closed when the secret or profile is unavailable.
+
+Provisioning and cutover steps are documented in
+`docs/V2_ENCRYPTED_RUNTIME_CUTOVER.md`. The legacy plaintext compatibility
+projection is still retained, so this activation must not yet be described as
+full local encryption at rest.

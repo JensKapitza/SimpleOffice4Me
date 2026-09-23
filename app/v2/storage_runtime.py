@@ -13,8 +13,10 @@ from app.document_store import DocumentStore
 from .adapters.document_store import DocumentStoreStorageAdapter
 from .adapters.shadow import ShadowDocumentStorageAdapter
 from .adapters.authoritative import V2AuthoritativeStorageAdapter
+from .adapters.encrypted_blob_catalog import EncryptedBlobCatalogStorageAdapter
 from .contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoragePort
-from .cutover import load_cutover_state
+from .cutover import LOCAL_ENCRYPTED_BLOB, load_cutover_state
+from .runtime_keys import runtime_storage_master_key
 
 
 def storage_for(root: str | Path, actor: str) -> StoragePort:
@@ -22,6 +24,10 @@ def storage_for(root: str | Path, actor: str) -> StoragePort:
     if state.mode == "shadow":
         return ShadowDocumentStorageAdapter(root, actor)
     if state.mode == "v2":
+        if state.protection_mode == LOCAL_ENCRYPTED_BLOB:
+            master_key = runtime_storage_master_key(root)
+            primary = EncryptedBlobCatalogStorageAdapter(root, actor, master_key)
+            return V2AuthoritativeStorageAdapter(root, actor, primary=primary)
         return V2AuthoritativeStorageAdapter(root, actor)
     return DocumentStoreStorageAdapter(root, actor)
 

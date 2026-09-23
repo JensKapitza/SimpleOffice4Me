@@ -7,10 +7,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Sequence
 
-from .cutover import activate_v2, cutover_status, prepare_shadow, return_to_v1
+from .cutover import (
+    LOCAL_ENCRYPTED_BLOB,
+    activate_v2,
+    cutover_status,
+    load_cutover_state,
+    prepare_shadow,
+    return_to_v1,
+)
+from .encrypted_cutover import encrypted_blob_cutover
 from .fragment_recovery_io import (
     assessment_to_dict,
     export_recovered_payload,
@@ -21,11 +30,15 @@ from .fragments import assess_fragments, recover_payload
 from .recovery import RecoveryService
 from .migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
 from .master_keys import (
+    MasterKeyProfileStore,
+    load_master_password_file,
     load_recovery_bundle_file,
     load_recovery_key_file,
     recover_master_key_from_bundle,
     recovery_bundle_info,
 )
+from .runtime_keys import PASSWORD_FILE_ENV, STORAGE_PROFILE_ID
+from .storage_keys import export_storage_recovery_bundle, provision_storage_profile
 from .zfec_codec import codec_for_plan
 
 
@@ -63,6 +76,34 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("--apply", action="store_true")
     sub.add_parser("migration-verify", help="Verify V1/V2 content transfer without writing")
     sub.add_parser("storage-cutover-status", help="Show explicit V2 storage cutover state and verification")
+
+    key_init = sub.add_parser(
+        "storage-key-init",
+        help="Create the dedicated V2 storage master-key profile and offline recovery material",
+    )
+    key_init.add_argument("--password-file", required=True)
+    key_init.add_argument("--recovery-key-output", required=True)
+    key_init.add_argument("--recovery-bundle-output", required=True)
+    key_init.add_argument("--apply", action="store_true")
+
+    key_bundle = sub.add_parser(
+        "storage-key-export-bundle",
+        help="Export a fresh protected recovery bundle for the V2 storage profile",
+    )
+    key_bundle.add_argument("--output", required=True)
+    key_bundle.add_argument("--apply", action="store_true")
+
+    encrypted = sub.add_parser(
+        "storage-encrypted",
+        help="Verify or migrate authoritative V2 blobs to the encrypted runtime backend",
+    )
+    encrypted.add_argument("--apply", action="store_true")
+    encrypted.add_argument(
+        "--acknowledge-maintenance-window",
+        action="store_true",
+        help="Confirm normal application writers are stopped for this offline cutover",
+    )
+
     shadow = sub.add_parser("storage-shadow", help="Prepare or enter verified V2 shadow mode")
     shadow.add_argument("--apply", action="store_true")
     activate = sub.add_parser("storage-v2", help="Promote verified shadow mode to authoritative V2 storage")
@@ -177,6 +218,17 @@ def _run_master_key_recovery_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _storage_master_key(root: str | Path) -> bytes:
+    configured = str(os.environ.get(PASSWORD_FILE_ENV) or "").strip()
+    if not configured:
+        raise ValueError(
+            f"{PASSWORD_FILE_ENV} must point at the external protected storage password file"
+        )
+    password = load_master_password_file(configured, forbidden_root=root)
+    profile = MasterKeyProfileStore(root, "v2-storage-cutover")
+    return profile.unlock_with_password(STORAGE_PROFILE_ID, password)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -228,9 +280,70 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result["ready"] else 2
 
     if args.command == "storage-cutover-status":
-        result = cutover_status(args.root)
+        state = load_cutover_state(args.root)
+        if state.mode == "v2" and state.protection_mode == LOCAL_ENCRYPTED_BLOB:
+            try:
+                master_key = _storage_master_key(args.root)
+                result = cutover_status(args.root, master_key=master_key)
+                result["encrypted_backend_verification"] = encrypted_blob_cutover(
+                    args.root,
+                    master_key,
+                    apply=False,
+                )
+                del master_key
+            except (OSError, RuntimeError, ValueError) as exc:
+                result = cutover_status(args.root)
+                result["encrypted_backend_verification"] = {
+                    "ready": False,
+                    "blockers": [str(exc)],
+                }
+        else:
+            result = cutover_status(args.root)
         print(json.dumps(result, indent=2, sort_keys=True))
-        return 0 if result["verification_ready"] else 2
+        encrypted_ready = result.get("encrypted_backend_verification", {}).get("ready", True)
+        return 0 if result["verification_ready"] and encrypted_ready else 2
+
+    if args.command == "storage-key-init":
+        if not args.apply:
+            print("read-only mode: add --apply to create the V2 storage key profile")
+            return 3
+        result = provision_storage_profile(
+            args.root,
+            password_file=args.password_file,
+            recovery_key_output=args.recovery_key_output,
+            recovery_bundle_output=args.recovery_bundle_output,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-key-export-bundle":
+        if not args.apply:
+            print("read-only mode: add --apply to export the recovery bundle")
+            return 3
+        result = export_storage_recovery_bundle(args.root, args.output)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-encrypted":
+        if args.apply and not args.acknowledge_maintenance_window:
+            print(
+                "refusing write: stop normal application writers and add "
+                "--acknowledge-maintenance-window"
+            )
+            return 3
+        master_key = _storage_master_key(args.root)
+        try:
+            result = encrypted_blob_cutover(
+                args.root,
+                master_key,
+                apply=bool(args.apply),
+            )
+        finally:
+            del master_key
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if args.apply:
+            return 0 if result["ready"] and result["encrypted_blob_backend_active"] else 2
+        return 0 if result["ready"] else 3
 
     if args.command == "storage-shadow":
         if args.apply and not args.acknowledge_local_plaintext:

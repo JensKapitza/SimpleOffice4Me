@@ -61,12 +61,17 @@ whole-content SHA-256 in cleartext; that catalog is not a federation/public blob
 manifest and requires a separate metadata-at-rest decision before claiming full
 local metadata encryption.
 
-## Not yet activated
+## Runtime activation
 
-This format is groundwork for the remaining encrypted-at-rest cutover. The live
-V2 StoragePort remains in the explicitly acknowledged `local-plaintext` mode
-until key provisioning/unlock, migration, recovery and cutover semantics are
-wired and verified together.
+The encrypted blob backend can now be activated after authoritative V2
+`local-plaintext` cutover by following
+`docs/V2_ENCRYPTED_RUNTIME_CUTOVER.md`. Runtime unlock uses the dedicated V2
+storage master-key profile plus an external protected password file.
 
-Federation must not treat the plaintext BlobStore as encrypted peer storage in
-the meantime.
+Activation preserves logical/catalog version IDs and keeps the legacy
+DocumentStore projection and plaintext V2 BlobStore for compatibility and
+rollback. Therefore this stage still reports `encrypted_at_rest=false`.
+
+Federation must not treat the retained plaintext compatibility data as
+ciphertext peer storage. Federation storage remains disabled until its own
+encrypted path and authorization boundary are activated.
