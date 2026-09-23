@@ -45,6 +45,11 @@ __all__ = [
     "EncryptedPayload",
     "ProtectedMasterKey",
     "WrappedKey",
+    "MasterKeyProfileStore",
+    "RecoveryMaterial",
+    "encode_recovery_key",
+    "decode_recovery_key",
+    "recover_master_key_from_bundle",
     "EncodedRecoverySet",
     "ErasureCodec",
     "FragmentAssessment",
@@ -85,6 +90,7 @@ __all__ = [
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
 
 from .crypto import ChunkCryptoSession, CryptoService, EncryptedChunk, EncryptedPayload, ProtectedMasterKey, WrappedKey
+from .master_keys import MasterKeyProfileStore, RecoveryMaterial, decode_recovery_key, encode_recovery_key, recover_master_key_from_bundle
 
 from .fragments import (
     EncodedRecoverySet,
