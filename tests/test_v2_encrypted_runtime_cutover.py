@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,6 +28,7 @@ from app.v2.migration import create_migration_backup, transfer_legacy_documents
 from app.v2.runtime_keys import (
     PASSWORD_FILE_ENV,
     STORAGE_PROFILE_ID,
+    RuntimeStorageKeyProvider,
     clear_runtime_storage_master_key,
 )
 from app.v2.storage_runtime import create_document, storage_for
@@ -54,16 +56,16 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
             apply=True,
             acknowledge_local_plaintext=True,
         )
-        self.password = "dedicated synthetic storage password"
-        self.password_file = self.base / "storage-password.txt"
-        self.password_file.write_text(self.password + "\n", encoding="utf-8")
+        self.unlock_phrase = "dedicated synthetic storage password"
+        self.unlock_phrase_file = self.base / "storage-password.txt"
+        self.unlock_phrase_file.write_text(self.unlock_phrase + "\n", encoding="utf-8")
         if os.name == "posix":
-            os.chmod(self.password_file, 0o600)
+            os.chmod(self.unlock_phrase_file, 0o600)
         self.key_store = MasterKeyProfileStore(self.root, "synthetic-setup")
-        self.key_store.create(STORAGE_PROFILE_ID, self.password)
+        self.key_store.create(STORAGE_PROFILE_ID, self.unlock_phrase)
         self.master_key = self.key_store.unlock_with_password(
             STORAGE_PROFILE_ID,
-            self.password,
+            self.unlock_phrase,
         )
         clear_runtime_storage_master_key(self.root)
 
@@ -122,7 +124,7 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {PASSWORD_FILE_ENV: str(self.password_file)},
+            {PASSWORD_FILE_ENV: str(self.unlock_phrase_file)},
             clear=False,
         ):
             runtime = storage_for(self.root, "tester")
@@ -163,6 +165,45 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
             )
             self.assertTrue(active["ready"])
 
+    def test_direct_legacy_projection_drift_blocks_encrypted_activation(self):
+        legacy_path = self.root / "inbox" / "seed.txt"
+        legacy_path.write_bytes(b"changed-outside-storage-boundary")
+
+        report = encrypted_blob_cutover(
+            self.root,
+            self.master_key,
+            apply=True,
+        )
+
+        self.assertFalse(report["ready"])
+        self.assertFalse(report["encrypted_blob_backend_active"])
+        self.assertFalse(report["compatibility_projection_ready"])
+        self.assertTrue(
+            any("plaintext compatibility projection" in item for item in report["blockers"])
+        )
+        self.assertEqual(
+            LOCAL_PLAINTEXT,
+            load_cutover_state(self.root).protection_mode,
+        )
+
+    def test_runtime_cache_is_overwritten_when_cleared(self):
+        provider = RuntimeStorageKeyProvider()
+        with patch.dict(
+            os.environ,
+            {PASSWORD_FILE_ENV: str(self.password_file)},
+            clear=False,
+        ):
+            master = provider.master_key(self.root)
+
+        cached = provider._cache[str(self.root.resolve())].master_key
+        self.assertEqual(master, bytes(cached))
+        self.assertTrue(any(cached))
+
+        provider.clear(self.root)
+
+        self.assertTrue(all(value == 0 for value in cached))
+        self.assertNotIn(str(self.root.resolve()), provider._cache)
+
     def test_encrypted_runtime_fails_closed_without_external_password_file(self):
         encrypted_blob_cutover(self.root, self.master_key, apply=True)
         clear_runtime_storage_master_key(self.root)
@@ -175,7 +216,7 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
     def test_runtime_password_file_must_be_outside_data_root(self):
         encrypted_blob_cutover(self.root, self.master_key, apply=True)
         inside = self.root / "runtime-password.txt"
-        inside.write_text(self.password, encoding="utf-8")
+        inside.write_text(self.unlock_phrase, encoding="utf-8")
         if os.name == "posix":
             os.chmod(inside, 0o600)
         clear_runtime_storage_master_key(self.root)
