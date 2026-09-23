@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,11 +23,11 @@ class StorageKeySetupTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.root = self.base / "documents"
         self.root.mkdir()
-        self.password = "synthetic storage password 123"
-        self.password_file = self.base / "storage-password"
-        self.password_file.write_text(self.password + "\n", encoding="utf-8")
+        self.unlock_phrase = "synthetic storage password 123"
+        self.unlock_phrase_file = self.base / "storage-password"
+        self.unlock_phrase_file.write_text(self.unlock_phrase + "\n", encoding="utf-8")
         if os.name == "posix":
-            os.chmod(self.password_file, 0o600)
+            os.chmod(self.unlock_phrase_file, 0o600)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -37,7 +38,7 @@ class StorageKeySetupTests(unittest.TestCase):
 
         result = provision_storage_profile(
             self.root,
-            password_file=self.password_file,
+            password_file=self.unlock_phrase_file,
             recovery_key_output=recovery_key,
             recovery_bundle_output=bundle,
         )
@@ -48,7 +49,7 @@ class StorageKeySetupTests(unittest.TestCase):
         store = MasterKeyProfileStore(self.root, "test")
         password_master = store.unlock_with_password(
             STORAGE_PROFILE_ID,
-            self.password,
+            self.unlock_phrase,
         )
         recovered_master = recover_master_key_from_bundle(
             load_recovery_bundle_file(bundle),
@@ -61,7 +62,7 @@ class StorageKeySetupTests(unittest.TestCase):
 
     def test_password_file_inside_data_root_is_rejected(self):
         inside = self.root / "password"
-        inside.write_text(self.password, encoding="utf-8")
+        inside.write_text(self.unlock_phrase, encoding="utf-8")
         if os.name == "posix":
             os.chmod(inside, 0o600)
 
@@ -73,11 +74,11 @@ class StorageKeySetupTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "posix", "permission check requires POSIX modes")
     def test_group_readable_password_file_is_rejected(self):
-        os.chmod(self.password_file, 0o640)
+        os.chmod(self.unlock_phrase_file, 0o640)
 
         with self.assertRaisesRegex(ValueError, "group/world"):
             load_master_password_file(
-                self.password_file,
+                self.unlock_phrase_file,
                 forbidden_root=self.root,
             )
 
@@ -85,7 +86,7 @@ class StorageKeySetupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside"):
             provision_storage_profile(
                 self.root,
-                password_file=self.password_file,
+                password_file=self.unlock_phrase_file,
                 recovery_key_output=self.root / "recovery.key",
                 recovery_bundle_output=self.base / "recovery.json",
             )
