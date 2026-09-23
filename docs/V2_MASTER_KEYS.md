@@ -43,6 +43,25 @@ bundle plus recovery key without a Flask application, user database or live
 SimpleOffice root. This is groundwork for the independent encrypted-store
 recovery CLI.
 
+## Independent recovery check
+
+The existing `simpleoffice-v2-recovery` CLI provides
+`master-key-recovery-check`. It accepts a recovery-bundle path and a
+`--recovery-key-file` path. The recovery key itself is deliberately not
+accepted as a command-line argument, so it does not enter normal process
+argument listings or shell history.
+
+The command needs no SimpleOffice document root or user database. It verifies
+the protected master key and authenticated profile binding, then reports only
+non-secret status metadata. It never prints or exports the recovered master
+key. Invalid inputs and authentication failures use the same generic error
+result.
+
+This command is a validation building block. A later encrypted-object recovery
+command should consume the recovered key internally and export only the
+requested verified plaintext object, rather than materializing the raw master
+key.
+
 ## Recovery-key rotation
 
 Recovery-key rotation creates a fresh independent recovery key and rewrites only
