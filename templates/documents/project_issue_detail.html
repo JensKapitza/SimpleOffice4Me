@@ -6,7 +6,7 @@
 <main id="main-content" class="container-xl py-4 project-ui">
   <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.project_issues', project_id=project.project_id) }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Issues</a>
   <div class="project-hero compact-project-hero"><span class="project-icon" aria-hidden="true"><i class="fas fa-circle-dot"></i></span><div><h1>#{{ issue.number }} {{ issue.title }}</h1><p class="project-page-subtitle mb-0">{{ project.title }}</p></div><span class="status-chip status-{{ issue.status }}">{{ issue.status }}</span></div>
-  {% set active_project_tab = 'issues' %}{% include "documents/project_workspace_nav.html" %}
+  {% set active_project_tab = 'issues' %}{% include "documents/project_workspace_nav.jinja" %}
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="row g-4">
