@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import Flask
+
 from app.federation_attestations import FederationAttestationStore
 from app.federation_identity import FederationIdentity
 from app.federation_trust_store import FederationTrustStore
@@ -18,9 +20,18 @@ class FederationBlockPolicyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = self.tmp.name
+        self.app = Flask(__name__)
+        self.app.config.update(
+            TESTING=True,
+            SECRET_KEY="federation-policy-test",
+            DOCUMENT_ROOT=str(self.root),
+        )
+        self.context = self.app.app_context()
+        self.context.push()
         self.policy = FederationPolicyStore(self.root)
 
     def tearDown(self):
+        self.context.pop()
         self.tmp.cleanup()
 
     def test_direct_block_denies_route(self):
