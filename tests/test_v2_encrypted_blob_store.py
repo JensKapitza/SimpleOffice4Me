@@ -206,6 +206,27 @@ class EncryptedBlobStoreTest(unittest.TestCase):
         self.assertEqual(version.content_sha256, verified.content_sha256)
         self.assertEqual(version.size, verified.size)
 
+    def test_copy_verified_to_streams_bounded_plaintext(self):
+        class GuardedDestination(io.BytesIO):
+            def write(self, data):
+                if len(data) > 64 * 1024:
+                    raise AssertionError("encrypted recovery write exceeded chunk size")
+                return super().write(data)
+
+        payload = (b"bounded-recovery-" * 12000) + b"tail"
+        version = self.store.write(self.object_id, payload)
+        destination = GuardedDestination()
+
+        copied = self.store.copy_verified_to(
+            self.object_id,
+            destination,
+            version_id=version.version_id,
+        )
+
+        self.assertEqual(version.version_id, copied.version_id)
+        self.assertEqual(version.content_sha256, copied.content_sha256)
+        self.assertEqual(payload, destination.getvalue())
+
     def test_streaming_write_is_bounded_and_checks_expected_digest(self):
         class GuardedStream(io.BytesIO):
             def read(self, size=-1):
