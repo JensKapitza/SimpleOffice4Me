@@ -80,14 +80,17 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
         os.replace(temporary, path)
         if os.name == "posix":
             try:
-                os.chmod(path, 0o600)
                 directory = os.open(path.parent, os.O_RDONLY)
                 try:
                     os.fsync(directory)
                 finally:
                     os.close(directory)
             except OSError as exc:
-                raise OSError("encrypted blob metadata durability or permissions could not be secured") from exc
+                logger.warning(
+                    "encrypted blob metadata directory fsync failed file=%s error=%s",
+                    path.name,
+                    type(exc).__name__,
+                )
     finally:
         temporary.unlink(missing_ok=True)
 
