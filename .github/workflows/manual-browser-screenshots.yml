@@ -1,4 +1,4 @@
-name: Manual browser screenshot test
+name: Manual browser peer-to-peer and HTML5 test
 
 on:
   workflow_dispatch:
@@ -20,18 +20,22 @@ permissions:
   contents: read
 
 concurrency:
-  group: manual-browser-screenshot-${{ github.ref }}
+  group: manual-browser-peer-to-peer-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   BASE_URL: http://127.0.0.1:8080
+  PEER_BASE_URL: http://127.0.0.1:8081
+  BROWSER_PEER_A_DOCKER_URL: http://peer-a:8080
+  BROWSER_PEER_B_DOCKER_URL: http://peer-b:8080
+  BROWSER_PEER_SHARED_TOKEN: browser-p2p-not-a-secret
 
 jobs:
   browser-screenshot:
-    name: Browser smoke test and screenshots
+    name: Browser smoke, P2P and HTML5 validation
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -56,13 +60,31 @@ jobs:
           set -euo pipefail
           docker build --pull -t simpleoffice4me:browser-test .
 
-      - name: Start SimpleOffice4Me
+      - name: Start two SimpleOffice peers
         shell: bash
         run: |
           set -euo pipefail
+          docker network create simpleoffice-browser-p2p
           docker run -d \
-            --name simpleoffice-browser-test \
+            --name simpleoffice-browser-peer-a \
+            --network simpleoffice-browser-p2p \
+            --network-alias peer-a \
             -p 127.0.0.1:8080:8080 \
+            -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_SHARED_TOKEN" \
+            -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-a \
+            -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
+            -e SIMPLEOFFICE_OSM_INDEX=0 \
+            -e SIMPLEOFFICE_DATALOGGER=0 \
+            -e SIMPLEOFFICE_MCP=0 \
+            -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
+            simpleoffice4me:browser-test
+          docker run -d \
+            --name simpleoffice-browser-peer-b \
+            --network simpleoffice-browser-p2p \
+            --network-alias peer-b \
+            -p 127.0.0.1:8081:8080 \
+            -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_SHARED_TOKEN" \
+            -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-b \
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \
             -e SIMPLEOFFICE_DATALOGGER=0 \
@@ -70,29 +92,35 @@ jobs:
             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
             simpleoffice4me:browser-test
 
-      - name: Wait for web service
+      - name: Wait for both web services
         shell: bash
         run: |
           set -euo pipefail
           for attempt in $(seq 1 90); do
-            if curl --fail --silent --show-error "$BASE_URL/auth/login" >/dev/null; then
-              echo "SimpleOffice4Me is ready."
+            peer_a=0
+            peer_b=0
+            curl --fail --silent --show-error "$BASE_URL/auth/login" >/dev/null && peer_a=1 || true
+            curl --fail --silent --show-error "$PEER_BASE_URL/auth/login" >/dev/null && peer_b=1 || true
+            if [ "$peer_a" -eq 1 ] && [ "$peer_b" -eq 1 ]; then
+              echo "Both SimpleOffice peers are ready."
               exit 0
             fi
-            if ! docker ps --format '{{.Names}}' | grep -qx simpleoffice-browser-test; then
-              echo "SimpleOffice4Me container stopped unexpectedly."
-              docker logs simpleoffice-browser-test || true
-              docker inspect simpleoffice-browser-test || true
-              exit 1
-            fi
+            for container in simpleoffice-browser-peer-a simpleoffice-browser-peer-b; do
+              if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
+                echo "$container stopped unexpectedly."
+                docker logs "$container" || true
+                docker inspect "$container" || true
+                exit 1
+              fi
+            done
             sleep 2
           done
-          echo "SimpleOffice4Me did not become ready."
-          docker logs simpleoffice-browser-test || true
-          docker inspect simpleoffice-browser-test || true
+          echo "SimpleOffice peers did not become ready."
+          docker logs simpleoffice-browser-peer-a || true
+          docker logs simpleoffice-browser-peer-b || true
           exit 1
 
-      - name: Run browser screenshot test
+      - name: Run browser screenshot and peer-to-peer test
         env:
           BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'core' }}
           BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ github.event_name == 'workflow_dispatch' && inputs.fail_on_console_errors || true }}
@@ -101,24 +129,44 @@ jobs:
           set -euo pipefail
           python tests/browser/manual_screenshot_smoke.py
 
-      - name: Collect server log
+      - name: Validate rendered HTML5 with Nu Html Checker
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/browser
+          if ! find test-results/browser/html -type f -name '*.html' -print -quit 2>/dev/null | grep -q .; then
+            echo "No rendered HTML snapshots found." | tee test-results/browser/html-validation.log
+            exit 1
+          fi
+          docker run --rm \
+            -v "$PWD/test-results/browser/html:/data:ro" \
+            ghcr.io/validator/validator:latest \
+            vnu --errors-only --skip-non-html /data \
+            2>&1 | tee test-results/browser/html-validation.log
+
+      - name: Collect peer logs
         if: always()
         shell: bash
         run: |
           mkdir -p test-results/browser
-          docker logs simpleoffice-browser-test > test-results/browser/server.log 2>&1 || true
-          docker inspect simpleoffice-browser-test > test-results/browser/container-inspect.json 2>&1 || true
+          docker logs simpleoffice-browser-peer-a > test-results/browser/server-peer-a.log 2>&1 || true
+          docker logs simpleoffice-browser-peer-b > test-results/browser/server-peer-b.log 2>&1 || true
+          docker inspect simpleoffice-browser-peer-a > test-results/browser/container-peer-a-inspect.json 2>&1 || true
+          docker inspect simpleoffice-browser-peer-b > test-results/browser/container-peer-b-inspect.json 2>&1 || true
 
-      - name: Stop service
+      - name: Stop peers
         if: always()
         shell: bash
-        run: docker rm -f simpleoffice-browser-test >/dev/null 2>&1 || true
+        run: |
+          docker rm -f simpleoffice-browser-peer-a simpleoffice-browser-peer-b >/dev/null 2>&1 || true
+          docker network rm simpleoffice-browser-p2p >/dev/null 2>&1 || true
 
       - name: Upload screenshots and diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-screenshots-${{ github.run_id }}
+          name: browser-peer-to-peer-${{ github.run_id }}
           path: test-results/browser/
           if-no-files-found: warn
           retention-days: 14
