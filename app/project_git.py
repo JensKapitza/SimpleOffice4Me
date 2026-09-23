@@ -179,10 +179,19 @@ class ProjectGitService:
             "PATH": os.environ.get("PATH", ""),
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
-            "LC_ALL": "C.UTF-8",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_ATTR_NOSYSTEM": "1",
+            "LC_ALL": "C",
         }
         result = subprocess.run(
-            [self.git, "-c", "color.ui=false", *args],
+            [
+                self.git,
+                "-c", "color.ui=false",
+                "-c", "core.fsmonitor=false",
+                "-c", "core.untrackedCache=false",
+                "-c", "diff.external=",
+                *args,
+            ],
             cwd=repo,
             env=env,
             stdin=subprocess.DEVNULL,
