@@ -56,8 +56,8 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
             apply=True,
             acknowledge_local_plaintext=True,
         )
-        self.unlock_phrase = "dedicated synthetic storage password"
-        self.unlock_phrase_file = self.base / "storage-password.txt"
+        self.unlock_phrase = secrets.token_urlsafe(32)
+        self.unlock_phrase_file = self.base / "storage-unlock.txt"
         self.unlock_phrase_file.write_text(self.unlock_phrase + "\n", encoding="utf-8")
         if os.name == "posix":
             os.chmod(self.unlock_phrase_file, 0o600)
@@ -190,7 +190,7 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
         provider = RuntimeStorageKeyProvider()
         with patch.dict(
             os.environ,
-            {PASSWORD_FILE_ENV: str(self.password_file)},
+            {PASSWORD_FILE_ENV: str(self.unlock_phrase_file)},
             clear=False,
         ):
             master = provider.master_key(self.root)
@@ -215,7 +215,7 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
 
     def test_runtime_password_file_must_be_outside_data_root(self):
         encrypted_blob_cutover(self.root, self.master_key, apply=True)
-        inside = self.root / "runtime-password.txt"
+        inside = self.root / "runtime-unlock.txt"
         inside.write_text(self.unlock_phrase, encoding="utf-8")
         if os.name == "posix":
             os.chmod(inside, 0o600)
