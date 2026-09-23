@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -110,6 +111,88 @@ class FederationBlockPolicyTests(unittest.TestCase):
         self.assertFalse(denied.allowed)
         self.assertEqual("relay_not_allowed", denied.reason)
         self.assertEqual("peer-b", denied.blocked_peer)
+
+    def test_relay_denylist_rejects_only_named_intermediary(self):
+        self.policy.set_route_constraint(
+            "peer-d",
+            scope="relay",
+            denied_relays=("peer-b",),
+        )
+
+        denied = self.policy.decision(
+            ["peer-a", "peer-b", "peer-d"],
+            scope="relay",
+            target_peer="peer-d",
+        )
+        allowed = self.policy.decision(
+            ["peer-a", "peer-c", "peer-d"],
+            scope="relay",
+            target_peer="peer-d",
+        )
+
+        self.assertFalse(denied.allowed)
+        self.assertEqual("relay_explicitly_denied", denied.reason)
+        self.assertEqual("peer-b", denied.blocked_peer)
+        self.assertTrue(allowed.allowed)
+
+    def test_relay_cannot_be_on_allowlist_and_denylist(self):
+        with self.assertRaises(ValueError):
+            self.policy.set_route_constraint(
+                "peer-d",
+                scope="relay",
+                allowed_relays=("peer-b",),
+                denied_relays=("peer-b",),
+            )
+
+    def test_existing_route_constraint_schema_is_migrated_for_denylist(self):
+        with tempfile.TemporaryDirectory() as root:
+            control = Path(root) / ".simpleoffice-v2"
+            control.mkdir(parents=True)
+            path = control / "federation-policy.sqlite3"
+            with sqlite3.connect(path) as db:
+                db.execute(
+                    """CREATE TABLE route_constraint(
+                        target_peer TEXT NOT NULL,
+                        scope TEXT NOT NULL,
+                        direct_only INTEGER NOT NULL DEFAULT 0,
+                        max_hops INTEGER,
+                        allowed_relays_json TEXT,
+                        created_by TEXT NOT NULL DEFAULT '',
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(target_peer, scope)
+                    )"""
+                )
+
+            migrated = FederationPolicyStore(root)
+            with migrated._db() as db:
+                columns = {
+                    row["name"]
+                    for row in db.execute(
+                        "PRAGMA table_info(route_constraint)"
+                    ).fetchall()
+                }
+
+            self.assertIn("denied_relays_json", columns)
+
+    def test_corrupt_relay_denylist_fails_closed(self):
+        self.policy.set_route_constraint(
+            "peer-d",
+            scope="relay",
+            denied_relays=("peer-b",),
+        )
+        with self.policy._db() as db:
+            db.execute(
+                """UPDATE route_constraint
+                   SET denied_relays_json='not-json'
+                   WHERE target_peer='peer-d' AND scope='relay'"""
+            )
+
+        with self.assertRaises(RuntimeError):
+            self.policy.decision(
+                ["peer-a", "peer-c", "peer-d"],
+                scope="relay",
+                target_peer="peer-d",
+            )
 
     def test_global_and_scope_constraints_both_apply(self):
         self.policy.set_route_constraint("peer-d", scope="all", max_hops=3)
