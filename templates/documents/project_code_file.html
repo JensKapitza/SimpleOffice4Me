@@ -8,7 +8,7 @@
   <div class="project-hero compact-project-hero"><span class="project-icon"><i class="far fa-file-code"></i></span><div><h1 class="project-code-path">{{ file.path }}</h1><p class="project-page-subtitle mb-0">{{ file.ref }} · {{ file.size }} Byte</p></div></div>
   {% set active_project_tab = 'code' %}{% include "documents/project_workspace_nav.html" %}
   <section class="project-panel">
-    <div class="project-section-body">{% if markdown_html %}<div class="markdown-body">{{ markdown_html }}</div>{% else %}<pre class="project-code-view"><code>{{ file.text }}</code></pre>{% endif %}</div>
+    <div class="project-section-body">{% if markdown_html %}<div class="markdown-body">{{ markdown_html|safe }}</div>{% else %}<pre class="project-code-view"><code>{{ file.text }}</code></pre>{% endif %}</div>
   </section>
 </main>
 {% endblock %}
