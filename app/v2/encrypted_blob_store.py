@@ -208,6 +208,7 @@ class EncryptedBlobStore:
         *,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         crypto: CryptoService | None = None,
+        initialize: bool = True,
     ):
         self.root = Path(root).expanduser().resolve()
         self.base = self.root / ".simpleoffice-v2" / "encrypted-blob-store"
@@ -222,7 +223,20 @@ class EncryptedBlobStore:
         if self.chunk_size < 64 * 1024 or self.chunk_size > 64 * 1024 * 1024:
             raise ValueError("encrypted blob chunk size must be between 64 KiB and 64 MiB")
         self.crypto = crypto or CryptoService()
-        self._ensure_layout()
+        if initialize:
+            self._ensure_layout()
+        else:
+            self._validate_layout()
+
+    def _validate_layout(self) -> None:
+        control = self.root / ".simpleoffice-v2"
+        if control.is_symlink() or not control.is_dir():
+            raise ValueError("V2 control directory must be a real directory")
+        if self.base.is_symlink() or not self.base.is_dir():
+            raise ValueError("encrypted blob store must be a real directory")
+        for directory in (self.chunks, self.objects, self.versions, self.staging):
+            if directory.is_symlink() or not directory.is_dir():
+                raise ValueError("encrypted blob store subdirectories must be real directories")
 
     def _ensure_layout(self) -> None:
         control = self.root / ".simpleoffice-v2"
@@ -280,11 +294,22 @@ class EncryptedBlobStore:
             raise ValueError("expected encrypted blob sha256 must be a lowercase hexadecimal digest")
         return expected_size, digest
 
-    def write(self, object_id: LogicalObjectId, content: bytes) -> EncryptedBlobVersion:
+    def write(
+        self,
+        object_id: LogicalObjectId,
+        content: bytes,
+        *,
+        version_id: str | None = None,
+    ) -> EncryptedBlobVersion:
         from io import BytesIO
 
         payload = bytes(content)
-        return self.write_stream(object_id, BytesIO(payload), expected_size=len(payload))
+        return self.write_stream(
+            object_id,
+            BytesIO(payload),
+            expected_size=len(payload),
+            version_id=version_id,
+        )
 
     def write_stream(
         self,
@@ -293,9 +318,18 @@ class EncryptedBlobStore:
         *,
         expected_size: int | None = None,
         expected_sha256: str = "",
+        version_id: str | None = None,
     ) -> EncryptedBlobVersion:
         expected_size, expected_digest = self._expected(expected_size, expected_sha256)
-        version_id = str(uuid.uuid4())
+        if version_id is None:
+            version_id = str(uuid.uuid4())
+        else:
+            try:
+                version_id = str(uuid.UUID(str(version_id)))
+            except ValueError as exc:
+                raise ValueError("invalid encrypted blob version id") from exc
+            if self._version_path(version_id).exists():
+                raise FileExistsError("encrypted blob version already exists")
         purpose = self._purpose(object_id, version_id)
         session = self.crypto.begin_chunk_encryption(self.master_key, purpose=purpose)
         transaction = self.staging / version_id
@@ -400,6 +434,26 @@ class EncryptedBlobStore:
             raise EncryptedBlobIntegrityError("encrypted blob current-pointer object mismatch")
         return self.version_manifest(str(pointer.get("version_id") or ""))
 
+    def contains_version(self, version_id: str) -> bool:
+        try:
+            path = self._version_path(version_id)
+        except ValueError:
+            return False
+        return path.is_file() and not path.is_symlink()
+
+    def select_current(self, object_id: LogicalObjectId, version_id: str) -> None:
+        manifest = self.version_manifest(str(version_id))
+        if manifest.get("object_id") != object_id.value:
+            raise EncryptedBlobIntegrityError("encrypted blob version belongs to another object")
+        _atomic_json(
+            self._current_path(object_id),
+            {
+                "format": {"family": FORMAT.family, "version": FORMAT.version},
+                "object_id": object_id.value,
+                "version_id": str(version_id),
+            },
+        )
+
     def version_manifest(self, version_id: str) -> dict[str, Any]:
         manifest = _read_json(self._version_path(version_id))
         if manifest.get("format") != {"family": FORMAT.family, "version": FORMAT.version}:
@@ -410,11 +464,18 @@ class EncryptedBlobStore:
             raise EncryptedBlobIntegrityError("encrypted blob manifest structure is invalid")
         return manifest
 
-    def read(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> bytes:
+    def _verify_content(
+        self,
+        object_id: LogicalObjectId,
+        version_id: str | None = None,
+        *,
+        collect: bool,
+    ) -> tuple[dict[str, Any], bytes, EncryptedBlobVersion]:
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
         if manifest.get("object_id") != object_id.value:
             raise EncryptedBlobIntegrityError("encrypted blob object identity mismatch")
-        purpose = self._purpose(object_id, str(manifest["version_id"]))
+        resolved_version = str(manifest["version_id"])
+        purpose = self._purpose(object_id, resolved_version)
         if manifest.get("purpose") != purpose:
             raise EncryptedBlobIntegrityError("encrypted blob purpose mismatch")
         wrapped = _wrapped_from_dict(manifest.get("wrapped_key"))
@@ -424,6 +485,8 @@ class EncryptedBlobStore:
             raise EncryptedBlobIntegrityError("encrypted blob key authentication failed") from exc
 
         result = bytearray()
+        whole = hashlib.sha256()
+        total = 0
         physical_ids: set[str] = set()
         for expected_index, row in enumerate(manifest["chunks"]):
             if not isinstance(row, dict) or int(row.get("index", -1)) != expected_index:
@@ -446,7 +509,10 @@ class EncryptedBlobStore:
                 plaintext = session.decrypt_chunk(encrypted, expected_index=expected_index)
             except ValueError as exc:
                 raise EncryptedBlobIntegrityError("encrypted blob chunk authentication failed") from exc
-            result.extend(plaintext)
+            if collect:
+                result.extend(plaintext)
+            total += len(plaintext)
+            whole.update(plaintext)
 
         footer_row = manifest["footer"]
         footer = _chunk_from_dict(footer_row, str(footer_row.get("ciphertext") or ""))
@@ -457,14 +523,29 @@ class EncryptedBlobStore:
             raise EncryptedBlobIntegrityError("encrypted blob footer authentication failed") from exc
         if not isinstance(metadata, dict) or metadata.get("schema") != FOOTER_SCHEMA:
             raise EncryptedBlobIntegrityError("encrypted blob footer format is invalid")
-        digest = hashlib.sha256(result).hexdigest()
+        digest = whole.hexdigest()
         if (
-            int(metadata.get("size", -1)) != len(result)
+            int(metadata.get("size", -1)) != total
             or int(metadata.get("chunk_count", -1)) != len(manifest["chunks"])
             or str(metadata.get("content_sha256") or "") != digest
         ):
             raise EncryptedBlobIntegrityError("encrypted blob final integrity check failed")
-        return bytes(result)
+        version = EncryptedBlobVersion(
+            object_id=object_id,
+            version_id=resolved_version,
+            size=total,
+            content_sha256=digest,
+            chunk_count=len(manifest["chunks"]),
+        )
+        return manifest, bytes(result), version
+
+    def read(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> bytes:
+        _manifest, content, _version = self._verify_content(
+            object_id,
+            version_id,
+            collect=True,
+        )
+        return content
 
     def verify(
         self,
@@ -472,16 +553,12 @@ class EncryptedBlobStore:
         *,
         version_id: str | None = None,
     ) -> EncryptedBlobVersion:
-        manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
-        resolved_version = str(manifest["version_id"])
-        content = self.read(object_id, version_id=resolved_version)
-        return EncryptedBlobVersion(
-            object_id=object_id,
-            version_id=resolved_version,
-            size=len(content),
-            content_sha256=hashlib.sha256(content).hexdigest(),
-            chunk_count=len(manifest["chunks"]),
+        _manifest, _content, version = self._verify_content(
+            object_id,
+            version_id,
+            collect=False,
         )
+        return version
 
     def versions_for(self, object_id: LogicalObjectId) -> list[EncryptedBlobVersion]:
         result: list[EncryptedBlobVersion] = []
