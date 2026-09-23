@@ -1,6 +1,8 @@
 """Admin routes for federation discovery and directed trust."""
 import ipaddress
 import os
+import time
+from datetime import datetime, timezone
 from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
 
 from .federation_admin import admin_required
@@ -16,6 +18,11 @@ from .federation_store import FederationStore
 from .federation_trust_eval import recommendations
 from .federation_trust_exchange import sync_claims
 from .federation_trust_store import FederationTrustStore
+from .v2.adapters.audit import RevisionHistoryAuditAdapter
+from .v2.authorization import AuthorizationStore
+from .v2.contracts import AuditEvent
+from .v2.federation_policy import FederationPolicyStore, SCOPES
+from .v2.jobs import FederationJobService, PersistentJobStore
 
 bp = Blueprint("federation_peer_admin", __name__, url_prefix="/admin/federation/peer-discovery")
 
@@ -26,6 +33,56 @@ def _root():
 
 def _receive_state():
     return LanReceiveState(_root())
+
+
+def _policy_store():
+    return FederationPolicyStore(_root())
+
+
+def _actor():
+    user = getattr(g, "user", None) or {}
+    return str(user.get("username") or "system")[:160]
+
+
+def _audit_policy(operation, peer_id, changes):
+    result = RevisionHistoryAuditAdapter(_root()).append(
+        AuditEvent(
+            actor=_actor(),
+            operation=str(operation)[:200],
+            object_id=f"federation-peer-policy:{peer_id}",
+            occurred_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            source="federation-peer-admin",
+            changes=dict(changes or {}),
+        )
+    )
+    return bool(result.ok)
+
+
+def _known_peer(peer_id):
+    trust = FederationTrustStore(_root())
+    identity = trust.identity(peer_id)
+    if not identity:
+        raise ValueError("Unbekannter Federation-Peer")
+    stored = trust.store.get_peer(peer_id) or {}
+    return trust, {
+        **identity,
+        "label": stored.get("label") or identity["peer_id"],
+        "base_url": stored.get("base_url") or "",
+        "enabled": bool(stored.get("enabled", False)),
+        "trust": trust.get_trust(peer_id),
+    }
+
+
+def _csv_values(value):
+    return tuple(
+        item
+        for item in (part.strip() for part in str(value or "").split(","))
+        if item
+    )
+
+
+def _policy_redirect(peer_id):
+    return redirect(url_for("federation_peer_admin.policy", peer_id=peer_id))
 
 
 def _connect_addresses():
@@ -284,3 +341,265 @@ def sync_trust(peer_id):
     except Exception as exc:
         flash(f"Trust-Hinweise konnten nicht geladen werden: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.get("/policy/<peer_id>")
+@admin_required
+def policy(peer_id):
+    try:
+        _trust, peer = _known_peer(peer_id)
+        policy_store = _policy_store()
+        blocks = [
+            row for row in policy_store.active_blocks()
+            if row["peer_id"] == peer_id
+        ]
+        route_constraints = {}
+        trust_requirements = {}
+        for scope in sorted(SCOPES):
+            for constraint in policy_store.route_constraints(peer_id, scope=scope):
+                route_constraints[constraint.scope] = constraint
+            for requirement in policy_store.trust_requirements(peer_id, scope=scope):
+                trust_requirements[requirement.scope] = requirement
+        known_peers = [
+            row for row in _trust.list_identities()
+            if row["peer_id"] != peer_id
+        ]
+        try:
+            source_peer = str(local_profile(_root()).get("peer_id") or "")
+        except ValueError:
+            source_peer = ""
+        return render_template(
+            "admin/federation_peer_policy.html",
+            peer=peer,
+            blocks=blocks,
+            route_constraints=sorted(route_constraints.values(), key=lambda row: row.scope),
+            trust_requirements=sorted(trust_requirements.values(), key=lambda row: row.scope),
+            policy_scopes=["all"] + sorted(scope for scope in SCOPES if scope != "all"),
+            known_peers=known_peers,
+            default_route=", ".join(item for item in (source_peer, peer_id) if item),
+        )
+    except (RuntimeError, ValueError):
+        flash("Peer-Policy konnte nicht geladen werden.")
+        return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/policy/<peer_id>/block")
+@admin_required
+def block_peer(peer_id):
+    try:
+        _known_peer(peer_id)
+        scope = request.form.get("scope", "all")
+        reason = request.form.get("reason", "")
+        expiry_hours = str(request.form.get("expiry_hours", "") or "").strip()
+        expires_at = None
+        if expiry_hours:
+            hours = int(expiry_hours)
+            if hours < 1 or hours > 8760:
+                raise ValueError("Ablauf muss zwischen 1 und 8760 Stunden liegen")
+            expires_at = int(time.time()) + hours * 3600
+        policy_store = _policy_store()
+        policy_store.block(
+            peer_id,
+            scope=scope,
+            reason=reason,
+            created_by=_actor(),
+            expires_at=expires_at,
+        )
+        authorization = AuthorizationStore(_root())
+        revoked = authorization.revoke_for_peer(peer_id) if scope == "all" else 0
+        stopped = FederationJobService(
+            PersistentJobStore(_root())
+        ).stop_blocked_jobs(
+            policy_store=policy_store,
+            authorization_store=authorization,
+        )
+        audited = _audit_policy(
+            "federation_peer_blocked",
+            peer_id,
+            {
+                "scope": scope,
+                "reason": str(reason)[:500],
+                "expires_at": expires_at,
+                "jobs_stopped": stopped,
+                "capabilities_revoked": revoked,
+            },
+        )
+        flash(
+            f"Peer gesperrt ({scope}). {stopped} aktive Job(s) gestoppt"
+            + (f", {revoked} Capability(s) widerrufen." if revoked else ".")
+            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+        )
+    except (RuntimeError, TypeError, ValueError):
+        flash("Peer-Sperre konnte nicht gespeichert werden. Eingaben prüfen.")
+    return _policy_redirect(peer_id)
+
+
+@bp.post("/policy/<peer_id>/unblock")
+@admin_required
+def unblock_peer(peer_id):
+    try:
+        _known_peer(peer_id)
+        scope = request.form.get("scope", "all")
+        policy_store = _policy_store()
+        policy_store.unblock(peer_id, scope=scope)
+        audited = _audit_policy(
+            "federation_peer_unblocked",
+            peer_id,
+            {"scope": scope},
+        )
+        flash(
+            f"Peer-Sperre für {scope} aufgehoben."
+            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+        )
+    except (RuntimeError, ValueError):
+        flash("Peer-Sperre konnte nicht aufgehoben werden.")
+    return _policy_redirect(peer_id)
+
+
+@bp.post("/policy/<peer_id>/route")
+@admin_required
+def set_route_policy(peer_id):
+    try:
+        _known_peer(peer_id)
+        scope = request.form.get("scope", "all")
+        direct_only = request.form.get("direct_only") == "1"
+        max_hops_text = str(request.form.get("max_hops", "") or "").strip()
+        max_hops = int(max_hops_text) if max_hops_text else None
+        allowed_relays = _csv_values(request.form.get("allowed_relays", ""))
+        constraint = _policy_store().set_route_constraint(
+            peer_id,
+            scope=scope,
+            direct_only=direct_only,
+            max_hops=max_hops,
+            allowed_relays=allowed_relays if allowed_relays else None,
+            created_by=_actor(),
+        )
+        audited = _audit_policy(
+            "federation_route_constraint_set",
+            peer_id,
+            {
+                "scope": constraint.scope,
+                "direct_only": constraint.direct_only,
+                "max_hops": constraint.max_hops,
+                "allowed_relays": list(constraint.allowed_relays or ()),
+            },
+        )
+        flash(
+            "Routenregel gespeichert."
+            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+        )
+    except (RuntimeError, TypeError, ValueError):
+        flash("Routenregel konnte nicht gespeichert werden. Mindestens eine Einschränkung angeben.")
+    return _policy_redirect(peer_id)
+
+
+@bp.post("/policy/<peer_id>/route/clear")
+@admin_required
+def clear_route_policy(peer_id):
+    try:
+        _known_peer(peer_id)
+        scope = request.form.get("scope", "all")
+        _policy_store().clear_route_constraint(peer_id, scope=scope)
+        audited = _audit_policy(
+            "federation_route_constraint_cleared",
+            peer_id,
+            {"scope": scope},
+        )
+        flash("Routenregel entfernt." + ("" if audited else " Audit konnte nicht gespeichert werden."))
+    except (RuntimeError, ValueError):
+        flash("Routenregel konnte nicht entfernt werden.")
+    return _policy_redirect(peer_id)
+
+
+@bp.post("/policy/<peer_id>/confirmation")
+@admin_required
+def set_confirmation_policy(peer_id):
+    try:
+        _known_peer(peer_id)
+        scope = request.form.get("scope", "all")
+        verifiers = _csv_values(request.form.get("verifier_peers", ""))
+        quorum = int(request.form.get("quorum", "1"))
+        requirement = _policy_store().set_trust_requirement(
+            peer_id,
+            scope=scope,
+            verifier_peers=verifiers,
+            quorum=quorum,
+            created_by=_actor(),
+        )
+        audited = _audit_policy(
+            "federation_confirmation_requirement_set",
+            peer_id,
+            {
+                "scope": requirement.scope,
+                "verifier_peers": list(requirement.verifier_peers),
+                "quorum": requirement.quorum,
+            },
+        )
+        stopped = FederationJobService(PersistentJobStore(_root())).stop_blocked_jobs(
+            policy_store=_policy_store(),
+            authorization_store=AuthorizationStore(_root()),
+        )
+        flash(
+            f"Bestätiger-Regel gespeichert; {stopped} aktive Job(s) neu bewertet."
+            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+        )
+    except (RuntimeError, TypeError, ValueError):
+        flash("Bestätiger-Regel konnte nicht gespeichert werden. Peers und Quorum prüfen.")
+    return _policy_redirect(peer_id)
+
+
+@bp.post("/policy/<peer_id>/confirmation/clear")
+@admin_required
+def clear_confirmation_policy(peer_id):
+    try:
+        _known_peer(peer_id)
+        scope = request.form.get("scope", "all")
+        _policy_store().clear_trust_requirement(peer_id, scope=scope)
+        audited = _audit_policy(
+            "federation_confirmation_requirement_cleared",
+            peer_id,
+            {"scope": scope},
+        )
+        flash("Bestätiger-Regel entfernt." + ("" if audited else " Audit konnte nicht gespeichert werden."))
+    except (RuntimeError, ValueError):
+        flash("Bestätiger-Regel konnte nicht entfernt werden.")
+    return _policy_redirect(peer_id)
+
+
+@bp.post("/policy/<peer_id>/preview")
+@admin_required
+def preview_policy(peer_id):
+    try:
+        _known_peer(peer_id)
+        scope = request.form.get("scope", "relay")
+        route = _csv_values(request.form.get("route", ""))
+        object_refs = _csv_values(request.form.get("object_refs", ""))
+        decision = _policy_store().decision(
+            route,
+            scope=scope,
+            target_peer=peer_id,
+            authorization_store=AuthorizationStore(_root()),
+            object_refs=object_refs or None,
+        )
+        _audit_policy(
+            "federation_policy_preview",
+            peer_id,
+            {
+                "scope": scope,
+                "route": list(route),
+                "object_refs": list(object_refs),
+                "allowed": decision.allowed,
+                "reason": decision.reason,
+                "blocked_peer": decision.blocked_peer,
+            },
+        )
+        if decision.allowed:
+            flash(f"Policy-Vorschau: erlaubt ({decision.reason}).")
+        else:
+            detail = f", Peer {decision.blocked_peer}" if decision.blocked_peer else ""
+            flash(f"Policy-Vorschau: abgelehnt ({decision.reason}{detail}).")
+    except (RuntimeError, TypeError, ValueError):
+        flash("Policy-Vorschau konnte nicht sicher ausgewertet werden; Ergebnis ist fail-closed.")
+    return _policy_redirect(peer_id)
+
+
