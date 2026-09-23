@@ -11,8 +11,11 @@ import base64
 import binascii
 import hashlib
 import json
+import logging
 import os
+import stat
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +32,7 @@ MAX_PROFILE_BYTES = 256 * 1024
 MIN_PASSWORD_CHARS = 12
 MAX_PASSWORD_CHARS = 4096
 _KEY_CHECK = b"simpleoffice-v2-master-key-profile-check:v1"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, repr=False)
@@ -213,6 +217,42 @@ class MasterKeyProfileStore:
         self.audit = audit_port or RevisionHistoryAuditAdapter(self.root)
         self.crypto = crypto or CryptoService()
 
+    def _ensure_base(self) -> None:
+        control = self.root / ".simpleoffice-v2"
+        control.mkdir(parents=True, exist_ok=True)
+        if control.is_symlink() or not control.is_dir():
+            raise ValueError("V2 control directory must be a real directory")
+        self.base.mkdir(exist_ok=True)
+        if self.base.is_symlink() or not self.base.is_dir():
+            raise ValueError("master-key directory must be a real directory")
+        if os.name == "posix":
+            try:
+                os.chmod(control, 0o700)
+                os.chmod(self.base, 0o700)
+            except OSError as exc:
+                raise ValueError("master-key directory permissions could not be secured") from exc
+
+    @contextmanager
+    def _profile_lock(self, profile_id: str):
+        self._ensure_base()
+        profile_hash = _profile_hash(profile_id)
+        lock = self.base / f".{profile_hash}.lock"
+        try:
+            lock.mkdir(mode=0o700)
+        except FileExistsError as exc:
+            raise RuntimeError("master-key profile is busy or has a stale lock") from exc
+        try:
+            yield
+        finally:
+            try:
+                lock.rmdir()
+            except OSError as exc:
+                logger.warning(
+                    "master-key profile lock cleanup failed profile=%s error=%s",
+                    profile_hash[:16],
+                    type(exc).__name__,
+                )
+
     def _path(self, profile_id: str) -> Path:
         return self.base / f"{_profile_hash(profile_id)}.json"
 
@@ -221,16 +261,27 @@ class MasterKeyProfileStore:
 
     def _read(self, profile_id: str) -> dict[str, Any]:
         path = self._path(profile_id)
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
         try:
-            metadata = path.stat()
+            descriptor = os.open(path, flags)
         except OSError as exc:
             raise ValueError("master-key profile is not configured") from exc
-        if not path.is_file() or path.is_symlink() or metadata.st_size <= 0 or metadata.st_size > MAX_PROFILE_BYTES:
-            raise ValueError("master-key profile is unavailable or invalid")
         try:
-            data = path.read_bytes()
-        except OSError as exc:
-            raise ValueError("master-key profile could not be read") from exc
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_size <= 0
+                or metadata.st_size > MAX_PROFILE_BYTES
+            ):
+                raise ValueError("master-key profile is unavailable or invalid")
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                data = handle.read(MAX_PROFILE_BYTES + 1)
+            if len(data) > MAX_PROFILE_BYTES:
+                raise ValueError("master-key profile is too large")
+        finally:
+            os.close(descriptor)
         value = _load_json_bytes(data, expected_format=PROFILE_FORMAT)
         expected_hash = _profile_hash(profile_id)
         if value["profile_hash"] != expected_hash:
@@ -245,12 +296,7 @@ class MasterKeyProfileStore:
 
     def _write(self, profile_id: str, value: dict[str, Any]) -> None:
         path = self._path(profile_id)
-        self.base.mkdir(parents=True, exist_ok=True)
-        try:
-            if os.name == "posix":
-                os.chmod(self.base, 0o700)
-        except OSError:
-            pass
+        self._ensure_base()
         payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
         encoded = payload.encode("utf-8")
         if len(encoded) > MAX_PROFILE_BYTES:
@@ -317,37 +363,38 @@ class MasterKeyProfileStore:
         profile_hash = _profile_hash(profile_id)
         password = _password(password)
         path = self._path(profile_id)
-        if path.exists():
-            raise ValueError("master-key profile already exists")
+        with self._profile_lock(profile_id):
+            if path.exists():
+                raise ValueError("master-key profile already exists")
 
-        master_key = self.crypto.generate_master_key()
-        recovery_key = self.crypto.generate_recovery_key()
-        password_record = self.crypto.protect_master_key_with_password(master_key, password)
-        recovery_record = self.crypto.protect_master_key_with_recovery_key(master_key, recovery_key)
-        key_check = self.crypto.encrypt(_KEY_CHECK, master_key, purpose=_check_purpose(profile_hash))
-        timestamp = _now()
-        value = {
-            "format": PROFILE_FORMAT,
-            "profile_hash": profile_hash,
-            "generation": 1,
-            "created_at": timestamp,
-            "updated_at": timestamp,
-            "password": _protected_to_dict(password_record),
-            "recovery": _protected_to_dict(recovery_record),
-            "key_check": _payload_to_dict(key_check),
-        }
-        self._write(profile_id, value)
-        try:
-            self._audit("master_key_profile_created", profile_hash, generation=1)
-        except RuntimeError:
+            master_key = self.crypto.generate_master_key()
+            recovery_key = self.crypto.generate_recovery_key()
+            password_record = self.crypto.protect_master_key_with_password(master_key, password)
+            recovery_record = self.crypto.protect_master_key_with_recovery_key(master_key, recovery_key)
+            key_check = self.crypto.encrypt(_KEY_CHECK, master_key, purpose=_check_purpose(profile_hash))
+            timestamp = _now()
+            value = {
+                "format": PROFILE_FORMAT,
+                "profile_hash": profile_hash,
+                "generation": 1,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+                "password": _protected_to_dict(password_record),
+                "recovery": _protected_to_dict(recovery_record),
+                "key_check": _payload_to_dict(key_check),
+            }
+            self._write(profile_id, value)
             try:
-                path.unlink()
-            except OSError as rollback_exc:
-                raise RuntimeError(
-                    "master-key profile was written but audit failed; manual cleanup is required"
-                ) from rollback_exc
-            raise
-        return RecoveryMaterial(recovery_key=recovery_key, recovery_bundle=self._bundle(value))
+                self._audit("master_key_profile_created", profile_hash, generation=1)
+            except RuntimeError:
+                try:
+                    path.unlink()
+                except OSError as rollback_exc:
+                    raise RuntimeError(
+                        "master-key profile was written but audit failed; manual cleanup is required"
+                    ) from rollback_exc
+                raise
+            return RecoveryMaterial(recovery_key=recovery_key, recovery_bundle=self._bundle(value))
 
     def _unlock_password(self, profile_id: str, password: str) -> tuple[dict[str, Any], bytes]:
         value = self._read(profile_id)
@@ -405,44 +452,46 @@ class MasterKeyProfileStore:
         return master_key
 
     def change_password(self, profile_id: str, old_password: str, new_password: str) -> None:
-        value, master_key = self._unlock_password(profile_id, old_password)
-        new_record = self.crypto.protect_master_key_with_password(master_key, _password(new_password))
-        previous = dict(value)
-        updated = dict(value)
-        updated["generation"] = int(value["generation"]) + 1
-        updated["updated_at"] = _now()
-        updated["password"] = _protected_to_dict(new_record)
-        self._write(profile_id, updated)
-        try:
-            self._audit(
-                "master_key_password_changed",
-                str(value["profile_hash"]),
-                generation=int(updated["generation"]),
-            )
-        except RuntimeError:
-            self._write(profile_id, previous)
-            raise
+        with self._profile_lock(profile_id):
+            value, master_key = self._unlock_password(profile_id, old_password)
+            new_record = self.crypto.protect_master_key_with_password(master_key, _password(new_password))
+            previous = dict(value)
+            updated = dict(value)
+            updated["generation"] = int(value["generation"]) + 1
+            updated["updated_at"] = _now()
+            updated["password"] = _protected_to_dict(new_record)
+            self._write(profile_id, updated)
+            try:
+                self._audit(
+                    "master_key_password_changed",
+                    str(value["profile_hash"]),
+                    generation=int(updated["generation"]),
+                )
+            except RuntimeError:
+                self._write(profile_id, previous)
+                raise
 
     def rotate_recovery_key(self, profile_id: str, password: str) -> RecoveryMaterial:
-        value, master_key = self._unlock_password(profile_id, password)
-        recovery_key = self.crypto.generate_recovery_key()
-        recovery_record = self.crypto.protect_master_key_with_recovery_key(master_key, recovery_key)
-        previous = dict(value)
-        updated = dict(value)
-        updated["generation"] = int(value["generation"]) + 1
-        updated["updated_at"] = _now()
-        updated["recovery"] = _protected_to_dict(recovery_record)
-        self._write(profile_id, updated)
-        try:
-            self._audit(
-                "master_key_recovery_rotated",
-                str(value["profile_hash"]),
-                generation=int(updated["generation"]),
-            )
-        except RuntimeError:
-            self._write(profile_id, previous)
-            raise
-        return RecoveryMaterial(recovery_key=recovery_key, recovery_bundle=self._bundle(updated))
+        with self._profile_lock(profile_id):
+            value, master_key = self._unlock_password(profile_id, password)
+            recovery_key = self.crypto.generate_recovery_key()
+            recovery_record = self.crypto.protect_master_key_with_recovery_key(master_key, recovery_key)
+            previous = dict(value)
+            updated = dict(value)
+            updated["generation"] = int(value["generation"]) + 1
+            updated["updated_at"] = _now()
+            updated["recovery"] = _protected_to_dict(recovery_record)
+            self._write(profile_id, updated)
+            try:
+                self._audit(
+                    "master_key_recovery_rotated",
+                    str(value["profile_hash"]),
+                    generation=int(updated["generation"]),
+                )
+            except RuntimeError:
+                self._write(profile_id, previous)
+                raise
+            return RecoveryMaterial(recovery_key=recovery_key, recovery_bundle=self._bundle(updated))
 
     def status(self, profile_id: str) -> dict[str, Any]:
         value = self._read(profile_id)
