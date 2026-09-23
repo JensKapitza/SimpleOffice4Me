@@ -10,6 +10,7 @@ import base64
 import binascii
 import hashlib
 import json
+import logging
 import os
 import shutil
 import stat
@@ -33,6 +34,7 @@ FOOTER_SCHEMA = "simpleoffice-v2-encrypted-blob-footer/v1"
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
 MAX_METADATA_BYTES = 64 * 1024 * 1024
 _GCM_TAG_BYTES = 16
+logger = logging.getLogger(__name__)
 
 
 class EncryptedBlobIntegrityError(RuntimeError):
@@ -76,10 +78,16 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
+        if os.name == "posix":
+            try:
+                os.chmod(path, 0o600)
+                directory = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            except OSError as exc:
+                raise OSError("encrypted blob metadata durability or permissions could not be secured") from exc
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -536,8 +544,12 @@ class EncryptedBlobStore:
                 removed.append(chunk_id)
                 if not dry_run:
                     path.unlink()
-            except OSError:
-                continue
+            except OSError as exc:
+                logger.warning(
+                    "encrypted blob orphan cleanup skipped chunk=%s error=%s",
+                    chunk_id,
+                    type(exc).__name__,
+                )
         return removed
 
     def recover_staging(self, *, minimum_age_seconds: int = 3600) -> list[str]:
@@ -548,8 +560,12 @@ class EncryptedBlobStore:
                 if path.is_dir() and not path.is_symlink() and path.stat().st_mtime <= cutoff:
                     shutil.rmtree(path)
                     removed.append(path.name)
-            except OSError:
-                continue
+            except OSError as exc:
+                logger.warning(
+                    "encrypted blob staging cleanup skipped transaction=%s error=%s",
+                    path.name,
+                    type(exc).__name__,
+                )
         return sorted(removed)
 
     def rewrap_version_key(
