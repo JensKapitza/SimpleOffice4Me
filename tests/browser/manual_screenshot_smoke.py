@@ -579,7 +579,8 @@ def run_peer_to_peer(
         network_event = page_a.locator("tr").filter(
             has_text="scoped_content_blocks_reused"
         ).first
-        network_event.wait_for()
+        if network_event.count() != 1:
+            raise RuntimeError("Das erfolgreiche V2-Federation-Ereignis fehlt.")
         network_event_text = compact(network_event.inner_text())
         network_match = re.search(
             r"network_bytes['\"\s:]+(\d+)",
