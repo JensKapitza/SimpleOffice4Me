@@ -188,19 +188,26 @@ def configure_peer(
     peer_docker_url: str,
 ) -> None:
     response = page.goto(
-        f"{base_url}/admin/federation", wait_until="domcontentloaded"
+        f"{base_url}/admin/federation?view=peers", wait_until="domcontentloaded"
     )
     if response is None or response.status >= 400:
         status = response.status if response else "no-response"
         raise RuntimeError(f"Federation-Seite nicht erreichbar: {status}")
 
-    form = page.locator("form", has_text="Peer speichern").filter(
+    form = page.locator("form").filter(
         has=page.locator("input[name='peer_id']")
+    ).filter(
+        has=page.locator("input[name='base_url']")
     ).first
     form.locator("input[name='peer_id']").fill(peer_id)
     form.locator("input[name='label']").fill(peer_label)
     form.locator("input[name='base_url']").fill(peer_docker_url)
     form.locator("input[name='token']").fill(PEER_SHARED_TOKEN)
+    advanced_policy = form.locator("details").filter(
+        has=page.locator("textarea[name='policy_json']")
+    ).first
+    if advanced_policy.count() and advanced_policy.get_attribute("open") is None:
+        advanced_policy.locator("summary").click()
     form.locator("textarea[name='policy_json']").fill(
         json.dumps(
             {
@@ -226,7 +233,9 @@ def configure_peer(
         raise RuntimeError(f"Peer {peer_id} wurde nicht gespeichert.")
 
     row = page.locator("tr").filter(has_text=peer_id).first
-    row.get_by_role("button", name="Test", exact=True).click()
+    row.get_by_role(
+        "button", name="Verbindung testen", exact=True
+    ).click()
     page.wait_for_load_state("domcontentloaded")
     if "Peer erreichbar:" not in page.locator("body").inner_text():
         raise RuntimeError(f"Peer {peer_id} ist nicht erreichbar.")
@@ -509,22 +518,22 @@ def run_peer_to_peer(
         )
 
         page_a.goto(
-            f"{BASE_URL}/admin/federation",
+            f"{BASE_URL}/admin/federation?view=peers",
             wait_until="domcontentloaded",
         )
         peer_row = page_a.locator("tr").filter(
             has_text="peer-b"
         ).first
         peer_row.get_by_role(
-            "button", name="Index holen", exact=True
+            "button", name="Dateiindex holen", exact=True
         ).click()
         page_a.wait_for_load_state("domcontentloaded")
+        page_a.goto(
+            f"{BASE_URL}/admin/federation?view=files",
+            wait_until="domcontentloaded",
+        )
 
-        remote_section = page_a.locator(
-            "section.card"
-        ).filter(
-            has_text="Remote-Dateien / Offline-Index"
-        ).first
+        remote_section = page_a.locator("#remote-files")
         remote_row = remote_section.locator("tr").filter(
             has_text=peer_b_filename
         ).first
@@ -546,6 +555,10 @@ def run_peer_to_peer(
             "button", name="Vormerken", exact=True
         ).click()
         page_a.wait_for_load_state("domcontentloaded")
+        page_a.goto(
+            f"{BASE_URL}/admin/federation?view=transfers",
+            wait_until="domcontentloaded",
+        )
         page_a.get_by_role(
             "button", name="Queue abarbeiten", exact=True
         ).click()
@@ -554,7 +567,7 @@ def run_peer_to_peer(
         queue_section = page_a.locator(
             "section.card"
         ).filter(
-            has_text="Priorisierte Download-Pipeline"
+            has_text="Download-Warteschlange"
         ).first
         queue_row = queue_section.locator("tr").filter(
             has_text=peer_b_filename
@@ -706,7 +719,9 @@ def main() -> int:
 
             page.wait_for_selector("nav[aria-label='Hauptnavigation']")
 
-            raw_links = page.locator("a.nav-link").evaluate_all(
+            raw_links = page.locator(
+                "a.nav-link:not(.dropdown-toggle), a.dropdown-item"
+            ).evaluate_all(
                 """elements => elements.map(element => ({
                     label: (element.innerText || element.textContent || '').replace(/\\s+/g, ' ').trim(),
                     href: element.href
