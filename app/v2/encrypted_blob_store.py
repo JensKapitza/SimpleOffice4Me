@@ -225,7 +225,7 @@ class EncryptedBlobStore:
             if directory.is_symlink() or not directory.is_dir():
                 raise ValueError("encrypted blob store subdirectories must be real directories")
         if os.name == "posix":
-            for directory in (control, self.base, self.chunks, self.objects, self.versions, self.staging):
+            for directory in (self.base, self.chunks, self.objects, self.versions, self.staging):
                 try:
                     os.chmod(directory, 0o700)
                 except OSError as exc:
