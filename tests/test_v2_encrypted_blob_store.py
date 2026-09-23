@@ -143,6 +143,33 @@ class EncryptedBlobStoreTest(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(fresh.exists())
 
+    @unittest.skipUnless(os.name == "posix", "symlink hardening test requires POSIX semantics")
+    def test_symlinked_store_directory_is_rejected(self):
+        other = self.root / "other-store"
+        other.mkdir()
+        control = self.root / ".simpleoffice-v2"
+        encrypted = control / "encrypted-blob-store"
+        for child in encrypted.iterdir():
+            if child.is_dir():
+                child.rmdir()
+        encrypted.rmdir()
+        encrypted.symlink_to(other, target_is_directory=True)
+
+        with self.assertRaisesRegex(ValueError, "must be a real directory"):
+            EncryptedBlobStore(self.root, self.master, chunk_size=64 * 1024)
+
+    @unittest.skipUnless(os.name == "posix", "symlink hardening test requires POSIX semantics")
+    def test_symlinked_version_metadata_is_rejected(self):
+        version = self.store.write(self.object_id, b"metadata")
+        version_path = self.store._version_path(version.version_id)
+        copy = self.root / "metadata-copy.json"
+        copy.write_bytes(version_path.read_bytes())
+        version_path.unlink()
+        version_path.symlink_to(copy)
+
+        with self.assertRaises(EncryptedBlobIntegrityError):
+            self.store.version_manifest(version.version_id)
+
     def test_streaming_write_is_bounded_and_checks_expected_digest(self):
         class GuardedStream(io.BytesIO):
             def read(self, size=-1):
