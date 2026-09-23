@@ -142,6 +142,20 @@ class ProjectTrackerUiTests(unittest.TestCase):
             self.store.project(project_id)["repository_path"],
         )
 
+        created = worker.post(
+            "/documents/projects",
+            data={
+                "title": "Worker project",
+                "repository_path": "other-repository",
+            },
+        )
+        self.assertEqual(302, created.status_code)
+        worker_project = next(
+            row for row in self.store.projects()
+            if row["title"] == "Worker project"
+        )
+        self.assertEqual("", worker_project["repository_path"])
+
     @unittest.skipUnless(shutil.which("git"), "git is required")
     def test_issue_page_survives_git_history_failure(self):
         project_id = self.project["project_id"]
