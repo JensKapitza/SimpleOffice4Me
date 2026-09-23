@@ -216,6 +216,51 @@ def load_recovery_key_file(path: str | Path) -> bytes:
     return decode_recovery_key(text)
 
 
+def load_master_password_file(
+    path: str | Path,
+    *,
+    forbidden_root: str | Path | None = None,
+) -> str:
+    """Load a dedicated storage-master password from a tightly protected file."""
+
+    supplied = Path(path).expanduser()
+    if supplied.is_symlink():
+        raise ValueError("master-key password file must not be a symlink")
+    try:
+        target = supplied.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError("master-key password file could not be resolved") from exc
+    if forbidden_root is not None:
+        root = Path(forbidden_root).expanduser().resolve()
+        if target == root or root in target.parents:
+            raise ValueError("master-key password file must be stored outside the SimpleOffice data root")
+    try:
+        metadata = target.stat()
+    except OSError as exc:
+        raise ValueError("master-key password file is unavailable") from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("master-key password file must be a regular file")
+    if os.name == "posix" and stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ValueError("master-key password file permissions must not allow group/world access")
+
+    raw = _read_regular_bounded(
+        target,
+        MAX_PASSWORD_CHARS * 4 + 16,
+        "master-key password file",
+    )
+    try:
+        value = raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError("master-key password file must contain UTF-8 text") from exc
+    if value.endswith("\r\n"):
+        value = value[:-2]
+    elif value.endswith("\n"):
+        value = value[:-1]
+    if "\n" in value or "\r" in value:
+        raise ValueError("master-key password file must contain exactly one line")
+    return _password(value)
+
+
 def recovery_bundle_info(bundle: bytes) -> dict[str, Any]:
     value = _load_json_bytes(bytes(bundle), expected_format=RECOVERY_FORMAT)
     protected = _protected_from_dict(value.get("recovery"))
@@ -410,16 +455,26 @@ class MasterKeyProfileStore:
         )
         return bundle
 
-    def create(self, profile_id: str, password: str) -> RecoveryMaterial:
+    def create(
+        self,
+        profile_id: str,
+        password: str,
+        *,
+        recovery_key: bytes | None = None,
+    ) -> RecoveryMaterial:
         profile_hash = _profile_hash(profile_id)
         password = _password(password)
+        if recovery_key is not None:
+            recovery_key = bytes(recovery_key)
+            if len(recovery_key) != 32:
+                raise ValueError("recovery key must be 32 bytes")
         path = self._path(profile_id)
         with self._profile_lock(profile_id):
             if path.exists():
                 raise ValueError("master-key profile already exists")
 
             master_key = self.crypto.generate_master_key()
-            recovery_key = self.crypto.generate_recovery_key()
+            recovery_key = recovery_key or self.crypto.generate_recovery_key()
             password_record = self.crypto.protect_master_key_with_password(master_key, password)
             recovery_record = self.crypto.protect_master_key_with_recovery_key(master_key, recovery_key)
             key_check = self.crypto.encrypt(_KEY_CHECK, master_key, purpose=_check_purpose(profile_hash))
