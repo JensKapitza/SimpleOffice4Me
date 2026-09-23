@@ -127,6 +127,41 @@ class MasterKeyProfileStoreTest(unittest.TestCase):
             store.create(self.profile, self.password)
         self.assertFalse(store.configured(self.profile))
 
+    def test_failed_password_change_audit_restores_previous_record(self):
+        self.store.create(self.profile, self.password)
+        expected = self.store.unlock_with_password(self.profile, self.password)
+        self.audit.fail_operation = "master_key_password_changed"
+
+        with self.assertRaisesRegex(RuntimeError, "audited"):
+            self.store.change_password(self.profile, self.password, "replacement synthetic password")
+
+        self.audit.fail_operation = ""
+        self.assertEqual(expected, self.store.unlock_with_password(self.profile, self.password))
+        with self.assertRaises(ValueError):
+            self.store.unlock_with_password(self.profile, "replacement synthetic password")
+
+    def test_failed_recovery_rotation_audit_preserves_old_recovery_key(self):
+        original = self.store.create(self.profile, self.password)
+        expected = self.store.unlock_with_password(self.profile, self.password)
+        self.audit.fail_operation = "master_key_recovery_rotated"
+
+        with self.assertRaisesRegex(RuntimeError, "audited"):
+            self.store.rotate_recovery_key(self.profile, self.password)
+
+        self.audit.fail_operation = ""
+        self.assertEqual(expected, self.store.unlock_with_recovery_key(self.profile, original.recovery_key))
+
+    def test_stale_profile_lock_blocks_mutation_without_breaking_unlock(self):
+        self.store.create(self.profile, self.password)
+        expected = self.store.unlock_with_password(self.profile, self.password)
+        lock = self.store.base / f".{self.store.status(self.profile)['profile_hash']}.lock"
+        lock.mkdir(mode=0o700)
+
+        with self.assertRaisesRegex(RuntimeError, "busy or has a stale lock"):
+            self.store.change_password(self.profile, self.password, "replacement synthetic password")
+
+        self.assertEqual(expected, self.store.unlock_with_password(self.profile, self.password))
+
     def test_recovery_key_text_encoding_is_strict_and_round_trips(self):
         material = self.store.create(self.profile, self.password)
         text = encode_recovery_key(material.recovery_key)
