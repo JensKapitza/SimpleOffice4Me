@@ -351,12 +351,14 @@ def run_peer_to_peer(
         new_chat_modal = page_a.locator("#new-chat-modal")
         new_chat_modal.wait_for(state="visible")
         new_chat_modal.locator("#chat-title").fill(title)
-        remote_details = new_chat_modal.locator("details").filter(
-            has=new_chat_modal.locator("#remote-peer")
-        ).first
-        if remote_details.count() and remote_details.get_attribute("open") is None:
+        remote_peer_select = new_chat_modal.locator("#remote-peer")
+        remote_details = remote_peer_select.locator(
+            "xpath=ancestor::details[1]"
+        )
+        if remote_details.get_attribute("open") is None:
             remote_details.locator("summary").click()
-        new_chat_modal.locator("#remote-peer").select_option("peer-b")
+        remote_peer_select.wait_for(state="visible")
+        remote_peer_select.select_option("peer-b")
         new_chat_modal.locator("#remote-users").fill(PEER_USERNAME)
         page_a.get_by_role(
             "button", name="Chat anlegen", exact=True
