@@ -219,7 +219,11 @@ class FederationJobService:
     ) -> OperationResult[JobRecord]:
         if policy_store is not None:
             checked_route = list(route) if route is not None else [intent.source_peer, intent.target_peer]
-            decision = policy_store.decision(checked_route, scope=policy_scope)
+            decision = policy_store.decision(
+                checked_route,
+                scope=policy_scope,
+                target_peer=intent.target_peer,
+            )
             if not decision.allowed:
                 return OperationResult.failure(
                     ErrorCode.FORBIDDEN,
@@ -285,6 +289,7 @@ class FederationJobService:
         decision = policy_store.decision(
             route,
             scope=str(payload.get("policy_scope") or "relay"),
+            target_peer=str(payload.get("target_peer") or ""),
         )
         if decision.allowed:
             return current
