@@ -37,6 +37,10 @@ explicit garbage-collection path.
 
 The current object pointer is written only after the version manifest.
 
+The encrypted store also exposes read-only inventory, version verification,
+orphan detection and age-bounded staging cleanup. Orphan cleanup is explicit and
+never removes ciphertext referenced by a valid version manifest.
+
 ## Key rotation
 
 `rewrap_version_key(...)` unwraps the version CEK with the old master key and
