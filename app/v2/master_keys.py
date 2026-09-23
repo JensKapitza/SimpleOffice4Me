@@ -310,14 +310,17 @@ class MasterKeyProfileStore:
             os.replace(temporary, path)
             if os.name == "posix":
                 try:
-                    os.chmod(path, 0o600)
                     directory = os.open(self.base, os.O_RDONLY)
                     try:
                         os.fsync(directory)
                     finally:
                         os.close(directory)
                 except OSError as exc:
-                    raise ValueError("master-key profile durability or permissions could not be secured") from exc
+                    logger.warning(
+                        "master-key profile directory fsync failed profile=%s error=%s",
+                        _profile_hash(profile_id)[:16],
+                        type(exc).__name__,
+                    )
         finally:
             temporary.unlink(missing_ok=True)
 
