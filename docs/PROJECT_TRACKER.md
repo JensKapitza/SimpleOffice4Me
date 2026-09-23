@@ -24,7 +24,7 @@ Milestone, Fälligkeitsdatum und Kommentare.
 
 Änderungen und Kommentare werden zusätzlich in der bestehenden
 `RevisionHistory` protokolliert. Der JSON-Speicher
-`.simpleoffice-control/project-tracker.json` wird atomar geschrieben und ist
+`.simpleoffice-meta/project-tracker.json` wird atomar geschrieben und ist
 Bestandteil der Projekt-Replikationskategorie.
 
 Die Bearbeitungsmaske verwendet `updated_at` als einfache
