@@ -1,7 +1,0 @@
-<nav class="project-workspace-nav" aria-label="Projektbereiche">
-  <a class="project-workspace-link{% if active_project_tab == 'overview' %} active{% endif %}" href="{{ url_for('documents.project_detail', project_id=project.project_id) }}"><i class="fas fa-gauge" aria-hidden="true"></i><span>Projekt</span></a>
-  <a class="project-workspace-link{% if active_project_tab == 'issues' %} active{% endif %}" href="{{ url_for('documents.project_issues', project_id=project.project_id) }}"><i class="fas fa-circle-dot" aria-hidden="true"></i><span>Issues</span></a>
-  <a class="project-workspace-link{% if active_project_tab == 'wiki' %} active{% endif %}" href="{{ url_for('documents.project_wiki', project_id=project.project_id) }}"><i class="fas fa-book" aria-hidden="true"></i><span>Wiki</span></a>
-  {% if code_available %}<a class="project-workspace-link{% if active_project_tab == 'code' %} active{% endif %}" href="{{ url_for('documents.project_code', project_id=project.project_id) }}"><i class="fas fa-code" aria-hidden="true"></i><span>Code</span></a>{% endif %}
-  <a class="project-workspace-link{% if active_project_tab == 'activity' %} active{% endif %}" href="{{ url_for('documents.project_activity', project_id=project.project_id) }}"><i class="fas fa-clock-rotate-left" aria-hidden="true"></i><span>Aktivität</span></a>
-</nav>
