@@ -11,6 +11,7 @@ from typing import Any
 
 from .contracts import ErrorCode, JobRecord, JobState, OperationResult
 from .authorization import AuthorizationStore, GrantRight
+from .federation_policy import FederationPolicyStore
 
 
 SCHEMA_VERSION = 1
@@ -212,7 +213,18 @@ class FederationJobService:
         *,
         idempotency_key: str,
         authorization_store: AuthorizationStore | None = None,
+        policy_store: FederationPolicyStore | None = None,
+        route: tuple[str, ...] | list[str] | None = None,
+        policy_scope: str = "relay",
     ) -> OperationResult[JobRecord]:
+        if policy_store is not None:
+            checked_route = list(route) if route is not None else [intent.source_peer, intent.target_peer]
+            decision = policy_store.decision(checked_route, scope=policy_scope)
+            if not decision.allowed:
+                return OperationResult.failure(
+                    ErrorCode.FORBIDDEN,
+                    f"federation policy denied transfer: {decision.reason}:{decision.blocked_peer}",
+                )
         if authorization_store is not None:
             grant = authorization_store.get(intent.authorization_ref)
             if grant is None or grant.expires_at < intent.expires_at:
