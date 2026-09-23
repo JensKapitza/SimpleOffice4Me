@@ -1,0 +1,235 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h1 class="h3 mb-1">Federation · Peer-Policy</h1>
+      <p class="text-secondary mb-0">
+        <strong>{{ peer.label }}</strong>
+        <span class="font-monospace">{{ peer.peer_id }}</span>
+      </p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}">Zur Peer-Übersicht</a>
+  </div>
+
+  {% for message in get_flashed_messages() %}
+  <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+  {% endfor %}
+
+  <div class="alert alert-secondary">
+    Lokale Sperren haben Vorrang vor Trust, Bestätigungen und positiven Capabilities.
+    Unbekannte oder nicht verifizierbare Zustände werden bei strikten Regeln abgelehnt.
+  </div>
+
+  <section class="card mb-3" aria-labelledby="peer-block-heading">
+    <div class="card-header"><h2 id="peer-block-heading" class="h5 mb-0">Peer sperren</h2></div>
+    <div class="card-body">
+      {% if blocks %}
+      <div class="table-responsive mb-3">
+        <table class="table table-sm align-middle">
+          <thead><tr><th scope="col">Scope</th><th scope="col">Grund</th><th scope="col">Ablauf</th><th scope="col">Aktion</th></tr></thead>
+          <tbody>
+          {% for block in blocks %}
+            <tr>
+              <td><code>{{ block.scope }}</code></td>
+              <td>{{ block.reason or '—' }}</td>
+              <td>{{ block.expires_at or 'dauerhaft' }}</td>
+              <td>
+                <form method="post" action="{{ url_for('federation_peer_admin.unblock_peer', peer_id=peer.peer_id) }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="scope" value="{{ block.scope }}">
+                  <button class="btn btn-sm btn-outline-success" type="submit">Sperre aufheben</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-secondary">Für diesen Peer ist keine aktive lokale Sperre gesetzt.</p>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('federation_peer_admin.block_peer', peer_id=peer.peer_id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label" for="block-scope">Scope</label>
+            <select id="block-scope" class="form-select" name="scope">
+              {% for scope in policy_scopes %}<option value="{{ scope }}">{{ scope }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="block-reason">Grund</label>
+            <input id="block-reason" class="form-control" name="reason" maxlength="500" placeholder="optional">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="block-expiry">Ablauf in Stunden</label>
+            <input id="block-expiry" class="form-control" name="expiry_hours" type="number" min="1" max="8760" placeholder="dauerhaft">
+          </div>
+          <div class="col-md-2">
+            <button class="btn btn-danger w-100" type="submit">Peer sperren</button>
+          </div>
+        </div>
+        <p class="small text-secondary mt-2 mb-0">
+          Eine globale Sperre stoppt betroffene Federation-Jobs und widerruft lokale Capabilities mit diesem Peer.
+          Scope-Sperren lassen fachlich unabhängige Rechte bestehen.
+        </p>
+      </form>
+    </div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="route-heading">
+    <div class="card-header"><h2 id="route-heading" class="h5 mb-0">Routenregeln</h2></div>
+    <div class="card-body">
+      {% if route_constraints %}
+      <div class="table-responsive mb-3">
+        <table class="table table-sm align-middle">
+          <thead><tr><th scope="col">Scope</th><th scope="col">Direkt</th><th scope="col">Max. Hops</th><th scope="col">Erlaubte Relays</th><th scope="col">Aktion</th></tr></thead>
+          <tbody>
+          {% for rule in route_constraints %}
+            <tr>
+              <td><code>{{ rule.scope }}</code></td>
+              <td>{{ 'ja' if rule.direct_only else 'nein' }}</td>
+              <td>{{ rule.max_hops if rule.max_hops is not none else '—' }}</td>
+              <td>{{ (rule.allowed_relays or ())|join(', ') or '—' }}</td>
+              <td>
+                <form method="post" action="{{ url_for('federation_peer_admin.clear_route_policy', peer_id=peer.peer_id) }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="scope" value="{{ rule.scope }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('federation_peer_admin.set_route_policy', peer_id=peer.peer_id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label" for="route-scope">Scope</label>
+            <select id="route-scope" class="form-select" name="scope">
+              {% for scope in policy_scopes %}<option value="{{ scope }}">{{ scope }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" for="route-max-hops">Max. Hops</label>
+            <input id="route-max-hops" class="form-control" type="number" name="max_hops" min="1" max="32" placeholder="—">
+          </div>
+          <div class="col-md-7">
+            <label class="form-label" for="route-relays">Nur über diese Relays</label>
+            <input id="route-relays" class="form-control" name="allowed_relays" placeholder="peer-b, peer-c">
+          </div>
+          <div class="col-12">
+            <div class="form-check">
+              <input id="route-direct-only" class="form-check-input" type="checkbox" name="direct_only" value="1">
+              <label class="form-check-label" for="route-direct-only">Nur direkte Zustellung an diesen Peer</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <button class="btn btn-primary" type="submit">Routenregel speichern</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="confirm-heading">
+    <div class="card-header"><h2 id="confirm-heading" class="h5 mb-0">Signierte Bestätiger</h2></div>
+    <div class="card-body">
+      {% if trust_requirements %}
+      <div class="table-responsive mb-3">
+        <table class="table table-sm align-middle">
+          <thead><tr><th scope="col">Scope</th><th scope="col">Bestätiger</th><th scope="col">Quorum</th><th scope="col">Aktion</th></tr></thead>
+          <tbody>
+          {% for rule in trust_requirements %}
+            <tr>
+              <td><code>{{ rule.scope }}</code></td>
+              <td>{{ rule.verifier_peers|join(', ') }}</td>
+              <td>{{ rule.quorum }} von {{ rule.verifier_peers|length }}</td>
+              <td>
+                <form method="post" action="{{ url_for('federation_peer_admin.clear_confirmation_policy', peer_id=peer.peer_id) }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="scope" value="{{ rule.scope }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('federation_peer_admin.set_confirmation_policy', peer_id=peer.peer_id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label" for="confirm-scope">Scope</label>
+            <select id="confirm-scope" class="form-select" name="scope">
+              {% for scope in policy_scopes %}<option value="{{ scope }}">{{ scope }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="confirm-peers">Zugelassene Bestätiger</label>
+            <input id="confirm-peers" class="form-control" name="verifier_peers" placeholder="peer-x, peer-y, peer-z" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="confirm-quorum">Mindestens N</label>
+            <input id="confirm-quorum" class="form-control" name="quorum" type="number" min="1" max="32" value="1" required>
+          </div>
+          <div class="col-12"><button class="btn btn-primary" type="submit">Bestätiger-Regel speichern</button></div>
+        </div>
+        <p class="small text-secondary mt-2 mb-0">
+          Es zählen nur gültige, nicht abgelaufene und erneut kryptografisch geprüfte Attestierungen.
+          Lokal gesperrte Bestätiger zählen nicht zum Quorum.
+        </p>
+      </form>
+    </div>
+  </section>
+
+  <section class="card mb-3" aria-labelledby="preview-heading">
+    <div class="card-header"><h2 id="preview-heading" class="h5 mb-0">Policy-Vorschau</h2></div>
+    <div class="card-body">
+      <p class="text-secondary">Prüft die aktuell bekannte Route und lokale Capability-Beziehungen ohne einen Transfer anzulegen.</p>
+      <form method="post" action="{{ url_for('federation_peer_admin.preview_policy', peer_id=peer.peer_id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            <label class="form-label" for="preview-scope">Scope</label>
+            <select id="preview-scope" class="form-select" name="scope">
+              {% for scope in policy_scopes %}<option value="{{ scope }}" {{ 'selected' if scope == 'relay' else '' }}>{{ scope }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label" for="preview-route">Bekannte Route</label>
+            <input id="preview-route" class="form-control" name="route" value="{{ default_route }}" required>
+            <div class="form-text">Kommagetrennt, vom Absender bis zu allen bekannten nachgelagerten Peers.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="preview-objects">Objekt-IDs</label>
+            <input id="preview-objects" class="form-control" name="object_refs" placeholder="object-1, object-2">
+          </div>
+          <div class="col-12"><button class="btn btn-outline-primary" type="submit">Entscheidung prüfen</button></div>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  {% if known_peers %}
+  <details class="card card-body">
+    <summary class="fw-semibold">Bekannte Peer-IDs als Eingabehilfe</summary>
+    <ul class="mt-2 mb-0">
+      {% for known in known_peers %}
+      <li><code>{{ known.peer_id }}</code>{% if known.country %} · {{ known.country }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</main>
+{% endblock %}
