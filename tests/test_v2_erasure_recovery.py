@@ -2,7 +2,7 @@ import hashlib
 import unittest
 from unittest.mock import patch
 
-from app.v2.adapters.zfec_codec import ZfecErasureCodec, codec_for_plan
+from app.v2.zfec_codec import ZfecErasureCodec, codec_for_plan
 from app.v2.contracts import LogicalObjectId, PhysicalBlobId
 from app.v2.fragments import (
     FragmentDescriptor,
@@ -152,7 +152,7 @@ class ZfecAdapterTest(unittest.TestCase):
 
         plan = FragmentPlan(k=2, n=3, codec="zfec", codec_version="1")
         codec = ZfecErasureCodec()
-        with patch("app.v2.adapters.zfec_codec._load_backend", return_value=(FakeEncoder, FakeDecoder)):
+        with patch("app.v2.zfec_codec._load_backend", return_value=(FakeEncoder, FakeDecoder)):
             shards = codec.encode(b"abcdef", plan)
             decoded = codec.decode({0: shards[0], 2: shards[2]}, plan, original_size=6, padding=0)
 
