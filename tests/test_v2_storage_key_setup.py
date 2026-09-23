@@ -23,8 +23,8 @@ class StorageKeySetupTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.root = self.base / "documents"
         self.root.mkdir()
-        self.unlock_phrase = "synthetic storage password 123"
-        self.unlock_phrase_file = self.base / "storage-password"
+        self.unlock_phrase = secrets.token_urlsafe(32)
+        self.unlock_phrase_file = self.base / "storage-unlock"
         self.unlock_phrase_file.write_text(self.unlock_phrase + "\n", encoding="utf-8")
         if os.name == "posix":
             os.chmod(self.unlock_phrase_file, 0o600)
@@ -61,7 +61,7 @@ class StorageKeySetupTests(unittest.TestCase):
             self.assertEqual(0, bundle.stat().st_mode & 0o077)
 
     def test_password_file_inside_data_root_is_rejected(self):
-        inside = self.root / "password"
+        inside = self.root / "unlock-secret"
         inside.write_text(self.unlock_phrase, encoding="utf-8")
         if os.name == "posix":
             os.chmod(inside, 0o600)
