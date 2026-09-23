@@ -21,6 +21,19 @@ Explicit peer blocks are evaluated before route constraints. This preserves the
 `explicit deny wins` rule even when a route would otherwise satisfy an
 allowlist or hop limit.
 
+Peer blocks can additionally be bound to one or more logical object references.
+An object-specific block applies only when the transfer contains one of those
+objects and still obeys global/scope expiry rules. Evaluation order is:
+global peer block, matching object block, scope peer block, then positive route
+and trust rules. Object-specific blocks are persisted separately so a narrow
+deny does not replace an existing whole-peer block.
+
+When an object-specific block is created through the admin UI, effective local
+capability grants involving that peer are revoked only when their object scope
+intersects the blocked set. A mixed grant containing blocked and unblocked
+objects is revoked as one grant; issuing a narrower replacement grant is a
+separate authorization action.
+
 ## Signed confirmation requirements
 
 A target can additionally require signed peer confirmations per scope. A local
@@ -89,6 +102,7 @@ a newly forbidden job is failed. `stop_blocked_jobs(...)` can re-evaluate the
 whole active queue after a policy change.
 
 This is only the locally enforceable route layer. Signed confirmation/quorum
-rules are enforced here; remote relationship assertions and the policy-builder UI remain separate
-follow-up work. They must not weaken local explicit blocks,
-confirmation requirements or route constraints.
+rules, whole-peer blocks, object-specific blocks and local policy administration
+are enforced here. Remote relationship assertions that are not represented in
+the local capability graph remain separate follow-up work. They must not weaken
+local explicit blocks, confirmation requirements or route constraints.
