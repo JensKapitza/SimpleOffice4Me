@@ -48,6 +48,19 @@ wraps it with the new master key. Ciphertext chunk files are unchanged. Full
 account-wide rotation still needs an orchestration step that rewraps every
 reachable version before changing the active master key.
 
+## StoragePort integration boundary
+
+`EncryptedBlobCatalogStorageAdapter` proves that the existing logical
+ObjectCatalog/StoragePort layer can use the encrypted physical backend without
+changing logical object IDs, locations, version preconditions or audit behavior.
+
+The adapter receives an already-unlocked master key from its caller. It does not
+load keys from environment variables, web sessions or command-line arguments.
+The current ObjectCatalog still stores local integrity metadata such as
+whole-content SHA-256 in cleartext; that catalog is not a federation/public blob
+manifest and requires a separate metadata-at-rest decision before claiming full
+local metadata encryption.
+
 ## Not yet activated
 
 This format is groundwork for the remaining encrypted-at-rest cutover. The live
