@@ -30,7 +30,7 @@
       </div>
       <div class="table-responsive">
         <table class="table align-middle">
-          <thead><tr><th>Dienst</th><th>Status / Bind</th><th>Ports / Listener</th><th>Firewall</th><th>Aktionen</th></tr></thead>
+          <thead><tr><th scope="col">Dienst</th><th scope="col">Status / Bind</th><th scope="col">Ports / Listener</th><th scope="col">Firewall</th><th scope="col">Aktionen</th></tr></thead>
           <tbody id="fw-services"></tbody>
         </table>
       </div>
@@ -40,7 +40,7 @@
       <div class="card-body">
         <h2 id="manual-title" class="h4">Manuelle Portregel testen</h2>
         <p class="small text-secondary">Für Ports außerhalb der bekannten Mini Services. Der aktuelle Verwaltungsport kann hier nicht gesperrt werden.</p>
-        <form id="fw-manual" class="row g-3">
+        <form id="fw-manual" class="row g-3" method="post">
           <div class="col-md-2"><label class="form-label" for="fw-effect">Aktion</label><select id="fw-effect" class="form-select"><option value="allow">Öffnen</option><option value="deny">Sperren</option></select></div>
           <div class="col-md-2"><label class="form-label" for="fw-protocol">Protokoll</label><select id="fw-protocol" class="form-select"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
           <div class="col-md-2"><label class="form-label" for="fw-port-start">Startport</label><input id="fw-port-start" class="form-control" type="number" min="1" max="65535" required></div>
