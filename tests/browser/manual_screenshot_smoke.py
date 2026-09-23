@@ -560,12 +560,29 @@ def run_peer_to_peer(
             raise RuntimeError(
                 "Download-Pipeline meldet keinen erfolgreichen Abschluss."
             )
+
+        network_event = page_a.locator("tr").filter(
+            has_text="scoped_content_blocks_reused"
+        ).first
+        network_event.wait_for()
+        network_event_text = compact(network_event.inner_text())
+        network_match = re.search(
+            r"network_bytes['\"\s:]+(\d+)",
+            network_event_text,
+        )
+        network_bytes = int(network_match.group(1)) if network_match else 0
+        if network_bytes <= 0:
+            raise RuntimeError(
+                "Der Federation-Download hat keine Netzwerkbytes von Peer B übertragen."
+            )
+        peer_summary["peer_to_peer_network_bytes"] = network_bytes
         record_p2p_check(
             summary,
             "peer_to_peer_pull_complete",
             True,
             (
                 "Peer-B-exklusive Datei über Federation geladen; "
+                f"network_bytes={network_bytes}; "
                 f"SHA-256-Endprüfung={peer_b_sha256}"
             ),
         )
