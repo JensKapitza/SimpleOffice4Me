@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block title %}Aktivität · {{ project.title }} · SimpleOffice{% endblock %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/project_tracker.css') }}">{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4 project-ui">
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left"></i>Projekte</a>
+  <div class="project-hero compact-project-hero"><span class="project-icon"><i class="fas fa-clock-rotate-left"></i></span><div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Aktivität</p></div></div>
+  {% set active_project_tab = 'activity' %}{% include "documents/project_workspace_nav.jinja" %}
+  <section class="project-panel">
+    <div class="project-activity-list">
+      {% for event in events %}
+        <article class="project-activity-row">
+          <span class="activity-icon">{% if event.kind == 'git_commit' %}<i class="fas fa-code-commit"></i>{% elif event.kind.startswith('wiki_') %}<i class="fas fa-book"></i>{% elif event.kind.startswith('issue_') %}<i class="fas fa-circle-dot"></i>{% else %}<i class="fas fa-clock"></i>{% endif %}</span>
+          <div><strong>{{ event.summary }}</strong><small>{{ event.actor }} · {{ event.at }}{% if event.short_sha %} · <code>{{ event.short_sha }}</code>{% endif %}</small></div>
+          {% if event.reference.startswith('issue:') %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.project_issue_detail', project_id=project.project_id, issue_number=event.reference.split(':', 1)[1]|int) }}">Öffnen</a>{% elif event.reference.startswith('wiki:') %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.project_wiki', project_id=project.project_id, page=event.reference.split(':', 1)[1]) }}">Öffnen</a>{% endif %}
+        </article>
+      {% else %}<div class="project-tracker-empty"><i class="fas fa-clock-rotate-left"></i><strong>Noch keine Aktivität</strong></div>{% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}

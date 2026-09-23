@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block title %}Code · {{ project.title }} · SimpleOffice{% endblock %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/project_tracker.css') }}">{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4 project-ui">
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Projekte</a>
+  <div class="project-hero compact-project-hero"><span class="project-icon" aria-hidden="true"><i class="fas fa-code"></i></span><div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Git · {{ summary.branch }} · <code>{{ summary.head[:12] }}</code></p></div>{% if summary.dirty %}<span class="badge text-bg-warning">lokale Änderungen</span>{% else %}<span class="badge text-bg-success">sauber</span>{% endif %}</div>
+  {% set active_project_tab = 'code' %}{% include "documents/project_workspace_nav.jinja" %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <section class="project-panel">
+        <div class="project-section-header"><h2 class="project-section-title"><i class="far fa-folder-open"></i>Dateien{% if current_path %} · <code>{{ current_path }}</code>{% endif %}</h2>{% if current_path %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.project_code', project_id=project.project_id, ref=ref, path=current_path.rsplit('/', 1)[0] if '/' in current_path else '') }}">Eine Ebene hoch</a>{% endif %}</div>
+        <div class="list-group list-group-flush">
+          {% for item in tree %}
+            {% if item.type == 'tree' %}
+              <a class="list-group-item list-group-item-action git-tree-row" href="{{ url_for('documents.project_code', project_id=project.project_id, ref=ref, path=item.path) }}"><i class="far fa-folder me-2" aria-hidden="true"></i><strong>{{ item.name }}</strong></a>
+            {% else %}
+              <a class="list-group-item list-group-item-action git-tree-row" href="{{ url_for('documents.project_code_file', project_id=project.project_id, ref=ref, path=item.path) }}"><i class="far fa-file-code me-2" aria-hidden="true"></i>{{ item.name }}</a>
+            {% endif %}
+          {% else %}<div class="project-tracker-empty"><span>Keine Dateien in diesem Git-Baum.</span></div>{% endfor %}
+        </div>
+      </section>
+    </div>
+    <div class="col-lg-5">
+      <section class="project-panel">
+        <div class="project-section-header"><h2 class="project-section-title"><i class="fas fa-code-commit"></i>Commits</h2></div>
+        <div class="project-commit-list">{% for commit in summary.commits %}<article><code>{{ commit.short_sha }}</code><strong>{{ commit.subject }}</strong><small>{{ commit.author }} · {{ commit.authored_at }}</small></article>{% else %}<p class="text-secondary p-3">Keine Commits.</p>{% endfor %}</div>
+      </section>
+    </div>
+  </div>
+</main>
+{% endblock %}

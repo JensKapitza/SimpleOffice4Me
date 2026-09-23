@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+{% block title %}#{{ issue.number }} {{ issue.title }} · {{ project.title }}{% endblock %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/project_tracker.css') }}">{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4 project-ui">
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.project_issues', project_id=project.project_id) }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Issues</a>
+  <div class="project-hero compact-project-hero"><span class="project-icon" aria-hidden="true"><i class="fas fa-circle-dot"></i></span><div><h1>#{{ issue.number }} {{ issue.title }}</h1><p class="project-page-subtitle mb-0">{{ project.title }}</p></div><span class="status-chip status-{{ issue.status }}">{{ issue.status }}</span></div>
+  {% set active_project_tab = 'issues' %}{% include "documents/project_workspace_nav.jinja" %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <div class="row g-4">
+    <div class="col-lg-8">
+      <section class="project-panel project-section">
+        <div class="project-section-header"><h2 class="project-section-title">Beschreibung</h2></div>
+        <div class="project-section-body markdown-body">{% if issue.body_markdown %}{{ issue.body_html|safe }}{% else %}<p class="text-secondary">Keine Beschreibung.</p>{% endif %}</div>
+      </section>
+      <section class="project-panel project-section">
+        <div class="project-section-header"><h2 class="project-section-title">Kommentare</h2><span class="text-secondary">{{ issue.comments|length }}</span></div>
+        <div class="project-section-body">
+          {% for comment in issue.comments %}
+            <article class="issue-comment"><header><strong>{{ comment.created_by }}</strong><time datetime="{{ comment.created_at }}">{{ comment.created_at }}</time></header><div class="markdown-body">{{ comment.body_html|safe }}</div></article>
+          {% else %}<p class="text-secondary">Noch keine Kommentare.</p>{% endfor %}
+          <form method="post" action="{{ url_for('documents.project_issue_comment', project_id=project.project_id, issue_number=issue.number) }}" class="mt-4">
+            <label class="form-label" for="issue-comment">Kommentar (Markdown)</label>
+            <textarea id="issue-comment" name="body_markdown" class="form-control font-monospace" rows="5" maxlength="20000" required></textarea>
+            <button type="submit" class="btn btn-primary mt-2">Kommentieren</button>
+          </form>
+        </div>
+      </section>
+      {% if related_commits %}
+      <section class="project-panel project-section">
+        <div class="project-section-header"><h2 class="project-section-title"><i class="fas fa-code-commit" aria-hidden="true"></i>Git-Referenzen</h2></div>
+        <div class="project-section-body"><div class="list-group">{% for commit in related_commits %}<div class="list-group-item"><code>{{ commit.short_sha }}</code> {{ commit.subject }}<div class="small text-secondary">{{ commit.author }} · {{ commit.authored_at }}</div></div>{% endfor %}</div></div>
+      </section>
+      {% endif %}
+    </div>
+    <div class="col-lg-4">
+      <section class="project-panel project-section">
+        <div class="project-section-header"><h2 class="project-section-title">Issue bearbeiten</h2></div>
+        <div class="project-section-body">
+          <form method="post" class="row g-3">
+            <input type="hidden" name="expected_updated_at" value="{{ issue.updated_at }}">
+            <div class="col-12"><label class="form-label" for="edit-issue-title">Titel</label><input id="edit-issue-title" name="title" class="form-control" value="{{ issue.title }}" maxlength="300" required></div>
+            <div class="col-6"><label class="form-label" for="edit-issue-type">Typ</label><select id="edit-issue-type" name="type" class="form-select">{% for value in issue_types %}<option value="{{ value }}" {% if issue.type == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div class="col-6"><label class="form-label" for="edit-issue-status">Status</label><select id="edit-issue-status" name="status" class="form-select">{% for value in issue_states %}<option value="{{ value }}" {% if issue.status == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="edit-issue-priority">Priorität</label><select id="edit-issue-priority" name="priority" class="form-select">{% for value in issue_priorities %}<option value="{{ value }}" {% if issue.priority == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="edit-issue-assignee">Verantwortlich</label><input id="edit-issue-assignee" name="assignee" class="form-control" value="{{ issue.assignee }}"></div>
+            <div class="col-12"><label class="form-label" for="edit-issue-labels">Labels</label><input id="edit-issue-labels" name="labels" class="form-control" value="{{ issue.labels|join(', ') }}"></div>
+            <div class="col-12"><label class="form-label" for="edit-issue-milestone">Milestone</label><input id="edit-issue-milestone" name="milestone" class="form-control" value="{{ issue.milestone }}"></div>
+            <div class="col-12"><label class="form-label" for="edit-issue-due">Fällig</label><input id="edit-issue-due" type="date" name="due_date" class="form-control" value="{{ issue.due_date }}"></div>
+            <div class="col-12"><label class="form-label" for="edit-issue-body">Beschreibung</label><textarea id="edit-issue-body" name="body_markdown" class="form-control font-monospace" rows="10">{{ issue.body_markdown }}</textarea></div>
+            <div class="col-12"><button class="btn btn-primary w-100" type="submit">Speichern</button></div>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+{% endblock %}

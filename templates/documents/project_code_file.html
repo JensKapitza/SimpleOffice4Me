@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+{% block title %}{{ file.path }} · {{ project.title }}{% endblock %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/project_tracker.css') }}">{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4 project-ui">
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.project_code', project_id=project.project_id, ref=file.ref, path=file.path.rsplit('/', 1)[0] if '/' in file.path else '') }}"><i class="fas fa-arrow-left"></i>Code</a>
+  <div class="project-hero compact-project-hero"><span class="project-icon"><i class="far fa-file-code"></i></span><div><h1 class="project-code-path">{{ file.path }}</h1><p class="project-page-subtitle mb-0">{{ file.ref }} · {{ file.size }} Byte</p></div></div>
+  {% set active_project_tab = 'code' %}{% include "documents/project_workspace_nav.jinja" %}
+  <section class="project-panel">
+    <div class="project-section-body">{% if markdown_html %}<div class="markdown-body">{{ markdown_html|safe }}</div>{% else %}<pre class="project-code-view"><code>{{ file.text }}</code></pre>{% endif %}</div>
+  </section>
+</main>
+{% endblock %}

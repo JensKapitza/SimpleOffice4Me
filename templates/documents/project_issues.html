@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+{% block title %}Issues · {{ project.title }} · SimpleOffice{% endblock %}
+{% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/project_tracker.css') }}">{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4 project-ui">
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Projekte</a>
+  <div class="project-hero compact-project-hero">
+    <span class="project-icon" aria-hidden="true"><i class="far fa-folder"></i></span>
+    <div><h1>{{ project.title }}</h1><p class="project-page-subtitle mb-0">Issues · Bugs, Features, Aufgaben und Ideen</p></div>
+  </div>
+  {% set active_project_tab = 'issues' %}{% include "documents/project_workspace_nav.jinja" %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="project-panel project-section">
+    <div class="project-section-header">
+      <h2 class="project-section-title"><i class="fas fa-circle-plus" aria-hidden="true"></i>Neues Issue</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-issue" aria-expanded="false" aria-controls="new-issue">Anlegen</button>
+    </div>
+    <div class="collapse" id="new-issue">
+      <div class="project-section-body border-top">
+        <form method="post" class="row g-3">
+          <div class="col-md-8"><label class="form-label" for="issue-title">Titel</label><input id="issue-title" name="title" class="form-control" maxlength="300" required></div>
+          <div class="col-md-2"><label class="form-label" for="issue-type">Typ</label><select id="issue-type" name="type" class="form-select"><option value="bug">Bug</option><option value="feature">Feature</option><option value="task" selected>Aufgabe</option><option value="idea">Idee</option></select></div>
+          <div class="col-md-2"><label class="form-label" for="issue-priority">Priorität</label><select id="issue-priority" name="priority" class="form-select"><option value="low">Niedrig</option><option value="normal" selected>Normal</option><option value="high">Hoch</option><option value="urgent">Dringend</option></select></div>
+          <div class="col-12"><label class="form-label" for="issue-body">Beschreibung (Markdown)</label><textarea id="issue-body" name="body_markdown" class="form-control font-monospace" rows="7" maxlength="100000"></textarea></div>
+          <div class="col-md-4"><label class="form-label" for="issue-assignee">Verantwortlich</label><input id="issue-assignee" name="assignee" class="form-control" maxlength="160"></div>
+          <div class="col-md-4"><label class="form-label" for="issue-labels">Labels</label><input id="issue-labels" name="labels" class="form-control" placeholder="backend, security"></div>
+          <div class="col-md-4"><label class="form-label" for="issue-milestone">Milestone</label><input id="issue-milestone" name="milestone" class="form-control" maxlength="160"></div>
+          <div class="col-md-4"><label class="form-label" for="issue-due">Fällig</label><input id="issue-due" type="date" name="due_date" class="form-control"></div>
+          <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary" type="submit">Issue anlegen</button></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <form method="get" class="project-tracker-filter mb-3">
+    <div><label class="visually-hidden" for="issue-search">Issues durchsuchen</label><input id="issue-search" name="q" class="form-control" value="{{ query }}" placeholder="Issues durchsuchen"></div>
+    <div><label class="visually-hidden" for="issue-status-filter">Status</label><select id="issue-status-filter" name="status" class="form-select"><option value="">Alle Status</option>{% for value,label in [('open','Offen'),('in_progress','In Arbeit'),('waiting','Wartend'),('closed','Geschlossen')] %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div><label class="visually-hidden" for="issue-type-filter">Typ</label><select id="issue-type-filter" name="type" class="form-select"><option value="">Alle Typen</option>{% for value,label in [('bug','Bug'),('feature','Feature'),('task','Aufgabe'),('idea','Idee')] %}<option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <button class="btn btn-outline-secondary" type="submit">Filtern</button>
+  </form>
+
+  <section class="project-panel">
+    <div class="project-section-body p-0">
+      <div class="project-issue-list">
+      {% for issue in issues %}
+        <a class="project-issue-row" href="{{ url_for('documents.project_issue_detail', project_id=project.project_id, issue_number=issue.number) }}">
+          <span class="issue-number">#{{ issue.number }}</span>
+          <span class="issue-main"><strong>{{ issue.title }}</strong><small>{% if issue.assignee %}{{ issue.assignee }} · {% endif %}{{ issue.updated_at }}{% if issue.milestone %} · {{ issue.milestone }}{% endif %}</small></span>
+          <span class="issue-badges"><span class="badge text-bg-light border">{{ issue.type }}</span><span class="badge issue-priority-{{ issue.priority }}">{{ issue.priority }}</span><span class="status-chip status-{{ issue.status }}">{{ issue.status }}</span></span>
+        </a>
+      {% else %}
+        <div class="project-tracker-empty"><i class="far fa-circle-check" aria-hidden="true"></i><strong>Keine passenden Issues</strong><span>Lege ein Issue an oder passe den Filter an.</span></div>
+      {% endfor %}
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}

@@ -310,10 +310,13 @@ def project_detail(project_id: str):
             linked_documents.append(_store().get_document(document_id))
         except ValueError:
             continue
+    from .project_git import ProjectGitService
+    code_available = ProjectGitService(current_app.config["DOCUMENT_ROOT"], project).available()
     return render_template(
         "documents/project_detail.html", project=project, linked_documents=linked_documents,
         billing=_projects().billing_projection(project_id, actor, project["tasks"]),
         available_time_group_entries=_projects().available_time_group_entries(project_id, project["tasks"]),
+        code_available=code_available,
     )
 
 
