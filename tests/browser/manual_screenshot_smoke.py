@@ -581,7 +581,7 @@ def run_peer_to_peer(
         ).first
         if network_event.count() != 1:
             raise RuntimeError("Das erfolgreiche V2-Federation-Ereignis fehlt.")
-        network_event_text = compact(network_event.inner_text())
+        network_event_text = compact(network_event.text_content() or "")
         network_match = re.search(
             r"network_bytes['\"\s:]+(\d+)",
             network_event_text,
