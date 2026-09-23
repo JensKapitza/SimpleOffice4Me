@@ -470,6 +470,7 @@ class EncryptedBlobStore:
         version_id: str | None = None,
         *,
         collect: bool,
+        target: BinaryIO | None = None,
     ) -> tuple[dict[str, Any], bytes, EncryptedBlobVersion]:
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
         if manifest.get("object_id") != object_id.value:
@@ -511,6 +512,10 @@ class EncryptedBlobStore:
                 raise EncryptedBlobIntegrityError("encrypted blob chunk authentication failed") from exc
             if collect:
                 result.extend(plaintext)
+            if target is not None:
+                written = target.write(plaintext)
+                if written is not None and int(written) != len(plaintext):
+                    raise OSError("encrypted recovery target accepted a partial write")
             total += len(plaintext)
             whole.update(plaintext)
 
@@ -557,6 +562,23 @@ class EncryptedBlobStore:
             object_id,
             version_id,
             collect=False,
+        )
+        return version
+
+    def copy_verified_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        version_id: str | None = None,
+    ) -> EncryptedBlobVersion:
+        """Decrypt and stream content, returning only after final integrity verification."""
+
+        _manifest, _content, version = self._verify_content(
+            object_id,
+            version_id,
+            collect=False,
+            target=target,
         )
         return version
 
