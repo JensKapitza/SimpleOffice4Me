@@ -345,9 +345,19 @@ def run_peer_to_peer(
         )
 
         page_a.goto(f"{BASE_URL}/chat", wait_until="domcontentloaded")
-        page_a.locator("#chat-title").fill(title)
-        page_a.locator("#remote-peer").select_option("peer-b")
-        page_a.locator("#remote-users").fill(PEER_USERNAME)
+        page_a.locator(
+            "button[data-bs-target='#new-chat-modal']"
+        ).first.click()
+        new_chat_modal = page_a.locator("#new-chat-modal")
+        new_chat_modal.wait_for(state="visible")
+        new_chat_modal.locator("#chat-title").fill(title)
+        remote_details = new_chat_modal.locator("details").filter(
+            has=new_chat_modal.locator("#remote-peer")
+        ).first
+        if remote_details.count() and remote_details.get_attribute("open") is None:
+            remote_details.locator("summary").click()
+        new_chat_modal.locator("#remote-peer").select_option("peer-b")
+        new_chat_modal.locator("#remote-users").fill(PEER_USERNAME)
         page_a.get_by_role(
             "button", name="Chat anlegen", exact=True
         ).click()
