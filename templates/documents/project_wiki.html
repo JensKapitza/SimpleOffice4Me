@@ -19,7 +19,7 @@
       {% if page %}
       <section class="project-panel project-section">
         <div class="project-section-header"><div><h2 class="project-section-title">{{ page.title }}</h2><small class="text-secondary">Revision {{ page.revision }} · {{ page.updated_by }} · {{ page.updated_at }}</small></div><button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#wiki-edit">Bearbeiten</button></div>
-        <div class="project-section-body markdown-body">{{ page.body_html }}</div>
+        <div class="project-section-body markdown-body">{{ page.body_html|safe }}</div>
       </section>
       {% endif %}
       <section class="project-panel project-section">
