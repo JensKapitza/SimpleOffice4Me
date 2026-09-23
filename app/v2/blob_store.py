@@ -252,6 +252,43 @@ class BlobStore:
         manifest, _ = self._verify_content(object_id, version_id, collect=False)
         return self._as_version(manifest)
 
+    def copy_verified_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        version_id: str | None = None,
+    ) -> BlobVersion:
+        """Stream one verified blob version to a writable binary target."""
+
+        manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
+        if manifest.get("object_id") != object_id.value:
+            raise BlobIntegrityError("blob manifest object identity mismatch")
+        whole = hashlib.sha256()
+        total = 0
+        for expected_index, chunk in enumerate(manifest["chunks"]):
+            if not isinstance(chunk, dict) or int(chunk.get("index", -1)) != expected_index:
+                raise BlobIntegrityError("blob chunk order is invalid")
+            path = self._chunk_path(str(chunk.get("physical_id") or ""))
+            try:
+                block = path.read_bytes()
+            except OSError as exc:
+                raise BlobIntegrityError("blob chunk is missing") from exc
+            if len(block) != int(chunk.get("size", -1)):
+                raise BlobIntegrityError("blob chunk size mismatch")
+            if hashlib.sha256(block).hexdigest() != chunk.get("sha256"):
+                raise BlobIntegrityError("blob chunk integrity mismatch")
+            written = target.write(block)
+            if written is not None and int(written) != len(block):
+                raise OSError("verified blob target accepted a partial write")
+            total += len(block)
+            whole.update(block)
+        if total != int(manifest.get("size", -1)):
+            raise BlobIntegrityError("blob content size mismatch")
+        if whole.hexdigest() != manifest.get("content_sha256"):
+            raise BlobIntegrityError("blob content integrity mismatch")
+        return self._as_version(manifest)
+
     def read(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> bytes:
         _, content = self._verify_content(object_id, version_id, collect=True)
         return content
