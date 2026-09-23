@@ -277,6 +277,49 @@ class FederationBlockPolicyTests(unittest.TestCase):
         self.assertEqual(JobState.FAILED, checked.value.state)
         self.assertTrue(checked.value.payload["policy_denied"])
 
+    def test_missing_confirmation_does_not_revoke_target_capabilities(self):
+        auth = AuthorizationStore(self.root)
+        now = int(time.time())
+        transfer_grant = auth.issue_root(
+            issuer="controller",
+            subject="peer-a",
+            rights=(GrantRight.RELAY,),
+            object_refs=("object-1",),
+            expires_at=now + 600,
+        )
+        target_grant = auth.issue_root(
+            issuer="peer-a",
+            subject="peer-c",
+            rights=(GrantRight.RELAY,),
+            object_refs=("object-1",),
+            expires_at=now + 600,
+        )
+        self.policy.set_trust_requirement(
+            "peer-c",
+            scope="relay",
+            verifier_peers=("peer-x",),
+            quorum=1,
+        )
+        service = FederationJobService(PersistentJobStore(self.root))
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref=transfer_grant.grant_id,
+            expires_at=now + 300,
+        )
+
+        denied = service.create_transfer(
+            intent,
+            idempotency_key="missing-confirmation-no-revoke",
+            authorization_store=auth,
+            policy_store=self.policy,
+            route=("peer-a", "peer-c"),
+        )
+
+        self.assertFalse(denied.ok)
+        self.assertFalse(auth.get(target_grant.grant_id).revoked)
+
     def test_job_creation_applies_target_route_constraint(self):
         self.policy.set_route_constraint("peer-c", scope="relay", direct_only=True)
         service = FederationJobService(PersistentJobStore(self.root))
