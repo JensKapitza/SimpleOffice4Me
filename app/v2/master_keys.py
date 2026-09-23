@@ -305,9 +305,12 @@ class MasterKeyProfileStore:
         return self.base / f"{_profile_hash(profile_id)}.json"
 
     def configured(self, profile_id: str) -> bool:
-        return self._path(profile_id).is_file()
+        self._ensure_base()
+        path = self._path(profile_id)
+        return path.is_file() and not path.is_symlink()
 
     def _read(self, profile_id: str) -> dict[str, Any]:
+        self._ensure_base()
         path = self._path(profile_id)
         flags = os.O_RDONLY
         if hasattr(os, "O_NOFOLLOW"):
