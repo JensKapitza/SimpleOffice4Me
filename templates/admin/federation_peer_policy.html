@@ -28,17 +28,19 @@
       {% if blocks %}
       <div class="table-responsive mb-3">
         <table class="table table-sm align-middle">
-          <thead><tr><th scope="col">Scope</th><th scope="col">Grund</th><th scope="col">Ablauf</th><th scope="col">Aktion</th></tr></thead>
+          <thead><tr><th scope="col">Scope</th><th scope="col">Objekt</th><th scope="col">Grund</th><th scope="col">Ablauf</th><th scope="col">Aktion</th></tr></thead>
           <tbody>
           {% for block in blocks %}
             <tr>
               <td><code>{{ block.scope }}</code></td>
+              <td>{% if block.object_ref %}<code>{{ block.object_ref }}</code>{% else %}alle Objekte{% endif %}</td>
               <td>{{ block.reason or '—' }}</td>
               <td>{{ block.expires_at or 'dauerhaft' }}</td>
               <td>
                 <form method="post" action="{{ url_for('federation_peer_admin.unblock_peer', peer_id=peer.peer_id) }}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="scope" value="{{ block.scope }}">
+                  {% if block.object_ref %}<input type="hidden" name="object_ref" value="{{ block.object_ref }}">{% endif %}
                   <button class="btn btn-sm btn-outline-success" type="submit">Sperre aufheben</button>
                 </form>
               </td>
@@ -54,17 +56,21 @@
       <form method="post" action="{{ url_for('federation_peer_admin.block_peer', peer_id=peer.peer_id) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="row g-2 align-items-end">
-          <div class="col-md-3">
+          <div class="col-md-2">
             <label class="form-label" for="block-scope">Scope</label>
             <select id="block-scope" class="form-select" name="scope">
               {% for scope in policy_scopes %}<option value="{{ scope }}">{{ scope }}</option>{% endfor %}
             </select>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-3">
+            <label class="form-label" for="block-objects">Objekt-IDs (optional)</label>
+            <input id="block-objects" class="form-control" name="object_refs" placeholder="object-1, object-2">
+          </div>
+          <div class="col-md-3">
             <label class="form-label" for="block-reason">Grund</label>
             <input id="block-reason" class="form-control" name="reason" maxlength="500" placeholder="optional">
           </div>
-          <div class="col-md-3">
+          <div class="col-md-2">
             <label class="form-label" for="block-expiry">Ablauf in Stunden</label>
             <input id="block-expiry" class="form-control" name="expiry_hours" type="number" min="1" max="8760" placeholder="dauerhaft">
           </div>
@@ -73,8 +79,8 @@
           </div>
         </div>
         <p class="small text-secondary mt-2 mb-0">
-          Eine globale Sperre stoppt betroffene Federation-Jobs und widerruft lokale Capabilities mit diesem Peer.
-          Scope-Sperren lassen fachlich unabhängige Rechte bestehen.
+          Ohne Objekt-ID gilt die Sperre für den ganzen Peer im gewählten Scope. Mit Objekt-IDs werden nur diese Objekte gesperrt.
+          Globale Peer-Sperren widerrufen alle lokalen Capabilities mit diesem Peer; Objekt-Sperren widerrufen nur Grants mit überlappender Objektmenge.
         </p>
       </form>
     </div>
