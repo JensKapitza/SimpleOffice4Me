@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from .documents_core import *  # noqa: F401,F403
 from .project_git import ProjectGitError, ProjectGitService
