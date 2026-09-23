@@ -41,6 +41,13 @@ a { text-underline-offset: .16em; }
 .calendar-number { color: #475569; font-size: .8rem; font-weight: 700; }
 .calendar-event { display: block; background: #ccfbf1; border-left: 3px solid #0f766e; border-radius: .25rem; color: #134e4a; font-size: .75rem; margin-top: .3rem; overflow: hidden; padding: .2rem .35rem; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-event:hover { background: #99f6e4; color: #134e4a; }
+.calendar-workspace-nav { background: var(--bs-body-bg); border: 1px solid var(--so-border); border-radius: .75rem; padding: .4rem; }
+.calendar-workspace-tabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.calendar-workspace-tabs .nav-link { flex: 0 0 auto; white-space: nowrap; color: var(--bs-body-color); }
+.calendar-workspace-tabs .nav-link.active { background: var(--so-primary); color: #fff; }
+.calendar-workspace-caption { min-height: 1.25rem; }
+.calendar-workspace-panel[hidden] { display: none !important; }
+#calendar-month-view .card-body { overflow-x: auto; }
 .document-tree { --tree-indent: 1.05rem; }
 .document-tree details { border-left: 1px solid var(--so-border); margin-left: .3rem; padding-left: var(--tree-indent); }
 .document-tree summary { align-items: center; cursor: pointer; display: flex; min-height: 2.55rem; padding: .35rem .25rem; }
@@ -65,6 +72,10 @@ a { text-underline-offset: .16em; }
 [data-bs-theme="dark"] .calendar-number, [data-bs-theme="dark"] .document-tree-document > summary { color: #cbd5e1; }
 [data-bs-theme="dark"] .calendar-event { background: #134e4a; border-left-color: #2dd4bf; color: #ccfbf1; }
 [data-bs-theme="dark"] .calendar-event:hover, [data-bs-theme="dark"] .list-group-item-action:hover, [data-bs-theme="dark"] .document-tree-document > summary:hover { background: #164e63; color: #ecfeff; }
+@media (max-width: 767.98px) {
+  .calendar-workspace-nav { padding: .3rem; }
+  #calendar-month-view .calendar-grid { min-width: 42rem; }
+}
 @media (max-width: 991px) { .app-navbar .navbar-nav { gap: .2rem; padding-block: .5rem; } .app-navbar .nav-link { padding-inline: .8rem !important; } }
 @media (max-width: 1399.98px) {
   .app-navbar .navbar-collapse.show,
