@@ -364,8 +364,7 @@ class FederationPolicyStore:
                 return PolicyDecision(
                     False,
                     "confirmation_quorum_missing",
-                    target_peer,
-                    scope,
+                    scope=scope,
                 )
             confirmations = attestations.valid_confirmations(
                 target_peer,
@@ -380,8 +379,7 @@ class FederationPolicyStore:
                 return PolicyDecision(
                     False,
                     "confirmation_quorum_missing",
-                    target_peer,
-                    scope,
+                    scope=scope,
                 )
         return PolicyDecision(True, "allowed", scope=scope)
 
