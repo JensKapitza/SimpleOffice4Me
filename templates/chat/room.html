@@ -7,7 +7,7 @@
     <div class="min-w-0 flex-grow-1">
       <a class="small text-decoration-none" href="{{ url_for('chat.index') }}">← Chats</a>
       <h1 class="h3 mb-1 text-truncate">{{ room.title }}</h1>
-      <div class="d-flex flex-wrap gap-1" aria-label="Chat-Teilnehmer">
+      <div class="d-flex flex-wrap gap-1" role="group" aria-label="Chat-Teilnehmer">
         {% for p in participants %}
           <span class="badge rounded-pill text-bg-light border text-secondary fw-normal"><i class="fas {{ 'fa-cloud' if p.participant_kind == 'remote' else 'fa-user' }} me-1" aria-hidden="true"></i>{{ p.username }}{% if p.participant_kind == 'remote' %}@{{ p.peer_id }}{% endif %}</span>
         {% endfor %}
