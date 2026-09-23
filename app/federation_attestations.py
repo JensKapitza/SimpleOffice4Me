@@ -8,7 +8,8 @@ from .federation_identity import FederationIdentity, public_key_fingerprint, ver
 from .federation_local_profile import local_peer_id
 from .federation_peer_schema import ensure_schema
 from .federation_store import FederationStore
-from .federation_trust_constants import DIRECT_ONLY, PROPAGATION, TRANSITIVE
+from .federation_trust_constants import DIRECT_ONLY, KNOWN_UNVERIFIED, PROPAGATION, TRANSITIVE, VERIFY
+from .federation_trust_store import FederationTrustStore
 
 SIGNED_FIELDS = (
     "attestation_id", "verifier_peer_id", "verified_peer_id", "verification_type",
@@ -111,6 +112,58 @@ class FederationAttestationStore:
                     int(value["expires_at"]) if value.get("expires_at") else None,
                 ),
             )
+
+    def valid_confirmations(self, verified_peer_id, verifier_peer_ids=None, *, now=None):
+        """Return currently valid signed confirmations for one peer.
+
+        Stored attestations are re-verified against the verifier's current
+        public key before they can satisfy a transfer policy.
+        """
+        verified_peer_id = sanitize_peer_id(verified_peer_id)
+        allowed_verifiers = None
+        if verifier_peer_ids is not None:
+            if isinstance(verifier_peer_ids, (str, bytes)):
+                raise ValueError("verifier peer ids must be an iterable")
+            allowed_verifiers = {
+                sanitize_peer_id(peer_id)
+                for peer_id in verifier_peer_ids
+                if str(peer_id or "").strip()
+            }
+            if not allowed_verifiers:
+                return []
+
+        checked_at = int(time.time()) if now is None else int(now)
+        with self.store._db() as db:
+            rows = db.execute(
+                """SELECT * FROM federation_trust_attestation
+                   WHERE verified_peer_id=?
+                     AND (expires_at IS NULL OR expires_at>=?)
+                   ORDER BY created_at DESC""",
+                (verified_peer_id, checked_at),
+            ).fetchall()
+
+        local = local_peer_id()
+        local_public_key = ""
+        trust = FederationTrustStore(self.root)
+        accepted = []
+        for row in rows:
+            item = dict(row)
+            verifier = sanitize_peer_id(item.get("verifier_peer_id") or "")
+            if allowed_verifiers is not None and verifier not in allowed_verifiers:
+                continue
+            verification_type = str(item.get("verification_type") or "").upper()
+            if verification_type == KNOWN_UNVERIFIED or verification_type not in VERIFY:
+                continue
+            if verifier == local:
+                if not local_public_key:
+                    local_public_key = FederationIdentity(self.root).public_identity()["public_key"]
+                public_key = local_public_key
+            else:
+                identity = trust.identity(verifier)
+                public_key = str((identity or {}).get("public_key") or "")
+            if public_key and verify_attestation(item, public_key):
+                accepted.append(item)
+        return accepted
 
     def export_shareable(self):
         now = int(time.time())
