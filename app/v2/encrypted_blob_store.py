@@ -31,6 +31,7 @@ from .crypto import (
 FORMAT = PersistentFormat("simpleoffice-v2-encrypted-blob", 1)
 FOOTER_SCHEMA = "simpleoffice-v2-encrypted-blob-footer/v1"
 DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
+MAX_METADATA_BYTES = 64 * 1024 * 1024
 _GCM_TAG_BYTES = 16
 
 
@@ -64,6 +65,8 @@ def _unb64(value: str) -> bytes:
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.is_symlink() or not path.parent.is_dir():
+        raise OSError("encrypted blob metadata directory must be a real directory")
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -82,10 +85,30 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
     try:
-        raw = path.read_text(encoding="utf-8")
-        value = json.loads(raw)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise EncryptedBlobIntegrityError(f"invalid encrypted blob metadata: {path.name}") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size <= 0
+            or metadata.st_size > MAX_METADATA_BYTES
+        ):
+            raise EncryptedBlobIntegrityError(f"invalid encrypted blob metadata: {path.name}")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            raw = handle.read(MAX_METADATA_BYTES + 1)
+        if len(raw) > MAX_METADATA_BYTES:
+            raise EncryptedBlobIntegrityError(f"encrypted blob metadata is too large: {path.name}")
+    finally:
+        os.close(descriptor)
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise EncryptedBlobIntegrityError(f"invalid encrypted blob metadata: {path.name}") from exc
     if not isinstance(value, dict):
         raise EncryptedBlobIntegrityError("encrypted blob metadata must be a JSON object")
@@ -187,8 +210,26 @@ class EncryptedBlobStore:
         if self.chunk_size < 64 * 1024 or self.chunk_size > 64 * 1024 * 1024:
             raise ValueError("encrypted blob chunk size must be between 64 KiB and 64 MiB")
         self.crypto = crypto or CryptoService()
+        self._ensure_layout()
+
+    def _ensure_layout(self) -> None:
+        control = self.root / ".simpleoffice-v2"
+        control.mkdir(parents=True, exist_ok=True)
+        if control.is_symlink() or not control.is_dir():
+            raise ValueError("V2 control directory must be a real directory")
+        self.base.mkdir(exist_ok=True)
+        if self.base.is_symlink() or not self.base.is_dir():
+            raise ValueError("encrypted blob store must be a real directory")
         for directory in (self.chunks, self.objects, self.versions, self.staging):
-            directory.mkdir(parents=True, exist_ok=True)
+            directory.mkdir(exist_ok=True)
+            if directory.is_symlink() or not directory.is_dir():
+                raise ValueError("encrypted blob store subdirectories must be real directories")
+        if os.name == "posix":
+            for directory in (control, self.base, self.chunks, self.objects, self.versions, self.staging):
+                try:
+                    os.chmod(directory, 0o700)
+                except OSError as exc:
+                    raise ValueError("encrypted blob store directory permissions could not be secured") from exc
 
     @staticmethod
     def _object_key(object_id: LogicalObjectId) -> str:
