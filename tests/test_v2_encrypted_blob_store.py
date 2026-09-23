@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,6 +31,10 @@ class EncryptedBlobStoreTest(unittest.TestCase):
         manifest = self.store.version_manifest(version.version_id)
 
         self.assertEqual(payload, self.store.read(self.object_id))
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), version.content_sha256)
+        verified = self.store.verify(self.object_id)
+        self.assertEqual(version.version_id, verified.version_id)
+        self.assertEqual(version.content_sha256, verified.content_sha256)
         self.assertGreaterEqual(version.chunk_count, 2)
         serialized = json.dumps(manifest, sort_keys=True)
         self.assertNotIn(hashlib.sha256(payload).hexdigest(), serialized)
@@ -103,6 +108,40 @@ class EncryptedBlobStoreTest(unittest.TestCase):
         self.assertEqual([], manifest["chunks"])
         self.assertTrue(manifest["footer"]["ciphertext"])
         self.assertEqual(b"", self.store.read(self.object_id))
+
+    def test_inventory_and_orphan_cleanup_keep_referenced_ciphertext(self):
+        version = self.store.write(self.object_id, b"inventory")
+        manifest = self.store.version_manifest(version.version_id)
+        referenced = self.store._chunk_path(manifest["chunks"][0]["physical_id"])
+
+        orphan_id = "0" * 32
+        orphan = self.store.chunks / f"{orphan_id}.bin"
+        orphan.write_bytes(b"orphan")
+        os.utime(orphan, (0, 0))
+
+        inventory = self.store.inventory()
+        self.assertIn(orphan_id, inventory["orphan_chunks"])
+        self.assertNotIn(referenced.stem, inventory["orphan_chunks"])
+        self.assertTrue(inventory["encrypted_at_rest"])
+        self.assertEqual([orphan_id], self.store.collect_orphans(dry_run=True, minimum_age_seconds=0))
+        self.assertTrue(orphan.exists())
+        self.assertEqual([orphan_id], self.store.collect_orphans(dry_run=False, minimum_age_seconds=0))
+        self.assertFalse(orphan.exists())
+        self.assertTrue(referenced.exists())
+
+    def test_staging_recovery_is_age_bounded(self):
+        old = self.store.staging / "old-encrypted-transaction"
+        old.mkdir()
+        os.utime(old, (0, 0))
+        fresh = self.store.staging / "fresh-encrypted-transaction"
+        fresh.mkdir()
+
+        self.assertEqual(
+            ["old-encrypted-transaction"],
+            self.store.recover_staging(minimum_age_seconds=60),
+        )
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.exists())
 
     def test_streaming_write_is_bounded_and_checks_expected_digest(self):
         class GuardedStream(io.BytesIO):
