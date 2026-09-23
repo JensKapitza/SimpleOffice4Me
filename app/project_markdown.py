@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import re
+import uuid
 from urllib.parse import urlsplit
 
 from markupsafe import Markup
@@ -33,26 +34,39 @@ def _safe_url(value: str) -> str:
 
 
 def _inline(value: str) -> str:
-    """Escape first, then add a deliberately small set of safe inline markup."""
+    """Render safe inline markup without rewriting generated tag attributes."""
 
-    escaped = html.escape(str(value or ""), quote=True)
+    source = str(value or "")
+    prefix = "SO_MD_" + uuid.uuid4().hex + "_"
+    tokens: list[str] = []
+
+    def stash(rendered: str) -> str:
+        token = f"{prefix}{len(tokens)}_END"
+        tokens.append(rendered)
+        return token
+
+    def code(match: re.Match[str]) -> str:
+        return stash("<code>" + html.escape(match.group(1), quote=False) + "</code>")
 
     def link(match: re.Match[str]) -> str:
-        label = match.group(1)
+        label = html.escape(match.group(1), quote=True)
         href = _safe_url(match.group(2))
         if not href:
-            return label
+            return stash(label)
         safe_href = html.escape(href, quote=True)
         external = urlsplit(href).scheme.casefold() in {"http", "https"}
         attrs = ' rel="noopener noreferrer"' if external else ""
-        return f'<a href="{safe_href}"{attrs}>{label}</a>'
+        return stash(f'<a href="{safe_href}"{attrs}>{label}</a>')
 
-    escaped = re.sub(r"\[([^\]\n]{1,500})\]\(([^)\n]{1,2000})\)", link, escaped)
-    escaped = re.sub(r"\x60([^\x60\n]{1,2000})\x60", r"<code>\1</code>", escaped)
+    source = re.sub(r"\x60([^\x60\n]{1,2000})\x60", code, source)
+    source = re.sub(r"\[([^\]\n]{1,500})\]\(([^)\n]{1,2000})\)", link, source)
+    escaped = html.escape(source, quote=True)
     escaped = re.sub(r"\*\*([^*\n]+)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"__([^_\n]+)__", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<em>\1</em>", escaped)
     escaped = re.sub(r"~~([^~\n]+)~~", r"<del>\1</del>", escaped)
+    for index, rendered in enumerate(tokens):
+        escaped = escaped.replace(f"{prefix}{index}_END", rendered)
     return escaped
 
 
