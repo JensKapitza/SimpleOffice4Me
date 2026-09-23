@@ -47,7 +47,9 @@ class ProjectStore:
             "description": str(values.get("description", "")).strip(), "location": str(values.get("location", "")).strip(),
             "status": self._state(values.get("status"), PROJECT_STATES, "open"),
             "planned_start": str(values.get("planned_start", "")).strip(), "planned_end": str(values.get("planned_end", "")).strip(),
-            "resources": self._values(values.get("resources")), "notes": [], "links": [], "document_ids": [], "tasks": [],
+            "resources": self._values(values.get("resources")),
+            "repository_path": self._repository_path(values.get("repository_path", "")),
+            "notes": [], "links": [], "document_ids": [], "tasks": [],
             "time_groups": [],
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
         }
@@ -60,7 +62,9 @@ class ProjectStore:
         project.update({"title": str(values["title"]).strip(), "description": str(values.get("description", "")).strip(),
                         "location": str(values.get("location", "")).strip(), "status": self._state(values.get("status"), PROJECT_STATES, "open"),
                         "planned_start": str(values.get("planned_start", "")).strip(), "planned_end": str(values.get("planned_end", "")).strip(),
-                        "resources": self._values(values.get("resources")), "updated_at": utc_now(), "updated_by": actor})
+                        "resources": self._values(values.get("resources")),
+                        "repository_path": self._repository_path(values.get("repository_path", project.get("repository_path", ""))),
+                        "updated_at": utc_now(), "updated_by": actor})
         self._write_change(project, actor, "project_updated")
         return project
 
@@ -234,6 +238,13 @@ class ProjectStore:
         project = self.project(project_id); target = self._task(project, task_id) if task_id else project
         if document_id not in target["document_ids"]: target["document_ids"].append(document_id)
         self._touch(project, actor); self._write_change(project, actor, "project_document_attached")
+
+    @staticmethod
+    def _repository_path(value: Any) -> str:
+        text = str(value or "").strip()
+        if "\x00" in text or len(text) > 2048:
+            raise ValueError("repository path is invalid")
+        return text
 
     @staticmethod
     def _values(raw: Any) -> list[str]:
