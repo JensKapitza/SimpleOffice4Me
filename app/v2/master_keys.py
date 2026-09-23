@@ -227,7 +227,6 @@ class MasterKeyProfileStore:
             raise ValueError("master-key directory must be a real directory")
         if os.name == "posix":
             try:
-                os.chmod(control, 0o700)
                 os.chmod(self.base, 0o700)
             except OSError as exc:
                 raise ValueError("master-key directory permissions could not be secured") from exc
