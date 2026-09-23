@@ -256,14 +256,16 @@ class ProjectGitService:
             process.wait()
             raise
         finally:
-            stdout_thread.join(timeout=2)
-            stderr_thread.join(timeout=2)
+            stdout_thread.join()
+            stderr_thread.join()
 
         stdout = b"".join(stdout_parts)
         stderr = b"".join(stderr_parts)
         if stdout_overflow.is_set():
             raise ProjectGitError("Git-Ausgabe überschreitet das Sicherheitslimit")
         if returncode not in accepted_returncodes:
+            if stderr_overflow.is_set():
+                raise ProjectGitError("Git-Fehlerausgabe überschreitet das Sicherheitslimit")
             message = stderr.decode("utf-8", "replace").strip().splitlines()
             detail = message[-1][:300] if message else f"Git exited with {returncode}"
             raise ProjectGitError(detail)
