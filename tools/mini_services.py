@@ -20,6 +20,7 @@ from simpleoffice_mini_services import (
     refresh_blocklists, write_status, read_status, state_dir,
 )
 from simpleoffice_network_boot import TftpService, boot_settings_path, load_boot_settings
+from simpleoffice_mini_runtime import detect_foreign_dhcp_servers
 from simpleoffice_network_boot_dhcp import BootAwareDhcpService
 from simpleoffice_network_gateway_runtime import (
     apply_gateway, clear_gateway_ownership, disable_gateway, gateway_health,
@@ -30,7 +31,9 @@ from simpleoffice_sip_runtime import SipRegistrarService, telephony_db_path, eff
 from simpleoffice_connection_relay import (
     TurnRelayService, load_relay_settings, relay_secrets_path, relay_settings_path,
 )
-from simpleoffice_service_lifecycle import ServiceState, error_detail, service_health
+from simpleoffice_service_lifecycle import (
+    DhcpConflictDetected, DhcpConflictProbeUnavailable, ServiceState, error_detail, service_health,
+)
 from simpleoffice_mini_control import ControlStore
 from simpleoffice_network_gateway import interfaces_snapshot, binding_available, detect_interfaces, platform_kind
 
@@ -151,6 +154,13 @@ class Worker:
                 self.gateway_active = True
                 self.next_gateway_health = 0
             else:
+                if name == "dhcp":
+                    try:
+                        conflicts = detect_foreign_dhcp_servers(settings)
+                    except (OSError, ValueError) as exc:
+                        raise DhcpConflictProbeUnavailable() from exc
+                    if conflicts:
+                        raise DhcpConflictDetected()
                 factories = {"dhcp": BootAwareDhcpService, "dns": DnsService, "tftp": TftpService}
                 if name == "sip":
                     service = SipRegistrarService(self.config_path, self.event)

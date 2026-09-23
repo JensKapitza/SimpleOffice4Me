@@ -4,6 +4,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import secrets
 import socket
 import struct
 import subprocess
@@ -43,6 +44,85 @@ from simpleoffice_mini_core import (
     read_leases,
     utc_now,
 )
+
+
+def _dhcp_conflict_probe_packet(xid: int, mac: bytes) -> bytes:
+    """Build a minimal anonymous DHCPDISCOVER used only for conflict detection."""
+    chaddr = mac + b"\0" * (16 - len(mac))
+    header = DHCP_HEADER.pack(
+        1, 1, len(mac), 0, xid, 0, 0x8000,
+        b"\0" * 4, b"\0" * 4, b"\0" * 4, b"\0" * 4,
+        chaddr, b"", b"",
+    )
+    return (
+        header
+        + DHCP_MAGIC
+        + bytes((53, 1, DHCP_DISCOVER, 61, 7, 1))
+        + mac
+        + bytes((55, 3, 1, 3, 6, 255))
+    )
+
+
+def detect_foreign_dhcp_servers(config: dict[str, Any], timeout: float = 0.8) -> list[str]:
+    """Actively detect DHCP servers before enabling our standard LAN listener.
+
+    The probe never changes host networking and never accepts an offered lease.
+    Non-standard test ports and loopback-only DHCP are intentionally skipped.
+    """
+    if int(config.get("port", 67)) != 67:
+        return []
+    bind_address = ipaddress.ip_address(str(config.get("bind", UNSPECIFIED_IPV4)))
+    if bind_address.version != 4 or bind_address.is_loopback:
+        return []
+    timeout = float(timeout)
+    if not 0.05 <= timeout <= 3.0:
+        raise ValueError("DHCP-Konfliktprüfung benötigt ein begrenztes Zeitfenster")
+
+    xid = secrets.randbits(32)
+    mac_bytes = bytearray(secrets.token_bytes(6))
+    mac_bytes[0] = (mac_bytes[0] | 0x02) & 0xFE
+    packet = _dhcp_conflict_probe_packet(xid, bytes(mac_bytes))
+    interface = str(config.get("interface", "") or "").strip()
+    servers: set[str] = set()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if interface:
+            if not hasattr(socket, "SO_BINDTODEVICE"):
+                raise ValueError("Interface-Bindung ist auf dieser Plattform nicht verfügbar")
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface.encode() + b"\0")
+        sock.bind((str(bind_address), 68))
+        deadline = time.monotonic() + timeout
+        sock.sendto(packet, ("255.255.255.255", 67))
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            sock.settimeout(remaining)
+            try:
+                response, source = sock.recvfrom(4096)
+            except socket.timeout:
+                break
+            if len(response) < DHCP_HEADER.size + len(DHCP_MAGIC):
+                continue
+            values = DHCP_HEADER.unpack_from(response)
+            if values[0] != 2 or values[4] != xid:
+                continue
+            options = parse_dhcp_options(response[DHCP_HEADER.size:])
+            if options.get(53) != bytes((DHCP_OFFER,)):
+                continue
+            raw_server = options.get(54, b"")
+            server = str(ipaddress.ip_address(raw_server)) if len(raw_server) == 4 else str(source[0])
+            try:
+                address = ipaddress.ip_address(server)
+            except ValueError:
+                continue
+            if address.version == 4 and not address.is_unspecified:
+                servers.add(str(address))
+    finally:
+        sock.close()
+    return sorted(servers)
 
 
 class LeaseStore:
