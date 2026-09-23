@@ -23,6 +23,16 @@ class GlobalUiQuickWinsTest(unittest.TestCase):
         self.assertIn('window.addEventListener("pageshow"', script)
         self.assertIn('rel.add("noopener")', script)
 
+    def test_mobile_nav_dropdown_toggles_do_not_close_the_navbar(self):
+        script = (ROOT / "static" / "js" / "global_ui.js").read_text(encoding="utf-8")
+        dropdown_guard = 'navLink.matches(\'[data-bs-toggle="dropdown"]\')'
+        href_guard = 'navLink.getAttribute("href") === "#"' 
+        collapse_hide = 'window.bootstrap.Collapse.getOrCreateInstance(collapse, {toggle: false}).hide()'
+        self.assertIn(dropdown_guard, script)
+        self.assertIn(href_guard, script)
+        self.assertIn(collapse_hide, script)
+        self.assertLess(script.index(dropdown_guard), script.index(collapse_hide))
+
 
 if __name__ == "__main__":
     unittest.main()
