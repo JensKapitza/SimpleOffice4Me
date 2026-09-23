@@ -30,7 +30,7 @@ CONTROL_FILES = {
     "contacts": ("contacts.json",),
     "calendar": ("calendar.json", "calendar-booking.json"),
     "forms": ("form-definitions.json", "form-records.json"),
-    "projects": ("projects.json",),
+    "projects": ("projects.json", "project-tracker.json"),
     "settings": ("settings.json",),
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
