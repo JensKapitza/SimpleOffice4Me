@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app.document_store import DocumentStore
 from app.federation_blocks_v2_http import bp
 from app.v2.scoped_dedup import SCHEMA
 
@@ -35,6 +36,19 @@ class FederationBlocksV2HttpTest(unittest.TestCase):
     def tearDown(self):
         self.environment.stop()
         self.temp.cleanup()
+
+    def test_manifest_resolves_real_document_index_row(self):
+        store = DocumentStore(self.root)
+        store.initialize()
+        store._scan_file(self.source, force_hash=True)
+        response = self.client.get(
+            f"/federation/v2/blocks/blobs/{self.blob_hash}/manifest",
+            headers=self.headers,
+        )
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual(SCHEMA, body["schema"])
+        self.assertEqual(len(self.payload), body["size"])
 
     def test_manifest_exposes_only_session_scoped_tokens(self):
         with patch("app.federation_blocks_v2_http._blob_path", return_value=self.source):
