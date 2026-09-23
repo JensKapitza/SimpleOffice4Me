@@ -40,6 +40,8 @@ __all__ = [
     "BlobStore",
     "BlobVersion",
     "CryptoService",
+    "ChunkCryptoSession",
+    "EncryptedChunk",
     "EncryptedPayload",
     "ProtectedMasterKey",
     "WrappedKey",
@@ -82,7 +84,7 @@ __all__ = [
 
 from .blob_store import BlobIntegrityError, BlobStore, BlobVersion
 
-from .crypto import CryptoService, EncryptedPayload, ProtectedMasterKey, WrappedKey
+from .crypto import ChunkCryptoSession, CryptoService, EncryptedChunk, EncryptedPayload, ProtectedMasterKey, WrappedKey
 
 from .fragments import (
     EncodedRecoverySet,
