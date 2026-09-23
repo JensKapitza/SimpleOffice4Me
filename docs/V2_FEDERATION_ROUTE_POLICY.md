@@ -101,6 +101,19 @@ policy scope. `enforce_policy(...)` re-evaluates that state before progress;
 a newly forbidden job is failed. `stop_blocked_jobs(...)` can re-evaluate the
 whole active queue after a policy change.
 
+## Decision audit
+
+Every policy evaluation performed for transfer creation and immediately before
+job progress writes a tamper-evident V2 audit event. The event records the
+target, evaluated scope, bounded route/object references, allow/deny result,
+decision reason and blocked peer when present. Raw idempotency keys are not
+stored; transfer-creation correlation uses a bounded SHA-256-derived identifier.
+
+An allowed transfer is not created when its policy decision cannot be audited.
+For an existing job, audit loss fails the job before progress with
+`policy_denied_reason=audit_unavailable`. Invalid/corrupt policy state is
+still denied and an audit attempt records `policy_invalid`.
+
 This is only the locally enforceable route layer. Signed confirmation/quorum
 rules, whole-peer blocks, object-specific blocks and local policy administration
 are enforced here. Remote relationship assertions that are not represented in

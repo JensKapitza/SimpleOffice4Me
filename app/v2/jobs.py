@@ -1,17 +1,20 @@
 """Persistent V2 jobs and federation desired-state transfer intents."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import time
 import uuid
+from datetime import datetime, timezone
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from .contracts import ErrorCode, JobRecord, JobState, OperationResult
+from .contracts import AuditEvent, AuditPort, ErrorCode, JobRecord, JobState, OperationResult
 from .authorization import AuthorizationStore, GrantRight
 from .federation_policy import FederationPolicyStore
+from .adapters.audit import RevisionHistoryAuditAdapter
 
 
 SCHEMA_VERSION = 1
@@ -209,8 +212,54 @@ class FederationJobService:
         "blocked_downstream_capability",
     })
 
-    def __init__(self, store: PersistentJobStore):
+    def __init__(
+        self,
+        store: PersistentJobStore,
+        *,
+        audit_port: AuditPort | None = None,
+    ):
         self.store = store
+        self.audit = audit_port or RevisionHistoryAuditAdapter(self.store.root)
+
+    def _audit_policy_decision(
+        self,
+        *,
+        operation: str,
+        actor: str,
+        object_id: str,
+        target_peer: str,
+        scope: str,
+        route: list[str] | tuple[str, ...],
+        object_refs: tuple[str, ...] | list[str],
+        allowed: bool,
+        reason: str,
+        blocked_peer: str = "",
+        correlation_id: str = "",
+    ) -> bool:
+        try:
+            result = self.audit.append(
+                AuditEvent(
+                    actor=str(actor or "system")[:160],
+                    operation=str(operation)[:200],
+                    object_id=str(object_id)[:1000],
+                    occurred_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                    source="federation-job-service",
+                    correlation_id=str(correlation_id or "")[:200],
+                    changes={
+                        "target_peer": str(target_peer or "")[:240],
+                        "scope": str(scope or "")[:80],
+                        "route": [str(peer)[:240] for peer in route[:64]],
+                        "object_refs": [str(item)[:200] for item in object_refs[:40]],
+                        "object_ref_count": len(object_refs),
+                        "allowed": bool(allowed),
+                        "reason": str(reason or "")[:160],
+                        "blocked_peer": str(blocked_peer or "")[:240],
+                    },
+                )
+            )
+            return bool(result.ok)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False
 
     @classmethod
     def _revoke_blocked_object_capabilities(
@@ -244,6 +293,9 @@ class FederationJobService:
     ) -> OperationResult[JobRecord]:
         if policy_store is not None:
             checked_route = list(route) if route is not None else [intent.source_peer, intent.target_peer]
+            correlation_id = hashlib.sha256(
+                str(idempotency_key).encode("utf-8", "replace")
+            ).hexdigest()[:24]
             try:
                 decision = policy_store.decision(
                     checked_route,
@@ -253,9 +305,40 @@ class FederationJobService:
                     object_refs=intent.object_refs,
                 )
             except (RuntimeError, ValueError):
+                self._audit_policy_decision(
+                    operation="federation_policy_create_decision",
+                    actor=intent.source_peer,
+                    object_id=f"federation-policy:{intent.target_peer}",
+                    target_peer=intent.target_peer,
+                    scope=policy_scope,
+                    route=checked_route,
+                    object_refs=list(intent.object_refs),
+                    allowed=False,
+                    reason="policy_invalid",
+                    correlation_id=correlation_id,
+                )
                 return OperationResult.failure(
                     ErrorCode.FORBIDDEN,
                     "federation policy could not be evaluated safely",
+                )
+            audited = self._audit_policy_decision(
+                operation="federation_policy_create_decision",
+                actor=intent.source_peer,
+                object_id=f"federation-policy:{intent.target_peer}",
+                target_peer=intent.target_peer,
+                scope=policy_scope,
+                route=checked_route,
+                object_refs=list(intent.object_refs),
+                allowed=decision.allowed,
+                reason=decision.reason,
+                blocked_peer=decision.blocked_peer,
+                correlation_id=correlation_id,
+            )
+            if not audited:
+                return OperationResult.failure(
+                    ErrorCode.STORAGE_UNAVAILABLE,
+                    "federation policy decision could not be audited",
+                    retryable=True,
                 )
             if not decision.allowed:
                 self._revoke_blocked_object_capabilities(
@@ -325,20 +408,59 @@ class FederationJobService:
             str(payload.get("source_peer") or ""),
             str(payload.get("target_peer") or ""),
         ]
+        checked_scope = str(payload.get("policy_scope") or "relay")
+        target_peer = str(payload.get("target_peer") or "")
+        source_peer = str(payload.get("source_peer") or "system")
+        object_refs = list(payload.get("object_refs") or ())
         try:
             decision = policy_store.decision(
                 route,
-                scope=str(payload.get("policy_scope") or "relay"),
-                target_peer=str(payload.get("target_peer") or ""),
+                scope=checked_scope,
+                target_peer=target_peer,
                 authorization_store=authorization_store,
-                object_refs=payload.get("object_refs") or (),
+                object_refs=object_refs,
             )
         except (RuntimeError, ValueError):
+            self._audit_policy_decision(
+                operation="federation_policy_pre_progress_decision",
+                actor=source_peer,
+                object_id=f"federation-job:{job_id}",
+                target_peer=target_peer,
+                scope=checked_scope,
+                route=route,
+                object_refs=object_refs,
+                allowed=False,
+                reason="policy_invalid",
+                correlation_id=job_id,
+            )
             return self.store.transition(
                 job_id,
                 JobState.FAILED,
                 error="federation policy could not be evaluated safely",
                 payload={"policy_denied": True, "policy_denied_reason": "policy_invalid"},
+            )
+        audited = self._audit_policy_decision(
+            operation="federation_policy_pre_progress_decision",
+            actor=source_peer,
+            object_id=f"federation-job:{job_id}",
+            target_peer=target_peer,
+            scope=checked_scope,
+            route=route,
+            object_refs=object_refs,
+            allowed=decision.allowed,
+            reason=decision.reason,
+            blocked_peer=decision.blocked_peer,
+            correlation_id=job_id,
+        )
+        if not audited:
+            return self.store.transition(
+                job_id,
+                JobState.FAILED,
+                error="federation policy decision could not be audited",
+                payload={
+                    "policy_denied": True,
+                    "policy_denied_reason": "audit_unavailable",
+                },
             )
         if decision.allowed:
             return current
