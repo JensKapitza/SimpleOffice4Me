@@ -327,7 +327,15 @@
 
   document.addEventListener("click", (event) => {
     const navLink = event.target instanceof Element ? event.target.closest(".app-navbar .navbar-collapse.show .nav-link[href]") : null;
-    if (navLink && window.bootstrap?.Collapse) {
+    if (!navLink) return;
+
+    // Dropdown toggles are controls inside the expanded mobile navigation, not
+    // navigation targets. Closing the parent collapse here races Bootstrap's
+    // dropdown click handler and makes touch menus appear to open and
+    // immediately close again.
+    if (navLink.matches('[data-bs-toggle="dropdown"]') || navLink.getAttribute("href") === "#") return;
+
+    if (window.bootstrap?.Collapse) {
       const collapse = navLink.closest(".navbar-collapse");
       if (collapse) window.bootstrap.Collapse.getOrCreateInstance(collapse, {toggle: false}).hide();
     }
