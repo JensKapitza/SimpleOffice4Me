@@ -92,6 +92,21 @@ class BlobStoreTest(unittest.TestCase):
         self.assertEqual(digest, version.content_sha256)
         self.assertEqual(payload, self.store.read(LogicalObjectId("streamed-document")))
 
+    def test_copy_verified_to_streams_verified_content(self):
+        payload = b"stream-copy-" * 10000
+        version = self.store.write(self.object_id, payload)
+        target = io.BytesIO()
+
+        copied = self.store.copy_verified_to(
+            self.object_id,
+            target,
+            version_id=version.version_id,
+        )
+
+        self.assertEqual(version.version_id, copied.version_id)
+        self.assertEqual(version.content_sha256, copied.content_sha256)
+        self.assertEqual(payload, target.getvalue())
+
     def test_stream_write_rejects_changed_source_before_publishing_pointer(self):
         object_id = LogicalObjectId("changed-during-migration")
         with self.assertRaisesRegex(BlobIntegrityError, "sha256"):
