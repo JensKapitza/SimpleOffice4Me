@@ -163,6 +163,9 @@ class _DocumentStorePart4:
             })
             metadata["recovery_history"] = metadata["recovery_history"][-200:]
             metadata.pop("recovery_path", None)
+            metadata.pop("deleted_at", None)
+            metadata.pop("deleted_by", None)
+            metadata.pop("deleted_from", None)
             metadata.pop("collection_recovery_id", None)
             metadata.pop("deleted_collection_root", None)
             self._write_xattrs(destination, metadata["document_id"], actual_sha256, metadata.get("tags", []))
