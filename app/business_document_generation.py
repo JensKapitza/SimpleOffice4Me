@@ -115,6 +115,45 @@ def _read_json(path: Path, default: Any) -> Any:
     except (OSError, json.JSONDecodeError): return default
 
 
+def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, actor: str, kind: str, template_id: str, *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Persist a generated PDF and link it to the owning CRM contact."""
+    # Imported lazily to avoid a module-import cycle with the compatibility facade.
+    from .business_documents import attach_contact_document
+
+    now = datetime.now(timezone.utc)
+    directory = root / "generated" / kind / now.strftime("%Y") / contact_id
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
+    path.write_bytes(pdf)
+    store = DocumentStore(root)
+    document = store.get_document(path)
+    document_id = document["document_id"]
+    store.update_metadata(
+        document_id,
+        author=actor,
+        tags=[kind, "crm"],
+        attributes={
+            "contact_id": contact_id,
+            "business_document_kind": kind,
+            "business_template_id": template_id,
+            **{
+                str(key): str(value)
+                for key, value in (metadata or {}).items()
+                if value is not None and not isinstance(value, (dict, list))
+            },
+        },
+    )
+    attach_contact_document(
+        root,
+        contact_id,
+        document_id,
+        actor,
+        relation=kind,
+        metadata={"subject": subject, "template_id": template_id, **(metadata or {})},
+    )
+    return store.get_document(document_id)
+
+
 def _template_directory(root: Path) -> Path:
     path = root / CONTROL_DIR / TEMPLATE_DIR; path.mkdir(parents=True, exist_ok=True); return path
 
