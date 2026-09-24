@@ -160,7 +160,7 @@ def _parser() -> argparse.ArgumentParser:
     trustee_export.add_argument("--output", required=True)
     trustee_export.add_argument("--apply", action="store_true")
 
-    key_rotation_status = sub.add_parser(
+    sub.add_parser(
         "storage-key-rotation-status",
         help="Show whether an encrypted-storage master-key rotation is pending",
     )
