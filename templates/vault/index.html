@@ -83,15 +83,17 @@
           </form>
           <form method="post" action="{{ url_for('vault.export_browser_csv') }}" class="mb-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <label class="form-label" for="vault-export-confirm">Klartext-Export</label>
+            <label class="form-label" for="vault-export-password">Klartext-Export</label>
+            <input id="vault-export-password" name="master_password" type="password" class="form-control form-control-sm mb-2" placeholder="Master-Passwort erneut eingeben" autocomplete="current-password" required>
             <div class="input-group input-group-sm"><input id="vault-export-confirm" name="confirm" class="form-control" placeholder="EXPORT" autocomplete="off"><button class="btn btn-outline-danger" type="submit">CSV exportieren</button></div>
-            <div class="form-text">Klartext-CSV nur nach Eingabe von <code>EXPORT</code>; Antwort wird nicht gecacht.</div>
+            <div class="form-text">Klartext-CSV nur nach erneuter Authentifizierung und Eingabe von <code>EXPORT</code>; Antwort wird nicht gecacht.</div>
           </form>
 
           <form method="post" action="{{ url_for('vault.import_backup') }}" enctype="multipart/form-data">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <label class="form-label" for="vault-backup">Verschlüsseltes Backup ersetzen</label>
             <input id="vault-backup" name="file" type="file" class="form-control form-control-sm mb-2" accept=".json,application/json" required>
+            <input name="master_password" type="password" class="form-control form-control-sm mb-2" placeholder="Aktuelles Master-Passwort" autocomplete="current-password" required>
             <div class="input-group input-group-sm"><input name="confirm" class="form-control" placeholder="REPLACE" autocomplete="off"><button class="btn btn-outline-danger" type="submit">Importieren</button></div>
           </form>
         </div>
