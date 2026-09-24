@@ -6,6 +6,7 @@ in ChatStore so existing federation and attachment code stays compatible.
 from __future__ import annotations
 
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,7 +33,7 @@ class ChatFeatureStore:
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
