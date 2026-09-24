@@ -17,7 +17,7 @@
   </div>
 
   {% for message in get_flashed_messages() %}
-  <div class="alert alert-info">{{ message }}</div>
+  <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
   {% endfor %}
 
   <div class="row g-3 align-items-start">
