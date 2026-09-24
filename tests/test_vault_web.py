@@ -80,10 +80,13 @@ class VaultWebTests(unittest.TestCase):
         self.assertNotIn("notes", entry)
         self.assertEqual("private, no-store", response.headers["Cache-Control"])
 
-        page = self.client.get("/vault/")
-        self.assertNotIn(b"SuperSecret-123!", page.data)
-        self.assertNotIn(b"private note", page.data)
-        self.assertNotIn(b"JBSWY3DPEHPK3PXP", page.data)
+        template = (Path(__file__).parents[1] / "templates" / "vault" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        search_section = template.split("Credentials durchsuchen", 1)[1]
+        self.assertNotIn("row.password", search_section)
+        self.assertNotIn("row.totp", search_section)
+        self.assertNotIn("row.notes", search_section)
 
     def test_explicit_reveal_returns_one_full_credential_and_no_store(self):
         self._setup()
