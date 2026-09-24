@@ -128,6 +128,30 @@ class V2VaultServiceTests(unittest.TestCase):
                 [row["entry_id"] for row in rows],
             )
 
+    def test_search_projection_never_returns_secret_fields(self):
+        rows = self.service.search(
+            "alice",
+            self.key,
+            VaultSearchFilters(username="alpha"),
+        )
+
+        self.assertEqual(1, len(rows))
+        row = rows[0]
+        self.assertNotIn("data", row)
+        self.assertNotIn("password", row)
+        self.assertNotIn("totp", row)
+        self.assertNotIn("notes", row)
+
+        explicit = self.service.credential(
+            "alice",
+            self.key,
+            self.primary["entry_id"],
+        )
+        self.assertEqual(
+            "not-indexed-password-marker",
+            explicit["data"]["password"],
+        )
+
     def test_secret_fields_are_not_searchable(self):
         for value in (
             "not-indexed-password-marker",
