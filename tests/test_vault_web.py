@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Flask, g
 
 from app.password_vault import PasswordVault
-from app.vault_web import bp
+from app.vault_web import _UNLOCKS, bp
 
 
 class VaultWebTests(unittest.TestCase):
@@ -107,6 +107,51 @@ class VaultWebTests(unittest.TestCase):
         response = self.client.get("/vault/api/v1/search")
         self.assertEqual(423, response.status_code)
         self.assertFalse(response.get_json()["ok"])
+
+    def test_reunlock_replaces_previous_process_unlock_token(self):
+        self._setup()
+        with self.client.session_transaction() as current:
+            first = current["vault_unlock_token"]
+
+        response = self.client.post(
+            "/vault/unlock",
+            data={"master_password": self.password},
+        )
+        self.assertEqual(302, response.status_code)
+        with self.client.session_transaction() as current:
+            second = current["vault_unlock_token"]
+
+        self.assertNotEqual(first, second)
+        self.assertNotIn(first, _UNLOCKS)
+        self.assertIn(second, _UNLOCKS)
+
+    def test_master_password_change_invalidates_other_actor_unlock_tokens(self):
+        self._setup()
+        other = self.app.test_client()
+        response = other.post(
+            "/vault/unlock",
+            data={"master_password": self.password},
+        )
+        self.assertEqual(302, response.status_code)
+        with other.session_transaction() as other_session:
+            other_token = other_session["vault_unlock_token"]
+        self.assertIn(other_token, _UNLOCKS)
+
+        replacement = "new correct horse battery staple"
+        response = self.client.post(
+            "/vault/master-password",
+            data={
+                "old_password": self.password,
+                "new_password": replacement,
+                "new_password_confirm": replacement,
+            },
+        )
+        self.assertEqual(302, response.status_code)
+        with self.client.session_transaction() as current:
+            replacement_token = current["vault_unlock_token"]
+
+        self.assertNotIn(other_token, _UNLOCKS)
+        self.assertIn(replacement_token, _UNLOCKS)
 
     def test_browser_csv_import_never_overwrites_existing_match(self):
         self._setup()
