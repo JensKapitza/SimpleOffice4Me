@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +26,7 @@ class GamificationStore:
         self.initialize()
 
     def _db(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path)
+        db = sqlite_connect(self.path)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         return db
