@@ -13,8 +13,24 @@ from app.federation_identity import FederationIdentity
 from app.federation_trust_store import FederationTrustStore
 from app.v2.federation_policy import FederationPolicyStore
 from app.v2.authorization import AuthorizationStore, GrantRight
-from app.v2.contracts import JobState
+from app.v2.contracts import AuditPort, ErrorCode, JobState, OperationResult
 from app.v2.jobs import FederationJobService, FederationTransferIntent, PersistentJobStore
+
+
+class RecordingAudit(AuditPort):
+    def __init__(self, *, fail: bool = False):
+        self.fail = fail
+        self.events = []
+
+    def append(self, event):
+        self.events.append(event)
+        if self.fail:
+            return OperationResult.failure(
+                ErrorCode.STORAGE_UNAVAILABLE,
+                "synthetic audit failure",
+                retryable=True,
+            )
+        return OperationResult.success(f"audit-{len(self.events)}")
 
 
 class FederationBlockPolicyTests(unittest.TestCase):
@@ -438,6 +454,127 @@ class FederationBlockPolicyTests(unittest.TestCase):
         )
         self.assertFalse(denied.allowed)
         self.assertEqual("confirmation_quorum_missing", denied.reason)
+
+    def test_transfer_creation_audits_allowed_policy_decision(self):
+        audit = RecordingAudit()
+        service = FederationJobService(
+            PersistentJobStore(self.root),
+            audit_port=audit,
+        )
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref="grant-1",
+            expires_at=int(time.time()) + 600,
+        )
+
+        created = service.create_transfer(
+            intent,
+            idempotency_key="audit-allowed-create",
+            policy_store=self.policy,
+            route=("peer-a", "peer-c"),
+        )
+
+        self.assertTrue(created.ok)
+        self.assertEqual(1, len(audit.events))
+        event = audit.events[0]
+        self.assertEqual("federation_policy_create_decision", event.operation)
+        self.assertEqual("peer-a", event.actor)
+        self.assertTrue(event.changes["allowed"])
+        self.assertEqual("allowed", event.changes["reason"])
+        self.assertEqual(["object-1"], event.changes["object_refs"])
+
+    def test_transfer_creation_audits_denied_policy_decision(self):
+        audit = RecordingAudit()
+        self.policy.block("peer-c")
+        service = FederationJobService(
+            PersistentJobStore(self.root),
+            audit_port=audit,
+        )
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref="grant-1",
+            expires_at=int(time.time()) + 600,
+        )
+
+        denied = service.create_transfer(
+            intent,
+            idempotency_key="audit-denied-create",
+            policy_store=self.policy,
+            route=("peer-a", "peer-c"),
+        )
+
+        self.assertFalse(denied.ok)
+        self.assertEqual(ErrorCode.FORBIDDEN, denied.error.code)
+        self.assertEqual(1, len(audit.events))
+        self.assertFalse(audit.events[0].changes["allowed"])
+        self.assertEqual("explicit_block", audit.events[0].changes["reason"])
+        self.assertEqual("peer-c", audit.events[0].changes["blocked_peer"])
+
+    def test_transfer_creation_fails_closed_when_policy_audit_is_unavailable(self):
+        audit = RecordingAudit(fail=True)
+        store = PersistentJobStore(self.root)
+        service = FederationJobService(store, audit_port=audit)
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref="grant-1",
+            expires_at=int(time.time()) + 600,
+        )
+
+        denied = service.create_transfer(
+            intent,
+            idempotency_key="audit-unavailable-create",
+            policy_store=self.policy,
+            route=("peer-a", "peer-c"),
+        )
+
+        self.assertFalse(denied.ok)
+        self.assertEqual(ErrorCode.STORAGE_UNAVAILABLE, denied.error.code)
+        self.assertTrue(denied.error.retryable)
+        with store._db() as db:
+            self.assertEqual(0, db.execute("SELECT COUNT(*) FROM job").fetchone()[0])
+
+    def test_pre_progress_audit_failure_stops_existing_job(self):
+        audit = RecordingAudit()
+        service = FederationJobService(
+            PersistentJobStore(self.root),
+            audit_port=audit,
+        )
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref="grant-1",
+            expires_at=int(time.time()) + 600,
+        )
+        created = service.create_transfer(
+            intent,
+            idempotency_key="audit-pre-progress",
+            policy_store=self.policy,
+            route=("peer-a", "peer-c"),
+        )
+        self.assertTrue(created.ok)
+        audit.fail = True
+
+        checked = service.enforce_policy(
+            created.value.job_id,
+            policy_store=self.policy,
+        )
+
+        self.assertEqual(JobState.FAILED, checked.value.state)
+        self.assertEqual(
+            "audit_unavailable",
+            checked.value.payload["policy_denied_reason"],
+        )
+        self.assertEqual(
+            "federation_policy_pre_progress_decision",
+            audit.events[-1].operation,
+        )
 
     def test_confirmation_requirement_is_rechecked_for_existing_job(self):
         service = FederationJobService(PersistentJobStore(self.root))
