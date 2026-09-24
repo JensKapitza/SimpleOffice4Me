@@ -66,6 +66,7 @@ setup(
     entry_points={
         "console_scripts": [
             "simpleoffice-sftp=app.sftp_server:serve",
+            "simpleoffice-v2-recovery=app.v2.recovery_cli:main",
         ]
     },
 )
