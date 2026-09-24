@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import subprocess
 import threading
 import time
@@ -163,7 +164,7 @@ class LocalAddressIndex:
 
     def _open_db(self, path: Path, *, staging: bool) -> sqlite3.Connection:
         path.parent.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(path)
+        db = sqlite_connect(path)
         db.row_factory = sqlite3.Row
         db.execute(f"PRAGMA journal_mode={'DELETE' if staging else 'WAL'}")
         db.execute("PRAGMA synchronous=NORMAL")
