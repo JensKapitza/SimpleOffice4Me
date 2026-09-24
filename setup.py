@@ -29,7 +29,7 @@ setup(
     version="1.0.0",
     description="Self-hosted, file-based document management",
     python_requires=">=3.10",
-    packages=["app", "app.library"],
+    packages=["app", "app.library", "app.v2", "app.v2.adapters"],
     py_modules=[
         "simpleoffice_version",
         "simpleoffice_mini_core",
@@ -53,6 +53,12 @@ setup(
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
         "security": ["pip-audit>=2.7,<3"],
+        "quality": ["ruff==0.16.9"],
+        "ocr": [
+            "rapidocr==3.9.2",
+            "onnxruntime==1.23.2; python_version == '3.10'",
+            "onnxruntime==1.30.0; python_version >= '3.11'",
+        ],
         "sftp": ["paramiko>=3.5,<6"],
         "banking": ["fints>=4.2,<6"],
         "erasure": ["zfec>=1.6.0.0,<2"],
