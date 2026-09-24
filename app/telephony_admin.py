@@ -114,7 +114,14 @@ def save_settings():
             stun_server=request.form.get("stun_server", ""),
         )
     except (TypeError, ValueError) as exc:
-        flash(f"Telefonie-Einstellungen sind ungueltig: {exc}", "error")
+        audit(
+            "telephony_settings_validation_failed",
+            "service",
+            "sip",
+            outcome="failure",
+            detail={"error_type": type(exc).__name__},
+        )
+        flash("Telefonie-Einstellungen sind ungueltig. Server, Port und Transport pruefen.", "error")
         return redirect(url_for("telephony_admin.index"))
     audit(
         "telephony_settings_updated",
