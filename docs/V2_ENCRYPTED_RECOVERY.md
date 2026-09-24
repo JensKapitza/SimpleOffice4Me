@@ -148,6 +148,50 @@ This check validates format and internal cross-bindings. Final authenticity is
 still established only when the embedded manifest/chunks are opened with the
 matching recovered master key and the AEAD/footer verification succeeds.
 
+## Authorized peer availability search
+
+Known federation peers can check whether this instance currently holds selected
+ciphertext chunks from a portable descriptor without receiving plaintext or key
+material.
+
+The endpoint is:
+
+```text
+POST /federation/v1/recovery/encrypted/availability
+```
+
+It is intentionally stricter than the historical SOFP blob endpoints. A request
+must pass all of these checks:
+
+1. normal receiver-side Federation Bearer authentication;
+2. peer-bound HMAC authentication over peer ID, method, path, exact request
+   body, timestamp and one-time nonce;
+3. an effective V2 `READ` capability whose subject is that authenticated peer
+   and whose object reference is exactly
+   `recovery:<descriptor_id>`;
+4. the local Federation `storage` policy, including explicit blocks,
+   object-specific blocks and configured trust requirements;
+5. the persistent per-peer query rate limit.
+
+The capability is bound to the descriptor ID, which itself binds the recovery
+profile hash, object ID, version ID and encrypted-manifest digest. A peer cannot
+replace the manifest with arbitrary physical chunk IDs while reusing the same
+grant.
+
+Availability requests are bounded to 256 selected chunks. The response contains
+only descriptor/object/version IDs plus requested, available and missing chunk
+indexes. It does not return physical chunk IDs, filesystem paths, keys or
+plaintext hashes.
+
+Each accepted/denied query is recorded in the Federation event log without
+physical chunk identifiers or secret payloads. Replay of a signed request is
+rejected through the existing persistent Federation nonce store.
+
+This step implements authorized distributed **search** only. Ciphertext chunk
+download/upload and storage of foreign encrypted recovery fragments remain
+separate follow-up work and must keep the same descriptor-scoped authorization
+boundary.
+
 ## Damage behavior
 
 A corrupt, missing, reordered or substituted ciphertext chunk causes recovery
