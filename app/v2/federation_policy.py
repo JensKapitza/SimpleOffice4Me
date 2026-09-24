@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from ..sqlite_utils import connect as sqlite_connect
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,7 +55,7 @@ class FederationPolicyStore:
         self.initialize()
 
     def _db(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         return db
 
