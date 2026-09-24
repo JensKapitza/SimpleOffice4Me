@@ -303,6 +303,92 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
         )
         self.assertEqual(expected, signed["X-SimpleOffice-Peer-Signature"])
 
+    def test_client_rejects_availability_for_different_chunk_indexes(self):
+        federation = FederationStore(self.root)
+        federation.save_peer(
+            "peer-target",
+            "Target",
+            "https://target.invalid",
+            "target-bearer-secret",
+            enabled=True,
+        )
+        response_payload = {
+            "format": "simpleoffice-v2-encrypted-recovery-availability/v1",
+            "descriptor_id": self.descriptor["descriptor_id"],
+            "object_id": self.descriptor["object_id"],
+            "version_id": self.descriptor["version_id"],
+            "total_chunks": len(self.descriptor["ciphertext_chunks"]),
+            "requested_indexes": [1],
+            "available_indexes": [1],
+            "missing_indexes": [],
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(response_payload).encode("utf-8")
+
+        with patch(
+            "app.federation_worker._request",
+            return_value=FakeResponse(),
+        ):
+            with self.assertRaisesRegex(ValueError, "andere Chunk-Indizes"):
+                remote_encrypted_recovery_availability(
+                    self.root,
+                    "peer-target",
+                    self.descriptor,
+                    self.grant.grant_id,
+                    chunk_indexes=(0,),
+                )
+
+    def test_client_rejects_availability_with_mismatched_object_binding(self):
+        federation = FederationStore(self.root)
+        federation.save_peer(
+            "peer-target",
+            "Target",
+            "https://target.invalid",
+            "target-bearer-secret",
+            enabled=True,
+        )
+        response_payload = {
+            "format": "simpleoffice-v2-encrypted-recovery-availability/v1",
+            "descriptor_id": self.descriptor["descriptor_id"],
+            "object_id": "different-object",
+            "version_id": self.descriptor["version_id"],
+            "total_chunks": len(self.descriptor["ciphertext_chunks"]),
+            "requested_indexes": [0],
+            "available_indexes": [0],
+            "missing_indexes": [],
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(response_payload).encode("utf-8")
+
+        with patch(
+            "app.federation_worker._request",
+            return_value=FakeResponse(),
+        ):
+            with self.assertRaisesRegex(ValueError, "ungebundene"):
+                remote_encrypted_recovery_availability(
+                    self.root,
+                    "peer-target",
+                    self.descriptor,
+                    self.grant.grant_id,
+                    chunk_indexes=(0,),
+                )
+
     def test_capabilities_advertise_descriptor_scoped_recovery_search(self):
         response = self.client.get(
             "/federation/v1/capabilities",
