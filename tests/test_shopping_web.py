@@ -67,8 +67,56 @@ class ShoppingWebTests(unittest.TestCase):
         self.assertIn("getUserMedia", script)
         self.assertIn("ean_13", script)
         self.assertIn("upc_e", script)
+        self.assertIn("localStorage", script)
+        self.assertIn("simpleoffice-shopping-offline-v1", script)
+        self.assertIn('name="request_id"', template)
+        self.assertIn('id="shopping-brand"', template)
+        self.assertIn("Noch einmal hinzufügen", template)
         self.assertIn("shopping.index", nav)
         self.assertIn("app.register_blueprint(shopping_web.bp)", bootstrap)
+
+
+    def test_product_favorite_route_keeps_memory_private(self):
+        store = ShoppingStore(self.root)
+        store.create_list("Woche", "alice", list_id="favorite")
+        store.add_item(
+            "favorite",
+            "Kaffee",
+            "alice",
+            {"barcode": "4006381333931", "brand": "Test"},
+        )
+        product = store.products("alice")[0]
+        response = self.client.post(
+            f"/shopping/products/{product['product_id']}/favorite",
+            data={"favorite": "1", "list_id": "favorite"},
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(store.products("alice")[0]["favorite"])
+
+        self.user = {"username": "bob"}
+        response = self.client.post(
+            f"/shopping/products/{product['product_id']}/favorite",
+            data={"favorite": "0"},
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(store.products("alice")[0]["favorite"])
+
+    def test_barcode_lookup_uses_private_product_memory_after_list_archive(self):
+        store = ShoppingStore(self.root)
+        store.create_list("Alt", "alice", list_id="archived-memory")
+        store.add_item(
+            "archived-memory",
+            "Reis",
+            "alice",
+            {"barcode": "4006381333931", "brand": "Hausmarke", "pack_size": "1 kg"},
+        )
+        store.archive_list("archived-memory", "alice")
+        response = self.client.get("/shopping/barcode?code=4006381333931")
+        payload = response.get_json()
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(payload["known"])
+        self.assertEqual("Hausmarke", payload["item"]["brand"])
+        self.assertEqual("1 kg", payload["item"]["pack_size"])
 
 
 if __name__ == "__main__":
