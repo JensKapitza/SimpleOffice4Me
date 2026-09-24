@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from ..sqlite_utils import connect as sqlite_connect
 import time
 import uuid
 from datetime import datetime, timezone
@@ -59,7 +60,7 @@ class PersistentJobStore:
         self.initialize()
 
     def _db(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA foreign_keys=ON")
