@@ -7,11 +7,9 @@ requires an explicit detail view or CSRF-protected reveal request.
 """
 from __future__ import annotations
 
-import io
 import secrets
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
 from flask import (
@@ -389,10 +387,11 @@ def export_browser_csv():
         flash("Klartext-Export nicht bestätigt.")
         return _redirect_index()
     try:
-        key = _require_key()
+        _require_key()
+        key = vault.unlock(_actor(), request.form.get("master_password", ""))
         raw = browser_csv_export(vault.entries(_actor(), key))
     except (RuntimeError, ValueError):
-        flash("Klartext-Export konnte nicht erstellt werden.")
+        flash("Klartext-Export konnte nicht erstellt oder erneut authentifiziert werden.")
         return _redirect_index()
     response = Response(raw, mimetype="text/csv")
     response.headers["Content-Disposition"] = 'attachment; filename="simpleoffice-passwords.csv"'
@@ -422,6 +421,7 @@ def import_backup():
     try:
         if vault.configured(actor):
             _require_key()
+            vault.unlock(actor, request.form.get("master_password", ""))
         if request.form.get("confirm") != "REPLACE":
             raise ValueError("replacement confirmation required")
         upload = request.files.get("file")
