@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -202,6 +203,44 @@ class ShoppingStoreTests(unittest.TestCase):
         )
         self.assertEqual([], self.store.products("alice"))
         self.assertEqual(["Batterien"], [row["name"] for row in self.store.products("bob")])
+
+    def test_schema_two_data_upgrades_without_losing_lists_or_items(self):
+        self.store.path.parent.mkdir(parents=True, exist_ok=True)
+        self.store.path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "lists": [
+                        {
+                            "list_id": "legacy",
+                            "name": "Alt",
+                            "owner": "alice",
+                            "archived": False,
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                    "items": [
+                        {
+                            "item_id": "legacy-item",
+                            "list_id": "legacy",
+                            "name": "Salz",
+                            "status": "open",
+                            "priority": 0,
+                            "created_at": "2026-01-01T00:00:00Z",
+                        }
+                    ],
+                    "shares": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.assertEqual(["Alt"], [row["name"] for row in self.store.lists("alice")])
+        self.store.add_item("legacy", "Pfeffer", "alice")
+        raw = json.loads(self.store.path.read_text(encoding="utf-8"))
+        self.assertEqual(3, raw["schema_version"])
+        self.assertEqual({"Salz", "Pfeffer"}, {row["name"] for row in raw["items"]})
+        self.assertIn("products", raw)
 
     def test_request_id_makes_reconnect_add_idempotent(self):
         self.store.create_list("Offline", "alice", list_id="offline")
