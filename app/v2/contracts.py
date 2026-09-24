@@ -182,6 +182,19 @@ class StoragePort(Protocol):
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         ...
 
+    def copy_verified_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+    ) -> OperationResult[StoredObject]:
+        """Stream verified content to target.
+
+        Implementations may write provisional bytes before the final integrity
+        check completes. Callers must publish or otherwise trust the target only
+        after a successful result.
+        """
+        ...
+
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
         ...
 
