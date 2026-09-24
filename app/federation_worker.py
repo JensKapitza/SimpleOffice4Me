@@ -22,6 +22,7 @@ from .federation_store import FederationStore
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_auth_headers
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
+from .v2.encrypted_recovery_search import MAX_QUERY_CHUNKS
 from .safe_paths import resolve_file_under
 
 
@@ -155,6 +156,45 @@ def remote_availability(root: str | Path, peer_id: str, digest: str) -> dict[str
     )
 
 
+def _recovery_chunk_indexes(
+    total: int,
+    requested: list[int] | tuple[int, ...] | None,
+) -> list[int]:
+    if requested is None:
+        if total > MAX_QUERY_CHUNKS:
+            raise ValueError(
+                "Recovery-Abfrage benötigt für große Deskriptoren explizite Chunk-Indizes"
+            )
+        return list(range(total))
+    if len(requested) > MAX_QUERY_CHUNKS:
+        raise ValueError("Recovery-Abfrage enthält zu viele Chunk-Indizes")
+    indexes: set[int] = set()
+    for value in requested:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("Recovery-Chunk-Index muss eine Ganzzahl sein")
+        if value < 0 or value >= total:
+            raise ValueError("Recovery-Chunk-Index liegt außerhalb des Deskriptors")
+        indexes.add(value)
+    if not indexes:
+        raise ValueError("Recovery-Abfrage benötigt mindestens einen Chunk-Index")
+    return sorted(indexes)
+
+
+def _recovery_index_list(value: Any, *, total: int, label: str) -> list[int]:
+    if not isinstance(value, list):
+        raise ValueError(f"Recovery-Peer lieferte keine gültige {label}-Liste")
+    indexes: list[int] = []
+    seen: set[int] = set()
+    for raw in value:
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            raise ValueError(f"Recovery-Peer lieferte einen ungültigen {label}-Index")
+        if raw < 0 or raw >= total or raw in seen:
+            raise ValueError(f"Recovery-Peer lieferte einen ungültigen {label}-Index")
+        seen.add(raw)
+        indexes.append(raw)
+    return indexes
+
+
 def remote_encrypted_recovery_availability(
     root: str | Path,
     peer_id: str,
@@ -166,6 +206,10 @@ def remote_encrypted_recovery_availability(
     """Query one peer for ciphertext chunks bound to an exact recovery descriptor."""
 
     checked = validate_encrypted_recovery_descriptor(descriptor)
+    expected_indexes = _recovery_chunk_indexes(
+        len(checked["ciphertext_chunks"]),
+        chunk_indexes,
+    )
     store = FederationStore(root)
     peer = store.get_peer(peer_id)
     if not peer or not peer.get("enabled"):
@@ -211,23 +255,41 @@ def remote_encrypted_recovery_availability(
     ) as response:
         raw = response.read()
     result = json.loads(raw.decode("utf-8"))
+    total_chunks = len(checked["ciphertext_chunks"])
     if (
         not isinstance(result, dict)
         or result.get("format")
         != "simpleoffice-v2-encrypted-recovery-availability/v1"
         or result.get("descriptor_id") != checked["descriptor_id"]
+        or result.get("object_id") != checked["object_id"]
+        or result.get("version_id") != checked["version_id"]
+        or result.get("total_chunks") != total_chunks
     ):
         raise ValueError("Recovery-Peer lieferte eine ungebundene Availability-Antwort")
-    requested = result.get("requested_indexes")
-    available = result.get("available_indexes")
-    missing = result.get("missing_indexes")
-    if not all(isinstance(value, list) for value in (requested, available, missing)):
-        raise ValueError("Recovery-Peer lieferte ungültige Chunk-Listen")
-    requested_set = {int(value) for value in requested}
+
+    requested = _recovery_index_list(
+        result.get("requested_indexes"),
+        total=total_chunks,
+        label="requested",
+    )
+    available = _recovery_index_list(
+        result.get("available_indexes"),
+        total=total_chunks,
+        label="available",
+    )
+    missing = _recovery_index_list(
+        result.get("missing_indexes"),
+        total=total_chunks,
+        label="missing",
+    )
+    if requested != expected_indexes:
+        raise ValueError("Recovery-Peer beantwortete andere Chunk-Indizes als angefragt")
+    requested_set = set(requested)
+    available_set = set(available)
+    missing_set = set(missing)
     if (
-        {int(value) for value in available}.union(int(value) for value in missing)
-        != requested_set
-        or {int(value) for value in available}.intersection(int(value) for value in missing)
+        available_set.union(missing_set) != requested_set
+        or available_set.intersection(missing_set)
     ):
         raise ValueError("Recovery-Peer lieferte widersprüchliche Chunk-Verfügbarkeit")
     return result
