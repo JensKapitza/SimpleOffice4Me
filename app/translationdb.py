@@ -1,4 +1,5 @@
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 
 import click
 from flask import current_app, g
@@ -7,7 +8,7 @@ from flask.cli import with_appcontext
 
 def get_db():
     if 'dbtranslation' not in g:
-        g.dbtranslation = sqlite3.connect(
+        g.dbtranslation = sqlite_connect(
             current_app.config['DATABASE_TRANSLATION'],
             detect_types=sqlite3.PARSE_DECLTYPES
         )
