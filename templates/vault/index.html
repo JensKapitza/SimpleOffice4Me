@@ -31,6 +31,14 @@
         <div class="col-md-6"><label class="form-label" for="vault-master-confirm">Wiederholen</label><input id="vault-master-confirm" name="master_password_confirm" type="password" class="form-control" minlength="12" maxlength="4096" autocomplete="new-password" required></div>
         <div class="col-12"><button class="btn btn-primary" type="submit">Vault anlegen</button></div>
       </form>
+      <hr>
+      <h2 class="h6">Vorhandenes verschlüsseltes Backup wiederherstellen</h2>
+      <form method="post" action="{{ url_for('vault.import_backup') }}" enctype="multipart/form-data" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-8"><input name="file" type="file" class="form-control" accept=".json,application/json" required></div>
+        <div class="col-md-4"><input name="confirm" class="form-control" placeholder="REPLACE" required></div>
+        <div class="col-12"><button class="btn btn-outline-secondary" type="submit">Verschlüsseltes Backup importieren</button></div>
+      </form>
     </div>
   </section>
   {% elif not unlocked %}
