@@ -176,10 +176,9 @@
   const currentEntry = () => {
     if (!form) return null;
     ensureRequestId();
-    return {
-      action: form.action,
-      fields: Object.fromEntries(new FormData(form).entries()),
-    };
+    const fields = Object.fromEntries(new FormData(form).entries());
+    delete fields._csrf_token;
+    return {action: form.action, fields};
   };
 
   const enqueue = (entry) => {
