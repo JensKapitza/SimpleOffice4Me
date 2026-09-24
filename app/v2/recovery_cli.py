@@ -21,6 +21,10 @@ from .cutover import (
 )
 from .encrypted_cutover import encrypted_blob_cutover
 from .encrypted_recovery import EncryptedBlobRecoveryService
+from .encrypted_recovery_descriptor import (
+    descriptor_summary,
+    load_encrypted_recovery_descriptor,
+)
 from .fragment_recovery_io import (
     assessment_to_dict,
     export_recovered_payload,
@@ -272,6 +276,23 @@ def _parser() -> argparse.ArgumentParser:
     encrypted_export.add_argument("--overwrite", action="store_true")
     encrypted_export.add_argument("--apply", action="store_true")
 
+    encrypted_describe = sub.add_parser(
+        "encrypted-describe",
+        help="Create a portable self-describing encrypted recovery descriptor",
+    )
+    add_encrypted_recovery_material(encrypted_describe)
+    encrypted_describe.add_argument("--object-id", required=True)
+    encrypted_describe.add_argument("--version-id", default="")
+    encrypted_describe.add_argument("--output", default="")
+    encrypted_describe.add_argument("--overwrite", action="store_true")
+    encrypted_describe.add_argument("--apply", action="store_true")
+
+    encrypted_check = sub.add_parser(
+        "encrypted-check-descriptor",
+        help="Validate a portable encrypted recovery descriptor without the application",
+    )
+    encrypted_check.add_argument("descriptor")
+
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
     verify.add_argument("--version-id", default="")
@@ -370,6 +391,20 @@ def _run_trustee_recovery_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_encrypted_descriptor_check(args: argparse.Namespace) -> int:
+    try:
+        descriptor = load_encrypted_recovery_descriptor(args.descriptor)
+        report = descriptor_summary(descriptor)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        print(json.dumps({
+            "valid": False,
+            "error": "encrypted recovery descriptor is invalid",
+        }, indent=2, sort_keys=True))
+        return 2
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
 def _run_encrypted_recovery(args: argparse.Namespace) -> int:
     try:
         service = EncryptedBlobRecoveryService(
@@ -415,6 +450,32 @@ def _run_encrypted_recovery(args: argparse.Namespace) -> int:
                 overwrite=bool(args.overwrite),
             )
             print(json.dumps(report, indent=2, sort_keys=True))
+            return 0
+        if args.command == "encrypted-describe":
+            descriptor = service.descriptor(
+                args.object_id,
+                version_id=args.version_id or None,
+            )
+            if not args.output:
+                print(json.dumps(descriptor, indent=2, sort_keys=True))
+                return 0
+            report = descriptor_summary(descriptor)
+            if not args.apply:
+                print(json.dumps(report, indent=2, sort_keys=True))
+                print("read-only mode: add --apply to write the recovery descriptor")
+                return 3
+            descriptor, target = service.save_descriptor(
+                args.object_id,
+                args.output,
+                version_id=args.version_id or None,
+                overwrite=bool(args.overwrite),
+            )
+            report = descriptor_summary(descriptor)
+            print(json.dumps({
+                **report,
+                "written": True,
+                "output": str(target),
+            }, indent=2, sort_keys=True))
             return 0
     except (FileNotFoundError, OSError, RuntimeError, TypeError, ValueError):
         print(json.dumps({
@@ -495,9 +556,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_master_key_recovery_check(args)
     if args.command == "trustee-recovery-check":
         return _run_trustee_recovery_check(args)
+    if args.command == "encrypted-check-descriptor":
+        return _run_encrypted_descriptor_check(args)
     if not args.root:
         parser.error("--root is required for this command")
-    if args.command in {"encrypted-inventory", "encrypted-verify", "encrypted-export"}:
+    if args.command in {
+        "encrypted-inventory",
+        "encrypted-verify",
+        "encrypted-export",
+        "encrypted-describe",
+    }:
         return _run_encrypted_recovery(args)
 
     if args.command == "migration-preflight":

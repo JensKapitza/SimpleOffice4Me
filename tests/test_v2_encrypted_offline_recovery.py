@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -11,6 +12,10 @@ from pathlib import Path
 from app.v2.contracts import LogicalObjectId
 from app.v2.encrypted_blob_store import EncryptedBlobIntegrityError, EncryptedBlobStore
 from app.v2.encrypted_recovery import EncryptedBlobRecoveryService
+from app.v2.encrypted_recovery_descriptor import (
+    descriptor_summary,
+    load_encrypted_recovery_descriptor,
+)
 from app.v2.master_keys import (
     MasterKeyProfileStore,
     encode_recovery_key,
@@ -244,6 +249,122 @@ class EncryptedOfflineRecoveryTests(unittest.TestCase):
         report = json.loads(output)
         self.assertTrue(report["exported"])
         self.assertFalse(report["master_key_exported"])
+
+    def test_portable_descriptor_is_self_describing_and_secret_safe(self):
+        descriptor = self._service().descriptor(
+            self.object_id.value,
+            version_id=self.version_v1.version_id,
+        )
+        report = descriptor_summary(descriptor)
+        serialized = json.dumps(descriptor, sort_keys=True)
+
+        self.assertTrue(report["valid"])
+        self.assertEqual(self.object_id.value, report["object_id"])
+        self.assertEqual(self.version_v1.version_id, report["version_id"])
+        self.assertEqual(1, report["chunk_count"])
+        self.assertFalse(report["contains_plaintext_content_hash"])
+        self.assertFalse(report["contains_key_material"])
+        self.assertNotIn("content_sha256", serialized)
+        self.assertNotIn(encode_recovery_key(self.recovery_key), serialized)
+        self.assertEqual(
+            descriptor["ciphertext_chunks"],
+            report["ciphertext_chunks"],
+        )
+
+    def test_cli_descriptor_file_survives_without_application_root(self):
+        target = self.output_dir / "portable-recovery.json"
+        preview_code, preview_output = self._cli(
+            "encrypted-describe",
+            "--recovery-bundle",
+            str(self.bundle),
+            "--recovery-key-file",
+            str(self.key_file),
+            "--object-id",
+            self.object_id.value,
+            "--version-id",
+            self.version_v2.version_id,
+            "--output",
+            str(target),
+        )
+
+        self.assertEqual(3, preview_code)
+        self.assertFalse(target.exists())
+        self.assertIn("read-only mode", preview_output)
+
+        code, output = self._cli(
+            "encrypted-describe",
+            "--recovery-bundle",
+            str(self.bundle),
+            "--recovery-key-file",
+            str(self.key_file),
+            "--object-id",
+            self.object_id.value,
+            "--version-id",
+            self.version_v2.version_id,
+            "--output",
+            str(target),
+            "--apply",
+        )
+        self.assertEqual(0, code)
+        self.assertTrue(target.is_file())
+        if os.name == "posix":
+            self.assertEqual(0, target.stat().st_mode & 0o077)
+        written = json.loads(output)
+        self.assertTrue(written["written"])
+
+        descriptor = load_encrypted_recovery_descriptor(target)
+        self.assertEqual(self.version_v2.version_id, descriptor["version_id"])
+
+        shutil.rmtree(self.root)
+
+        checked_output = io.StringIO()
+        with redirect_stdout(checked_output):
+            checked_code = main([
+                "encrypted-check-descriptor",
+                str(target),
+            ])
+        checked = json.loads(checked_output.getvalue())
+        self.assertEqual(0, checked_code)
+        self.assertTrue(checked["valid"])
+        self.assertEqual(self.version_v2.version_id, checked["version_id"])
+
+    def test_descriptor_no_overwrite_preserves_existing_file(self):
+        target = self.output_dir / "existing-descriptor.json"
+        target.write_bytes(b"keep-me")
+
+        with self.assertRaises(FileExistsError):
+            self._service().save_descriptor(
+                self.object_id.value,
+                target,
+                version_id=self.version_v1.version_id,
+            )
+
+        self.assertEqual(b"keep-me", target.read_bytes())
+        self.assertEqual([], list(self.output_dir.glob(".existing-descriptor.json.*.tmp")))
+
+    def test_descriptor_output_is_rejected_inside_managed_root(self):
+        target = self.root / "portable-recovery.json"
+
+        with self.assertRaisesRegex(ValueError, "outside"):
+            self._service().save_descriptor(
+                self.object_id.value,
+                target,
+                version_id=self.version_v1.version_id,
+            )
+
+        self.assertFalse(target.exists())
+
+    def test_descriptor_tampering_is_rejected(self):
+        descriptor = self._service().descriptor(
+            self.object_id.value,
+            version_id=self.version_v1.version_id,
+        )
+        descriptor["manifest"]["chunks"][0]["ciphertext_sha256"] = "0" * 64
+        target = self.output_dir / "tampered-recovery.json"
+        target.write_text(json.dumps(descriptor), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "binding"):
+            load_encrypted_recovery_descriptor(target)
 
     def test_cli_wrong_recovery_key_is_generic_and_secret_safe(self):
         wrong = self.base / "wrong.key"
