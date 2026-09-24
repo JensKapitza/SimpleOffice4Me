@@ -1,6 +1,7 @@
 import io
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from flask import Flask, g
@@ -184,6 +185,27 @@ class VaultWebTests(unittest.TestCase):
         by_url = {row["data"].get("url"): row["data"] for row in entries}
         self.assertEqual("original-secret", by_url["https://example.org/login"]["password"])
         self.assertEqual("new-secret", by_url["https://other.example/"]["password"])
+
+    def test_storage_failure_while_saving_is_handled_without_http_500(self):
+        self._setup()
+        with patch.object(PasswordVault, "put", side_effect=OSError("storage unavailable")):
+            response = self.client.post(
+                "/vault/entries",
+                data={"type": "login", "name": "Storage failure"},
+            )
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(response.headers["Location"].endswith("/vault/"))
+
+    def test_storage_failure_while_exporting_backup_is_handled_without_http_500(self):
+        self._setup()
+        with patch.object(
+            PasswordVault,
+            "export_backup",
+            side_effect=OSError("storage unavailable"),
+        ):
+            response = self.client.post("/vault/export/backup")
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(response.headers["Location"].endswith("/vault/"))
 
     def test_plaintext_export_requires_explicit_confirmation_and_no_store(self):
         self._setup()
