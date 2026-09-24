@@ -229,3 +229,49 @@ def reconcile_changed_paths(
         skipped=skipped,
         recovery_needed=recovery_needed,
     )
+
+
+def reconcile_full_projection(
+    root: str | Path,
+    *,
+    actor: str = "filesystem-watcher",
+) -> ProjectionReconcileReport:
+    """Reconcile all known projection and catalog locations after a full scan."""
+
+    data_root = Path(root).expanduser().resolve()
+    state = load_cutover_state(data_root)
+    if state.mode not in {"shadow", "v2"}:
+        return ProjectionReconcileReport()
+
+    documents = DocumentStore(data_root)
+    paths: set[Path] = set()
+    try:
+        for metadata in documents._all_documents():
+            location = str(metadata.get("last_path") or "").strip()
+            if location and not location.startswith("[external]"):
+                paths.add(data_root / location)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        mark_storage_dirty(
+            data_root,
+            "filesystem watcher could not enumerate the compatibility projection",
+        )
+        return ProjectionReconcileReport(recovery_needed=1)
+
+    try:
+        runtime = storage_for(data_root, actor)
+        primary = _primary(runtime)
+        if primary is not None:
+            for entry in primary.catalog.list():
+                paths.add(data_root / entry.location.relative_path)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        mark_storage_dirty(
+            data_root,
+            "filesystem watcher could not enumerate the V2 catalog",
+        )
+        return ProjectionReconcileReport(recovery_needed=1)
+
+    return reconcile_changed_paths(
+        data_root,
+        paths,
+        actor=actor,
+    )
