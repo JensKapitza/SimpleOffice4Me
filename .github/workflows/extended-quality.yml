@@ -80,3 +80,25 @@ jobs:
           if (("${#scripts[@]}")); then
             bash -n "${scripts[@]}"
           fi
+      - name: Mini Services software acceptance smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.mini_services_benchmark --iterations 1 > /tmp/mini-services-benchmark.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('/tmp/mini-services-benchmark.json').read_text())
+          expected = {'dhcp', 'dns', 'tftp', 'sip'}
+          if set(report.get('services', {})) != expected:
+              raise SystemExit('mini-services benchmark did not cover the expected listener services')
+          if report.get('remaining_threads'):
+              raise SystemExit('mini-services benchmark leaked listener threads')
+          for service, values in report['services'].items():
+              for metric in ('construct_ms', 'python_heap_peak_kib', 'start_ms', 'stop_ms', 'duplicate_start_ms', 'cpu_ms'):
+                  row = values.get(metric)
+                  if not isinstance(row, dict) or row.get('median', -1) < 0 or row.get('max', -1) < 0:
+                      raise SystemExit(f'{service}: invalid {metric} measurement')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
