@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import BinaryIO
 
 from app.document_store import DocumentStore
 from app.safe_paths import resolve_file_under
@@ -77,6 +78,52 @@ class DocumentStoreStorageAdapter:
                 )
             return OperationResult.success(content)
         except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
+    def copy_verified_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+    ) -> OperationResult[StoredObject]:
+        try:
+            metadata = self.store.get_document(object_id.value)
+            if metadata.get("system_state") == "webdav_deleted" or metadata.get("deleted_at"):
+                return OperationResult.failure(
+                    ErrorCode.NOT_FOUND,
+                    "document is deleted",
+                )
+            path = resolve_file_under(
+                self.store.root,
+                str(metadata.get("last_path") or ""),
+            )
+            expected = str(metadata.get("sha256") or "")
+            digest = hashlib.sha256()
+            total = 0
+            with path.open("rb") as source:
+                while True:
+                    block = source.read(1024 * 1024)
+                    if not block:
+                        break
+                    written = target.write(block)
+                    if written is not None and int(written) != len(block):
+                        raise OSError("storage target accepted a partial write")
+                    digest.update(block)
+                    total += len(block)
+            actual = digest.hexdigest()
+            if expected and actual != expected:
+                return OperationResult.failure(
+                    ErrorCode.INTEGRITY_ERROR,
+                    "document content does not match stored integrity metadata",
+                )
+            return OperationResult.success(
+                StoredObject(
+                    object_id=object_id,
+                    version=expected or actual,
+                    size=total,
+                    location=StorageLocation(str(metadata.get("last_path") or "")),
+                )
+            )
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
             return self._failure(exc)
 
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
