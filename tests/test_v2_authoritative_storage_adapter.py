@@ -75,6 +75,19 @@ class V2AuthoritativeStorageAdapterTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(b"seed-content", result.value)
 
+    def test_verified_stream_read_does_not_depend_on_plaintext_projection(self):
+        object_id = LogicalObjectId(self.seed["document_id"])
+        legacy_path = self.root / self.seed["last_path"]
+        legacy_path.write_bytes(b"tampered-legacy")
+
+        target = io.BytesIO()
+        streamed = self.adapter.copy_verified_to(object_id, target)
+
+        self.assertTrue(streamed.ok)
+        self.assertEqual(b"seed-content", target.getvalue())
+        self.assertEqual(self.seed["sha256"], streamed.value.version)
+        self.assertEqual("inbox/seed.txt", streamed.value.location.relative_path)
+
     def test_replace_accepts_legacy_sha_and_updates_both_sides(self):
         object_id = LogicalObjectId(self.seed["document_id"])
         result = self.adapter.replace_bytes(
