@@ -1,4 +1,4 @@
-import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import time
 import unittest
@@ -56,7 +56,7 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
 
     def _insert_job(self, job_id, source_peer, status, retention, payload_path, source="web"):
         now = int(time.time())
-        with sqlite3.connect(self.store.jobs_path) as db:
+        with sqlite_connect(self.store.jobs_path) as db:
             db.execute(
                 """INSERT INTO print_job(
                        job_id,source,source_peer,printer_id,printer_name,status,retention,
@@ -190,14 +190,14 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
     def test_maintenance_dry_run_does_not_mutate_missing_reference(self):
         result = run_maintenance(self.store, apply=False)
         self.assertEqual(1, result["missing_references_cleared"])
-        with sqlite3.connect(self.store.jobs_path) as db:
+        with sqlite_connect(self.store.jobs_path) as db:
             path = db.execute("SELECT payload_path FROM print_job WHERE job_id='alice-failed'").fetchone()[0]
         self.assertTrue(path)
 
     def test_maintenance_apply_clears_missing_reference(self):
         result = run_maintenance(self.store, apply=True)
         self.assertEqual(1, result["missing_references_cleared"])
-        with sqlite3.connect(self.store.jobs_path) as db:
+        with sqlite_connect(self.store.jobs_path) as db:
             path = db.execute("SELECT payload_path FROM print_job WHERE job_id='alice-failed'").fetchone()[0]
         self.assertEqual("", path)
 
