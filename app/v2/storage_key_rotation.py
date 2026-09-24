@@ -6,7 +6,6 @@ version identifiers; raw master/recovery keys are never persisted.
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
 import json
 import os
@@ -41,10 +40,6 @@ def _now() -> str:
 
 def _journal_path(root: Path) -> Path:
     return root / ".simpleoffice-v2" / "storage-master-key-rotation.json"
-
-
-def _master_digest(value: bytes) -> str:
-    return hashlib.sha256(bytes(value)).hexdigest()
 
 
 def _protected(value: dict[str, Any]) -> ProtectedMasterKey:
@@ -212,12 +207,11 @@ def _unpack_keys(
         _protected(journal["new_master"]),
         password,
     )
-    if _master_digest(old_master) != str(journal.get("old_master_sha256") or ""):
-        raise ValueError("storage master-key rotation old-key binding failed")
-    if _master_digest(new_master) != str(journal.get("new_master_sha256") or ""):
-        raise ValueError("storage master-key rotation new-key binding failed")
+    if hmac.compare_digest(old_master, new_master):
+        raise ValueError("storage master-key rotation produced identical old/new keys")
     recovery_payload = _payload(journal["new_recovery_key"])
-    if recovery_payload.purpose != RECOVERY_PURPOSE:
+    expected_purpose = f"{RECOVERY_PURPOSE}:{journal.get('profile_hash') or ''}"
+    if recovery_payload.purpose != expected_purpose:
         raise ValueError("storage master-key rotation recovery-key purpose is invalid")
     recovery_key = crypto.decrypt(recovery_payload, new_master)
     if len(recovery_key) != 32:
@@ -330,10 +324,12 @@ def _new_journal(
         "version_ids": versions,
         "old_master": asdict(crypto.protect_master_key_with_password(old_master, password)),
         "new_master": asdict(crypto.protect_master_key_with_password(new_master, password)),
-        "old_master_sha256": _master_digest(old_master),
-        "new_master_sha256": _master_digest(new_master),
         "new_recovery_key": _payload_to_dict(
-            crypto.encrypt(recovery_key, new_master, purpose=RECOVERY_PURPOSE)
+            crypto.encrypt(
+                recovery_key,
+                new_master,
+                purpose=f"{RECOVERY_PURPOSE}:{status['profile_hash']}",
+            )
         ),
         "recovery_key_output": str(key_target),
         "recovery_bundle_output": str(bundle_target),
@@ -400,6 +396,8 @@ def _resume_rotation(
 
     profile = MasterKeyProfileStore(root, "v2-storage-key-rotation")
     status = profile.status(STORAGE_PROFILE_ID)
+    if str(status["profile_hash"]) != str(journal.get("profile_hash") or ""):
+        raise ValueError("storage master-key rotation profile binding changed")
     active_master = profile.unlock_with_password(STORAGE_PROFILE_ID, password)
     encrypted = EncryptedBlobStore(root, new_master, initialize=False)
     expected_versions = list(journal["version_ids"])
