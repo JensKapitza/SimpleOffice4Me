@@ -99,6 +99,7 @@ class FederationPolicyAdminTests(unittest.TestCase):
                     "direct_only": "1",
                     "max_hops": "2",
                     "allowed_relays": "peer-x, peer-y",
+                    "denied_relays": "peer-z",
                 },
                 headers=self.headers,
             )
@@ -114,6 +115,7 @@ class FederationPolicyAdminTests(unittest.TestCase):
         self.assertTrue(rules[0].direct_only)
         self.assertEqual(2, rules[0].max_hops)
         self.assertEqual(("peer-x", "peer-y"), rules[0].allowed_relays)
+        self.assertEqual(("peer-z",), rules[0].denied_relays)
 
     def test_confirmation_form_persists_quorum(self):
         with patch("app.federation_peer_admin._audit_policy", return_value=True):
@@ -191,6 +193,7 @@ class FederationPolicyTemplateTests(unittest.TestCase):
         )
         self.assertIn("Peer sperren", text)
         self.assertIn("Nur direkte Zustellung", text)
+        self.assertIn("Nie über diese Peers", text)
         self.assertIn("Signierte Bestätiger", text)
         self.assertIn("Mindestens N", text)
         self.assertIn("Policy-Vorschau", text)
