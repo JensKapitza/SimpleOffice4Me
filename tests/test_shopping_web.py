@@ -70,12 +70,36 @@ class ShoppingWebTests(unittest.TestCase):
         self.assertIn("localStorage", script)
         self.assertIn("simpleoffice-shopping-offline-v1", script)
         self.assertIn("delete fields._csrf_token", script)
+        self.assertIn("X-Shopping-Sync", script)
+        self.assertIn("bleibt lokal vorgemerkt", script)
         self.assertIn('name="request_id"', template)
         self.assertIn('id="shopping-brand"', template)
         self.assertIn("Noch einmal hinzufügen", template)
         self.assertIn("shopping.index", nav)
         self.assertIn("app.register_blueprint(shopping_web.bp)", bootstrap)
 
+
+    def test_sync_add_returns_json_and_rejects_invalid_data_without_redirect(self):
+        store = ShoppingStore(self.root)
+        store.create_list("Offline", "alice", list_id="sync")
+
+        response = self.client.post(
+            "/shopping/lists/sync/items",
+            data={"name": "Milch", "request_id": "sync-1"},
+            headers={"X-Shopping-Sync": "1"},
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(response.get_json()["ok"])
+        self.assertEqual(1, len(store.items("alice", list_id="sync")))
+
+        response = self.client.post(
+            "/shopping/lists/sync/items",
+            data={"name": "Fehler", "barcode": "4006381333932", "request_id": "sync-2"},
+            headers={"X-Shopping-Sync": "1"},
+        )
+        self.assertEqual(409, response.status_code)
+        self.assertFalse(response.get_json()["ok"])
+        self.assertEqual(1, len(store.items("alice", list_id="sync")))
 
     def test_product_favorite_route_keeps_memory_private(self):
         store = ShoppingStore(self.root)
