@@ -1,6 +1,6 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 21.09.2026. Die historische Matrix basiert auf #296/#298 und wurde gegen den aktuellen main-Stand sowie die inzwischen gemergten Folge-PRs abgeglichen.
+Stand: 24.09.2026. Die historische Matrix basiert auf #296/#298 und wurde gegen den aktuellen main-Stand sowie die inzwischen gemergten Folge-PRs abgeglichen.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
 und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
@@ -28,14 +28,16 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
 | Klasse | Offene Punkte | Bedeutung |
 |---|---|---|
-| **Implementierungslücke** | DHCP-Konflikterkennung/geführte Netzauswahl; noch nicht gleichwertige Diagnose-/Health-Grenzen einzelner Audio-/Gateway-Funktionen; fehlende gezielte Windows-Audioauswahl, sofern ohne neue ausgeschlossene Systemkomponente sicher realisierbar | Es fehlt noch Produktcode oder eine explizite technische Entscheidung. |
-| **Prüfnachweis** | saubere Installation und Lifecycle auf realem Linux/Windows; reale LAN-/IPv6-Linkwechsel; echter Gateway-Paketfluss; reale RTP-/DLNA-/PXE-Geräte; Android-Hintergrundbetrieb/Capture/Audio; visuelle WCAG-/Touch-/Tastaturprüfung; Last-, RAM-, Durchsatz- und Langzeitleak-Messungen | Code-/CI-Nachweise existieren teilweise, ersetzen aber die praktische Abnahme nicht. |
+| **Implementierungslücke** | Vollständiger historischer Log-/Diagnosepfad-Audit und vollständige dienstweise Negativfall-Matrix bleiben als repositoryseitige Restarbeit; gezielte Windows-Audioauswahl nur, wenn sie ohne ausgeschlossene Systemkomponente zuverlässig nachweisbar ist. | Es fehlt noch Repository-Nachweis oder eine explizite technische Entscheidung. |
+| **Prüfnachweis** | saubere Installation und Lifecycle auf realem Linux/Windows; reale LAN-/IPv6-Linkwechsel; echter Gateway-Paketfluss; reale RTP-/DLNA-/PXE-Geräte; Android-Hintergrundbetrieb/Capture/Audio; visuelle WCAG-/Touch-/Tastaturprüfung; Gesamt-RSS, Last, Durchsatz und Langzeitleak-Messungen | CI-/Loopback-Nachweise existieren, ersetzen aber die praktische Abnahme nicht. Das konkrete Protokoll steht in `MINI_SERVICES_EXTERNAL_ACCEPTANCE.md`. |
 | **Technische Grenze** | virtuelles Windows-Mikrofon ohne freigegebene Systemkomponente; fremde RTP-Player ohne Discovery-Profil; DHCP/Gateway weiterhin IPv4-only; Windows-Ausgabe derzeit nur Systemstandard, solange keine verlässliche gezielte Gerätewahl nachgewiesen ist | Kein stilles „erledigt“; Grenze bleibt sichtbar dokumentiert und darf nicht als Fähigkeit dargestellt werden. |
 
 ### Status der Issue-Checkliste
 
-- **Aktueller Stand/CI/PR-Abgleich:** softwareseitig aktualisiert; laufende neue
-  PRs außerhalb Mini Services werden nicht als Mini-Services-Nachweis gewertet.
+- **Aktueller Stand/CI/PR-Abgleich:** auf 24.09.2026 aktualisiert. DHCP-
+  Fremdservererkennung (#418) und sichere UFW/firewalld-Verwaltung (#424) sind
+  Bestandteil des Softwarestands und werden nicht mehr als Implementierungslücke
+  geführt. Laufende fachfremde PRs werden nicht als Mini-Services-Nachweis gewertet.
 - **Inline-Hilfe:** durch #341 softwareseitig erledigt; visuelle Bedienabnahme
   bleibt als Prüfnachweis offen.
 - **Diagnose-URL-Datenschutz:** durch #338 erledigt.
@@ -44,12 +46,33 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 - **Security-/Logprüfung:** gefundene Lecks wurden behoben; ein vollständiger
   historischer Logpfad-Audit bleibt offen und darf nicht aus den Teilprüfungen
   abgeleitet werden.
-- **Messungen/Gesamtabnahme:** weiterhin offen. Der vorhandene
-  Lifecycle-Mikrobenchmark ist kein Last-, RAM-, Durchsatz- oder Langzeittest.
+- **Messungen/Gesamtabnahme:** Der vorhandene Lifecycle-Mikrobenchmark misst
+  Konstruktion, Python-Heap-Peak, Start, Doppelstart, Stop und Prozess-CPU auf
+  Loopback und läuft als eigener Extended-Quality-Smoke. Gesamt-RSS,
+  Protokolllast, Durchsatz, reale Hardware und Langzeitverhalten bleiben externe
+  Abnahme nach `MINI_SERVICES_EXTERNAL_ACCEPTANCE.md`.
 
 Diese Klassifizierung ersetzt keine Matrixzelle durch ein pauschales „V“. Eine
 Zelle wird erst hochgestuft, wenn der konkrete Nachweis für den jeweiligen
 Dienst vorliegt.
+
+## Reproduzierbares Software-Gate
+
+Die Extended-Quality-Pipeline führt den dependency-freien
+`tools.mini_services_benchmark` mit einer kurzen Loopback-Stichprobe aus. Das
+Gate verlangt DHCP, DNS, TFTP und SIP, gültige nichtnegative Messwerte für
+Konstruktion, Python-Heap-Peak, Start, Doppelstart, Stop und CPU sowie null
+zurückbleibende Listener-Threads.
+
+Die vollständige Python-CI prüft zusätzlich die vorhandenen Lifecycle-,
+Netzwerk-Recovery-, Gateway-, Security-, Audio-, Boot- und API-Regressionen.
+Damit ist die repositoryseitige Software-Basis reproduzierbar. Sie ist bewusst
+nicht gleichbedeutend mit realem Paketfluss, Audio-Wiedergabe, PXE-Boot,
+Android-Hintergrundbetrieb oder formaler Accessibility-Abnahme.
+
+Alle nicht in CI belegbaren Schritte sind nun in
+`docs/MINI_SERVICES_EXTERNAL_ACCEPTANCE.md` mit Eingaben, erwartetem Ergebnis
+und Abschlussregel konkretisiert.
 
 ## Gleiche Kriterien, erneute Bewertung
 
