@@ -19,6 +19,26 @@ Explicit peer blocks are evaluated before route constraints. This preserves the
 `explicit deny wins` rule even when a route would otherwise satisfy an
 allowlist or hop limit.
 
+## Signed confirmation requirements
+
+A target can additionally require signed peer confirmations per scope. A local
+rule stores a finite verifier set plus a quorum, for example:
+
+- verifier set `{X}`, quorum `1`: send only when X currently confirms the target;
+- verifier set `{X,Y,Z}`, quorum `2`: require at least two distinct valid confirmations;
+- quorum equal to verifier count: require every configured verifier.
+
+Confirmation evidence is read from the existing signed federation attestation
+store. Before it satisfies policy, the stored signature is re-verified against
+the verifier's currently known public key and expired or unverified attestations
+are ignored. Missing keys, invalid signatures and insufficient evidence fail
+closed.
+
+Global and scope-specific confirmation requirements are both evaluated. A peer
+that is locally blocked for the evaluated scope cannot contribute positive
+confirmation evidence, so a positive attestation never overrides an explicit
+deny.
+
 ## Complete-route binding
 
 The policy evaluator receives the intended target separately from the route.
@@ -48,6 +68,7 @@ policy scope. `enforce_policy(...)` re-evaluates that state before progress;
 a newly forbidden job is failed. `stop_blocked_jobs(...)` can re-evaluate the
 whole active queue after a policy change.
 
-This is only the locally enforceable route layer. Signed peer relationship
-claims, confirmation/quorum rules and policy-builder UI remain separate follow-up
-work. They must not weaken local explicit blocks or these route constraints.
+This is only the locally enforceable route layer. Signed confirmation/quorum
+rules are enforced here; relationship-aware negative rules and the policy-builder
+UI remain separate follow-up work. They must not weaken local explicit blocks,
+confirmation requirements or route constraints.

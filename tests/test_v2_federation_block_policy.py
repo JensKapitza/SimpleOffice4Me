@@ -1,7 +1,15 @@
+import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
+from flask import Flask
+
+from app.federation_attestations import FederationAttestationStore
+from app.federation_identity import FederationIdentity
+from app.federation_trust_store import FederationTrustStore
 from app.v2.federation_policy import FederationPolicyStore
 from app.v2.authorization import AuthorizationStore, GrantRight
 from app.v2.contracts import JobState
@@ -12,9 +20,18 @@ class FederationBlockPolicyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = self.tmp.name
+        self.app = Flask(__name__)
+        self.app.config.update(
+            TESTING=True,
+            SECRET_KEY="federation-policy-test",
+            DOCUMENT_ROOT=str(self.root),
+        )
+        self.context = self.app.app_context()
+        self.context.push()
         self.policy = FederationPolicyStore(self.root)
 
     def tearDown(self):
+        self.context.pop()
         self.tmp.cleanup()
 
     def test_direct_block_denies_route(self):
@@ -153,6 +170,166 @@ class FederationBlockPolicyTests(unittest.TestCase):
         self.assertEqual("route_cycle", cycle.reason)
         self.assertFalse(missing.allowed)
         self.assertEqual("route_target_unknown", missing.reason)
+
+    def _import_confirmation(self, verifier_peer, target_peer):
+        with tempfile.TemporaryDirectory() as signer_temp:
+            signer_root = Path(signer_temp)
+            with patch.dict(
+                os.environ,
+                {"SIMPLEOFFICE_FEDERATION_PEER_ID": verifier_peer},
+            ):
+                signer = FederationAttestationStore(signer_root)
+                value = signer.add_signed(
+                    target_peer,
+                    "VERIFIED_IN_PERSON",
+                    propagation="TRANSITIVE",
+                    max_hops=1,
+                )
+                public_key = FederationIdentity(signer_root).public_identity()["public_key"]
+        FederationTrustStore(self.root).remember(
+            verifier_peer,
+            public_key=public_key,
+        )
+        FederationAttestationStore(self.root).save_verified(value, public_key)
+
+    def test_required_signed_confirmation_fails_closed_until_present(self):
+        self.policy.set_trust_requirement(
+            "peer-c",
+            scope="relay",
+            verifier_peers=("peer-x",),
+            quorum=1,
+        )
+
+        missing = self.policy.decision(
+            ["peer-a", "peer-c"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        self.assertFalse(missing.allowed)
+        self.assertEqual("confirmation_quorum_missing", missing.reason)
+
+        self._import_confirmation("peer-x", "peer-c")
+        allowed = self.policy.decision(
+            ["peer-a", "peer-c"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        self.assertTrue(allowed.allowed)
+
+    def test_confirmation_quorum_requires_n_distinct_valid_verifiers(self):
+        self.policy.set_trust_requirement(
+            "peer-c",
+            scope="relay",
+            verifier_peers=("peer-x", "peer-y", "peer-z"),
+            quorum=2,
+        )
+        self._import_confirmation("peer-x", "peer-c")
+
+        one = self.policy.decision(
+            ["peer-a", "peer-c"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        self.assertFalse(one.allowed)
+
+        self._import_confirmation("peer-y", "peer-c")
+        two = self.policy.decision(
+            ["peer-a", "peer-c"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        self.assertTrue(two.allowed)
+
+    def test_blocked_verifier_cannot_satisfy_positive_confirmation_rule(self):
+        self.policy.set_trust_requirement(
+            "peer-c",
+            scope="relay",
+            verifier_peers=("peer-x",),
+            quorum=1,
+        )
+        self._import_confirmation("peer-x", "peer-c")
+        self.policy.block("peer-x", scope="relay")
+
+        denied = self.policy.decision(
+            ["peer-a", "peer-c"],
+            scope="relay",
+            target_peer="peer-c",
+        )
+        self.assertFalse(denied.allowed)
+        self.assertEqual("confirmation_quorum_missing", denied.reason)
+
+    def test_confirmation_requirement_is_rechecked_for_existing_job(self):
+        service = FederationJobService(PersistentJobStore(self.root))
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref="grant-1",
+            expires_at=int(time.time()) + 600,
+        )
+        created = service.create_transfer(
+            intent,
+            idempotency_key="later-confirmation-rule",
+            policy_store=self.policy,
+            route=("peer-a", "peer-c"),
+        )
+        self.assertTrue(created.ok)
+
+        self.policy.set_trust_requirement(
+            "peer-c",
+            scope="relay",
+            verifier_peers=("peer-x",),
+            quorum=1,
+        )
+        checked = service.enforce_policy(
+            created.value.job_id,
+            policy_store=self.policy,
+        )
+        self.assertEqual(JobState.FAILED, checked.value.state)
+        self.assertTrue(checked.value.payload["policy_denied"])
+
+    def test_missing_confirmation_does_not_revoke_target_capabilities(self):
+        auth = AuthorizationStore(self.root)
+        now = int(time.time())
+        transfer_grant = auth.issue_root(
+            issuer="controller",
+            subject="peer-a",
+            rights=(GrantRight.RELAY,),
+            object_refs=("object-1",),
+            expires_at=now + 600,
+        )
+        target_grant = auth.issue_root(
+            issuer="peer-a",
+            subject="peer-c",
+            rights=(GrantRight.RELAY,),
+            object_refs=("object-1",),
+            expires_at=now + 600,
+        )
+        self.policy.set_trust_requirement(
+            "peer-c",
+            scope="relay",
+            verifier_peers=("peer-x",),
+            quorum=1,
+        )
+        service = FederationJobService(PersistentJobStore(self.root))
+        intent = FederationTransferIntent(
+            source_peer="peer-a",
+            target_peer="peer-c",
+            object_refs=("object-1",),
+            authorization_ref=transfer_grant.grant_id,
+            expires_at=now + 300,
+        )
+
+        denied = service.create_transfer(
+            intent,
+            idempotency_key="missing-confirmation-no-revoke",
+            authorization_store=auth,
+            policy_store=self.policy,
+            route=("peer-a", "peer-c"),
+        )
+
+        self.assertFalse(denied.ok)
+        self.assertFalse(auth.get(target_grant.grant_id).revoked)
 
     def test_job_creation_applies_target_route_constraint(self):
         self.policy.set_route_constraint("peer-c", scope="relay", direct_only=True)

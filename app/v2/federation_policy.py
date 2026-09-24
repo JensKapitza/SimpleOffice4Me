@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from ..federation_attestations import FederationAttestationStore
+
 SCOPES = frozenset({
     "all", "documents", "contacts", "calendar", "tasks", "chat",
     "metadata", "storage", "relay", "delegation", "keys/capabilities",
@@ -31,11 +33,20 @@ class RouteConstraint:
     allowed_relays: tuple[str, ...] | None = None
 
 
+@dataclass(frozen=True)
+class TrustRequirement:
+    target_peer: str
+    scope: str
+    verifier_peers: tuple[str, ...]
+    quorum: int
+
+
 class FederationPolicyStore:
     """Persist local peer blocks without publishing them as trust claims."""
 
     def __init__(self, root: str | Path):
-        control = Path(root).expanduser().resolve() / ".simpleoffice-v2"
+        self.root = Path(root).expanduser().resolve()
+        control = self.root / ".simpleoffice-v2"
         control.mkdir(parents=True, exist_ok=True)
         self.path = control / "federation-policy.sqlite3"
         self.initialize()
@@ -71,6 +82,16 @@ class FederationPolicyStore:
                     PRIMARY KEY(target_peer, scope),
                     CHECK(direct_only IN (0,1)),
                     CHECK(max_hops IS NULL OR (max_hops >= 1 AND max_hops <= 32))
+                );
+                CREATE TABLE IF NOT EXISTS trust_requirement(
+                    target_peer TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    verifier_peers_json TEXT NOT NULL,
+                    quorum INTEGER NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT '',
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY(target_peer, scope),
+                    CHECK(quorum >= 1 AND quorum <= 32)
                 );
                 """
             )
@@ -229,6 +250,139 @@ class FederationPolicyStore:
             ))
         return result
 
+    def set_trust_requirement(
+        self,
+        target_peer: str,
+        *,
+        scope: str = "all",
+        verifier_peers: Iterable[str],
+        quorum: int = 1,
+        created_by: str = "",
+    ) -> TrustRequirement:
+        target = self._peer(target_peer)
+        checked_scope = self._scope(scope)
+        if isinstance(verifier_peers, (str, bytes)):
+            raise ValueError("verifier peers must be an iterable of peer ids")
+        normalized = tuple(sorted({
+            self._peer(peer)
+            for peer in verifier_peers
+            if str(peer or "").strip()
+        }))
+        if not normalized:
+            raise ValueError("at least one verifier peer is required")
+        if target in normalized:
+            raise ValueError("target peer cannot confirm itself")
+        if isinstance(quorum, bool):
+            raise ValueError("confirmation quorum must be an integer")
+        quorum = int(quorum)
+        if quorum < 1 or quorum > len(normalized):
+            raise ValueError("confirmation quorum must be between 1 and verifier count")
+        with self._db() as db:
+            db.execute(
+                """INSERT INTO trust_requirement(
+                       target_peer,scope,verifier_peers_json,quorum,created_by,updated_at
+                   ) VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(target_peer,scope) DO UPDATE SET
+                       verifier_peers_json=excluded.verifier_peers_json,
+                       quorum=excluded.quorum,
+                       created_by=excluded.created_by,
+                       updated_at=excluded.updated_at""",
+                (
+                    target,
+                    checked_scope,
+                    json.dumps(list(normalized), separators=(",", ":")),
+                    quorum,
+                    str(created_by)[:160],
+                    int(time.time()),
+                ),
+            )
+        return TrustRequirement(target, checked_scope, normalized, quorum)
+
+    def clear_trust_requirement(self, target_peer: str, *, scope: str = "all") -> None:
+        with self._db() as db:
+            db.execute(
+                "DELETE FROM trust_requirement WHERE target_peer=? AND scope=?",
+                (self._peer(target_peer), self._scope(scope)),
+            )
+
+    def trust_requirements(self, target_peer: str, *, scope: str) -> list[TrustRequirement]:
+        target = self._peer(target_peer)
+        checked_scope = self._scope(scope)
+        with self._db() as db:
+            if checked_scope == "all":
+                rows = db.execute(
+                    """SELECT * FROM trust_requirement
+                       WHERE target_peer=? AND scope='all'
+                       ORDER BY scope""",
+                    (target,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT * FROM trust_requirement
+                       WHERE target_peer=? AND scope IN ('all', ?)
+                       ORDER BY CASE WHEN scope='all' THEN 0 ELSE 1 END""",
+                    (target, checked_scope),
+                ).fetchall()
+        result: list[TrustRequirement] = []
+        for row in rows:
+            try:
+                raw = json.loads(str(row["verifier_peers_json"]))
+                if not isinstance(raw, list) or not raw:
+                    raise ValueError("verifier list is invalid")
+                verifiers = tuple(sorted({self._peer(peer) for peer in raw}))
+                quorum = int(row["quorum"])
+                if target in verifiers or quorum < 1 or quorum > len(verifiers):
+                    raise ValueError("stored confirmation quorum is invalid")
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise RuntimeError("stored federation trust requirement is invalid") from exc
+            result.append(TrustRequirement(
+                target_peer=target,
+                scope=str(row["scope"]),
+                verifier_peers=verifiers,
+                quorum=quorum,
+            ))
+        return result
+
+    def _trust_requirement_decision(
+        self,
+        *,
+        target_peer: str,
+        scope: str,
+        now: int | None,
+        blocked_verifiers: set[str],
+    ) -> PolicyDecision:
+        requirements = self.trust_requirements(target_peer, scope=scope)
+        if not requirements:
+            return PolicyDecision(True, "allowed", scope=scope)
+        attestations = FederationAttestationStore(self.root)
+        for requirement in requirements:
+            allowed_verifiers = tuple(
+                peer for peer in requirement.verifier_peers
+                if peer not in blocked_verifiers
+            )
+            if len(allowed_verifiers) < requirement.quorum:
+                return PolicyDecision(
+                    False,
+                    "confirmation_quorum_missing",
+                    scope=scope,
+                )
+            confirmations = attestations.valid_confirmations(
+                target_peer,
+                allowed_verifiers,
+                now=now,
+            )
+            confirmed = {
+                str(item.get("verifier_peer_id") or "")
+                for item in confirmations
+            }
+            if len(confirmed) < requirement.quorum:
+                return PolicyDecision(
+                    False,
+                    "confirmation_quorum_missing",
+                    scope=scope,
+                )
+        return PolicyDecision(True, "allowed", scope=scope)
+
     def _route_constraint_decision(
         self,
         peers: list[str],
@@ -276,8 +430,21 @@ class FederationPolicyStore:
         if target_peer is not None and not str(target_peer or "").strip():
             return PolicyDecision(False, "route_target_unknown", scope=checked_scope)
         target = self._peer(target_peer) if target_peer is not None else peers[-1]
-        return self._route_constraint_decision(
+        route_decision = self._route_constraint_decision(
             peers,
             target_peer=target,
             scope=checked_scope,
+        )
+        if not route_decision.allowed:
+            return route_decision
+        blocked_verifiers = {
+            str(block["peer_id"])
+            for block in blocks
+            if block["scope"] in {"all", checked_scope}
+        }
+        return self._trust_requirement_decision(
+            target_peer=target,
+            scope=checked_scope,
+            now=now,
+            blocked_verifiers=blocked_verifiers,
         )
