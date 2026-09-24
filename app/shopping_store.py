@@ -163,6 +163,14 @@ class ShoppingStore:
         if barcode:
             row["barcode"] = barcode
         store = self._text(item.get("store", ""), 240)
+        if not store:
+            list_id = str(item.get("list_id", "") or "")
+            list_row = next(
+                (value for value in data["lists"] if value.get("list_id") == list_id),
+                None,
+            )
+            if list_row is not None:
+                store = self._text(list_row.get("default_store", ""), 240)
         if store:
             row["last_store"] = store
             known = [
