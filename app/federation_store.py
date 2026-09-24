@@ -319,6 +319,21 @@ class FederationStore:
             for row in rows
         ]
 
+    def recent_event_count(
+        self,
+        action: str,
+        *,
+        peer_id: str,
+        since: int,
+    ) -> int:
+        with self._db() as db:
+            row = db.execute(
+                """SELECT COUNT(*) FROM federation_event
+                   WHERE action=? AND peer_id=? AND created_at>=?""",
+                (str(action)[:160], str(peer_id)[:240], int(since)),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def claim_nonce(self, nonce: str, expires_at: int) -> bool:
         nonce = str(nonce or "")[:240]
         if not nonce or int(expires_at) < _now():
