@@ -258,6 +258,9 @@ app.register_blueprint(task_management.bp)
 from . import shopping_web
 app.register_blueprint(shopping_web.bp)
 
+from . import vault_web
+app.register_blueprint(vault_web.bp)
+
 from . import personnel
 app.register_blueprint(personnel.bp)
 
