@@ -10,7 +10,7 @@ details.
 - content-encryption keys (CEKs)
 - user master keys
 - offline recovery keys
-- future trustee/emergency key material
+- optional trustee/emergency key material
 - encrypted manifests and authorization metadata
 
 ## Adversaries considered
@@ -47,6 +47,9 @@ Those require separate designs rather than weakening this base layer.
   key. The login password is never itself a master key.
 - **Offline recovery key:** independent random 256-bit key that may protect the
   same master key in a separate record.
+- **Optional trustee key:** separate random 256-bit emergency-recovery key,
+  disabled by default, that protects the same master key in a distinct
+  domain-separated record and grants no normal application permissions.
 
 Password change therefore replaces only the protected-master-key record.
 Master-key rotation rewraps CEKs without re-encrypting payload bytes.
@@ -76,6 +79,7 @@ Associated data uses separate fixed domains for:
 - CEK wrapping
 - password protection of the master key
 - recovery-key protection of the master key
+- trustee-key protection of the master key
 
 The caller additionally supplies a bounded purpose string for payload and CEK
 wrapping. A wrapped key for one purpose cannot be silently reused for another.
@@ -120,6 +124,9 @@ and actor, not key bytes.
   rewrap it under the new master key; payload ciphertext remains unchanged.
 - Recovery-key rotation: create a new recovery protection record for the master
   key, then retire the old record/key according to recovery policy.
+- Trustee-key rotation/revocation: replace or remove only the optional trustee
+  protection record. A storage master-key rotation must explicitly rewrap an
+  enabled trustee record or fail closed.
 
 Revocation semantics across devices/federation are a later authorization layer.
 
@@ -158,5 +165,6 @@ cryptographic private-set-intersection remains separate future work.
 - repeated chunk plaintext produces different ciphertext
 - purpose substitution fails
 - master-key rotation changes only wrapped-key material
-- password/recovery protection round-trips
+- password/recovery/trustee protection round-trips
+- recovery and trustee protection records are not interchangeable
 - no test fixture contains production secrets
