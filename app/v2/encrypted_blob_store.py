@@ -684,6 +684,33 @@ class EncryptedBlobStore:
                 )
         return sorted(removed)
 
+    def version_key_matches(
+        self,
+        version_id: str,
+        master_key: bytes,
+    ) -> bool:
+        """Return whether a version CEK can be authenticated by this master key.
+
+        This checks only wrapped-key ownership and purpose binding; payload
+        chunks are not decrypted or read.
+        """
+
+        manifest = self.version_manifest(str(version_id))
+        object_id = LogicalObjectId(str(manifest.get("object_id") or ""))
+        purpose = self._purpose(object_id, str(version_id))
+        if manifest.get("purpose") != purpose:
+            raise EncryptedBlobIntegrityError("encrypted blob purpose mismatch")
+        wrapped = _wrapped_from_dict(manifest.get("wrapped_key"))
+        try:
+            self.crypto.open_chunk_encryption(
+                bytes(master_key),
+                wrapped,
+                purpose=purpose,
+            )
+        except ValueError:
+            return False
+        return True
+
     def rewrap_version_key(
         self,
         version_id: str,
