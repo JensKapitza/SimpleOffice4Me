@@ -14,6 +14,8 @@ password or decrypted vault key in the browser session.
 - Unlock lifetime defaults to 300 seconds and is bounded to 60-1800 seconds.
 - Each successful vault operation refreshes the short timeout.
 - Explicit lock removes the token and the corresponding in-memory key.
+- Re-unlock replaces the previous token for that browser session instead of leaving stale process keys behind.
+- A successful master-password change invalidates all process-local unlock tokens for that vault owner before issuing a fresh token to the current session.
 - Process restart or routing to another worker naturally locks the vault again.
 - No unlock key is written to the document tree, database, log or cookie.
 
