@@ -224,6 +224,8 @@ class FederationJobService:
                     checked_route,
                     scope=policy_scope,
                     target_peer=intent.target_peer,
+                    authorization_store=authorization_store,
+                    object_refs=intent.object_refs,
                 )
             except (RuntimeError, ValueError):
                 return OperationResult.failure(
@@ -231,6 +233,8 @@ class FederationJobService:
                     "federation policy could not be evaluated safely",
                 )
             if not decision.allowed:
+                if authorization_store is not None and decision.blocked_peer:
+                    authorization_store.revoke_for_peer(decision.blocked_peer)
                 return OperationResult.failure(
                     ErrorCode.FORBIDDEN,
                     f"federation policy denied transfer: {decision.reason}:{decision.blocked_peer}",
@@ -297,6 +301,8 @@ class FederationJobService:
                 route,
                 scope=str(payload.get("policy_scope") or "relay"),
                 target_peer=str(payload.get("target_peer") or ""),
+                authorization_store=authorization_store,
+                object_refs=payload.get("object_refs") or (),
             )
         except (RuntimeError, ValueError):
             return self.store.transition(

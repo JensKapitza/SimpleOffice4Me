@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 from ..federation_attestations import FederationAttestationStore
+from .authorization import AuthorizationStore, GrantRight
 
 SCOPES = frozenset({
     "all", "documents", "contacts", "calendar", "tasks", "chat",
@@ -343,6 +344,41 @@ class FederationPolicyStore:
             ))
         return result
 
+    def _blocked_capability_path_decision(
+        self,
+        *,
+        target_peer: str,
+        scope: str,
+        blocked_peers: set[str],
+        authorization_store: AuthorizationStore | None,
+        object_refs: Iterable[str] | None,
+        now: int | None,
+    ) -> PolicyDecision:
+        if not blocked_peers:
+            return PolicyDecision(True, "allowed", scope=scope)
+        auth = authorization_store
+        if auth is None:
+            auth_path = self.root / ".simpleoffice-v2" / "authorization.sqlite3"
+            if not auth_path.is_file():
+                return PolicyDecision(True, "allowed", scope=scope)
+            auth = AuthorizationStore(self.root)
+
+        for blocked_peer in sorted(blocked_peers):
+            if auth.has_effective_relationship(
+                issuer=target_peer,
+                subject=blocked_peer,
+                rights=(GrantRight.RELAY, GrantRight.DELEGATE),
+                object_refs=object_refs,
+                now=now,
+            ):
+                return PolicyDecision(
+                    False,
+                    "blocked_downstream_capability",
+                    blocked_peer,
+                    scope,
+                )
+        return PolicyDecision(True, "allowed", scope=scope)
+
     def _trust_requirement_decision(
         self,
         *,
@@ -415,7 +451,9 @@ class FederationPolicyStore:
 
     def decision(self, route: list[str] | tuple[str, ...], *, scope: str,
                  now: int | None = None, require_known_route: bool = True,
-                 target_peer: str | None = None) -> PolicyDecision:
+                 target_peer: str | None = None,
+                 authorization_store: AuthorizationStore | None = None,
+                 object_refs: Iterable[str] | None = None) -> PolicyDecision:
         checked_scope = self._scope(scope)
         peers = [self._peer(peer) for peer in route if str(peer or "").strip()]
         if require_known_route and not peers:
@@ -437,14 +475,24 @@ class FederationPolicyStore:
         )
         if not route_decision.allowed:
             return route_decision
-        blocked_verifiers = {
+        blocked_peers = {
             str(block["peer_id"])
             for block in blocks
             if block["scope"] in {"all", checked_scope}
         }
+        capability_decision = self._blocked_capability_path_decision(
+            target_peer=target,
+            scope=checked_scope,
+            blocked_peers=blocked_peers,
+            authorization_store=authorization_store,
+            object_refs=object_refs,
+            now=now,
+        )
+        if not capability_decision.allowed:
+            return capability_decision
         return self._trust_requirement_decision(
             target_peer=target,
             scope=checked_scope,
             now=now,
-            blocked_verifiers=blocked_verifiers,
+            blocked_verifiers=blocked_peers,
         )

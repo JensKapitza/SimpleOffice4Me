@@ -39,6 +39,23 @@ that is locally blocked for the evaluated scope cannot contribute positive
 confirmation evidence, so a positive attestation never overrides an explicit
 deny.
 
+## Blocked downstream capability paths
+
+For an active local block, the evaluator also checks the local V2 capability
+graph when that state is available. A transfer to target C is denied when C has
+an effective capability grant to blocked peer B containing `relay` or
+`delegate` rights for one of the objects being transferred.
+
+The check follows capability revocation, expiry and parent-grant effectiveness.
+An unrelated grant for another object does not block the transfer. A denial
+identifies B as the blocked peer so the existing revocation path can invalidate
+remaining local capabilities involving B.
+
+This covers relationships represented in the local authoritative capability
+store. It does not claim knowledge of undisclosed grants on an uncooperative
+remote peer; stronger remote relationship assertions require separately signed
+and current protocol evidence.
+
 ## Complete-route binding
 
 The policy evaluator receives the intended target separately from the route.
@@ -69,6 +86,6 @@ a newly forbidden job is failed. `stop_blocked_jobs(...)` can re-evaluate the
 whole active queue after a policy change.
 
 This is only the locally enforceable route layer. Signed confirmation/quorum
-rules are enforced here; relationship-aware negative rules and the policy-builder
-UI remain separate follow-up work. They must not weaken local explicit blocks,
+rules are enforced here; remote relationship assertions and the policy-builder UI remain separate
+follow-up work. They must not weaken local explicit blocks,
 confirmation requirements or route constraints.
