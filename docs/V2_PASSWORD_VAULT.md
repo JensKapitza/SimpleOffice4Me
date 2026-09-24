@@ -93,8 +93,10 @@ and notes are excluded from the search projection.
 Combined filters support username, e-mail address, parent/service domain, tags,
 folder and favorites. Search/list results are always a non-secret projection and
 never return the decrypted entry payload, password, TOTP secret or notes.
-Reading a full credential is a separate explicit per-entry service operation.
-Identity-usage summaries use the same non-secret projection.
+Displayed/searchable service URLs omit userinfo, query strings and fragments so
+token-like URL parameters do not become bulk-search metadata. Reading a full
+credential is a separate explicit per-entry service operation. Identity-usage
+summaries use the same non-secret projection.
 
 Mailstore integration is reference-only. VaultService receives mail-account and
 mail-search ports, derives lookup terms only from credential e-mail addresses
