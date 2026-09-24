@@ -34,6 +34,7 @@ from .fragment_recovery_io import (
 from .fragments import assess_fragments, recover_payload
 from .recovery import RecoveryService
 from .migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
+from .migration_acceptance import finalize_migration, migration_smoke_test
 from .master_keys import (
     MasterKeyProfileStore,
     load_master_password_file,
@@ -95,6 +96,20 @@ def _parser() -> argparse.ArgumentParser:
     restore.add_argument("--destination", required=True)
     restore.add_argument("--apply", action="store_true")
     sub.add_parser("migration-verify", help="Verify V1/V2 content transfer without writing")
+    sub.add_parser(
+        "migration-smoke",
+        help="Run the final read-only V2 migration smoke test",
+    )
+    migration_finalize = sub.add_parser(
+        "migration-finalize",
+        help="Persist the verified Phase-14 completion marker by entering shadow mode",
+    )
+    migration_finalize.add_argument("--apply", action="store_true")
+    migration_finalize.add_argument(
+        "--acknowledge-local-plaintext",
+        action="store_true",
+        help="Explicitly acknowledge that the current V2 compatibility store is local plaintext",
+    )
     sub.add_parser("storage-cutover-status", help="Show explicit V2 storage cutover state and verification")
 
     key_init = sub.add_parser(
@@ -546,6 +561,28 @@ def _run_storage_trustee_command(args: argparse.Namespace) -> int | None:
     return None
 
 
+def _run_migration_acceptance_command(args: argparse.Namespace) -> int | None:
+    if args.command == "migration-smoke":
+        result = migration_smoke_test(args.root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["ready"] else 2
+
+    if args.command == "migration-finalize":
+        result = finalize_migration(
+            args.root,
+            apply=bool(args.apply),
+            acknowledge_local_plaintext=bool(args.acknowledge_local_plaintext),
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if result["completed"]:
+            return 0
+        if not result["ready"]:
+            return 2
+        return 3
+
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -560,6 +597,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_encrypted_descriptor_check(args)
     if not args.root:
         parser.error("--root is required for this command")
+    migration_result = _run_migration_acceptance_command(args)
+    if migration_result is not None:
+        return migration_result
     if args.command in {
         "encrypted-inventory",
         "encrypted-verify",
