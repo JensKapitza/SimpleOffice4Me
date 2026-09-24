@@ -32,7 +32,7 @@ Listeneinträge, die der aktuelle Benutzer ohnehin lesen darf.
 
 Wenn die Shopping-Seite bereits geladen ist, kann ein neuer Artikel bei unterbrochener
 Verbindung im Browser vorgemerkt werden. Die Queue liegt ausschließlich im lokalen
-Browser-Storage und wird bei wiederhergestellter Verbindung erneut gesendet.
+Browser-Storage und wird bei wiederhergestellter Verbindung erneut gesendet. CSRF-Token werden dabei nicht persistent gespeichert, sondern erst beim Senden aus der aktuellen Seite ergänzt.
 
 Jeder vorgemerkte neue Eintrag erhält eine `request_id`. Der Server behandelt dieselbe
 `request_id` pro Liste und Ersteller idempotent, damit ein Retry keine Dublette erzeugt.
