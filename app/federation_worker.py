@@ -1,6 +1,8 @@
 """Outgoing SOFP HTTP workers for direct and delegated blob transfers."""
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import socket
@@ -292,6 +294,145 @@ def remote_encrypted_recovery_availability(
         or available_set.intersection(missing_set)
     ):
         raise ValueError("Recovery-Peer lieferte widersprüchliche Chunk-Verfügbarkeit")
+    return result
+
+
+def remote_encrypted_recovery_chunk(
+    root: str | Path,
+    peer_id: str,
+    descriptor: dict[str, Any],
+    authorization_ref: str,
+    chunk_index: int,
+) -> bytes:
+    """Fetch one descriptor-bound ciphertext chunk from an authorized peer."""
+
+    checked = validate_encrypted_recovery_descriptor(descriptor)
+    index = _recovery_chunk_indexes(
+        len(checked["ciphertext_chunks"]),
+        [chunk_index],
+    )[0]
+    store = FederationStore(root)
+    peer = store.get_peer(peer_id)
+    if not peer or not peer.get("enabled"):
+        raise ValueError("Recovery-Peer ist nicht aktiv")
+    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if not source_token:
+        raise ValueError("Lokaler Federation-Token fehlt für peer-signierten Recovery-Transfer")
+    auth_ref = str(authorization_ref or "").strip()
+    if not auth_ref:
+        raise ValueError("Recovery-Transfer benötigt eine Capability-Referenz")
+
+    path = "/federation/v1/recovery/encrypted/chunk"
+    body = json.dumps(
+        {
+            "authorization_ref": auth_ref,
+            "descriptor": checked,
+            "chunk_index": index,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        **peer_auth_headers(
+            local_peer_id(),
+            source_token,
+            "POST",
+            path,
+            body,
+        ),
+    }
+    with _request(
+        peer["base_url"] + path,
+        method="POST",
+        token=store.peer_token(peer_id),
+        body=body,
+        headers=headers,
+        timeout=120,
+    ) as response:
+        raw = response.read()
+    expected = checked["ciphertext_chunks"][index]
+    if len(raw) != int(expected["ciphertext_size"]):
+        raise ValueError("Recovery-Peer lieferte eine falsche Chunk-Größe")
+    if hashlib.sha256(raw).hexdigest() != str(expected["ciphertext_sha256"]):
+        raise ValueError("Recovery-Peer lieferte einen beschädigten Chunk")
+    return raw
+
+
+def remote_store_encrypted_recovery_chunk(
+    root: str | Path,
+    peer_id: str,
+    descriptor: dict[str, Any],
+    authorization_ref: str,
+    chunk_index: int,
+    content: bytes,
+) -> dict[str, Any]:
+    """Store one already encrypted descriptor-bound chunk on an authorized peer."""
+
+    checked = validate_encrypted_recovery_descriptor(descriptor)
+    index = _recovery_chunk_indexes(
+        len(checked["ciphertext_chunks"]),
+        [chunk_index],
+    )[0]
+    payload = bytes(content)
+    expected = checked["ciphertext_chunks"][index]
+    if len(payload) != int(expected["ciphertext_size"]):
+        raise ValueError("Recovery-Chunk-Größe passt nicht zum Deskriptor")
+    if hashlib.sha256(payload).hexdigest() != str(expected["ciphertext_sha256"]):
+        raise ValueError("Recovery-Chunk-Prüfsumme passt nicht zum Deskriptor")
+
+    store = FederationStore(root)
+    peer = store.get_peer(peer_id)
+    if not peer or not peer.get("enabled"):
+        raise ValueError("Recovery-Peer ist nicht aktiv")
+    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if not source_token:
+        raise ValueError("Lokaler Federation-Token fehlt für peer-signierten Recovery-Transfer")
+    auth_ref = str(authorization_ref or "").strip()
+    if not auth_ref:
+        raise ValueError("Recovery-Transfer benötigt eine Capability-Referenz")
+
+    path = "/federation/v1/recovery/encrypted/store"
+    body = json.dumps(
+        {
+            "authorization_ref": auth_ref,
+            "descriptor": checked,
+            "chunk_index": index,
+            "chunk": base64.b64encode(payload).decode("ascii"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        **peer_auth_headers(
+            local_peer_id(),
+            source_token,
+            "POST",
+            path,
+            body,
+        ),
+    }
+    with _request(
+        peer["base_url"] + path,
+        method="POST",
+        token=store.peer_token(peer_id),
+        body=body,
+        headers=headers,
+        timeout=120,
+    ) as response:
+        raw = response.read()
+    result = json.loads(raw.decode("utf-8"))
+    if (
+        not isinstance(result, dict)
+        or result.get("ok") is not True
+        or result.get("stored") is not True
+        or result.get("descriptor_id") != checked["descriptor_id"]
+        or result.get("chunk_index") != index
+    ):
+        raise ValueError("Recovery-Peer bestätigte einen ungebundenen Chunk-Store")
     return result
 
 
