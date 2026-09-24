@@ -269,6 +269,17 @@ def _ensure_cutover(root: Path) -> None:
         raise ValueError("storage master-key rotation requires authoritative encrypted V2 mode")
 
 
+def rotation_pending(root: str | Path) -> bool:
+    """Return whether encrypted runtime access must remain blocked."""
+
+    source = Path(root).expanduser().resolve()
+    path = _journal_path(source)
+    if not path.exists():
+        return False
+    _read_journal(source)
+    return True
+
+
 def rotation_status(root: str | Path) -> dict[str, Any]:
     source = Path(root).expanduser().resolve()
     path = _journal_path(source)
@@ -423,6 +434,8 @@ def _resume_rotation(
         )
         if final_state["old"] or final_state["invalid"]:
             raise RuntimeError("storage master-key rotation did not rewrap every encrypted version")
+        if _version_ids(encrypted) != expected_versions:
+            raise ValueError("encrypted version set changed while storage master-key rotation was running")
 
         _write_recovery_key(key_target, recovery_key)
         material = profile.replace_master_key(
