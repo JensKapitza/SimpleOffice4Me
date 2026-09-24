@@ -265,7 +265,7 @@ def unlock():
         key = vault.unlock(_actor(), request.form.get("master_password", ""))
         _cache_unlock(key)
         flash("Vault entsperrt.")
-    except (RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         _clear_unlock()
         flash("Vault konnte nicht entsperrt werden.")
     return _redirect_index()
@@ -295,7 +295,7 @@ def change_master_password():
         _clear_actor_unlocks(actor)
         _cache_unlock(vault.unlock(actor, new))
         flash("Master-Passwort geändert.")
-    except (RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         flash("Master-Passwort konnte nicht geändert werden.")
     return _redirect_index()
 
@@ -341,7 +341,7 @@ def save_entry(entry_id: str = ""):
         )
         flash("Credential verschlüsselt gespeichert.")
         return redirect(url_for("vault.entry", entry_id=row["entry_id"]))
-    except (RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         flash("Credential konnte nicht gespeichert werden.")
         return _redirect_index()
 
@@ -433,7 +433,7 @@ def export_backup():
     try:
         _require_key()
         raw = vault.export_backup(_actor())
-    except (RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         flash("Verschlüsseltes Vault-Backup konnte nicht erstellt werden.")
         return _redirect_index()
     response = Response(raw, mimetype="application/json")
