@@ -192,7 +192,7 @@ def action(action: str):
         message = _perform_action(action)
     except (OSError, RuntimeError, ValueError) as exc:
         audit("screen_platform_action", "screen", action, outcome="failure", detail={"platform": _system(), "error_type": type(exc).__name__})
-        flash(str(exc))
+        flash("Bildschirm-Aktion konnte nicht gestartet werden. Systemkomponente und Berechtigungen prüfen.")
     else:
         audit("screen_platform_action", "screen", action, detail={"platform": _system()})
         flash(message)
