@@ -79,6 +79,31 @@ The following V2 recovery events are audit-visible without secret payloads:
 Audit records contain identifiers, operation names and generic failure reasons,
 not passwords, vault keys, entry plaintext or recovery keys.
 
+## Stable search and mail-reference service
+
+The V2 VaultService is the non-Flask service boundary intended for future UI and
+API consumers.
+
+Credential search is deliberately evaluated in memory after a successful vault
+unlock. No plaintext credential search index is written to disk. Searchable
+fields are limited to non-secret identity/service metadata such as title,
+username, e-mail address, URL/domain, tags and folder. Passwords, TOTP secrets
+and notes are excluded from the search projection.
+
+Combined filters support username, e-mail address, parent/service domain, tags,
+folder and favorites. Search/list results are always a non-secret projection and
+never return the decrypted entry payload, password, TOTP secret or notes.
+Displayed/searchable service URLs omit userinfo, query strings and fragments so
+token-like URL parameters do not become bulk-search metadata. Reading a full
+credential is a separate explicit per-entry service operation. Identity-usage
+summaries use the same non-secret projection.
+
+Mailstore integration is reference-only. VaultService receives mail-account and
+mail-search ports, derives lookup terms only from credential e-mail addresses
+and service domains, and returns a strict whitelist of message locator/header
+fields. Indexed message bodies, search text and content hashes are not copied
+into the vault response. The mail index remains the source of truth.
+
 ## Remaining Phase-13 work
 
 This step stabilizes the key hierarchy and recovery contract. The encrypted
