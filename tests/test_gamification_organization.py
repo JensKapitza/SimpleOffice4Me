@@ -1,4 +1,5 @@
 import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,7 +16,7 @@ from app.gamification_store import GamificationStore
 
 class GamificationOrganizationTests(unittest.TestCase):
     def setUp(self):
-        self.db = sqlite3.connect(":memory:")
+        self.db = sqlite_connect(":memory:")
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.execute(
