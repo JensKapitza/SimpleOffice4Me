@@ -97,10 +97,22 @@ def add_item(list_id: str):
             "brand", "pack_size", "price", "request_id",
         )
     }
+    sync_request = request.headers.get("X-Shopping-Sync", "") == "1"
     try:
         item = _store().add_item(list_id, request.form.get("name", ""), _actor(), values)
+        if sync_request:
+            return jsonify({
+                "ok": True,
+                "item_id": item["item_id"],
+                "redirect": url_for("shopping.index", list_id=list_id),
+            })
         flash(f"{item['name']} wurde hinzugefügt.")
     except ValueError:
+        if sync_request:
+            return jsonify({
+                "ok": False,
+                "error": "Artikel konnte nicht hinzugefügt werden. Eingaben und Rechte prüfen.",
+            }), 409
         flash("Artikel konnte nicht hinzugefügt werden. Eingaben und Barcode prüfen.")
     return _back(list_id)
 
