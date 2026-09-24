@@ -40,6 +40,11 @@ from .master_keys import (
 )
 from .runtime_keys import PASSWORD_FILE_ENV, STORAGE_PROFILE_ID
 from .storage_keys import export_storage_recovery_bundle, provision_storage_profile
+from .storage_key_rotation import (
+    rollback_storage_master_key_rotation,
+    rotate_storage_master_key,
+    rotation_status,
+)
 from .zfec_codec import codec_for_plan
 
 
@@ -93,6 +98,37 @@ def _parser() -> argparse.ArgumentParser:
     )
     key_bundle.add_argument("--output", required=True)
     key_bundle.add_argument("--apply", action="store_true")
+
+    key_rotation_status = sub.add_parser(
+        "storage-key-rotation-status",
+        help="Show whether an encrypted-storage master-key rotation is pending",
+    )
+
+    key_rotate = sub.add_parser(
+        "storage-key-rotate",
+        help="Start or resume encrypted-storage master-key rotation without re-encrypting payload chunks",
+    )
+    key_rotate.add_argument("--password-file", required=True)
+    key_rotate.add_argument("--recovery-key-output", required=True)
+    key_rotate.add_argument("--recovery-bundle-output", required=True)
+    key_rotate.add_argument("--apply", action="store_true")
+    key_rotate.add_argument(
+        "--acknowledge-maintenance-window",
+        action="store_true",
+        help="Confirm all normal application writers are stopped during key rotation",
+    )
+
+    key_rollback = sub.add_parser(
+        "storage-key-rotation-rollback",
+        help="Rollback a pending storage master-key rotation before profile commit",
+    )
+    key_rollback.add_argument("--password-file", required=True)
+    key_rollback.add_argument("--apply", action="store_true")
+    key_rollback.add_argument(
+        "--acknowledge-maintenance-window",
+        action="store_true",
+        help="Confirm all normal application writers are stopped during rotation rollback",
+    )
 
     encrypted = sub.add_parser(
         "storage-encrypted",
@@ -416,6 +452,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = export_storage_recovery_bundle(args.root, args.output)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "storage-key-rotation-status":
+        print(json.dumps(rotation_status(args.root), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-key-rotate":
+        if args.apply and not args.acknowledge_maintenance_window:
+            print(
+                "refusing write: stop normal application writers and add "
+                "--acknowledge-maintenance-window"
+            )
+            return 3
+        try:
+            result = rotate_storage_master_key(
+                args.root,
+                password_file=args.password_file,
+                recovery_key_output=args.recovery_key_output,
+                recovery_bundle_output=args.recovery_bundle_output,
+                apply=bool(args.apply),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(json.dumps({"error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if args.apply else 3
+
+    if args.command == "storage-key-rotation-rollback":
+        if args.apply and not args.acknowledge_maintenance_window:
+            print(
+                "refusing write: stop normal application writers and add "
+                "--acknowledge-maintenance-window"
+            )
+            return 3
+        try:
+            result = rollback_storage_master_key_rotation(
+                args.root,
+                password_file=args.password_file,
+                apply=bool(args.apply),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(json.dumps({"error": str(exc)}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if args.apply else 3
 
     if args.command == "storage-encrypted":
         if args.apply and not args.acknowledge_maintenance_window:
