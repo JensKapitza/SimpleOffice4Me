@@ -1,0 +1,68 @@
+{% extends "layout.html" %}
+{% block title %}Credential · Passwort-Vault{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-3 py-md-4" id="main-content">
+  {% set data = entry['data'] %}
+  <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <a href="{{ url_for('vault.index') }}" class="text-decoration-none">&larr; Passwort-Vault</a>
+      <h1 class="h3 mt-2 mb-1">{{ data.get('name') or '(ohne Name)' }}</h1>
+      <div class="text-secondary small">Revision {{ entry.revision }} · {{ data.get('type','login') }}</div>
+    </div>
+    <form method="post" action="{{ url_for('vault.delete_entry', entry_id=entry.entry_id) }}" onsubmit="return confirm('Credential wirklich löschen?');">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-danger btn-sm" type="submit">Löschen</button>
+    </form>
+  </div>
+
+  {% for message in get_flashed_messages() %}
+  <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+  {% endfor %}
+
+  <div class="row g-3 align-items-start">
+    <section class="col-lg-7">
+      <div class="card shadow-sm">
+        <div class="card-header"><strong>Credential bearbeiten</strong></div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('vault.save_entry', entry_id=entry.entry_id) }}" class="row g-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4"><label class="form-label" for="entry-type">Typ</label><select id="entry-type" name="type" class="form-select">{% for kind in ['login','secure_note','identity','card','ssh_key','api_key'] %}<option value="{{ kind }}" {% if data.get('type','login') == kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}</select></div>
+            <div class="col-md-8"><label class="form-label" for="entry-name">Name</label><input id="entry-name" name="name" value="{{ data.get('name','') }}" class="form-control" required></div>
+            <div class="col-12"><label class="form-label" for="entry-url">URL</label><input id="entry-url" name="url" type="url" value="{{ data.get('url','') }}" class="form-control"></div>
+            <div class="col-md-6"><label class="form-label" for="entry-user">Benutzername</label><input id="entry-user" name="username" value="{{ data.get('username','') }}" class="form-control" autocomplete="off"></div>
+            <div class="col-md-6"><label class="form-label" for="entry-email">E-Mail</label><input id="entry-email" name="email" type="email" value="{{ data.get('email','') }}" class="form-control" autocomplete="off"></div>
+            <div class="col-12"><label class="form-label" for="entry-password">Passwort / Secret</label><input id="entry-password" name="password" type="password" value="{{ data.get('password','') }}" class="form-control" autocomplete="off"></div>
+            <div class="col-12"><label class="form-label" for="entry-totp">TOTP-Secret</label><input id="entry-totp" name="totp" type="password" value="{{ data.get('totp','') }}" class="form-control" autocomplete="off"></div>
+            <div class="col-md-6"><label class="form-label" for="entry-folder">Ordner</label><input id="entry-folder" name="folder" value="{{ data.get('folder','') }}" class="form-control"></div>
+            <div class="col-md-6"><label class="form-label" for="entry-tags">Tags</label><input id="entry-tags" name="tags" value="{{ data.get('tags',[])|join(', ') if data.get('tags') is not string else data.get('tags') }}" class="form-control"></div>
+            <div class="col-12"><label class="form-label" for="entry-notes">Notizen</label><textarea id="entry-notes" name="notes" rows="5" class="form-control">{{ data.get('notes','') }}</textarea></div>
+            <div class="col-12"><div class="form-check"><input id="entry-favorite" name="favorite" value="1" type="checkbox" class="form-check-input" {% if data.get('favorite') %}checked{% endif %}><label class="form-check-label" for="entry-favorite">Favorit</label></div></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Änderungen verschlüsselt speichern</button></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <aside class="col-lg-5">
+      <div class="card shadow-sm">
+        <div class="card-header"><strong>Passende Mail-Kommunikation</strong></div>
+        <div class="list-group list-group-flush">
+          {% for row in mail_references %}
+          <a class="list-group-item list-group-item-action" href="{{ url_for('mail_reader.index', account=row.account_id, folder=row.folder, uid=row.uid) }}">
+            <div class="fw-semibold">{{ row.subject or '(ohne Betreff)' }}</div>
+            <div class="small text-secondary">{{ row.sender }}{% if row.message_date %} · {{ row.message_date }}{% endif %}</div>
+            {% if row.matched_by %}<div class="small">Treffer: {{ row.matched_by|join(', ') }}</div>{% endif %}
+          </a>
+          {% else %}
+          <div class="list-group-item text-secondary">Keine passenden lokal indexierten Mails gefunden.</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="alert alert-warning mt-3 small">
+        Diese Detailseite enthält entschlüsselte Credential-Daten und wird mit <code>no-store</code> ausgeliefert. Einträge erscheinen nicht in der normalen Suchliste mit Passwort, TOTP oder Notiz.
+      </div>
+    </aside>
+  </div>
+</main>
+{% endblock %}

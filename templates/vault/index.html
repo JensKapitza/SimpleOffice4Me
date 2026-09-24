@@ -1,0 +1,162 @@
+{% extends "layout.html" %}
+{% block title %}Passwort-Vault · SimpleOffice{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main class="container-xl py-3 py-md-4" id="main-content">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h1 class="h2 mb-1">Passwort-Vault</h1>
+      <p class="text-secondary mb-0">Verschlüsselte Credentials mit kurzer In-Memory-Entsperrung.</p>
+    </div>
+    {% if unlocked %}
+    <form method="post" action="{{ url_for('vault.lock') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-lock me-1"></i>Sperren</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% for message in get_flashed_messages() %}
+  <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+  {% endfor %}
+
+  {% if not configured %}
+  <section class="card shadow-sm mb-3">
+    <div class="card-header"><strong>Vault einrichten</strong></div>
+    <div class="card-body">
+      <p>Das Master-Passwort wird nicht gespeichert. Neue Master-Passwörter benötigen mindestens 12 Zeichen.</p>
+      <form method="post" action="{{ url_for('vault.setup') }}" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6"><label class="form-label" for="vault-master-new">Master-Passwort</label><input id="vault-master-new" name="master_password" type="password" class="form-control" minlength="12" maxlength="4096" autocomplete="new-password" required></div>
+        <div class="col-md-6"><label class="form-label" for="vault-master-confirm">Wiederholen</label><input id="vault-master-confirm" name="master_password_confirm" type="password" class="form-control" minlength="12" maxlength="4096" autocomplete="new-password" required></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Vault anlegen</button></div>
+      </form>
+      <hr>
+      <h2 class="h6">Vorhandenes verschlüsseltes Backup wiederherstellen</h2>
+      <form method="post" action="{{ url_for('vault.import_backup') }}" enctype="multipart/form-data" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-8"><input name="file" type="file" class="form-control" accept=".json,application/json" required></div>
+        <div class="col-md-4"><input name="confirm" class="form-control" placeholder="REPLACE" required></div>
+        <div class="col-12"><button class="btn btn-outline-secondary" type="submit">Verschlüsseltes Backup importieren</button></div>
+      </form>
+    </div>
+  </section>
+  {% elif not unlocked %}
+  <section class="card shadow-sm mb-3">
+    <div class="card-header"><strong>Vault entsperren</strong></div>
+    <div class="card-body">
+      <p class="text-secondary">Der Vault-Key bleibt höchstens {{ unlock_seconds }} Sekunden im Arbeitsspeicher dieses Webprozesses.</p>
+      <form method="post" action="{{ url_for('vault.unlock') }}" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-8"><label class="form-label" for="vault-master">Master-Passwort</label><input id="vault-master" name="master_password" type="password" class="form-control" maxlength="4096" autocomplete="current-password" required></div>
+        <div class="col-md-4 d-grid align-items-end"><button class="btn btn-primary" type="submit">Entsperren</button></div>
+      </form>
+    </div>
+  </section>
+  {% else %}
+  <div class="row g-3 align-items-start">
+    <aside class="col-lg-4">
+      <section class="card shadow-sm mb-3">
+        <div class="card-header"><strong>Neues Credential</strong></div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('vault.save_entry') }}" class="row g-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="type" value="login">
+            <div class="col-12"><label class="form-label" for="vault-new-name">Name</label><input id="vault-new-name" name="name" class="form-control" maxlength="500" required></div>
+            <div class="col-12"><label class="form-label" for="vault-new-url">URL</label><input id="vault-new-url" name="url" type="url" class="form-control" maxlength="10000" placeholder="https://example.org"></div>
+            <div class="col-12"><label class="form-label" for="vault-new-user">Benutzername</label><input id="vault-new-user" name="username" class="form-control" maxlength="200000" autocomplete="off"></div>
+            <div class="col-12"><label class="form-label" for="vault-new-mail">E-Mail</label><input id="vault-new-mail" name="email" type="email" class="form-control" maxlength="320" autocomplete="off"></div>
+            <div class="col-12"><label class="form-label" for="vault-new-password">Passwort</label><input id="vault-new-password" name="password" type="password" class="form-control" maxlength="200000" autocomplete="new-password"></div>
+            <div class="col-12"><label class="form-label" for="vault-new-tags">Tags</label><input id="vault-new-tags" name="tags" class="form-control" maxlength="2000" placeholder="privat, server"></div>
+            <div class="col-12 d-grid"><button class="btn btn-success" type="submit">Verschlüsselt speichern</button></div>
+          </form>
+          <div class="small text-secondary mt-2">Passwortgenerator: <a href="{{ url_for('vault.api_generate_password', length=24) }}">API / 24 Zeichen</a>.</div>
+        </div>
+      </section>
+
+      <section class="card shadow-sm mb-3">
+        <div class="card-header"><strong>Import / Export</strong></div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('vault.import_browser_csv') }}" enctype="multipart/form-data" class="mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <label class="form-label" for="vault-csv">Browser-CSV</label>
+            <input id="vault-csv" name="file" type="file" class="form-control mb-2" accept=".csv,text/csv" required>
+            <div class="form-check mb-2"><input id="vault-csv-confirm" name="confirm" value="1" type="checkbox" class="form-check-input"><label class="form-check-label" for="vault-csv-confirm">Nach der Vorschau neue Einträge importieren</label></div>
+            <button class="btn btn-outline-primary btn-sm" type="submit">CSV prüfen / importieren</button>
+          </form>
+
+          <form method="post" action="{{ url_for('vault.export_backup') }}" class="mb-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-secondary btn-sm" type="submit">Verschlüsseltes Backup herunterladen</button>
+          </form>
+          <form method="post" action="{{ url_for('vault.export_browser_csv') }}" class="mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <label class="form-label" for="vault-export-password">Klartext-Export</label>
+            <input id="vault-export-password" name="master_password" type="password" class="form-control form-control-sm mb-2" placeholder="Master-Passwort erneut eingeben" autocomplete="current-password" required>
+            <div class="input-group input-group-sm"><input id="vault-export-confirm" name="confirm" class="form-control" placeholder="EXPORT" autocomplete="off"><button class="btn btn-outline-danger" type="submit">CSV exportieren</button></div>
+            <div class="form-text">Klartext-CSV nur nach erneuter Authentifizierung und Eingabe von <code>EXPORT</code>; Antwort wird nicht gecacht.</div>
+          </form>
+
+          <form method="post" action="{{ url_for('vault.import_backup') }}" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <label class="form-label" for="vault-backup">Verschlüsseltes Backup ersetzen</label>
+            <input id="vault-backup" name="file" type="file" class="form-control form-control-sm mb-2" accept=".json,application/json" required>
+            <input name="master_password" type="password" class="form-control form-control-sm mb-2" placeholder="Aktuelles Master-Passwort" autocomplete="current-password" required>
+            <div class="input-group input-group-sm"><input name="confirm" class="form-control" placeholder="REPLACE" autocomplete="off"><button class="btn btn-outline-danger" type="submit">Importieren</button></div>
+          </form>
+        </div>
+      </section>
+
+      <section class="card shadow-sm">
+        <div class="card-header"><strong>Sicherheitsstatus</strong></div>
+        <div class="card-body small">
+          <div>Vault: <strong>entsperrt</strong></div>
+          <div>Offline-Recovery: <strong>{{ 'eingerichtet' if recovery_configured else 'nicht eingerichtet' }}</strong></div>
+          <div>Browser-Autofill fremder Origins: <strong>nicht verfügbar</strong></div>
+          <hr>
+          <form method="post" action="{{ url_for('vault.change_master_password') }}" class="row g-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-12"><label class="form-label" for="vault-old">Aktuelles Master-Passwort</label><input id="vault-old" name="old_password" type="password" class="form-control form-control-sm" autocomplete="current-password" required></div>
+            <div class="col-12"><label class="form-label" for="vault-new">Neues Master-Passwort</label><input id="vault-new" name="new_password" type="password" class="form-control form-control-sm" minlength="12" autocomplete="new-password" required></div>
+            <div class="col-12"><label class="form-label" for="vault-new-confirm">Wiederholen</label><input id="vault-new-confirm" name="new_password_confirm" type="password" class="form-control form-control-sm" minlength="12" autocomplete="new-password" required></div>
+            <div class="col-12"><button class="btn btn-outline-secondary btn-sm" type="submit">Master-Passwort ändern</button></div>
+          </form>
+        </div>
+      </section>
+    </aside>
+
+    <section class="col-lg-8">
+      <section class="card shadow-sm">
+        <div class="card-header"><strong>Credentials durchsuchen</strong></div>
+        <div class="card-body border-bottom">
+          <form method="get" class="row g-2" role="search" aria-label="Credentials durchsuchen">
+            <div class="col-md-5"><label class="form-label" for="vault-q">Text</label><input id="vault-q" name="q" type="search" value="{{ request.args.get('q','') }}" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label" for="vault-domain">Domain</label><input id="vault-domain" name="domain" value="{{ request.args.get('domain','') }}" class="form-control"></div>
+            <div class="col-md-3"><label class="form-label" for="vault-email">E-Mail</label><input id="vault-email" name="email" value="{{ request.args.get('email','') }}" class="form-control"></div>
+            <div class="col-md-5"><label class="form-label" for="vault-username">Benutzername</label><input id="vault-username" name="username" value="{{ request.args.get('username','') }}" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label" for="vault-tags">Tags</label><input id="vault-tags" name="tags" value="{{ request.args.get('tags','') }}" class="form-control"></div>
+            <div class="col-md-3 d-flex align-items-end"><div class="form-check mb-2"><input id="vault-fav" name="favorites" value="1" type="checkbox" class="form-check-input" {% if request.args.get('favorites') == '1' %}checked{% endif %}><label class="form-check-label" for="vault-fav">Nur Favoriten</label></div></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Suchen</button> <a class="btn btn-outline-secondary" href="{{ url_for('vault.index') }}">Zurücksetzen</a></div>
+          </form>
+          {% if search_error %}<div class="alert alert-warning mt-2 mb-0">{{ search_error }}</div>{% endif %}
+        </div>
+        <div class="list-group list-group-flush">
+          {% for row in entries %}
+          <a class="list-group-item list-group-item-action" href="{{ url_for('vault.entry', entry_id=row.entry_id) }}">
+            <div class="d-flex justify-content-between gap-2">
+              <div><strong>{{ row.name or '(ohne Name)' }}</strong>{% if row.favorite %} <i class="fas fa-star" aria-label="Favorit"></i>{% endif %}</div>
+              <span class="badge text-bg-secondary">{{ row.type }}</span>
+            </div>
+            <div class="small text-secondary">{% if row.username %}{{ row.username }}{% endif %}{% if row.emails %} · {{ row.emails|join(', ') }}{% endif %}{% if row.domains %} · {{ row.domains|join(', ') }}{% endif %}</div>
+            {% if row.tags %}<div class="small">Tags: {{ row.tags|join(', ') }}</div>{% endif %}
+          </a>
+          {% else %}
+          <div class="list-group-item text-secondary">Keine passenden Credentials.</div>
+          {% endfor %}
+        </div>
+      </section>
+    </section>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
