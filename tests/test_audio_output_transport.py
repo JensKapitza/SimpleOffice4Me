@@ -1,5 +1,5 @@
 """RTP announcement boundaries and the existing queue/process lifecycle."""
-import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import shutil
 import subprocess
 import tempfile
@@ -115,7 +115,7 @@ class AudioTransportTests(unittest.TestCase):
 
     def test_old_registry_migrates_without_claiming_remote_support(self):
         with tempfile.TemporaryDirectory() as temp:
-            with sqlite3.connect(Path(temp) / "audio-output.sqlite3") as db:
+            with sqlite_connect(Path(temp) / "audio-output.sqlite3") as db:
                 db.execute("CREATE TABLE audio_output_node(node_id TEXT, output_id TEXT, name TEXT, device TEXT, channels INTEGER, online INTEGER, volume INTEGER, updated_at INTEGER, PRIMARY KEY(node_id,output_id))")
                 db.execute("INSERT INTO audio_output_node VALUES('remote','old','Old','',2,1,100,1)")
             store = AudioOutputStore(temp)
