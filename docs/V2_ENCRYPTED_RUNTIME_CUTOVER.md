@@ -146,3 +146,46 @@ Activating the encrypted blob backend protects V2 blob chunks and manifests
 against direct plaintext disclosure, but normal projected document files remain
 plaintext. Full local encryption-at-rest must not be advertised until that
 projection has been removed or replaced.
+
+## Storage master-key rotation
+
+After encrypted runtime activation, the dedicated storage master key can be
+rotated without rewriting ciphertext payload chunks.
+
+Preview:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  storage-key-rotate \
+  --password-file /run/credentials/simpleoffice-v2-storage-password \
+  --recovery-key-output /media/offline/simpleoffice-v2-recovery-rotated.key \
+  --recovery-bundle-output /media/offline/simpleoffice-v2-recovery-rotated.json
+```
+
+Apply only with normal application writers stopped:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  storage-key-rotate \
+  --password-file /run/credentials/simpleoffice-v2-storage-password \
+  --recovery-key-output /media/offline/simpleoffice-v2-recovery-rotated.key \
+  --recovery-bundle-output /media/offline/simpleoffice-v2-recovery-rotated.json \
+  --apply --acknowledge-maintenance-window
+```
+
+If the process is interrupted, rerun the same command. The persistent rotation
+journal identifies versions already rewrapped and resumes them safely. While
+that journal exists, normal encrypted StoragePort runtime selection fails
+closed.
+
+Before the new profile is committed, a partial rotation can be reverted:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  storage-key-rotation-rollback \
+  --password-file /run/credentials/simpleoffice-v2-storage-password \
+  --apply --acknowledge-maintenance-window
+```
+
+`storage-key-rotation-status` reports whether a journal is pending without
+exposing raw key material.

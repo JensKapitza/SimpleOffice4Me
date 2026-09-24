@@ -57,10 +57,9 @@ non-secret status metadata. It never prints or exports the recovered master
 key. Invalid inputs and authentication failures use the same generic error
 result.
 
-This command is a validation building block. A later encrypted-object recovery
-command should consume the recovered key internally and export only the
-requested verified plaintext object, rather than materializing the raw master
-key.
+The independent encrypted-object recovery commands consume the recovered key
+internally and export only requested verified plaintext objects. They do not
+materialize the raw master key as an operator-facing file.
 
 ## Recovery-key rotation
 
@@ -73,10 +72,27 @@ Previously exported old recovery bundles still describe the older wrapping
 record. They should be retired according to the operator's backup/recovery
 policy when rotation is intended as revocation.
 
+## Storage master-key rotation
+
+The dedicated encrypted-storage profile can rotate its master key without
+re-encrypting payload chunks. During a maintenance window every encrypted blob
+version CEK is rewrapped from the old master key to a fresh one. Only after all
+versions are on the new wrapping key is the active profile atomically replaced.
+
+The rotation journal stores only password-protected old/new master-key records,
+an encrypted pending recovery key, public version IDs and output paths. Raw
+master/recovery keys are never persisted. Normal encrypted runtime access fails
+closed while the journal exists.
+
+The command can be rerun after a process interruption. Before profile commit an
+operator can also roll the partial rewrap back to the old key. A new offline
+recovery key and bundle are emitted outside the SimpleOffice data root as part
+of a successful rotation.
+
 ## Audit
 
 Creation, unlock, failed unlock, recovery, password change, recovery-key
-rotation and recovery-bundle export generate V2 audit events. Events contain
+rotation, storage master-key rotation and recovery-bundle export generate V2 audit events. Events contain
 profile hashes/generations and generic failure reasons only; passwords,
 recovery keys and master keys are never audit payloads.
 

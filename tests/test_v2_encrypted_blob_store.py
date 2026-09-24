@@ -78,6 +78,13 @@ class EncryptedBlobStoreTest(unittest.TestCase):
         with self.assertRaisesRegex(EncryptedBlobIntegrityError, "chunk order"):
             self.store.read(self.object_id)
 
+    def test_version_key_matches_checks_wrapping_key_without_reading_payload(self):
+        version = self.store.write(self.object_id, b"key ownership")
+        wrong = CryptoService.generate_master_key()
+
+        self.assertTrue(self.store.version_key_matches(version.version_id, self.master))
+        self.assertFalse(self.store.version_key_matches(version.version_id, wrong))
+
     def test_version_key_can_be_rewrapped_without_reencrypting_chunks(self):
         version = self.store.write(self.object_id, b"rotation payload")
         manifest = self.store.version_manifest(version.version_id)

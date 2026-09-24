@@ -86,6 +86,55 @@ class MasterKeyProfileStoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             recover_master_key_from_bundle(rotated.recovery_bundle, original.recovery_key)
 
+    def test_master_key_replacement_rotates_password_and_recovery_wrapping(self):
+        original = self.store.create(self.profile, self.password)
+        old_master = self.store.unlock_with_password(self.profile, self.password)
+        new_master = self.store.crypto.generate_master_key()
+        new_recovery = self.store.crypto.generate_recovery_key()
+
+        material = self.store.replace_master_key(
+            self.profile,
+            self.password,
+            new_master,
+            recovery_key=new_recovery,
+            expected_current_master_key=old_master,
+        )
+
+        self.assertEqual(new_master, self.store.unlock_with_password(self.profile, self.password))
+        self.assertEqual(new_master, self.store.unlock_with_recovery_key(self.profile, new_recovery))
+        self.assertEqual(new_recovery, material.recovery_key)
+        self.assertEqual(
+            new_master,
+            recover_master_key_from_bundle(material.recovery_bundle, material.recovery_key),
+        )
+        with self.assertRaises(ValueError):
+            self.store.unlock_with_recovery_key(self.profile, original.recovery_key)
+        self.assertIn(
+            "master_key_rotated",
+            [event.operation for event in self.audit.events],
+        )
+
+    def test_failed_master_key_replacement_restores_previous_profile(self):
+        original = self.store.create(self.profile, self.password)
+        old_master = self.store.unlock_with_password(self.profile, self.password)
+        self.audit.fail_operation = "master_key_rotated"
+
+        with self.assertRaisesRegex(RuntimeError, "audited"):
+            self.store.replace_master_key(
+                self.profile,
+                self.password,
+                self.store.crypto.generate_master_key(),
+                recovery_key=self.store.crypto.generate_recovery_key(),
+                expected_current_master_key=old_master,
+            )
+
+        self.audit.fail_operation = ""
+        self.assertEqual(old_master, self.store.unlock_with_password(self.profile, self.password))
+        self.assertEqual(
+            old_master,
+            self.store.unlock_with_recovery_key(self.profile, original.recovery_key),
+        )
+
     def test_profile_swap_is_detected_by_authenticated_binding(self):
         first = self.store.create("profile-one", "first synthetic password")
         second = self.store.create("profile-two", "second synthetic password")

@@ -17,6 +17,7 @@ from .adapters.encrypted_blob_catalog import EncryptedBlobCatalogStorageAdapter
 from .contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoragePort
 from .cutover import LOCAL_ENCRYPTED_BLOB, load_cutover_state
 from .runtime_keys import runtime_storage_master_key
+from .storage_key_rotation import rotation_pending
 
 
 def storage_for(root: str | Path, actor: str) -> StoragePort:
@@ -25,6 +26,10 @@ def storage_for(root: str | Path, actor: str) -> StoragePort:
         return ShadowDocumentStorageAdapter(root, actor)
     if state.mode == "v2":
         if state.protection_mode == LOCAL_ENCRYPTED_BLOB:
+            if rotation_pending(root):
+                raise RuntimeError(
+                    "encrypted V2 storage is unavailable while master-key rotation is pending"
+                )
             master_key = runtime_storage_master_key(root)
             primary = EncryptedBlobCatalogStorageAdapter(root, actor, master_key)
             return V2AuthoritativeStorageAdapter(root, actor, primary=primary)
