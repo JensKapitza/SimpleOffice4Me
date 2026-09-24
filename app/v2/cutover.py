@@ -541,18 +541,26 @@ def activate_v2(
     return result
 
 
+def mark_storage_dirty(root: str | Path, reason: str) -> CutoverState:
+    """Persist that shadow/V2 storage needs explicit reconciliation."""
+    state = load_cutover_state(root)
+    if state.mode not in {"shadow", "v2"}:
+        return state
+    updated = replace(
+        state,
+        dirty=True,
+        dirty_reason=str(reason or "storage projection changed")[:500],
+        updated_at=_now(),
+    )
+    return _write_cutover_state(root, updated)
+
+
 def mark_shadow_dirty(root: str | Path, reason: str) -> CutoverState:
     """Persist that shadow equivalence must be re-established before cutover."""
     state = load_cutover_state(root)
     if state.mode != "shadow":
         return state
-    updated = replace(
-        state,
-        dirty=True,
-        dirty_reason=str(reason or "shadow state changed")[:500],
-        updated_at=_now(),
-    )
-    return _write_cutover_state(root, updated)
+    return mark_storage_dirty(root, reason)
 
 
 def return_to_v1(root: str | Path, *, apply: bool = False) -> dict[str, Any]:
