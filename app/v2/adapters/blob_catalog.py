@@ -210,6 +210,33 @@ class BlobCatalogStorageAdapter:
             )
         return OperationResult.success(content)
 
+    def copy_verified_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+    ) -> OperationResult[StoredObject]:
+        current = self._active(object_id)
+        if not current.ok:
+            return self._catalog_failure(current)
+        entry = current.value
+        try:
+            version = self.blobs.copy_verified_to(
+                object_id,
+                target,
+                version_id=entry.version_id,
+            )
+        except (BlobIntegrityError, OSError, ValueError, TypeError) as exc:
+            return self._failure(exc)
+        if (
+            version.size != entry.size
+            or version.content_sha256 != entry.content_sha256
+        ):
+            return OperationResult.failure(
+                ErrorCode.INTEGRITY_ERROR,
+                "catalog content metadata does not match verified streamed blob content",
+            )
+        return OperationResult.success(self._stored(entry))
+
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
         return self._create_at(location, bytes(content))
 
