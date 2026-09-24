@@ -221,6 +221,8 @@ def index():
             rows = VaultService(vault).search(actor, key, _filters())
         except (TypeError, ValueError) as exc:
             search_error = str(exc)
+        except (OSError, RuntimeError):
+            search_error = "Vault-Daten konnten nicht gelesen werden."
     response = make_response(
         render_template(
             "vault/index.html",
