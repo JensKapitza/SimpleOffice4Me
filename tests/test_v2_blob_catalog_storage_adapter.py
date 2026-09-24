@@ -187,6 +187,31 @@ class BlobCatalogStorageAdapterTests(unittest.TestCase):
         self.assertFalse(too_large.ok)
         self.assertEqual(ErrorCode.INVALID_INPUT, too_large.error.code)
 
+    def test_verified_stream_read_uses_blob_streaming_path(self):
+        payload = (b"catalog-stream-" * 10000) + b"tail"
+        created = self.adapter.create_bytes(
+            StorageLocation("docs/stream.bin"),
+            payload,
+        )
+        self.assertTrue(created.ok)
+
+        original_read = self.blobs.read
+        self.blobs.read = lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("streaming read must not call collecting blob read")
+        )
+        try:
+            target = io.BytesIO()
+            streamed = self.adapter.copy_verified_to(
+                created.value.object_id,
+                target,
+            )
+        finally:
+            self.blobs.read = original_read
+
+        self.assertTrue(streamed.ok)
+        self.assertEqual(payload, target.getvalue())
+        self.assertEqual(created.value.version, streamed.value.version)
+
     def test_catalog_version_is_authoritative_even_if_blob_current_pointer_moves(self):
         created = self.adapter.create_bytes(StorageLocation("docs/current.txt"), b"one")
         object_id = created.value.object_id

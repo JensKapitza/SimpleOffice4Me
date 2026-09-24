@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import secrets
 import tempfile
@@ -164,6 +165,29 @@ class EncryptedRuntimeCutoverTests(unittest.TestCase):
                 apply=False,
             )
             self.assertTrue(active["ready"])
+
+    def test_verified_stream_read_survives_missing_plaintext_projection(self):
+        encrypted_blob_cutover(
+            self.root,
+            self.master_key,
+            apply=True,
+        )
+        clear_runtime_storage_master_key(self.root)
+        (self.root / "inbox" / "seed.txt").unlink()
+        entry = ObjectCatalog(self.root).list(include_deleted=True)[0]
+
+        with patch.dict(
+            os.environ,
+            {PASSWORD_FILE_ENV: str(self.unlock_phrase_file)},
+            clear=False,
+        ):
+            runtime = storage_for(self.root, "tester")
+            target = io.BytesIO()
+            streamed = runtime.copy_verified_to(entry.object_id, target)
+
+        self.assertTrue(streamed.ok)
+        self.assertEqual(b"seed", target.getvalue())
+        self.assertEqual(entry.content_sha256, streamed.value.version)
 
     def test_direct_legacy_projection_drift_blocks_encrypted_activation(self):
         legacy_path = self.root / "inbox" / "seed.txt"

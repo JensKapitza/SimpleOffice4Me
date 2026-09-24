@@ -62,6 +62,33 @@ class DocumentStoreStorageAdapterTest(unittest.TestCase):
         self.assertFalse(missing.ok)
         self.assertEqual(ErrorCode.NOT_FOUND, missing.error.code)
 
+    def test_verified_stream_read_avoids_buffering_and_detects_tampering(self):
+        payload = (b"streamed-" * 200000) + b"tail"
+        created = self.adapter.create_bytes(
+            StorageLocation("docs/streamed.bin"),
+            payload,
+        )
+        self.assertTrue(created.ok)
+
+        target = io.BytesIO()
+        streamed = self.adapter.copy_verified_to(
+            created.value.object_id,
+            target,
+        )
+
+        self.assertTrue(streamed.ok)
+        self.assertEqual(payload, target.getvalue())
+        self.assertEqual(len(payload), streamed.value.size)
+        self.assertEqual(created.value.version, streamed.value.version)
+
+        (self.root / "docs" / "streamed.bin").write_bytes(b"tampered")
+        failed = self.adapter.copy_verified_to(
+            created.value.object_id,
+            io.BytesIO(),
+        )
+        self.assertFalse(failed.ok)
+        self.assertEqual(ErrorCode.INTEGRITY_ERROR, failed.error.code)
+
     def test_move_can_rename_a_document_into_the_store_root(self):
         created = self.adapter.create_bytes(StorageLocation("docs/root-move.txt"), b"root")
 
