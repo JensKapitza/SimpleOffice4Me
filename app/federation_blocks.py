@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -158,7 +159,7 @@ class FederationBlockStore:
     @contextmanager
     def _db(self):
         self.control.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.path, timeout=30); db.row_factory = sqlite3.Row; db.execute("PRAGMA journal_mode=WAL")
+        db = sqlite_connect(self.path, timeout=30); db.row_factory = sqlite3.Row; db.execute("PRAGMA journal_mode=WAL")
         try:
             yield db; db.commit()
         finally:
