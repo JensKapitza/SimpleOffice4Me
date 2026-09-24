@@ -142,7 +142,16 @@ class VaultWebTests(unittest.TestCase):
         denied = self.client.post("/vault/export/browser-csv", data={"confirm": ""})
         self.assertEqual(302, denied.status_code)
 
-        response = self.client.post("/vault/export/browser-csv", data={"confirm": "EXPORT"})
+        wrong = self.client.post(
+            "/vault/export/browser-csv",
+            data={"confirm": "EXPORT", "master_password": "wrong password value"},
+        )
+        self.assertEqual(302, wrong.status_code)
+
+        response = self.client.post(
+            "/vault/export/browser-csv",
+            data={"confirm": "EXPORT", "master_password": self.password},
+        )
         self.assertEqual(200, response.status_code)
         self.assertIn(b"SuperSecret-123!", response.data)
         self.assertEqual("private, no-store", response.headers["Cache-Control"])
