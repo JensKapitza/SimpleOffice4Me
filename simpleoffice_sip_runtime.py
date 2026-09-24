@@ -14,6 +14,7 @@ import re
 import secrets
 import socket
 import sqlite3
+from contextlib import closing
 import threading
 import time
 from pathlib import Path
@@ -99,7 +100,7 @@ def _settings(db_path: Path) -> dict[str, str]:
     if not db_path.is_file():
         return values
     try:
-        with sqlite3.connect(db_path, timeout=5) as db:
+        with closing(sqlite3.connect(db_path, timeout=5)) as db, db:
             rows = db.execute("SELECT key,value FROM telephony_setting").fetchall()
     except sqlite3.Error:
         return values
@@ -288,7 +289,7 @@ class SipRegistrarService(DatagramLifecycle):
         if not self.db_path.is_file():
             return None
         try:
-            with sqlite3.connect(self.db_path, timeout=5) as db:
+            with closing(sqlite3.connect(self.db_path, timeout=5)) as db, db:
                 db.row_factory = sqlite3.Row
                 row = db.execute(
                     "SELECT extension,auth_user,digest_ha1,enabled FROM telephony_profile WHERE extension=?",
