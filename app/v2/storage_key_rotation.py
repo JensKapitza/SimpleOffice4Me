@@ -360,12 +360,21 @@ def rotate_storage_master_key(
                 "action": "resume",
             }
         current = MasterKeyProfileStore(source, "v2-storage-key-rotation").status(STORAGE_PROFILE_ID)
+        encrypted = EncryptedBlobStore(source, b"\x00" * 32, initialize=False)
+        versions = _version_ids(encrypted)
+        key_target = _external_output(source, recovery_key_output, "recovery key output")
+        bundle_target = _external_output(source, recovery_bundle_output, "recovery bundle output")
+        if key_target == bundle_target:
+            raise ValueError("recovery key and bundle outputs must be different files")
         return {
             "pending": False,
             "format": FORMAT,
             "applied": False,
             "action": "start",
             "source_generation": int(current["generation"]),
+            "versions": len(versions),
+            "recovery_key_output": str(key_target),
+            "recovery_bundle_output": str(bundle_target),
         }
 
     journal = _read_journal(source) if path.exists() else _new_journal(
@@ -495,6 +504,8 @@ def rollback_storage_master_key_rotation(
 
     store = EncryptedBlobStore(source, new_master, initialize=False)
     versions = list(journal["version_ids"])
+    if _version_ids(store) != versions:
+        raise ValueError("encrypted version set changed during storage master-key rotation")
     state = _rotation_state(store, versions, old_master, new_master)
     preview = {
         "format": FORMAT,
