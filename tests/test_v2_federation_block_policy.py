@@ -1,5 +1,5 @@
 import os
-import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import time
 import unittest
@@ -274,7 +274,7 @@ class FederationBlockPolicyTests(unittest.TestCase):
             control = Path(root) / ".simpleoffice-v2"
             control.mkdir(parents=True)
             path = control / "federation-policy.sqlite3"
-            with sqlite3.connect(path) as db:
+            with sqlite_connect(path) as db:
                 db.execute(
                     """CREATE TABLE route_constraint(
                         target_peer TEXT NOT NULL,
