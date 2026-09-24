@@ -8,6 +8,10 @@ from typing import Any
 
 from .contracts import LogicalObjectId
 from .encrypted_blob_store import EncryptedBlobStore
+from .encrypted_recovery_descriptor import (
+    build_encrypted_recovery_descriptor,
+    write_encrypted_recovery_descriptor,
+)
 from .master_keys import (
     load_recovery_bundle_file,
     load_recovery_key_file,
@@ -121,6 +125,45 @@ class EncryptedBlobRecoveryService:
             "master_key_exported": False,
             "store_modified": False,
         }
+
+    def descriptor(
+        self,
+        object_id: str,
+        *,
+        version_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a portable descriptor after fully authenticating the version."""
+
+        logical = self._logical(object_id)
+        version = self.store.verify(
+            logical,
+            version_id=version_id or None,
+        )
+        manifest = self.store.version_manifest(version.version_id)
+        return build_encrypted_recovery_descriptor(
+            manifest,
+            recovery_profile_hash=self.bundle_info["profile_hash"],
+        )
+
+    def save_descriptor(
+        self,
+        object_id: str,
+        output: str | Path,
+        *,
+        version_id: str | None = None,
+        overwrite: bool = False,
+    ) -> tuple[dict[str, Any], Path]:
+        descriptor = self.descriptor(
+            object_id,
+            version_id=version_id,
+        )
+        target = self._output_path(output, overwrite=overwrite)
+        written = write_encrypted_recovery_descriptor(
+            target,
+            descriptor,
+            overwrite=overwrite,
+        )
+        return descriptor, written
 
     def _output_path(
         self,

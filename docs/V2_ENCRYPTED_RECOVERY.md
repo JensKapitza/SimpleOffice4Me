@@ -89,6 +89,65 @@ needed.
 Use `--overwrite` only when replacement of an existing regular output file is
 intentional.
 
+## Portable encrypted recovery descriptor
+
+A verified encrypted blob version can be exported as a self-describing recovery
+descriptor. The descriptor is independent of the normal application database
+and contains the authenticated encrypted manifest plus normalized ciphertext
+chunk references for later peer/fragment discovery.
+
+To inspect the descriptor on stdout without writing a file:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  encrypted-describe \
+  --recovery-bundle /media/offline/simpleoffice-v2-recovery.json \
+  --recovery-key-file /media/offline/simpleoffice-v2-recovery.key \
+  --object-id OBJECT_ID \
+  --version-id VERSION_ID
+```
+
+To write a portable descriptor:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  encrypted-describe \
+  --recovery-bundle /media/offline/simpleoffice-v2-recovery.json \
+  --recovery-key-file /media/offline/simpleoffice-v2-recovery.key \
+  --object-id OBJECT_ID \
+  --version-id VERSION_ID \
+  --output /media/recovery/object.recovery.json \
+  --apply
+```
+
+The output file is mode 0600 on POSIX systems and is rejected inside the
+managed SimpleOffice data root. Existing files are not replaced unless
+`--overwrite` is supplied.
+
+The descriptor contains:
+
+- descriptor format/version and a stable descriptor ID,
+- logical object and encrypted blob version IDs,
+- the recovery-profile hash used to select the matching recovery material,
+- the complete encrypted blob manifest,
+- a SHA-256 digest of that manifest,
+- normalized encrypted chunk IDs, sizes and ciphertext digests.
+
+It deliberately does **not** add a plaintext content hash, raw master key,
+recovery key or decrypted footer metadata. The plaintext digest remains inside
+the authenticated encrypted footer.
+
+A descriptor can be structurally checked later without the SimpleOffice root:
+
+```bash
+simpleoffice-v2-recovery encrypted-check-descriptor \
+  /media/recovery/object.recovery.json
+```
+
+This check validates format and internal cross-bindings. Final authenticity is
+still established only when the embedded manifest/chunks are opened with the
+matching recovered master key and the AEAD/footer verification succeeds.
+
 ## Damage behavior
 
 A corrupt, missing, reordered or substituted ciphertext chunk causes recovery
@@ -96,5 +155,7 @@ to fail closed. A damaged authenticated footer also prevents publication.
 
 This command recovers encrypted blob versions. Erasure-coded fragment recovery
 remains available through the separate `fragment-assess` and
-`fragment-recover` commands. Combining encrypted-blob discovery with remote
-peer fragment search remains a later federation/recovery step.
+`fragment-recover` commands. The portable encrypted recovery descriptor now supplies the self-describing
+ciphertext references needed by a future authorized remote peer-fragment search.
+The network search/authorization protocol itself remains a separate
+federation/recovery step.
