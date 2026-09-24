@@ -188,7 +188,10 @@ class VaultWebTests(unittest.TestCase):
 
     def test_storage_failure_while_listing_is_handled_without_http_500(self):
         self._setup()
-        with patch.object(PasswordVault, "entries", side_effect=OSError("storage unavailable")):
+        with (
+            patch.object(PasswordVault, "entries", side_effect=OSError("storage unavailable")),
+            patch("app.vault_web.render_template", side_effect=lambda _template, **context: context["search_error"]),
+        ):
             response = self.client.get("/vault/")
         self.assertEqual(200, response.status_code)
         self.assertIn(b"Vault-Daten konnten nicht gelesen werden.", response.data)
