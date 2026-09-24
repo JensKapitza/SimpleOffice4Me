@@ -104,6 +104,24 @@ class V2AuthoritativeStorageAdapterTests(unittest.TestCase):
             "inbox/seed.txt",
         )
 
+    def test_replace_recovery_context_reaches_compatibility_history(self):
+        object_id = LogicalObjectId(self.seed["document_id"])
+        result = self.adapter.replace_bytes(
+            object_id,
+            b"replacement",
+            expected_version=self.seed["sha256"],
+            source="recovery",
+            restored_from_version=self.seed["sha256"],
+        )
+
+        self.assertTrue(result.ok)
+        metadata = self.store.get_document(object_id.value)
+        self.assertEqual("recovery", metadata["content_history"][-1]["source"])
+        self.assertEqual(
+            self.seed["sha256"],
+            metadata["content_recovery_history"][-1]["restored_sha256"],
+        )
+
     def test_replace_rolls_catalog_back_when_projection_write_fails(self):
         object_id = LogicalObjectId(self.seed["document_id"])
         before = self.catalog.get(object_id).value
@@ -164,6 +182,55 @@ class V2AuthoritativeStorageAdapterTests(unittest.TestCase):
         self.assertEqual(CatalogState.DELETED, tombstone.value.state)
         metadata = self.store.get_document(copied.value.object_id.value)
         self.assertEqual("webdav_deleted", metadata["system_state"])
+
+        restored = self.adapter.restore(
+            copied.value.object_id,
+            StorageLocation("inbox/restored.txt"),
+            expected_version=deleted.value,
+        )
+        self.assertTrue(restored.ok)
+        self._assert_projection(
+            copied.value.object_id.value,
+            b"seed-content",
+            "inbox/restored.txt",
+        )
+        self.assertEqual(
+            CatalogState.ACTIVE,
+            self.catalog.get(copied.value.object_id).value.state,
+        )
+
+    def test_restore_rolls_catalog_back_when_projection_restore_fails(self):
+        source = LogicalObjectId(self.seed["document_id"])
+        copied = self.adapter.copy(
+            source,
+            StorageLocation("inbox/to-restore.txt"),
+        )
+        self.assertTrue(copied.ok)
+        deleted = self.adapter.delete(
+            copied.value.object_id,
+            expected_version=copied.value.version,
+        )
+        self.assertTrue(deleted.ok)
+
+        with patch.object(
+            self.adapter.store,
+            "restore_soft_deleted",
+            side_effect=OSError("synthetic restore projection failure"),
+        ):
+            restored = self.adapter.restore(
+                copied.value.object_id,
+                StorageLocation("inbox/failed-restore.txt"),
+                expected_version=deleted.value,
+            )
+
+        self.assertFalse(restored.ok)
+        self.assertEqual(ErrorCode.STORAGE_UNAVAILABLE, restored.error.code)
+        tombstone = self.catalog.get(copied.value.object_id, include_deleted=True)
+        self.assertTrue(tombstone.ok)
+        self.assertEqual(CatalogState.DELETED, tombstone.value.state)
+        metadata = self.store.get_document(copied.value.object_id.value)
+        self.assertEqual("webdav_deleted", metadata["system_state"])
+        self.assertFalse((self.root / "inbox" / "failed-restore.txt").exists())
 
     def test_import_stream_spools_and_preserves_v2_identity(self):
         payload = (b"0123456789abcdef" * 131072) + b"tail"
