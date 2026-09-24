@@ -382,12 +382,13 @@ class ShoppingStore:
         ]
         rows.sort(
             key=lambda row: (
-                not bool(row.get("favorite")),
-                -int(row.get("purchase_count", 0) or 0),
+                bool(row.get("favorite")),
+                int(row.get("purchase_count", 0) or 0),
                 str(row.get("last_bought_at", "")),
                 str(row.get("updated_at", "")),
+                str(row.get("name", "")).casefold(),
             ),
-            reverse=False,
+            reverse=True,
         )
         return rows[:max(0, min(int(limit), 200))]
 
