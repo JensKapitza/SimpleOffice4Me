@@ -14,6 +14,7 @@ from app.v2.encrypted_blob_store import EncryptedBlobStore
 from app.v2.encrypted_cutover import encrypted_blob_cutover
 from app.v2.master_keys import (
     MasterKeyProfileStore,
+    encode_trustee_key,
     load_recovery_bundle_file,
     load_recovery_key_file,
     recover_master_key_from_bundle,
@@ -229,6 +230,76 @@ class StorageMasterKeyRotationTests(unittest.TestCase):
         self.assertTrue(
             all(reopened.version_key_matches(version_id, self.old_master) for version_id in self.version_ids)
         )
+
+    def test_trustee_enabled_rotation_requires_key_and_rewraps_trustee_access(self):
+        trustee_key = self.keys.crypto.generate_trustee_key()
+        self.keys.enable_trustee_key(
+            STORAGE_PROFILE_ID,
+            self.unlock_phrase,
+            trustee_key=trustee_key,
+        )
+        trustee_file = self.base / "storage-trustee.key"
+        trustee_file.write_text(
+            encode_trustee_key(trustee_key) + "\n",
+            encoding="ascii",
+        )
+        if os.name == "posix":
+            os.chmod(trustee_file, 0o600)
+
+        with self.assertRaisesRegex(ValueError, "trustee key file is required"):
+            rotate_storage_master_key(
+                self.root,
+                password_file=self.unlock_file,
+                recovery_key_output=self.key_output,
+                recovery_bundle_output=self.bundle_output,
+                apply=False,
+            )
+
+        result = rotate_storage_master_key(
+            self.root,
+            password_file=self.unlock_file,
+            recovery_key_output=self.key_output,
+            recovery_bundle_output=self.bundle_output,
+            trustee_key_file=trustee_file,
+            apply=True,
+        )
+
+        self.assertTrue(result["completed"])
+        self.assertTrue(result["trustee_rewrapped"])
+        new_master = self.keys.unlock_with_password(
+            STORAGE_PROFILE_ID,
+            self.unlock_phrase,
+        )
+        self.assertNotEqual(self.old_master, new_master)
+        self.assertEqual(
+            new_master,
+            self.keys.unlock_with_trustee_key(STORAGE_PROFILE_ID, trustee_key),
+        )
+
+    @unittest.skipUnless(os.name == "posix", "permission check requires POSIX modes")
+    def test_group_readable_trustee_key_is_rejected_for_master_rotation(self):
+        trustee_key = self.keys.crypto.generate_trustee_key()
+        self.keys.enable_trustee_key(
+            STORAGE_PROFILE_ID,
+            self.unlock_phrase,
+            trustee_key=trustee_key,
+        )
+        trustee_file = self.base / "storage-trustee.key"
+        trustee_file.write_text(
+            encode_trustee_key(trustee_key) + "\n",
+            encoding="ascii",
+        )
+        os.chmod(trustee_file, 0o640)
+
+        with self.assertRaisesRegex(ValueError, "group/world"):
+            rotate_storage_master_key(
+                self.root,
+                password_file=self.unlock_file,
+                recovery_key_output=self.key_output,
+                recovery_bundle_output=self.bundle_output,
+                trustee_key_file=trustee_file,
+                apply=False,
+            )
 
     def test_preview_is_read_only(self):
         before = sorted(

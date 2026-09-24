@@ -9,7 +9,9 @@ from app.v2.master_keys import (
     MasterKeyProfileStore,
     decode_recovery_key,
     encode_recovery_key,
+    encode_trustee_key,
     recover_master_key_from_bundle,
+    recover_master_key_from_trustee_bundle,
 )
 
 
@@ -135,6 +137,92 @@ class MasterKeyProfileStoreTest(unittest.TestCase):
             self.store.unlock_with_recovery_key(self.profile, original.recovery_key),
         )
 
+    def test_trustee_recovery_is_optional_portable_and_audited(self):
+        self.store.create(self.profile, self.password)
+        expected = self.store.unlock_with_password(self.profile, self.password)
+
+        trustee = self.store.enable_trustee_key(self.profile, self.password)
+
+        self.assertEqual(
+            expected,
+            self.store.unlock_with_trustee_key(self.profile, trustee.trustee_key),
+        )
+        self.assertEqual(
+            expected,
+            recover_master_key_from_trustee_bundle(
+                trustee.trustee_bundle,
+                trustee.trustee_key,
+            ),
+        )
+        status = self.store.status(self.profile)
+        self.assertTrue(status["trustee_configured"])
+        self.assertEqual("trustee-aes256gcm", status["trustee_method"])
+        raw = self.store._path(self.profile).read_bytes()
+        self.assertNotIn(trustee.trustee_key, raw)
+        self.assertNotIn(encode_trustee_key(trustee.trustee_key), raw.decode("utf-8"))
+        self.assertIn(
+            "master_key_trustee_enabled",
+            [event.operation for event in self.audit.events],
+        )
+
+    def test_trustee_rotation_and_disable_revoke_previous_material(self):
+        self.store.create(self.profile, self.password)
+        first = self.store.enable_trustee_key(self.profile, self.password)
+        expected = self.store.unlock_with_password(self.profile, self.password)
+
+        second = self.store.rotate_trustee_key(self.profile, self.password)
+
+        self.assertEqual(
+            expected,
+            self.store.unlock_with_trustee_key(self.profile, second.trustee_key),
+        )
+        with self.assertRaises(ValueError):
+            self.store.unlock_with_trustee_key(self.profile, first.trustee_key)
+        with self.assertRaises(ValueError):
+            recover_master_key_from_trustee_bundle(
+                second.trustee_bundle,
+                first.trustee_key,
+            )
+
+        self.store.disable_trustee_key(self.profile, self.password)
+        self.assertFalse(self.store.status(self.profile)["trustee_configured"])
+        with self.assertRaisesRegex(ValueError, "not configured"):
+            self.store.unlock_with_trustee_key(self.profile, second.trustee_key)
+
+    def test_master_key_replacement_requires_and_rewraps_trustee_key(self):
+        self.store.create(self.profile, self.password)
+        trustee = self.store.enable_trustee_key(self.profile, self.password)
+        old_master = self.store.unlock_with_password(self.profile, self.password)
+        replacement = self.store.crypto.generate_master_key()
+        new_recovery = self.store.crypto.generate_recovery_key()
+
+        with self.assertRaisesRegex(ValueError, "trustee key is required"):
+            self.store.replace_master_key(
+                self.profile,
+                self.password,
+                replacement,
+                recovery_key=new_recovery,
+                expected_current_master_key=old_master,
+            )
+
+        material = self.store.replace_master_key(
+            self.profile,
+            self.password,
+            replacement,
+            recovery_key=new_recovery,
+            expected_current_master_key=old_master,
+            trustee_key=trustee.trustee_key,
+        )
+
+        self.assertEqual(
+            replacement,
+            self.store.unlock_with_trustee_key(self.profile, trustee.trustee_key),
+        )
+        self.assertEqual(
+            replacement,
+            self.store.unlock_with_recovery_key(self.profile, material.recovery_key),
+        )
+
     def test_profile_swap_is_detected_by_authenticated_binding(self):
         first = self.store.create("profile-one", "first synthetic password")
         second = self.store.create("profile-two", "second synthetic password")
@@ -245,6 +333,9 @@ class MasterKeyProfileStoreTest(unittest.TestCase):
         self.assertFalse(status["raw_recovery_key_persisted"])
         self.assertEqual("argon2id-aes256gcm", status["password_method"])
         self.assertEqual("recovery-aes256gcm", status["recovery_method"])
+        self.assertFalse(status["trustee_configured"])
+        self.assertEqual("", status["trustee_method"])
+        self.assertFalse(status["raw_trustee_key_persisted"])
 
 
 if __name__ == "__main__":

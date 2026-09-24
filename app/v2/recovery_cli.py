@@ -36,10 +36,20 @@ from .master_keys import (
     load_recovery_bundle_file,
     load_recovery_key_file,
     recover_master_key_from_bundle,
+    recover_master_key_from_trustee_bundle,
     recovery_bundle_info,
+    load_trustee_bundle_file,
+    load_trustee_key_file,
+    trustee_bundle_info,
 )
 from .runtime_keys import PASSWORD_FILE_ENV, STORAGE_PROFILE_ID
 from .storage_keys import export_storage_recovery_bundle, provision_storage_profile
+from .storage_trustee import (
+    disable_storage_trustee,
+    export_storage_trustee_bundle,
+    provision_storage_trustee,
+    rotate_storage_trustee,
+)
 from .storage_key_rotation import (
     rollback_storage_master_key_rotation,
     rotate_storage_master_key,
@@ -99,6 +109,38 @@ def _parser() -> argparse.ArgumentParser:
     key_bundle.add_argument("--output", required=True)
     key_bundle.add_argument("--apply", action="store_true")
 
+    trustee_init = sub.add_parser(
+        "storage-trustee-init",
+        help="Enable optional offline trustee recovery for the encrypted storage profile",
+    )
+    trustee_init.add_argument("--password-file", required=True)
+    trustee_init.add_argument("--trustee-key-output", required=True)
+    trustee_init.add_argument("--trustee-bundle-output", required=True)
+    trustee_init.add_argument("--apply", action="store_true")
+
+    trustee_rotate = sub.add_parser(
+        "storage-trustee-rotate",
+        help="Rotate the optional offline storage trustee key",
+    )
+    trustee_rotate.add_argument("--password-file", required=True)
+    trustee_rotate.add_argument("--trustee-key-output", required=True)
+    trustee_rotate.add_argument("--trustee-bundle-output", required=True)
+    trustee_rotate.add_argument("--apply", action="store_true")
+
+    trustee_disable = sub.add_parser(
+        "storage-trustee-disable",
+        help="Disable local trustee recovery for the storage master-key profile",
+    )
+    trustee_disable.add_argument("--password-file", required=True)
+    trustee_disable.add_argument("--apply", action="store_true")
+
+    trustee_export = sub.add_parser(
+        "storage-trustee-export-bundle",
+        help="Export the protected storage trustee recovery bundle",
+    )
+    trustee_export.add_argument("--output", required=True)
+    trustee_export.add_argument("--apply", action="store_true")
+
     key_rotation_status = sub.add_parser(
         "storage-key-rotation-status",
         help="Show whether an encrypted-storage master-key rotation is pending",
@@ -111,6 +153,11 @@ def _parser() -> argparse.ArgumentParser:
     key_rotate.add_argument("--password-file", required=True)
     key_rotate.add_argument("--recovery-key-output", required=True)
     key_rotate.add_argument("--recovery-bundle-output", required=True)
+    key_rotate.add_argument(
+        "--trustee-key-file",
+        default="",
+        help="Required when storage trustee recovery is enabled; the trustee key itself is never accepted as an argument",
+    )
     key_rotate.add_argument("--apply", action="store_true")
     key_rotate.add_argument(
         "--acknowledge-maintenance-window",
@@ -177,6 +224,17 @@ def _parser() -> argparse.ArgumentParser:
         "--recovery-key-file",
         required=True,
         help="File containing the base64url recovery key; the key itself is never accepted as an argument",
+    )
+
+    trustee_check = sub.add_parser(
+        "trustee-recovery-check",
+        help="Verify an offline trustee recovery bundle without exporting the master key",
+    )
+    trustee_check.add_argument("--bundle", required=True)
+    trustee_check.add_argument(
+        "--trustee-key-file",
+        required=True,
+        help="File containing the offline trustee key; the key itself is never accepted as an argument",
     )
 
     def add_encrypted_recovery_material(command: argparse.ArgumentParser) -> None:
@@ -290,6 +348,28 @@ def _run_master_key_recovery_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_trustee_recovery_check(args: argparse.Namespace) -> int:
+    try:
+        bundle = load_trustee_bundle_file(args.bundle)
+        trustee_key = load_trustee_key_file(args.trustee_key_file)
+        info = trustee_bundle_info(bundle)
+        master_key = recover_master_key_from_trustee_bundle(bundle, trustee_key)
+        del master_key
+    except (OSError, ValueError):
+        print(json.dumps({
+            "valid": False,
+            "error": "trustee recovery inputs are invalid or authentication failed",
+        }, indent=2, sort_keys=True))
+        return 2
+
+    print(json.dumps({
+        **info,
+        "valid": True,
+        "master_key_exported": False,
+    }, indent=2, sort_keys=True))
+    return 0
+
+
 def _run_encrypted_recovery(args: argparse.Namespace) -> int:
     try:
         service = EncryptedBlobRecoveryService(
@@ -356,6 +436,55 @@ def _storage_master_key(root: str | Path) -> bytes:
     return profile.unlock_with_password(STORAGE_PROFILE_ID, password)
 
 
+def _run_storage_trustee_command(args: argparse.Namespace) -> int | None:
+    if args.command == "storage-trustee-init":
+        if not args.apply:
+            print("read-only mode: add --apply to enable storage trustee recovery")
+            return 3
+        result = provision_storage_trustee(
+            args.root,
+            password_file=args.password_file,
+            trustee_key_output=args.trustee_key_output,
+            trustee_bundle_output=args.trustee_bundle_output,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-trustee-rotate":
+        if not args.apply:
+            print("read-only mode: add --apply to rotate the storage trustee key")
+            return 3
+        result = rotate_storage_trustee(
+            args.root,
+            password_file=args.password_file,
+            trustee_key_output=args.trustee_key_output,
+            trustee_bundle_output=args.trustee_bundle_output,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-trustee-disable":
+        if not args.apply:
+            print("read-only mode: add --apply to disable storage trustee recovery")
+            return 3
+        result = disable_storage_trustee(
+            args.root,
+            password_file=args.password_file,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-trustee-export-bundle":
+        if not args.apply:
+            print("read-only mode: add --apply to export the trustee recovery bundle")
+            return 3
+        result = export_storage_trustee_bundle(args.root, args.output)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -364,6 +493,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_fragment_command(args)
     if args.command == "master-key-recovery-check":
         return _run_master_key_recovery_check(args)
+    if args.command == "trustee-recovery-check":
+        return _run_trustee_recovery_check(args)
     if not args.root:
         parser.error("--root is required for this command")
     if args.command in {"encrypted-inventory", "encrypted-verify", "encrypted-export"}:
@@ -453,6 +584,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    trustee_result = _run_storage_trustee_command(args)
+    if trustee_result is not None:
+        return trustee_result
+
     if args.command == "storage-key-rotation-status":
         print(json.dumps(rotation_status(args.root), indent=2, sort_keys=True))
         return 0
@@ -470,6 +605,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 password_file=args.password_file,
                 recovery_key_output=args.recovery_key_output,
                 recovery_bundle_output=args.recovery_bundle_output,
+                trustee_key_file=args.trustee_key_file or None,
                 apply=bool(args.apply),
             )
         except (OSError, RuntimeError, ValueError) as exc:

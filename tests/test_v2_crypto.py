@@ -52,5 +52,22 @@ class V2CryptoTest(unittest.TestCase):
             self.crypto.unlock_master_key_with_recovery_key(protected, self.crypto.generate_recovery_key())
 
 
+    def test_trustee_key_uses_separate_domain_and_role(self):
+        trustee = self.crypto.generate_trustee_key()
+        protected = self.crypto.protect_master_key_with_trustee_key(self.master, trustee)
+
+        self.assertEqual(
+            self.master,
+            self.crypto.unlock_master_key_with_trustee_key(protected, trustee),
+        )
+        with self.assertRaises(ValueError):
+            self.crypto.unlock_master_key_with_trustee_key(
+                protected,
+                self.crypto.generate_trustee_key(),
+            )
+        with self.assertRaises(ValueError):
+            self.crypto.unlock_master_key_with_recovery_key(protected, trustee)
+
+
 if __name__ == "__main__":
     unittest.main()

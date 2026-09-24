@@ -29,6 +29,7 @@ from .crypto import CryptoService, EncryptedPayload, ProtectedMasterKey, Wrapped
 
 PROFILE_FORMAT = "simpleoffice-v2-master-key-profile/v1"
 RECOVERY_FORMAT = "simpleoffice-v2-master-key-recovery/v1"
+TRUSTEE_FORMAT = "simpleoffice-v2-master-key-trustee/v1"
 MAX_PROFILE_BYTES = 256 * 1024
 MIN_PASSWORD_CHARS = 12
 MAX_PASSWORD_CHARS = 4096
@@ -42,6 +43,14 @@ class RecoveryMaterial:
 
     recovery_key: bytes
     recovery_bundle: bytes
+
+
+@dataclass(frozen=True, repr=False)
+class TrusteeMaterial:
+    """One-time trustee material returned only to the provisioning caller."""
+
+    trustee_key: bytes
+    trustee_bundle: bytes
 
 
 def encode_recovery_key(value: bytes) -> str:
@@ -62,6 +71,27 @@ def decode_recovery_key(value: str) -> bytes:
         raise ValueError("invalid recovery key encoding") from exc
     if len(key) != 32:
         raise ValueError("invalid recovery key length")
+    return key
+
+
+def encode_trustee_key(value: bytes) -> str:
+    key = bytes(value)
+    if len(key) != 32:
+        raise ValueError("trustee key must be 32 bytes")
+    return base64.urlsafe_b64encode(key).decode("ascii").rstrip("=")
+
+
+def decode_trustee_key(value: str) -> bytes:
+    text = str(value or "").strip()
+    if not text or any(char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for char in text):
+        raise ValueError("invalid trustee key encoding")
+    padding = "=" * ((4 - len(text) % 4) % 4)
+    try:
+        key = base64.b64decode(text + padding, altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("invalid trustee key encoding") from exc
+    if len(key) != 32:
+        raise ValueError("invalid trustee key length")
     return key
 
 
@@ -217,6 +247,19 @@ def load_recovery_key_file(path: str | Path) -> bytes:
     return decode_recovery_key(text)
 
 
+def load_trustee_bundle_file(path: str | Path) -> bytes:
+    return _read_regular_bounded(path, MAX_PROFILE_BYTES, "trustee bundle")
+
+
+def load_trustee_key_file(path: str | Path) -> bytes:
+    raw = _read_regular_bounded(path, 256, "trustee key file")
+    try:
+        text = raw.decode("ascii").strip()
+    except UnicodeError as exc:
+        raise ValueError("trustee key file must contain base64url text") from exc
+    return decode_trustee_key(text)
+
+
 def load_master_password_file(
     path: str | Path,
     *,
@@ -289,6 +332,40 @@ def recover_master_key_from_bundle(
         master_key = service.unlock_master_key_with_recovery_key(protected, bytes(recovery_key))
     except ValueError as exc:
         raise ValueError("recovery key is invalid or recovery bundle was modified") from exc
+    _verify_check(service, master_key, str(value["profile_hash"]), value.get("key_check"))
+    return master_key
+
+
+def trustee_bundle_info(bundle: bytes) -> dict[str, Any]:
+    value = _load_json_bytes(bytes(bundle), expected_format=TRUSTEE_FORMAT)
+    protected = _protected_from_dict(value.get("trustee"))
+    return {
+        "format": TRUSTEE_FORMAT,
+        "profile_hash": str(value["profile_hash"]),
+        "trustee_method": protected.method,
+        "contains_raw_master_key": False,
+        "contains_raw_trustee_key": False,
+    }
+
+
+def recover_master_key_from_trustee_bundle(
+    bundle: bytes,
+    trustee_key: bytes,
+    *,
+    crypto: CryptoService | None = None,
+) -> bytes:
+    """Recover a master key with explicit offline trustee material."""
+
+    value = _load_json_bytes(bytes(bundle), expected_format=TRUSTEE_FORMAT)
+    service = crypto or CryptoService()
+    protected = _protected_from_dict(value.get("trustee"))
+    try:
+        master_key = service.unlock_master_key_with_trustee_key(
+            protected,
+            bytes(trustee_key),
+        )
+    except ValueError as exc:
+        raise ValueError("trustee key is invalid or trustee bundle was modified") from exc
     _verify_check(service, master_key, str(value["profile_hash"]), value.get("key_check"))
     return master_key
 
@@ -446,6 +523,28 @@ class MasterKeyProfileStore:
         }
         return (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
+    @staticmethod
+    def _trustee_bundle(value: dict[str, Any]) -> bytes:
+        if not isinstance(value.get("trustee"), dict):
+            raise ValueError("master-key profile has no trustee recovery configured")
+        payload = {
+            "format": TRUSTEE_FORMAT,
+            "profile_hash": value["profile_hash"],
+            "trustee": value["trustee"],
+            "key_check": value["key_check"],
+        }
+        return (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+
+    def export_trustee_bundle(self, profile_id: str) -> bytes:
+        value = self._read(profile_id)
+        bundle = self._trustee_bundle(value)
+        self._audit(
+            "master_key_trustee_bundle_exported",
+            str(value["profile_hash"]),
+            generation=int(value["generation"]),
+        )
+        return bundle
+
     def export_recovery_bundle(self, profile_id: str) -> bytes:
         value = self._read(profile_id)
         bundle = self._bundle(value)
@@ -558,6 +657,33 @@ class MasterKeyProfileStore:
         )
         return master_key
 
+    def unlock_with_trustee_key(self, profile_id: str, trustee_key: bytes) -> bytes:
+        value = self._read(profile_id)
+        if not isinstance(value.get("trustee"), dict):
+            raise ValueError("trustee recovery is not configured")
+        try:
+            master_key = self.crypto.unlock_master_key_with_trustee_key(
+                _protected_from_dict(value.get("trustee")),
+                bytes(trustee_key),
+            )
+            _verify_check(self.crypto, master_key, str(value["profile_hash"]), value.get("key_check"))
+        except ValueError as exc:
+            try:
+                self._audit(
+                    "master_key_unlock_failed",
+                    str(value["profile_hash"]),
+                    reason="invalid_trustee_or_integrity",
+                )
+            except RuntimeError as audit_exc:
+                raise RuntimeError("failed trustee recovery attempt could not be audited") from audit_exc
+            raise ValueError("trustee key is invalid or profile was modified") from exc
+        self._audit(
+            "master_key_trustee_recovered",
+            str(value["profile_hash"]),
+            generation=int(value["generation"]),
+        )
+        return master_key
+
     def change_password(self, profile_id: str, old_password: str, new_password: str) -> None:
         with self._profile_lock(profile_id):
             value, master_key = self._unlock_password(profile_id, old_password)
@@ -600,6 +726,97 @@ class MasterKeyProfileStore:
                 raise
             return RecoveryMaterial(recovery_key=recovery_key, recovery_bundle=self._bundle(updated))
 
+    def enable_trustee_key(
+        self,
+        profile_id: str,
+        password: str,
+        *,
+        trustee_key: bytes | None = None,
+    ) -> TrusteeMaterial:
+        with self._profile_lock(profile_id):
+            value, master_key = self._unlock_password(profile_id, password)
+            if isinstance(value.get("trustee"), dict):
+                raise ValueError("trustee recovery is already configured")
+            key = bytes(trustee_key) if trustee_key is not None else self.crypto.generate_trustee_key()
+            if len(key) != 32:
+                raise ValueError("trustee key must be 32 bytes")
+            record = self.crypto.protect_master_key_with_trustee_key(master_key, key)
+            previous = dict(value)
+            updated = dict(value)
+            updated["generation"] = int(value["generation"]) + 1
+            updated["updated_at"] = _now()
+            updated["trustee"] = _protected_to_dict(record)
+            self._write(profile_id, updated)
+            try:
+                self._audit(
+                    "master_key_trustee_enabled",
+                    str(value["profile_hash"]),
+                    generation=int(updated["generation"]),
+                )
+            except RuntimeError:
+                self._write(profile_id, previous)
+                raise
+            return TrusteeMaterial(
+                trustee_key=key,
+                trustee_bundle=self._trustee_bundle(updated),
+            )
+
+    def rotate_trustee_key(
+        self,
+        profile_id: str,
+        password: str,
+        *,
+        trustee_key: bytes | None = None,
+    ) -> TrusteeMaterial:
+        with self._profile_lock(profile_id):
+            value, master_key = self._unlock_password(profile_id, password)
+            if not isinstance(value.get("trustee"), dict):
+                raise ValueError("trustee recovery is not configured")
+            key = bytes(trustee_key) if trustee_key is not None else self.crypto.generate_trustee_key()
+            if len(key) != 32:
+                raise ValueError("trustee key must be 32 bytes")
+            record = self.crypto.protect_master_key_with_trustee_key(master_key, key)
+            previous = dict(value)
+            updated = dict(value)
+            updated["generation"] = int(value["generation"]) + 1
+            updated["updated_at"] = _now()
+            updated["trustee"] = _protected_to_dict(record)
+            self._write(profile_id, updated)
+            try:
+                self._audit(
+                    "master_key_trustee_rotated",
+                    str(value["profile_hash"]),
+                    generation=int(updated["generation"]),
+                )
+            except RuntimeError:
+                self._write(profile_id, previous)
+                raise
+            return TrusteeMaterial(
+                trustee_key=key,
+                trustee_bundle=self._trustee_bundle(updated),
+            )
+
+    def disable_trustee_key(self, profile_id: str, password: str) -> None:
+        with self._profile_lock(profile_id):
+            value, _master_key = self._unlock_password(profile_id, password)
+            if not isinstance(value.get("trustee"), dict):
+                raise ValueError("trustee recovery is not configured")
+            previous = dict(value)
+            updated = dict(value)
+            updated["generation"] = int(value["generation"]) + 1
+            updated["updated_at"] = _now()
+            updated.pop("trustee", None)
+            self._write(profile_id, updated)
+            try:
+                self._audit(
+                    "master_key_trustee_disabled",
+                    str(value["profile_hash"]),
+                    generation=int(updated["generation"]),
+                )
+            except RuntimeError:
+                self._write(profile_id, previous)
+                raise
+
     def replace_master_key(
         self,
         profile_id: str,
@@ -608,6 +825,7 @@ class MasterKeyProfileStore:
         *,
         recovery_key: bytes,
         expected_current_master_key: bytes | None = None,
+        trustee_key: bytes | None = None,
     ) -> RecoveryMaterial:
         """Atomically replace one profile's master key and recovery material.
 
@@ -634,6 +852,29 @@ class MasterKeyProfileStore:
                 raise ValueError("master-key profile changed during rotation")
 
             profile_hash = str(value["profile_hash"])
+            trustee_record = None
+            if isinstance(value.get("trustee"), dict):
+                if trustee_key is None:
+                    raise ValueError(
+                        "trustee key is required to rotate a profile with trustee recovery enabled"
+                    )
+                trustee_bytes = bytes(trustee_key)
+                try:
+                    trustee_master = self.crypto.unlock_master_key_with_trustee_key(
+                        _protected_from_dict(value.get("trustee")),
+                        trustee_bytes,
+                    )
+                except ValueError as exc:
+                    raise ValueError("trustee key is invalid for current master-key profile") from exc
+                if not hmac.compare_digest(trustee_master, current_master):
+                    raise ValueError("trustee key does not match current master-key profile")
+                trustee_record = self.crypto.protect_master_key_with_trustee_key(
+                    replacement,
+                    trustee_bytes,
+                )
+            elif trustee_key is not None:
+                raise ValueError("trustee key was supplied but trustee recovery is not configured")
+
             password_record = self.crypto.protect_master_key_with_password(
                 replacement,
                 _password(password),
@@ -654,6 +895,8 @@ class MasterKeyProfileStore:
             updated["password"] = _protected_to_dict(password_record)
             updated["recovery"] = _protected_to_dict(recovery_record)
             updated["key_check"] = _payload_to_dict(key_check)
+            if trustee_record is not None:
+                updated["trustee"] = _protected_to_dict(trustee_record)
             self._write(profile_id, updated)
             try:
                 self._audit(
@@ -673,6 +916,11 @@ class MasterKeyProfileStore:
         value = self._read(profile_id)
         password_record = _protected_from_dict(value.get("password"))
         recovery_record = _protected_from_dict(value.get("recovery"))
+        trustee_record = (
+            _protected_from_dict(value.get("trustee"))
+            if isinstance(value.get("trustee"), dict)
+            else None
+        )
         return {
             "configured": True,
             "profile_hash": str(value["profile_hash"]),
@@ -681,6 +929,9 @@ class MasterKeyProfileStore:
             "updated_at": str(value.get("updated_at") or ""),
             "password_method": password_record.method,
             "recovery_method": recovery_record.method,
+            "trustee_configured": trustee_record is not None,
+            "trustee_method": trustee_record.method if trustee_record is not None else "",
             "raw_master_key_persisted": False,
             "raw_recovery_key_persisted": False,
+            "raw_trustee_key_persisted": False,
         }

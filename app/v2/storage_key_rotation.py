@@ -24,6 +24,7 @@ from .master_keys import (
     encode_recovery_key,
     load_master_password_file,
     load_recovery_key_file,
+    load_trustee_key_file,
 )
 from .runtime_keys import STORAGE_PROFILE_ID, clear_runtime_storage_master_key
 from .storage_keys import _external_output, _write_new_secret
@@ -169,6 +170,20 @@ def _external_existing_or_target(root: Path, value: str, label: str) -> Path:
     return target
 
 
+def _load_external_trustee_key(
+    root: Path,
+    path: str | Path | None,
+) -> bytes | None:
+    if path is None or not str(path).strip():
+        return None
+    target = _external_existing_or_target(root, str(path), "trustee key file")
+    if not target.exists():
+        raise ValueError("trustee key file is unavailable")
+    if os.name == "posix" and stat.S_IMODE(target.stat().st_mode) & 0o077:
+        raise ValueError("trustee key file permissions must not allow group/world access")
+    return load_trustee_key_file(target)
+
+
 def _version_ids(store: EncryptedBlobStore) -> list[str]:
     inventory = store.inventory()
     blockers = []
@@ -290,6 +305,7 @@ def rotation_status(root: str | Path) -> dict[str, Any]:
         "profile_hash": str(journal.get("profile_hash") or ""),
         "source_generation": int(journal.get("source_generation") or 0),
         "versions": len(journal.get("version_ids") or []),
+        "trustee_required": bool(journal.get("trustee_required", False)),
         "recovery_key_output": str(journal.get("recovery_key_output") or ""),
         "recovery_bundle_output": str(journal.get("recovery_bundle_output") or ""),
         "raw_key_material_persisted": False,
@@ -301,10 +317,21 @@ def _new_journal(
     password: str,
     recovery_key_output: str | Path,
     recovery_bundle_output: str | Path,
+    *,
+    trustee_key: bytes | None,
 ) -> dict[str, Any]:
     profile = MasterKeyProfileStore(root, "v2-storage-key-rotation")
     status = profile.status(STORAGE_PROFILE_ID)
     old_master = profile.unlock_with_password(STORAGE_PROFILE_ID, password)
+    trustee_required = bool(status.get("trustee_configured"))
+    if trustee_required:
+        if trustee_key is None:
+            raise ValueError("trustee key file is required while storage trustee recovery is enabled")
+        trustee_master = profile.unlock_with_trustee_key(STORAGE_PROFILE_ID, trustee_key)
+        if not hmac.compare_digest(trustee_master, old_master):
+            raise ValueError("trustee key does not match the active storage master key")
+    elif trustee_key is not None:
+        raise ValueError("trustee key was supplied but storage trustee recovery is not configured")
     encrypted = EncryptedBlobStore(root, old_master, initialize=False)
     versions = _version_ids(encrypted)
 
@@ -321,6 +348,7 @@ def _new_journal(
         "created_at": _now(),
         "profile_hash": str(status["profile_hash"]),
         "source_generation": int(status["generation"]),
+        "trustee_required": trustee_required,
         "version_ids": versions,
         "old_master": asdict(crypto.protect_master_key_with_password(old_master, password)),
         "new_master": asdict(crypto.protect_master_key_with_password(new_master, password)),
@@ -344,6 +372,7 @@ def rotate_storage_master_key(
     password_file: str | Path,
     recovery_key_output: str | Path,
     recovery_bundle_output: str | Path,
+    trustee_key_file: str | Path | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
     """Start or resume a crash-safe encrypted-storage master-key rotation."""
@@ -351,6 +380,7 @@ def rotate_storage_master_key(
     source = Path(root).expanduser().resolve()
     _ensure_cutover(source)
     password = load_master_password_file(password_file, forbidden_root=source)
+    trustee_key = _load_external_trustee_key(source, trustee_key_file)
     path = _journal_path(source)
     if not apply:
         if path.exists():
@@ -360,6 +390,11 @@ def rotate_storage_master_key(
                 "action": "resume",
             }
         current = MasterKeyProfileStore(source, "v2-storage-key-rotation").status(STORAGE_PROFILE_ID)
+        trustee_required = bool(current.get("trustee_configured"))
+        if trustee_required and trustee_key is None:
+            raise ValueError("trustee key file is required while storage trustee recovery is enabled")
+        if not trustee_required and trustee_key is not None:
+            raise ValueError("trustee key was supplied but storage trustee recovery is not configured")
         encrypted = EncryptedBlobStore(source, b"\x00" * 32, initialize=False)
         versions = _version_ids(encrypted)
         key_target = _external_output(source, recovery_key_output, "recovery key output")
@@ -373,6 +408,7 @@ def rotate_storage_master_key(
             "action": "start",
             "source_generation": int(current["generation"]),
             "versions": len(versions),
+            "trustee_required": trustee_required,
             "recovery_key_output": str(key_target),
             "recovery_bundle_output": str(bundle_target),
         }
@@ -382,14 +418,17 @@ def rotate_storage_master_key(
         password,
         recovery_key_output,
         recovery_bundle_output,
+        trustee_key=trustee_key,
     )
-    return _resume_rotation(source, password, journal)
+    return _resume_rotation(source, password, journal, trustee_key=trustee_key)
 
 
 def _resume_rotation(
     root: Path,
     password: str,
     journal: dict[str, Any],
+    *,
+    trustee_key: bytes | None,
 ) -> dict[str, Any]:
     old_master, new_master, recovery_key = _unpack_keys(journal, password)
     key_target = _external_existing_or_target(
@@ -407,6 +446,13 @@ def _resume_rotation(
     status = profile.status(STORAGE_PROFILE_ID)
     if str(status["profile_hash"]) != str(journal.get("profile_hash") or ""):
         raise ValueError("storage master-key rotation profile binding changed")
+    trustee_required = bool(journal.get("trustee_required", False))
+    if trustee_required != bool(status.get("trustee_configured")):
+        raise ValueError("storage trustee configuration changed during master-key rotation")
+    if trustee_required and trustee_key is None:
+        raise ValueError("trustee key file is required to resume storage master-key rotation")
+    if not trustee_required and trustee_key is not None:
+        raise ValueError("trustee key was supplied but storage trustee recovery is not configured")
     active_master = profile.unlock_with_password(STORAGE_PROFILE_ID, password)
     encrypted = EncryptedBlobStore(root, new_master, initialize=False)
     expected_versions = list(journal["version_ids"])
@@ -418,6 +464,10 @@ def _resume_rotation(
     active_is_new = hmac.compare_digest(active_master, new_master)
     if not active_is_old and not active_is_new:
         raise ValueError("active storage master key differs from the pending rotation")
+    if trustee_required:
+        trustee_master = profile.unlock_with_trustee_key(STORAGE_PROFILE_ID, trustee_key)
+        if not hmac.compare_digest(trustee_master, active_master):
+            raise ValueError("trustee key does not match the active storage master key")
 
     rewrapped = 0
     if active_is_old:
@@ -451,6 +501,7 @@ def _resume_rotation(
             new_master,
             recovery_key=recovery_key,
             expected_current_master_key=old_master,
+            trustee_key=trustee_key,
         )
         _write_recovery_bundle(bundle_target, material.recovery_bundle)
         clear_runtime_storage_master_key(root)
@@ -476,6 +527,7 @@ def _resume_rotation(
         "completed": True,
         "versions": len(expected_versions),
         "versions_rewrapped_this_run": rewrapped,
+        "trustee_rewrapped": trustee_required,
         "new_generation": int(profile.status(STORAGE_PROFILE_ID)["generation"]),
         "recovery_key_output": str(key_target),
         "recovery_bundle_output": str(bundle_target),

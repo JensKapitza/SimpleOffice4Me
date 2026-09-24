@@ -65,6 +65,39 @@ simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
   --apply
 ```
 
+## Optional trustee recovery
+
+The storage profile can have an additional offline trustee/emergency recovery
+path. It is opt-in and does not grant normal application permissions.
+
+Enable it with new external output files:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  storage-trustee-init \
+  --password-file /run/credentials/simpleoffice-v2-storage-password \
+  --trustee-key-output /media/trustee/simpleoffice-v2-trustee.key \
+  --trustee-bundle-output /media/trustee/simpleoffice-v2-trustee.json \
+  --apply
+```
+
+The trustee key should be stored separately from normal storage recovery
+material. It can be rotated with `storage-trustee-rotate`, disabled with
+`storage-trustee-disable`, and its protected bundle can be copied with
+`storage-trustee-export-bundle`. All mutations are read-only previews unless
+`--apply` is supplied.
+
+A portable trustee bundle can be checked without a SimpleOffice document root:
+
+```bash
+simpleoffice-v2-recovery trustee-recovery-check \
+  --bundle /media/trustee/simpleoffice-v2-trustee.json \
+  --trustee-key-file /media/trustee/simpleoffice-v2-trustee.key
+```
+
+The command validates the protected master key and profile binding but never
+prints or exports the raw master key.
+
 ## Encrypted blob migration
 
 Prerequisites:
@@ -172,6 +205,11 @@ simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
   --recovery-bundle-output /media/offline/simpleoffice-v2-recovery-rotated.json \
   --apply --acknowledge-maintenance-window
 ```
+
+If trustee recovery is enabled, add
+`--trustee-key-file /media/trustee/simpleoffice-v2-trustee.key` to every
+preview/apply/resume run. The rotation refuses to continue without the trustee
+key and rewraps the new master key into the existing trustee recovery record.
 
 If the process is interrupted, rerun the same command. The persistent rotation
 journal identifies versions already rewrapped and resumes them safely. While

@@ -30,6 +30,7 @@ _PAYLOAD_DOMAIN = b"simpleoffice:v2:payload:"
 _WRAP_DOMAIN = b"simpleoffice:v2:key-wrap:"
 _MASTER_PASSWORD_DOMAIN = b"simpleoffice:v2:master-password"
 _MASTER_RECOVERY_DOMAIN = b"simpleoffice:v2:master-recovery"
+_MASTER_TRUSTEE_DOMAIN = b"simpleoffice:v2:master-trustee"
 _CHUNK_DOMAIN = b"simpleoffice:v2:chunk:"
 
 
@@ -107,6 +108,10 @@ class CryptoService:
 
     @staticmethod
     def generate_recovery_key() -> bytes:
+        return os.urandom(AES_KEY_BYTES)
+
+    @staticmethod
+    def generate_trustee_key() -> bytes:
         return os.urandom(AES_KEY_BYTES)
 
     @staticmethod
@@ -296,6 +301,46 @@ class CryptoService:
             )
         except InvalidTag as exc:
             raise ValueError("recovery-key authentication failed") from exc
+        return _key(value, "master key")
+
+
+    def protect_master_key_with_trustee_key(
+        self,
+        master_key: bytes,
+        trustee_key: bytes,
+    ) -> ProtectedMasterKey:
+        master_key = _key(master_key, "master key")
+        trustee_key = _key(trustee_key, "trustee key")
+        nonce = os.urandom(GCM_NONCE_BYTES)
+        ciphertext = AESGCM(trustee_key).encrypt(
+            nonce,
+            master_key,
+            _MASTER_TRUSTEE_DOMAIN,
+        )
+        return ProtectedMasterKey(
+            format=CRYPTO_FORMAT,
+            method="trustee-aes256gcm",
+            salt="",
+            nonce=_b64(nonce),
+            ciphertext=_b64(ciphertext),
+        )
+
+    def unlock_master_key_with_trustee_key(
+        self,
+        protected: ProtectedMasterKey,
+        trustee_key: bytes,
+    ) -> bytes:
+        if protected.format != CRYPTO_FORMAT or protected.method != "trustee-aes256gcm":
+            raise ValueError("unsupported trustee-master-key format")
+        trustee_key = _key(trustee_key, "trustee key")
+        try:
+            value = AESGCM(trustee_key).decrypt(
+                _unb64(protected.nonce),
+                _unb64(protected.ciphertext),
+                _MASTER_TRUSTEE_DOMAIN,
+            )
+        except InvalidTag as exc:
+            raise ValueError("trustee-key authentication failed") from exc
         return _key(value, "master key")
 
 

@@ -72,6 +72,42 @@ Previously exported old recovery bundles still describe the older wrapping
 record. They should be retired according to the operator's backup/recovery
 policy when rotation is intended as revocation.
 
+## Optional trustee/emergency recovery
+
+A profile can optionally add a second, explicitly provisioned trustee recovery
+record. The trustee key is a separate random 256-bit secret and uses its own
+AES-256-GCM domain (`master-trustee`), so normal recovery-key records and
+trustee records are not interchangeable.
+
+Trustee recovery is disabled by default. Enabling it does not grant application,
+document, federation, relay or metadata permissions. It only creates an
+additional offline way to recover the same master key when the matching trustee
+key and protected trustee bundle are deliberately supplied.
+
+The trustee key itself is returned only once to the provisioning/rotation
+caller and should be stored offline/system-separated. The profile persists only
+the protected master-key record. A portable trustee bundle contains that
+protected record, profile binding and authenticated key-check, but no raw
+trustee or master key.
+
+Trustee keys can be rotated or disabled without re-encrypting payloads or CEKs.
+Rotation invalidates the previous local trustee record. Disable removes the
+trustee record from the active profile. Enable, recovery, rotation, disable and
+bundle export are audited without secret payloads.
+
+Previously exported trustee bundles remain cryptographic snapshots: an old
+bundle plus its old trustee key can still recover the master key that was
+wrapped into that bundle. If old trustee material must be cryptographically
+revoked rather than only removed from the live profile, rotate the trustee key
+and then rotate the storage master key. The old trustee bundle then recovers
+only the retired master key, while all active CEKs are wrapped by the new one.
+
+When storage master-key rotation is performed while trustee recovery is
+enabled, the current trustee key must be supplied from an external protected
+file. The operation verifies it against the active master key and rewraps the
+new master key for the same trustee before committing the profile. Master-key
+rotation therefore cannot silently drop an enabled emergency-recovery path.
+
 ## Storage master-key rotation
 
 The dedicated encrypted-storage profile can rotate its master key without
@@ -92,7 +128,8 @@ of a successful rotation.
 ## Audit
 
 Creation, unlock, failed unlock, recovery, password change, recovery-key
-rotation, storage master-key rotation and recovery-bundle export generate V2 audit events. Events contain
+rotation, trustee enable/recovery/rotation/disable, storage master-key rotation,
+and recovery/trustee-bundle export generate V2 audit events. Events contain
 profile hashes/generations and generic failure reasons only; passwords,
 recovery keys and master keys are never audit payloads.
 
