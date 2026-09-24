@@ -12,6 +12,7 @@ import platform
 import re
 import shutil
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 import uuid
 from functools import wraps
@@ -115,7 +116,7 @@ def _admin_required(view):
 
 
 def _db(store: PrinterShareStore) -> sqlite3.Connection:
-    db = sqlite3.connect(store.jobs_path, timeout=5)
+    db = sqlite_connect(store.jobs_path, timeout=5)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout=5000")
     return db
