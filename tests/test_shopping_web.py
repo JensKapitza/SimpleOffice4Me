@@ -69,6 +69,7 @@ class ShoppingWebTests(unittest.TestCase):
         self.assertIn("upc_e", script)
         self.assertIn("localStorage", script)
         self.assertIn("simpleoffice-shopping-offline-v1", script)
+        self.assertIn("delete fields._csrf_token", script)
         self.assertIn('name="request_id"', template)
         self.assertIn('id="shopping-brand"', template)
         self.assertIn("Noch einmal hinzufügen", template)
