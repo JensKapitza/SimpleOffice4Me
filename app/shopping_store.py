@@ -129,6 +129,7 @@ class ShoppingStore:
         if row is None:
             row = {
                 "product_id": str(uuid.uuid4()),
+                "item_id": str(item.get("item_id", "") or ""),
                 "owner": owner,
                 "product_key": product_key,
                 "barcode": str(item.get("barcode", "") or ""),
@@ -159,6 +160,9 @@ class ShoppingStore:
             value = self._text(item.get(key, ""), limit)
             if value:
                 row[key] = value
+        item_id = str(item.get("item_id", "") or "").strip()
+        if item_id:
+            row["item_id"] = item_id
         barcode = str(item.get("barcode", "") or "").strip()
         if barcode:
             row["barcode"] = barcode
