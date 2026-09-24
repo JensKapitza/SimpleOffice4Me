@@ -21,6 +21,11 @@ from .document_store import DocumentStoreStorageAdapter
 
 
 class V2AuthoritativeStorageAdapter:
+    # Phase-15 cleanup must not remove the legacy DocumentStore projection
+    # while this adapter still synchronizes every authoritative V2 mutation
+    # back into that projection.
+    requires_legacy_projection = True
+
     def __init__(
         self,
         root: str | Path,
