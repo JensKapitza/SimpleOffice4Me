@@ -80,6 +80,8 @@ jobs:
           if (("${#scripts[@]}")); then
             bash -n "${scripts[@]}"
           fi
+      - name: Audit Mini Services diagnostics
+        run: python tools/mini_services_log_audit.py
       - name: Mini Services software acceptance smoke
         shell: bash
         run: |
