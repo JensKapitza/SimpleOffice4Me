@@ -307,7 +307,7 @@ class VaultService:
         self.mail_accounts = mail_accounts
         self.mail_search = mail_search
 
-    def search(
+    def _matching_entries(
         self,
         user_id: str,
         vault_key: bytes,
@@ -325,16 +325,46 @@ class VaultService:
         ]
         return result[:limit]
 
+    def search(
+        self,
+        user_id: str,
+        vault_key: bytes,
+        filters: VaultSearchFilters | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return a non-secret search projection.
+
+        Search/list endpoints must not become a bulk credential export. Full
+        decrypted entry data stays behind an explicit per-entry read.
+        """
+
+        return [
+            _service_summary(row)
+            for row in self._matching_entries(user_id, vault_key, filters)
+        ]
+
     def summaries(
         self,
         user_id: str,
         vault_key: bytes,
         filters: VaultSearchFilters | None = None,
     ) -> list[dict[str, Any]]:
-        return [
-            _service_summary(row)
-            for row in self.search(user_id, vault_key, filters)
-        ]
+        return self.search(user_id, vault_key, filters)
+
+    def credential(
+        self,
+        user_id: str,
+        vault_key: bytes,
+        entry_id: str,
+    ) -> dict[str, Any]:
+        """Return one explicitly requested decrypted credential entry."""
+
+        requested = str(entry_id or "").strip()
+        if not requested:
+            raise ValueError("vault credential id is required")
+        for row in self.vault.entries(str(user_id), vault_key):
+            if str(row.get("entry_id") or "") == requested:
+                return row
+        raise ValueError("vault credential does not exist")
 
     def identity_usage(
         self,
@@ -347,7 +377,7 @@ class VaultService:
         if not username and not email:
             raise ValueError("username or email is required")
         filters = VaultSearchFilters(username=username, email=email, limit=MAX_RESULTS)
-        return self.summaries(user_id, vault_key, filters)
+        return self.search(user_id, vault_key, filters)
 
     def credential_mail_references(
         self,
@@ -363,15 +393,8 @@ class VaultService:
         if isinstance(limit, bool):
             raise ValueError("mail reference limit must be an integer")
         requested_limit = max(1, min(int(limit), MAX_MAIL_REFERENCES))
-        entry = next(
-            (
-                row
-                for row in self.vault.entries(str(user_id), vault_key)
-                if str(row.get("entry_id") or "") == str(entry_id)
-            ),
-            None,
-        )
-        if entry is None or not isinstance(entry.get("data"), dict):
+        entry = self.credential(str(user_id), vault_key, str(entry_id))
+        if not isinstance(entry.get("data"), dict):
             raise ValueError("vault credential does not exist")
         data = entry["data"]
         terms = list(_emails(data))
