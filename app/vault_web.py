@@ -420,7 +420,7 @@ def export_browser_csv():
         _require_key()
         key = vault.unlock(_actor(), request.form.get("master_password", ""))
         raw = browser_csv_export(vault.entries(_actor(), key))
-    except (RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         flash("Klartext-Export konnte nicht erstellt oder erneut authentifiziert werden.")
         return _redirect_index()
     response = Response(raw, mimetype="text/csv")
