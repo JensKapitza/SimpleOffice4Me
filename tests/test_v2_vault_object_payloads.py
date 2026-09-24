@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,7 +25,7 @@ class V2VaultObjectPayloadTests(unittest.TestCase):
         self.temp.cleanup()
 
     def _db_row(self, entry_id):
-        db = sqlite3.connect(self.vault.path)
+        db = sqlite_connect(self.vault.path)
         db.row_factory = sqlite3.Row
         try:
             return db.execute(
@@ -90,7 +91,7 @@ class V2VaultObjectPayloadTests(unittest.TestCase):
             _entry_aad("alice", entry_id, 1),
         )
         now = 1_790_000_000
-        db = sqlite3.connect(self.vault.path)
+        db = sqlite_connect(self.vault.path)
         try:
             db.execute(
                 """INSERT INTO vault_entry(
@@ -136,7 +137,7 @@ class V2VaultObjectPayloadTests(unittest.TestCase):
             restored_key = restored.unlock("alice", self.password)
             rows = restored.entries("alice", restored_key)
             self.assertEqual("portable-secret", rows[0]["data"]["password"])
-            db = sqlite3.connect(restored.path)
+            db = sqlite_connect(restored.path)
             db.row_factory = sqlite3.Row
             try:
                 raw = db.execute("SELECT * FROM vault_entry WHERE user_id='alice'").fetchone()
