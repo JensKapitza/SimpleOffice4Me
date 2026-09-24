@@ -112,6 +112,7 @@ class VaultWebTests(unittest.TestCase):
             "url,username,password\n"
             "https://example.org/login,alice@example.org,replacement-secret\n"
             "https://other.example/,bob,new-secret\n"
+            "https://other.example/,bob,duplicate-in-file\n"
         ).encode("utf-8")
 
         preview = self.client.post(
