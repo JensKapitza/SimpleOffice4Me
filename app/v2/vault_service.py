@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from ..password_vault import PasswordVault
 
@@ -105,6 +105,35 @@ def _normalize_domain(value: Any) -> str:
     return ascii_domain
 
 
+def _safe_service_url(value: Any) -> str:
+    """Return a display/search URL without userinfo, query or fragment."""
+
+    text = _bounded_text(value, "credential URL", 10_000)
+    if not text:
+        return ""
+    try:
+        parsed = urlsplit(text)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+        ):
+            return ""
+        domain = _normalize_domain(parsed.hostname)
+        port = parsed.port
+    except (ValueError, UnicodeError):
+        return ""
+    host = domain
+    if port is not None:
+        default = (parsed.scheme == "http" and port == 80) or (
+            parsed.scheme == "https" and port == 443
+        )
+        if not default:
+            host = f"{host}:{port}"
+    return urlunsplit((parsed.scheme, host, parsed.path or "", "", ""))
+
+
 def _domain_from_url(value: Any) -> str:
     text = _bounded_text(value, "credential URL", 10_000)
     if not text:
@@ -156,7 +185,7 @@ def _urls(data: dict[str, Any]) -> tuple[str, ...]:
                 candidates.append(item)
     result: list[str] = []
     for value in candidates:
-        text = _bounded_text(value, "credential URL", 10_000)
+        text = _safe_service_url(value)
         if text and text not in result:
             result.append(text)
     return tuple(result)
