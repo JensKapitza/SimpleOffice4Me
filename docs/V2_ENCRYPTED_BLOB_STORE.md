@@ -44,9 +44,19 @@ never removes ciphertext referenced by a valid version manifest.
 ## Key rotation
 
 `rewrap_version_key(...)` unwraps the version CEK with the old master key and
-wraps it with the new master key. Ciphertext chunk files are unchanged. Full
-account-wide rotation still needs an orchestration step that rewraps every
-reachable version before changing the active master key.
+wraps it with the new master key. Ciphertext chunk files are unchanged.
+
+The storage runtime now has a crash-resumable orchestration layer for the
+dedicated `v2-local-storage` master key. It journals only protected key
+material and version IDs, blocks normal encrypted runtime access while the
+journal exists, rewraps every encrypted version, rechecks that the version set
+did not change, rotates the profile and offline recovery material, and verifies
+that all version CEKs are bound to the new master key before removing the
+journal.
+
+A pre-commit interruption can be resumed or explicitly rolled back to the old
+master key. Rotation therefore requires a maintenance window but does not
+re-encrypt payload chunks.
 
 ## StoragePort integration boundary
 
