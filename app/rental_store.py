@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import uuid
 from contextlib import contextmanager
 from datetime import date
@@ -28,7 +29,7 @@ class RentalStoreBase:
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
         self.control.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.db_path, timeout=30)
+        db = sqlite_connect(self.db_path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
