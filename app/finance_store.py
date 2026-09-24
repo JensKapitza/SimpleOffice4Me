@@ -166,7 +166,7 @@ class FinanceStore:
     def update_bank_connection_status(self, connection_id: str, actor: str, status: str, *, error: str = "", successful: bool = False) -> dict[str, Any]:
         actor = self._actor(actor); status = text(status, 40).casefold()
         if status not in BANK_CONNECTION_STATUSES: raise ValueError("bank connection status is invalid")
-        connection = self.bank_connection(connection_id, actor)
+        self.bank_connection(connection_id, actor)
         ts = _now()
         with self._db() as db:
             db.execute("""UPDATE finance_bank_connection SET status=?,last_error=?,last_successful_sync=CASE WHEN ? THEN ? ELSE last_successful_sync END,updated_at=?
