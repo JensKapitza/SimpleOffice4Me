@@ -26,12 +26,21 @@ from .federation_core import (
     write_chunk,
 )
 from .federation_store import FederationStore
+from .federation_local_profile import local_peer_id
+from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_worker import push_blob_to_transient_target, validate_transient_target
+from .v2.authorization import AuthorizationStore, GrantRight
+from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
+from .v2.encrypted_recovery_search import EncryptedRecoveryChunkSearch
+from .v2.federation_policy import FederationPolicyStore
 
 bp = Blueprint("federation_http", __name__, url_prefix="/federation/v1")
 BLOCK_SIZE = 256 * 1024
 RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
 TRANSFER_CAPABILITY_TTL = 60 * 60
+ENCRYPTED_RECOVERY_QUERY_MAX_BYTES = 8 * 1024 * 1024
+ENCRYPTED_RECOVERY_QUERY_LIMIT = 30
+ENCRYPTED_RECOVERY_QUERY_WINDOW = 60
 
 
 def _store() -> DocumentStore:
@@ -191,6 +200,8 @@ def capabilities():
         "delegated_push": True,
         "transfer_capabilities": True,
         "transfer_capability_ttl_seconds": TRANSFER_CAPABILITY_TTL,
+        "encrypted_recovery_availability": True,
+        "encrypted_recovery_grant_scope": "recovery:<descriptor_id>",
     })
     return jsonify(result)
 
@@ -274,6 +285,166 @@ def availability(digest: str):
         "chunk_count": result["chunk_count"],
         "available": [[0, result["chunk_count"] - 1]] if result["chunk_count"] else [],
     })
+
+
+def _recovery_query_denied(
+    federation: FederationStore,
+    peer_id: str,
+    *,
+    reason: str,
+    descriptor_id: str = "",
+) -> None:
+    federation.record_event(
+        "encrypted_recovery_query_denied",
+        peer_id=peer_id,
+        detail={
+            "reason": str(reason)[:120],
+            "descriptor_id": str(descriptor_id)[:64],
+        },
+    )
+
+
+@bp.post("/recovery/encrypted/availability")
+def encrypted_recovery_availability():
+    content_length = request.content_length
+    if (
+        content_length is None
+        or content_length <= 0
+        or content_length > ENCRYPTED_RECOVERY_QUERY_MAX_BYTES
+    ):
+        return jsonify({"error": "invalid_recovery_query_size"}), 413
+
+    root = current_app.config["DOCUMENT_ROOT"]
+    federation = _federation()
+    try:
+        peer_id = authenticate_peer(root, request)
+    except ValueError:
+        return jsonify({"error": "peer_authentication_failed"}), 401
+
+    now = int(time.time())
+    if federation.recent_event_count(
+        "encrypted_recovery_query_attempt",
+        peer_id=peer_id,
+        since=now - ENCRYPTED_RECOVERY_QUERY_WINDOW,
+    ) >= ENCRYPTED_RECOVERY_QUERY_LIMIT:
+        federation.record_event(
+            "encrypted_recovery_query_rate_limited",
+            peer_id=peer_id,
+            detail={"window_seconds": ENCRYPTED_RECOVERY_QUERY_WINDOW},
+        )
+        return jsonify({"error": "recovery_query_rate_limited"}), 429
+    federation.record_event(
+        "encrypted_recovery_query_attempt",
+        peer_id=peer_id,
+        detail={},
+    )
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        _recovery_query_denied(federation, peer_id, reason="invalid_json")
+        return jsonify({"error": "invalid_recovery_query"}), 400
+    try:
+        descriptor = validate_encrypted_recovery_descriptor(body.get("descriptor"))
+        authorization_ref = str(body.get("authorization_ref") or "").strip()
+        if not authorization_ref:
+            raise ValueError("authorization reference is required")
+        chunk_indexes = body.get("chunk_indexes")
+        if chunk_indexes is not None and not isinstance(chunk_indexes, list):
+            raise ValueError("chunk indexes must be a list")
+    except (TypeError, ValueError):
+        _recovery_query_denied(federation, peer_id, reason="invalid_descriptor")
+        return jsonify({"error": "invalid_recovery_query"}), 400
+
+    descriptor_id = descriptor["descriptor_id"]
+    grant_ref = f"recovery:{descriptor_id}"
+    authorization_path = (
+        Path(root).expanduser().resolve()
+        / ".simpleoffice-v2"
+        / "authorization.sqlite3"
+    )
+    if not authorization_path.is_file():
+        _recovery_query_denied(
+            federation,
+            peer_id,
+            reason="authorization_missing",
+            descriptor_id=descriptor_id,
+        )
+        return jsonify({"error": "recovery_query_forbidden"}), 403
+
+    authorization = AuthorizationStore(root)
+    if not authorization.allows(
+        authorization_ref,
+        subject=peer_id,
+        right=GrantRight.READ,
+        object_ref=grant_ref,
+        now=now,
+    ):
+        _recovery_query_denied(
+            federation,
+            peer_id,
+            reason="authorization_denied",
+            descriptor_id=descriptor_id,
+        )
+        return jsonify({"error": "recovery_query_forbidden"}), 403
+
+    policy_path = (
+        Path(root).expanduser().resolve()
+        / ".simpleoffice-v2"
+        / "federation-policy.sqlite3"
+    )
+    if policy_path.is_file():
+        try:
+            decision = FederationPolicyStore(root).decision(
+                [local_peer_id(), peer_id],
+                scope="storage",
+                now=now,
+                target_peer=peer_id,
+                authorization_store=authorization,
+                object_refs=(descriptor["object_id"], grant_ref),
+            )
+        except (RuntimeError, TypeError, ValueError):
+            _recovery_query_denied(
+                federation,
+                peer_id,
+                reason="policy_invalid",
+                descriptor_id=descriptor_id,
+            )
+            return jsonify({"error": "recovery_query_forbidden"}), 403
+        if not decision.allowed:
+            _recovery_query_denied(
+                federation,
+                peer_id,
+                reason=f"policy:{decision.reason}",
+                descriptor_id=descriptor_id,
+            )
+            return jsonify({"error": "recovery_query_forbidden"}), 403
+
+    try:
+        result = EncryptedRecoveryChunkSearch(root).availability(
+            descriptor,
+            chunk_indexes=chunk_indexes,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError):
+        _recovery_query_denied(
+            federation,
+            peer_id,
+            reason="availability_invalid",
+            descriptor_id=descriptor_id,
+        )
+        return jsonify({"error": "invalid_recovery_query"}), 400
+
+    federation.record_event(
+        "encrypted_recovery_query_allowed",
+        peer_id=peer_id,
+        detail={
+            "descriptor_id": descriptor_id,
+            "requested_chunks": len(result["requested_indexes"]),
+            "available_chunks": len(result["available_indexes"]),
+        },
+    )
+    response = jsonify(result)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.post("/transfers/prepare")
