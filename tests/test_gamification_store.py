@@ -1,4 +1,4 @@
-import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,7 +52,7 @@ class GamificationStoreTests(unittest.TestCase):
         item = store.add_item(session, "contacts", "contact:1")
         proposal = store.propose(item, "city", "Koeln", "owner")
         store.vote(proposal, "model", True, source="ai")
-        with sqlite3.connect(store.path) as db:
+        with sqlite_connect(store.path) as db:
             row = db.execute("SELECT source FROM annotation_vote WHERE proposal_id=?", (proposal,)).fetchone()
             audit = db.execute("SELECT detail_json FROM game_audit WHERE action='proposal.voted' ORDER BY id DESC LIMIT 1").fetchone()
         self.assertEqual(row, ("ai",))
@@ -64,14 +64,14 @@ class GamificationStoreTests(unittest.TestCase):
         control = self.root / ".simpleoffice"
         control.mkdir(parents=True, exist_ok=True)
         path = control / "gamification.sqlite3"
-        with sqlite3.connect(path) as db:
+        with sqlite_connect(path) as db:
             db.execute(
                 "CREATE TABLE annotation_vote (proposal_id TEXT NOT NULL, voter TEXT NOT NULL, "
                 "approve INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(proposal_id, voter))"
             )
             db.execute("INSERT INTO annotation_vote VALUES('p','legacy',1,'now')")
         store = self.store()
-        with sqlite3.connect(store.path) as db:
+        with sqlite_connect(store.path) as db:
             columns = {row[1] for row in db.execute("PRAGMA table_info(annotation_vote)").fetchall()}
             source = db.execute("SELECT source FROM annotation_vote WHERE voter='legacy'").fetchone()
         self.assertIn("source", columns)
@@ -90,7 +90,7 @@ class GamificationStoreTests(unittest.TestCase):
     def test_session_creation_is_audited(self):
         store = self.store()
         session = store.create_session("Runde", "organization", "admin", {})
-        with sqlite3.connect(store.path) as db:
+        with sqlite_connect(store.path) as db:
             row = db.execute("SELECT actor, action FROM game_audit WHERE session_id=?", (session,)).fetchone()
         self.assertEqual(row, ("admin", "session.created"))
 
@@ -104,7 +104,7 @@ class GamificationStoreTests(unittest.TestCase):
         proposal = store.answer_challenge(challenge, "owner", "Duisburg")
         self.assertTrue(proposal)
         self.assertIsNone(store.get_challenge_for_actor(challenge, "owner"))
-        with sqlite3.connect(store.path) as db:
+        with sqlite_connect(store.path) as db:
             row = db.execute(
                 "SELECT p.field_name, p.value_json, c.status, c.answered_by "
                 "FROM annotation_proposal p JOIN game_challenge c ON c.item_id=p.item_id "
@@ -128,7 +128,7 @@ class GamificationStoreTests(unittest.TestCase):
         challenge = store.add_challenge(item, "phone", "text", "Telefon?")
         store.skip_challenge(challenge, "owner", disposition="unknown")
         self.assertIsNone(store.get_challenge_for_actor(challenge, "owner"))
-        with sqlite3.connect(store.path) as db:
+        with sqlite_connect(store.path) as db:
             status = db.execute("SELECT status, answered_by FROM game_challenge WHERE id=?", (challenge,)).fetchone()
             proposals = db.execute("SELECT COUNT(*) FROM annotation_proposal WHERE item_id=?", (item,)).fetchone()[0]
             audit = db.execute("SELECT action FROM game_audit WHERE session_id=? ORDER BY id DESC LIMIT 1", (session,)).fetchone()
@@ -151,7 +151,7 @@ class GamificationStoreTests(unittest.TestCase):
         first = store.propose(item, "city", "Duisburg", "owner")
         second = store.propose(item, "city", "Duisburg", "owner")
         self.assertEqual(first, second)
-        with sqlite3.connect(store.path) as db:
+        with sqlite_connect(store.path) as db:
             count = db.execute("SELECT COUNT(*) FROM annotation_proposal WHERE item_id=?", (item,)).fetchone()[0]
         self.assertEqual(count, 1)
 
