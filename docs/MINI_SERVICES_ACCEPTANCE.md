@@ -28,7 +28,7 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
 | Klasse | Offene Punkte | Bedeutung |
 |---|---|---|
-| **Implementierungslücke** | Vollständiger historischer Log-/Diagnosepfad-Audit und vollständige dienstweise Negativfall-Matrix bleiben als repositoryseitige Restarbeit; gezielte Windows-Audioauswahl nur, wenn sie ohne ausgeschlossene Systemkomponente zuverlässig nachweisbar ist. | Es fehlt noch Repository-Nachweis oder eine explizite technische Entscheidung. |
+| **Implementierungslücke** | Keine aktuell bekannte unklassifizierte Kernlücke aus der #330-Checkliste. Der Log-/Diagnosepfad besitzt jetzt einen CI-Guard und die dienstweise Negativfall-Matrix ist dokumentiert. Neue Befunde werden wieder als Implementierungslücke geführt. | Repositoryseitige Softwarepunkte gelten nur mit CI-Nachweis als erledigt; reale Fähigkeiten bleiben davon getrennt. |
 | **Prüfnachweis** | saubere Installation und Lifecycle auf realem Linux/Windows; reale LAN-/IPv6-Linkwechsel; echter Gateway-Paketfluss; reale RTP-/DLNA-/PXE-Geräte; Android-Hintergrundbetrieb/Capture/Audio; visuelle WCAG-/Touch-/Tastaturprüfung; Gesamt-RSS, Last, Durchsatz und Langzeitleak-Messungen | CI-/Loopback-Nachweise existieren, ersetzen aber die praktische Abnahme nicht. Das konkrete Protokoll steht in `MINI_SERVICES_EXTERNAL_ACCEPTANCE.md`. |
 | **Technische Grenze** | virtuelles Windows-Mikrofon ohne freigegebene Systemkomponente; fremde RTP-Player ohne Discovery-Profil; DHCP/Gateway weiterhin IPv4-only; Windows-Ausgabe derzeit nur Systemstandard, solange keine verlässliche gezielte Gerätewahl nachgewiesen ist | Kein stilles „erledigt“; Grenze bleibt sichtbar dokumentiert und darf nicht als Fähigkeit dargestellt werden. |
 
@@ -43,9 +43,13 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 - **Diagnose-URL-Datenschutz:** durch #338 erledigt.
 - **DLNA (#285):** Softwareimplementierung vorhanden; praktische Hardware- und
   Controller-Abnahme offen.
-- **Security-/Logprüfung:** gefundene Lecks wurden behoben; ein vollständiger
-  historischer Logpfad-Audit bleibt offen und darf nicht aus den Teilprüfungen
-  abgeleitet werden.
+- **Security-/Logprüfung:** bekannte rohe Exception-Ausgaben in Screen- und
+  Audio-Admin-Pfaden sind redigiert. `tools/mini_services_log_audit.py` prüft
+  die Mini-Services-/Netzwerk-/Audio-/Screen-Runtimequellen künftig in CI gegen
+  direktes Durchreichen von Exception-Text an UI-/JSON-/Log-Sinks.
+- **Negativfall-Matrix:** `MINI_SERVICES_FAILURE_MATRIX.md` ordnet Doppelstart,
+  Stop/Restart, Port-/Rechte-/Netz-/Gerätefehler, Recovery und externe
+  Hardwarefälle pro Dienst einem CI- oder externen Nachweis zu.
 - **Messungen/Gesamtabnahme:** Der vorhandene Lifecycle-Mikrobenchmark misst
   Konstruktion, Python-Heap-Peak, Start, Doppelstart, Stop und Prozess-CPU auf
   Loopback und läuft als eigener Extended-Quality-Smoke. Gesamt-RSS,
@@ -73,6 +77,11 @@ Android-Hintergrundbetrieb oder formaler Accessibility-Abnahme.
 Alle nicht in CI belegbaren Schritte sind nun in
 `docs/MINI_SERVICES_EXTERNAL_ACCEPTANCE.md` mit Eingaben, erwartetem Ergebnis
 und Abschlussregel konkretisiert.
+
+Die dienstweise Software-Fehlermatrix steht ergänzend in
+`docs/MINI_SERVICES_FAILURE_MATRIX.md`. Sie ist die verbindliche Zuordnung,
+welche Negativfälle im Repository regressionsgetestet sind und welche nur in
+einer realen Umgebung abgenommen werden können.
 
 ## Gleiche Kriterien, erneute Bewertung
 
