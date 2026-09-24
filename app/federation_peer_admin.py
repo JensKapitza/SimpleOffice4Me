@@ -364,9 +364,14 @@ def policy(peer_id):
         _trust, peer = _known_peer(peer_id)
         policy_store = _policy_store()
         blocks = [
-            row for row in policy_store.active_blocks()
+            {**row, "object_ref": ""}
+            for row in policy_store.active_blocks()
             if row["peer_id"] == peer_id
         ]
+        blocks.extend(
+            policy_store.active_object_blocks(peer_id=peer_id)
+        )
+        blocks.sort(key=lambda row: (str(row["scope"]), str(row.get("object_ref") or "")))
         route_constraints = {}
         trust_requirements = {}
         for scope in sorted(SCOPES):
@@ -404,6 +409,7 @@ def block_peer(peer_id):
         _known_peer(peer_id)
         scope = request.form.get("scope", "all")
         reason = request.form.get("reason", "")
+        object_refs = _csv_values(request.form.get("object_refs", ""))
         expiry_hours = str(request.form.get("expiry_hours", "") or "").strip()
         expires_at = None
         if expiry_hours:
@@ -412,19 +418,32 @@ def block_peer(peer_id):
                 raise ValueError("Ablauf muss zwischen 1 und 8760 Stunden liegen")
             expires_at = int(time.time()) + hours * 3600
         policy_store = _policy_store()
-        policy_store.block(
-            peer_id,
-            scope=scope,
-            reason=reason,
-            created_by=_actor(),
-            expires_at=expires_at,
-        )
+        if object_refs:
+            policy_store.block_objects(
+                peer_id,
+                object_refs,
+                scope=scope,
+                reason=reason,
+                created_by=_actor(),
+                expires_at=expires_at,
+            )
+        else:
+            policy_store.block(
+                peer_id,
+                scope=scope,
+                reason=reason,
+                created_by=_actor(),
+                expires_at=expires_at,
+            )
         authorization = _authorization_store_if_present()
-        revoked = (
-            authorization.revoke_for_peer(peer_id)
-            if scope == "all" and authorization is not None
-            else 0
-        )
+        if authorization is None:
+            revoked = 0
+        elif object_refs:
+            revoked = authorization.revoke_for_peer_objects(peer_id, object_refs)
+        elif scope == "all":
+            revoked = authorization.revoke_for_peer(peer_id)
+        else:
+            revoked = 0
         service = _job_service_if_present()
         stopped = (
             service.stop_blocked_jobs(
@@ -439,14 +458,22 @@ def block_peer(peer_id):
             peer_id,
             {
                 "scope": scope,
+                "object_refs": list(object_refs),
                 "reason": str(reason)[:500],
                 "expires_at": expires_at,
                 "jobs_stopped": stopped,
                 "capabilities_revoked": revoked,
             },
         )
+        if object_refs:
+            message = (
+                f"Objektsperre gesetzt ({scope}, {len(object_refs)} Objekt(e)). "
+                f"{stopped} aktive Job(s) gestoppt"
+            )
+        else:
+            message = f"Peer gesperrt ({scope}). {stopped} aktive Job(s) gestoppt"
         flash(
-            f"Peer gesperrt ({scope}). {stopped} aktive Job(s) gestoppt"
+            message
             + (f", {revoked} Capability(s) widerrufen." if revoked else ".")
             + ("" if audited else " Audit konnte nicht gespeichert werden.")
         )
@@ -461,15 +488,24 @@ def unblock_peer(peer_id):
     try:
         _known_peer(peer_id)
         scope = request.form.get("scope", "all")
+        object_ref = str(request.form.get("object_ref", "") or "").strip()
         policy_store = _policy_store()
-        policy_store.unblock(peer_id, scope=scope)
+        if object_ref:
+            policy_store.unblock_objects(
+                peer_id,
+                scope=scope,
+                object_refs=(object_ref,),
+            )
+        else:
+            policy_store.unblock(peer_id, scope=scope)
         audited = _audit_policy(
             "federation_peer_unblocked",
             peer_id,
-            {"scope": scope},
+            {"scope": scope, "object_ref": object_ref},
         )
+        label = f"Objektsperre {object_ref}" if object_ref else f"Peer-Sperre für {scope}"
         flash(
-            f"Peer-Sperre für {scope} aufgehoben."
+            f"{label} aufgehoben."
             + ("" if audited else " Audit konnte nicht gespeichert werden.")
         )
     except (RuntimeError, ValueError):

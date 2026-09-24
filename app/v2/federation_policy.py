@@ -73,6 +73,18 @@ class FederationPolicyStore:
                 );
                 CREATE INDEX IF NOT EXISTS peer_block_expiry
                     ON peer_block(expires_at);
+                CREATE TABLE IF NOT EXISTS peer_object_block(
+                    peer_id TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    object_ref TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_by TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    expires_at INTEGER,
+                    PRIMARY KEY(peer_id, scope, object_ref)
+                );
+                CREATE INDEX IF NOT EXISTS peer_object_block_expiry
+                    ON peer_object_block(expires_at);
                 CREATE TABLE IF NOT EXISTS route_constraint(
                     target_peer TEXT NOT NULL,
                     scope TEXT NOT NULL,
@@ -120,6 +132,13 @@ class FederationPolicyStore:
             raise ValueError("invalid federation block scope")
         return value
 
+    @staticmethod
+    def _object_ref(object_ref: str) -> str:
+        value = str(object_ref or "").strip()
+        if not value or len(value) > 512:
+            raise ValueError("invalid federation object reference")
+        return value
+
     def block(self, peer_id: str, *, scope: str = "all", reason: str = "",
               created_by: str = "", expires_at: int | None = None) -> None:
         peer = self._peer(peer_id)
@@ -153,6 +172,108 @@ class FederationPolicyStore:
                    ORDER BY peer_id,scope""",
                 (checked_at,),
             ).fetchall()
+        return [dict(row) for row in rows]
+
+    def block_objects(
+        self,
+        peer_id: str,
+        object_refs: Iterable[str],
+        *,
+        scope: str = "all",
+        reason: str = "",
+        created_by: str = "",
+        expires_at: int | None = None,
+    ) -> int:
+        peer = self._peer(peer_id)
+        checked_scope = self._scope(scope)
+        if isinstance(object_refs, (str, bytes)):
+            raise ValueError("object references must be an iterable")
+        refs = tuple(sorted({
+            self._object_ref(item)
+            for item in object_refs
+            if str(item or "").strip()
+        }))
+        if not refs:
+            raise ValueError("at least one object reference is required")
+        expiry = int(expires_at) if expires_at is not None else None
+        now = int(time.time())
+        if expiry is not None and expiry <= now:
+            raise ValueError("block expiry must be in the future")
+        rows = [
+            (
+                peer, checked_scope, object_ref, str(reason)[:500],
+                str(created_by)[:160], now, expiry,
+            )
+            for object_ref in refs
+        ]
+        with self._db() as db:
+            db.executemany(
+                """INSERT INTO peer_object_block(
+                       peer_id,scope,object_ref,reason,created_by,created_at,expires_at
+                   ) VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(peer_id,scope,object_ref) DO UPDATE SET
+                       reason=excluded.reason,
+                       created_by=excluded.created_by,
+                       created_at=excluded.created_at,
+                       expires_at=excluded.expires_at""",
+                rows,
+            )
+        return len(refs)
+
+    def unblock_objects(
+        self,
+        peer_id: str,
+        *,
+        scope: str = "all",
+        object_refs: Iterable[str] | None = None,
+    ) -> int:
+        peer = self._peer(peer_id)
+        checked_scope = self._scope(scope)
+        with self._db() as db:
+            if object_refs is None:
+                return db.execute(
+                    "DELETE FROM peer_object_block WHERE peer_id=? AND scope=?",
+                    (peer, checked_scope),
+                ).rowcount
+            if isinstance(object_refs, (str, bytes)):
+                raise ValueError("object references must be an iterable")
+            refs = tuple(sorted({
+                self._object_ref(item)
+                for item in object_refs
+                if str(item or "").strip()
+            }))
+            if not refs:
+                raise ValueError("at least one object reference is required")
+            cursor = db.executemany(
+                """DELETE FROM peer_object_block
+                   WHERE peer_id=? AND scope=? AND object_ref=?""",
+                [(peer, checked_scope, object_ref) for object_ref in refs],
+            )
+            return cursor.rowcount
+
+    def active_object_blocks(
+        self,
+        *,
+        peer_id: str | None = None,
+        now: int | None = None,
+    ) -> list[dict]:
+        checked_at = int(time.time()) if now is None else int(now)
+        checked_peer = self._peer(peer_id) if peer_id is not None else None
+        with self._db() as db:
+            if checked_peer is None:
+                rows = db.execute(
+                    """SELECT * FROM peer_object_block
+                       WHERE expires_at IS NULL OR expires_at>?
+                       ORDER BY peer_id,scope,object_ref""",
+                    (checked_at,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT * FROM peer_object_block
+                       WHERE peer_id=? AND (expires_at IS NULL OR expires_at>?)
+                       ORDER BY scope,object_ref""",
+                    (checked_peer, checked_at),
+                ).fetchall()
         return [dict(row) for row in rows]
 
     def set_route_constraint(
@@ -511,12 +632,33 @@ class FederationPolicyStore:
                  object_refs: Iterable[str] | None = None) -> PolicyDecision:
         checked_scope = self._scope(scope)
         peers = [self._peer(peer) for peer in route if str(peer or "").strip()]
+        if isinstance(object_refs, (str, bytes)):
+            raise ValueError("object references must be an iterable")
+        requested_objects = tuple(sorted({
+            self._object_ref(item)
+            for item in (object_refs or ())
+            if str(item or "").strip()
+        }))
         if require_known_route and not peers:
             return PolicyDecision(False, "route_unknown", scope=checked_scope)
         blocks = self.active_blocks(now=now)
         for peer in peers:
             for block in blocks:
-                if block["peer_id"] == peer and block["scope"] in {"all", checked_scope}:
+                if block["peer_id"] == peer and block["scope"] == "all":
+                    return PolicyDecision(False, "explicit_block", peer, checked_scope)
+        object_blocks = self.active_object_blocks(now=now) if requested_objects else []
+        requested_set = set(requested_objects)
+        for peer in peers:
+            for block in object_blocks:
+                if (
+                    block["peer_id"] == peer
+                    and block["scope"] in {"all", checked_scope}
+                    and block["object_ref"] in requested_set
+                ):
+                    return PolicyDecision(False, "object_specific_block", peer, checked_scope)
+        for peer in peers:
+            for block in blocks:
+                if block["peer_id"] == peer and block["scope"] == checked_scope:
                     return PolicyDecision(False, "explicit_block", peer, checked_scope)
         if not peers:
             return PolicyDecision(True, "allowed", scope=checked_scope)
@@ -535,12 +677,20 @@ class FederationPolicyStore:
             for block in blocks
             if block["scope"] in {"all", checked_scope}
         }
+        blocked_peers.update(
+            str(block["peer_id"])
+            for block in object_blocks
+            if (
+                block["scope"] in {"all", checked_scope}
+                and block["object_ref"] in requested_set
+            )
+        )
         capability_decision = self._blocked_capability_path_decision(
             target_peer=target,
             scope=checked_scope,
             blocked_peers=blocked_peers,
             authorization_store=authorization_store,
-            object_refs=object_refs,
+            object_refs=requested_objects,
             now=now,
         )
         if not capability_decision.allowed:

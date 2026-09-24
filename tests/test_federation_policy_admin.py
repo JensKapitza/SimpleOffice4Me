@@ -55,6 +55,36 @@ class FederationPolicyAdminTests(unittest.TestCase):
         audit.assert_called_once()
         self.assertIn("Peer gesperrt", self._latest_flash())
 
+    def test_object_block_is_persisted_and_can_remove_one_object(self):
+        with patch("app.federation_peer_admin._audit_policy", return_value=True):
+            response = self.client.post(
+                "/admin/federation/peer-discovery/policy/peer-c/block",
+                data={
+                    "scope": "documents",
+                    "object_refs": "object-1, object-2",
+                    "reason": "restricted documents",
+                },
+                headers=self.headers,
+            )
+
+        self.assertEqual(302, response.status_code)
+        store = FederationPolicyStore(self.root)
+        self.assertEqual([], store.active_blocks())
+        blocks = store.active_object_blocks(peer_id="peer-c")
+        self.assertEqual(["object-1", "object-2"], [row["object_ref"] for row in blocks])
+        self.assertIn("Objektsperre", self._latest_flash())
+
+        with patch("app.federation_peer_admin._audit_policy", return_value=True):
+            response = self.client.post(
+                "/admin/federation/peer-discovery/policy/peer-c/unblock",
+                data={"scope": "documents", "object_ref": "object-1"},
+                headers=self.headers,
+            )
+
+        self.assertEqual(302, response.status_code)
+        remaining = store.active_object_blocks(peer_id="peer-c")
+        self.assertEqual(["object-2"], [row["object_ref"] for row in remaining])
+
     def test_global_block_does_not_create_empty_job_or_authorization_stores(self):
         with patch("app.federation_peer_admin._audit_policy", return_value=True):
             response = self.client.post(
@@ -192,6 +222,7 @@ class FederationPolicyTemplateTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Peer sperren", text)
+        self.assertIn("Objekt-IDs (optional)", text)
         self.assertIn("Nur direkte Zustellung", text)
         self.assertIn("Nie über diese Peers", text)
         self.assertIn("Signierte Bestätiger", text)

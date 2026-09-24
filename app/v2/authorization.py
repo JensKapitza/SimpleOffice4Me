@@ -161,6 +161,41 @@ class AuthorizationStore:
                 (peer, peer),
             ).rowcount
 
+    def revoke_for_peer_objects(
+        self,
+        peer_id: str,
+        object_refs: Iterable[str],
+        *,
+        now: int | None = None,
+    ) -> int:
+        """Revoke effective grants involving a peer when their scope intersects blocked objects."""
+
+        peer = str(peer_id or "").strip()
+        if not peer:
+            raise ValueError("peer id is required")
+        blocked = self._normalize_scope(object_refs)
+        checked_at = int(time.time()) if now is None else int(now)
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT * FROM capability_grant
+                   WHERE revoked=0 AND expires_at>? AND (issuer=? OR subject=?)""",
+                (checked_at, peer, peer),
+            ).fetchall()
+        grant_ids = [
+            grant.grant_id
+            for grant in (self._grant(row) for row in rows)
+            if grant.object_refs.intersection(blocked)
+            and self.is_effective(grant.grant_id, now=checked_at)
+        ]
+        if not grant_ids:
+            return 0
+        with self._db() as db:
+            cursor = db.executemany(
+                "UPDATE capability_grant SET revoked=1 WHERE grant_id=?",
+                [(grant_id,) for grant_id in grant_ids],
+            )
+            return cursor.rowcount
+
     def get(self, grant_id: str) -> CapabilityGrant | None:
         with self._db() as db:
             row = db.execute(
