@@ -1,3 +1,4 @@
+import base64
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +46,31 @@ class VaultAuditTests(unittest.TestCase):
             self.assertIn("vault_credential_written", operations)
             self.assertIn("vault_backup_exported", operations)
             self.assertIn("vault_credential_deleted", operations)
+
+    def test_recovery_lifecycle_is_audited_without_recovery_key_material(self):
+        with tempfile.TemporaryDirectory() as temp:
+            audit = CapturingAudit()
+            vault = PasswordVault(Path(temp), audit_port=audit)
+            key = vault.create("alice", "correct horse battery staple")
+
+            first = vault.enable_recovery("alice", key)
+            vault.unlock_with_recovery("alice", first.recovery_key)
+            vault.export_recovery_bundle("alice", key)
+            second = vault.rotate_recovery("alice", key)
+            vault.unlock_with_recovery("alice", second.recovery_key)
+            vault.disable_recovery("alice", key)
+
+            serialized = repr(audit.events)
+            for recovery_key in (first.recovery_key, second.recovery_key):
+                self.assertNotIn(repr(recovery_key), serialized)
+                encoded = base64.urlsafe_b64encode(recovery_key).decode("ascii")
+                self.assertNotIn(encoded, serialized)
+            operations = [event.operation for event in audit.events]
+            self.assertIn("vault_recovery_enabled", operations)
+            self.assertIn("vault_recovered", operations)
+            self.assertIn("vault_recovery_bundle_exported", operations)
+            self.assertIn("vault_recovery_rotated", operations)
+            self.assertIn("vault_recovery_disabled", operations)
 
     def test_unlock_and_master_password_change_are_audited(self):
         with tempfile.TemporaryDirectory() as temp:
