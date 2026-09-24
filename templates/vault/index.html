@@ -130,7 +130,7 @@
         <div class="card-header"><strong>Credentials durchsuchen</strong></div>
         <div class="card-body border-bottom">
           <form method="get" class="row g-2" role="search" aria-label="Credentials durchsuchen">
-            <div class="col-md-5"><label class="form-label" for="vault-q">Text</label><input id="vault-q" name="q" value="{{ request.args.get('q','') }}" class="form-control"></div>
+            <div class="col-md-5"><label class="form-label" for="vault-q">Text</label><input id="vault-q" name="q" type="search" value="{{ request.args.get('q','') }}" class="form-control"></div>
             <div class="col-md-4"><label class="form-label" for="vault-domain">Domain</label><input id="vault-domain" name="domain" value="{{ request.args.get('domain','') }}" class="form-control"></div>
             <div class="col-md-3"><label class="form-label" for="vault-email">E-Mail</label><input id="vault-email" name="email" value="{{ request.args.get('email','') }}" class="form-control"></div>
             <div class="col-md-5"><label class="form-label" for="vault-username">Benutzername</label><input id="vault-username" name="username" value="{{ request.args.get('username','') }}" class="form-control"></div>
