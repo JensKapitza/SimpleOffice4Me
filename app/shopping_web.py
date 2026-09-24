@@ -55,6 +55,7 @@ def index():
         permissions=permissions,
         status_labels=STATUS_LABELS,
         store_groups=store.items_by_store(actor),
+        products=store.products(actor, limit=8),
         show_bought=show_bought,
     )
 
@@ -91,12 +92,27 @@ def archive_list(list_id: str):
 def add_item(list_id: str):
     values = {
         key: request.form.get(key, "")
-        for key in ("quantity", "unit", "note", "category", "store", "barcode", "priority")
+        for key in (
+            "quantity", "unit", "note", "category", "store", "barcode", "priority",
+            "brand", "pack_size", "price", "request_id",
+        )
     }
+    sync_request = request.headers.get("X-Shopping-Sync", "") == "1"
     try:
         item = _store().add_item(list_id, request.form.get("name", ""), _actor(), values)
+        if sync_request:
+            return jsonify({
+                "ok": True,
+                "item_id": item["item_id"],
+                "redirect": url_for("shopping.index", list_id=list_id),
+            })
         flash(f"{item['name']} wurde hinzugefügt.")
     except ValueError:
+        if sync_request:
+            return jsonify({
+                "ok": False,
+                "error": "Artikel konnte nicht hinzugefügt werden. Eingaben und Rechte prüfen.",
+            }), 409
         flash("Artikel konnte nicht hinzugefügt werden. Eingaben und Barcode prüfen.")
     return _back(list_id)
 
@@ -122,6 +138,18 @@ def item_status(item_id: str):
     return _back()
 
 
+@bp.post("/products/<product_id>/favorite")
+@login_required
+def product_favorite(product_id: str):
+    favorite = request.form.get("favorite", "1").strip() == "1"
+    try:
+        _store().set_product_favorite(product_id, _actor(), favorite)
+        flash("Produkt-Favorit aktualisiert.")
+    except ValueError:
+        flash("Produkt konnte nicht geändert werden.")
+    return _back()
+
+
 @bp.get("/barcode")
 @login_required
 def barcode_lookup():
@@ -137,7 +165,10 @@ def barcode_lookup():
     if known:
         payload["item"] = {
             key: known.get(key, "")
-            for key in ("name", "quantity", "unit", "category", "store")
+            for key in (
+                "name", "quantity", "unit", "category", "store",
+                "brand", "pack_size", "price",
+            )
         }
     response: Response = jsonify(payload)
     response.headers["Cache-Control"] = "private, no-store"
