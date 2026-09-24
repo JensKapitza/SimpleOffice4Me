@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .document_store import CONTROL_DIR
 from .v2.security_classes import VAULT_SECURITY_CLASS
+from .v2.vault_payload_store import VaultPayloadStore
 from .v2.contracts import AuditEvent, AuditPort
 from .v2.adapters.audit import RevisionHistoryAuditAdapter
 from .v2.vault_key_hierarchy import (
@@ -42,6 +43,7 @@ from .v2.vault_key_hierarchy import (
 )
 
 SCHEMA_VERSION = 2
+DB_SCHEMA_VERSION = 3
 SUPPORTED_BACKUP_VERSIONS = {1, 2}
 VAULT_FORMAT = "simpleoffice-password-vault"
 KDF_N = 2**15
@@ -199,7 +201,15 @@ class PasswordVault:
                 db.execute("ALTER TABLE vault_profile ADD COLUMN key_protection TEXT NOT NULL DEFAULT ''")
             if "recovery_record" not in columns:
                 db.execute("ALTER TABLE vault_profile ADD COLUMN recovery_record TEXT NOT NULL DEFAULT ''")
-            db.execute("PRAGMA user_version=2")
+            entry_columns = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(vault_entry)").fetchall()
+            }
+            if "payload_object_id" not in entry_columns:
+                db.execute("ALTER TABLE vault_entry ADD COLUMN payload_object_id TEXT NOT NULL DEFAULT ''")
+            if "payload_object_version" not in entry_columns:
+                db.execute("ALTER TABLE vault_entry ADD COLUMN payload_object_version TEXT NOT NULL DEFAULT ''")
+            db.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
         if os.name == "posix" and self.path.exists():
             try:
                 os.chmod(self.path, 0o600)
@@ -241,6 +251,87 @@ class PasswordVault:
             raise ValueError("Vault-Key ist ungültig oder die Schlüsselprüfung wurde verändert") from exc
         if marker != VAULT_KEY_CHECK:
             raise ValueError("Vault-Key ist ungültig oder die Schlüsselprüfung wurde verändert")
+
+    def _payload_store(self, user_id: str) -> VaultPayloadStore:
+        return VaultPayloadStore(self.root, str(user_id))
+
+    def _encrypted_envelope(
+        self,
+        user_id: str,
+        row: sqlite3.Row,
+        *,
+        store: VaultPayloadStore | None = None,
+    ) -> tuple[bytes, bytes]:
+        object_id = str(row["payload_object_id"] or "")
+        object_version = str(row["payload_object_version"] or "")
+        if bool(object_id) != bool(object_version):
+            raise RuntimeError("Vault-Payload-Referenz ist unvollständig")
+        if object_id:
+            source = store or self._payload_store(user_id)
+            return source.read(object_id, object_version)
+        nonce = bytes(row["nonce"])
+        ciphertext = bytes(row["ciphertext"])
+        if len(nonce) != 12 or not ciphertext:
+            raise RuntimeError("Vault-Payload ist unvollständig")
+        return nonce, ciphertext
+
+    def _migrate_payloads(self, user_id: str, vault_key: bytes) -> int:
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT * FROM vault_entry
+                   WHERE user_id=? AND payload_object_id='' AND payload_object_version=''
+                   ORDER BY entry_id""",
+                (str(user_id),),
+            ).fetchall()
+        if not rows:
+            return 0
+        store = self._payload_store(user_id)
+        migrated = 0
+        for row in rows:
+            nonce, ciphertext = self._encrypted_envelope(user_id, row, store=store)
+            try:
+                raw = AESGCM(bytes(vault_key)).decrypt(
+                    nonce,
+                    ciphertext,
+                    _entry_aad(str(user_id), str(row["entry_id"]), int(row["revision"])),
+                )
+                value = json.loads(raw)
+            except (InvalidTag, json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise RuntimeError(
+                    f"Vault-Eintrag {row['entry_id']} kann nicht in den V2 Object Store migriert werden"
+                ) from exc
+            if not isinstance(value, dict):
+                raise RuntimeError(
+                    f"Vault-Eintrag {row['entry_id']} kann nicht in den V2 Object Store migriert werden"
+                )
+            object_id, object_version = store.write(nonce, ciphertext)
+            with self._db() as db:
+                cursor = db.execute(
+                    """UPDATE vault_entry
+                       SET nonce=?,ciphertext=?,payload_object_id=?,payload_object_version=?
+                       WHERE user_id=? AND entry_id=? AND revision=?
+                         AND payload_object_id='' AND payload_object_version=''""",
+                    (
+                        b"",
+                        b"",
+                        object_id,
+                        object_version,
+                        str(user_id),
+                        str(row["entry_id"]),
+                        int(row["revision"]),
+                    ),
+                )
+            if cursor.rowcount:
+                migrated += 1
+        if migrated:
+            self._audit(
+                str(user_id),
+                "vault_payloads_migrated",
+                f"vault:{user_id}",
+                entries=migrated,
+                storage="v2-secret-object-store",
+            )
+        return migrated
 
     def create(self, user_id: str, master_password: str) -> bytes:
         user_id = str(user_id).strip()
@@ -315,6 +406,7 @@ class PasswordVault:
                     f"vault:{user_id}",
                     protection="v2-argon2id-aes256gcm",
                 )
+            self._migrate_payloads(user_id, vault_key)
             self._audit(user_id, "vault_unlocked", f"vault:{user_id}")
             return vault_key
         except (InvalidTag, ValueError) as exc:
@@ -442,6 +534,7 @@ class PasswordVault:
             except RuntimeError:
                 pass
             raise ValueError("Vault-Recovery-Key ist ungültig oder der Vault wurde verändert") from exc
+        self._migrate_payloads(user, vault_key)
         self._audit(user, "vault_recovered", f"vault:{user}")
         return vault_key
 
@@ -471,18 +564,53 @@ class PasswordVault:
             raise ValueError("Ungültige Vault-Eintrags-ID") from exc
         normalized = _normalize_payload(payload)
         with self._db() as db:
-            current = db.execute("SELECT revision,created_at FROM vault_entry WHERE user_id=? AND entry_id=?", (user_id, entry_id)).fetchone()
-            revision = int(current["revision"]) + 1 if current else 1
-            created_at = int(current["created_at"]) if current else _now()
-            nonce = secrets.token_bytes(12)
-            ciphertext = AESGCM(vault_key).encrypt(nonce, _canonical(normalized), _entry_aad(user_id, entry_id, revision))
-            timestamp = _now()
+            current = db.execute(
+                "SELECT revision,created_at FROM vault_entry WHERE user_id=? AND entry_id=?",
+                (user_id, entry_id),
+            ).fetchone()
+        expected_revision = int(current["revision"]) if current else None
+        revision = expected_revision + 1 if expected_revision is not None else 1
+        created_at = int(current["created_at"]) if current else _now()
+        nonce = secrets.token_bytes(12)
+        ciphertext = AESGCM(vault_key).encrypt(
+            nonce,
+            _canonical(normalized),
+            _entry_aad(user_id, entry_id, revision),
+        )
+        object_id, object_version = self._payload_store(user_id).write(nonce, ciphertext)
+        timestamp = _now()
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            latest = db.execute(
+                "SELECT revision FROM vault_entry WHERE user_id=? AND entry_id=?",
+                (user_id, entry_id),
+            ).fetchone()
+            if expected_revision is None:
+                if latest is not None:
+                    raise ValueError("Vault-Eintrag wurde parallel angelegt")
+            elif latest is None or int(latest["revision"]) != expected_revision:
+                raise ValueError("Vault-Eintrag wurde parallel geändert")
             db.execute(
-                """INSERT INTO vault_entry(user_id,entry_id,revision,nonce,ciphertext,created_at,updated_at,deleted_at)
-                   VALUES(?,?,?,?,?,?,?,NULL)
-                   ON CONFLICT(user_id,entry_id) DO UPDATE SET revision=excluded.revision,nonce=excluded.nonce,
-                     ciphertext=excluded.ciphertext,updated_at=excluded.updated_at,deleted_at=NULL""",
-                (user_id, entry_id, revision, nonce, ciphertext, created_at, timestamp),
+                """INSERT INTO vault_entry(
+                       user_id,entry_id,revision,nonce,ciphertext,created_at,updated_at,deleted_at,
+                       payload_object_id,payload_object_version
+                   ) VALUES(?,?,?,?,?,?,?,NULL,?,?)
+                   ON CONFLICT(user_id,entry_id) DO UPDATE SET
+                     revision=excluded.revision,nonce=excluded.nonce,ciphertext=excluded.ciphertext,
+                     updated_at=excluded.updated_at,deleted_at=NULL,
+                     payload_object_id=excluded.payload_object_id,
+                     payload_object_version=excluded.payload_object_version""",
+                (
+                    user_id,
+                    entry_id,
+                    revision,
+                    b"",
+                    b"",
+                    created_at,
+                    timestamp,
+                    object_id,
+                    object_version,
+                ),
             )
         self._audit(
             user_id,
@@ -490,6 +618,7 @@ class PasswordVault:
             f"vault-entry:{entry_id}",
             revision=revision,
             entry_type=str(normalized.get("type") or "login"),
+            storage="v2-secret-object-store",
         )
         return {"entry_id": entry_id, "revision": revision, "updated_at": timestamp}
 
@@ -512,14 +641,17 @@ class PasswordVault:
                     (str(user_id),),
                 ).fetchall()
         result = []
+        store = self._payload_store(str(user_id))
         for row in rows:
             try:
+                nonce, ciphertext = self._encrypted_envelope(str(user_id), row, store=store)
                 raw = AESGCM(vault_key).decrypt(
-                    bytes(row["nonce"]), bytes(row["ciphertext"]),
+                    nonce,
+                    ciphertext,
                     _entry_aad(str(user_id), str(row["entry_id"]), int(row["revision"])),
                 )
                 payload = json.loads(raw)
-            except (InvalidTag, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            except (InvalidTag, json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError) as exc:
                 raise RuntimeError(f"Vault-Eintrag {row['entry_id']} ist beschädigt") from exc
             result.append({
                 "entry_id": row["entry_id"], "revision": row["revision"],
@@ -534,6 +666,18 @@ class PasswordVault:
             include_deleted=bool(include_deleted),
         )
         return result
+
+    def _backup_entry(self, user_id: str, row: sqlite3.Row) -> dict[str, Any]:
+        nonce, ciphertext = self._encrypted_envelope(str(user_id), row)
+        return {
+            "entry_id": row["entry_id"],
+            "revision": row["revision"],
+            "nonce": _b64(nonce),
+            "ciphertext": _b64(ciphertext),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "deleted_at": row["deleted_at"],
+        }
 
     def export_backup(self, user_id: str) -> bytes:
         """Export only already-encrypted material; no master password is required."""
@@ -557,14 +701,7 @@ class PasswordVault:
                 "key_protection": str(profile["key_protection"] or ""),
                 "recovery_record": str(profile["recovery_record"] or ""),
             },
-            "entries": [
-                {
-                    "entry_id": row["entry_id"], "revision": row["revision"],
-                    "nonce": _b64(bytes(row["nonce"])), "ciphertext": _b64(bytes(row["ciphertext"])),
-                    "created_at": row["created_at"], "updated_at": row["updated_at"], "deleted_at": row["deleted_at"],
-                }
-                for row in rows
-            ],
+            "entries": [self._backup_entry(str(user_id), row) for row in rows],
         }
         body = _canonical(payload)
         if len(body) > MAX_BACKUP_BYTES:
