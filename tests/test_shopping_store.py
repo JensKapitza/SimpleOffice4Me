@@ -154,5 +154,64 @@ class ShoppingStoreTests(unittest.TestCase):
         self.assertEqual(["Batterien"], [row["name"] for rows in grouped.values() for row in rows])
 
 
+    def test_product_memory_tracks_metadata_favorite_and_purchases(self):
+        self.store.create_list("Woche", "alice", list_id="product-memory", store="Lidl")
+        item = self.store.add_item(
+            "product-memory",
+            "Haferdrink",
+            "alice",
+            {
+                "barcode": "4006381333931",
+                "brand": "Testmarke",
+                "pack_size": "1 l",
+                "price": "1,49",
+                "category": "Getränke",
+            },
+        )
+        products = self.store.products("alice")
+        self.assertEqual(1, len(products))
+        self.assertEqual("Testmarke", products[0]["brand"])
+        self.assertEqual("1 l", products[0]["pack_size"])
+        self.assertEqual("1,49", products[0]["last_price"])
+        self.assertEqual(["Lidl"], products[0]["known_stores"])
+        self.assertEqual(0, products[0]["purchase_count"])
+
+        favorite = self.store.set_product_favorite(products[0]["product_id"], "alice", True)
+        self.assertTrue(favorite["favorite"])
+        self.store.update_item(item["item_id"], "alice", {"status": "bought"})
+        bought = self.store.products("alice")[0]
+        self.assertEqual(1, bought["purchase_count"])
+        self.assertTrue(bought["last_bought_at"])
+
+    def test_product_memory_without_barcode_reuses_stable_text_identity(self):
+        self.store.create_list("Woche", "alice", list_id="text-product")
+        self.store.add_item("text-product", "Äpfel", "alice", {"brand": "Bio", "unit": "kg"})
+        self.store.add_item("text-product", "Äpfel", "alice", {"brand": "Bio", "unit": "kg", "price": "2,99"})
+        products = self.store.products("alice")
+        self.assertEqual(1, len(products))
+        self.assertEqual("2,99", products[0]["last_price"])
+
+    def test_product_memory_is_private_to_actor(self):
+        self.store.create_list("Familie", "alice", list_id="private-memory")
+        self.store.share_list("private-memory", "alice", "bob", ["add"])
+        self.store.add_item(
+            "private-memory",
+            "Batterien",
+            "bob",
+            {"barcode": "4006381333931"},
+        )
+        self.assertEqual([], self.store.products("alice"))
+        self.assertEqual(["Batterien"], [row["name"] for row in self.store.products("bob")])
+
+    def test_request_id_makes_reconnect_add_idempotent(self):
+        self.store.create_list("Offline", "alice", list_id="offline")
+        values = {"request_id": "offline-123", "quantity": "2"}
+        first = self.store.add_item("offline", "Milch", "alice", values)
+        second = self.store.add_item("offline", "Milch", "alice", values)
+        self.assertEqual(first["item_id"], second["item_id"])
+        self.assertEqual(1, len(self.store.items("alice", list_id="offline")))
+        self.assertEqual(1, len(self.store.products("alice")))
+
+
 if __name__ == "__main__":
     unittest.main()
