@@ -436,6 +436,55 @@ def _storage_master_key(root: str | Path) -> bytes:
     return profile.unlock_with_password(STORAGE_PROFILE_ID, password)
 
 
+def _run_storage_trustee_command(args: argparse.Namespace) -> int | None:
+    if args.command == "storage-trustee-init":
+        if not args.apply:
+            print("read-only mode: add --apply to enable storage trustee recovery")
+            return 3
+        result = provision_storage_trustee(
+            args.root,
+            password_file=args.password_file,
+            trustee_key_output=args.trustee_key_output,
+            trustee_bundle_output=args.trustee_bundle_output,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-trustee-rotate":
+        if not args.apply:
+            print("read-only mode: add --apply to rotate the storage trustee key")
+            return 3
+        result = rotate_storage_trustee(
+            args.root,
+            password_file=args.password_file,
+            trustee_key_output=args.trustee_key_output,
+            trustee_bundle_output=args.trustee_bundle_output,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-trustee-disable":
+        if not args.apply:
+            print("read-only mode: add --apply to disable storage trustee recovery")
+            return 3
+        result = disable_storage_trustee(
+            args.root,
+            password_file=args.password_file,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "storage-trustee-export-bundle":
+        if not args.apply:
+            print("read-only mode: add --apply to export the trustee recovery bundle")
+            return 3
+        result = export_storage_trustee_bundle(args.root, args.output)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -535,50 +584,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
-    if args.command == "storage-trustee-init":
-        if not args.apply:
-            print("read-only mode: add --apply to enable storage trustee recovery")
-            return 3
-        result = provision_storage_trustee(
-            args.root,
-            password_file=args.password_file,
-            trustee_key_output=args.trustee_key_output,
-            trustee_bundle_output=args.trustee_bundle_output,
-        )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
-
-    if args.command == "storage-trustee-rotate":
-        if not args.apply:
-            print("read-only mode: add --apply to rotate the storage trustee key")
-            return 3
-        result = rotate_storage_trustee(
-            args.root,
-            password_file=args.password_file,
-            trustee_key_output=args.trustee_key_output,
-            trustee_bundle_output=args.trustee_bundle_output,
-        )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
-
-    if args.command == "storage-trustee-disable":
-        if not args.apply:
-            print("read-only mode: add --apply to disable storage trustee recovery")
-            return 3
-        result = disable_storage_trustee(
-            args.root,
-            password_file=args.password_file,
-        )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
-
-    if args.command == "storage-trustee-export-bundle":
-        if not args.apply:
-            print("read-only mode: add --apply to export the trustee recovery bundle")
-            return 3
-        result = export_storage_trustee_bundle(args.root, args.output)
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
+    trustee_result = _run_storage_trustee_command(args)
+    if trustee_result is not None:
+        return trustee_result
 
     if args.command == "storage-key-rotation-status":
         print(json.dumps(rotation_status(args.root), indent=2, sort_keys=True))
