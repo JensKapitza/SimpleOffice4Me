@@ -361,8 +361,16 @@ def import_browser_csv():
             for wrapper in vault.entries(_actor(), key)
             if isinstance(wrapper.get("data"), dict)
         }
-        duplicates = sum(1 for row in candidates if _candidate_key(row) in existing)
-        pending = [row for row in candidates if _candidate_key(row) not in existing]
+        seen = set(existing)
+        pending: list[dict[str, str]] = []
+        duplicates = 0
+        for row in candidates:
+            candidate = _candidate_key(row)
+            if candidate in seen:
+                duplicates += 1
+                continue
+            seen.add(candidate)
+            pending.append(row)
         if request.form.get("confirm") != "1":
             flash(
                 f"CSV geprüft: {len(candidates)} Zeilen, {duplicates} vorhandene Zugänge, "
