@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -598,6 +599,75 @@ class MasterKeyProfileStore:
                 self._write(profile_id, previous)
                 raise
             return RecoveryMaterial(recovery_key=recovery_key, recovery_bundle=self._bundle(updated))
+
+    def replace_master_key(
+        self,
+        profile_id: str,
+        password: str,
+        new_master_key: bytes,
+        *,
+        recovery_key: bytes,
+        expected_current_master_key: bytes | None = None,
+    ) -> RecoveryMaterial:
+        """Atomically replace one profile's master key and recovery material.
+
+        Payload encryption is deliberately outside this class. Callers must
+        first rewrap every dependent CEK and only then commit the new profile.
+        """
+
+        replacement = bytes(new_master_key)
+        if len(replacement) != 32:
+            raise ValueError("new master key must be 32 bytes")
+        recovery = bytes(recovery_key)
+        if len(recovery) != 32:
+            raise ValueError("recovery key must be 32 bytes")
+
+        with self._profile_lock(profile_id):
+            value, current_master = self._unlock_password(profile_id, password)
+            if (
+                expected_current_master_key is not None
+                and not hmac.compare_digest(
+                    current_master,
+                    bytes(expected_current_master_key),
+                )
+            ):
+                raise ValueError("master-key profile changed during rotation")
+
+            profile_hash = str(value["profile_hash"])
+            password_record = self.crypto.protect_master_key_with_password(
+                replacement,
+                _password(password),
+            )
+            recovery_record = self.crypto.protect_master_key_with_recovery_key(
+                replacement,
+                recovery,
+            )
+            key_check = self.crypto.encrypt(
+                _KEY_CHECK,
+                replacement,
+                purpose=_check_purpose(profile_hash),
+            )
+            previous = dict(value)
+            updated = dict(value)
+            updated["generation"] = int(value["generation"]) + 1
+            updated["updated_at"] = _now()
+            updated["password"] = _protected_to_dict(password_record)
+            updated["recovery"] = _protected_to_dict(recovery_record)
+            updated["key_check"] = _payload_to_dict(key_check)
+            self._write(profile_id, updated)
+            try:
+                self._audit(
+                    "master_key_rotated",
+                    profile_hash,
+                    generation=int(updated["generation"]),
+                )
+            except RuntimeError:
+                self._write(profile_id, previous)
+                raise
+            return RecoveryMaterial(
+                recovery_key=recovery,
+                recovery_bundle=self._bundle(updated),
+            )
 
     def status(self, profile_id: str) -> dict[str, Any]:
         value = self._read(profile_id)
