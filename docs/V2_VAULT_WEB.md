@@ -56,11 +56,13 @@ Supported export paths:
 - encrypted SimpleOffice vault backup
 - explicit browser-compatible plaintext CSV
 
-Plaintext CSV requires typing `EXPORT` in the UI and is returned as a transient
-no-store download. It is not written into the managed document tree.
+Plaintext CSV requires both re-entering the current master password and typing
+`EXPORT` in the UI. It is returned as a transient no-store download and is not
+written into the managed document tree.
 
-Encrypted backup replacement requires typing `REPLACE`. After replacement, any
-existing in-memory unlock is discarded and the imported vault must be unlocked again.
+Encrypted backup replacement requires re-entering the current master password and
+typing `REPLACE`. After replacement, any existing in-memory unlock is discarded and
+the imported vault must be unlocked again.
 
 ## Mail references
 
