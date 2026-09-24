@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import sqlite3
+from ..sqlite_utils import connect as sqlite_connect
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -247,7 +248,7 @@ def _catalog_snapshot_read_only(source: Path) -> dict[str, dict[str, Any]]:
         return {}
     uri = path.resolve().as_uri() + "?mode=ro&immutable=1"
     try:
-        with sqlite3.connect(uri, uri=True) as db:
+        with sqlite_connect(uri, uri=True) as db:
             db.row_factory = sqlite3.Row
             meta = dict(db.execute("SELECT key,value FROM catalog_meta").fetchall())
             if (
