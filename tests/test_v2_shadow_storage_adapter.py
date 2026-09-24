@@ -1,4 +1,5 @@
 import hashlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -68,6 +69,33 @@ class ShadowStorageAdapterTests(unittest.TestCase):
             (self.root / metadata["last_path"]).read_bytes(),
         )
         self.assertFalse(load_cutover_state(self.root).dirty)
+
+    def test_verified_stream_read_checks_shadow_without_hiding_v1_content(self):
+        object_id = LogicalObjectId(self.document["document_id"])
+        target = io.BytesIO()
+        streamed = self.adapter.copy_verified_to(object_id, target)
+
+        self.assertTrue(streamed.ok)
+        self.assertEqual(b"original", target.getvalue())
+        self.assertFalse(load_cutover_state(self.root).dirty)
+
+        row = self.catalog.get(object_id).value
+        bad = self.blobs.write(object_id, b"different")
+        updated = self.catalog.update_content(
+            object_id,
+            version_id=bad.version_id,
+            size=bad.size,
+            content_sha256=bad.content_sha256,
+            expected_version_id=row.version_id,
+        )
+        self.assertTrue(updated.ok)
+
+        second = io.BytesIO()
+        drifted = self.adapter.copy_verified_to(object_id, second)
+
+        self.assertTrue(drifted.ok)
+        self.assertEqual(b"original", second.getvalue())
+        self.assertTrue(load_cutover_state(self.root).dirty)
 
     def test_create_copy_move_and_delete_are_mirrored(self):
         created = self.adapter.create_bytes(
