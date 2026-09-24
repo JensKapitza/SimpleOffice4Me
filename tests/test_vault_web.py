@@ -214,6 +214,16 @@ class VaultWebTests(unittest.TestCase):
         self.assertEqual(302, response.status_code)
         self.assertTrue(response.headers["Location"].endswith("/vault/"))
 
+    def test_plaintext_export_storage_failure_is_handled_without_http_500(self):
+        self._setup()
+        with patch.object(PasswordVault, "unlock", side_effect=OSError("storage unavailable")):
+            response = self.client.post(
+                "/vault/export/browser-csv",
+                data={"confirm": "EXPORT", "master_password": self.password},
+            )
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(response.headers["Location"].endswith("/vault/"))
+
     def test_plaintext_export_requires_explicit_confirmation_and_no_store(self):
         self._setup()
         self._add()
