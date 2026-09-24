@@ -195,10 +195,15 @@
     const response = await fetch(entry.action, {
       method: 'POST',
       body: new URLSearchParams(fields),
-      headers: {Accept: 'text/html'},
+      headers: {Accept: 'application/json', 'X-Shopping-Sync': '1'},
       cache: 'no-store',
     });
-    return {ok: response.ok, retry: response.status >= 500, url: response.url};
+    const payload = await response.json().catch(() => ({}));
+    return {
+      ok: response.ok,
+      retry: !response.ok,
+      url: payload.redirect || window.location.href,
+    };
   };
 
   const resetQueuedForm = () => {
@@ -217,8 +222,10 @@
     for (const entry of rows) {
       try {
         const result = await postEntry(entry);
-        if (!result.ok && result.retry) remaining.push(entry);
-        if (!result.ok && !result.retry) rejected += 1;
+        if (!result.ok) {
+          remaining.push(entry);
+          rejected += 1;
+        }
       } catch (_error) {
         remaining.push(entry);
       }
@@ -227,7 +234,7 @@
     if (!remaining.length && !rejected) {
       setStatus('Offline gespeicherte Einkäufe wurden synchronisiert.', 'success');
     } else if (rejected) {
-      setStatus('Mindestens ein offline gespeicherter Einkauf wurde vom Server abgelehnt.', 'warning');
+      setStatus('Mindestens ein offline gespeicherter Einkauf wurde vom Server abgelehnt und bleibt lokal vorgemerkt.', 'warning');
     }
   };
 
