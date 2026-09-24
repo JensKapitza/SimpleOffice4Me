@@ -65,7 +65,7 @@ class V2VaultServiceTests(unittest.TestCase):
                 "name": "Example account",
                 "username": "alpha",
                 "email": "identity@example.org",
-                "url": "https://login.example.com/account",
+                "url": "https://login.example.com/account?token=private-query-marker#fragment",
                 "urls": [
                     "https://support.example.com/security",
                     {"url": "https://login.example.com/profile"},
@@ -150,6 +150,26 @@ class V2VaultServiceTests(unittest.TestCase):
         self.assertEqual(
             "not-indexed-password-marker",
             explicit["data"]["password"],
+        )
+
+    def test_search_projection_strips_url_query_fragment_and_userinfo(self):
+        rows = self.service.search(
+            "alice",
+            self.key,
+            VaultSearchFilters(username="alpha"),
+        )
+
+        self.assertEqual(1, len(rows))
+        self.assertIn("https://login.example.com/account", rows[0]["urls"])
+        self.assertNotIn("private-query-marker", repr(rows[0]))
+        self.assertNotIn("#fragment", repr(rows[0]))
+        self.assertEqual(
+            [],
+            self.service.search(
+                "alice",
+                self.key,
+                VaultSearchFilters(text="private-query-marker"),
+            ),
         )
 
     def test_secret_fields_are_not_searchable(self):
