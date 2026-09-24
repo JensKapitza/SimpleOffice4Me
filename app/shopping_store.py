@@ -77,19 +77,110 @@ class ShoppingStore:
         if not isinstance(value, dict):
             value = {}
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "lists": list(value.get("lists", [])) if isinstance(value.get("lists"), list) else [],
             "items": list(value.get("items", [])) if isinstance(value.get("items"), list) else [],
             "shares": list(value.get("shares", [])) if isinstance(value.get("shares"), list) else [],
+            "products": list(value.get("products", [])) if isinstance(value.get("products"), list) else [],
         }
 
     def _write(self, data: dict[str, Any]) -> None:
-        data["schema_version"] = 2
+        data["schema_version"] = 3
         atomic_json_write(self.path, data)
 
     @staticmethod
     def _text(value: Any, limit: int) -> str:
         return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split())[:limit]
+
+    @classmethod
+    def _product_key(cls, values: dict[str, Any]) -> str:
+        barcode = str(values.get("barcode", "") or "").strip()
+        if barcode:
+            return f"barcode:{barcode}"
+        fields = (
+            cls._text(values.get("name", ""), 300).casefold(),
+            cls._text(values.get("brand", ""), 160).casefold(),
+            cls._text(values.get("pack_size", ""), 120).casefold(),
+            cls._text(values.get("unit", ""), 40).casefold(),
+        )
+        return "text:" + "|".join(fields)
+
+    def _remember_product(
+        self,
+        data: dict[str, Any],
+        actor: str,
+        item: dict[str, Any],
+        *,
+        bought: bool = False,
+    ) -> dict[str, Any] | None:
+        name = self._text(item.get("name", ""), 300)
+        owner = self._text(actor, 200)
+        if not name or not owner:
+            return None
+        product_key = self._product_key(item)
+        row = next(
+            (
+                product for product in data["products"]
+                if product.get("owner") == owner and product.get("product_key") == product_key
+            ),
+            None,
+        )
+        now = utc_now()
+        if row is None:
+            row = {
+                "product_id": str(uuid.uuid4()),
+                "owner": owner,
+                "product_key": product_key,
+                "barcode": str(item.get("barcode", "") or ""),
+                "name": name,
+                "brand": "",
+                "pack_size": "",
+                "quantity": "",
+                "unit": "",
+                "category": "",
+                "known_stores": [],
+                "last_store": "",
+                "last_price": "",
+                "favorite": False,
+                "purchase_count": 0,
+                "last_bought_at": "",
+                "created_at": now,
+                "updated_at": now,
+            }
+            data["products"].append(row)
+        for key, limit in (
+            ("name", 300),
+            ("brand", 160),
+            ("pack_size", 120),
+            ("quantity", 80),
+            ("unit", 40),
+            ("category", 120),
+        ):
+            value = self._text(item.get(key, ""), limit)
+            if value:
+                row[key] = value
+        barcode = str(item.get("barcode", "") or "").strip()
+        if barcode:
+            row["barcode"] = barcode
+        store = self._text(item.get("store", ""), 240)
+        if store:
+            row["last_store"] = store
+            known = [
+                self._text(value, 240)
+                for value in row.get("known_stores", [])
+                if self._text(value, 240)
+            ]
+            if store.casefold() not in {value.casefold() for value in known}:
+                known.append(store)
+            row["known_stores"] = known[-20:]
+        price = self._text(item.get("price", ""), 80)
+        if price:
+            row["last_price"] = price
+        if bought:
+            row["purchase_count"] = int(row.get("purchase_count", 0) or 0) + 1
+            row["last_bought_at"] = now
+        row["updated_at"] = now
+        return row
 
     @staticmethod
     def _permissions(values: Any) -> list[str]:
@@ -282,11 +373,68 @@ class ShoppingStore:
             rows.sort(key=lambda row: (-int(row.get("priority", 0)), str(row.get("created_at", ""))))
         return dict(sorted(grouped.items(), key=lambda item: item[0].casefold()))
 
+    def products(self, actor: str, *, limit: int = 50) -> list[dict[str, Any]]:
+        """Return private local product memory for one actor."""
+        owner = self._text(actor, 200)
+        rows = [
+            dict(row) for row in self._read()["products"]
+            if row.get("owner") == owner
+        ]
+        rows.sort(
+            key=lambda row: (
+                not bool(row.get("favorite")),
+                -int(row.get("purchase_count", 0) or 0),
+                str(row.get("last_bought_at", "")),
+                str(row.get("updated_at", "")),
+            ),
+            reverse=False,
+        )
+        return rows[:max(0, min(int(limit), 200))]
+
+    def set_product_favorite(self, product_id: str, actor: str, favorite: bool) -> dict[str, Any]:
+        owner = self._text(actor, 200)
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            row = next(
+                (
+                    product for product in data["products"]
+                    if product.get("product_id") == product_id and product.get("owner") == owner
+                ),
+                None,
+            )
+            if row is None:
+                raise ValueError("shopping product not found")
+            row["favorite"] = bool(favorite)
+            row["updated_at"] = utc_now()
+            self._write(data)
+        self.history.record(
+            "shopping_product_favorite_updated",
+            owner,
+            "shopping-product",
+            product_id,
+            {"favorite": bool(favorite)},
+        )
+        return dict(row)
+
     def find_known_barcode(self, actor: str, barcode: str) -> dict[str, Any] | None:
-        """Return the newest visible local item for a validated barcode."""
+        """Return private product memory first, then newest visible list knowledge."""
         code = normalize_barcode(barcode)
         if not code:
             return None
+        owner = self._text(actor, 200)
+        data = self._read()
+        product = next(
+            (
+                row for row in data["products"]
+                if row.get("owner") == owner and str(row.get("barcode", "")) == code
+            ),
+            None,
+        )
+        if product is not None:
+            result = dict(product)
+            result["store"] = str(result.get("last_store", ""))
+            result["price"] = str(result.get("last_price", ""))
+            return result
         rows = [
             row for row in self.items(actor, include_bought=True)
             if str(row.get("barcode", "")) == code
@@ -309,6 +457,9 @@ class ShoppingStore:
         except (TypeError, ValueError) as exc:
             raise ValueError("invalid shopping item priority") from exc
         now = utc_now()
+        request_id = self._text(values.get("request_id", ""), 80)
+        if request_id and not _SAFE_ID.fullmatch(request_id):
+            raise ValueError("invalid shopping request identifier")
         item = {
             "item_id": str(uuid.uuid4()), "list_id": list_id, "name": name,
             "quantity": self._text(values.get("quantity", ""), 80),
@@ -316,16 +467,33 @@ class ShoppingStore:
             "note": self._text(values.get("note", ""), 2000),
             "category": self._text(values.get("category", ""), 120),
             "store": self._text(values.get("store", ""), 240),
+            "brand": self._text(values.get("brand", ""), 160),
+            "pack_size": self._text(values.get("pack_size", ""), 120),
+            "price": self._text(values.get("price", ""), 80),
             "barcode": normalize_barcode(values.get("barcode", "")),
             "priority": priority, "status": status,
             "assigned_to": self._text(values.get("assigned_to", ""), 200),
+            "request_id": request_id,
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
             "completed_at": now if status == "bought" else "",
         }
         with exclusive_file_lock(self.lock):
             data = self._read()
             self._require(data, list_id, actor, "add")
+            if request_id:
+                existing = next(
+                    (
+                        row for row in data["items"]
+                        if row.get("list_id") == list_id
+                        and row.get("created_by") == actor
+                        and row.get("request_id") == request_id
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    return dict(existing)
             data["items"].append(item)
+            self._remember_product(data, actor, item, bought=status == "bought")
             self._write(data)
         self.history.record("shopping_item_created", actor, "shopping-item", item["item_id"], item)
         return dict(item)
@@ -340,7 +508,10 @@ class ShoppingStore:
             permissions = self._share_permissions(data, list_id, actor)
             if not permissions:
                 raise ValueError("shopping item not found")
-            content_keys = {"name", "quantity", "unit", "note", "category", "store", "barcode", "priority"}
+            content_keys = {
+                "name", "quantity", "unit", "note", "category", "store", "barcode",
+                "priority", "brand", "pack_size", "price",
+            }
             completion_keys = {"status", "assigned_to"}
             if content_keys.intersection(values) and "edit" not in permissions:
                 raise ValueError("shopping item not found")
@@ -353,8 +524,11 @@ class ShoppingStore:
                     raise ValueError("invalid shopping item status")
                 item["status"] = status
                 item["completed_at"] = utc_now() if status == "bought" else ""
-            for key, limit in (("name", 300), ("quantity", 80), ("unit", 40), ("note", 2000),
-                               ("category", 120), ("store", 240), ("assigned_to", 200)):
+            for key, limit in (
+                ("name", 300), ("quantity", 80), ("unit", 40), ("note", 2000),
+                ("category", 120), ("store", 240), ("assigned_to", 200),
+                ("brand", 160), ("pack_size", 120), ("price", 80),
+            ):
                 if key in values:
                     item[key] = self._text(values[key], limit)
             if "barcode" in values:
@@ -367,6 +541,12 @@ class ShoppingStore:
                 except (TypeError, ValueError) as exc:
                     raise ValueError("invalid shopping item priority") from exc
             item.update({"updated_at": utc_now(), "updated_by": actor})
+            self._remember_product(
+                data,
+                actor,
+                item,
+                bought=before.get("status") != "bought" and item.get("status") == "bought",
+            )
             self._write(data)
         self.history.record("shopping_item_updated", actor, "shopping-item", item_id, {"before": before, "after": item})
         return dict(item)
