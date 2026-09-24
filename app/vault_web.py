@@ -76,12 +76,30 @@ def _purge_unlocks(now: float) -> None:
 
 
 def _cache_unlock(vault_key: bytes) -> None:
+    previous = session.get("vault_unlock_token")
     token = secrets.token_urlsafe(32)
     now = time.monotonic()
     with _UNLOCK_LOCK:
         _purge_unlocks(now)
+        if isinstance(previous, str):
+            _UNLOCKS.pop(previous, None)
         _UNLOCKS[token] = (_actor(), bytes(vault_key), now + _unlock_seconds())
     session["vault_unlock_token"] = token
+
+
+def _clear_actor_unlocks(actor: str) -> None:
+    actor_id = str(actor)
+    with _UNLOCK_LOCK:
+        stale = [
+            token
+            for token, (cached_actor, _key, _expiry) in _UNLOCKS.items()
+            if cached_actor == actor_id
+        ]
+        for token in stale:
+            _UNLOCKS.pop(token, None)
+    token = session.get("vault_unlock_token")
+    if isinstance(token, str) and token in stale:
+        session.pop("vault_unlock_token", None)
 
 
 def _clear_unlock() -> None:
@@ -272,8 +290,10 @@ def change_master_password():
         flash("Die neuen Master-Passwörter stimmen nicht überein.")
         return _redirect_index()
     try:
-        vault.change_master_password(_actor(), old, new)
-        _cache_unlock(vault.unlock(_actor(), new))
+        actor = _actor()
+        vault.change_master_password(actor, old, new)
+        _clear_actor_unlocks(actor)
+        _cache_unlock(vault.unlock(actor, new))
         flash("Master-Passwort geändert.")
     except (RuntimeError, ValueError):
         flash("Master-Passwort konnte nicht geändert werden.")
