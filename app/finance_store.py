@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -38,7 +39,7 @@ class FinanceStore:
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
         self.control.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
