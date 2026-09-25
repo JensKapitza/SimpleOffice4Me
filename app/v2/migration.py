@@ -21,6 +21,11 @@ from typing import Any
 from .blob_store import BlobIntegrityError, BlobStore
 from .catalog import FORMAT_FAMILY as CATALOG_FORMAT_FAMILY, SCHEMA_VERSION as CATALOG_SCHEMA_VERSION, ObjectCatalog
 from .contracts import LogicalObjectId, StorageLocation
+from .metadata_migration import (
+    FORMAT_VERSION as METADATA_FORMAT_VERSION,
+    V2MetadataMigrationStore,
+    build_legacy_metadata_projection,
+)
 
 
 @dataclass(frozen=True)
@@ -325,6 +330,34 @@ def _write_migration_report(source: Path, report: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
+
+def _metadata_projection_for_plan_entry(
+    source: Path,
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    metadata_name = Path(str(entry.get("metadata") or "")).name
+    if not metadata_name:
+        raise ValueError("legacy metadata filename is missing")
+    metadata_path = source / ".simpleoffice-meta" / "documents" / metadata_name
+    if metadata_path.is_symlink() or not metadata_path.is_file():
+        raise ValueError("legacy metadata path is unsafe or missing")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("legacy metadata is unreadable") from exc
+    if not isinstance(metadata, dict):
+        raise ValueError("legacy metadata is not an object")
+    if str(metadata.get("document_id") or "") != str(entry.get("document_id") or ""):
+        raise ValueError("legacy metadata document id differs from migration plan")
+    return build_legacy_metadata_projection(
+        metadata,
+        current_path=str(entry["path"]),
+        current_size=int(entry["size"]),
+        current_sha256=str(entry["sha256"]),
+    )
+
+
+
 def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str, Any]:
     """Copy verified V1 content and register its logical V2 catalog state.
 
@@ -363,6 +396,8 @@ def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str,
         raise ValueError("existing V2 state conflicts with V1 documents: " + "; ".join(conflicts))
 
     catalog = ObjectCatalog(source)
+    metadata_store = V2MetadataMigrationStore(source)
+    metadata_results: Counter[str] = Counter()
     migrated = 0
     already_present = 0
     cataloged = 0
@@ -380,6 +415,10 @@ def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str,
             )
             already_present += 1
             already_cataloged += 1
+            metadata_status = metadata_store.write(
+                _metadata_projection_for_plan_entry(source, entry)
+            )
+            metadata_results[metadata_status] += 1
             continue
 
         if store.contains(object_id):
@@ -416,6 +455,10 @@ def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str,
                 f"{registered.error.message if registered.error else 'unknown conflict'}"
             )
         cataloged += 1
+        metadata_status = metadata_store.write(
+            _metadata_projection_for_plan_entry(source, entry)
+        )
+        metadata_results[metadata_status] += 1
 
     report = {
         "format": "simpleoffice-v2-migration-transfer",
@@ -427,6 +470,10 @@ def transfer_legacy_documents(root: str | Path, backup: str | Path) -> dict[str,
         "already_present_documents": already_present,
         "cataloged_documents": cataloged,
         "already_cataloged_documents": already_cataloged,
+        "metadata_created_documents": int(metadata_results["created"]),
+        "metadata_updated_documents": int(metadata_results["updated"]),
+        "metadata_unchanged_documents": int(metadata_results["unchanged"]),
+        "metadata_format_version": METADATA_FORMAT_VERSION,
         "source_bytes": int(plan["bytes"]),
         "migrated_bytes": migrated_bytes,
         "backup_name": backup_path.name,
@@ -484,13 +531,25 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         )
         if cataloged != int(plan["documents"]):
             blockers.append("migration transfer report does not cover every V2 catalog entry")
+        metadata_projected = (
+            int(transfer.get("metadata_created_documents", 0))
+            + int(transfer.get("metadata_updated_documents", 0))
+            + int(transfer.get("metadata_unchanged_documents", 0))
+        )
+        if metadata_projected != int(plan["documents"]):
+            blockers.append("migration transfer report does not cover every V2 metadata projection")
+        if int(transfer.get("metadata_format_version", 0)) != METADATA_FORMAT_VERSION:
+            blockers.append("migration transfer report has an unsupported metadata format")
 
     blob_base = source / ".simpleoffice-v2" / "blob-store"
     catalog_path = source / ".simpleoffice-v2" / "catalog.sqlite3"
+    metadata_path = source / ".simpleoffice-v2" / "metadata"
     if not blob_base.is_dir():
         blockers.append("V2 blob store is missing after migration transfer")
     if not catalog_path.is_file():
         blockers.append("V2 object catalog is missing after migration transfer")
+    if not metadata_path.is_dir():
+        blockers.append("V2 metadata projection is missing after migration transfer")
     if not transfer or blockers:
         return {
             "format": "simpleoffice-v2-migration-verification",
@@ -519,7 +578,9 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         }
 
     store = BlobStore(source)
+    metadata_store = V2MetadataMigrationStore(source)
     verified = 0
+    verified_metadata = 0
     for entry in plan["entries"]:
         if entry.get("status") != "ready":
             continue
@@ -555,6 +616,15 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
             blockers.append(f"V2 object differs from V1/catalog state: {object_id.value}")
             continue
         verified += 1
+        try:
+            expected_metadata = _metadata_projection_for_plan_entry(source, entry)
+        except ValueError as exc:
+            blockers.append(f"V2 metadata projection cannot be rebuilt: {object_id.value}: {exc}")
+            continue
+        if not metadata_store.verify(expected_metadata):
+            blockers.append(f"V2 metadata projection differs from V1 source: {object_id.value}")
+            continue
+        verified_metadata += 1
 
     return {
         "format": "simpleoffice-v2-migration-verification",
@@ -562,6 +632,7 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         "ready": not blockers,
         "documents": int(plan["documents"]),
         "verified_documents": verified,
+        "verified_metadata_documents": verified_metadata,
         "source_bytes": int(plan["bytes"]),
         "blockers": blockers,
     }
