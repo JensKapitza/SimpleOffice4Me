@@ -21,7 +21,8 @@ from flask import current_app
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
-from .safe_paths import normalize_path, resolve_directory_under, resolve_file_under
+from .safe_paths import normalize_path, resolve_directory_under
+from .v2.document_access import materialized_document
 
 
 CATEGORIES = ("documents", "images", "media", "notes", "contacts", "calendar", "forms", "projects", "settings")
@@ -222,15 +223,20 @@ class ReplicationStore:
         store = DocumentStore(self.root)
         if categories & {"documents", "images", "media"}:
             for document in store.list_documents():
-                try:
-                    source = resolve_file_under(self.root, str(document.get("last_path", "")))
-                except (OSError, ValueError):
-                    continue
-                suffix = source.suffix.lower()
+                suffix = Path(str(document.get("last_path", ""))).suffix.lower()
                 category = "images" if suffix in IMAGE_SUFFIXES else "media" if suffix in MEDIA_SUFFIXES else "documents"
                 if category not in categories or (tags and not tags.intersection(document.get("tags", []))):
                     continue
-                yield source, Path("documents") / document["document_id"] / source.name, category, document["document_id"]
+                try:
+                    with materialized_document(
+                        self.root,
+                        "replication-read",
+                        str(document["document_id"]),
+                        suffix=suffix,
+                    ) as source:
+                        yield source, Path("documents") / document["document_id"] / Path(str(document.get("last_path", "document"))).name, category, document["document_id"]
+                except (OSError, RuntimeError, ValueError):
+                    continue
         for category in categories:
             for filename in CONTROL_FILES.get(category, ()):
                 source = self.control / filename
