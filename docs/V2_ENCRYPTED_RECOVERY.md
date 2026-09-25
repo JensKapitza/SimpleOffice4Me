@@ -219,6 +219,44 @@ has a bounded path from discovery to authorized ciphertext retrieval and
 explicit remote storage, while key material and plaintext remain out of the
 Federation transport.
 
+## Recovery CLI peer search and fetch
+
+The independent recovery CLI can use the same descriptor-scoped Federation
+boundary without starting Flask or unlocking a normal web session.
+
+Query one configured peer for selected ciphertext chunks:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  encrypted-peer-availability \
+  --descriptor /media/recovery/object.recovery.json \
+  --peer PEER_ID \
+  --authorization-ref RECOVERY_GRANT_ID \
+  --chunk-index 0 \
+  --chunk-index 1
+```
+
+Fetch is read-only by default. Without `--apply`, the CLI only confirms that
+the selected peer reports the requested chunk as available:
+
+```bash
+simpleoffice-v2-recovery --root /srv/simpleoffice/documents \
+  encrypted-peer-fetch \
+  --descriptor /media/recovery/object.recovery.json \
+  --peer PEER_ID \
+  --authorization-ref RECOVERY_GRANT_ID \
+  --chunk-index 0
+```
+
+Add `--apply` to fetch the verified ciphertext and cache it below the private
+recovery-fragment area. The remote helper verifies descriptor binding, size and
+ciphertext SHA-256 before the local cache accepts the chunk. The cached fragment
+does not become an authoritative document merely because it was recovered from
+a peer.
+
+The peer ID and authorization reference identify already configured Federation
+state. Tokens, recovery keys and master keys are not command-line arguments.
+
 ## Damage behavior
 
 A corrupt, missing, reordered or substituted ciphertext chunk causes recovery
@@ -226,7 +264,6 @@ to fail closed. A damaged authenticated footer also prevents publication.
 
 This command recovers encrypted blob versions. Erasure-coded fragment recovery
 remains available through the separate `fragment-assess` and
-`fragment-recover` commands. The portable encrypted recovery descriptor now supplies the self-describing
-ciphertext references needed by a future authorized remote peer-fragment search.
-The network search/authorization protocol itself remains a separate
-federation/recovery step.
+`fragment-recover` commands. Descriptor-scoped remote availability, verified
+ciphertext retrieval and explicit remote storage are implemented through the
+authorized Federation recovery boundary described above.

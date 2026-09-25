@@ -21,6 +21,7 @@ from .cutover import (
 )
 from .encrypted_cutover import encrypted_blob_cutover
 from .encrypted_recovery import EncryptedBlobRecoveryService
+from .encrypted_recovery_search import EncryptedRecoveryChunkSearch
 from .encrypted_recovery_descriptor import (
     descriptor_summary,
     load_encrypted_recovery_descriptor,
@@ -64,6 +65,42 @@ from .zfec_codec import codec_for_plan
 
 
 _FRAGMENT_COMMANDS = {"fragment-assess", "fragment-recover"}
+_ENCRYPTED_PEER_COMMANDS = {
+    "encrypted-peer-availability",
+    "encrypted-peer-fetch",
+}
+
+
+def _add_encrypted_peer_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    fetch: bool = False,
+) -> None:
+    parser.add_argument(
+        "--descriptor",
+        required=True,
+        help="Portable encrypted recovery descriptor JSON",
+    )
+    parser.add_argument("--peer", required=True, help="Configured federation peer ID")
+    parser.add_argument(
+        "--authorization-ref",
+        required=True,
+        help="Descriptor-scoped recovery capability reference on the peer",
+    )
+    if fetch:
+        parser.add_argument("--chunk-index", required=True, type=int)
+        parser.add_argument("--apply", action="store_true")
+    else:
+        parser.add_argument(
+            "--chunk-index",
+            action="append",
+            type=int,
+            default=None,
+            dest="chunk_indexes",
+            help="Limit the query to one chunk index; repeat as needed",
+        )
+
+
 
 
 def _add_fragment_inputs(parser: argparse.ArgumentParser) -> None:
@@ -308,6 +345,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     encrypted_check.add_argument("descriptor")
 
+    encrypted_peer_availability = sub.add_parser(
+        "encrypted-peer-availability",
+        help="Query one authorized federation peer for descriptor-bound ciphertext chunks",
+    )
+    _add_encrypted_peer_arguments(encrypted_peer_availability)
+
+    encrypted_peer_fetch = sub.add_parser(
+        "encrypted-peer-fetch",
+        help="Fetch and cache one verified descriptor-bound ciphertext chunk from a peer",
+    )
+    _add_encrypted_peer_arguments(encrypted_peer_fetch, fetch=True)
+
     verify = sub.add_parser("verify", help="Verify one object/version or all versions")
     verify.add_argument("--object-id", default="")
     verify.add_argument("--version-id", default="")
@@ -501,6 +550,73 @@ def _run_encrypted_recovery(args: argparse.Namespace) -> int:
     return 1
 
 
+
+def _run_encrypted_peer_command(args: argparse.Namespace) -> int:
+    from ..federation_worker import (
+        remote_encrypted_recovery_availability,
+        remote_encrypted_recovery_chunk,
+    )
+
+    try:
+        descriptor = load_encrypted_recovery_descriptor(args.descriptor)
+        if args.command == "encrypted-peer-availability":
+            result = remote_encrypted_recovery_availability(
+                args.root,
+                args.peer,
+                descriptor,
+                args.authorization_ref,
+                chunk_indexes=args.chunk_indexes,
+            )
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+
+        chunk_index = int(args.chunk_index)
+        availability = remote_encrypted_recovery_availability(
+            args.root,
+            args.peer,
+            descriptor,
+            args.authorization_ref,
+            chunk_indexes=(chunk_index,),
+        )
+        available = chunk_index in set(availability["available_indexes"])
+        report = {
+            "descriptor_id": descriptor.get("descriptor_id", ""),
+            "peer_id": args.peer,
+            "chunk_index": chunk_index,
+            "available": available,
+            "cached": False,
+        }
+        if not available:
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 2
+        if not args.apply:
+            print(json.dumps(report, indent=2, sort_keys=True))
+            print("read-only mode: add --apply to fetch and cache the verified ciphertext chunk")
+            return 3
+
+        content = remote_encrypted_recovery_chunk(
+            args.root,
+            args.peer,
+            descriptor,
+            args.authorization_ref,
+            chunk_index,
+        )
+        EncryptedRecoveryChunkSearch(args.root).store_chunk(
+            descriptor,
+            chunk_index,
+            content,
+        )
+        report["cached"] = True
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    except (FileNotFoundError, OSError, RuntimeError, TypeError, ValueError):
+        print(json.dumps({
+            "ok": False,
+            "error": "encrypted peer recovery query or transfer failed",
+        }, indent=2, sort_keys=True))
+        return 2
+
+
 def _storage_master_key(root: str | Path) -> bytes:
     configured = str(os.environ.get(PASSWORD_FILE_ENV) or "").strip()
     if not configured:
@@ -597,6 +713,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_encrypted_descriptor_check(args)
     if not args.root:
         parser.error("--root is required for this command")
+    if args.command in _ENCRYPTED_PEER_COMMANDS:
+        return _run_encrypted_peer_command(args)
     migration_result = _run_migration_acceptance_command(args)
     if migration_result is not None:
         return migration_result

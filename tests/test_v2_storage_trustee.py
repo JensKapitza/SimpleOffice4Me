@@ -160,7 +160,7 @@ class StorageTrusteeTests(unittest.TestCase):
             "--trustee-bundle-output", str(bundle),
         ]
 
-        with redirect_stdout(io.StringIO()):
+        with redirect_stdout(io.StringIO()) as preview:
             preview_code = main(command)
         self.assertEqual(3, preview_code)
         self.assertFalse(key.exists())
@@ -203,6 +203,7 @@ class StorageTrusteeTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as preview:
             code = main(command)
         self.assertEqual(3, code)
+        self.assertIn("read-only mode", preview.getvalue())
         self.assertTrue(
             MasterKeyProfileStore(self.root, "test").status(STORAGE_PROFILE_ID)[
                 "trustee_configured"
