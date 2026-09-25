@@ -93,3 +93,33 @@ presentation namespace still use the compatibility filesystem/metadata model.
 A native FUSE/WinFSP mount is not implemented; WebDAV/SFTP provide the existing
 mountable filesystem surfaces. Native OS mounting therefore remains an optional
 platform integration rather than a hidden requirement for storage correctness.
+
+## Filesystem watcher reconciliation
+
+The existing document index worker remains the single recursive filesystem
+watcher. In shadow/V2 mode it now performs a second bounded step after the
+DocumentStore scan:
+
+1. the scan identifies or preserves the stable document ID and verified SHA-256;
+2. the reconciler adopts create/modify/move observations into the V2 blob store
+   and catalog with optimistic catalog version checks;
+3. an out-of-band delete reads the still-authoritative V2 payload and creates a
+   private recoverable compatibility payload before publishing the catalog
+   deletion;
+4. a rename already recognized under the same document ID is not misclassified
+   as a deletion;
+5. failures mark the cutover state dirty and, for known objects, move the
+   catalog object to recovery-needed instead of silently choosing one side.
+
+The periodic full index run reconciles both known compatibility paths and all
+active V2 catalog locations. It therefore repairs a missed watch notification
+or surfaces the divergence as recovery-needed.
+
+The watcher ignores `.simpleoffice-v2` itself, in addition to the existing
+metadata/history/cache directories, so blob/chunk writes do not recursively
+feed back into the document scanner.
+
+Encrypted V2 uses the same configured external storage-password-file boundary
+as other runtime storage consumers. No master key, password or recovery key is
+stored in the document tree or passed on the command line.
+

@@ -194,6 +194,90 @@ class BlobCatalogStorageAdapter:
             return OperationResult(error=audit.error)
         return OperationResult.success(self._stored(entry))
 
+    def reconcile_external_stream(
+        self,
+        object_id: LogicalObjectId,
+        location: StorageLocation,
+        stream: BinaryIO,
+        *,
+        expected_size: int,
+        expected_sha256: str,
+    ) -> OperationResult[StoredObject]:
+        """Adopt one verified filesystem-watcher observation into V2.
+
+        The filesystem projection has already changed before this method runs,
+        so this path deliberately updates only the V2 blob/catalog authority.
+        Catalog publication is optimistic; a concurrent V2 mutation wins and
+        leaves the newly written blob version unreachable for normal GC.
+        """
+        if (
+            isinstance(expected_size, bool)
+            or not isinstance(expected_size, int)
+            or expected_size < 0
+        ):
+            return OperationResult.failure(
+                ErrorCode.INVALID_INPUT,
+                "external projection size must be a non-negative integer",
+            )
+        digest = str(expected_sha256 or "").strip().casefold()
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            return OperationResult.failure(
+                ErrorCode.INVALID_INPUT,
+                "external projection sha256 is invalid",
+            )
+
+        previous = self.catalog.get(object_id, include_deleted=True)
+        expected_version = previous.value.version_id if previous.ok else None
+        if (
+            previous.ok
+            and previous.value.state is CatalogState.RECOVERY
+        ):
+            return OperationResult.failure(
+                ErrorCode.CONFLICT,
+                "catalog object requires recovery before external reconciliation",
+            )
+        if (
+            previous.ok
+            and previous.value.state is CatalogState.ACTIVE
+            and previous.value.location == location
+            and previous.value.size == expected_size
+            and previous.value.content_sha256 == digest
+        ):
+            return OperationResult.success(self._stored(previous.value))
+
+        try:
+            version = self.blobs.write_stream(
+                object_id,
+                stream,
+                expected_size=expected_size,
+                expected_sha256=digest,
+            )
+        except (BlobIntegrityError, OSError, ValueError, TypeError) as exc:
+            return self._failure(exc)
+
+        reconciled = self.catalog.reconcile_external(
+            object_id,
+            location,
+            version_id=version.version_id,
+            size=version.size,
+            content_sha256=version.content_sha256,
+            expected_version_id=expected_version,
+        )
+        if not reconciled.ok:
+            return self._catalog_failure(reconciled)
+        entry = reconciled.value
+        audit = self._audit(
+            entry,
+            "storage_external_reconciled",
+            location=entry.location.relative_path,
+            version=entry.version_id,
+            size=entry.size,
+            previous_version=expected_version or "",
+        )
+        if not audit.ok:
+            return OperationResult(error=audit.error)
+        return OperationResult.success(self._stored(entry))
+
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         current = self._active(object_id)
         if not current.ok:
