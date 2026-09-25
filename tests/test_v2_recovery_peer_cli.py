@@ -34,7 +34,7 @@ class EncryptedRecoveryPeerCliTests(unittest.TestCase):
                     return_value=self.descriptor,
                 ), \
                 patch(
-                    "app.v2.recovery_cli.remote_encrypted_recovery_availability",
+                    "app.federation_worker.remote_encrypted_recovery_availability",
                     return_value=self.availability,
                 ) as query:
             output = io.StringIO()
@@ -70,11 +70,11 @@ class EncryptedRecoveryPeerCliTests(unittest.TestCase):
                     return_value=self.descriptor,
                 ), \
                 patch(
-                    "app.v2.recovery_cli.remote_encrypted_recovery_availability",
+                    "app.federation_worker.remote_encrypted_recovery_availability",
                     return_value=self.availability,
                 ), \
                 patch(
-                    "app.v2.recovery_cli.remote_encrypted_recovery_chunk",
+                    "app.federation_worker.remote_encrypted_recovery_chunk",
                 ) as fetch, \
                 patch(
                     "app.v2.recovery_cli.EncryptedRecoveryChunkSearch",
@@ -108,11 +108,11 @@ class EncryptedRecoveryPeerCliTests(unittest.TestCase):
                     return_value=self.descriptor,
                 ), \
                 patch(
-                    "app.v2.recovery_cli.remote_encrypted_recovery_availability",
+                    "app.federation_worker.remote_encrypted_recovery_availability",
                     return_value=self.availability,
                 ), \
                 patch(
-                    "app.v2.recovery_cli.remote_encrypted_recovery_chunk",
+                    "app.federation_worker.remote_encrypted_recovery_chunk",
                     return_value=payload,
                 ) as fetch, \
                 patch(
@@ -162,11 +162,11 @@ class EncryptedRecoveryPeerCliTests(unittest.TestCase):
                     return_value=self.descriptor,
                 ), \
                 patch(
-                    "app.v2.recovery_cli.remote_encrypted_recovery_availability",
+                    "app.federation_worker.remote_encrypted_recovery_availability",
                     return_value=missing,
                 ), \
                 patch(
-                    "app.v2.recovery_cli.remote_encrypted_recovery_chunk",
+                    "app.federation_worker.remote_encrypted_recovery_chunk",
                 ) as fetch:
             output = io.StringIO()
             with redirect_stdout(output):
