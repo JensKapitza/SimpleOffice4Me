@@ -12,7 +12,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
-from .document_store import DocumentStore, sha256_file
+from .document_store import DocumentStore
 from .federation_core import (
     DEFAULT_CHUNK_SIZE,
     build_manifest,
@@ -35,6 +35,12 @@ from .v2.authorization import AuthorizationStore, GrantRight
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
 from .v2.encrypted_recovery_search import EncryptedRecoveryChunkSearch
 from .v2.federation_policy import FederationPolicyStore
+from .v2.document_access import (
+    document_id_for_sha256,
+    document_sha256,
+    document_size,
+    materialized_document,
+)
 
 bp = Blueprint("federation_http", __name__, url_prefix="/federation/v1")
 BLOCK_SIZE = 256 * 1024
@@ -111,24 +117,18 @@ def _safe_path(store: DocumentStore, relative: str) -> Path:
     return path
 
 
-def _document(document_id: str) -> tuple[dict, Path]:
+def _document(document_id: str) -> tuple[dict, str, int]:
     store = _store()
     item = store.get_document(document_id)
-    return item, _safe_path(store, str(item.get("last_path", "")))
+    if item.get("system_state") == "webdav_deleted" or item.get("deleted_at"):
+        raise ValueError("document unavailable")
+    digest = document_sha256(store.root, "federation-http", document_id)
+    size = document_size(store.root, "federation-http", document_id)
+    return item, digest, size
 
 
-def _blob_path(digest: str) -> Path:
-    digest = normalize_sha256(digest)
-    store = _store()
-    store.initialize()
-    with store._db() as db:
-        row = db.execute(
-            "SELECT relative_path FROM scan_file WHERE sha256=? ORDER BY relative_path LIMIT 1",
-            (digest,),
-        ).fetchone()
-    if row is None:
-        raise ValueError("blob unavailable")
-    return _safe_path(store, str(row[0]))
+def _blob_document_id(digest: str) -> str:
+    return document_id_for_sha256(current_app.config["DOCUMENT_ROOT"], normalize_sha256(digest))
 
 
 def _range(value: str, size: int) -> tuple[int, int] | None:
@@ -162,6 +162,50 @@ def _stream(path: Path, start: int, length: int):
                 break
             remaining -= len(block)
             yield block
+
+
+def _stream_document(document_id: str, start: int, length: int):
+    with materialized_document(
+        current_app.config["DOCUMENT_ROOT"],
+        "federation-http",
+        document_id,
+    ) as path:
+        yield from _stream(path, start, length)
+
+
+def _send_document(
+    document_id: str,
+    digest: str,
+    size: int,
+    forced_range: tuple[int, int] | None = None,
+) -> Response:
+    digest = normalize_sha256(digest)
+    etag = f'"sha256:{digest}"'
+    headers = {
+        "Accept-Ranges": "bytes",
+        "ETag": etag,
+        "X-Content-SHA256": digest,
+        "Cache-Control": "private, no-transform",
+        "Content-Type": "application/octet-stream",
+    }
+    if request.headers.get("If-None-Match", "").strip() == etag and not request.headers.get("Range") and forced_range is None:
+        return Response(status=304, headers=headers)
+    try:
+        selected = forced_range if forced_range is not None else _range(request.headers.get("Range", ""), size)
+    except ValueError:
+        headers["Content-Range"] = f"bytes */{size}"
+        return Response(status=416, headers=headers)
+    if selected is None:
+        start, end, status = 0, max(0, size - 1), 200
+    else:
+        start, end, status = selected[0], selected[1], 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    length = 0 if size == 0 else end - start + 1
+    headers["Content-Length"] = str(length)
+    body = b"" if request.method == "HEAD" else stream_with_context(
+        _stream_document(document_id, start, length)
+    )
+    return Response(body, status, headers=headers, direct_passthrough=request.method != "HEAD")
 
 
 def _send(path: Path, digest: str, forced_range: tuple[int, int] | None = None) -> Response:
@@ -216,16 +260,13 @@ def capabilities():
 @bp.route("/documents/<document_id>/manifest", methods=["GET", "HEAD"])
 def manifest(document_id: str):
     try:
-        item, path = _document(document_id)
+        item, digest, size = _document(document_id)
     except (ValueError, KeyError):
         return jsonify({"error": "not_found"}), 404
-    digest = str(item.get("sha256") or "")
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        digest = sha256_file(path)
     return jsonify({
         "document_id": document_id,
         "blob_hash": f"sha256:{digest}",
-        "size": path.stat().st_size,
+        "size": size,
         "accept_ranges": "bytes",
         "download": f"/federation/v1/documents/{document_id}/blob",
         "content_addressed_download": f"/federation/v1/blobs/{digest}",
@@ -235,33 +276,37 @@ def manifest(document_id: str):
 @bp.route("/documents/<document_id>/blob", methods=["GET", "HEAD"])
 def document_blob(document_id: str):
     try:
-        item, path = _document(document_id)
+        _item, digest, size = _document(document_id)
     except (ValueError, KeyError):
         return jsonify({"error": "not_found"}), 404
-    digest = str(item.get("sha256") or "")
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        digest = sha256_file(path)
-    return _send(path, digest)
+    return _send_document(document_id, digest, size)
 
 
 @bp.route("/blobs/<digest>", methods=["GET", "HEAD"])
 def blob(digest: str):
     try:
         normalized = normalize_sha256(digest)
-        path = _blob_path(normalized)
+        document_id = _blob_document_id(normalized)
+        size = document_size(current_app.config["DOCUMENT_ROOT"], "federation-http", document_id)
     except ValueError:
         return jsonify({"error": "not_found"}), 404
-    return _send(path, normalized)
+    return _send_document(document_id, normalized, size)
 
 
 @bp.get("/blobs/<digest>/manifest")
 def blob_manifest(digest: str):
     try:
-        path = _blob_path(digest)
+        normalized = normalize_sha256(digest)
+        document_id = _blob_document_id(normalized)
+        with materialized_document(
+            current_app.config["DOCUMENT_ROOT"],
+            "federation-http",
+            document_id,
+        ) as path:
+            result = build_manifest(path, DEFAULT_CHUNK_SIZE)
     except ValueError:
         return jsonify({"error": "not_found"}), 404
-    result = build_manifest(path, DEFAULT_CHUNK_SIZE)
-    if result["blob_hash"] != normalize_sha256(digest):
+    if result["blob_hash"] != normalized:
         return jsonify({"error": "index_hash_mismatch"}), 409
     result["chunk_download_template"] = f"/federation/v1/blobs/{result['blob_hash']}/chunks/{{index}}"
     return jsonify(result)
@@ -271,20 +316,27 @@ def blob_manifest(digest: str):
 def blob_chunk(digest: str, index: int):
     try:
         normalized = normalize_sha256(digest)
-        path = _blob_path(normalized)
-        start, end = chunk_range(index, path.stat().st_size, DEFAULT_CHUNK_SIZE)
+        document_id = _blob_document_id(normalized)
+        size = document_size(current_app.config["DOCUMENT_ROOT"], "federation-http", document_id)
+        start, end = chunk_range(index, size, DEFAULT_CHUNK_SIZE)
     except (ValueError, IndexError):
         return jsonify({"error": "not_found"}), 404
-    if start < 0 or end < start or start >= path.stat().st_size:
+    if start < 0 or end < start or start >= size:
         return jsonify({"error": "chunk_not_found"}), 404
-    return _send(path, normalized, (start, end))
+    return _send_document(document_id, normalized, size, (start, end))
 
 
 @bp.get("/blobs/<digest>/availability")
 def availability(digest: str):
     try:
-        path = _blob_path(digest)
-        result = build_manifest(path, DEFAULT_CHUNK_SIZE)
+        normalized = normalize_sha256(digest)
+        document_id = _blob_document_id(normalized)
+        with materialized_document(
+            current_app.config["DOCUMENT_ROOT"],
+            "federation-http",
+            document_id,
+        ) as path:
+            result = build_manifest(path, DEFAULT_CHUNK_SIZE)
     except ValueError:
         return jsonify({"error": "not_found"}), 404
     return jsonify({
