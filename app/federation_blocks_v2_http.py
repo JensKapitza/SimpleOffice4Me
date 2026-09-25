@@ -7,12 +7,12 @@ import time
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
-from .document_store import DocumentStore, sha256_file
+from .document_store import DocumentStore
 from .federation_blocks import FederationBlockStore, content_manifest_valid, sha512_bytes
 from .federation_core import normalize_sha256
 from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_store import FederationStore
-from .safe_paths import resolve_under
+from .v2.document_access import document_sha256
 from .v2.scoped_dedup import (
     SCHEMA,
     create_dedup_session,
@@ -85,21 +85,16 @@ def _document_source(document_id: str):
     item = documents.get_document(str(document_id or ""))
     if item.get("system_state") == "webdav_deleted" or item.get("deleted_at"):
         raise ValueError("document unavailable")
-    try:
-        path = resolve_under(documents.root, str(item.get("last_path") or ""), strict=True)
-    except (OSError, ValueError) as exc:
-        raise ValueError("document unavailable") from exc
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("document unavailable")
-    digest = normalize_sha256(str(item.get("sha256") or ""))
-    return item, path, digest
+    digest = normalize_sha256(document_sha256(_root(), "federation-scoped-dedup", document_id))
+    return item, digest
 
 
 def _local_manifest(document_id: str):
-    _item, path, digest = _document_source(document_id)
-    if sha256_file(path) != digest:
-        raise ValueError("document content differs from indexed document")
-    manifest = FederationBlockStore(_root()).manifest_for_file(path)
+    _item, digest = _document_source(document_id)
+    manifest = FederationBlockStore(_root()).manifest_for_document(
+        document_id,
+        actor="federation-scoped-dedup",
+    )
     if not content_manifest_valid(manifest):
         raise ValueError("invalid local content manifest")
     return digest, manifest
