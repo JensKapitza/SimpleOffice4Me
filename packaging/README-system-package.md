@@ -89,7 +89,7 @@ Lokale Buildkonfigurationen, `*.secret.sh`, `packaging/private/`, Runtime-Datenb
 ## Installation
 
 ```bash
-sudo apt install ./dist/packages/simpleoffice4me-client_1.0.0-1_amd64.deb
+sudo apt install ./dist/packages/simpleoffice4me-client_2.0.0-1_amd64.deb
 sudo systemctl start simpleoffice4me
 systemctl status simpleoffice4me
 ```
