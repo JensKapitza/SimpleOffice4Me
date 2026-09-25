@@ -249,6 +249,8 @@ class V2AuthoritativeStorageAdapter:
         content: bytes,
         *,
         expected_version: str | None = None,
+        source: str = "v2-authoritative-projection",
+        restored_from_version: str = "",
     ) -> OperationResult[StoredObject]:
         current = self._entry(object_id)
         if not current.ok:
@@ -264,6 +266,8 @@ class V2AuthoritativeStorageAdapter:
             object_id,
             bytes(content),
             expected_version=previous.version_id,
+            source=source,
+            restored_from_version=restored_from_version,
         )
         if not primary.ok:
             return OperationResult(error=primary.error)
@@ -273,7 +277,8 @@ class V2AuthoritativeStorageAdapter:
                 bytes(content),
                 self.actor,
                 expected_sha256=previous.content_sha256,
-                source="v2-authoritative-projection",
+                source=str(source or "v2-authoritative-projection"),
+                restored_from_sha256=str(restored_from_version or ""),
             )
         except (OSError, RuntimeError, ValueError) as exc:
             rolled_back = self._restore_content(previous, primary.value.version)
@@ -364,6 +369,66 @@ class V2AuthoritativeStorageAdapter:
                     retryable=True,
                 )
             return self._projection_failure(exc)
+        return self._compat_result(object_id)
+
+    def restore(
+        self,
+        object_id: LogicalObjectId,
+        destination: StorageLocation,
+        *,
+        expected_version: str | None = None,
+    ) -> OperationResult[StoredObject]:
+        current = self.catalog.get(object_id, include_deleted=True)
+        if not current.ok:
+            return OperationResult(error=current.error)
+        previous = current.value
+        if previous.state.value != "deleted":
+            return self._error(ErrorCode.CONFLICT, "catalog object is not deleted")
+        expected = self._expected_version(previous, expected_version)
+        if not expected.ok:
+            return OperationResult(error=expected.error)
+        target = self._projection_destination(destination)
+        if not target.ok:
+            return OperationResult(error=target.error)
+
+        primary = self.primary.restore(
+            object_id,
+            destination,
+            expected_version=previous.version_id,
+        )
+        if not primary.ok:
+            return OperationResult(error=primary.error)
+        try:
+            metadata = self.store.restore_soft_deleted(
+                object_id.value,
+                primary.value.location.relative_path,
+                previous.content_sha256,
+                self.actor,
+            )
+        except (OSError, PermissionError, RuntimeError, ValueError) as exc:
+            rollback = self.catalog.mark_deleted(
+                object_id,
+                expected_version_id=primary.value.version,
+            )
+            if not rollback.ok:
+                self.catalog.mark_recovery(object_id)
+                return self._error(
+                    ErrorCode.STORAGE_UNAVAILABLE,
+                    "V2 restore committed but compatibility projection and rollback failed",
+                    retryable=True,
+                )
+            return self._projection_failure(exc)
+
+        if (
+            str(metadata.get("document_id") or "") != object_id.value
+            or str(metadata.get("last_path") or "") != primary.value.location.relative_path
+            or str(metadata.get("sha256") or "") != previous.content_sha256
+        ):
+            self.catalog.mark_recovery(object_id)
+            return self._error(
+                ErrorCode.INTEGRITY_ERROR,
+                "compatibility projection differs after V2 restore",
+            )
         return self._compat_result(object_id)
 
     def delete(

@@ -69,18 +69,38 @@ Storage errors remain represented by the V2 result contract. The browser shows
 the controlled storage error message and keeps the user on the existing
 document detail flow. No physical blob/chunk path is exposed to the route.
 
+## Fifth migrated operation: recovery
+
+Both browser recovery mutations now cross the same storage boundary:
+
+- restoring a soft-deleted document calls `StoragePort.restore` with the
+  selected destination and expected content version;
+- restoring an archived content revision first reads and verifies the immutable
+  recovery copy without mutation, then calls `StoragePort.replace_bytes` with
+  the current version as an optimistic concurrency guard.
+
+In authoritative V2 mode restore activates the V2 catalog first and then updates
+the legacy compatibility projection. A projection failure rolls the catalog
+back to deleted state; if rollback itself fails the object is marked for
+recovery instead of being presented as healthy.
+
+The replacement contract carries a bounded mutation context
+(`source=recovery`, restored-from version) so the compatibility history keeps
+the existing recovery audit semantics without allowing the browser to call the
+concrete V1 mutation directly.
+
 ## Scope boundary
 
-The browser file mutations migrated so far are move, copy, recoverable delete and streaming upload/import.
+The browser file-content/location mutations now migrated are move, copy,
+recoverable delete, soft-delete restore, content-version restore and streaming
+upload/import.
 
-Still to migrate in separate bounded changes:
-
-- content replacement mutations
-- any file-browser operation that still writes through a concrete
-  `DocumentStore` implementation
-
-Listing, search, metadata projection and document detail reads remain on the
-current read model for now. They do not manipulate V2 blob internals.
+Listing, search, metadata projection, recovery inventory and document detail
+reads remain on the current compatibility read model for now. Metadata-only
+workflows also continue to use their domain stores. Those reads do not
+manipulate V2 blob internals, but they are the principal reason the
+`V2AuthoritativeStorageAdapter` must still maintain its legacy projection and
+therefore remain an explicit Phase-15 cleanup blocker.
 
 ## Compatibility
 

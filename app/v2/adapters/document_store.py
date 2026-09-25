@@ -44,6 +44,8 @@ class DocumentStoreStorageAdapter:
         lowered = message.casefold()
         if isinstance(exc, FileExistsError):
             code = ErrorCode.CONFLICT
+        elif isinstance(exc, PermissionError):
+            code = ErrorCode.FORBIDDEN
         elif isinstance(exc, FileNotFoundError) or "unknown document" in lowered or "unavailable" in lowered:
             code = ErrorCode.NOT_FOUND
         elif isinstance(exc, RuntimeError) and ("verified" in lowered or "integrity" in lowered):
@@ -172,6 +174,8 @@ class DocumentStoreStorageAdapter:
         content: bytes,
         *,
         expected_version: str | None = None,
+        source: str = "v2-storage-adapter",
+        restored_from_version: str = "",
     ) -> OperationResult[StoredObject]:
         try:
             metadata = self.store.replace_content(
@@ -179,7 +183,8 @@ class DocumentStoreStorageAdapter:
                 bytes(content),
                 self.actor,
                 expected_sha256=str(expected_version or ""),
-                source="v2-storage-adapter",
+                source=str(source or "v2-storage-adapter"),
+                restored_from_sha256=str(restored_from_version or ""),
             )
             return OperationResult.success(self._stored(metadata))
         except (OSError, RuntimeError, ValueError) as exc:
@@ -266,6 +271,24 @@ class DocumentStoreStorageAdapter:
             )
             return OperationResult.success(version)
         except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
+    def restore(
+        self,
+        object_id: LogicalObjectId,
+        destination: StorageLocation,
+        *,
+        expected_version: str | None = None,
+    ) -> OperationResult[StoredObject]:
+        try:
+            metadata = self.store.restore_soft_deleted(
+                object_id.value,
+                destination.relative_path,
+                str(expected_version or ""),
+                self.actor,
+            )
+            return OperationResult.success(self._stored(metadata))
+        except (OSError, PermissionError, RuntimeError, ValueError) as exc:
             return self._failure(exc)
 
     def move(
