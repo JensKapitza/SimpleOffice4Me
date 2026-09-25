@@ -120,6 +120,37 @@ class DocumentStoreStorageAdapterTest(unittest.TestCase):
         self.assertFalse(failed.ok)
         self.assertEqual(ErrorCode.INTEGRITY_ERROR, failed.error.code)
 
+    def test_verified_range_reads_only_requested_bytes_but_hashes_whole_file(self):
+        payload = bytes((index % 233 for index in range(150000)))
+        created = self.adapter.create_bytes(
+            StorageLocation("docs/ranged.bin"),
+            payload,
+        )
+        self.assertTrue(created.ok)
+
+        target = io.BytesIO()
+        ranged = self.adapter.copy_verified_range_to(
+            created.value.object_id,
+            target,
+            start=65000,
+            length=10000,
+        )
+        self.assertTrue(ranged.ok)
+        self.assertEqual(payload[65000:75000], target.getvalue())
+
+        path = self.root / "docs" / "ranged.bin"
+        damaged = bytearray(path.read_bytes())
+        damaged[-1] ^= 1
+        path.write_bytes(damaged)
+        failed = self.adapter.copy_verified_range_to(
+            created.value.object_id,
+            io.BytesIO(),
+            start=0,
+            length=16,
+        )
+        self.assertFalse(failed.ok)
+        self.assertEqual(ErrorCode.INTEGRITY_ERROR, failed.error.code)
+
     def test_move_can_rename_a_document_into_the_store_root(self):
         created = self.adapter.create_bytes(StorageLocation("docs/root-move.txt"), b"root")
 
