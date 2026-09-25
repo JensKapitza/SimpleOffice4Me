@@ -366,7 +366,7 @@ def submit_local_job():
             ttl_ceiling_seconds=max(0, ttl),
         )
         return jsonify(result), 201
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError):
         return jsonify({"error": "print_job_rejected"}), 400
 
 
@@ -397,7 +397,7 @@ def delete_copy(job_id: str):
 def federation_printers(peer_id: str):
     try:
         return jsonify(remote_print_capabilities(current_app.config["DOCUMENT_ROOT"], peer_id))
-    except (OSError, RuntimeError, ValueError, urllib.error.URLError) as exc:
+    except (OSError, RuntimeError, ValueError, urllib.error.URLError):
         return jsonify({"error": "remote_printer_unavailable"}), 502
 
 
@@ -419,7 +419,7 @@ def federation_job(peer_id: str, printer_id: str):
             ttl_ceiling_seconds=ttl,
         )
         return jsonify(result), 201
-    except (OSError, RuntimeError, ValueError, urllib.error.URLError, json.JSONDecodeError) as exc:
+    except (OSError, RuntimeError, ValueError, urllib.error.URLError, json.JSONDecodeError):
         return jsonify({"error": "print_job_rejected"}), 400
 
 
