@@ -9,7 +9,7 @@ from __future__ import annotations
 from flask import Blueprint
 
 from .business_document_generation import *  # noqa: F401,F403
-from .safe_paths import resolve_file_under
+from .v2.document_access import document_bytes, materialized_document
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 
@@ -46,16 +46,12 @@ def _customer_document_rows(root: Path, contact_id: str, invoice_rows: list[dict
         except ValueError:
             result.append({**relation, "available": False, "error": "document_metadata_missing"})
             continue
-        try:
-            path = resolve_file_under(root, document.get("last_path", ""))
-            safe = True
-        except (OSError, ValueError):
-            path = None
-            safe = False
-        result.append({**relation, "document": document, "path": path,
-                       "filename": Path(str(document.get("last_path", ""))).name,
-                       "available": safe,
-                       **({} if safe else {"error": "document_file_missing_or_unsafe"})})
+        result.append({
+            **relation,
+            "document": document,
+            "filename": Path(str(document.get("last_path", ""))).name,
+            "available": True,
+        })
     return sorted(result, key=lambda item: str(item.get("document", {}).get("last_seen_at", "")), reverse=True)
 
 
@@ -134,11 +130,12 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
                 member_name = _archive_member_name(document, used_names)
                 digest = hashlib.sha256()
                 size = 0
-                with row["path"].open("rb") as source, archive.open(member_name, "w", force_zip64=True) as destination:
-                    while chunk := source.read(1024 * 1024):
-                        destination.write(chunk)
-                        digest.update(chunk)
-                        size += len(chunk)
+                with materialized_document(root, actor, row["document_id"]) as source_path:
+                    with source_path.open("rb") as source, archive.open(member_name, "w", force_zip64=True) as destination:
+                        while chunk := source.read(1024 * 1024):
+                            destination.write(chunk)
+                            digest.update(chunk)
+                            size += len(chunk)
                 actual_sha256 = digest.hexdigest()
                 record.update({
                     "archive_path": member_name,
@@ -513,12 +510,14 @@ def refund_customer_credit(contact_id: str):
     return redirect(url_for(".customer_billing", contact_id=contact_id))
 
 
-def _invoice_pdf_path(root: Path, row: dict[str, Any]) -> Path:
-    document = DocumentStore(root).get_document(row.get("document_id", ""))
+def _invoice_pdf_bytes(root: Path, row: dict[str, Any]) -> bytes:
+    document_id = str(row.get("document_id") or "")
+    if not document_id:
+        raise ValueError("invoice PDF is not linked to a managed document")
     try:
-        return resolve_file_under(root, document.get("last_path", ""))
-    except (OSError, ValueError) as exc:
-        raise ValueError("invoice PDF not found or outside document storage") from exc
+        return document_bytes(root, "business-document-read", document_id)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("invoice PDF is not available from authoritative storage") from exc
 
 @bp.get("/invoices/<invoice_id>/download")
 @login_required
@@ -528,9 +527,9 @@ def invoice_download(invoice_id: str):
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
     if row.get("status") == "draft": return send_file(io.BytesIO(draft_invoice_pdf(root,row)),as_attachment=True,download_name=f"{_safe_filename(row['invoice_number'])}.pdf",mimetype="application/pdf")
-    try: path = _invoice_pdf_path(root, row)
+    try: pdf = _invoice_pdf_bytes(root, row)
     except ValueError: abort(404)
-    return send_file(path, as_attachment=True, download_name=f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", mimetype="application/pdf")
+    return send_file(io.BytesIO(pdf), as_attachment=True, download_name=f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", mimetype="application/pdf")
 
 @bp.get("/contacts/<contact_id>/invoices.zip")
 @login_required
@@ -541,9 +540,9 @@ def customer_invoice_archive(contact_id: str):
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for row in invoices(root):
             if row.get("contact_id") != contact_id: continue
-            try: path = _invoice_pdf_path(root, row)
+            try: pdf = _invoice_pdf_bytes(root, row)
             except ValueError: continue
-            archive.writestr(f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", path.read_bytes()); count += 1
+            archive.writestr(f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", pdf); count += 1
     if count == 0: abort(404)
     target.seek(0); return send_file(target, as_attachment=True, download_name=f"Rechnungen-{_safe_filename(contact_id)}.zip", mimetype="application/zip")
 
@@ -637,10 +636,12 @@ def attach_existing(contact_id:str):
     try:document=store.get_document(document_id)
     except ValueError:abort(404)
     metadata:dict[str,Any]={}
-    try:path=resolve_file_under(root,document.get("last_path",""))
-    except (OSError,ValueError):path=None
-    if path is not None and path.suffix.casefold()==".pdf":
-        details=inspect_zugferd_pdf(path)
+    if Path(str(document.get("last_path") or "")).suffix.casefold()==".pdf":
+        try:
+            with materialized_document(root, actor, document_id, suffix=".pdf") as path:
+                details=inspect_zugferd_pdf(path)
+        except (OSError,RuntimeError,ValueError):
+            details={}
         if details.get("detected"):
             metadata["zugferd"]={key:value for key,value in details.items() if key!="raw_xml"};store.set_attribute(document_id,"zugferd_detected","yes",actor)
             for key in ("invoice_id","profile","currency","grand_total","due_payable"):
@@ -653,6 +654,7 @@ def zugferd_details(document_id:str):
     root=_root();store=DocumentStore(root)
     try:
         document=store.get_document(document_id)
-        path=resolve_file_under(root,document.get("last_path",""))
-    except (OSError,ValueError):abort(404)
-    return render_template("documents/zugferd_details.html",document=document,details=inspect_zugferd_pdf(path))
+        with materialized_document(root, _actor(), document_id, suffix=".pdf") as path:
+            details=inspect_zugferd_pdf(path)
+    except (OSError,RuntimeError,ValueError):abort(404)
+    return render_template("documents/zugferd_details.html",document=document,details=details)
