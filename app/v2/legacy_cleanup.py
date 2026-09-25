@@ -17,6 +17,22 @@ from .storage_key_rotation import rotation_pending
 FORMAT = "simpleoffice-v2-legacy-cleanup-readiness"
 FORMAT_VERSION = 1
 
+# Keep this list explicit and reviewable.  It is a release-safety inventory,
+# not a runtime source-code scanner.  Each item represents a production path
+# that can still consume or mutate persistent plaintext document files.
+_REMAINING_CONTENT_PROJECTION_CONSUMERS = (
+    "DocumentStore mutation/recovery still persists plaintext document files",
+    "WebDAV document access still resolves managed document paths directly",
+    "business/rental/photo/contact/replication consumers still resolve managed document paths directly",
+    "legacy federation transfer still resolves managed document paths directly",
+)
+
+
+def remaining_content_projection_consumers() -> list[str]:
+    """Return the known blockers for removing persistent plaintext content."""
+
+    return list(_REMAINING_CONTENT_PROJECTION_CONSUMERS)
+
 
 def _count_regular_json(directory: Path) -> int:
     if not directory.is_dir() or directory.is_symlink():
@@ -56,6 +72,9 @@ def legacy_cleanup_status(root: str | Path) -> dict[str, Any]:
     projection_required = bool(
         V2AuthoritativeStorageAdapter.requires_legacy_projection
     )
+    projection_consumers = (
+        remaining_content_projection_consumers() if projection_required else []
+    )
     if projection_required:
         blockers.append(
             "authoritative storage still requires the legacy DocumentStore compatibility projection"
@@ -73,6 +92,8 @@ def legacy_cleanup_status(root: str | Path) -> dict[str, Any]:
         "ready_for_cleanup": not blockers,
         "deletion_supported": False,
         "compatibility_projection_required": projection_required,
+        "remaining_content_projection_consumers": projection_consumers,
+        "projection_free_cutover_ready": not blockers,
         "storage_key_rotation_pending": rotation_blocked,
         "legacy_document_metadata_present": legacy_metadata.is_dir(),
         "legacy_document_metadata_files": _count_regular_json(legacy_metadata),

@@ -10,7 +10,7 @@ from flask import abort, flash, redirect, render_template, request, send_file, u
 from .access_control import is_admin
 from .documents_core import *  # noqa: F401,F403
 from .preview_service import PreviewService, VIDEO_SUFFIXES, detect_preview_tools
-from .safe_paths import resolve_file_under
+from .v2.materialize import materialize_verified_object
 from .video_settings import save_video_preview_frame_count, video_preview_frame_count
 
 
@@ -19,13 +19,6 @@ def _video_document(document_id: str) -> dict:
     if Path(str(document.get("last_path", ""))).suffix.lower() not in VIDEO_SUFFIXES:
         abort(404)
     return document
-
-
-def _video_source(document: dict) -> Path:
-    try:
-        return resolve_file_under(_store().root, str(document.get("last_path", "")))
-    except (OSError, ValueError):
-        abort(404)
 
 
 def _require_video_admin() -> None:
@@ -142,12 +135,19 @@ def transcode_video(document_id: str):
     actor = str(g.user["username"])
     try:
         service = PreviewService(_store().root, detect_preview_tools())
-        variant = service.transcode_video(
-            _video_source(document),
-            document,
+        suffix = Path(str(document.get("last_path", ""))).suffix.lower()
+        with materialize_verified_object(
+            _store().root,
             actor,
-            request.form.get("profile", "h264-720p"),
-        )
+            document_id,
+            suffix=suffix,
+        ) as source:
+            variant = service.transcode_video(
+                source,
+                document,
+                actor,
+                request.form.get("profile", "h264-720p"),
+            )
         preview = dict(document.get("preview", {}))
         video = dict(preview.get("video", {})) if isinstance(preview.get("video"), dict) else {}
         variants = [
@@ -159,6 +159,6 @@ def transcode_video(document_id: str):
         preview["video"] = video
         _store().set_preview_metadata(document_id, preview)
         flash("Video wurde als verknüpfte Wiedergabevariante neu kodiert; das Originaldokument blieb unverändert.")
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         flash(f"Video konnte nicht neu kodiert werden: {exc}")
     return redirect(url_for("documents.video_player", document_id=document_id))

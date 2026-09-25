@@ -32,7 +32,7 @@ def test_legacy_setup_has_real_project_metadata_and_runtime_dependencies():
     keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
 
     assert ast.literal_eval(keywords["name"]) == "simpleoffice4me"
-    assert ast.literal_eval(keywords["version"]) == "1.0.0"
+    assert ast.literal_eval(keywords["version"]) == "2.0.0"
     assert "argon2-cffi>=23.1,<26" in dependencies
     assert "Flask>=3.0,<4" in dependencies
     assert "cryptography>=48.0.1,<51" in dependencies
