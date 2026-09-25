@@ -62,7 +62,14 @@ Authorization decisions belong in the authorization layer; storage peers and
 relay transports must not infer permissions from physical blob possession,
 content hashes, network topology or previous successful transfers.
 
-## Migration
+## Integration status
 
-The existing federation implementation remains untouched. This V2 store is a
-side-by-side authorization foundation for later transport migration.
+The capability model is integrated with V2 federation job authorization,
+verification and deny-first route policy. Effective grants are re-checked for
+scope, expiry/revocation and blocked relay/delegation paths before job progress.
+Descriptor-scoped encrypted recovery uses the same explicit authorization
+boundary without granting plaintext access.
+
+Legacy federation transport/state remains side-by-side only for compatibility
+with older peers. Its removal belongs to the post-V2 compatibility cleanup in
+#471 and must not weaken V2 capability or route-policy checks.

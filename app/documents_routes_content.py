@@ -5,7 +5,6 @@ import tempfile
 
 from .documents_core import *  # noqa: F401,F403
 from .preview_service import VIDEO_SUFFIXES
-from .safe_paths import resolve_file_under
 from .v2.contracts import LogicalObjectId
 
 def _verified_preview_response(
@@ -46,6 +45,105 @@ def _verified_preview_response(
     response.headers["Cache-Control"] = (
         f"private, max-age={max_age}" + (", immutable" if max_age else ", no-cache")
     )
+    response.call_on_close(spool.close)
+    return response
+
+
+def _single_byte_range(value: str, size: int) -> tuple[int, int] | None:
+    """Parse one RFC 7233 byte range. Multiple ranges stay unsupported here."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if not raw.startswith("bytes=") or "," in raw or size < 1:
+        raise ValueError("invalid byte range")
+    spec = raw[6:].strip()
+    first, separator, last = spec.partition("-")
+    if not separator:
+        raise ValueError("invalid byte range")
+    if not first:
+        if not last.isdigit():
+            raise ValueError("invalid suffix range")
+        length = int(last)
+        if length < 1:
+            raise ValueError("invalid suffix range")
+        return max(0, size - length), size - 1
+    if not first.isdigit() or (last and not last.isdigit()):
+        raise ValueError("invalid byte range")
+    start = int(first)
+    end = int(last) if last else size - 1
+    if start >= size or end < start:
+        raise ValueError("unsatisfiable byte range")
+    return start, min(end, size - 1)
+
+
+def _verified_video_response(document: dict[str, Any]):
+    """Serve raw video through StoragePort, including one verified byte range."""
+    try:
+        size = int(document.get("size") or 0)
+    except (TypeError, ValueError):
+        abort(404)
+    range_header = request.headers.get("Range", "")
+    if not range_header:
+        response = _verified_preview_response(document)
+        response.headers["Accept-Ranges"] = "bytes"
+        return response
+    try:
+        selected = _single_byte_range(range_header, size)
+    except ValueError:
+        return Response(
+            status=416,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes */{max(0, size)}",
+                "Cache-Control": "private, no-cache",
+            },
+        )
+    if selected is None:
+        response = _verified_preview_response(document)
+        response.headers["Accept-Ranges"] = "bytes"
+        return response
+
+    start, end = selected
+    length = end - start + 1
+    spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
+    result = _storage(str(g.user["username"])).copy_verified_range_to(
+        LogicalObjectId(str(document["document_id"])),
+        spool,
+        start=start,
+        length=length,
+    )
+    if not result.ok:
+        spool.close()
+        abort(404)
+    stored = result.value
+    if int(stored.size) != size:
+        spool.close()
+        abort(404)
+    spool.seek(0)
+    filename = Path(str(document.get("last_path") or "")).name or (
+        str(document["document_id"]) + ".bin"
+    )
+    mimetype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    try:
+        response = send_file(
+            spool,
+            download_name=filename,
+            mimetype=mimetype,
+            conditional=False,
+            etag=False,
+            max_age=0,
+        )
+    except Exception:
+        spool.close()
+        raise
+    response.status_code = 206
+    response.headers["Accept-Ranges"] = "bytes"
+    response.headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    response.headers["Content-Length"] = str(length)
+    response.headers["Cache-Control"] = "private, no-cache"
+    version = str(stored.version or "").strip()
+    if version:
+        response.set_etag(version)
     response.call_on_close(spool.close)
     return response
 
@@ -806,13 +904,7 @@ def images():
 def image_preview(document_id: str):
     document = _document_or_404(document_id)
     if Path(str(document.get("last_path") or "")).suffix.lower() in VIDEO_SUFFIXES:
-        # Raw video playback still needs the existing seek/range-capable path.
-        # It is migrated separately with a range-aware V2 blob reader.
-        try:
-            path = resolve_file_under(_store().root, document.get("last_path", ""))
-        except (OSError, ValueError):
-            abort(404)
-        return send_file(path)
+        return _verified_video_response(document)
     return _verified_preview_response(document)
 
 

@@ -104,9 +104,13 @@ and service domains, and returns a strict whitelist of message locator/header
 fields. Indexed message bodies, search text and content hashes are not copied
 into the vault response. The mail index remains the source of truth.
 
-## Remaining Phase-13 work
+## V2 object-store payload status
 
-This step stabilizes the key hierarchy and recovery contract. The encrypted
-vault database is still its dedicated local store. A later acceptance step can
-move the encrypted vault payload/storage container behind the V2 object-store
-boundary without changing the secret-class or unlock/recovery contracts.
+Phase 13 is complete. Credential ciphertext is stored behind a dedicated,
+actor-scoped V2 BlobStore/ObjectCatalog boundary while SQLite retains only the
+transactional credential index and opaque object/version reference. The store
+is isolated from normal document indexing, sharing, federation and deduplication.
+
+Legacy SQLite ciphertext rows remain importable and are migrated only after a
+successful authenticated unlock. The full storage and migration contract is
+documented in `V2_VAULT_OBJECT_STORE.md`.
