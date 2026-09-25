@@ -313,7 +313,7 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
         timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
         timed("project_positions_load", lambda: _validate_project_sources(root, row, actor))
-        settings = timed("business_settings_load", lambda: business_settings(root))
+        timed("business_settings_load", lambda: business_settings(root))
         number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
         row["invoice_number"] = number; row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
         try:
