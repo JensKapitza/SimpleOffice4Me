@@ -12,7 +12,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from .document_store import DocumentStore
 from .federation_core import (
     bitmap_decode,
     build_manifest,
@@ -25,7 +24,7 @@ from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_auth_headers
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
 from .v2.encrypted_recovery_search import MAX_QUERY_CHUNKS
-from .safe_paths import resolve_file_under
+from .v2.document_access import materialized_blob
 
 
 USER_AGENT = "SimpleOffice4Me-SOFP/1"
@@ -436,22 +435,6 @@ def remote_store_encrypted_recovery_chunk(
     return result
 
 
-def _find_blob(root: str | Path, digest: str) -> Path:
-    digest = normalize_sha256(digest)
-    documents = DocumentStore(root)
-    documents.initialize()
-    with documents._db() as db:
-        row = db.execute(
-            "SELECT relative_path FROM scan_file WHERE sha256=? ORDER BY relative_path LIMIT 1", (digest,)
-        ).fetchone()
-    if not row:
-        raise ValueError("Blob nicht im lokalen Dokumentindex gefunden")
-    try:
-        return resolve_file_under(documents.root, str(row["relative_path"]))
-    except (OSError, ValueError) as exc:
-        raise ValueError("Lokaler Blob ist nicht freigegeben") from exc
-
-
 def _remote_status(base_url: str, transfer_id: str, token: str) -> dict[str, Any] | None:
     try:
         return _json_request(
@@ -515,66 +498,70 @@ def _upload_transfer(
 ) -> dict[str, Any]:
     store = FederationStore(root)
     transfer_id = transfer["transfer_id"]
-    path = _find_blob(root, transfer["blob_hash"])
-    manifest = transfer.get("manifest") or build_manifest(path)
-    if normalize_sha256(manifest["blob_hash"]) != normalize_sha256(transfer["blob_hash"]):
-        raise ValueError("Transfer-Manifest passt nicht zum Blob")
-    total_chunks = int(manifest.get("chunk_count", 0))
-    remote = _prepare_remote(
-        target_url,
-        target_token,
-        transfer,
-        manifest,
-        delegated=False,
-        source_peer=prepare_peer_label,
-    ) if prepare else _remote_status(target_url, transfer_id, target_token)
-    if remote is None:
-        raise ValueError("Zieltransfer wurde nicht vorbereitet")
-    have = _remote_have(remote, total_chunks)
-    allowed = manifest.get("_allowed_chunks")
-    allowed_chunks = set(int(value) for value in allowed) if isinstance(allowed, list) else set(range(total_chunks))
-    chunks = manifest.get("chunks") or []
-    sent = sum(int(chunks[i].get("length", 0)) for i in have if 0 <= i < len(chunks))
-    store.update_transfer(transfer_id, status="running", transferred_bytes=sent, error="")
-    try:
-        for chunk in chunks:
-            index = int(chunk["index"])
-            if index not in allowed_chunks or index in have:
-                continue
-            start = int(chunk["offset"])
-            length = int(chunk["length"])
-            with path.open("rb") as source:
-                source.seek(start)
-                data = source.read(length)
-            if not verify_chunk(data, chunk["hash"]):
-                raise ValueError(f"Lokaler Chunk {index} ist korrupt")
-            endpoint = f"{target_url.rstrip('/')}/federation/v1/transfers/{transfer_id}/chunks/{index}"
-            headers = {
-                "Content-Type": "application/octet-stream",
-                "X-Chunk-SHA256": str(chunk["hash"]),
-                "X-Blob-SHA256": transfer["blob_hash"],
-                "X-Chunk-Offset": str(start),
-                "X-Chunk-Length": str(length),
-            }
-            with _request(endpoint, method="PUT", token=target_token, body=data, headers=headers, timeout=120) as response:
-                if response.status not in (200, 201, 204):
-                    raise ValueError(f"Ziel meldet HTTP {response.status}")
-                payload = json.loads(response.read().decode("utf-8") or "{}")
-            have.add(index)
-            sent = max(sent, int(payload.get("transferred_bytes", 0)))
-            store.update_transfer(transfer_id, transferred_bytes=sent)
-        remote = _remote_status(target_url, transfer_id, target_token) or {}
-        remote_status = str(remote.get("status", "unknown"))
-        local_status = "complete" if remote_status in {"complete", "verified"} else "partial"
-        transferred = int(remote.get("transferred_bytes", sent))
-        return store.update_transfer(transfer_id, status=local_status, transferred_bytes=transferred, error="")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:1000]
-        store.update_transfer(transfer_id, status="failed", error=f"HTTP {exc.code}: {detail}")
-        raise
-    except Exception as exc:
-        store.update_transfer(transfer_id, status="failed", error=str(exc)[:1000])
-        raise
+    with materialized_blob(
+        root,
+        "legacy-federation-transfer",
+        transfer["blob_hash"],
+    ) as path:
+        manifest = transfer.get("manifest") or build_manifest(path)
+        if normalize_sha256(manifest["blob_hash"]) != normalize_sha256(transfer["blob_hash"]):
+            raise ValueError("Transfer-Manifest passt nicht zum Blob")
+        total_chunks = int(manifest.get("chunk_count", 0))
+        remote = _prepare_remote(
+            target_url,
+            target_token,
+            transfer,
+            manifest,
+            delegated=False,
+            source_peer=prepare_peer_label,
+        ) if prepare else _remote_status(target_url, transfer_id, target_token)
+        if remote is None:
+            raise ValueError("Zieltransfer wurde nicht vorbereitet")
+        have = _remote_have(remote, total_chunks)
+        allowed = manifest.get("_allowed_chunks")
+        allowed_chunks = set(int(value) for value in allowed) if isinstance(allowed, list) else set(range(total_chunks))
+        chunks = manifest.get("chunks") or []
+        sent = sum(int(chunks[i].get("length", 0)) for i in have if 0 <= i < len(chunks))
+        store.update_transfer(transfer_id, status="running", transferred_bytes=sent, error="")
+        try:
+            for chunk in chunks:
+                index = int(chunk["index"])
+                if index not in allowed_chunks or index in have:
+                    continue
+                start = int(chunk["offset"])
+                length = int(chunk["length"])
+                with path.open("rb") as source:
+                    source.seek(start)
+                    data = source.read(length)
+                if not verify_chunk(data, chunk["hash"]):
+                    raise ValueError(f"Lokaler Chunk {index} ist korrupt")
+                endpoint = f"{target_url.rstrip('/')}/federation/v1/transfers/{transfer_id}/chunks/{index}"
+                headers = {
+                    "Content-Type": "application/octet-stream",
+                    "X-Chunk-SHA256": str(chunk["hash"]),
+                    "X-Blob-SHA256": transfer["blob_hash"],
+                    "X-Chunk-Offset": str(start),
+                    "X-Chunk-Length": str(length),
+                }
+                with _request(endpoint, method="PUT", token=target_token, body=data, headers=headers, timeout=120) as response:
+                    if response.status not in (200, 201, 204):
+                        raise ValueError(f"Ziel meldet HTTP {response.status}")
+                    payload = json.loads(response.read().decode("utf-8") or "{}")
+                have.add(index)
+                sent = max(sent, int(payload.get("transferred_bytes", 0)))
+                store.update_transfer(transfer_id, transferred_bytes=sent)
+            remote = _remote_status(target_url, transfer_id, target_token) or {}
+            remote_status = str(remote.get("status", "unknown"))
+            local_status = "complete" if remote_status in {"complete", "verified"} else "partial"
+            transferred = int(remote.get("transferred_bytes", sent))
+            return store.update_transfer(transfer_id, status=local_status, transferred_bytes=transferred, error="")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:1000]
+            store.update_transfer(transfer_id, status="failed", error=f"HTTP {exc.code}: {detail}")
+            raise
+        except Exception as exc:
+            store.update_transfer(transfer_id, status="failed", error=str(exc)[:1000])
+            raise
 
 
 def push_blob_to_peer(root: str | Path, transfer_id: str) -> dict[str, Any]:
