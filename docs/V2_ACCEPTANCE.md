@@ -98,8 +98,9 @@ The following are intentionally retained and transferred to #471:
   access-policy namespace and selected derived workflows;
 - retained plaintext compatibility data for rollback while the cleanup gate is
   false;
-- video transcoding still uses a compatibility materialized source; raw video
-  playback itself now uses verified StoragePort range reads;
+- video transcoding now uses verified short-lived StoragePort materialization
+  and raw video playback uses verified StoragePort range reads; other direct
+  managed-file consumers remain tracked by #471;
 - legacy SOFP/federation-transfer paths for older peers;
 - stronger OPRF/PSI equality and signed assertions about undisclosed remote
   relationships are optional future hardening, not V2.0 acceptance requirements.
@@ -113,3 +114,10 @@ before the compatibility projection is removed.
 Repository-side V2 requirements of #306 and #314 are accepted once this change
 is merged with all required CI gates green. #471 remains open for post-release
 compatibility cleanup and optional protocol hardening.
+
+## 2.0 release cutover
+
+The repository release line moves to **2.0.0** in the dedicated release-cutover
+change documented in `docs/V2_RELEASE_CUTOVER.md`. This changes the application
+release identity, not the Phase-15 cleanup safety contract: #471 remains
+fail-closed until persistent plaintext projection consumers are removed.
