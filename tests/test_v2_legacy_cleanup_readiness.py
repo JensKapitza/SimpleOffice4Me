@@ -53,6 +53,17 @@ class V2LegacyCleanupReadinessTests(unittest.TestCase):
             )
             self.assertFalse(status["ready_for_cleanup"])
             self.assertTrue(status["compatibility_projection_required"])
+            self.assertFalse(status["projection_free_cutover_ready"])
+            self.assertGreaterEqual(
+                len(status["remaining_content_projection_consumers"]),
+                4,
+            )
+            self.assertFalse(
+                any(
+                    "video transcod" in item.casefold()
+                    for item in status["remaining_content_projection_consumers"]
+                )
+            )
             self.assertEqual(
                 [
                     "authoritative storage still requires the legacy DocumentStore compatibility projection"
