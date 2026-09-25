@@ -280,8 +280,6 @@ class BlobStore:
         declared_size = int(manifest.get("size", -1))
         if declared_size < 0:
             raise BlobIntegrityError("blob content size metadata is invalid")
-        if start > declared_size:
-            raise ValueError("verified range starts beyond the end of the object")
 
         whole = hashlib.sha256()
         total = 0
@@ -314,6 +312,8 @@ class BlobStore:
             raise BlobIntegrityError("blob content size mismatch")
         if whole.hexdigest() != manifest.get("content_sha256"):
             raise BlobIntegrityError("blob content integrity mismatch")
+        if start > total:
+            raise ValueError("verified range starts beyond the end of the object")
         return self._as_version(manifest)
 
     def copy_verified_to(
