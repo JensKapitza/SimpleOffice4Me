@@ -20,10 +20,6 @@ from .cutover import (
     return_to_v1,
 )
 from .encrypted_cutover import encrypted_blob_cutover
-from ..federation_worker import (
-    remote_encrypted_recovery_availability,
-    remote_encrypted_recovery_chunk,
-)
 from .encrypted_recovery import EncryptedBlobRecoveryService
 from .encrypted_recovery_search import EncryptedRecoveryChunkSearch
 from .encrypted_recovery_descriptor import (
@@ -556,6 +552,11 @@ def _run_encrypted_recovery(args: argparse.Namespace) -> int:
 
 
 def _run_encrypted_peer_command(args: argparse.Namespace) -> int:
+    from ..federation_worker import (
+        remote_encrypted_recovery_availability,
+        remote_encrypted_recovery_chunk,
+    )
+
     try:
         descriptor = load_encrypted_recovery_descriptor(args.descriptor)
         if args.command == "encrypted-peer-availability":
