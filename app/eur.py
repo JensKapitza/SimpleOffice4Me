@@ -12,7 +12,8 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .auth import login_required
 from .document_store import DocumentStore
 from .eur_store import EurReceiptStore
-from .safe_paths import resolve_under, safe_filename
+from .safe_paths import safe_filename
+from .v2.document_access import document_bytes
 from .v2.storage_runtime import import_document
 
 
@@ -100,13 +101,11 @@ def export_zip():
         archive.writestr(f"EÜR-Belege-{year}.csv", store.csv_bytes(rows))
         for row in rows:
             try:
-                document = store.documents.get_document(row["document_id"])
-                path = resolve_under(root, str(document.get("last_path", "")), strict=True)
-            except (OSError, ValueError):
+                payload = document_bytes(root, _actor(), row["document_id"])
+            except (OSError, RuntimeError, ValueError):
                 continue
-            if path.is_file() and not path.is_symlink():
-                archive_name = safe_filename(str(row.get("document_name", "")), fallback="Beleg")
-                archive.write(path, f"Belege/{row['receipt_date']}_{row['receipt_id'][:8]}_{archive_name}")
+            archive_name = safe_filename(str(row.get("document_name", "")), fallback="Beleg")
+            archive.writestr(f"Belege/{row['receipt_date']}_{row['receipt_id'][:8]}_{archive_name}", payload)
     target.seek(0)
     store.documents.history.record("eur_export_created", _actor(), "eur-export", str(year), {"year": year, "receipt_count": len(rows), "format": "zip"})
     return send_file(target, as_attachment=True, download_name=f"EÜR-Steuerberater-{year}.zip", mimetype="application/zip")
@@ -119,8 +118,8 @@ def receipt_document(receipt_id: str):
     try:
         row = store.get(receipt_id, _actor(), is_admin=_is_admin())
         document = store.documents.get_document(row["document_id"])
-        path = resolve_under(_root(), str(document.get("last_path", "")), strict=True)
-    except (OSError, ValueError):
+        payload = document_bytes(_root(), _actor(), row["document_id"])
+    except (OSError, RuntimeError, ValueError):
         abort(404)
-    if not path.is_file() or path.is_symlink(): abort(404)
-    return send_file(path, as_attachment=True, download_name=safe_filename(str(row.get("document_name", "")), fallback=path.name))
+    fallback = Path(str(document.get("last_path") or "Beleg")).name
+    return send_file(io.BytesIO(payload), as_attachment=True, download_name=safe_filename(str(row.get("document_name", "")), fallback=fallback))
