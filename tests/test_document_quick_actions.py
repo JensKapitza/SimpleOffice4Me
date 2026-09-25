@@ -234,6 +234,109 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual(LogicalObjectId(document["document_id"]), calls[0][0])
         self.assertEqual(document["sha256"], calls[0][1])
 
+    def test_document_recovery_route_uses_v2_storage_boundary(self):
+        document = DocumentStore(self.root).import_upload(
+            io.BytesIO(b"recover me"),
+            "recover-me.txt",
+            "jens",
+        )
+        calls = []
+
+        def restore(root, actor, object_id, destination, *, expected_version=None):
+            calls.append((Path(root), actor, object_id, destination, expected_version))
+            return {
+                **document,
+                "last_path": destination,
+                "system_state": "indexed",
+            }
+
+        with patch(
+            "app.documents_routes_workflows.restore_document_v2",
+            side_effect=restore,
+        ), patch.object(
+            DocumentStore,
+            "restore_soft_deleted",
+            side_effect=AssertionError("browser route bypassed StoragePort"),
+        ), patch(
+            "app.webdav._record_sync_changes",
+        ):
+            response = self.client.post(
+                f"/documents/recovery/{document['document_id']}/restore",
+                data={
+                    "destination_path": "Wiederhergestellt/recover-me.txt",
+                    "expected_sha256": document["sha256"],
+                    "confirm": "WIEDERHERSTELLEN",
+                },
+            )
+
+        self.assertEqual(302, response.status_code)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(Path(self.root), calls[0][0])
+        self.assertEqual("jens", calls[0][1])
+        self.assertEqual(document["document_id"], calls[0][2])
+        self.assertEqual("Wiederhergestellt/recover-me.txt", calls[0][3])
+        self.assertEqual(document["sha256"], calls[0][4])
+
+    def test_content_recovery_route_uses_v2_storage_boundary(self):
+        document = DocumentStore(self.root).import_upload(
+            io.BytesIO(b"current"),
+            "content-recovery.txt",
+            "jens",
+        )
+        calls = []
+
+        def restore_content(
+            root,
+            actor,
+            object_id,
+            archived_version,
+            expected_current_version,
+            *,
+            max_bytes=0,
+        ):
+            calls.append(
+                (
+                    Path(root),
+                    actor,
+                    object_id,
+                    archived_version,
+                    expected_current_version,
+                    max_bytes,
+                )
+            )
+            return {
+                **document,
+                "content_revision": 2,
+            }
+
+        with patch(
+            "app.documents_routes_workflows.restore_document_content_v2",
+            side_effect=restore_content,
+        ), patch.object(
+            DocumentStore,
+            "restore_content_version",
+            side_effect=AssertionError("browser route bypassed StoragePort"),
+        ), patch(
+            "app.webdav._record_sync_changes",
+        ):
+            response = self.client.post(
+                f"/documents/{document['document_id']}/restore-content",
+                data={
+                    "archived_sha256": "a" * 64,
+                    "expected_current_sha256": document["sha256"],
+                    "confirm": "WIEDERHERSTELLEN",
+                },
+            )
+
+        self.assertEqual(302, response.status_code)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(Path(self.root), calls[0][0])
+        self.assertEqual("jens", calls[0][1])
+        self.assertEqual(document["document_id"], calls[0][2])
+        self.assertEqual("a" * 64, calls[0][3])
+        self.assertEqual(document["sha256"], calls[0][4])
+        self.assertEqual(app.config["MAX_CONTENT_LENGTH"], calls[0][5])
+
     def test_document_delete_route_requires_explicit_confirmation(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"keep me"), "keep-me.txt", "jens")
 

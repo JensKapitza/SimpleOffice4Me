@@ -85,6 +85,8 @@ def replace_document(
     content: bytes,
     *,
     expected_version: str | None = None,
+    source: str = "v2-storage-runtime",
+    restored_from_version: str = "",
     max_bytes: int = 512 * 1024 * 1024,
 ):
     payload = bytes(content)
@@ -95,6 +97,8 @@ def replace_document(
             LogicalObjectId(str(object_id)),
             payload,
             expected_version=expected_version,
+            source=source,
+            restored_from_version=restored_from_version,
         )
     )
     return _metadata(root, stored.object_id)
@@ -148,3 +152,49 @@ def move_document(
         )
     )
     return _metadata(root, stored.object_id)
+
+
+def restore_document(
+    root: str | Path,
+    actor: str,
+    object_id: str,
+    destination: str,
+    *,
+    expected_version: str | None = None,
+):
+    stored = result_or_raise(
+        storage_for(root, actor).restore(
+            LogicalObjectId(str(object_id)),
+            StorageLocation(destination),
+            expected_version=expected_version,
+        )
+    )
+    return _metadata(root, stored.object_id)
+
+
+def restore_document_content(
+    root: str | Path,
+    actor: str,
+    object_id: str,
+    archived_version: str,
+    expected_current_version: str,
+    *,
+    max_bytes: int = 512 * 1024 * 1024,
+):
+    content = DocumentStore(root).read_content_recovery_version(
+        str(object_id),
+        str(archived_version),
+        str(expected_current_version),
+        str(actor),
+        max_bytes=int(max_bytes),
+    )
+    return replace_document(
+        root,
+        actor,
+        object_id,
+        content,
+        expected_version=expected_current_version,
+        source="recovery",
+        restored_from_version=archived_version,
+        max_bytes=max_bytes,
+    )

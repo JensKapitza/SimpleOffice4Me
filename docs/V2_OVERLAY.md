@@ -1,7 +1,9 @@
 # V2 overlay import journal
 
-Phase 10 introduces a side-by-side overlay import path without replacing the
-existing `VirtualFileSystem` used by WebDAV, SFTP and rsync.
+Phase 10 introduced the crash-aware overlay import journal. Since that first
+step, the existing `VirtualFileSystem` used by WebDAV, SFTP and rsync has also
+migrated its file-content/location operations onto the shared runtime
+`StoragePort`.
 
 ## Purpose
 
@@ -9,8 +11,11 @@ Normal filesystem-style writes can be staged first and then committed through
 the V2 `StoragePort`. The journal persists enough state to recover safely after
 process interruption.
 
-The existing V1 filesystem tree remains the production namespace until later
-migration phases explicitly move callers to the V2 service boundary.
+The compatibility filesystem tree remains the presentation namespace while the
+runtime storage mode selects V1, shadow or authoritative V2 storage centrally.
+WebDAV/SFTP/rsync continue to resolve user-visible paths through
+`VirtualFileSystem`, but file read/write/copy/move/delete operations no longer
+choose a concrete storage backend themselves.
 
 ## States
 
@@ -76,9 +81,45 @@ first.
 - no Flask dependency is required
 - no direct manipulation of blob/chunk internals occurs
 
-## Migration boundary
+## Current migration boundary
 
-This PR does not mount a FUSE/WinFSP filesystem and does not redirect WebDAV,
-SFTP, rsync or the existing `VirtualFileSystem` to V2. It establishes the
-crash-safe import state machine and StoragePort boundary required before those
-surfaces are migrated.
+The crash-safe overlay state machine remains available for staged imports, and
+the production `VirtualFileSystem` now calls the same runtime `StoragePort`
+for regular-file reads and mutations. WebDAV, SFTP and restricted rsync inherit
+that boundary because they operate through `VirtualFileSystem`.
+
+Directory creation/removal, access-policy metadata, timestamps and the
+presentation namespace still use the compatibility filesystem/metadata model.
+A native FUSE/WinFSP mount is not implemented; WebDAV/SFTP provide the existing
+mountable filesystem surfaces. Native OS mounting therefore remains an optional
+platform integration rather than a hidden requirement for storage correctness.
+
+## Filesystem watcher reconciliation
+
+The existing document index worker remains the single recursive filesystem
+watcher. In shadow/V2 mode it now performs a second bounded step after the
+DocumentStore scan:
+
+1. the scan identifies or preserves the stable document ID and verified SHA-256;
+2. the reconciler adopts create/modify/move observations into the V2 blob store
+   and catalog with optimistic catalog version checks;
+3. an out-of-band delete reads the still-authoritative V2 payload and creates a
+   private recoverable compatibility payload before publishing the catalog
+   deletion;
+4. a rename already recognized under the same document ID is not misclassified
+   as a deletion;
+5. failures mark the cutover state dirty and, for known objects, move the
+   catalog object to recovery-needed instead of silently choosing one side.
+
+The periodic full index run reconciles both known compatibility paths and all
+active V2 catalog locations. It therefore repairs a missed watch notification
+or surfaces the divergence as recovery-needed.
+
+The watcher ignores `.simpleoffice-v2` itself, in addition to the existing
+metadata/history/cache directories, so blob/chunk writes do not recursively
+feed back into the document scanner.
+
+Encrypted V2 uses the same configured external storage-password-file boundary
+as other runtime storage consumers. No master key, password or recovery key is
+stored in the document tree or passed on the command line.
+

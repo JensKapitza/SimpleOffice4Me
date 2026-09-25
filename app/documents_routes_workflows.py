@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
 from .v2.contracts import LogicalObjectId, StorageLocation
+from .v2.storage_runtime import (
+    restore_document as restore_document_v2,
+    restore_document_content as restore_document_content_v2,
+)
 
 @bp.post("/upload")
 @login_required
@@ -105,14 +109,21 @@ def restore_deleted_document(document_id: str):
         flash("Zur Wiederherstellung muss WIEDERHERSTELLEN bestätigt werden.")
         return redirect(url_for("documents.document_recovery"))
     try:
-        restored = _store().restore_soft_deleted(
+        actor = str(g.user["username"])
+        document = _store().get_document(document_id)
+        destination = (
+            request.form.get("destination_path", "").strip()
+            or str(document.get("deleted_from") or "")
+        )
+        restored = restore_document_v2(
+            current_app.config["DOCUMENT_ROOT"],
+            actor,
             document_id,
-            request.form.get("destination_path", ""),
-            request.form.get("expected_sha256", ""),
-            str(g.user["username"]),
+            destination,
+            expected_version=request.form.get("expected_sha256", ""),
         )
         from .webdav import _record_sync_changes
-        _record_sync_changes(str(g.user["username"]), str(restored["last_path"]))
+        _record_sync_changes(actor, str(restored["last_path"]))
         flash(f"Dokument wurde ohne Überschreiben nach {restored['last_path']} wiederhergestellt.")
         return redirect(url_for("documents.detail", document_id=document_id))
     except PermissionError:
@@ -130,15 +141,17 @@ def restore_document_content(document_id: str):
         flash("Zur Wiederherstellung muss WIEDERHERSTELLEN bestätigt werden.")
         return redirect(url_for("documents.detail", document_id=document_id))
     try:
-        restored = _store().restore_content_version(
+        actor = str(g.user["username"])
+        restored = restore_document_content_v2(
+            current_app.config["DOCUMENT_ROOT"],
+            actor,
             document_id,
             request.form.get("archived_sha256", ""),
             request.form.get("expected_current_sha256", ""),
-            str(g.user["username"]),
             max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
         )
         from .webdav import _record_sync_changes
-        _record_sync_changes(str(g.user["username"]), str(restored["last_path"]))
+        _record_sync_changes(actor, str(restored["last_path"]))
         flash(f"Inhaltsversion als neue Revision {restored['content_revision']} wiederhergestellt.")
     except (OSError, RuntimeError, ValueError) as exc:
         flash(f"Inhaltsversion nicht wiederhergestellt: {exc}")

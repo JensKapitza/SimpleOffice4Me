@@ -63,7 +63,7 @@ class AudioOutputValidationTests(unittest.TestCase):
             self.assertEqual(403, client.post(url, json=payload).status_code)
             result = client.post(url, json=payload, headers=headers)
             self.assertEqual(400, result.status_code)
-            self.assertIn("Online", result.json["error"])
+            self.assertEqual("Ausgangsdaten sind ungültig.", result.json["error"])
             self.assertEqual(self.original, self.store.output("local", "speaker"))
             payload["online"] = False
             self.assertEqual(201, client.post(url, json=payload, headers=headers).status_code)

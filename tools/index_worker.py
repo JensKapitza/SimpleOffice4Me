@@ -22,6 +22,10 @@ from app.archive_indexer import cleanup_stale_scratch, index_archive, is_support
 from app.document_store import DocumentStore
 from app.file_lock import exclusive_file_lock
 from app.preview_service import PreviewService, detect_preview_tools
+from app.v2.projection_reconcile import (
+    reconcile_changed_paths,
+    reconcile_full_projection,
+)
 from tools.launcher import should_report_scan_progress
 
 
@@ -132,12 +136,15 @@ def run_index(root: str | Path) -> int:
         })
         try:
             report = store.scan(report_progress, yield_to_web, post_file=post_process)
+            v2_reconcile = reconcile_full_projection(root)
             elapsed = round(time.monotonic() - started, 3)
             store.set_scan_status({
-                "state": "completed", "files": report.files,
+                "state": "recovery-needed" if v2_reconcile.recovery_needed else "completed",
+                "files": report.files,
                 "new_files": report.new_files, "updated_files": report.updated_files, "duplicates": report.duplicates,
                 "errors": report.errors, "duration_seconds": elapsed,
                 "preview_tools": tools["commands"],
+                "v2_reconcile": v2_reconcile.to_dict(),
             })
             print(
                 f"Index abgeschlossen: files={report.files} new={report.new_files} updated={report.updated_files} "
@@ -146,8 +153,12 @@ def run_index(root: str | Path) -> int:
             )
             return 0
         except Exception as exc:
-            store.set_scan_status({"state": "failed", "error": str(exc), "preview_tools": tools["commands"]})
-            print(f"Index fehlgeschlagen: {exc}", file=sys.stderr, flush=True)
+            store.set_scan_status({
+                "state": "failed",
+                "error_type": type(exc).__name__,
+                "preview_tools": tools["commands"],
+            })
+            print("Index fehlgeschlagen; Scan-Status und Dateirechte prüfen.", file=sys.stderr, flush=True)
             return 1
 
 
@@ -162,12 +173,26 @@ def run_incremental(root: str | Path, paths: set[Path]) -> int:
         post_process = _post_processor(store, previews)
         try:
             report = store.scan_changed_paths(paths, post_file=post_process)
-            store.set_scan_status({"state":"watching", "files":report.files, "new_files":report.new_files,
-                                   "updated_files":report.updated_files, "duplicates":report.duplicates,
-                                   "errors":report.errors, "process_id":os.getpid(), "mode":"inotify"})
+            v2_reconcile = reconcile_changed_paths(root, paths)
+            store.set_scan_status({
+                "state": "recovery-needed" if v2_reconcile.recovery_needed else "watching",
+                "files": report.files,
+                "new_files": report.new_files,
+                "updated_files": report.updated_files,
+                "duplicates": report.duplicates,
+                "errors": report.errors,
+                "process_id": os.getpid(),
+                "mode": "inotify",
+                "v2_reconcile": v2_reconcile.to_dict(),
+            })
             return 0
         except Exception as exc:
-            store.set_scan_status({"state":"failed", "error":str(exc), "process_id":os.getpid(), "mode":"inotify"})
+            store.set_scan_status({
+                "state": "failed",
+                "error_type": type(exc).__name__,
+                "process_id": os.getpid(),
+                "mode": "inotify",
+            })
             return 1
 
 
@@ -181,7 +206,7 @@ class _IndexEventHandler(FileSystemEventHandler):
             first = Path(value).resolve(strict=False).relative_to(self.root).parts[0]
         except (ValueError, IndexError):
             return True
-        return first in {".simpleoffice-meta", ".simpleoffice-history", ".webcache"}
+        return first in {".simpleoffice-meta", ".simpleoffice-history", ".simpleoffice-v2", ".webcache"}
 
     def on_any_event(self, event: FileSystemEvent) -> None:
         if event.event_type not in {"created", "modified", "deleted", "moved"}:

@@ -187,10 +187,37 @@ Each accepted/denied query is recorded in the Federation event log without
 physical chunk identifiers or secret payloads. Replay of a signed request is
 rejected through the existing persistent Federation nonce store.
 
-This step implements authorized distributed **search** only. Ciphertext chunk
-download/upload and storage of foreign encrypted recovery fragments remain
-separate follow-up work and must keep the same descriptor-scoped authorization
-boundary.
+## Descriptor-scoped ciphertext transfer
+
+Authorized peers can now transfer the ciphertext referenced by that exact
+descriptor without opening a general physical-blob API.
+
+Two peer-signed POST endpoints are available:
+
+- `/federation/v1/recovery/encrypted/chunk` requires an effective `READ`
+  grant for `recovery:<descriptor_id>` and returns exactly one verified
+  ciphertext chunk.
+- `/federation/v1/recovery/encrypted/store` requires an effective `STORE`
+  grant for the same descriptor scope and accepts exactly one ciphertext chunk.
+
+Both endpoints repeat the normal Federation Bearer check, peer-bound request
+signature/replay protection, storage policy evaluation, persistent rate limit
+and audit event. Responses and events use only descriptor IDs and chunk indexes;
+physical chunk IDs and filesystem paths are not exposed as the transport API.
+
+Received foreign ciphertext is kept below the private
+`.simpleoffice-v2/recovery-fragments/<descriptor_id>/` cache. It does not become
+an authoritative local document/blob merely because a peer uploaded it. A
+fragment is counted as available only after its size and SHA-256 match the
+descriptor exactly. POSIX cache directories are mode 0700 and fragment files
+mode 0600.
+
+The client helpers `remote_encrypted_recovery_chunk(...)` and
+`remote_store_encrypted_recovery_chunk(...)` sign the exact request body and
+verify the returned/confirmed descriptor binding. Recovery search therefore now
+has a bounded path from discovery to authorized ciphertext retrieval and
+explicit remote storage, while key material and plaintext remain out of the
+Federation transport.
 
 ## Damage behavior
 

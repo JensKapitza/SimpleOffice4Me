@@ -626,7 +626,7 @@ class _DocumentStorePart2:
             }
         return sorted(versions.values(), key=lambda item: item["created_at"], reverse=True)
 
-    def restore_content_version(
+    def read_content_recovery_version(
         self,
         reference: str | Path,
         archived_sha256: str,
@@ -634,7 +634,8 @@ class _DocumentStorePart2:
         actor: str,
         *,
         max_bytes: int = 512 * 1024 * 1024,
-    ) -> dict[str, Any]:
+    ) -> bytes:
+        """Read one verified archived revision without mutating current content."""
         self._require_actor(actor)
         if not re.fullmatch(r"[0-9a-f]{64}", archived_sha256):
             raise ValueError("unknown archived content version")
@@ -649,7 +650,11 @@ class _DocumentStorePart2:
             raise ValueError("document content changed since the recovery page was opened")
         if hmac.compare_digest(archived_sha256, current_sha256):
             raise ValueError("the selected version is already current")
-        known = {item["sha256"] for item in self.content_recovery_versions(reference) if item["available"]}
+        known = {
+            item["sha256"]
+            for item in self.content_recovery_versions(reference)
+            if item["available"]
+        }
         if archived_sha256 not in known:
             raise ValueError("archived content version is unavailable")
         archive = self.control / "content-versions" / metadata["document_id"] / archived_sha256
@@ -657,11 +662,29 @@ class _DocumentStorePart2:
             raise ValueError("archived content version failed integrity verification")
         if archive.stat().st_size > max_bytes:
             raise ValueError("archived content version exceeds the configured upload size limit")
+        return archive.read_bytes()
+
+    def restore_content_version(
+        self,
+        reference: str | Path,
+        archived_sha256: str,
+        expected_current_sha256: str,
+        actor: str,
+        *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> dict[str, Any]:
+        content = self.read_content_recovery_version(
+            reference,
+            archived_sha256,
+            expected_current_sha256,
+            actor,
+            max_bytes=max_bytes,
+        )
         return self.replace_content(
             reference,
-            archive.read_bytes(),
+            content,
             actor,
-            expected_sha256=current_sha256,
+            expected_sha256=expected_current_sha256,
             source="recovery",
             max_bytes=max_bytes,
             restored_from_sha256=archived_sha256,

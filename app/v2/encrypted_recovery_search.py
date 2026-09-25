@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
+from .encrypted_recovery_fragments import EncryptedRecoveryFragmentStore
 
 
 AVAILABILITY_FORMAT = "simpleoffice-v2-encrypted-recovery-availability/v1"
@@ -29,6 +30,7 @@ class EncryptedRecoveryChunkSearch:
             / "encrypted-blob-store"
             / "chunks"
         )
+        self.fragments = EncryptedRecoveryFragmentStore(self.root)
 
     @staticmethod
     def _indexes(
@@ -56,17 +58,17 @@ class EncryptedRecoveryChunkSearch:
             raise ValueError("at least one encrypted recovery chunk index is required")
         return tuple(sorted(indexes))
 
-    def _chunk_matches(self, row: Mapping[str, Any]) -> bool:
+    def _local_chunk_bytes(self, row: Mapping[str, Any]) -> bytes | None:
         if self.chunks.is_symlink() or not self.chunks.is_dir():
-            return False
+            return None
         try:
             name = uuid.UUID(str(row.get("physical_id") or "")).hex + ".bin"
             expected_size = int(row.get("ciphertext_size", -1))
             expected_digest = str(row.get("ciphertext_sha256") or "").casefold()
         except (TypeError, ValueError):
-            return False
+            return None
         if expected_size < 16 or len(expected_digest) != 64:
-            return False
+            return None
 
         path = self.chunks / name
         flags = os.O_RDONLY
@@ -75,24 +77,66 @@ class EncryptedRecoveryChunkSearch:
         try:
             descriptor = os.open(path, flags)
         except OSError:
-            return False
+            return None
         try:
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_size != expected_size:
-                return False
+                return None
+            result = bytearray()
             digest = hashlib.sha256()
             remaining = expected_size
             while remaining:
                 block = os.read(descriptor, min(1024 * 1024, remaining))
                 if not block:
-                    return False
+                    return None
+                result.extend(block)
                 digest.update(block)
                 remaining -= len(block)
             if os.read(descriptor, 1):
-                return False
-            return digest.hexdigest() == expected_digest
+                return None
+            if digest.hexdigest() != expected_digest:
+                return None
+            return bytes(result)
         finally:
             os.close(descriptor)
+
+    def _chunk_matches(
+        self,
+        descriptor: Mapping[str, Any],
+        index: int,
+        row: Mapping[str, Any],
+    ) -> bool:
+        return (
+            self._local_chunk_bytes(row) is not None
+            or self.fragments.contains(descriptor, index)
+        )
+
+    def read_chunk(
+        self,
+        descriptor: Mapping[str, Any],
+        index: int,
+    ) -> bytes:
+        checked = validate_encrypted_recovery_descriptor(descriptor)
+        indexes = self._indexes(len(checked["ciphertext_chunks"]), (index,))
+        normalized = indexes[0]
+        row = checked["ciphertext_chunks"][normalized]
+        local = self._local_chunk_bytes(row)
+        if local is not None:
+            return local
+        try:
+            return self.fragments.read(checked, normalized)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError("encrypted recovery chunk is unavailable") from exc
+
+    def store_chunk(
+        self,
+        descriptor: Mapping[str, Any],
+        index: int,
+        content: bytes,
+    ) -> None:
+        checked = validate_encrypted_recovery_descriptor(descriptor)
+        normalized = self._indexes(len(checked["ciphertext_chunks"]), (index,))[0]
+        self.fragments.write(checked, normalized, bytes(content))
 
     def availability(
         self,
@@ -105,7 +149,7 @@ class EncryptedRecoveryChunkSearch:
         indexes = self._indexes(len(refs), chunk_indexes)
         available = tuple(
             index for index in indexes
-            if self._chunk_matches(refs[index])
+            if self._chunk_matches(checked, index, refs[index])
         )
         available_set = set(available)
         missing = tuple(index for index in indexes if index not in available_set)

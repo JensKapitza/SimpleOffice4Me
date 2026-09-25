@@ -314,6 +314,81 @@ class ObjectCatalog:
             )
         return self.get(logical)
 
+    def reconcile_external(
+        self,
+        object_id: LogicalObjectId | str,
+        location: StorageLocation | str,
+        *,
+        version_id: str,
+        size: int,
+        content_sha256: str,
+        expected_version_id: str | None = None,
+    ) -> OperationResult[CatalogEntry]:
+        """Atomically adopt one verified out-of-band filesystem observation.
+
+        This is intentionally narrower than normal application mutations. It is
+        used by the filesystem watcher after DocumentStore has identified the
+        stable logical object ID. Existing recovery-needed objects are never
+        silently reactivated.
+        """
+        logical = self._logical(object_id)
+        target = self._location(location)
+        version, length, digest = self._content(version_id, size, content_sha256)
+        now = int(time.time())
+        try:
+            with self._db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute(
+                    "SELECT * FROM object_catalog WHERE object_id=?",
+                    (logical.value,),
+                ).fetchone()
+                if row is None:
+                    db.execute(
+                        """INSERT INTO object_catalog(
+                            object_id,location,version_id,size,content_sha256,state,
+                            created_at,updated_at,deleted_at
+                        ) VALUES(?,?,?,?,?,'active',?,?,0)""",
+                        (
+                            logical.value,
+                            target.relative_path,
+                            version,
+                            length,
+                            digest,
+                            now,
+                            now,
+                        ),
+                    )
+                else:
+                    entry = self._entry(row)
+                    if entry.state is CatalogState.RECOVERY:
+                        return self._conflict(
+                            "catalog object requires recovery before external reconciliation"
+                        )
+                    if (
+                        expected_version_id is not None
+                        and entry.version_id != str(expected_version_id)
+                    ):
+                        return self._conflict(
+                            "catalog object version changed during external reconciliation"
+                        )
+                    db.execute(
+                        """UPDATE object_catalog
+                           SET location=?,version_id=?,size=?,content_sha256=?,
+                               state='active',deleted_at=0,updated_at=?
+                           WHERE object_id=?""",
+                        (
+                            target.relative_path,
+                            version,
+                            length,
+                            digest,
+                            now,
+                            logical.value,
+                        ),
+                    )
+        except sqlite3.IntegrityError:
+            return self._conflict("storage location is already in use")
+        return self.get(logical)
+
     def mark_deleted(
         self,
         object_id: LogicalObjectId | str,

@@ -48,6 +48,127 @@ class _DocumentStorePart4:
             self._record_revision("document_soft_deleted", actor, "documents", metadata["document_id"], metadata)
             return details
 
+    def capture_external_deletion(
+        self,
+        reference: str,
+        actor: str,
+        content: bytes,
+        *,
+        expected_sha256: str,
+    ) -> dict[str, Any]:
+        """Create a recoverable projection after an out-of-band file deletion.
+
+        The active filesystem entry is already gone. The caller must therefore
+        supply bytes read back from the authoritative V2 store.
+        """
+        self._require_actor(actor)
+        from .file_lock import exclusive_file_lock
+
+        payload = bytes(content)
+        digest = hashlib.sha256(payload).hexdigest()
+        if not expected_sha256 or not hmac.compare_digest(digest, expected_sha256):
+            raise ValueError("external deletion recovery content failed integrity verification")
+
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            self._require_document_editable(metadata)
+            if metadata.get("system_state") == "webdav_deleted":
+                raise ValueError("document is already in recovery")
+            if str(metadata.get("sha256") or "") != digest:
+                raise ValueError("document metadata changed before external deletion recovery")
+            previous_path = str(metadata.get("last_path") or "").strip()
+            if not previous_path or previous_path.startswith("[external]"):
+                raise ValueError("document location is unavailable")
+            active = self.root / previous_path
+            if active.exists():
+                raise ValueError("document file reappeared before external deletion recovery")
+
+            deleted_at = utc_now()
+            trash = self.control / "webdav-trash" / metadata["document_id"]
+            trash.mkdir(parents=True, exist_ok=True)
+            if os.name == "posix":
+                try:
+                    os.chmod(trash, 0o700)
+                except OSError:
+                    pass
+            name = Path(previous_path).name or "recovered.bin"
+            destination = trash / (
+                f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}--{name}"
+            )
+            temporary = destination.with_name(
+                f".{destination.name}.{uuid.uuid4().hex}.tmp"
+            )
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+            published = False
+            try:
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, destination)
+                published = True
+                if os.name == "posix":
+                    os.chmod(destination, 0o600)
+            finally:
+                if not published:
+                    temporary.unlink(missing_ok=True)
+
+            metadata["deleted_at"] = deleted_at
+            metadata["deleted_by"] = actor
+            metadata["deleted_from"] = previous_path
+            metadata["recovery_path"] = str(destination.relative_to(self.control))
+            metadata["last_path"] = ""
+            metadata["system_state"] = "webdav_deleted"
+            metadata.setdefault("location_history", []).append(
+                {
+                    "from": previous_path,
+                    "to": "[webdav-trash]",
+                    "at": deleted_at,
+                    "actor": actor,
+                    "reason": "filesystem_watch",
+                }
+            )
+            metadata["location_history"] = metadata["location_history"][-200:]
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            with self._db() as db:
+                db.execute(
+                    "DELETE FROM scan_file WHERE relative_path = ?",
+                    (previous_path,),
+                )
+                db.execute(
+                    "DELETE FROM document_listing WHERE document_id = ?",
+                    (metadata["document_id"],),
+                )
+            fingerprint_path = self.fingerprints / f"{digest}.json"
+            fingerprint = self._read_json(fingerprint_path, {})
+            if fingerprint:
+                fingerprint["paths"] = sorted(
+                    set(fingerprint.get("paths", [])) - {previous_path}
+                )
+                fingerprint["last_seen_at"] = deleted_at
+                atomic_json_write(fingerprint_path, fingerprint)
+            details = {
+                "document_id": metadata["document_id"],
+                "from": previous_path,
+                "deleted_at": deleted_at,
+                "actor": actor,
+                "recovery": str(destination.relative_to(self.control)),
+            }
+            self._event("document_external_deleted", details)
+            self._record_revision(
+                "document_external_deleted",
+                actor,
+                "documents",
+                metadata["document_id"],
+                metadata,
+            )
+            return details
+
     @staticmethod
     def _recovery_owner(metadata: dict[str, Any]) -> str:
         actor = str(metadata.get("deleted_by", ""))
@@ -163,6 +284,9 @@ class _DocumentStorePart4:
             })
             metadata["recovery_history"] = metadata["recovery_history"][-200:]
             metadata.pop("recovery_path", None)
+            metadata.pop("deleted_at", None)
+            metadata.pop("deleted_by", None)
+            metadata.pop("deleted_from", None)
             metadata.pop("collection_recovery_id", None)
             metadata.pop("deleted_collection_root", None)
             self._write_xattrs(destination, metadata["document_id"], actual_sha256, metadata.get("tags", []))
@@ -460,7 +584,7 @@ class _DocumentStorePart4:
                 path = value.resolve(strict=False)
                 try: relative = str(path.relative_to(self.root))
                 except ValueError: continue
-                if not relative or relative.split(os.sep, 1)[0] in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR}: continue
+                if not relative or relative.split(os.sep, 1)[0] in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, ".simpleoffice-v2"}: continue
                 if path.is_file() and not path.is_symlink():
                     created, updated, duplicate = self._scan_file(path)
                     if post_file: post_file(path)

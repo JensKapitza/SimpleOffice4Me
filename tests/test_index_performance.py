@@ -99,10 +99,22 @@ class IndexProjectionPerformanceTest(unittest.TestCase):
             store = DocumentStore(root); store.scan(); path.unlink(); store.scan()
             self.assertEqual(0, store.inbox_page()["total"])
 
-    def test_watcher_ignores_its_own_index_metadata(self):
+    def test_watcher_ignores_its_own_index_and_v2_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
-            changes = queue.Queue(); handler = _IndexEventHandler(changes, Path(temp).resolve())
-            handler.on_any_event(SimpleNamespace(event_type="modified", is_directory=False, src_path=str(Path(temp) / ".simpleoffice-meta" / "scan-status.json"), dest_path=""))
+            changes = queue.Queue()
+            handler = _IndexEventHandler(changes, Path(temp).resolve())
+            for path in (
+                Path(temp) / ".simpleoffice-meta" / "scan-status.json",
+                Path(temp) / ".simpleoffice-v2" / "blob-store" / "chunks" / "internal.bin",
+            ):
+                handler.on_any_event(
+                    SimpleNamespace(
+                        event_type="modified",
+                        is_directory=False,
+                        src_path=str(path),
+                        dest_path="",
+                    )
+                )
             self.assertTrue(changes.empty())
 
 

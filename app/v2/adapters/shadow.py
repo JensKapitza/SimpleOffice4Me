@@ -202,12 +202,16 @@ class ShadowDocumentStorageAdapter:
         content: bytes,
         *,
         expected_version: str | None = None,
+        source: str = "v2-storage",
+        restored_from_version: str = "",
     ) -> OperationResult[StoredObject]:
         return self._mirror_result(
             self.legacy.replace_bytes(
                 object_id,
                 content,
                 expected_version=expected_version,
+                source=source,
+                restored_from_version=restored_from_version,
             )
         )
 
@@ -217,6 +221,29 @@ class ShadowDocumentStorageAdapter:
         destination: StorageLocation,
     ) -> OperationResult[StoredObject]:
         return self._mirror_result(self.legacy.copy(object_id, destination))
+
+    def restore(
+        self,
+        object_id: LogicalObjectId,
+        destination: StorageLocation,
+        *,
+        expected_version: str | None = None,
+    ) -> OperationResult[StoredObject]:
+        result = self.legacy.restore(
+            object_id,
+            destination,
+            expected_version=expected_version,
+        )
+        if not result.ok:
+            return result
+        content = self.legacy.read_bytes(object_id)
+        if not content.ok:
+            self._dirty(
+                f"{object_id.value}: restored V1 content could not be verified for V2 shadow"
+            )
+            return result
+        self._ensure_active(result.value, content.value)
+        return result
 
     def move(
         self,

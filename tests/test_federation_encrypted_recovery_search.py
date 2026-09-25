@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import tempfile
@@ -14,7 +16,11 @@ from flask import Flask
 from app.federation_http import bp
 from app.federation_peer_auth import headers as peer_headers, sign as peer_sign
 from app.federation_store import FederationStore
-from app.federation_worker import remote_encrypted_recovery_availability
+from app.federation_worker import (
+    remote_encrypted_recovery_availability,
+    remote_encrypted_recovery_chunk,
+    remote_store_encrypted_recovery_chunk,
+)
 from app.v2.authorization import AuthorizationStore, GrantRight
 from app.v2.contracts import LogicalObjectId
 from app.v2.encrypted_blob_store import EncryptedBlobStore
@@ -23,6 +29,8 @@ from app.v2.federation_policy import FederationPolicyStore
 
 
 PATH = "/federation/v1/recovery/encrypted/availability"
+CHUNK_PATH = "/federation/v1/recovery/encrypted/chunk"
+STORE_PATH = "/federation/v1/recovery/encrypted/store"
 SOURCE_PEER = "peer-a"
 SOURCE_TOKEN = "peer-a-secret"
 RECEIVER_TOKEN = "receiver-secret"
@@ -83,6 +91,13 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
             object_refs=(self.grant_ref,),
             expires_at=int(time.time()) + 600,
         )
+        self.store_grant = self.authorization.issue_root(
+            issuer="controller",
+            subject=SOURCE_PEER,
+            rights=(GrantRight.STORE,),
+            object_refs=(self.grant_ref,),
+            expires_at=int(time.time()) + 600,
+        )
 
     def tearDown(self):
         self.environment.stop()
@@ -109,7 +124,7 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
             separators=(",", ":"),
         ).encode("utf-8")
 
-    def _headers(self, body: bytes):
+    def _headers_for(self, path: str, body: bytes):
         return {
             "Authorization": f"Bearer {RECEIVER_TOKEN}",
             "Content-Type": "application/json",
@@ -117,10 +132,26 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
                 SOURCE_PEER,
                 SOURCE_TOKEN,
                 "POST",
-                PATH,
+                path,
                 body,
             ),
         }
+
+    def _headers(self, body: bytes):
+        return self._headers_for(PATH, body)
+
+    def _chunk_path(self, index: int) -> Path:
+        row = self.descriptor["ciphertext_chunks"][index]
+        return (
+            self.root
+            / ".simpleoffice-v2"
+            / "encrypted-blob-store"
+            / "chunks"
+            / f"{uuid.UUID(row['physical_id']).hex}.bin"
+        )
+
+    def _chunk_bytes(self, index: int) -> bytes:
+        return self._chunk_path(index).read_bytes()
 
     def _post(self, *, descriptor=None, authorization_ref=None, chunk_indexes=None):
         body = self._payload(
@@ -389,6 +420,201 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
                     chunk_indexes=(0,),
                 )
 
+    def test_descriptor_scoped_chunk_read_returns_verified_ciphertext_only(self):
+        expected = self._chunk_bytes(0)
+        body = json.dumps(
+            {
+                "authorization_ref": self.grant.grant_id,
+                "descriptor": self.descriptor,
+                "chunk_index": 0,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        response = self.client.post(
+            CHUNK_PATH,
+            data=body,
+            headers=self._headers_for(CHUNK_PATH, body),
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(expected, response.data)
+        self.assertEqual(
+            hashlib.sha256(expected).hexdigest(),
+            response.headers["X-Chunk-SHA256"],
+        )
+        self.assertEqual(
+            self.descriptor["descriptor_id"],
+            response.headers["X-Recovery-Descriptor-ID"],
+        )
+        self.assertNotIn("physical_id", json.dumps(dict(response.headers)).casefold())
+
+    def test_store_right_caches_foreign_chunk_and_availability_finds_it(self):
+        expected = self._chunk_bytes(0)
+        self._chunk_path(0).unlink()
+
+        missing = self._post(chunk_indexes=(0,))
+        self.assertEqual([0], missing.get_json()["missing_indexes"])
+
+        body = json.dumps(
+            {
+                "authorization_ref": self.store_grant.grant_id,
+                "descriptor": self.descriptor,
+                "chunk_index": 0,
+                "chunk": base64.b64encode(expected).decode("ascii"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        stored = self.client.post(
+            STORE_PATH,
+            data=body,
+            headers=self._headers_for(STORE_PATH, body),
+        )
+        self.assertEqual(200, stored.status_code)
+        self.assertTrue(stored.get_json()["stored"])
+
+        available = self._post(chunk_indexes=(0,))
+        self.assertEqual([0], available.get_json()["available_indexes"])
+
+        read_body = json.dumps(
+            {
+                "authorization_ref": self.grant.grant_id,
+                "descriptor": self.descriptor,
+                "chunk_index": 0,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        fetched = self.client.post(
+            CHUNK_PATH,
+            data=read_body,
+            headers=self._headers_for(CHUNK_PATH, read_body),
+        )
+        self.assertEqual(200, fetched.status_code)
+        self.assertEqual(expected, fetched.data)
+
+    def test_read_grant_cannot_store_recovery_chunk(self):
+        expected = self._chunk_bytes(0)
+        body = json.dumps(
+            {
+                "authorization_ref": self.grant.grant_id,
+                "descriptor": self.descriptor,
+                "chunk_index": 0,
+                "chunk": base64.b64encode(expected).decode("ascii"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        response = self.client.post(
+            STORE_PATH,
+            data=body,
+            headers=self._headers_for(STORE_PATH, body),
+        )
+        self.assertEqual(403, response.status_code)
+
+    def test_tampered_foreign_chunk_is_rejected_before_cache(self):
+        expected = bytearray(self._chunk_bytes(0))
+        self._chunk_path(0).unlink()
+        expected[0] ^= 1
+        body = json.dumps(
+            {
+                "authorization_ref": self.store_grant.grant_id,
+                "descriptor": self.descriptor,
+                "chunk_index": 0,
+                "chunk": base64.b64encode(bytes(expected)).decode("ascii"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        response = self.client.post(
+            STORE_PATH,
+            data=body,
+            headers=self._headers_for(STORE_PATH, body),
+        )
+        self.assertEqual(400, response.status_code)
+        availability = self._post(chunk_indexes=(0,))
+        self.assertEqual([0], availability.get_json()["missing_indexes"])
+
+    def test_client_fetches_and_validates_descriptor_bound_chunk(self):
+        federation = FederationStore(self.root)
+        federation.save_peer(
+            "peer-target",
+            "Target",
+            "https://target.invalid",
+            "target-bearer-secret",
+            enabled=True,
+        )
+        expected = self._chunk_bytes(0)
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return expected
+
+        with patch("app.federation_worker._request", return_value=FakeResponse()) as request_call:
+            result = remote_encrypted_recovery_chunk(
+                self.root,
+                "peer-target",
+                self.descriptor,
+                self.grant.grant_id,
+                0,
+            )
+        self.assertEqual(expected, result)
+        kwargs = request_call.call_args.kwargs
+        self.assertEqual("POST", kwargs["method"])
+        self.assertEqual("target-bearer-secret", kwargs["token"])
+        self.assertEqual("peer-local", kwargs["headers"]["X-SimpleOffice-Peer-ID"])
+
+    def test_client_store_validates_peer_confirmation(self):
+        federation = FederationStore(self.root)
+        federation.save_peer(
+            "peer-target",
+            "Target",
+            "https://target.invalid",
+            "target-bearer-secret",
+            enabled=True,
+        )
+        expected = self._chunk_bytes(0)
+        confirmation = {
+            "ok": True,
+            "stored": True,
+            "descriptor_id": self.descriptor["descriptor_id"],
+            "chunk_index": 0,
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(confirmation).encode("utf-8")
+
+        with patch("app.federation_worker._request", return_value=FakeResponse()):
+            result = remote_store_encrypted_recovery_chunk(
+                self.root,
+                "peer-target",
+                self.descriptor,
+                self.store_grant.grant_id,
+                0,
+                expected,
+            )
+        self.assertTrue(result["stored"])
+
     def test_capabilities_advertise_descriptor_scoped_recovery_search(self):
         response = self.client.get(
             "/federation/v1/capabilities",
@@ -397,6 +623,8 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertTrue(response.get_json()["encrypted_recovery_availability"])
+        self.assertTrue(response.get_json()["encrypted_recovery_chunk_read"])
+        self.assertTrue(response.get_json()["encrypted_recovery_chunk_store"])
         self.assertEqual(
             "recovery:<descriptor_id>",
             response.get_json()["encrypted_recovery_grant_scope"],

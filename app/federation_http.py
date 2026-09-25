@@ -1,6 +1,8 @@
 """HTTP transport for resumable SOFP downloads, uploads and delegated pushes."""
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import os
 import re
@@ -41,6 +43,9 @@ TRANSFER_CAPABILITY_TTL = 60 * 60
 ENCRYPTED_RECOVERY_QUERY_MAX_BYTES = 8 * 1024 * 1024
 ENCRYPTED_RECOVERY_QUERY_LIMIT = 30
 ENCRYPTED_RECOVERY_QUERY_WINDOW = 60
+ENCRYPTED_RECOVERY_TRANSFER_LIMIT = 240
+ENCRYPTED_RECOVERY_TRANSFER_WINDOW = 60
+ENCRYPTED_RECOVERY_STORE_MAX_BYTES = 96 * 1024 * 1024
 
 
 def _store() -> DocumentStore:
@@ -201,6 +206,8 @@ def capabilities():
         "transfer_capabilities": True,
         "transfer_capability_ttl_seconds": TRANSFER_CAPABILITY_TTL,
         "encrypted_recovery_availability": True,
+        "encrypted_recovery_chunk_read": True,
+        "encrypted_recovery_chunk_store": True,
         "encrypted_recovery_grant_scope": "recovery:<descriptor_id>",
     })
     return jsonify(result)
@@ -302,6 +309,79 @@ def _recovery_query_denied(
             "descriptor_id": str(descriptor_id)[:64],
         },
     )
+
+
+def _encrypted_recovery_right_allowed(
+    root: str | Path,
+    peer_id: str,
+    descriptor: dict,
+    authorization_ref: str,
+    right: GrantRight,
+    *,
+    now: int,
+) -> tuple[bool, str]:
+    descriptor_id = descriptor["descriptor_id"]
+    grant_ref = f"recovery:{descriptor_id}"
+    authorization_path = (
+        Path(root).expanduser().resolve()
+        / ".simpleoffice-v2"
+        / "authorization.sqlite3"
+    )
+    if not authorization_path.is_file():
+        return False, "authorization_missing"
+    authorization = AuthorizationStore(root)
+    if not authorization.allows(
+        authorization_ref,
+        subject=peer_id,
+        right=right,
+        object_ref=grant_ref,
+        now=now,
+    ):
+        return False, "authorization_denied"
+
+    policy_path = (
+        Path(root).expanduser().resolve()
+        / ".simpleoffice-v2"
+        / "federation-policy.sqlite3"
+    )
+    if policy_path.is_file():
+        try:
+            decision = FederationPolicyStore(root).decision(
+                [local_peer_id(), peer_id],
+                scope="storage",
+                now=now,
+                target_peer=peer_id,
+                authorization_store=authorization,
+                object_refs=(descriptor["object_id"], grant_ref),
+            )
+        except (RuntimeError, TypeError, ValueError):
+            return False, "policy_invalid"
+        if not decision.allowed:
+            return False, f"policy:{decision.reason}"
+    return True, ""
+
+
+def _encrypted_recovery_transfer_rate_limited(
+    federation: FederationStore,
+    peer_id: str,
+    action: str,
+    *,
+    now: int,
+) -> bool:
+    event = f"encrypted_recovery_{action}_attempt"
+    if federation.recent_event_count(
+        event,
+        peer_id=peer_id,
+        since=now - ENCRYPTED_RECOVERY_TRANSFER_WINDOW,
+    ) >= ENCRYPTED_RECOVERY_TRANSFER_LIMIT:
+        federation.record_event(
+            f"encrypted_recovery_{action}_rate_limited",
+            peer_id=peer_id,
+            detail={"window_seconds": ENCRYPTED_RECOVERY_TRANSFER_WINDOW},
+        )
+        return True
+    federation.record_event(event, peer_id=peer_id, detail={})
+    return False
 
 
 @bp.post("/recovery/encrypted/availability")
@@ -443,6 +523,188 @@ def encrypted_recovery_availability():
         },
     )
     response = jsonify(result)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/recovery/encrypted/chunk")
+def encrypted_recovery_chunk():
+    content_length = request.content_length
+    if (
+        content_length is None
+        or content_length <= 0
+        or content_length > ENCRYPTED_RECOVERY_QUERY_MAX_BYTES
+    ):
+        return jsonify({"error": "invalid_recovery_chunk_request_size"}), 413
+
+    root = current_app.config["DOCUMENT_ROOT"]
+    federation = _federation()
+    try:
+        peer_id = authenticate_peer(root, request)
+    except ValueError:
+        return jsonify({"error": "peer_authentication_failed"}), 401
+    now = int(time.time())
+    if _encrypted_recovery_transfer_rate_limited(
+        federation, peer_id, "chunk_read", now=now
+    ):
+        return jsonify({"error": "recovery_chunk_rate_limited"}), 429
+
+    body = request.get_json(silent=True)
+    try:
+        if not isinstance(body, dict):
+            raise ValueError("invalid json")
+        descriptor = validate_encrypted_recovery_descriptor(body.get("descriptor"))
+        authorization_ref = str(body.get("authorization_ref") or "").strip()
+        chunk_index = body.get("chunk_index")
+        if not authorization_ref:
+            raise ValueError("authorization reference is required")
+        if isinstance(chunk_index, bool) or not isinstance(chunk_index, int):
+            raise ValueError("chunk index must be an integer")
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_recovery_chunk_request"}), 400
+
+    allowed, reason = _encrypted_recovery_right_allowed(
+        root,
+        peer_id,
+        descriptor,
+        authorization_ref,
+        GrantRight.READ,
+        now=now,
+    )
+    if not allowed:
+        federation.record_event(
+            "encrypted_recovery_chunk_read_denied",
+            peer_id=peer_id,
+            detail={
+                "reason": reason[:120],
+                "descriptor_id": descriptor["descriptor_id"],
+            },
+        )
+        return jsonify({"error": "recovery_chunk_forbidden"}), 403
+
+    try:
+        payload = EncryptedRecoveryChunkSearch(root).read_chunk(
+            descriptor,
+            chunk_index,
+        )
+    except FileNotFoundError:
+        return jsonify({"error": "recovery_chunk_not_found"}), 404
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return jsonify({"error": "invalid_recovery_chunk_request"}), 400
+
+    row = descriptor["ciphertext_chunks"][chunk_index]
+    federation.record_event(
+        "encrypted_recovery_chunk_read_allowed",
+        peer_id=peer_id,
+        detail={
+            "descriptor_id": descriptor["descriptor_id"],
+            "chunk_index": chunk_index,
+            "bytes": len(payload),
+        },
+    )
+    return Response(
+        payload,
+        200,
+        {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(payload)),
+            "Cache-Control": "no-store",
+            "X-Recovery-Descriptor-ID": descriptor["descriptor_id"],
+            "X-Recovery-Chunk-Index": str(chunk_index),
+            "X-Chunk-SHA256": str(row["ciphertext_sha256"]),
+        },
+    )
+
+
+@bp.post("/recovery/encrypted/store")
+def encrypted_recovery_store():
+    content_length = request.content_length
+    if (
+        content_length is None
+        or content_length <= 0
+        or content_length > ENCRYPTED_RECOVERY_STORE_MAX_BYTES
+    ):
+        return jsonify({"error": "invalid_recovery_store_request_size"}), 413
+
+    root = current_app.config["DOCUMENT_ROOT"]
+    federation = _federation()
+    try:
+        peer_id = authenticate_peer(root, request)
+    except ValueError:
+        return jsonify({"error": "peer_authentication_failed"}), 401
+    now = int(time.time())
+    if _encrypted_recovery_transfer_rate_limited(
+        federation, peer_id, "chunk_store", now=now
+    ):
+        return jsonify({"error": "recovery_store_rate_limited"}), 429
+
+    body = request.get_json(silent=True)
+    try:
+        if not isinstance(body, dict):
+            raise ValueError("invalid json")
+        descriptor = validate_encrypted_recovery_descriptor(body.get("descriptor"))
+        authorization_ref = str(body.get("authorization_ref") or "").strip()
+        chunk_index = body.get("chunk_index")
+        encoded = body.get("chunk")
+        if not authorization_ref:
+            raise ValueError("authorization reference is required")
+        if isinstance(chunk_index, bool) or not isinstance(chunk_index, int):
+            raise ValueError("chunk index must be an integer")
+        if chunk_index < 0 or chunk_index >= len(descriptor["ciphertext_chunks"]):
+            raise ValueError("chunk index outside descriptor")
+        if not isinstance(encoded, str):
+            raise ValueError("chunk payload is required")
+        expected_size = int(descriptor["ciphertext_chunks"][chunk_index]["ciphertext_size"])
+        maximum_encoded = ((expected_size + 2) // 3) * 4 + 8
+        if len(encoded) > maximum_encoded:
+            raise ValueError("encoded chunk exceeds descriptor size")
+        payload = base64.b64decode(encoded.encode("ascii"), validate=True)
+    except (UnicodeError, binascii.Error, TypeError, ValueError):
+        return jsonify({"error": "invalid_recovery_store_request"}), 400
+
+    allowed, reason = _encrypted_recovery_right_allowed(
+        root,
+        peer_id,
+        descriptor,
+        authorization_ref,
+        GrantRight.STORE,
+        now=now,
+    )
+    if not allowed:
+        federation.record_event(
+            "encrypted_recovery_chunk_store_denied",
+            peer_id=peer_id,
+            detail={
+                "reason": reason[:120],
+                "descriptor_id": descriptor["descriptor_id"],
+            },
+        )
+        return jsonify({"error": "recovery_store_forbidden"}), 403
+
+    try:
+        EncryptedRecoveryChunkSearch(root).store_chunk(
+            descriptor,
+            chunk_index,
+            payload,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return jsonify({"error": "invalid_recovery_store_request"}), 400
+
+    federation.record_event(
+        "encrypted_recovery_chunk_store_allowed",
+        peer_id=peer_id,
+        detail={
+            "descriptor_id": descriptor["descriptor_id"],
+            "chunk_index": chunk_index,
+            "bytes": len(payload),
+        },
+    )
+    response = jsonify({
+        "ok": True,
+        "descriptor_id": descriptor["descriptor_id"],
+        "chunk_index": chunk_index,
+        "stored": True,
+    })
     response.headers["Cache-Control"] = "no-store"
     return response
 
