@@ -195,6 +195,22 @@ class StoragePort(Protocol):
         """
         ...
 
+    def copy_verified_range_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        start: int,
+        length: int | None = None,
+    ) -> OperationResult[StoredObject]:
+        """Verify the complete object while copying only one byte range.
+
+        Implementations may write provisional range bytes before final whole-
+        object verification completes. Callers must publish the target only
+        after a successful result.
+        """
+        ...
+
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
         ...
 
