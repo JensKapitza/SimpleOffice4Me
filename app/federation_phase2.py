@@ -379,7 +379,7 @@ def import_tasks(owner: str):
                 if uid:
                     by_uid[uid] = created
         return jsonify({"resource": "tasks", "owner": owner, "imported": imported, "updated": updated})
-    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         return jsonify({"error": "invalid_task_payload"}), 400
 
 
@@ -398,7 +398,7 @@ def import_calendar(owner: str):
         return jsonify({"error": "payload_too_large"}), 413
     try:
         imported = CalendarStore(current_app.config["DOCUMENT_ROOT"]).import_ics(data.decode("utf-8"), owner)
-    except (UnicodeDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, ValueError):
         return jsonify({"error": "invalid_calendar_payload"}), 400
     return jsonify({"resource": "calendars", "owner": owner, "imported": imported})
 
