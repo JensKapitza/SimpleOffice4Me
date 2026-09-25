@@ -7,7 +7,7 @@ import time
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
-from .document_store import DocumentStore
+from .document_store import DocumentStore, sha256_file
 from .federation_blocks import FederationBlockStore, content_manifest_valid, sha512_bytes
 from .federation_core import normalize_sha256
 from .federation_peer_auth import authenticate as authenticate_peer
@@ -97,11 +97,11 @@ def _document_source(document_id: str):
 
 def _local_manifest(document_id: str):
     _item, path, digest = _document_source(document_id)
+    if sha256_file(path) != digest:
+        raise ValueError("document content differs from indexed document")
     manifest = FederationBlockStore(_root()).manifest_for_file(path)
     if not content_manifest_valid(manifest):
         raise ValueError("invalid local content manifest")
-    if normalize_sha256(str(manifest.get("blob_hash") or "")) != digest:
-        raise ValueError("document content manifest differs from indexed document")
     return digest, manifest
 
 
