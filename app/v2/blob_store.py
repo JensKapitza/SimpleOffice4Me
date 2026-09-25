@@ -252,18 +252,37 @@ class BlobStore:
         manifest, _ = self._verify_content(object_id, version_id, collect=False)
         return self._as_version(manifest)
 
-    def copy_verified_to(
+    @staticmethod
+    def _range(start: int, length: int | None) -> tuple[int, int | None]:
+        if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+            raise ValueError("verified range start must be a non-negative integer")
+        if length is not None and (
+            isinstance(length, bool) or not isinstance(length, int) or length < 0
+        ):
+            raise ValueError("verified range length must be a non-negative integer")
+        return start, None if length is None else start + length
+
+    def copy_verified_range_to(
         self,
         object_id: LogicalObjectId,
         target: BinaryIO,
         *,
+        start: int,
+        length: int | None = None,
         version_id: str | None = None,
     ) -> BlobVersion:
-        """Stream one verified blob version to a writable binary target."""
+        """Verify the whole blob while copying only one requested range."""
 
+        start, end = self._range(start, length)
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
         if manifest.get("object_id") != object_id.value:
             raise BlobIntegrityError("blob manifest object identity mismatch")
+        declared_size = int(manifest.get("size", -1))
+        if declared_size < 0:
+            raise BlobIntegrityError("blob content size metadata is invalid")
+        if start > declared_size:
+            raise ValueError("verified range starts beyond the end of the object")
+
         whole = hashlib.sha256()
         total = 0
         for expected_index, chunk in enumerate(manifest["chunks"]):
@@ -278,16 +297,41 @@ class BlobStore:
                 raise BlobIntegrityError("blob chunk size mismatch")
             if hashlib.sha256(block).hexdigest() != chunk.get("sha256"):
                 raise BlobIntegrityError("blob chunk integrity mismatch")
-            written = target.write(block)
-            if written is not None and int(written) != len(block):
-                raise OSError("verified blob target accepted a partial write")
-            total += len(block)
+            block_start = total
+            block_end = total + len(block)
+            selected_start = max(start, block_start)
+            selected_end = block_end if end is None else min(end, block_end)
+            if selected_start < selected_end:
+                fragment = block[
+                    selected_start - block_start:selected_end - block_start
+                ]
+                written = target.write(fragment)
+                if written is not None and int(written) != len(fragment):
+                    raise OSError("verified blob target accepted a partial write")
+            total = block_end
             whole.update(block)
-        if total != int(manifest.get("size", -1)):
+        if total != declared_size:
             raise BlobIntegrityError("blob content size mismatch")
         if whole.hexdigest() != manifest.get("content_sha256"):
             raise BlobIntegrityError("blob content integrity mismatch")
         return self._as_version(manifest)
+
+    def copy_verified_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        version_id: str | None = None,
+    ) -> BlobVersion:
+        """Stream one verified blob version to a writable binary target."""
+
+        return self.copy_verified_range_to(
+            object_id,
+            target,
+            start=0,
+            length=None,
+            version_id=version_id,
+        )
 
     def read(self, object_id: LogicalObjectId, *, version_id: str | None = None) -> bytes:
         _, content = self._verify_content(object_id, version_id, collect=True)
