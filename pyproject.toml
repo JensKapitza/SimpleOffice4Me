@@ -76,3 +76,6 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E9", "F"]
+# F401/F403/F405 are non-blocking until the legacy split-module/re-export architecture is removed.
+# All other Pyflakes correctness rules remain blocking repository-wide.
+ignore = ["F401", "F403", "F405"]
