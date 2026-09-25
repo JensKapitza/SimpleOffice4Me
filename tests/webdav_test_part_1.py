@@ -329,7 +329,7 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         folder = self.client.open(f"{scoped}/Unterordner", method="MKCOL", headers=auth)
         copied = self.client.open(
             f"{scoped}/Quelle.txt", method="COPY",
-            headers={**auth, "Destination": f"http://localhost/webdav/files/jens/Projekte/Kopie.txt"},
+            headers={**auth, "Destination": "http://localhost/webdav/files/jens/Projekte/Kopie.txt"},
         )
         moved_outside = self.client.open(
             f"{scoped}/Quelle.txt", method="MOVE",
