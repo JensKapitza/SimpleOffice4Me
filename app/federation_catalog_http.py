@@ -9,8 +9,8 @@ import os
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .document_origin import document_origin_tags
-from .document_store import DocumentStore, sha256_file
-from .safe_paths import resolve_under
+from .document_store import DocumentStore
+from .v2.document_access import document_sha256, document_size
 
 bp = Blueprint("federation_catalog_http", __name__, url_prefix="/federation/v1/catalog")
 MAX_PAGE_SIZE = 1000
@@ -52,20 +52,19 @@ def _catalog_rows() -> list[dict]:
     store = _store()
     rows = []
     for item in store.list_documents():
+        document_id = str(item.get("document_id", ""))
+        if not document_id or item.get("system_state") == "webdav_deleted" or item.get("deleted_at"):
+            continue
         try:
-            path = resolve_under(store.root, str(item.get("last_path", "")), strict=True)
-        except (OSError, ValueError):
+            digest = document_sha256(store.root, "federation-catalog", document_id)
+            size = document_size(store.root, "federation-catalog", document_id)
+        except (OSError, RuntimeError, ValueError):
             continue
-        if not path.is_file() or path.is_symlink():
-            continue
-        digest = str(item.get("sha256") or "").casefold()
-        if len(digest) != 64:
-            digest = sha256_file(path)
         rows.append({
-            "document_id": str(item.get("document_id", "")),
+            "document_id": document_id,
             "blob_hash": digest,
             "path": str(item.get("last_path", "")),
-            "size": path.stat().st_size,
+            "size": size,
             "modified_at": str(item.get("last_seen_at") or ""),
             "state": str(item.get("state") or "new")[:120],
             "tags": sorted({str(tag) for tag in item.get("tags", []) if str(tag).strip()}, key=str.casefold),
