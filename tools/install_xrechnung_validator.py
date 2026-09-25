@@ -44,6 +44,28 @@ MAX_ARCHIVE_FILES = 5000
 _ALLOWED_URLS = {JAR_URL, CONFIG_URL}
 
 
+def _allowed_redirect(url: str) -> bool:
+    parsed = urllib.parse.urlsplit(str(url or ""))
+    host = str(parsed.hostname or "").casefold()
+    return bool(
+        parsed.scheme == "https"
+        and not parsed.username
+        and not parsed.password
+        and parsed.port in {None, 443}
+        and host in {"github.com", "release-assets.githubusercontent.com"}
+    )
+
+
+class _PinnedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _allowed_redirect(newurl):
+            raise RuntimeError("XRechnung validator redirect target is not allowed")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_PinnedRedirectHandler())
+
+
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -78,19 +100,8 @@ def _download(url: str, *, max_bytes: int) -> bytes:
         url,
         headers={"User-Agent": "SimpleOffice4Me XRechnung validator bootstrap"},
     )
-    with urllib.request.urlopen(request, timeout=90) as response:
-        final = urllib.parse.urlsplit(response.geturl())
-        final_host = str(final.hostname or "").casefold()
-        if (
-            final.scheme != "https"
-            or final.username
-            or final.password
-            or final.port not in {None, 443}
-            or not (
-                final_host == "github.com"
-                or final_host == "release-assets.githubusercontent.com"
-            )
-        ):
+    with _OPENER.open(request, timeout=90) as response:
+        if not _allowed_redirect(response.geturl()):
             raise RuntimeError("XRechnung validator redirect target is not allowed")
         declared = response.headers.get("Content-Length")
         if declared:
