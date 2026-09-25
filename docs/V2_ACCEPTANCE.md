@@ -85,7 +85,10 @@ Federation transfer acceptance is bounded as follows:
 - deny-first route policy is re-evaluated before progress;
 - completion is based on verified target state rather than sender activity;
 - session-scoped equality tokens avoid exposing stable cross-peer plaintext
-  block hashes on the V2 dedup path.
+  block hashes on the V2 dedup path;
+- V2 dedup lookup is document-scoped and peer-signed; the former stable
+  hash-addressed V2 manifest/block route is retired, removing it as a general
+  content-presence oracle.
 
 ## Explicit post-V2 transitions
 
