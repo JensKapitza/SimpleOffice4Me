@@ -370,6 +370,8 @@ class BlobCatalogStorageAdapter:
         content: bytes,
         *,
         expected_version: str | None = None,
+        source: str = "v2-storage",
+        restored_from_version: str = "",
     ) -> OperationResult[StoredObject]:
         current = self._active(object_id)
         if not current.ok:
@@ -397,6 +399,8 @@ class BlobCatalogStorageAdapter:
             previous_version=previous.version_id,
             version=entry.version_id,
             size=entry.size,
+            source=str(source or "v2-storage"),
+            restored_from_version=str(restored_from_version or ""),
         )
         if not audit.ok:
             return OperationResult(error=audit.error)
@@ -534,6 +538,44 @@ class BlobCatalogStorageAdapter:
         if not audit.ok:
             return OperationResult(error=audit.error)
         return copied
+
+    def restore(
+        self,
+        object_id: LogicalObjectId,
+        destination: StorageLocation,
+        *,
+        expected_version: str | None = None,
+    ) -> OperationResult[StoredObject]:
+        current = self.catalog.get(object_id, include_deleted=True)
+        if not current.ok:
+            return self._catalog_failure(current)
+        previous = current.value
+        if previous.state is not CatalogState.DELETED:
+            return OperationResult.failure(
+                ErrorCode.CONFLICT,
+                "catalog object is not deleted",
+            )
+        if expected_version is not None and not self._matches_expected(
+            previous, str(expected_version)
+        ):
+            return OperationResult.failure(
+                ErrorCode.CONFLICT,
+                "catalog object version changed",
+            )
+        restored = self.catalog.restore(object_id, location=destination)
+        if not restored.ok:
+            return self._catalog_failure(restored)
+        entry = restored.value
+        audit = self._audit(
+            entry,
+            "storage_restored",
+            previous_location=previous.location.relative_path,
+            location=entry.location.relative_path,
+            version=entry.version_id,
+        )
+        if not audit.ok:
+            return OperationResult(error=audit.error)
+        return OperationResult.success(self._stored(entry))
 
     def delete(
         self,
