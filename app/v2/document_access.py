@@ -47,6 +47,35 @@ def document_sha256(root: str | Path, actor: str, document_id: str) -> str:
     return hashlib.sha256(document_bytes(root, actor, document_id)).hexdigest()
 
 
+def document_id_for_sha256(root: str | Path, digest: str) -> str:
+    """Resolve one active V2 object by its current content digest."""
+    normalized = str(digest or "").strip().casefold()
+    if len(normalized) != 64 or any(ch not in "0123456789abcdef" for ch in normalized):
+        raise ValueError("invalid SHA-256 digest")
+    matches = [
+        entry.object_id.value
+        for entry in ObjectCatalog(root).list()
+        if entry.state is CatalogState.ACTIVE and entry.content_sha256 == normalized
+    ]
+    if not matches:
+        raise ValueError("document content is not available in the V2 catalog")
+    return sorted(matches)[0]
+
+
+@contextmanager
+def materialized_blob(
+    root: str | Path,
+    actor: str,
+    digest: str,
+    *,
+    suffix: str = "",
+) -> Iterator[Path]:
+    """Yield one verified temporary file selected by current content digest."""
+    document_id = document_id_for_sha256(root, digest)
+    with materialize_verified_object(root, actor, document_id, suffix=suffix) as path:
+        yield path
+
+
 @contextmanager
 def materialized_document(
     root: str | Path,
