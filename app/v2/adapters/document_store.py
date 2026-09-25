@@ -128,6 +128,72 @@ class DocumentStoreStorageAdapter:
         except (OSError, RuntimeError, ValueError, TypeError) as exc:
             return self._failure(exc)
 
+    def copy_verified_range_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        start: int,
+        length: int | None = None,
+    ) -> OperationResult[StoredObject]:
+        try:
+            if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+                raise ValueError("verified range start must be a non-negative integer")
+            if length is not None and (
+                isinstance(length, bool) or not isinstance(length, int) or length < 0
+            ):
+                raise ValueError("verified range length must be a non-negative integer")
+            end = None if length is None else start + length
+            metadata = self.store.get_document(object_id.value)
+            if metadata.get("system_state") == "webdav_deleted" or metadata.get("deleted_at"):
+                return OperationResult.failure(
+                    ErrorCode.NOT_FOUND,
+                    "document is deleted",
+                )
+            path = resolve_file_under(
+                self.store.root,
+                str(metadata.get("last_path") or ""),
+            )
+            expected = str(metadata.get("sha256") or "")
+            digest = hashlib.sha256()
+            total = 0
+            with path.open("rb") as source:
+                while True:
+                    block = source.read(1024 * 1024)
+                    if not block:
+                        break
+                    block_start = total
+                    block_end = total + len(block)
+                    selected_start = max(start, block_start)
+                    selected_end = block_end if end is None else min(end, block_end)
+                    if selected_start < selected_end:
+                        fragment = block[
+                            selected_start - block_start:selected_end - block_start
+                        ]
+                        written = target.write(fragment)
+                        if written is not None and int(written) != len(fragment):
+                            raise OSError("storage target accepted a partial write")
+                    digest.update(block)
+                    total = block_end
+            if start > total:
+                raise ValueError("verified range starts beyond the end of the object")
+            actual = digest.hexdigest()
+            if expected and actual != expected:
+                return OperationResult.failure(
+                    ErrorCode.INTEGRITY_ERROR,
+                    "document content does not match stored integrity metadata",
+                )
+            return OperationResult.success(
+                StoredObject(
+                    object_id=object_id,
+                    version=expected or actual,
+                    size=total,
+                    location=StorageLocation(str(metadata.get("last_path") or "")),
+                )
+            )
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            return self._failure(exc)
+
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
         try:
             metadata = self.store.create_document_at(
