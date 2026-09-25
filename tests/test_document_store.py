@@ -322,7 +322,7 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertIn("jens", accessed["seen_by"])
 
             first = store.create_share(document["document_id"], "erstes-passwort", 7, "admin")
-            second = store.create_share(document["document_id"], "zweites-passwort", 7, "admin")
+            store.create_share(document["document_id"], "zweites-passwort", 7, "admin")
             store.open_share(first["share_id"], "erstes-passwort", "198.51.100.24")
             self.assertEqual(2, len(store.document_shares(document["document_id"])))
             self.assertEqual("opened", store.share_status(first["share_id"])["access_log"][-1]["action"])
