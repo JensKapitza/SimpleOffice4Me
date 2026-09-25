@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hmac
+import json
+import os
 import urllib.error
 import urllib.parse
 from pathlib import Path
@@ -9,22 +11,66 @@ from typing import Any
 
 from .federation_blocks import FederationBlockStore, sha512_bytes
 from .federation_core import preallocate, verify_file
+from .federation_local_profile import local_peer_id
+from .federation_peer_auth import headers as peer_auth_headers
 from .federation_store import FederationStore
-from .federation_worker import _json_request, _request
+from .federation_worker import _request
 from .v2.scoped_dedup import scoped_block_token, scoped_manifest_valid
 
 
-def _remote_manifest(peer: dict[str, Any], token: str, blob_hash: str) -> dict[str, Any] | None:
+def _signed_get(
+    root: str | Path,
+    peer: dict[str, Any],
+    token: str,
+    path: str,
+    *,
+    timeout: int = 120,
+):
+    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if not source_token:
+        raise ValueError("Lokaler Federation-Token fehlt für peer-signiertes V2-Dedup")
+    headers = peer_auth_headers(
+        local_peer_id(),
+        source_token,
+        "GET",
+        path,
+        b"",
+    )
+    return _request(
+        peer["base_url"] + path,
+        token=token,
+        headers=headers,
+        timeout=timeout,
+    )
+
+
+def _remote_manifest(
+    root: str | Path,
+    request_row: dict[str, Any],
+    peer: dict[str, Any],
+    token: str,
+) -> dict[str, Any] | None:
+    remote_document_id = str(request_row.get("remote_document_id") or "").strip()
+    blob_hash = str(request_row.get("blob_hash") or "").strip()
+    if not remote_document_id:
+        raise ValueError("V2-Dedup benötigt eine konkrete Remote-Dokument-ID")
+    path = (
+        "/federation/v2/blocks/documents/"
+        + urllib.parse.quote(remote_document_id, safe="")
+        + "/manifest"
+    )
     try:
-        manifest = _json_request(
-            f"{peer['base_url']}/federation/v2/blocks/blobs/{blob_hash}/manifest",
-            token=token,
-            timeout=120,
-        )
+        with _signed_get(root, peer, token, path) as response:
+            raw = response.read()
+        manifest = json.loads(raw.decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code in {404, 405, 501, 503}:
             return None
         raise
+    if not isinstance(manifest, dict):
+        raise ValueError("Peer liefert kein V2-Dedup-Manifest")
+    if str(manifest.get("document_id") or "") != remote_document_id:
+        raise ValueError("Peer liefert ein V2-Dedup-Manifest für ein anderes Dokument")
     if not scoped_manifest_valid(manifest, shared_secret=token, blob_hash=blob_hash):
         raise ValueError("Peer liefert ein ungültiges V2-Dedup-Manifest")
     return manifest
@@ -37,7 +83,7 @@ def scoped_deduplicated_download(
     token: str,
     federation: FederationStore,
 ) -> Path | None:
-    manifest = _remote_manifest(peer, token, request_row["blob_hash"])
+    manifest = _remote_manifest(root, request_row, peer, token)
     if manifest is None:
         return None
 
@@ -65,11 +111,23 @@ def scoped_deduplicated_download(
                 local_bytes += length
             else:
                 query = urllib.parse.urlencode({"session": session, "proof": proof})
-                endpoint = (
-                    f"{peer['base_url']}/federation/v2/blocks/blobs/"
-                    f"{request_row['blob_hash']}/blocks/{int(block['index'])}?{query}"
+                path = (
+                    "/federation/v2/blocks/documents/"
+                    + urllib.parse.quote(str(request_row["remote_document_id"]), safe="")
+                    + f"/blocks/{int(block['index'])}"
                 )
-                with _request(endpoint, token=token, timeout=120) as response:
+                endpoint = f"{peer['base_url']}{path}?{query}"
+                source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+                if not source_token:
+                    raise ValueError("Lokaler Federation-Token fehlt für peer-signiertes V2-Dedup")
+                headers = peer_auth_headers(
+                    local_peer_id(),
+                    source_token,
+                    "GET",
+                    path,
+                    b"",
+                )
+                with _request(endpoint, token=token, headers=headers, timeout=120) as response:
                     data = response.read(length + 1)
                 digest = sha512_bytes(data)
                 actual = scoped_block_token(token, session, digest)
