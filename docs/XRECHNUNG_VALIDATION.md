@@ -55,12 +55,16 @@ rejects the document and 2 when validation could not be completed.
 ## CI evidence
 
 The standards CI job installs the pinned runtime and validates two unmodified
-Apache-2.0 KoSIT fixtures from configuration release `v2026-08-31`:
+Apache-2.0 KoSIT source fixtures from configuration release `v2026-08-31`:
 
 - `ubl001-valid.xml` must be accepted;
 - `ubl002-rejected.xml` must be rejected.
 
-Their provenance and upstream license are stored beside the fixtures.
+The upstream source fixtures contain the Ant-build marker
+`@xrechnung.spec.id@`. The repository keeps those fixture files unmodified and
+applies the same published XRechnung 3.0 scenario identifier in memory immediately
+before validation. Their provenance and upstream license are stored beside the
+fixtures.
 
 ## ZUGFeRD / Factur-X boundary
 
