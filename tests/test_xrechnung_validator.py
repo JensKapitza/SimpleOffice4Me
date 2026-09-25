@@ -11,6 +11,18 @@ from app import xrechnung_validation
 from tools import install_xrechnung_validator as installer
 
 
+def _prepared_upstream_fixture(path: Path) -> bytes:
+    """Apply the same XRechnung spec-id filtering as the upstream Ant build."""
+    payload = path.read_bytes()
+    marker = b"@xrechnung.spec.id@"
+    if marker not in payload:
+        raise AssertionError(f"upstream fixture no longer contains expected marker: {path.name}")
+    prepared = payload.replace(marker, installer.XRECHNUNG_SPEC_ID.encode("utf-8"))
+    if marker in prepared:
+        raise AssertionError(f"XRechnung fixture marker replacement failed: {path.name}")
+    return prepared
+
+
 def _config_zip(*, unsafe_name: str = "") -> bytes:
     target = io.BytesIO()
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -163,11 +175,11 @@ class XRechnungOfficialFixtureTests(unittest.TestCase):
 
     def test_official_kosit_positive_and_negative_instances(self):
         accepted = xrechnung_validation.validate_xrechnung(
-            (self.fixtures / "ubl001-valid.xml").read_bytes(),
+            _prepared_upstream_fixture(self.fixtures / "ubl001-valid.xml"),
             timeout_seconds=120,
         )
         rejected = xrechnung_validation.validate_xrechnung(
-            (self.fixtures / "ubl002-rejected.xml").read_bytes(),
+            _prepared_upstream_fixture(self.fixtures / "ubl002-rejected.xml"),
             timeout_seconds=120,
         )
 
