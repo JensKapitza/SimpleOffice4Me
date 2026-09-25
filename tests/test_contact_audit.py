@@ -52,7 +52,7 @@ class ContactAuditTests(unittest.TestCase):
     def test_history_limit_is_bounded(self):
         with tempfile.TemporaryDirectory() as temp:
             store = ContactStore(Path(temp))
-            contact = store.upsert({"display_name": "Grenze", "email": "0@example.test"}, "admin")
+            store.upsert({"display_name": "Grenze", "email": "0@example.test"}, "admin")
             payload = store._read(store.contacts_path, {"contacts": []})
             payload["contacts"][0]["changes"] = [{"field": "email", "old": f"{index}@example.test", "new": f"{index + 1}@example.test", "at": f"2026-08-04T12:{index // 60:02d}:{index % 60:02d}+00:00", "actor": "admin"} for index in range(120)]
             atomic_json_write(store.contacts_path, payload)
