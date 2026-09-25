@@ -44,11 +44,11 @@ def _project_version(root: Path) -> str:
             continue
         match = re.match(r'''version\s*=\s*["']([^"']+)["']''', line)
         if match:
-            return match.group(1).strip() or "1.0.0"
+            return match.group(1).strip() or "2.0.0"
     try:
         return importlib.metadata.version(PACKAGE_NAME)
     except importlib.metadata.PackageNotFoundError:
-        return "1.0.0"
+        return "2.0.0"
 
 
 def _release_manifest(root: Path) -> dict[str, Any]:
@@ -92,7 +92,7 @@ def _iso_utc(epoch: int) -> str:
 
 def version_label(info: dict[str, Any]) -> str:
     """Return the concise identity, e.g. ``1-842`` or timestamp fallback."""
-    release = str(info.get("release_version") or "1.0.0")
+    release = str(info.get("release_version") or "2.0.0")
     major = release.split(".", 1)[0] or "1"
     build_number = _positive_int(info.get("build_number"))
     if build_number:
