@@ -214,6 +214,8 @@ class StoragePort(Protocol):
         content: bytes,
         *,
         expected_version: str | None = None,
+        source: str = "v2-storage",
+        restored_from_version: str = "",
     ) -> OperationResult[StoredObject]:
         ...
 
@@ -246,6 +248,15 @@ class StoragePort(Protocol):
         ...
 
     def move(self, object_id: LogicalObjectId, destination: StorageLocation) -> OperationResult[StoredObject]:
+        ...
+
+    def restore(
+        self,
+        object_id: LogicalObjectId,
+        destination: StorageLocation,
+        *,
+        expected_version: str | None = None,
+    ) -> OperationResult[StoredObject]:
         ...
 
 

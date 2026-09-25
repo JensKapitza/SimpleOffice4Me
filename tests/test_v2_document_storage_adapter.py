@@ -62,6 +62,37 @@ class DocumentStoreStorageAdapterTest(unittest.TestCase):
         self.assertFalse(missing.ok)
         self.assertEqual(ErrorCode.NOT_FOUND, missing.error.code)
 
+        restored = self.adapter.restore(
+            object_id,
+            StorageLocation("docs/restored.txt"),
+            expected_version=deleted.value,
+        )
+        self.assertTrue(restored.ok)
+        self.assertEqual(object_id, restored.value.object_id)
+        self.assertEqual("docs/restored.txt", restored.value.location.relative_path)
+        self.assertEqual(b"two", self.adapter.read_bytes(object_id).value)
+
+    def test_replace_preserves_recovery_context_in_document_history(self):
+        created = self.adapter.create_bytes(
+            StorageLocation("docs/recovery-context.txt"),
+            b"old",
+        )
+        restored_from = created.value.version
+        replaced = self.adapter.replace_bytes(
+            created.value.object_id,
+            b"new",
+            expected_version=restored_from,
+            source="recovery",
+            restored_from_version=restored_from,
+        )
+        self.assertTrue(replaced.ok)
+        metadata = self.adapter.store.get_document(created.value.object_id.value)
+        self.assertEqual("recovery", metadata["content_history"][-1]["source"])
+        self.assertEqual(
+            restored_from,
+            metadata["content_recovery_history"][-1]["restored_sha256"],
+        )
+
     def test_verified_stream_read_avoids_buffering_and_detects_tampering(self):
         payload = (b"streamed-" * 200000) + b"tail"
         created = self.adapter.create_bytes(

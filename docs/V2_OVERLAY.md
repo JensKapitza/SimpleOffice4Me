@@ -1,7 +1,9 @@
 # V2 overlay import journal
 
-Phase 10 introduces a side-by-side overlay import path without replacing the
-existing `VirtualFileSystem` used by WebDAV, SFTP and rsync.
+Phase 10 introduced the crash-aware overlay import journal. Since that first
+step, the existing `VirtualFileSystem` used by WebDAV, SFTP and rsync has also
+migrated its file-content/location operations onto the shared runtime
+`StoragePort`.
 
 ## Purpose
 
@@ -9,8 +11,11 @@ Normal filesystem-style writes can be staged first and then committed through
 the V2 `StoragePort`. The journal persists enough state to recover safely after
 process interruption.
 
-The existing V1 filesystem tree remains the production namespace until later
-migration phases explicitly move callers to the V2 service boundary.
+The compatibility filesystem tree remains the presentation namespace while the
+runtime storage mode selects V1, shadow or authoritative V2 storage centrally.
+WebDAV/SFTP/rsync continue to resolve user-visible paths through
+`VirtualFileSystem`, but file read/write/copy/move/delete operations no longer
+choose a concrete storage backend themselves.
 
 ## States
 
@@ -76,9 +81,15 @@ first.
 - no Flask dependency is required
 - no direct manipulation of blob/chunk internals occurs
 
-## Migration boundary
+## Current migration boundary
 
-This PR does not mount a FUSE/WinFSP filesystem and does not redirect WebDAV,
-SFTP, rsync or the existing `VirtualFileSystem` to V2. It establishes the
-crash-safe import state machine and StoragePort boundary required before those
-surfaces are migrated.
+The crash-safe overlay state machine remains available for staged imports, and
+the production `VirtualFileSystem` now calls the same runtime `StoragePort`
+for regular-file reads and mutations. WebDAV, SFTP and restricted rsync inherit
+that boundary because they operate through `VirtualFileSystem`.
+
+Directory creation/removal, access-policy metadata, timestamps and the
+presentation namespace still use the compatibility filesystem/metadata model.
+A native FUSE/WinFSP mount is not implemented; WebDAV/SFTP provide the existing
+mountable filesystem surfaces. Native OS mounting therefore remains an optional
+platform integration rather than a hidden requirement for storage correctness.
