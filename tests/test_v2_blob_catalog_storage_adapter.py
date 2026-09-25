@@ -212,6 +212,40 @@ class BlobCatalogStorageAdapterTests(unittest.TestCase):
         self.assertEqual(payload, target.getvalue())
         self.assertEqual(created.value.version, streamed.value.version)
 
+    def test_verified_range_uses_catalog_version_and_reports_tampering(self):
+        payload = bytes((index % 229 for index in range(150000)))
+        created = self.adapter.create_bytes(
+            StorageLocation("docs/ranged.bin"),
+            payload,
+        )
+        self.assertTrue(created.ok)
+
+        target = io.BytesIO()
+        ranged = self.adapter.copy_verified_range_to(
+            created.value.object_id,
+            target,
+            start=63000,
+            length=9000,
+        )
+        self.assertTrue(ranged.ok)
+        self.assertEqual(payload[63000:72000], target.getvalue())
+
+        entry = self.catalog.get(created.value.object_id).value
+        manifest = self.blobs.version_manifest(entry.version_id)
+        physical = uuid.UUID(manifest["chunks"][-1]["physical_id"]).hex
+        path = self.blobs.chunks / f"{physical}.bin"
+        damaged = bytearray(path.read_bytes())
+        damaged[-1] ^= 1
+        path.write_bytes(damaged)
+        failed = self.adapter.copy_verified_range_to(
+            created.value.object_id,
+            io.BytesIO(),
+            start=0,
+            length=16,
+        )
+        self.assertFalse(failed.ok)
+        self.assertEqual(ErrorCode.INTEGRITY_ERROR, failed.error.code)
+
     def test_catalog_version_is_authoritative_even_if_blob_current_pointer_moves(self):
         created = self.adapter.create_bytes(StorageLocation("docs/current.txt"), b"one")
         object_id = created.value.object_id
