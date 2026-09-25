@@ -97,6 +97,31 @@ jobs:
           test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18090/)" = "404"
           test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18090/api/error-reports/v1/not-public)" = "404"
 
+  xrechnung-standards:
+    name: XRechnung 3.0.2 standards validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable .
+      - name: Verify Java runtime
+        run: java -version
+      - name: Install pinned KoSIT validator and XRechnung configuration
+        run: python tools/install_xrechnung_validator.py
+      - name: Validate official accepted and rejected fixtures
+        env:
+          SIMPLEOFFICE_RUN_XRECHNUNG_INTEGRATION: "1"
+        run: python -m unittest discover -s tests -p 'test_xrechnung_validator.py' -v
+
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-24.04
