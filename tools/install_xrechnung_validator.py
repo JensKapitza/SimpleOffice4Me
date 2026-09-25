@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 
 VALIDATOR_VERSION = "1.6.3"
 XRECHNUNG_VERSION = "3.0.2"
+XRECHNUNG_SPEC_ID = "urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0"
 CONFIG_RELEASE = "2026-08-31"
 JAR_FILENAME = f"validator-{VALIDATOR_VERSION}-standalone.jar"
 CONFIG_FILENAME = (
