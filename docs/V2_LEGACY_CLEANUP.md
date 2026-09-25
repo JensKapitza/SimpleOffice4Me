@@ -43,12 +43,19 @@ through verified `StoragePort.copy_verified_to()`. Raw **video** playback now
 uses `StoragePort.copy_verified_range_to()`, so browser seek/range requests no
 longer require the projected physical document file.
 
-The remaining compatibility dependency is narrower but still real: V2 writes
-are projected back into `DocumentStore`, directory/access-policy handling uses
-the compatibility filesystem namespace, video transcoding still materializes
-its source from the compatibility projection, and browser/search/metadata
-consumers still read the legacy metadata projection. Therefore the global
-cleanup flag must remain true and destructive cleanup remains blocked.
+The remaining compatibility dependency is narrower but still real. Video
+transcoding is no longer a blocker: ffmpeg receives a private temporary file
+streamed and verified through `StoragePort`, and that temporary plaintext is
+removed when the operation ends.
+
+The gate now publishes an explicit remaining-consumer inventory. Persistent V2
+writes/recovery still project document content into `DocumentStore`, WebDAV
+still has direct managed-file consumers, several business/rental/photo/contact/
+replication paths still resolve managed document files directly, and the legacy
+federation-transfer worker still has a direct managed-file path. Directory and
+access-policy handling also continues to use the compatibility namespace.
+Therefore the global cleanup flag must remain true and destructive cleanup
+remains blocked.
 
 These retained paths are an explicit post-V2 compatibility window tracked by
 #471. They do not change V2 storage authority and must not be bypassed by a
@@ -57,8 +64,9 @@ premature destructive cleanup.
 ## Safety
 
 The readiness API is read-only and exposes `deletion_supported = false`.
-It inventories the known retained targets and returns explicit blockers. It does
-not unlink, truncate, move or rewrite legacy data.
+It inventories the known retained targets, reports
+`remaining_content_projection_consumers`, and returns explicit blockers. It
+does not unlink, truncate, move or rewrite legacy data.
 
 A later Phase-15 cleanup implementation should consume this gate rather than
 adding an independent bypass. Actual deletion should only be added after the
