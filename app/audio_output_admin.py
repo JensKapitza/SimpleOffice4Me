@@ -69,7 +69,8 @@ def register_output():
             online=data.get("online", True), volume=data.get("volume", 100), transport=data.get("transport"),
         )
     except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        audit("audio_output_validation_failed", "audio_output", "register", outcome="failure", detail={"error_type": type(exc).__name__})
+        return jsonify({"error": "Ausgangsdaten sind ungültig."}), 400
     audit("audio_output_registered", "audio_output", f"{result['node_id']}:{result['output_id']}")
     return jsonify(result), 201
 
@@ -130,7 +131,8 @@ def set_group():
         data = _json()
         result = _store().set_group(data.get("group_id", ""), data.get("name", ""), data.get("members", []))
     except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        audit("audio_output_validation_failed", "audio_group", "update", outcome="failure", detail={"error_type": type(exc).__name__})
+        return jsonify({"error": "Audiogruppe ist ungültig."}), 400
     audit("audio_group_updated", "audio_group", result["group_id"])
     return jsonify(result)
 
@@ -145,7 +147,8 @@ def say():
             voice=data.get("voice", "de_DE"), source="admin",
         )
     except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        audit("audio_output_validation_failed", "audio_announcement", "tts", outcome="failure", detail={"error_type": type(exc).__name__})
+        return jsonify({"error": "Ansageauftrag ist ungültig."}), 400
     audit("audio_tts_queued", "audio_announcement", str(result["id"]), detail={"targets": result["targets"]})
     return jsonify(result), 202
 
@@ -157,7 +160,8 @@ def sound():
         data = _json()
         result = _store().queue_sound(data.get("preset", ""), data.get("targets", []), priority=data.get("priority"), source="admin")
     except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        audit("audio_output_validation_failed", "audio_announcement", "sound", outcome="failure", detail={"error_type": type(exc).__name__})
+        return jsonify({"error": "Soundauftrag ist ungültig."}), 400
     audit("audio_sound_queued", "audio_announcement", str(result["id"]), detail={"targets": result["targets"]})
     return jsonify(result), 202
 
