@@ -141,7 +141,8 @@ def legacy_metadata_envelope(
     first_seen = _time(metadata, "first_seen_at", "last_seen_at")
     last_seen = _time(metadata, "last_seen_at", "first_seen_at")
     initial_path = _initial_path(metadata, relative_path)
-    original_name = str(metadata.get("original_name") or "").strip() or _basename(initial_path)
+    configured_original = str(metadata.get("original_name") or "").strip()
+    original_name = _basename(configured_original) if configured_original else _basename(initial_path)
     if not original_name:
         original_name = _basename(relative_path)
     rules = NamespaceRules()
@@ -412,7 +413,11 @@ class V2MetadataMigrationStore:
             if existing.get("envelope", {}).get("original") != value["envelope"].get("original"):
                 raise ValueError("existing V2 original metadata conflicts with V1")
 
+        if self.directory.is_symlink() or self.directory.parent.is_symlink():
+            raise ValueError("V2 metadata directory is unsafe")
         self.directory.mkdir(parents=True, exist_ok=True)
+        if self.directory.is_symlink() or not self.directory.is_dir():
+            raise ValueError("V2 metadata directory is unsafe")
         if os.name == "posix":
             os.chmod(self.directory, 0o700)
         temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
