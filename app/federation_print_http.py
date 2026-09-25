@@ -65,7 +65,7 @@ def submit_job(printer_id: str):
     try:
         proof_values, proof_signature = parse_proof_headers(request.headers, printer_id)
         source_peer, proof = identify_source_peer(_federation(), proof_values, proof_signature)
-    except ValueError as exc:
+    except ValueError:
         return jsonify({"error": "peer_identity_rejected"}), 403
 
     claimed_peer = request.headers.get("X-SimpleOffice-Peer-ID", "").strip()[:128]
