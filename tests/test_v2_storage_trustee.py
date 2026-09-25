@@ -160,7 +160,7 @@ class StorageTrusteeTests(unittest.TestCase):
             "--trustee-bundle-output", str(bundle),
         ]
 
-        with redirect_stdout(io.StringIO()) as preview:
+        with redirect_stdout(io.StringIO()):
             preview_code = main(command)
         self.assertEqual(3, preview_code)
         self.assertFalse(key.exists())

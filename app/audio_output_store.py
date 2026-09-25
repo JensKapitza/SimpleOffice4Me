@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 import hashlib
 import os
@@ -43,7 +44,7 @@ class AudioOutputStore:
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.db_path, timeout=3)
+        db = sqlite_connect(self.db_path, timeout=3)
         db.row_factory = sqlite3.Row
         try:
             yield db

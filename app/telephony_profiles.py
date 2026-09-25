@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import re
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -72,7 +73,7 @@ class TelephonyProfileStore:
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         try:
             yield db

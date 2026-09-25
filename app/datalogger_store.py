@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,7 @@ class DataLoggerStore:
         self._initialize()
 
     def connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=10)
+        db = sqlite_connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")

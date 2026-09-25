@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import unicodedata
 from collections import Counter, defaultdict
 from email import policy
@@ -189,7 +190,7 @@ class MailSearchIndex:
         self._initialize()
 
     def _db(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30)
+        connection = sqlite_connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA foreign_keys=ON")

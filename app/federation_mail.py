@@ -12,6 +12,7 @@ import json
 import re
 import secrets
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -61,7 +62,7 @@ def _query_id(value: Any) -> str:
 def _mail_index_db(root: Path) -> sqlite3.Connection:
     """Open the same DB used by MailSearchIndex (below CONTROL_DIR/mail)."""
     path = root / CONTROL_DIR / "mail" / "mail-index.sqlite3"
-    db = sqlite3.connect(path, timeout=30)
+    db = sqlite_connect(path, timeout=30)
     db.row_factory = sqlite3.Row
     return db
 
@@ -140,7 +141,7 @@ class MailFederationStore:
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         try:

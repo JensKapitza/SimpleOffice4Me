@@ -1,4 +1,5 @@
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 from datetime import datetime, timezone
 
@@ -12,7 +13,7 @@ SQLITE_BUSY_TIMEOUT_MS = 30_000
 
 def get_db():
     if 'db' not in g:
-        g.db = sqlite3.connect(
+        g.db = sqlite_connect(
             current_app.config['DATABASE'],
             detect_types=sqlite3.PARSE_DECLTYPES,
             timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,

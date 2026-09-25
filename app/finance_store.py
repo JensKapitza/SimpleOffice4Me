@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -38,7 +39,7 @@ class FinanceStore:
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
         self.control.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA journal_mode=WAL")
@@ -165,7 +166,7 @@ class FinanceStore:
     def update_bank_connection_status(self, connection_id: str, actor: str, status: str, *, error: str = "", successful: bool = False) -> dict[str, Any]:
         actor = self._actor(actor); status = text(status, 40).casefold()
         if status not in BANK_CONNECTION_STATUSES: raise ValueError("bank connection status is invalid")
-        connection = self.bank_connection(connection_id, actor)
+        self.bank_connection(connection_id, actor)
         ts = _now()
         with self._db() as db:
             db.execute("""UPDATE finance_bank_connection SET status=?,last_error=?,last_successful_sync=CASE WHEN ? THEN ? ELSE last_successful_sync END,updated_at=?

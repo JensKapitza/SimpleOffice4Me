@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from ..sqlite_utils import connect as sqlite_connect
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -74,7 +75,7 @@ class ObjectCatalog:
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=30)
+        db = sqlite_connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")

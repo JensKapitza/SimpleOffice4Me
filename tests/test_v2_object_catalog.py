@@ -1,5 +1,5 @@
 import hashlib
-import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import unittest
 from pathlib import Path
@@ -190,7 +190,7 @@ class V2ObjectCatalogTests(unittest.TestCase):
 
 
     def test_catalog_persists_format_family_and_schema_version(self):
-        with sqlite3.connect(self.catalog.path) as db:
+        with sqlite_connect(self.catalog.path) as db:
             rows = dict(db.execute("SELECT key,value FROM catalog_meta").fetchall())
         self.assertEqual(FORMAT_FAMILY, rows["format_family"])
         self.assertEqual(str(SCHEMA_VERSION), rows["schema_version"])

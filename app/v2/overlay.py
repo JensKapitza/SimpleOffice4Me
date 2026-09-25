@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+from ..sqlite_utils import connect as sqlite_connect
 import time
 import uuid
 from dataclasses import dataclass
@@ -58,7 +59,7 @@ class OverlayImportJournal:
         self._initialize()
 
     def _db(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.db_path, timeout=30)
+        db = sqlite_connect(self.db_path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         return db

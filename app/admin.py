@@ -170,7 +170,7 @@ def osm_region_info():
     index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
     try:
         return jsonify({"region": index.region_info(region), "status": index.status()})
-    except ValueError as exc:
+    except ValueError:
         return jsonify({"error": "invalid_region"}), 400
 
 

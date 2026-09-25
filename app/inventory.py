@@ -771,7 +771,7 @@ def item_detail(object_id: str):
 def book_lookup():
     try:
         isbn = normalize_isbn(request.args.get("isbn", ""))
-    except ValueError as exc:
+    except ValueError:
         return jsonify({"ok": False, "error": "Ungültige ISBN."}), 400
     allowed, retry_after = _inventory().consume_rate_limit(str(g.user["username"]), "book-metadata")
     if not allowed:

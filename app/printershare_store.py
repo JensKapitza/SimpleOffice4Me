@@ -14,6 +14,7 @@ import platform
 import re
 import shutil
 import sqlite3
+from .sqlite_utils import connect as sqlite_connect
 import subprocess
 import tempfile
 import time
@@ -291,7 +292,7 @@ class PrinterShareStore:
         self.retained.mkdir(parents=True, exist_ok=True)
         if not self.settings_path.exists():
             atomic_json_write(self.settings_path, DEFAULT_SETTINGS)
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS print_job(
@@ -440,7 +441,7 @@ class PrinterShareStore:
     def purge_expired(self) -> int:
         now = int(time.time())
         removed = 0
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             rows = db.execute(
                 "SELECT job_id,payload_path FROM print_job WHERE retention='ttl' AND expires_at>0 AND expires_at<=? AND payload_path<>''",
                 (now,),
@@ -455,7 +456,7 @@ class PrinterShareStore:
 
     def jobs(self, limit: int = 100) -> list[dict[str, Any]]:
         self.purge_expired()
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             db.row_factory = sqlite3.Row
             rows = db.execute("SELECT * FROM print_job ORDER BY created_at DESC LIMIT ?", (max(1, min(int(limit), 500)),)).fetchall()
         return [dict(row) for row in rows]
@@ -520,7 +521,7 @@ class PrinterShareStore:
         digest = hashlib.sha256(payload).hexdigest()
         job_id = str(uuid.uuid4())
         payload_path = self._retain(job_id, payload) if retention != "no_store" else ""
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             db.execute(
                 """INSERT INTO print_job(job_id,source,source_peer,printer_id,printer_name,status,retention,
                        expires_at,payload_path,content_type,payload_size,payload_sha256,policy_revision,created_at)
@@ -534,11 +535,11 @@ class PrinterShareStore:
         try:
             spool_reference = spool_payload(printer, payload, content_type, filename)
         except Exception as exc:
-            with sqlite3.connect(self.jobs_path) as db:
+            with sqlite_connect(self.jobs_path) as db:
                 db.execute("UPDATE print_job SET status='failed',error=? WHERE job_id=?", (str(exc)[:2000], job_id))
             raise
         completed_at = int(time.time())
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             db.execute(
                 "UPDATE print_job SET status='spooled',spool_reference=?,completed_at=?,error='' WHERE job_id=?",
                 (spool_reference[:500], completed_at, job_id),
@@ -561,7 +562,7 @@ class PrinterShareStore:
 
     def retry(self, job_id: str) -> dict[str, Any]:
         self.purge_expired()
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             db.row_factory = sqlite3.Row
             row = db.execute("SELECT * FROM print_job WHERE job_id=?", (job_id,)).fetchone()
         if row is None:
@@ -572,7 +573,7 @@ class PrinterShareStore:
         printer = self.printer(row["printer_id"])
         reference = spool_payload(printer, payload, row["content_type"], "")
         completed_at = int(time.time())
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             db.execute(
                 "UPDATE print_job SET status='spooled',spool_reference=?,completed_at=?,error='' WHERE job_id=?",
                 (reference[:500], completed_at, job_id),
@@ -580,7 +581,7 @@ class PrinterShareStore:
         return {"job_id": job_id, "status": "spooled", "spool_reference": reference}
 
     def delete_retained(self, job_id: str) -> None:
-        with sqlite3.connect(self.jobs_path) as db:
+        with sqlite_connect(self.jobs_path) as db:
             row = db.execute("SELECT payload_path FROM print_job WHERE job_id=?", (job_id,)).fetchone()
             if row is None:
                 raise ValueError("Unbekannter Druckauftrag")

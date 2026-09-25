@@ -1,4 +1,4 @@
-import sqlite3
+from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import unittest
 from pathlib import Path
@@ -61,7 +61,7 @@ class GoogleDriveSyncTests(unittest.TestCase):
             with app.app_context():
                 ensure_google_drive_schema()
                 ensure_google_drive_schema()
-            connection = sqlite3.connect(database)
+            connection = sqlite_connect(database)
             try:
                 tables = {
                     row[0]

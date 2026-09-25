@@ -700,6 +700,55 @@ def _etag(document: dict) -> str:
     return f'"{sha256_file(path)}"'
 
 
+def _parse_http_etag_list(value: str) -> tuple[bool, list[tuple[bool, str]]]:
+    """Parse a bounded RFC 9110 entity-tag list without splitting quoted commas."""
+    if not value:
+        raise ValueError("HTTP ETag precondition is empty")
+    if len(value.encode("latin-1", errors="replace")) > MAX_HTTP_PRECONDITION_BYTES:
+        raise OverflowError("HTTP ETag precondition is too large")
+    value = value.strip()
+    if value == "*":
+        return True, []
+    tags: list[tuple[bool, str]] = []
+    position = 0
+    while position < len(value):
+        while position < len(value) and value[position] in " \t":
+            position += 1
+        weak = value[position:position + 2] == "W/"
+        if weak:
+            position += 2
+        if position >= len(value) or value[position] != '"':
+            raise ValueError("HTTP ETag precondition contains an invalid entity-tag")
+        start = position
+        position += 1
+        while position < len(value) and value[position] != '"':
+            character = ord(value[position])
+            if character != 0x21 and not 0x23 <= character <= 0x7E and not 0x80 <= character <= 0xFF:
+                raise ValueError("HTTP ETag precondition contains an invalid entity-tag")
+            position += 1
+        if position >= len(value):
+            raise ValueError("HTTP ETag precondition contains an unterminated entity-tag")
+        position += 1
+        tags.append((weak, value[start:position]))
+        if len(tags) > MAX_HTTP_PRECONDITION_TAGS:
+            raise OverflowError("HTTP ETag precondition contains too many entity-tags")
+        while position < len(value) and value[position] in " \t":
+            position += 1
+        if position == len(value):
+            break
+        if value[position] != ",":
+            raise ValueError("HTTP ETag precondition is not a valid list")
+        position += 1
+        if not value[position:].strip():
+            raise ValueError("HTTP ETag precondition contains an empty member")
+    return False, tags
+
+
+def _digest_value(algorithm: str, digest: bytes) -> str:
+    """Serialize an RFC 9530 digest as an RFC 8941 Byte Sequence."""
+    return f"{algorithm}=:{base64.b64encode(digest).decode('ascii')}:"
+
+
 def _stored_integrity_headers(document: dict) -> dict[str, str]:
     etag = _etag(document)
     digest = bytes.fromhex(_etag_value(etag))

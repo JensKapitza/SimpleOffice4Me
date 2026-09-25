@@ -525,7 +525,7 @@ class ImapArchive:
             uids = (data[0].split() if data and data[0] else [])[:limit]
             for uid in uids:
                 try:
-                    status, fetched = connection.uid("fetch", uid, f"(UID RFC822.SIZE BODY.PEEK[])")
+                    status, fetched = connection.uid("fetch", uid, "(UID RFC822.SIZE BODY.PEEK[])")
                     if status != "OK":
                         raise RuntimeError("IMAP UID FETCH failed")
                     raw = self._literal(fetched)

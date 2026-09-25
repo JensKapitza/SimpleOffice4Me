@@ -1,6 +1,8 @@
 """DocumentStore implementation part 5 of 5."""
 from __future__ import annotations
 
+from .sqlite_utils import connect as sqlite_connect
+
 from .document_store_core import *  # noqa: F401,F403
 
 
@@ -378,7 +380,7 @@ class _DocumentStorePart5:
         # The scanner and web requests use short independent connections. WAL
         # permits readers while the scanner updates the index; the timeout also
         # prevents transient writer contention from becoming an HTTP 500.
-        connection = sqlite3.connect(self.index_path, timeout=15)
+        connection = sqlite_connect(self.index_path, timeout=15)
         connection.execute("PRAGMA busy_timeout = 15000")
         if self.index_path not in _WAL_CONFIGURED_INDEXES:
             with _WAL_CONFIGURATION_LOCK:
