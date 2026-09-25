@@ -55,7 +55,6 @@ class MailResourceProvider:
         account_id, _, subpath = clean.partition("/")
         provider = self._archive_provider(account_id)
         entries = provider.list(subpath)
-        prefix = account_id + ("/" + subpath.strip("/") if subpath else "")
         return [
             ResourceEntry(
                 **{**entry.to_dict(), "resource_id": f"{account_id}/{entry.resource_id}",
