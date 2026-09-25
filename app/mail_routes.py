@@ -101,7 +101,7 @@ def autoconfig():
     try:
         result = discover_mail_settings(email)
         return jsonify({"ok": True, "settings": result})
-    except ValueError as exc:
+    except ValueError:
         return jsonify({"ok": False, "error": "invalid_request"}), 400
     except Exception as exc:
         current_app.logger.warning("Mail autoconfig failed for %s: %s", _actor(), type(exc).__name__)
