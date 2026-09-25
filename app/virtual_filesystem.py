@@ -24,7 +24,9 @@ from .document_store import (
 )
 from .file_lock import exclusive_file_lock
 from .safe_paths import normalize_path, resolve_for_write_under, resolve_under
+from .v2.catalog import CatalogState, ObjectCatalog
 from .v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation
+from .v2.cutover import load_cutover_state
 from .v2.storage_runtime import storage_for
 
 
@@ -50,6 +52,15 @@ class VirtualFileSystem:
 
     def _storage(self, actor: str):
         return storage_for(self.root, actor)
+
+    def _authoritative_v2(self) -> bool:
+        try:
+            return load_cutover_state(self.root).mode == "v2"
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False
+
+    def _catalog(self) -> ObjectCatalog:
+        return ObjectCatalog(self.root)
 
     @staticmethod
     def _storage_value(result: OperationResult):
@@ -174,7 +185,9 @@ class VirtualFileSystem:
         directory = self.require(actor, path, "read")
         if not directory.is_dir() or directory.is_symlink():
             raise NotADirectoryError(self.relative(directory))
-        result = []
+
+        authoritative = self._authoritative_v2()
+        result: dict[str, VirtualEntry] = {}
         for child in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
             if (
                 child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE}
@@ -187,17 +200,57 @@ class VirtualFileSystem:
                 child = resolve_under(self.root, child.relative_to(self.root), strict=True)
             except (OSError, ValueError):
                 continue
+            if authoritative and not child.is_dir():
+                # In authoritative V2 mode regular-file namespace and size come
+                # from the catalog, not from the retained plaintext projection.
+                continue
             if not self.allows(actor, child, "read"):
                 continue
             stat_result = child.stat(follow_symlinks=False)
-            result.append(VirtualEntry(
-                self.relative(child), child.name, child.is_dir(),
-                0 if child.is_dir() else stat_result.st_size, stat_result.st_mtime_ns,
-            ))
-        return result
+            entry = VirtualEntry(
+                self.relative(child),
+                child.name,
+                child.is_dir(),
+                0 if child.is_dir() else stat_result.st_size,
+                stat_result.st_mtime_ns,
+            )
+            result[entry.name] = entry
+
+        if authoritative:
+            parent = self.relative(directory)
+            parent_path = Path("." if parent == "." else parent)
+            for catalog_entry in self._catalog().list():
+                if catalog_entry.state is not CatalogState.ACTIVE:
+                    continue
+                location = Path(catalog_entry.location.relative_path)
+                if location.parent != parent_path:
+                    continue
+                virtual_path = self.root / location
+                if not self.allows(actor, virtual_path, "read"):
+                    continue
+                result[location.name] = VirtualEntry(
+                    location.as_posix(),
+                    location.name,
+                    False,
+                    catalog_entry.size,
+                    int(catalog_entry.updated_at) * 1_000_000_000,
+                )
+
+        return sorted(result.values(), key=lambda item: item.name.casefold())
 
     def read_bytes(self, actor: str, path: str | Path) -> bytes:
         resource = self.require(actor, path, "read")
+        if self._authoritative_v2():
+            if resource.exists() and (resource.is_dir() or resource.is_symlink()):
+                raise FileNotFoundError(self.relative(resource))
+            relative = self.relative(resource)
+            catalog = self._catalog().get_by_location(StorageLocation(relative))
+            if not catalog.ok or catalog.value.state is not CatalogState.ACTIVE:
+                raise FileNotFoundError(relative)
+            return self._storage_value(
+                self._storage(actor).read_bytes(catalog.value.object_id)
+            )
+
         if not resource.is_file() or resource.is_symlink():
             raise FileNotFoundError(self.relative(resource))
         resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
