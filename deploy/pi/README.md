@@ -41,7 +41,7 @@ Das Backup enthaelt den kompletten persistenten Inhalt von `simpleoffice4me-data
 Standardmaessig wird `latest` verwendet. Fuer reproduzierbare produktive Installationen kann vor dem Start ein konkreter Image-Tag gesetzt werden:
 
 ```bash
-export SIMPLEOFFICE_TAG=1.0.0
+export SIMPLEOFFICE_TAG=2.0.0
 sudo -E /opt/simpleoffice4me/install.sh
 ```
 
