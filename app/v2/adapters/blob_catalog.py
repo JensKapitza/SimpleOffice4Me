@@ -321,6 +321,38 @@ class BlobCatalogStorageAdapter:
             )
         return OperationResult.success(self._stored(entry))
 
+    def copy_verified_range_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        start: int,
+        length: int | None = None,
+    ) -> OperationResult[StoredObject]:
+        current = self._active(object_id)
+        if not current.ok:
+            return self._catalog_failure(current)
+        entry = current.value
+        try:
+            version = self.blobs.copy_verified_range_to(
+                object_id,
+                target,
+                start=start,
+                length=length,
+                version_id=entry.version_id,
+            )
+        except (BlobIntegrityError, OSError, ValueError, TypeError) as exc:
+            return self._failure(exc)
+        if (
+            version.size != entry.size
+            or version.content_sha256 != entry.content_sha256
+        ):
+            return OperationResult.failure(
+                ErrorCode.INTEGRITY_ERROR,
+                "catalog content metadata does not match verified ranged blob content",
+            )
+        return OperationResult.success(self._stored(entry))
+
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
         return self._create_at(location, bytes(content))
 

@@ -171,6 +171,24 @@ class V2AuthoritativeStorageAdapter:
             return OperationResult(error=streamed.error)
         return self._compat_result(object_id)
 
+    def copy_verified_range_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        start: int,
+        length: int | None = None,
+    ) -> OperationResult[StoredObject]:
+        streamed = self.primary.copy_verified_range_to(
+            object_id,
+            target,
+            start=start,
+            length=length,
+        )
+        if not streamed.ok:
+            return OperationResult(error=streamed.error)
+        return self._compat_result(object_id)
+
     def create_bytes(
         self,
         location: StorageLocation,

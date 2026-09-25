@@ -471,6 +471,8 @@ class EncryptedBlobStore:
         *,
         collect: bool,
         target: BinaryIO | None = None,
+        target_start: int = 0,
+        target_length: int | None = None,
     ) -> tuple[dict[str, Any], bytes, EncryptedBlobVersion]:
         manifest = self.version_manifest(version_id) if version_id else self.current_manifest(object_id)
         if manifest.get("object_id") != object_id.value:
@@ -484,6 +486,26 @@ class EncryptedBlobStore:
             session = self.crypto.open_chunk_encryption(self.master_key, wrapped, purpose=purpose)
         except ValueError as exc:
             raise EncryptedBlobIntegrityError("encrypted blob key authentication failed") from exc
+
+        if target is not None:
+            if (
+                isinstance(target_start, bool)
+                or not isinstance(target_start, int)
+                or target_start < 0
+            ):
+                raise ValueError("verified range start must be a non-negative integer")
+            if target_length is not None and (
+                isinstance(target_length, bool)
+                or not isinstance(target_length, int)
+                or target_length < 0
+            ):
+                raise ValueError("verified range length must be a non-negative integer")
+            target_end = (
+                None if target_length is None else target_start + target_length
+            )
+        else:
+            target_start = 0
+            target_end = None
 
         result = bytearray()
         whole = hashlib.sha256()
@@ -512,11 +534,21 @@ class EncryptedBlobStore:
                 raise EncryptedBlobIntegrityError("encrypted blob chunk authentication failed") from exc
             if collect:
                 result.extend(plaintext)
+            block_start = total
+            block_end = total + len(plaintext)
             if target is not None:
-                written = target.write(plaintext)
-                if written is not None and int(written) != len(plaintext):
-                    raise OSError("encrypted recovery target accepted a partial write")
-            total += len(plaintext)
+                selected_start = max(target_start, block_start)
+                selected_end = (
+                    block_end if target_end is None else min(target_end, block_end)
+                )
+                if selected_start < selected_end:
+                    fragment = plaintext[
+                        selected_start - block_start:selected_end - block_start
+                    ]
+                    written = target.write(fragment)
+                    if written is not None and int(written) != len(fragment):
+                        raise OSError("encrypted recovery target accepted a partial write")
+            total = block_end
             whole.update(plaintext)
 
         footer_row = manifest["footer"]
@@ -535,6 +567,8 @@ class EncryptedBlobStore:
             or str(metadata.get("content_sha256") or "") != digest
         ):
             raise EncryptedBlobIntegrityError("encrypted blob final integrity check failed")
+        if target is not None and target_start > total:
+            raise ValueError("verified range starts beyond the end of the object")
         version = EncryptedBlobVersion(
             object_id=object_id,
             version_id=resolved_version,
@@ -565,6 +599,27 @@ class EncryptedBlobStore:
         )
         return version
 
+    def copy_verified_range_to(
+        self,
+        object_id: LogicalObjectId,
+        target: BinaryIO,
+        *,
+        start: int,
+        length: int | None = None,
+        version_id: str | None = None,
+    ) -> EncryptedBlobVersion:
+        """Verify all encrypted chunks while copying only one plaintext range."""
+
+        _manifest, _content, version = self._verify_content(
+            object_id,
+            version_id,
+            collect=False,
+            target=target,
+            target_start=start,
+            target_length=length,
+        )
+        return version
+
     def copy_verified_to(
         self,
         object_id: LogicalObjectId,
@@ -574,13 +629,13 @@ class EncryptedBlobStore:
     ) -> EncryptedBlobVersion:
         """Decrypt and stream content, returning only after final integrity verification."""
 
-        _manifest, _content, version = self._verify_content(
+        return self.copy_verified_range_to(
             object_id,
-            version_id,
-            collect=False,
-            target=target,
+            target,
+            start=0,
+            length=None,
+            version_id=version_id,
         )
-        return version
 
     def versions_for(self, object_id: LogicalObjectId) -> list[EncryptedBlobVersion]:
         result: list[EncryptedBlobVersion] = []

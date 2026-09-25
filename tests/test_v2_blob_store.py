@@ -107,6 +107,56 @@ class BlobStoreTest(unittest.TestCase):
         self.assertEqual(version.content_sha256, copied.content_sha256)
         self.assertEqual(payload, target.getvalue())
 
+    def test_verified_range_crosses_chunks_and_checks_unselected_chunks(self):
+        payload = bytes((index % 251 for index in range(160000)))
+        version = self.store.write(self.object_id, payload)
+        target = io.BytesIO()
+
+        copied = self.store.copy_verified_range_to(
+            self.object_id,
+            target,
+            start=60000,
+            length=20000,
+            version_id=version.version_id,
+        )
+
+        self.assertEqual(version.version_id, copied.version_id)
+        self.assertEqual(payload[60000:80000], target.getvalue())
+
+        manifest = self.store.version_manifest(version.version_id)
+        outside = self.store._chunk_path(manifest["chunks"][-1]["physical_id"])
+        damaged = bytearray(outside.read_bytes())
+        damaged[-1] ^= 1
+        outside.write_bytes(damaged)
+        with self.assertRaises(BlobIntegrityError):
+            self.store.copy_verified_range_to(
+                self.object_id,
+                io.BytesIO(),
+                start=0,
+                length=16,
+                version_id=version.version_id,
+            )
+
+    def test_verified_range_rejects_invalid_bounds_after_full_verification(self):
+        payload = b"bounded-range"
+        version = self.store.write(self.object_id, payload)
+        with self.assertRaisesRegex(ValueError, "beyond"):
+            self.store.copy_verified_range_to(
+                self.object_id,
+                io.BytesIO(),
+                start=len(payload) + 1,
+                length=1,
+                version_id=version.version_id,
+            )
+        with self.assertRaises(ValueError):
+            self.store.copy_verified_range_to(
+                self.object_id,
+                io.BytesIO(),
+                start=-1,
+                length=1,
+                version_id=version.version_id,
+            )
+
     def test_stream_write_rejects_changed_source_before_publishing_pointer(self):
         object_id = LogicalObjectId("changed-during-migration")
         with self.assertRaisesRegex(BlobIntegrityError, "sha256"):

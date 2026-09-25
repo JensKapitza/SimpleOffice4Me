@@ -116,6 +116,36 @@ class EncryptedBlobStoreTest(unittest.TestCase):
         self.assertTrue(manifest["footer"]["ciphertext"])
         self.assertEqual(b"", self.store.read(self.object_id))
 
+    def test_verified_range_crosses_encrypted_chunks_and_authenticates_all_chunks(self):
+        payload = bytes((index % 239 for index in range(160000)))
+        version = self.store.write(self.object_id, payload)
+        target = io.BytesIO()
+
+        copied = self.store.copy_verified_range_to(
+            self.object_id,
+            target,
+            start=60000,
+            length=20000,
+            version_id=version.version_id,
+        )
+
+        self.assertEqual(version.version_id, copied.version_id)
+        self.assertEqual(payload[60000:80000], target.getvalue())
+
+        manifest = self.store.version_manifest(version.version_id)
+        outside = self.store._chunk_path(manifest["chunks"][-1]["physical_id"])
+        damaged = bytearray(outside.read_bytes())
+        damaged[-1] ^= 1
+        outside.write_bytes(damaged)
+        with self.assertRaises(EncryptedBlobIntegrityError):
+            self.store.copy_verified_range_to(
+                self.object_id,
+                io.BytesIO(),
+                start=0,
+                length=16,
+                version_id=version.version_id,
+            )
+
     def test_inventory_and_orphan_cleanup_keep_referenced_ciphertext(self):
         version = self.store.write(self.object_id, b"inventory")
         manifest = self.store.version_manifest(version.version_id)
