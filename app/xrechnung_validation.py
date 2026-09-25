@@ -4,6 +4,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +74,7 @@ def validate_xrechnung(
         }
     try:
         DefusedElementTree.fromstring(payload)
-    except (DefusedXmlException, ValueError):
+    except DefusedXmlException:
         return {
             "validated": False,
             "acceptable": False,
@@ -83,18 +84,16 @@ def validate_xrechnung(
             "validator_version": VALIDATOR_VERSION,
             "configuration_release": CONFIG_RELEASE,
         }
-    except Exception as exc:
-        if type(exc).__name__ in {"ParseError", "UnicodeDecodeError"}:
-            return {
-                "validated": False,
-                "acceptable": False,
-                "reason": "xml_not_well_formed",
-                "exit_code": None,
-                "xrechnung_version": XRECHNUNG_VERSION,
-                "validator_version": VALIDATOR_VERSION,
-                "configuration_release": CONFIG_RELEASE,
-            }
-        raise
+    except (ET.ParseError, UnicodeDecodeError, ValueError):
+        return {
+            "validated": False,
+            "acceptable": False,
+            "reason": "xml_not_well_formed",
+            "exit_code": None,
+            "xrechnung_version": XRECHNUNG_VERSION,
+            "validator_version": VALIDATOR_VERSION,
+            "configuration_release": CONFIG_RELEASE,
+        }
 
     status = validator_status()
     if not status["available"]:
