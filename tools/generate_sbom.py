@@ -26,7 +26,7 @@ def build_sbom() -> dict:
         components.append({"type": "library", "name": name, "version": distribution.version, "purl": f"pkg:pypi/{name}@{distribution.version}"})
     inventory = "\n".join(f"{item['name']}=={item['version']}" for item in components)
     serial = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/JensKapitza/SimpleOffice4Me\n" + inventory)
-    release_version = str(build_info(PROJECT_ROOT).get("release_version") or "1.0.0")
+    release_version = str(build_info(PROJECT_ROOT).get("release_version") or "2.0.0")
     return {"bomFormat": "CycloneDX", "specVersion": "1.5", "serialNumber": f"urn:uuid:{serial}", "version": 1,
             "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": release_version}}, "components": components}
 
