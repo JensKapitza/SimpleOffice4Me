@@ -1,30 +1,23 @@
-"""V2-authoritative StoragePort with a synchronized V1 compatibility projection.
+"""Projection-free V2-authoritative StoragePort.
 
-The BlobStore/ObjectCatalog pair is the content and namespace authority.  The
-legacy DocumentStore remains a compatibility projection while UI/search and
-older protocol code still consume its metadata.  Mutations commit V2 first and
-roll the catalog back when the projection cannot be updated.
+ObjectCatalog/BlobStore own content and namespace. The legacy DocumentStore is
+retained only as a metadata/search/UI read model; document payload bytes are
+never projected into the presentation filesystem.
 """
 from __future__ import annotations
 
-import hashlib
-import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
-from app.document_store import DocumentStore
-
 from ..catalog import CatalogEntry, ObjectCatalog
 from ..contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
+from ..metadata_projection import V2MetadataProjection
 from .blob_catalog import BlobCatalogStorageAdapter
-from .document_store import DocumentStoreStorageAdapter
 
 
 class V2AuthoritativeStorageAdapter:
-    # Phase-15 cleanup must not remove the legacy DocumentStore projection
-    # while this adapter still synchronizes every authoritative V2 mutation
-    # back into that projection.
-    requires_legacy_projection = True
+    requires_legacy_projection = False
+    requires_metadata_projection = True
 
     def __init__(
         self,
@@ -39,8 +32,8 @@ class V2AuthoritativeStorageAdapter:
             raise ValueError("storage adapter requires an actor")
         self.primary = primary or BlobCatalogStorageAdapter(self.root, self.actor)
         self.catalog: ObjectCatalog = self.primary.catalog
-        self.legacy = DocumentStoreStorageAdapter(self.root, self.actor)
-        self.store: DocumentStore = self.legacy.store
+        self.projection = V2MetadataProjection(self.root, self.actor)
+        self.store = self.projection.store
 
     @staticmethod
     def _error(code: ErrorCode, message: str, *, retryable: bool = False):
@@ -48,11 +41,27 @@ class V2AuthoritativeStorageAdapter:
 
     @staticmethod
     def _projection_failure(exc: Exception):
-        result = DocumentStoreStorageAdapter._failure(exc)
-        return OperationResult(error=result.error)
+        if isinstance(exc, FileNotFoundError):
+            code = ErrorCode.NOT_FOUND
+        elif isinstance(exc, (FileExistsError, PermissionError)):
+            code = ErrorCode.CONFLICT
+        elif isinstance(exc, OSError):
+            code = ErrorCode.STORAGE_UNAVAILABLE
+        else:
+            code = ErrorCode.INVALID_INPUT
+        return OperationResult.failure(
+            code,
+            str(exc) or exc.__class__.__name__,
+            retryable=code is ErrorCode.STORAGE_UNAVAILABLE,
+        )
 
-    def _entry(self, object_id: LogicalObjectId) -> OperationResult[CatalogEntry]:
-        result = self.catalog.get(object_id)
+    def _entry(
+        self,
+        object_id: LogicalObjectId,
+        *,
+        include_deleted: bool = False,
+    ) -> OperationResult[CatalogEntry]:
+        result = self.catalog.get(object_id, include_deleted=include_deleted)
         if result.ok:
             return result
         return OperationResult(error=result.error)
@@ -72,54 +81,17 @@ class V2AuthoritativeStorageAdapter:
             return OperationResult(error=entry.error)
         return OperationResult.success(self._compat(entry.value))
 
-    def _expected_version(
-        self,
-        entry: CatalogEntry,
-        expected: str | None,
-    ) -> OperationResult[str]:
-        if expected is None or str(expected) in {entry.version_id, entry.content_sha256}:
-            return OperationResult.success(entry.version_id)
-        return self._error(ErrorCode.CONFLICT, "document content changed since it was opened")
-
-    def _projection_preflight(
-        self,
-        entry: CatalogEntry,
-        *,
-        editable: bool = True,
-    ) -> OperationResult[dict]:
-        try:
-            metadata = self.store.get_document(entry.object_id.value)
-            if editable:
-                self.store._require_document_editable(metadata)
-        except (OSError, RuntimeError, ValueError) as exc:
-            return self._projection_failure(exc)
-        if str(metadata.get("last_path") or "") != entry.location.relative_path:
-            return self._error(ErrorCode.INTEGRITY_ERROR, "legacy projection location differs from V2")
-        if str(metadata.get("sha256") or "") != entry.content_sha256:
-            return self._error(ErrorCode.INTEGRITY_ERROR, "legacy projection digest differs from V2")
-        content = self.legacy.read_bytes(entry.object_id)
-        if not content.ok:
-            return OperationResult(error=content.error)
-        if len(content.value) != entry.size or hashlib.sha256(content.value).hexdigest() != entry.content_sha256:
-            return self._error(ErrorCode.INTEGRITY_ERROR, "legacy projection content differs from V2")
-        return OperationResult.success(metadata)
-
-    def _projection_destination(self, location: StorageLocation) -> OperationResult[Path]:
-        try:
-            relative = self.store._safe_managed_relative_path(location.relative_path, require_name=True)
-            target = self.root / relative
-            if not target.parent.is_dir() or target.parent.is_symlink():
-                return self._error(ErrorCode.NOT_FOUND, "destination collection does not exist")
-            if target.exists():
-                return self._error(ErrorCode.CONFLICT, "destination resource already exists")
-            return OperationResult.success(target)
-        except (OSError, ValueError) as exc:
-            return self._projection_failure(exc)
+    @staticmethod
+    def _matches(entry: CatalogEntry, expected: str | None) -> bool:
+        return expected is None or str(expected) in {entry.version_id, entry.content_sha256}
 
     def _discard_new(self, stored: StoredObject) -> bool:
+        current = self.catalog.get(stored.object_id)
+        if not current.ok:
+            return False
         result = self.catalog.mark_deleted(
             stored.object_id,
-            expected_version_id=stored.version,
+            expected_version_id=current.value.version_id,
         )
         return bool(result.ok)
 
@@ -133,33 +105,24 @@ class V2AuthoritativeStorageAdapter:
         )
         return bool(result.ok)
 
-    def _projection_create(
-        self,
-        stored: StoredObject,
-        content: bytes,
-    ) -> OperationResult[StoredObject]:
-        try:
-            metadata = self.store.create_document_at(
-                stored.location.relative_path,
-                content,
-                self.actor,
-                document_id=stored.object_id.value,
-            )
-        except (OSError, RuntimeError, ValueError) as exc:
-            rolled_back = self._discard_new(stored)
-            if not rolled_back:
-                return self._error(
-                    ErrorCode.STORAGE_UNAVAILABLE,
-                    "V2 create committed but compatibility projection and rollback failed",
-                    retryable=True,
-                )
-            return self._projection_failure(exc)
-        if metadata.get("document_id") != stored.object_id.value:
-            return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection changed object identity")
-        return self._compat_result(stored.object_id)
+    def _projection_error(self, object_id: LogicalObjectId, exc: Exception, message: str):
+        self.catalog.mark_recovery(object_id)
+        failure = self._projection_failure(exc)
+        return self._error(
+            ErrorCode.STORAGE_UNAVAILABLE if failure.error and failure.error.code is ErrorCode.STORAGE_UNAVAILABLE else ErrorCode.INTEGRITY_ERROR,
+            message,
+            retryable=bool(failure.error and failure.error.retryable),
+        )
 
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         return self.primary.read_bytes(object_id)
+
+    def read_version_bytes(self, object_id: LogicalObjectId, version_id: str) -> OperationResult[bytes]:
+        try:
+            payload = self.primary.blobs.read(object_id, version_id=str(version_id))
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            return self._projection_failure(exc)
+        return OperationResult.success(payload)
 
     def copy_verified_to(
         self,
@@ -194,13 +157,19 @@ class V2AuthoritativeStorageAdapter:
         location: StorageLocation,
         content: bytes,
     ) -> OperationResult[StoredObject]:
-        destination = self._projection_destination(location)
-        if not destination.ok:
-            return OperationResult(error=destination.error)
         primary = self.primary.create_bytes(location, bytes(content))
         if not primary.ok:
             return OperationResult(error=primary.error)
-        return self._projection_create(primary.value, bytes(content))
+        entry = self.catalog.get(primary.value.object_id)
+        if not entry.ok:
+            return OperationResult(error=entry.error)
+        try:
+            self.projection.create(entry.value)
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not self._discard_new(primary.value):
+                self.catalog.mark_recovery(primary.value.object_id)
+            return self._projection_failure(exc)
+        return self._compat_result(primary.value.object_id)
 
     def import_stream(
         self,
@@ -210,56 +179,27 @@ class V2AuthoritativeStorageAdapter:
         archive: bool = False,
         max_bytes: int = 512 * 1024 * 1024,
     ) -> OperationResult[StoredObject]:
-        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
-            return self._error(ErrorCode.INVALID_INPUT, "upload size limit must be positive")
-        source = getattr(stream, "stream", stream)
-        with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b") as spool:
-            total = 0
-            while True:
-                block = source.read(1024 * 1024)
-                if block is None:
-                    return self._error(ErrorCode.INVALID_INPUT, "storage stream returned no bytes")
-                block = bytes(block)
-                if not block:
-                    break
-                total += len(block)
-                if total > max_bytes:
-                    return self._error(ErrorCode.INVALID_INPUT, "stream exceeds configured size limit")
-                spool.write(block)
-            spool.seek(0)
-            primary = self.primary.import_stream(
-                spool,
-                filename,
-                archive=archive,
-                max_bytes=max_bytes,
-            )
-            if not primary.ok:
-                return OperationResult(error=primary.error)
-            stored = primary.value
-            target = self.root / stored.location.relative_path
-            try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                self.store.ensure_folder_policy(target.parent)
-                spool.seek(0)
-                metadata = self.store.create_document_stream_at(
-                    stored.location.relative_path,
-                    spool,
-                    self.actor,
-                    max_bytes=max_bytes,
-                    document_id=stored.object_id.value,
-                )
-            except (OSError, RuntimeError, ValueError) as exc:
-                rolled_back = self._discard_new(stored)
-                if not rolled_back:
-                    return self._error(
-                        ErrorCode.STORAGE_UNAVAILABLE,
-                        "V2 import committed but compatibility projection and rollback failed",
-                        retryable=True,
-                    )
-                return self._projection_failure(exc)
-        if metadata.get("document_id") != stored.object_id.value:
-            return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection changed object identity")
-        return self._compat_result(stored.object_id)
+        primary = self.primary.import_stream(
+            stream,
+            filename,
+            archive=archive,
+            max_bytes=max_bytes,
+        )
+        if not primary.ok:
+            return OperationResult(error=primary.error)
+        entry = self.catalog.get(primary.value.object_id)
+        if not entry.ok:
+            return OperationResult(error=entry.error)
+        try:
+            parent = self.root / Path(entry.value.location.relative_path).parent
+            parent.mkdir(parents=True, exist_ok=True)
+            self.store.ensure_folder_policy(parent, self.actor)
+            self.projection.create(entry.value)
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not self._discard_new(primary.value):
+                self.catalog.mark_recovery(primary.value.object_id)
+            return self._projection_failure(exc)
+        return self._compat_result(primary.value.object_id)
 
     def replace_bytes(
         self,
@@ -267,19 +207,15 @@ class V2AuthoritativeStorageAdapter:
         content: bytes,
         *,
         expected_version: str | None = None,
-        source: str = "v2-authoritative-projection",
+        source: str = "v2-authoritative",
         restored_from_version: str = "",
     ) -> OperationResult[StoredObject]:
         current = self._entry(object_id)
         if not current.ok:
             return OperationResult(error=current.error)
         previous = current.value
-        expected = self._expected_version(previous, expected_version)
-        if not expected.ok:
-            return OperationResult(error=expected.error)
-        projection = self._projection_preflight(previous)
-        if not projection.ok:
-            return OperationResult(error=projection.error)
+        if not self._matches(previous, expected_version):
+            return self._error(ErrorCode.CONFLICT, "document content changed since it was opened")
         primary = self.primary.replace_bytes(
             object_id,
             bytes(content),
@@ -289,24 +225,14 @@ class V2AuthoritativeStorageAdapter:
         )
         if not primary.ok:
             return OperationResult(error=primary.error)
+        updated = self._entry(object_id)
+        if not updated.ok:
+            return OperationResult(error=updated.error)
         try:
-            self.store.replace_content(
-                object_id.value,
-                bytes(content),
-                self.actor,
-                expected_sha256=previous.content_sha256,
-                source=str(source or "v2-authoritative-projection"),
-                restored_from_sha256=str(restored_from_version or ""),
-            )
+            self.projection.replace(previous, updated.value, source=source)
         except (OSError, RuntimeError, ValueError) as exc:
-            rolled_back = self._restore_content(previous, primary.value.version)
-            if not rolled_back:
+            if not self._restore_content(previous, updated.value.version_id):
                 self.catalog.mark_recovery(object_id)
-                return self._error(
-                    ErrorCode.STORAGE_UNAVAILABLE,
-                    "V2 replace committed but compatibility projection and rollback failed",
-                    retryable=True,
-                )
             return self._projection_failure(exc)
         return self._compat_result(object_id)
 
@@ -315,37 +241,57 @@ class V2AuthoritativeStorageAdapter:
         object_id: LogicalObjectId,
         destination: StorageLocation,
     ) -> OperationResult[StoredObject]:
-        current = self._entry(object_id)
-        if not current.ok:
-            return OperationResult(error=current.error)
-        projection = self._projection_preflight(current.value)
-        if not projection.ok:
-            return OperationResult(error=projection.error)
-        target = self._projection_destination(destination)
-        if not target.ok:
-            return OperationResult(error=target.error)
+        source = self._entry(object_id)
+        if not source.ok:
+            return OperationResult(error=source.error)
         primary = self.primary.copy(object_id, destination)
         if not primary.ok:
             return OperationResult(error=primary.error)
+        created = self._entry(primary.value.object_id)
+        if not created.ok:
+            return OperationResult(error=created.error)
         try:
-            metadata = self.store.copy_document(
-                object_id.value,
-                primary.value.location.relative_path,
-                self.actor,
-                document_id=primary.value.object_id.value,
-            )
+            self.projection.copy(source.value, created.value)
         except (OSError, RuntimeError, ValueError) as exc:
-            rolled_back = self._discard_new(primary.value)
-            if not rolled_back:
-                return self._error(
-                    ErrorCode.STORAGE_UNAVAILABLE,
-                    "V2 copy committed but compatibility projection and rollback failed",
-                    retryable=True,
-                )
+            if not self._discard_new(primary.value):
+                self.catalog.mark_recovery(primary.value.object_id)
             return self._projection_failure(exc)
-        if metadata.get("document_id") != primary.value.object_id.value:
-            return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility copy changed object identity")
         return self._compat_result(primary.value.object_id)
+
+    def copy_replace(
+        self,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
+        *,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        source = self._entry(source_id)
+        destination = self._entry(destination_id)
+        if not source.ok:
+            return OperationResult(error=source.error)
+        if not destination.ok:
+            return OperationResult(error=destination.error)
+        primary = self.primary.copy_replace(
+            source_id,
+            destination_id,
+            expected_source_version=expected_source_version,
+            expected_destination_version=expected_destination_version,
+            max_bytes=max_bytes,
+        )
+        if not primary.ok:
+            return OperationResult(error=primary.error)
+        current = self._entry(destination_id)
+        if not current.ok:
+            return OperationResult(error=current.error)
+        try:
+            self.projection.copy_replace(source.value, destination.value, current.value)
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not self._restore_content(destination.value, current.value.version_id):
+                self.catalog.mark_recovery(destination_id)
+            return self._projection_failure(exc)
+        return self._compat_result(destination_id)
 
     def move(
         self,
@@ -356,98 +302,73 @@ class V2AuthoritativeStorageAdapter:
         if not current.ok:
             return OperationResult(error=current.error)
         previous = current.value
-        projection = self._projection_preflight(previous)
-        if not projection.ok:
-            return OperationResult(error=projection.error)
-        target = self._projection_destination(destination)
-        if not target.ok:
-            return OperationResult(error=target.error)
         primary = self.primary.move(object_id, destination)
         if not primary.ok:
             return OperationResult(error=primary.error)
-        target_path = Path(primary.value.location.relative_path)
+        moved = self._entry(object_id)
+        if not moved.ok:
+            return OperationResult(error=moved.error)
         try:
-            self.store.move_document(
-                object_id.value,
-                target_path.parent.as_posix() if target_path.parent.as_posix() != "." else "",
-                self.actor,
-                destination_name=target_path.name,
-            )
+            self.projection.move(previous, moved.value)
         except (OSError, RuntimeError, ValueError) as exc:
             rollback = self.catalog.move(
                 object_id,
                 previous.location,
-                expected_version_id=previous.version_id,
+                expected_version_id=moved.value.version_id,
             )
             if not rollback.ok:
                 self.catalog.mark_recovery(object_id)
-                return self._error(
-                    ErrorCode.STORAGE_UNAVAILABLE,
-                    "V2 move committed but compatibility projection and rollback failed",
-                    retryable=True,
-                )
             return self._projection_failure(exc)
         return self._compat_result(object_id)
 
-    def restore(
+    def move_replace(
         self,
-        object_id: LogicalObjectId,
-        destination: StorageLocation,
+        source_id: LogicalObjectId,
+        destination_id: LogicalObjectId,
         *,
-        expected_version: str | None = None,
+        expected_source_version: str,
+        expected_destination_version: str,
+        max_bytes: int = 512 * 1024 * 1024,
     ) -> OperationResult[StoredObject]:
-        current = self.catalog.get(object_id, include_deleted=True)
-        if not current.ok:
-            return OperationResult(error=current.error)
-        previous = current.value
-        if previous.state.value != "deleted":
-            return self._error(ErrorCode.CONFLICT, "catalog object is not deleted")
-        expected = self._expected_version(previous, expected_version)
-        if not expected.ok:
-            return OperationResult(error=expected.error)
-        target = self._projection_destination(destination)
-        if not target.ok:
-            return OperationResult(error=target.error)
-
-        primary = self.primary.restore(
-            object_id,
-            destination,
-            expected_version=previous.version_id,
+        source = self._entry(source_id)
+        destination = self._entry(destination_id)
+        if not source.ok:
+            return OperationResult(error=source.error)
+        if not destination.ok:
+            return OperationResult(error=destination.error)
+        primary = self.primary.move_replace(
+            source_id,
+            destination_id,
+            expected_source_version=expected_source_version,
+            expected_destination_version=expected_destination_version,
+            max_bytes=max_bytes,
         )
         if not primary.ok:
             return OperationResult(error=primary.error)
+        deleted_source = self._entry(source_id, include_deleted=True)
+        current_destination = self._entry(destination_id)
+        if not deleted_source.ok:
+            return OperationResult(error=deleted_source.error)
+        if not current_destination.ok:
+            return OperationResult(error=current_destination.error)
         try:
-            metadata = self.store.restore_soft_deleted(
-                object_id.value,
-                primary.value.location.relative_path,
-                previous.content_sha256,
-                self.actor,
+            self.projection.move_replace(
+                source.value,
+                deleted_source.value,
+                destination.value,
+                current_destination.value,
             )
-        except (OSError, PermissionError, RuntimeError, ValueError) as exc:
-            rollback = self.catalog.mark_deleted(
-                object_id,
-                expected_version_id=primary.value.version,
+        except (OSError, RuntimeError, ValueError) as exc:
+            destination_rollback = self._restore_content(
+                destination.value,
+                current_destination.value.version_id,
             )
-            if not rollback.ok:
-                self.catalog.mark_recovery(object_id)
-                return self._error(
-                    ErrorCode.STORAGE_UNAVAILABLE,
-                    "V2 restore committed but compatibility projection and rollback failed",
-                    retryable=True,
-                )
+            source_rollback = self.catalog.restore(source_id, location=source.value.location)
+            if not destination_rollback or not source_rollback.ok:
+                self.catalog.mark_recovery(source_id)
+                self.catalog.mark_recovery(destination_id)
             return self._projection_failure(exc)
-
-        if (
-            str(metadata.get("document_id") or "") != object_id.value
-            or str(metadata.get("last_path") or "") != primary.value.location.relative_path
-            or str(metadata.get("sha256") or "") != previous.content_sha256
-        ):
-            self.catalog.mark_recovery(object_id)
-            return self._error(
-                ErrorCode.INTEGRITY_ERROR,
-                "compatibility projection differs after V2 restore",
-            )
-        return self._compat_result(object_id)
+        return self._compat_result(destination_id)
 
     def delete(
         self,
@@ -459,28 +380,56 @@ class V2AuthoritativeStorageAdapter:
         if not current.ok:
             return OperationResult(error=current.error)
         previous = current.value
-        expected = self._expected_version(previous, expected_version)
-        if not expected.ok:
-            return OperationResult(error=expected.error)
-        projection = self._projection_preflight(previous)
-        if not projection.ok:
-            return OperationResult(error=projection.error)
+        if not self._matches(previous, expected_version):
+            return self._error(ErrorCode.CONFLICT, "document content changed since it was opened")
         primary = self.primary.delete(object_id, expected_version=previous.version_id)
         if not primary.ok:
             return OperationResult(error=primary.error)
+        deleted = self._entry(object_id, include_deleted=True)
+        if not deleted.ok:
+            return OperationResult(error=deleted.error)
         try:
-            self.store.soft_delete_document(
-                object_id.value,
-                self.actor,
-                expected_sha256=previous.content_sha256,
-            )
+            self.projection.delete(previous, deleted.value)
         except (OSError, RuntimeError, ValueError) as exc:
             rollback = self.catalog.restore(object_id, location=previous.location)
             if not rollback.ok:
-                return self._error(
-                    ErrorCode.STORAGE_UNAVAILABLE,
-                    "V2 delete committed but compatibility projection and rollback failed",
-                    retryable=True,
-                )
+                self.catalog.mark_recovery(object_id)
             return self._projection_failure(exc)
         return OperationResult.success(previous.content_sha256)
+
+    def restore(
+        self,
+        object_id: LogicalObjectId,
+        destination: StorageLocation,
+        *,
+        expected_version: str | None = None,
+    ) -> OperationResult[StoredObject]:
+        current = self._entry(object_id, include_deleted=True)
+        if not current.ok:
+            return OperationResult(error=current.error)
+        previous = current.value
+        if previous.state.value != "deleted":
+            return self._error(ErrorCode.CONFLICT, "catalog object is not deleted")
+        if not self._matches(previous, expected_version):
+            return self._error(ErrorCode.CONFLICT, "catalog object version changed")
+        primary = self.primary.restore(
+            object_id,
+            destination,
+            expected_version=previous.version_id,
+        )
+        if not primary.ok:
+            return OperationResult(error=primary.error)
+        restored = self._entry(object_id)
+        if not restored.ok:
+            return OperationResult(error=restored.error)
+        try:
+            self.projection.restore(previous, restored.value)
+        except (OSError, RuntimeError, ValueError) as exc:
+            rollback = self.catalog.mark_deleted(
+                object_id,
+                expected_version_id=restored.value.version_id,
+            )
+            if not rollback.ok:
+                self.catalog.mark_recovery(object_id)
+            return self._projection_failure(exc)
+        return self._compat_result(object_id)
