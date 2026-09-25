@@ -140,11 +140,18 @@ Properties:
 
 - the same local block produces the same token only inside one short session,
 - a new session produces unrelated tokens for the same block,
-- sessions are bound to one blob hash and expire after a short lifetime,
-- the V2 manifest exposes scoped tokens but no SHA-512 block hashes,
-- block download requires the session plus the exact scoped proof for the
-  requested block index,
-- there is no V2 arbitrary block-availability endpoint.
+- sessions are bound to the current blob content and expire after a short lifetime,
+- manifest/block lookup is addressed by the concrete shared document identity,
+  not by a caller-supplied stable content hash,
+- every data lookup additionally requires replay-protected peer HMAC
+  authentication for the exact method/path,
+- the V2 manifest exposes scoped tokens but no SHA-512 block hashes or stable
+  whole-file SHA-256 value,
+- block download requires the document identity, session and exact scoped proof
+  for the requested block index,
+- requests are peer-rate-limited and audited,
+- the old hash-addressed V2 dedup route is retired and there is no V2 arbitrary
+  block/file-availability endpoint.
 
 The old SOFP v1 raw SHA-512 block interface remains compatibility-only for old
 peers. Current V2 download code does not use it. If a peer does not support the
