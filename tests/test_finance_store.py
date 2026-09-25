@@ -82,7 +82,7 @@ class FinanceStoreTests(unittest.TestCase):
         self.assertTrue(any(row["entity_id"] == entry["entry_id"] and row["event"] == "entry_created" for row in self.store.audit("jens")))
 
 
-    def test_recurring_obligation_and_tax_year_workflow(self):
+    def test_recurring_obligation_and_tax_year_workflow_basic(self):
         obligation = self.store.create_obligation({
             "name": "Kita", "kind": "childcare", "direction": "expense",
             "amount_cents": 18500, "currency": "EUR", "recurrence_unit": "monthly",
@@ -94,7 +94,7 @@ class FinanceStoreTests(unittest.TestCase):
         submitted = self.store.set_tax_year_status(2026, "submitted", "jens", submitted_on="2027-05-01")
         self.assertEqual("2027-05-01", submitted["submitted_on"])
 
-    def test_bank_connection_never_accepts_pin_or_tan(self):
+    def test_bank_connection_rejects_secret_fields(self):
         connection = self.store.save_bank_connection({
             "provider": "fints", "institution": "ING", "login_id": "user-4711"
         }, "jens")
@@ -109,7 +109,7 @@ class FinanceStoreTests(unittest.TestCase):
                     "provider": "fints", "institution": "ING", "login_id": f"user-{key}", key: "do-not-store"
                 }, "jens")
 
-    def test_confirmed_transaction_match_is_idempotent_and_owner_scoped(self):
+    def test_confirmed_transaction_match_idempotency_basic(self):
         tx, _ = self.store.import_bank_transaction({
             "account_id": self.account["account_id"], "booking_date": "2026-09-18",
             "amount_cents": -18500, "currency": "EUR", "purpose": "Kita September"
