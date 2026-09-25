@@ -1,5 +1,6 @@
 import hashlib
 import io
+import os
 import tempfile
 import unittest
 import zipfile
@@ -146,6 +147,35 @@ class XRechnungValidationTests(unittest.TestCase):
         self.assertFalse(result["validated"])
         self.assertEqual("java_unavailable", result["reason"])
         self.assertNotIn("Invoice", str(result))
+
+
+@unittest.skipUnless(
+    os.environ.get("SIMPLEOFFICE_RUN_XRECHNUNG_INTEGRATION") == "1",
+    "pinned KoSIT integration runtime is installed only in the standards CI job",
+)
+class XRechnungOfficialFixtureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        installed = installer.install()
+        if installed is None:
+            raise unittest.SkipTest("Java runtime unavailable")
+        cls.fixtures = Path(__file__).resolve().parent / "fixtures" / "xrechnung"
+
+    def test_official_kosit_positive_and_negative_instances(self):
+        accepted = xrechnung_validation.validate_xrechnung(
+            (self.fixtures / "ubl001-valid.xml").read_bytes(),
+            timeout_seconds=120,
+        )
+        rejected = xrechnung_validation.validate_xrechnung(
+            (self.fixtures / "ubl002-rejected.xml").read_bytes(),
+            timeout_seconds=120,
+        )
+
+        self.assertTrue(accepted["validated"], accepted)
+        self.assertTrue(accepted["acceptable"], accepted)
+        self.assertTrue(rejected["validated"], rejected)
+        self.assertFalse(rejected["acceptable"], rejected)
+        self.assertEqual("rejected", rejected["reason"])
 
 
 if __name__ == "__main__":
