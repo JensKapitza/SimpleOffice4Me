@@ -179,8 +179,8 @@ def _extract_configuration(payload: bytes, destination: Path) -> dict[str, str]:
     return manifest
 
 
-def _manifest_path(directory: Path = CONFIG_DIR) -> Path:
-    return directory / MANIFEST_NAME
+def _manifest_path(directory: Path | None = None) -> Path:
+    return (CONFIG_DIR if directory is None else directory) / MANIFEST_NAME
 
 
 def verify_installation() -> tuple[Path, Path]:
