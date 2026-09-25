@@ -76,7 +76,7 @@ class XRechnungInstallerTests(unittest.TestCase):
             self.assertFalse((Path(temp) / "outside.xml").exists())
 
     def test_download_rejects_unpinned_url_before_network(self):
-        with mock.patch.object(installer.urllib.request, "urlopen") as opener:
+        with mock.patch.object(installer._OPENER, "open") as opener:
             with self.assertRaisesRegex(RuntimeError, "not allowed"):
                 installer._download(
                     "https://github.com/itplr-kosit/validator/releases/latest/download/validator.jar",
