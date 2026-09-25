@@ -1,8 +1,54 @@
 """Document HTTP route group extracted from app.documents."""
 from __future__ import annotations
 
+import tempfile
+
 from .documents_core import *  # noqa: F401,F403
+from .preview_service import VIDEO_SUFFIXES
 from .safe_paths import resolve_file_under
+from .v2.contracts import LogicalObjectId
+
+def _verified_preview_response(
+    document: dict[str, Any],
+    *,
+    max_age: int = 0,
+):
+    spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
+    result = _storage(str(g.user["username"])).copy_verified_to(
+        LogicalObjectId(str(document["document_id"])),
+        spool,
+    )
+    if not result.ok:
+        spool.close()
+        abort(404)
+    stored = result.value
+    spool.seek(0)
+    filename = Path(str(document.get("last_path") or "")).name or (
+        str(document["document_id"]) + ".bin"
+    )
+    mimetype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    try:
+        response = send_file(
+            spool,
+            download_name=filename,
+            mimetype=mimetype,
+            conditional=False,
+            etag=False,
+            max_age=max_age,
+        )
+    except Exception:
+        spool.close()
+        raise
+    response.content_length = stored.size
+    version = str(stored.version or "").strip()
+    if version:
+        response.set_etag(version)
+    response.headers["Cache-Control"] = (
+        f"private, max-age={max_age}" + (", immutable" if max_age else ", no-cache")
+    )
+    response.call_on_close(spool.close)
+    return response
+
 
 @bp.route("/")
 @login_required
@@ -759,11 +805,15 @@ def images():
 @login_required
 def image_preview(document_id: str):
     document = _document_or_404(document_id)
-    try:
-        path = resolve_file_under(_store().root, document.get("last_path", ""))
-    except (OSError, ValueError):
-        abort(404)
-    return send_file(path)
+    if Path(str(document.get("last_path") or "")).suffix.lower() in VIDEO_SUFFIXES:
+        # Raw video playback still needs the existing seek/range-capable path.
+        # It is migrated separately with a range-aware V2 blob reader.
+        try:
+            path = resolve_file_under(_store().root, document.get("last_path", ""))
+        except (OSError, ValueError):
+            abort(404)
+        return send_file(path)
+    return _verified_preview_response(document)
 
 
 @bp.get("/<document_id>/thumbnail")
@@ -772,14 +822,8 @@ def document_thumbnail(document_id: str):
     document = _document_or_404(document_id)
     path = PreviewService(_store().root).cached_path(document, "thumbnail")
     if path is None:
-        try:
-            original = resolve_file_under(_store().root, document.get("last_path", ""))
-        except (OSError, ValueError):
-            abort(404)
-        path = original
-        max_age = 0
-    else:
-        max_age = 31536000
+        return _verified_preview_response(document)
+    max_age = 31536000
     response = send_file(path, conditional=True, etag=True, max_age=max_age)
     response.headers["Cache-Control"] = f"private, max-age={max_age}" + (", immutable" if max_age else ", no-cache")
     return response

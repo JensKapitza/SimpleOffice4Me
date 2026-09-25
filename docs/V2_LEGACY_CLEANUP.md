@@ -38,11 +38,18 @@ content is read through `StoragePort` even when the retained plaintext file is
 absent. V1 and shadow mode intentionally keep the legacy projection because
 shadow verification compares both sides.
 
+The ordinary document/image raw-preview route and thumbnail fallback also read
+through verified `StoragePort.copy_verified_to()`; they no longer need the
+plaintext compatibility file. Raw **video** playback remains a separate blocker
+because browser seeking/range requests need a range-aware V2 blob reader before
+the physical-file path can be removed without degrading playback.
+
 The remaining compatibility dependency is narrower but still real: V2 writes
 are projected back into `DocumentStore`, directory/access-policy handling uses
-the compatibility filesystem namespace, and browser/search/metadata consumers
-still read the legacy metadata projection. Therefore the global cleanup flag
-must remain true and destructive cleanup remains blocked.
+the compatibility filesystem namespace, video transcode/raw-range playback
+still requires a seekable plaintext source, and browser/search/metadata
+consumers still read the legacy metadata projection. Therefore the global
+cleanup flag must remain true and destructive cleanup remains blocked.
 
 ## Safety
 
