@@ -253,7 +253,7 @@ def forward_status(status_id: str):
     try:
         status = _statuses().get_for_actor(status_id, _actor())
         target_id = str(request.form.get("target_room_id") or "").strip()
-        room = _require_room(target_id)
+        _require_room(target_id)
         store = _store()
         if not store.is_participant(target_id, _actor()):
             abort(403)
