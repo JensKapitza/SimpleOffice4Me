@@ -13,3 +13,13 @@ instances from `itplr-kosit/validator-configuration-xrechnung`, release
 
 The upstream release assertions mark `ubl001-report.xml` valid and
 `ubl002-report.xml` invalid/rejected.
+
+
+## Build-time placeholder
+
+The upstream `processing-valid` source instances intentionally contain
+`@xrechnung.spec.id@`. The upstream Ant build replaces that marker before running
+KoSIT. The integration test keeps the source fixtures byte-for-byte unchanged and
+applies the same published XRechnung 3.0 scenario identifier in memory immediately
+before validation. This prevents a false rejection caused only by an unexpanded
+upstream build placeholder.
