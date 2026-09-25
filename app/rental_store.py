@@ -289,10 +289,15 @@ class RentalStoreBase:
 
     def _document_snapshot(self, document_id: str) -> dict[str, Any]:
         from .document_store import DocumentStore
-        document=DocumentStore(self.root).get_document(document_id); path=self._safe_document_path(document.get("last_path",""))
-        digest=str(document.get("sha256") or "").strip().casefold()
-        if not re.fullmatch(r"[0-9a-f]{64}",digest): digest=self._sha256_file(path)
-        return {"document_id":document_id,"path":str(document.get("last_path","")),"name":path.name,"sha256":digest,"size":path.stat().st_size}
+        from .v2.document_access import document_sha256, document_size
+        document=DocumentStore(self.root).get_document(document_id)
+        return {
+            "document_id": document_id,
+            "path": str(document.get("last_path", "")),
+            "name": Path(str(document.get("last_path", ""))).name,
+            "sha256": document_sha256(self.root, "rental-document-read", document_id),
+            "size": document_size(self.root, "rental-document-read", document_id),
+        }
 
     @staticmethod
     def _sha256_file(path: Path) -> str:
