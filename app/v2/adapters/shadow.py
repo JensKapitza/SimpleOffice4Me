@@ -176,6 +176,45 @@ class ShadowDocumentStorageAdapter:
             self._dirty(f"{object_id.value}: V1/V2 shadow streamed content mismatch")
         return result
 
+    def copy_verified_range_to(
+        self,
+        object_id: LogicalObjectId,
+        target,
+        *,
+        start: int,
+        length: int | None = None,
+    ) -> OperationResult[StoredObject]:
+        result = self.legacy.copy_verified_range_to(
+            object_id,
+            target,
+            start=start,
+            length=length,
+        )
+        if not result.ok:
+            return result
+        row = self.catalog.get(object_id)
+        if not row.ok:
+            self._dirty(f"{object_id.value}: V2 shadow catalog entry is missing")
+            return result
+        stored = result.value
+        try:
+            version = self.blobs.verify(
+                object_id,
+                version_id=row.value.version_id,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._dirty(f"{object_id.value}: V2 shadow ranged verification failed: {exc}")
+            return result
+        if (
+            row.value.location != stored.location
+            or row.value.size != stored.size
+            or row.value.content_sha256 != stored.version
+            or version.size != stored.size
+            or version.content_sha256 != stored.version
+        ):
+            self._dirty(f"{object_id.value}: V1/V2 shadow ranged content mismatch")
+        return result
+
     def create_bytes(self, location: StorageLocation, content: bytes) -> OperationResult[StoredObject]:
         return self._mirror_result(self.legacy.create_bytes(location, content))
 
