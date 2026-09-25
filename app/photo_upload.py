@@ -16,7 +16,7 @@ from flask import Blueprint, current_app, flash, g, jsonify, redirect, request, 
 
 from .auth import login_required
 from .document_store import DocumentStore, sha256_file, utc_now
-from .safe_paths import resolve_file_under
+from .v2.document_access import materialized_document
 from .settings_store import SettingsStore
 
 
@@ -504,9 +504,9 @@ def refresh_metadata(document_id: str):
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
     try:
         metadata = store.get_document(document_id)
-        path = resolve_file_under(store.root, metadata.get("last_path", ""))
-        _verify_photo(path)
-        rich = extract_photo_metadata(path)
+        with materialized_document(store.root, str(g.user["username"]), document_id) as path:
+            _verify_photo(path)
+            rich = extract_photo_metadata(path)
         upload_metadata = metadata.get("attributes", {}).get("photo_upload", {})
         tags = metadata_tags(
             received_at=str(upload_metadata.get("received_at") or metadata.get("first_seen_at") or utc_now()),
