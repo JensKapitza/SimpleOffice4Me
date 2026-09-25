@@ -85,5 +85,29 @@ verified, trusted or authoritative.
 
 ## Migration
 
-This phase adds contracts only. Existing V1 metadata and filenames remain
-untouched until a later migration adapter maps them into the V2 model.
+The V1 -> V2 migration now projects each verified legacy document into a
+versioned V2 metadata envelope below `.simpleoffice-v2/metadata/`.
+
+The adapter is additive:
+
+- the V1 metadata JSON remains untouched and authoritative during migration;
+- the V2 filename is a SHA-256 of the logical object ID, so object IDs never
+  become filesystem paths;
+- original filename/suffix/hash/first-seen values are immutable in the V2
+  envelope;
+- current path, size, digest, state and tags are stored as observed metadata;
+- historical names become filename aliases with explicit provenance;
+- an existing `federation_origin` attribute is mapped into the federated
+  channel instead of becoming local/original truth;
+- a digest of the complete legacy metadata object binds the projection back to
+  the exact V1 source record without copying arbitrary legacy fields into the
+  V2 sidecar.
+
+Projection files are atomically published, private mode 0600 on POSIX, and the
+metadata directory must not be a symlink. Re-running migration is idempotent.
+A conflicting immutable original projection or a projection owned by a different
+producer fails closed.
+
+`verify_migration_transfer()` rebuilds the expected envelope from V1 and
+requires an exact matching V2 projection for every migrated document. Blob,
+catalog and metadata verification are therefore separate release gates.
