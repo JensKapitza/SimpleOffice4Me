@@ -30,8 +30,19 @@ Cleanup must remain blocked until all of these are true:
 
 The authoritative adapter currently declares
 `requires_legacy_projection = True`, so the gate is expected to report
-`ready_for_cleanup = false` today. This is deliberate: file browser/search and
-older protocol consumers still depend on the compatibility projection.
+`ready_for_cleanup = false` today.
+
+The VFS regular-file **read/list** path is no longer one of those blockers in
+authoritative V2 mode: active files are enumerated from `ObjectCatalog` and
+content is read through `StoragePort` even when the retained plaintext file is
+absent. V1 and shadow mode intentionally keep the legacy projection because
+shadow verification compares both sides.
+
+The remaining compatibility dependency is narrower but still real: V2 writes
+are projected back into `DocumentStore`, directory/access-policy handling uses
+the compatibility filesystem namespace, and browser/search/metadata consumers
+still read the legacy metadata projection. Therefore the global cleanup flag
+must remain true and destructive cleanup remains blocked.
 
 ## Safety
 
