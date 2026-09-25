@@ -238,20 +238,31 @@ SHA-512-Blockendpunkte. Diese Hashes sind stabile Gleichheitskennungen und
 duerfen in V2 nicht als allgemeines Bestands- oder Deduplizierungs-Orakel
 verwendet werden.
 
-Der V2-Pfad verwendet deshalb sitzungsgebundene Gleichheitstoken:
+Der V2-Pfad verwendet deshalb peer-, dokument- und sitzungsgebundene
+Gleichheitstoken:
 
-1. Der Quellpeer erzeugt eine kurze, signierte und an den angefragten Blob
-   gebundene Session.
-2. Fuer jeden internen SHA-512-Blockhash wird mit dem gemeinsamen
+1. Manifest- und Blockabrufe verwenden keine stabile SHA-256-Adresse mehr,
+   sondern die konkrete, bereits aus dem freigegebenen Katalog bekannte
+   Dokument-ID.
+2. Jeder Manifest- und Blockrequest braucht neben dem Federation-Bearer eine
+   Peer-ID, Timestamp, Nonce und HMAC-Signatur fuer die exakte HTTP-Methode und
+   den exakten Pfad. Replay-Nonces werden serverseitig beansprucht.
+3. Der Quellpeer erzeugt eine kurze, signierte und an den aktuellen Blobinhalt
+   des bezeichneten Dokuments gebundene Session.
+4. Fuer jeden internen SHA-512-Blockhash wird mit dem gemeinsamen
    Peer-Credential ein HMAC-Token abgeleitet.
-3. Nur Token, Index, Offset und Laenge werden uebertragen. Der rohe
-   SHA-512-Blockhash bleibt lokal.
-4. Der Empfaenger berechnet fuer seine lokalen Bloecke dieselben Token nur fuer
+5. Nur Token, Index, Offset und Laenge werden uebertragen. Roher SHA-512-Blockhash
+   und Gesamt-SHA-256 erscheinen nicht im V2-Dedup-Pfad.
+6. Der Empfaenger berechnet fuer seine lokalen Bloecke dieselben Token nur fuer
    diese Session und kann dadurch vorhandene Daten wiederverwenden.
-5. Ein fehlender Block wird nur ueber Blob, Index, Session und den passenden
-   Token-Proof abgerufen.
-6. Nach Ablauf oder bei einer neuen Session sind die Token fuer denselben Inhalt
-   verschieden.
+7. Ein fehlender Block wird nur ueber Dokument-ID, Index, Session und den
+   passenden Token-Proof abgerufen.
+8. Nach Ablauf oder bei einer neuen Session sind die Token fuer denselben Inhalt
+   verschieden. Requests sind zusaetzlich peerbezogen rate-limited und auditiert.
+
+Die fruehere V2-Route `/federation/v2/blocks/blobs/<sha256>/...` ist
+absichtlich stillgelegt. Dadurch kann ein Peer den V2-Endpunkt nicht mehr als
+allgemeines Confirmation-/Bestands-Orakel fuer bekannte Dateihashes verwenden.
 
 Der V2-Pfad bietet bewusst keinen freien `availability`-Endpunkt fuer
 beliebige Blockhashes. Wenn ein alter Peer V2 nicht beherrscht, faellt ein
