@@ -568,5 +568,6 @@ else
 fi
 
 "$VENV/bin/python" "$ROOT/tools/install_invoice_validator.py" || true
+"$VENV/bin/python" "$ROOT/tools/install_xrechnung_validator.py" || true
 cd "$ROOT"
 exec "$VENV/bin/python" -m tools.launcher start "$@"
