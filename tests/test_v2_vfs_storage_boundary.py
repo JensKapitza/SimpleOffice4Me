@@ -7,7 +7,7 @@ from app.virtual_filesystem import VirtualFileSystem
 from app.v2.blob_store import BlobStore
 from app.v2.catalog import CatalogState, ObjectCatalog
 from app.v2.contracts import LogicalObjectId
-from app.v2.cutover import load_cutover_state, prepare_shadow
+from app.v2.cutover import activate_v2, load_cutover_state, prepare_shadow
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
 
 
@@ -115,6 +115,26 @@ class V2VirtualFileSystemStorageBoundaryTests(unittest.TestCase):
         )
         self.assertTrue(source_row.ok)
         self.assertEqual(CatalogState.DELETED, source_row.value.state)
+
+    def test_authoritative_v2_read_and_listing_do_not_require_plaintext_file(self):
+        activate_v2(
+            self.root,
+            apply=True,
+            acknowledge_local_plaintext=True,
+        )
+        (self.root / "team" / "existing.txt").unlink()
+        (self.root / "team" / "unmanaged.txt").write_bytes(b"not catalogued")
+
+        entries = self.vfs.entries("admin", "team")
+
+        self.assertEqual(["existing.txt"], [item.name for item in entries])
+        self.assertEqual(len(b"existing"), entries[0].size)
+        self.assertEqual(
+            b"existing",
+            self.vfs.read_bytes("admin", "team/existing.txt"),
+        )
+        with self.assertRaises(FileNotFoundError):
+            self.vfs.read_bytes("admin", "team/unmanaged.txt")
 
     def test_vfs_read_detects_v2_divergence_while_returning_v1_projection(self):
         object_id = LogicalObjectId(self.existing["document_id"])
