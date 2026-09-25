@@ -22,7 +22,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
 from .osm_address import LocalAddressIndex, field_suggestions, search_address, unique_candidate
-from .safe_paths import resolve_file_under
+from .v2.document_access import document_bytes
 from .settings_store import translate
 
 
@@ -325,9 +325,8 @@ def _parse_address_rows(text: str) -> list[dict[str, str]]:
 
 def _eml_preview(root: Path, document_id: str) -> dict[str, Any]:
     store = DocumentStore(root); document = store.get_document(document_id)
-    path = resolve_file_under(root, document.get("last_path", ""))
-    if path.suffix.casefold() != ".eml": raise ValueError("document is not a regular EML file")
-    message = BytesParser(policy=policy.default).parsebytes(path.read_bytes()); attachments: list[dict[str, Any]] = []
+    if Path(str(document.get("last_path") or "")).suffix.casefold() != ".eml": raise ValueError("document is not a regular EML file")
+    message = BytesParser(policy=policy.default).parsebytes(document_bytes(root, "contact-eml-preview", document_id)); attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
         payload = part.get_payload(decode=True) or b""
