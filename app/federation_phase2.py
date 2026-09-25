@@ -36,13 +36,15 @@ from .federation_core import (
 )
 from .federation_store import FederationStore
 from .federation_worker import (
-    _find_blob,
     _request,
     push_blob_to_peer,
     remote_availability,
     remote_blob_manifest,
 )
 from .todo_store import TodoStore
+from .v2.contracts import LogicalObjectId
+from .v2.document_access import document_id_for_sha256, materialized_blob
+from .v2.storage_runtime import result_or_raise, storage_for
 
 
 bp = Blueprint("federation_phase2", __name__, url_prefix="/federation/v1/resources")
@@ -258,32 +260,49 @@ def pull_blob_multisource(
 
 
 def repair_blob(root: str | Path, digest: str, *, peer_ids: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
-    """Verify a local blob and reconstruct it from peers only when necessary."""
+    """Verify/repair authoritative V2 content without a persistent plaintext path."""
     digest = normalize_sha256(digest)
     federation = FederationStore(root)
-    local: Path | None = None
+    local_document_id = ""
     try:
-        local = _find_blob(root, digest)
-    except ValueError:
-        local = None
-    if local is not None and verify_file(local, digest):
-        federation.record_event("repair_verified", detail={"blob_hash": digest, "path": str(local)})
-        return {"status": "verified", "blob_hash": digest, "path": str(local), "repaired": False}
-    result = pull_blob_multisource(root, digest, peer_ids=peer_ids, operation="REPAIR", job_id=f"repair-{digest[:24]}")
+        local_document_id = document_id_for_sha256(root, digest)
+        with materialized_blob(root, "federation-repair-verify", digest) as local:
+            if verify_file(local, digest):
+                federation.record_event(
+                    "repair_verified",
+                    detail={"blob_hash": digest, "document_id": local_document_id},
+                )
+                return {
+                    "status": "verified",
+                    "blob_hash": digest,
+                    "document_id": local_document_id,
+                    "repaired": False,
+                }
+    except (OSError, RuntimeError, ValueError):
+        local_document_id = ""
+    result = pull_blob_multisource(
+        root,
+        digest,
+        peer_ids=peer_ids,
+        operation="REPAIR",
+        job_id=f"repair-{digest[:24]}",
+    )
     repaired = Path(result["path"])
-    if local is not None:
-        resolved = local.resolve()
-        root_path = Path(root).expanduser().resolve()
-        if root_path not in (resolved, *resolved.parents) or local.is_symlink():
-            raise ValueError("refusing to replace unsafe local blob path")
-        backup = federation.incoming / f"corrupt-{digest[:16]}-{int(time.time())}.bak"
-        shutil.copy2(local, backup)
-        shutil.copy2(repaired, local)
-        if not verify_file(local, digest):
-            shutil.copy2(backup, local)
-            raise ValueError("repaired blob failed verification after replacement")
-        federation.record_event("repair_replaced_corrupt_blob", detail={"blob_hash": digest, "path": str(local), "backup": str(backup)})
-        result.update({"path": str(local), "backup": str(backup)})
+    if not verify_file(repaired, digest):
+        raise ValueError("repaired blob failed verification")
+    if local_document_id:
+        payload = repaired.read_bytes()
+        result_or_raise(
+            storage_for(root, "federation-repair").replace_bytes(
+                LogicalObjectId(local_document_id),
+                payload,
+            )
+        )
+        federation.record_event(
+            "repair_replaced_corrupt_blob",
+            detail={"blob_hash": digest, "document_id": local_document_id},
+        )
+        result.update({"document_id": local_document_id})
     result["repaired"] = True
     return result
 
@@ -292,9 +311,10 @@ def rebalance_blob(root: str | Path, digest: str, *, desired_copies: int = 2) ->
     """Ensure a verified blob has at least ``desired_copies`` configured remote copies."""
     digest = normalize_sha256(digest)
     desired_copies = max(1, min(int(desired_copies), 32))
-    local = _find_blob(root, digest)
-    if not verify_file(local, digest):
-        raise ValueError("local source blob is corrupt; repair it before rebalancing")
+    with materialized_blob(root, "federation-rebalance", digest) as local:
+        if not verify_file(local, digest):
+            raise ValueError("local source blob is corrupt; repair it before rebalancing")
+        manifest = __import__("app.federation_core", fromlist=["build_manifest"]).build_manifest(local)
     federation = FederationStore(root)
     candidates: list[str] = []
     existing: set[str] = set()
@@ -315,7 +335,6 @@ def rebalance_blob(root: str | Path, digest: str, *, desired_copies: int = 2) ->
     pushed: list[str] = []
     for peer_id in targets:
         job_id = transfer_id()
-        manifest = __import__("app.federation_core", fromlist=["build_manifest"]).build_manifest(local)
         federation.create_transfer(
             job_id,
             direction="outgoing",
