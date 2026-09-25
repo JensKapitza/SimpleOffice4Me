@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -18,9 +20,9 @@ from .contact_store import ContactStore
 from .chat_store import ChatStore
 from .chat_status import ChatStatusStore
 from .db import get_db
-from .document_store import DocumentStore, sha256_file
+from .document_store import DocumentStore
 from .federation_store import FederationStore
-from .safe_paths import resolve_file_under
+from .v2.document_access import document_bytes, document_sha256, document_size
 
 bp = Blueprint("chat", __name__, url_prefix="/chat")
 MAX_FILES_PER_MESSAGE = 20
@@ -186,9 +188,9 @@ def _attachment_file(attachment_id: str):
     _require_room(item["room_id"])
     if not item.get("document_id") or item.get("state")!="ready": abort(404)
     try:
-        documents=DocumentStore(_root()); document=documents.get_document(item["document_id"]); path=resolve_file_under(documents.root,str(document.get("last_path","")))
-    except (ValueError,OSError): abort(404)
-    return item,path
+        payload=document_bytes(_root(),_actor(),str(item["document_id"]))
+    except (ValueError,OSError,RuntimeError): abort(404)
+    return item,payload
 
 
 @bp.get("")
@@ -361,10 +363,9 @@ def share_object(room_id: str):
         message_type="contact" if kind=="contact" else "request"
         message=store.add_message(room_id,_actor(),str(request.form.get("comment") or "").strip(),message_type=message_type,payload={"share":card,**_reply_payload(room_id)})
         if kind=="document":
-            documents=DocumentStore(_root()); document=documents.get_document(card["object_id"]); path=resolve_file_under(documents.root,str(document.get("last_path") or "")); data_size=path.stat().st_size
-            digest=str(document.get("sha256") or "").casefold()
-            if len(digest)!=64: digest=sha256_file(path)
-            store.register_attachment(message["message_id"],str(uuid.uuid4()),path.name,guessed_mime(path.name),data_size,digest,"chat",document_id=card["object_id"],state="ready")
+            documents=DocumentStore(_root()); document=documents.get_document(card["object_id"]); name=Path(str(document.get("last_path") or "document")).name
+            data_size=document_size(_root(),_actor(),card["object_id"]); digest=document_sha256(_root(),_actor(),card["object_id"])
+            store.register_attachment(message["message_id"],str(uuid.uuid4()),name,guessed_mime(name),data_size,digest,"chat",document_id=card["object_id"],state="ready")
         _deliver_if_remote(room_data,message["message_id"])
         return redirect(url_for("chat.room",room_id=room_id)+"#latest")
     except (ValueError,OSError,RuntimeError) as exc:
@@ -465,16 +466,16 @@ def retry_message(message_id: str):
 @bp.get("/attachments/<attachment_id>")
 @login_required
 def attachment(attachment_id: str):
-    item,path=_attachment_file(attachment_id)
-    response=send_file(path,as_attachment=True,download_name=item["filename"],mimetype=item["mime_type"],conditional=True); response.headers["Cache-Control"]="private, no-store"; return response
+    item,payload=_attachment_file(attachment_id)
+    response=send_file(io.BytesIO(payload),as_attachment=True,download_name=item["filename"],mimetype=item["mime_type"],conditional=True); response.headers["Cache-Control"]="private, no-store"; return response
 
 
 @bp.get("/attachments/<attachment_id>/preview")
 @login_required
 def attachment_preview(attachment_id: str):
-    item,path=_attachment_file(attachment_id); mime=str(item.get("mime_type") or "")
+    item,payload=_attachment_file(attachment_id); mime=str(item.get("mime_type") or "")
     if not mime.startswith(_PREVIEW_PREFIXES): abort(404)
-    response=send_file(path,as_attachment=False,mimetype=mime,conditional=True); response.headers["Cache-Control"]="private, no-store"; response.headers["X-Content-Type-Options"]="nosniff"; return response
+    response=send_file(io.BytesIO(payload),as_attachment=False,mimetype=mime,conditional=True); response.headers["Cache-Control"]="private, no-store"; response.headers["X-Content-Type-Options"]="nosniff"; return response
 
 
 @bp.get("/rooms/<room_id>/state.json")
