@@ -67,6 +67,7 @@ class ShoppingStore:
         self.root = Path(root).expanduser().resolve()
         self.path = self.root / CONTROL_DIR / "shopping.json"
         self.lock = self.root / CONTROL_DIR / ".shopping-write.lock"
+        self.photo_dir = self.root / CONTROL_DIR / "shopping-photos"
         self.history = RevisionHistory(self.root)
 
     def _read(self) -> dict[str, Any]:
@@ -133,6 +134,7 @@ class ShoppingStore:
                 "owner": owner,
                 "product_key": product_key,
                 "barcode": str(item.get("barcode", "") or ""),
+                "photo_id": "",
                 "name": name,
                 "brand": "",
                 "pack_size": "",
@@ -166,6 +168,9 @@ class ShoppingStore:
         barcode = str(item.get("barcode", "") or "").strip()
         if barcode:
             row["barcode"] = barcode
+        photo_id = self._text(item.get("photo_id", ""), 80)
+        if photo_id:
+            row["photo_id"] = photo_id
         store = self._text(item.get("store", ""), 240)
         if not store:
             list_id = str(item.get("list_id", "") or "")
@@ -457,6 +462,29 @@ class ShoppingStore:
         rows.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
         return dict(rows[0])
 
+    def can_read_photo(self, actor: str, photo_id: str) -> bool:
+        """Return whether actor may read a locally stored shopping product photo."""
+        owner = self._text(actor, 200)
+        wanted = self._text(photo_id, 80)
+        if not owner or not wanted:
+            return False
+        data = self._read()
+        if any(
+            row.get("owner") == owner and str(row.get("photo_id", "")) == wanted
+            for row in data["products"]
+        ):
+            return True
+        visible_lists = {
+            str(row.get("list_id", ""))
+            for row in data["lists"]
+            if "read" in self._share_permissions(data, str(row.get("list_id", "")), owner)
+        }
+        return any(
+            str(row.get("list_id", "")) in visible_lists
+            and str(row.get("photo_id", "")) == wanted
+            for row in data["items"]
+        )
+
     def add_item(self, list_id: str, name: str, actor: str, values: dict[str, Any] | None = None) -> dict[str, Any]:
         values = values or {}
         name = self._text(name, 300)
@@ -484,6 +512,7 @@ class ShoppingStore:
             "pack_size": self._text(values.get("pack_size", ""), 120),
             "price": self._text(values.get("price", ""), 80),
             "barcode": normalize_barcode(values.get("barcode", "")),
+            "photo_id": self._text(values.get("photo_id", ""), 80),
             "priority": priority, "status": status,
             "assigned_to": self._text(values.get("assigned_to", ""), 200),
             "request_id": request_id,
@@ -523,7 +552,7 @@ class ShoppingStore:
                 raise ValueError("shopping item not found")
             content_keys = {
                 "name", "quantity", "unit", "note", "category", "store", "barcode",
-                "priority", "brand", "pack_size", "price",
+                "priority", "brand", "pack_size", "price", "photo_id",
             }
             completion_keys = {"status", "assigned_to"}
             if content_keys.intersection(values) and "edit" not in permissions:
@@ -540,7 +569,7 @@ class ShoppingStore:
             for key, limit in (
                 ("name", 300), ("quantity", 80), ("unit", 40), ("note", 2000),
                 ("category", 120), ("store", 240), ("assigned_to", 200),
-                ("brand", 160), ("pack_size", 120), ("price", 80),
+                ("brand", 160), ("pack_size", 120), ("price", 80), ("photo_id", 80),
             ):
                 if key in values:
                     item[key] = self._text(values[key], limit)
