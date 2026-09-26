@@ -33,6 +33,16 @@ PY
 )}"
 ITERATION="${SIMPLEOFFICE_PACKAGE_ITERATION:-1}"
 ARCH="${SIMPLEOFFICE_PACKAGE_ARCH:-$(dpkg --print-architecture 2>/dev/null || printf 'all')}"
+PYTHON_SERIES="$(python3 - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+PYTHON_NEXT_SERIES="$(python3 - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor + 1}")
+PY
+)"
 OUT_DIR="${SIMPLEOFFICE_PACKAGE_OUT:-$ROOT/dist/packages}"
 WORK_DIR="${SIMPLEOFFICE_PACKAGE_WORK:-$ROOT/build/fpm-${BUILD_ROLE}}"
 STAGE="$WORK_DIR/root"
@@ -150,7 +160,8 @@ install -D -m 0644 "$ROOT/packaging/README-system-package.md" "$STAGE/usr/share/
 rm -rf "$APP_DIR/instance"
 
 FPM_DEPENDENCY_ARGS=(
-  --depends "python3 (>= 3.10)"
+  --depends "python3 (>= $PYTHON_SERIES)"
+  --depends "python3 (<< $PYTHON_NEXT_SERIES)"
   --depends "python3-venv"
   --depends "git"
   --depends "ca-certificates"
@@ -210,6 +221,7 @@ fpm \
 
 printf '\nPaket erstellt:\n  %s\n' "$OUT_DIR/${PACKAGE_NAME}_${VERSION}-${ITERATION}_${ARCH}.deb"
 printf 'Build-Typ:\n  %s\n' "$BUILD_ROLE"
+printf 'Python-Serie:\n  %s.x\n' "$PYTHON_SERIES"
 printf 'Lizenz-Master:\n  %s\n' "$LICENSE_MASTER_URL"
 printf 'Master-Build:\n  %s\n' "$LICENSE_MASTER_MODE"
 if [ -n "$PYTHON_EXTRAS" ]; then
