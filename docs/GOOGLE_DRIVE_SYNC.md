@@ -18,6 +18,14 @@ SimpleOffice4Me
 
 Nur dieser von der Anwendung verwaltete Bereich wird für den normalen Datei-Sync verwendet.
 
+## Local-first: Google Drive ist optional
+
+SimpleOffice startet ohne Google-Drive-Anmeldung und ohne Drive-Datenübertragung. Der lokale Ordner `GoogleDrive/` kann unabhängig von einem Google-Konto verwendet werden.
+
+Für neu angelegte Drive-Zustände gilt `enabled = 0`. Das Öffnen der Drive-Seite startet weder in der APK noch im Browser automatisch OAuth. Erst die ausdrückliche Aktion **Google Drive verbinden** startet die Google-Autorisierung. Bis `drive.file` tatsächlich gewährt wurde, zeigt die Oberfläche **Speichermodus: Lokal** und **Google Drive: nicht aktiviert**; die Sync-Einstellungen bleiben deaktiviert.
+
+Damit ist eine fehlende Google-Berechtigung beim Erststart kein Fehlerzustand, sondern der normale lokale Betriebsmodus.
+
 ## Warum `drive.file` statt Vollzugriff?
 
 SimpleOffice fordert den OAuth-Scope
