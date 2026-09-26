@@ -1,6 +1,6 @@
 {
   "name": "simpleoffice4me-desktop",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Electron desktop wrapper for SimpleOffice4Me",
   "homepage": "https://github.com/JensKapitza/SimpleOffice4Me",
@@ -14,9 +14,10 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "sync:version": "python ../python-setup/sync_project_version.py",
     "build:backend": "python ../python-setup/build_backend.py",
-    "pack": "npm run build:backend && electron-builder --dir",
-    "dist": "npm run build:backend && electron-builder"
+    "pack": "npm run sync:version && npm run build:backend && electron-builder --dir",
+    "dist": "npm run sync:version && npm run build:backend && electron-builder"
   },
   "devDependencies": {
     "electron": "44.3.0",
