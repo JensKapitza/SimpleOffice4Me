@@ -61,7 +61,7 @@ class ResourceRegistryTests(unittest.TestCase):
                 0,
             )
 
-            registry = ResourceRegistry(tmp, b"test-secret", "tester")
+            registry = ResourceRegistry(tmp, b"test-master-key-long-enough", "tester")
             descriptor = next(
                 item for item in registry.descriptors()
                 if item["provider_id"] == "federation:peer-one"
