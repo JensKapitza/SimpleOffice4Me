@@ -2,8 +2,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from app.federation_store import FederationStore
+from app.federation_trust_store import FederationTrustStore
 from app.resource_local import LocalResourceProvider
 from app.resource_provider import ProviderError, ResourceEntry
+from app.resource_registry import ResourceRegistry
 from app.resource_smartview import SmartViewProvider
 from app.webdav_smart_mount import _href, _virtual_name
 
@@ -36,6 +39,43 @@ class LocalResourceProviderTests(unittest.TestCase):
         except (OSError, NotImplementedError):
             self.skipTest("symlinks unavailable")
         self.assertNotIn("link.txt", [entry.name for entry in self.provider.list()])
+
+
+class ResourceRegistryTests(unittest.TestCase):
+    def test_federation_descriptor_exposes_trust_and_policy_capabilities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = FederationStore(tmp)
+            store.save_peer(
+                "peer-one",
+                "Peer One",
+                "https://peer.example",
+                "",
+                {"documents": {"receive": True, "send": False}},
+                True,
+            )
+            FederationTrustStore(tmp).set_trust(
+                "peer-one",
+                "NORMAL",
+                "VERIFIED_ONE_WAY",
+                "DIRECT_ONLY",
+                0,
+            )
+
+            registry = ResourceRegistry(tmp, b"test-secret", "tester")
+            descriptor = next(
+                item for item in registry.descriptors()
+                if item["provider_id"] == "federation:peer-one"
+            )
+
+            self.assertEqual("federation", descriptor["kind"])
+            self.assertTrue(descriptor["capabilities"]["read"])
+            self.assertFalse(descriptor["capabilities"]["write"])
+            self.assertEqual("peer-one", descriptor["federation"]["peer_id"])
+            self.assertEqual("NORMAL", descriptor["federation"]["trust_level"])
+            self.assertEqual(
+                "VERIFIED_ONE_WAY",
+                descriptor["federation"]["verification_state"],
+            )
 
 
 class SmartViewProviderTests(unittest.TestCase):
