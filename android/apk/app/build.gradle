@@ -30,11 +30,13 @@ def semanticVersionMatch = appVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/
 if (!semanticVersionMatch.matches()) {
     throw new GradleException("Android build requires a numeric MAJOR.MINOR.PATCH project version, got ${appVersionName}")
 }
-def appVersionCode = (
-    semanticVersionMatch.group(1).toInteger() * 1_000_000
-    + semanticVersionMatch.group(2).toInteger() * 1_000
-    + semanticVersionMatch.group(3).toInteger()
-)
+def versionMajor = semanticVersionMatch.group(1).toInteger()
+def versionMinor = semanticVersionMatch.group(2).toInteger()
+def versionPatch = semanticVersionMatch.group(3).toInteger()
+if (versionMinor > 999 || versionPatch > 999) {
+    throw new GradleException('Android version mapping requires MINOR and PATCH values <= 999')
+}
+def appVersionCode = versionMajor * 1_000_000 + versionMinor * 1_000 + versionPatch
 if (appVersionCode <= 0 || appVersionCode > 2_100_000_000) {
     throw new GradleException("Derived Android versionCode is outside the supported range: ${appVersionCode}")
 }
