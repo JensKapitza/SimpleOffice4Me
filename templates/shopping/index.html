@@ -56,7 +56,7 @@
             <div class="d-flex justify-content-between gap-2 align-items-start">
               <div class="d-flex gap-2 align-items-start">
                 {% if product.photo_id %}
-                <img src="{{ url_for('shopping.product_photo', photo_id=product.photo_id) }}" alt="" width="48" height="48" loading="lazy" class="rounded border object-fit-cover flex-shrink-0">
+                <img src="{{ url_for('shopping.product_photo', photo_id=product.photo_id) }}" alt="" width="48" height="48" loading="lazy" decoding="async" class="rounded border object-fit-cover flex-shrink-0">
                 {% endif %}
                 <div>
                 <div class="fw-semibold">{{ product.name }}</div>
@@ -132,7 +132,7 @@
               <div class="form-text">Optional. Das Foto wird lokal gespeichert; beim bekannten Barcode wird ein vorhandenes Produktfoto wieder angezeigt.</div>
             </div>
             <div class="col-12 col-md-4">
-              <img id="shopping-photo-preview" alt="Produktfoto-Vorschau" class="img-fluid rounded border" style="max-height:160px" hidden>
+              <img id="shopping-photo-preview" alt="Produktfoto-Vorschau" loading="lazy" decoding="async" class="img-fluid rounded border" style="max-height:160px" hidden>
               <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="shopping-photo-clear" hidden>Foto entfernen</button>
             </div>
             <div class="col-12"><div id="shopping-scan-status" class="alert alert-secondary py-2 mb-2" role="status" aria-live="polite">Noch kein Barcode geprüft.</div><div id="shopping-camera-box" class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-2" hidden><video id="shopping-camera" autoplay playsinline muted></video></div><button id="shopping-camera-stop" type="button" class="btn btn-sm btn-outline-secondary mb-2" hidden>Kamera stoppen</button></div>
@@ -148,7 +148,7 @@
             <div class="d-flex flex-wrap justify-content-between gap-2">
               <div class="d-flex gap-3 flex-grow-1 align-items-start">
                 {% if item.photo_id %}
-                <img src="{{ url_for('shopping.product_photo', photo_id=item.photo_id) }}" alt="" width="72" height="72" loading="lazy" class="rounded border object-fit-cover flex-shrink-0">
+                <img src="{{ url_for('shopping.product_photo', photo_id=item.photo_id) }}" alt="" width="72" height="72" loading="lazy" decoding="async" class="rounded border object-fit-cover flex-shrink-0">
                 {% endif %}
                 <div class="flex-grow-1">
                 <div class="d-flex flex-wrap align-items-center gap-2"><strong class="fs-5">{{ item.name }}</strong><span class="badge text-bg-{{ 'success' if item.status == 'bought' else 'primary' if item.status == 'taken' else 'secondary' }}">{{ status_labels.get(item.status, item.status) }}</span>{% if item.priority %}<span class="badge text-bg-warning">P{{ item.priority }}</span>{% endif %}</div>
