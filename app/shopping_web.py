@@ -203,6 +203,23 @@ def add_item(list_id: str):
     return _back(list_id)
 
 
+@bp.post("/items/<item_id>/quantity")
+@login_required
+def item_quantity(item_id: str):
+    list_id = request.form.get("list_id", "").strip()
+    quantity = request.form.get("quantity", "").strip()
+    unit = request.form.get("unit", "").strip()
+    if not quantity:
+        flash("Bitte eine Anzahl oder Menge angeben.")
+        return _back(list_id)
+    try:
+        _store().update_item(item_id, _actor(), {"quantity": quantity, "unit": unit})
+        flash("Anzahl / Menge aktualisiert.")
+    except ValueError:
+        flash("Anzahl / Menge konnte nicht geändert werden.")
+    return _back(list_id)
+
+
 @bp.post("/items/<item_id>/status")
 @login_required
 def item_status(item_id: str):
