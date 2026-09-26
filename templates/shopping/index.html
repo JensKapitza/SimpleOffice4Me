@@ -80,8 +80,16 @@
             <form method="post" action="{{ url_for('shopping.add_item', list_id=selected.list_id) }}" class="mt-2">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="name" value="{{ product.name }}">
-              <input type="hidden" name="quantity" value="{{ product.quantity }}">
-              <input type="hidden" name="unit" value="{{ product.unit }}">
+              <div class="row g-1 align-items-end mb-2">
+                <div class="col-7">
+                  <label class="form-label small mb-1" for="repeat-quantity-{{ product.product_id }}">Anzahl / Menge</label>
+                  <input class="form-control form-control-sm" id="repeat-quantity-{{ product.product_id }}" name="quantity" value="{{ product.quantity or '1' }}" maxlength="80" inputmode="decimal">
+                </div>
+                <div class="col-5">
+                  <label class="form-label small mb-1" for="repeat-unit-{{ product.product_id }}">Einheit</label>
+                  <input class="form-control form-control-sm" id="repeat-unit-{{ product.product_id }}" name="unit" value="{{ product.unit }}" maxlength="40" placeholder="Stk.">
+                </div>
+              </div>
               <input type="hidden" name="category" value="{{ product.category }}">
               <input type="hidden" name="store" value="{{ product.last_store }}">
               <input type="hidden" name="barcode" value="{{ product.barcode }}">
@@ -89,7 +97,7 @@
               <input type="hidden" name="pack_size" value="{{ product.pack_size }}">
               <input type="hidden" name="price" value="{{ product.last_price }}">
               <input type="hidden" name="photo_id" value="{{ product.photo_id or '' }}">
-              <button class="btn btn-sm btn-outline-primary" type="submit">Noch einmal hinzufügen</button>
+              <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-plus me-1"></i>Nachlegen</button>
             </form>
             {% endif %}
           </div>
@@ -117,7 +125,7 @@
             <input type="hidden" name="request_id" id="shopping-request-id" value="">
             <input type="hidden" name="photo_id" id="shopping-photo-id" value="">
             <div class="col-md-7"><label class="form-label" for="shopping-name">Artikel</label><input id="shopping-name" name="name" class="form-control form-control-lg" maxlength="300" required autocomplete="off" placeholder="Milch"></div>
-            <div class="col-6 col-md-2"><label class="form-label" for="shopping-quantity">Menge</label><input id="shopping-quantity" name="quantity" class="form-control form-control-lg" maxlength="80" inputmode="decimal"></div>
+            <div class="col-6 col-md-2"><label class="form-label" for="shopping-quantity">Anzahl / Menge</label><input id="shopping-quantity" name="quantity" class="form-control form-control-lg" maxlength="80" inputmode="decimal" value="1"></div>
             <div class="col-6 col-md-3"><label class="form-label" for="shopping-unit">Einheit</label><input id="shopping-unit" name="unit" class="form-control form-control-lg" maxlength="40" placeholder="Stk., l, kg"></div>
             <div class="col-md-6"><label class="form-label" for="shopping-store">Laden</label><input id="shopping-store" name="store" class="form-control" maxlength="240" value="{{ selected.default_store }}"></div>
             <div class="col-md-6"><label class="form-label" for="shopping-category">Kategorie</label><input id="shopping-category" name="category" class="form-control" maxlength="120"></div>
@@ -153,6 +161,21 @@
                 <div class="flex-grow-1">
                 <div class="d-flex flex-wrap align-items-center gap-2"><strong class="fs-5">{{ item.name }}</strong><span class="badge text-bg-{{ 'success' if item.status == 'bought' else 'primary' if item.status == 'taken' else 'secondary' }}">{{ status_labels.get(item.status, item.status) }}</span>{% if item.priority %}<span class="badge text-bg-warning">P{{ item.priority }}</span>{% endif %}</div>
                 <div class="small text-secondary mt-1">{% if item.quantity %}{{ item.quantity }} {{ item.unit }}{% endif %}{% if item.store %} · {{ item.store }}{% endif %}{% if item.assigned_to %} · {{ item.assigned_to }}{% endif %}</div>
+                {% if 'edit' in permissions %}
+                <form method="post" action="{{ url_for('shopping.item_quantity', item_id=item.item_id) }}" class="d-flex flex-wrap gap-1 align-items-end mt-2">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="list_id" value="{{ selected.list_id }}">
+                  <div>
+                    <label class="form-label small mb-1" for="item-quantity-{{ item.item_id }}">Anzahl / Menge</label>
+                    <input class="form-control form-control-sm" id="item-quantity-{{ item.item_id }}" name="quantity" value="{{ item.quantity or '1' }}" maxlength="80" inputmode="decimal" style="width:7rem">
+                  </div>
+                  <div>
+                    <label class="form-label small mb-1" for="item-unit-{{ item.item_id }}">Einheit</label>
+                    <input class="form-control form-control-sm" id="item-unit-{{ item.item_id }}" name="unit" value="{{ item.unit }}" maxlength="40" placeholder="Stk." style="width:6rem">
+                  </div>
+                  <button class="btn btn-sm btn-outline-primary" type="submit">Ändern</button>
+                </form>
+                {% endif %}
                 {% if item.note %}<div class="mt-1">{{ item.note }}</div>{% endif %}
                 {% if item.barcode %}<div class="small font-monospace mt-1">Barcode {{ item.barcode }}</div>{% endif %}
                 </div>
