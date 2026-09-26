@@ -21,6 +21,10 @@
   const video = document.getElementById('shopping-camera');
   const cameraBox = document.getElementById('shopping-camera-box');
   const status = document.getElementById('shopping-scan-status');
+  const photoInput = document.getElementById('shopping-product-photo');
+  const photoId = document.getElementById('shopping-photo-id');
+  const photoPreview = document.getElementById('shopping-photo-preview');
+  const photoClear = document.getElementById('shopping-photo-clear');
   let stream = null;
   let scanning = false;
   let detector = null;
@@ -30,6 +34,21 @@
     if (!status) return;
     status.className = `alert alert-${kind} py-2 mb-2`;
     status.textContent = message;
+  };
+
+  const showPhoto = (url = '', id = '') => {
+    if (!photoPreview || !photoClear) return;
+    if (!url) {
+      photoPreview.removeAttribute('src');
+      photoPreview.hidden = true;
+      photoClear.hidden = true;
+      if (photoId) photoId.value = '';
+      return;
+    }
+    photoPreview.src = url;
+    photoPreview.hidden = false;
+    photoClear.hidden = false;
+    if (photoId) photoId.value = id || '';
   };
 
   const stopCamera = () => {
@@ -44,6 +63,7 @@
 
   const applyKnown = (payload) => {
     if (!payload?.known || !payload.item) {
+      if (!photoInput?.files?.length) showPhoto();
       setStatus('Barcode ist gültig, aber lokal noch unbekannt. Bitte Bezeichnung eintragen.', 'info');
       name?.focus();
       return;
@@ -57,6 +77,10 @@
     if (brand && !brand.value.trim()) brand.value = item.brand || '';
     if (packSize && !packSize.value.trim()) packSize.value = item.pack_size || '';
     if (price && !price.value.trim()) price.value = item.price || '';
+    if (!photoInput?.files?.length) {
+      if (item.photo_url) showPhoto(item.photo_url, item.photo_id || '');
+      else showPhoto();
+    }
     setStatus(`Lokal erkannt: ${item.name || payload.barcode}. Bitte kurz prüfen.`, 'success');
   };
 
@@ -176,7 +200,9 @@
   const currentEntry = () => {
     if (!form) return null;
     ensureRequestId();
-    const fields = Object.fromEntries(new FormData(form).entries());
+    const formData = new FormData(form);
+    formData.delete('product_photo');
+    const fields = Object.fromEntries(formData.entries());
     delete fields._csrf_token;
     return {action: form.action, fields};
   };
@@ -210,6 +236,7 @@
     if (!form) return;
     form.reset();
     if (requestId) requestId.value = freshRequestId();
+    showPhoto();
     name?.focus();
   };
 
@@ -241,6 +268,14 @@
   if (form) {
     ensureRequestId();
     form.addEventListener('submit', async (event) => {
+      const hasNewPhoto = Boolean(photoInput?.files?.length);
+      if (hasNewPhoto) {
+        if (navigator.onLine === false) {
+          event.preventDefault();
+          setStatus('Das Produktfoto kann offline nicht sicher vorgemerkt werden. Bitte mit Verbindung senden oder das Foto entfernen.', 'warning');
+        }
+        return;
+      }
       const entry = currentEntry();
       if (!entry) return;
       event.preventDefault();
@@ -273,6 +308,27 @@
     if (navigator.onLine !== false) window.setTimeout(flushQueue, 0);
   }
 
+  photoInput?.addEventListener('change', () => {
+    const file = photoInput.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      photoInput.value = '';
+      showPhoto();
+      setStatus('Produktfoto ist größer als 8 MiB.', 'warning');
+      return;
+    }
+    if (photoId) photoId.value = '';
+    if (photoPreview) {
+      photoPreview.removeAttribute('src');
+      photoPreview.hidden = true;
+    }
+    if (photoClear) photoClear.hidden = false;
+    setStatus(`Produktfoto ausgewählt: ${file.name}. Es wird beim Hinzufügen lokal gespeichert.`, 'info');
+  });
+  photoClear?.addEventListener('click', () => {
+    if (photoInput) photoInput.value = '';
+    showPhoto();
+  });
   scanButton?.addEventListener('click', startCamera);
   checkButton?.addEventListener('click', lookup);
   stopButton?.addEventListener('click', stopCamera);
