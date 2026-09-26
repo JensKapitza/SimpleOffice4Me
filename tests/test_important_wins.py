@@ -103,9 +103,11 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn('android:value="barcode_ui"', manifest)
         self.assertIn('GmsBarcodeScanning.getClient(this)', activity)
         self.assertIn('startBarcodeScan(String token)', activity)
-        self.assertIn("event.target.closest('#start-barcode')", activity)
-        self.assertIn("if(!trigger||('BarcodeDetector' in window))return", activity)
-        self.assertIn("document.getElementById('barcode')", activity)
+        self.assertIn("event.target.closest('#start-barcode,#shopping-barcode-scan')", activity)
+        self.assertIn("if(!shopping&&('BarcodeDetector' in window))return", activity)
+        self.assertIn("document.getElementById('shopping-barcode')", activity)
+        self.assertIn("document.getElementById(shopping?'shopping-scan-status':'scan-status')", activity)
+        self.assertIn("shopping||document.getElementById('barcode')", activity)
         self.assertIn("document.getElementById('lookup-book')", activity)
 
     def test_android_has_native_audio_streaming(self):
