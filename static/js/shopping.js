@@ -25,7 +25,6 @@
   const photoId = document.getElementById('shopping-photo-id');
   const photoPreview = document.getElementById('shopping-photo-preview');
   const photoClear = document.getElementById('shopping-photo-clear');
-  let photoObjectUrl = '';
   let stream = null;
   let scanning = false;
   let detector = null;
@@ -37,16 +36,8 @@
     status.textContent = message;
   };
 
-  const revokePhotoObjectUrl = () => {
-    if (photoObjectUrl) {
-      URL.revokeObjectURL(photoObjectUrl);
-      photoObjectUrl = '';
-    }
-  };
-
   const showPhoto = (url = '', id = '') => {
     if (!photoPreview || !photoClear) return;
-    revokePhotoObjectUrl();
     if (!url) {
       photoPreview.removeAttribute('src');
       photoPreview.hidden = true;
@@ -326,14 +317,13 @@
       setStatus('Produktfoto ist größer als 8 MiB.', 'warning');
       return;
     }
-    revokePhotoObjectUrl();
-    photoObjectUrl = URL.createObjectURL(file);
     if (photoId) photoId.value = '';
     if (photoPreview) {
-      photoPreview.src = photoObjectUrl;
-      photoPreview.hidden = false;
+      photoPreview.removeAttribute('src');
+      photoPreview.hidden = true;
     }
     if (photoClear) photoClear.hidden = false;
+    setStatus(`Produktfoto ausgewählt: ${file.name}. Es wird beim Hinzufügen lokal gespeichert.`, 'info');
   });
   photoClear?.addEventListener('click', () => {
     if (photoInput) photoInput.value = '';
@@ -343,8 +333,5 @@
   checkButton?.addEventListener('click', lookup);
   stopButton?.addEventListener('click', stopCamera);
   barcode?.addEventListener('change', () => { if (barcode.value.trim()) lookup(); });
-  window.addEventListener('pagehide', () => {
-    stopCamera();
-    revokePhotoObjectUrl();
-  });
+  window.addEventListener('pagehide', stopCamera);
 })();
