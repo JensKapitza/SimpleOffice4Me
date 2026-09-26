@@ -14,7 +14,7 @@ def ensure_google_drive_schema() -> None:
             root_folder_name TEXT NOT NULL DEFAULT 'SimpleOffice4Me',
             page_token TEXT,
             direction TEXT NOT NULL DEFAULT 'bidirectional',
-            enabled INTEGER NOT NULL DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 0,
             last_sync_at TEXT,
             last_error TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
