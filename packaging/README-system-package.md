@@ -112,8 +112,13 @@ sudo systemctl restart simpleoffice4me
 
 ## Abhaengigkeiten und Daten
 
-Als Basisabhaengigkeiten werden Python >= 3.10, `python3-venv`, `git` und `ca-certificates` eingetragen. Beim **Server-Paket** werden zusaetzlich Poppler, Tesseract OCR (Deutsch/Englisch), ImageMagick, Ghostscript, Java, FFmpeg, Coturn, ClamAV, LibreOffice, CUPS-Client, iproute2 und nftables als echte `Depends` eingetragen. Damit installiert `apt` den vollstaendigen Server-Funktionssatz automatisch. Beim Client bleiben diese Werkzeuge `Recommends`.
+Als Basisabhaengigkeiten werden Python >= 3.10, `python3-venv`, `git` und `ca-certificates` eingetragen. Beim **Server-Paket** werden zusaetzlich Poppler, Tesseract OCR (Deutsch/Englisch), ImageMagick, Ghostscript, Java, FFmpeg, Coturn, ClamAV samt Daemon, LibreOffice, CUPS-Client, rsync/OpenSSH-Client, iproute2 und nftables als echte `Depends` eingetragen. Damit installiert `apt` den vollstaendigen Server-Funktionssatz automatisch. Beim Client bleiben diese Werkzeuge `Recommends`.
 
 Das Server-Paket baut außerdem die Python-Extras `ocr`, `sftp`, `banking` und `erasure` samt Abhaengigkeiten in das Offline-Wheelhouse ein. `postinst.sh` installiert diese Extras ohne Internetzugriff aus dem Paket.
 
 Programmdateien liegen unter `/opt`, Benutzerdaten und Instanzkonfiguration unter `/var/lib/simpleoffice4me`. Paketupdates ueberschreiben keine Dokumente oder Instanzdaten. Auch `apt purge` loescht `/var/lib/simpleoffice4me` absichtlich nicht automatisch.
+
+
+## Reproduzierbares Server-Artefakt
+
+Der GitHub-Workflow `Server DEB build` baut das Serverpaket gezielt in Debian 12. Dadurch werden native Offline-Wheels gegen die Python-/glibc-Basis des Zielsystems gebaut. Das Paket bindet die Python-Minor-Serie an die beim Build verwendete Version, damit ein Offline-Wheelhouse nicht versehentlich mit einer inkompatiblen Python-ABI installiert wird. Der Workflow prueft danach die Debian-Abhaengigkeitsaufloesung und installiert die Python-Extras testweise komplett offline aus dem erzeugten Paket.
