@@ -86,7 +86,7 @@
         <div class="col-lg-4"><div class="border rounded p-3 h-100"><h2 class="h5">Bild</h2><form method="post" action="{{ url_for('library.printer_print', kind='image') }}" enctype="multipart/form-data" data-preview-url="{{ url_for('library.printer_preview', kind='image') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label class="form-label" for="label-image">Bild auswählen</label><input required class="form-control mb-2" id="label-image" name="image" type="file" accept="image/png,image/jpeg,image/webp"><div class="d-flex gap-2"><button class="btn btn-primary flex-grow-1" type="submit">Bild drucken</button><button class="btn btn-outline-secondary preview-label" type="button">Vorschau</button></div></form></div></div>
       </div>
       <div class="d-flex flex-wrap gap-2 mt-3"><form method="post" action="{{ url_for('library.printer_cut') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit"><i class="fas fa-scissors me-1" aria-hidden="true"></i>Vorschub + abschneiden</button></form></div>
-      <div id="label-preview-wrap" class="mt-3" hidden><div class="small text-secondary mb-1">Vorschau</div><img id="label-preview" alt="Etikettenvorschau" class="img-fluid border rounded bg-white" style="max-height:280px" loading="lazy" decoding="async"></div>
+      <div id="label-preview-wrap" class="mt-3" hidden><div class="small text-secondary mb-1">Vorschau</div><img id="label-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="Etikettenvorschau" class="img-fluid border rounded bg-white" style="max-height:280px" loading="lazy" decoding="async"></div>
     </div>
   </section>
 
@@ -95,7 +95,7 @@
     <div class="col-lg-4"><div class="card shadow-sm h-100"><div class="card-header"><strong>Letzte Bibliotheksaktionen</strong></div><div class="list-group list-group-flush">{% for event in events %}<div class="list-group-item"><div class="small"><strong>{{ event.kind }}</strong> · {{ event.actor }}</div><div class="small text-secondary">{{ event.at }}</div><div class="small text-break">{{ event.detail }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Aktionen.</div>{% endfor %}</div></div></div>
   </section>
 
-  <div class="modal fade" id="scanner-modal" tabindex="-1" aria-labelledby="scanner-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="scanner-title">Barcode scannen</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body"><div class="ratio ratio-4x3 bg-dark rounded overflow-hidden"><video id="library-camera" autoplay playsinline muted></video></div><div id="scanner-status" class="small text-secondary mt-2" aria-live="polite">Kamera wird gestartet…</div></div></div></div></div>
+  <div class="modal fade" id="scanner-modal" tabindex="-1" role="dialog" aria-labelledby="scanner-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="scanner-title">Barcode scannen</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body"><div class="ratio ratio-4x3 bg-dark rounded overflow-hidden"><video id="library-camera" autoplay playsinline muted></video></div><div id="scanner-status" class="small text-secondary mt-2" aria-live="polite">Kamera wird gestartet…</div></div></div></div></div>
 </main>
 <script src="{{ url_for('static', filename='js/library_safe_dom.js') }}"></script>
 <script>
@@ -159,17 +159,21 @@
 
   let stream = null, scanTimer = null, scanTarget = null;
   const modalElement = document.getElementById('scanner-modal');
-  const modal = modalElement ? new bootstrap.Modal(modalElement) : null;
+  let modal = null;
+  const getModal = () => {
+    if (!modal && modalElement && window.bootstrap?.Modal) modal = new window.bootstrap.Modal(modalElement);
+    return modal;
+  };
   const stopCamera = () => { if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; };
   modalElement?.addEventListener('hidden.bs.modal', stopCamera);
   document.querySelectorAll('[data-scan-target]').forEach(button => button.addEventListener('click', async () => {
     scanTarget = document.getElementById(button.dataset.scanTarget); if (!scanTarget) return;
-    modal?.show(); const status = document.getElementById('scanner-status');
+    getModal()?.show(); const status = document.getElementById('scanner-status');
     if (!('BarcodeDetector' in window)) { status.textContent = 'Dieser Browser unterstützt BarcodeDetector nicht. Externen Scanner oder manuelle Eingabe verwenden.'; return; }
     try {
       stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false}); document.getElementById('library-camera').srcObject = stream;
       const detector = new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code']}); status.textContent = 'Barcode vor die Kamera halten.';
-      scanTimer = setInterval(async () => { try { const found = await detector.detect(document.getElementById('library-camera')); if (!found.length) return; scanTarget.value = found[0].rawValue || ''; stopCamera(); modal?.hide(); scanTarget.dispatchEvent(new Event('change')); if (scanTarget.id === 'bulk-book-code') assignBook(); if (scanTarget.id === 'library-find') findForm.requestSubmit(); } catch (_) {} }, 350);
+      scanTimer = setInterval(async () => { try { const found = await detector.detect(document.getElementById('library-camera')); if (!found.length) return; scanTarget.value = found[0].rawValue || ''; stopCamera(); getModal()?.hide(); scanTarget.dispatchEvent(new Event('change')); if (scanTarget.id === 'bulk-book-code') assignBook(); if (scanTarget.id === 'library-find') findForm.requestSubmit(); } catch (_) {} }, 350);
     } catch (error) { status.textContent = 'Kamera konnte nicht geöffnet werden: ' + error; }
   }));
 
