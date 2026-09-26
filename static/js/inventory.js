@@ -37,7 +37,7 @@
 
   const fieldMap = {
     title: 'title', authors: 'authors', publisher: 'publisher', published_date: 'published-date',
-    page_count: 'page-count', language: 'language', categories: 'categories', description: 'description',
+    page_count: 'page-count', language: 'book-language', categories: 'categories', description: 'description',
     market_price: 'market-price', currency: 'currency', price_source: 'price-source',
     metadata_source: 'metadata-source', metadata_checked_at: 'metadata-checked-at',
   };
