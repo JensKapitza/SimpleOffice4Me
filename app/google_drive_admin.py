@@ -213,16 +213,7 @@ def connect():
         flash("Google OAuth ist noch nicht konfiguriert.", "warning")
         return redirect(url_for("google_drive_admin.index"))
     state = secrets.token_urlsafe(32)
-    scopes = " ".join(
-        (
-            "openid",
-            "email",
-            "profile",
-            "https://www.googleapis.com/auth/contacts.readonly",
-            "https://www.googleapis.com/auth/calendar.readonly",
-            GOOGLE_DRIVE_SCOPE,
-        )
-    )
+    scopes = GOOGLE_DRIVE_SCOPE
     session["google_oauth_state"] = state
     session["google_drive_oauth_pending"] = 1
     session["google_drive_requested_scopes"] = scopes
