@@ -15,7 +15,10 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
     def test_apk_version_comes_from_project_metadata(self):
         gradle = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
         project = Path("pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn("version = \"2.0.0\"", project)
+        self.assertRegex(
+            project,
+            r'(?ms)^\[project\].*?^version\s*=\s*["\x27]\d+\.\d+\.\d+["\x27]',
+        )
         self.assertIn("file('../../../pyproject.toml')", gradle)
         self.assertIn("versionCode appVersionCode", gradle)
         self.assertIn("versionName appVersionName", gradle)
