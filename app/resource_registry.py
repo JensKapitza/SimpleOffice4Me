@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .federation_store import FederationStore
+from .federation_trust_store import FederationTrustStore
 from .resource_federation import FederationResourceProvider
 from .resource_local import LocalResourceProvider
 from .resource_mail import MailResourceProvider
@@ -19,6 +20,7 @@ class ResourceRegistry:
         self.master_key = master_key
         self.actor = actor
         self._federation = FederationStore(self.root)
+        self._trust = FederationTrustStore(self.root)
 
     @staticmethod
     def _document_policy(peer: dict) -> dict:
@@ -52,18 +54,30 @@ class ResourceRegistry:
             server_side_copy=can_write,
         )
 
+    def _federation_descriptor(self, peer: dict) -> dict:
+        trust = self._trust.get_trust(peer["peer_id"]) or {}
+        return {
+            "provider_id": f"federation:{peer['peer_id']}",
+            "label": peer.get("label") or peer["peer_id"],
+            "kind": "federation",
+            "capabilities": self._federation_capabilities(peer).to_dict(),
+            "federation": {
+                "peer_id": peer["peer_id"],
+                "verification_state": trust.get("verification_state") or "KNOWN_UNVERIFIED",
+                "trust_level": trust.get("trust_level") or "NONE",
+                "propagation": trust.get("propagation") or "DIRECT_ONLY",
+                "max_hops": int(trust.get("max_hops") or 0),
+                "last_seen_at": peer.get("last_seen_at"),
+                "has_error": bool(peer.get("last_error")),
+            },
+        }
+
     def descriptors(self) -> list[dict]:
         providers = [self.get("self"), self.get("mail")]
         result = [self._descriptor(provider) for provider in providers]
         for peer in self._federation.list_peers():
-            if not peer.get("enabled"):
-                continue
-            result.append({
-                "provider_id": f"federation:{peer['peer_id']}",
-                "label": peer.get("label") or peer["peer_id"],
-                "kind": "federation",
-                "capabilities": self._federation_capabilities(peer).to_dict(),
-            })
+            if peer.get("enabled"):
+                result.append(self._federation_descriptor(peer))
         return result
 
     def _descriptor(self, provider) -> dict:
