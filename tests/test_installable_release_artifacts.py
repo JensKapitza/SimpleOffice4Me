@@ -45,6 +45,9 @@ class InstallableArtifactWorkflowTests(unittest.TestCase):
         self.assertIn("simpleoffice4me-server-deb-installable", text)
         self.assertIn("SimpleOffice4Me-Server-", text)
         self.assertIn("dpkg-deb -f", text)
+        self.assertIn("debian:12-slim", text)
+        self.assertIn("Test offline Python payload on Debian 12", text)
+        self.assertIn("apt-get -s install", text)
         self.assertIn("sha256sum", text)
 
     def test_server_deb_declares_complete_system_dependencies(self):
@@ -60,8 +63,11 @@ class InstallableArtifactWorkflowTests(unittest.TestCase):
             "ffmpeg",
             "coturn",
             "clamav",
+            "clamav-daemon",
             "libreoffice",
             "cups-client",
+            "rsync",
+            "openssh-client",
             "iproute2",
             "nftables",
         ]
@@ -70,6 +76,8 @@ class InstallableArtifactWorkflowTests(unittest.TestCase):
                 self.assertIn(dependency, text)
         self.assertIn('if [ "$BUILD_ROLE" = "server" ]', text)
         self.assertIn('FPM_DEPENDENCY_ARGS+=(--depends "$dependency")', text)
+        self.assertIn('--depends "python3 (>= $PYTHON_SERIES)"', text)
+        self.assertIn('--depends "python3 (<< $PYTHON_NEXT_SERIES)"', text)
 
     def test_server_deb_bundles_and_installs_python_feature_extras(self):
         build = (ROOT / "packaging" / "build-fpm.sh").read_text(encoding="utf-8")
