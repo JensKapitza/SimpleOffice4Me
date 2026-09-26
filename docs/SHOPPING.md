@@ -23,6 +23,19 @@ Gespeichert werden insbesondere:
 - letzter angegebener Preis
 - Kaufzähler und letzter Kaufzeitpunkt
 - Favoritenstatus
+- optionales Produktfoto, lokal als Bilddatei gespeichert
+
+Produktfotos werden nicht in die Shopping-JSON-Datei eingebettet. SimpleOffice speichert
+nur eine lokale Foto-ID; die Bilddatei liegt getrennt im geschützten
+`.simpleoffice-meta/shopping-photos/`-Bereich. Uploads werden auf maximal 8 MiB
+begrenzt, mit Pillow als Bild validiert, auf höchstens 1600 Pixel Kantenlänge
+normalisiert und als JPEG neu geschrieben. Dabei werden EXIF-/GPS-Metadaten nicht
+übernommen.
+
+Beim Barcode-Lookup wird ein bereits bekanntes lokales Produktfoto wieder angezeigt.
+Für unbekannte Produkte kann direkt am Handy ein Foto aufgenommen oder ein vorhandenes
+Bild ausgewählt werden. Ein externer Produktbild- oder Barcode-Dienst ist dafür nicht
+erforderlich.
 
 Eine Änderung des Produktgedächtnisses verändert vorhandene Listeneinträge nicht.
 Barcode-Lookups verwenden zuerst das private Produktgedächtnis und danach nur
