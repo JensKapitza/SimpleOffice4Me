@@ -181,8 +181,9 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('minSdk 24', gradle)
         self.assertIn("'arm64-v8a': '3.13'", gradle)
         self.assertIn("'armeabi-v7a': '3.11'", gradle)
-        self.assertRegex(gradle, r"versionCode\s+8\b")
-        self.assertIn("versionName '1.0.7'", gradle)
+        self.assertIn("file('../../../pyproject.toml')", gradle)
+        self.assertIn("versionCode appVersionCode", gradle)
+        self.assertIn("versionName appVersionName", gradle)
 
     def test_android_integration_is_documented(self):
         docs = self.read(ROOT / "docs" / "ANDROID_INTEGRATION.md")
