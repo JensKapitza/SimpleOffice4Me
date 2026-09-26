@@ -39,13 +39,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install package build dependencies
+      - name: Build complete server DEB on Debian 12
         shell: bash
-        run: bash ./build-dep.sh
-
-      - name: Build complete server DEB
-        shell: bash
-        run: bash packaging/build-server.sh
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e SIMPLEOFFICE_SERVER_PUBLIC_URL \
+            -e SIMPLEOFFICE_SERVER_PEER_ID \
+            debian:12-slim bash -s <<'INNER'
+          set -euo pipefail
+          bash ./build-dep.sh
+          bash packaging/build-server.sh
+          INNER
 
       - name: Verify server package metadata and dependencies
         shell: bash
@@ -74,11 +81,13 @@ jobs:
           esac
 
           DEPENDS="$(dpkg-deb -f "$DEB" Depends)"
+          printf '%s\n' "$DEPENDS" | grep -F 'python3 (>= 3.11)' >/dev/null
+          printf '%s\n' "$DEPENDS" | grep -F 'python3 (<< 3.12)' >/dev/null
           for dependency in \
             python3 python3-venv ca-certificates \
             poppler-utils tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng \
-            imagemagick ghostscript default-jre-headless ffmpeg coturn clamav \
-            libreoffice cups-client iproute2 nftables
+            imagemagick ghostscript default-jre-headless ffmpeg coturn clamav clamav-daemon \
+            libreoffice cups-client rsync openssh-client iproute2 nftables
           do
             printf '%s\n' "$DEPENDS" | grep -F "$dependency" >/dev/null || {
               echo "Required server dependency missing from DEB metadata: $dependency" >&2
@@ -93,9 +102,54 @@ jobs:
 
           ARCH="$(dpkg-deb -f "$DEB" Architecture)"
           mkdir -p artifacts/server
-          OUTPUT="artifacts/server/SimpleOffice4Me-Server-${PROJECT_VERSION}-${ARCH}.deb"
+          OUTPUT="artifacts/server/SimpleOffice4Me-Server-${PROJECT_VERSION}-Debian12-${ARCH}.deb"
           cp "$DEB" "$OUTPUT"
           sha256sum "$OUTPUT" > "$OUTPUT.sha256"
+
+      - name: Verify Debian 12 dependency resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/artifacts/server:/pkg:ro" \
+            debian:12-slim bash -s <<'INNER'
+          set -euo pipefail
+          apt-get update
+          DEB="$(find /pkg -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$DEB"
+          apt-get -s install "$DEB"
+          INNER
+
+      - name: Test offline Python payload on Debian 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/artifacts/server:/pkg:ro" \
+            debian:12-slim bash -s <<'INNER'
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends python3 python3-venv ca-certificates
+          DEB="$(find /pkg -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$DEB"
+          mkdir -p /tmp/root
+          dpkg-deb -x "$DEB" /tmp/root
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/python -m pip install \
+            --no-index \
+            --find-links /tmp/root/opt/simpleoffice4me/wheelhouse \
+            "simpleoffice4me[ocr,sftp,banking,erasure]"
+          /tmp/venv/bin/python - <<'PY'
+          import importlib.metadata
+          import fints
+          import onnxruntime
+          import paramiko
+          import rapidocr
+          import zfec
+          print(importlib.metadata.version("simpleoffice4me"))
+          print("offline payload ok")
+          PY
+          INNER
 
       - name: Upload server DEB
         uses: actions/upload-artifact@v7
