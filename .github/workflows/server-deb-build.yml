@@ -1,0 +1,164 @@
+name: Server DEB build
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_public_url:
+        description: 'Public HTTPS base URL embedded as license-master identity'
+        required: true
+        type: string
+      server_peer_id:
+        description: 'Stable federation/license-master peer ID'
+        required: false
+        default: 'license-master'
+        type: string
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'packaging/**'
+      - 'templates/**'
+      - 'static/**'
+      - 'tools/**'
+      - 'simpleoffice_*.py'
+      - 'pyproject.toml'
+      - 'build-dep.sh'
+      - '.github/workflows/server-deb-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  server-deb:
+    runs-on: ubuntu-latest
+    env:
+      SIMPLEOFFICE_SERVER_PUBLIC_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.server_public_url || 'https://ci.simpleoffice4me.invalid' }}
+      SIMPLEOFFICE_SERVER_PEER_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.server_peer_id || 'license-master-ci' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build complete server DEB on Debian 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -i \
+            -v "$PWD:/work" \
+            -w /work \
+            -e SIMPLEOFFICE_SERVER_PUBLIC_URL \
+            -e SIMPLEOFFICE_SERVER_PEER_ID \
+            debian:12-slim bash -s <<'INNER'
+          set -euo pipefail
+          bash ./build-dep.sh
+          bash packaging/build-server.sh
+          INNER
+
+      - name: Verify server package metadata and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          DEBS=(dist/packages/simpleoffice4me-server_*.deb)
+          if [ "${#DEBS[@]}" -ne 1 ]; then
+            printf 'Expected exactly one server DEB, found %s\n' "${#DEBS[@]}" >&2
+            exit 1
+          fi
+          DEB="${DEBS[0]}"
+          PROJECT_VERSION="$(python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+          print(tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])
+          PY
+          )"
+          test "$(dpkg-deb -f "$DEB" Package)" = "simpleoffice4me-server"
+          case "$(dpkg-deb -f "$DEB" Version)" in
+            "$PROJECT_VERSION"-*) ;;
+            *)
+              echo "DEB version does not match project version $PROJECT_VERSION" >&2
+              exit 1
+              ;;
+          esac
+
+          DEPENDS="$(dpkg-deb -f "$DEB" Depends)"
+          printf '%s\n' "$DEPENDS" | grep -F 'python3 (>= 3.11)' >/dev/null
+          printf '%s\n' "$DEPENDS" | grep -F 'python3 (<< 3.12)' >/dev/null
+          for dependency in \
+            python3 python3-venv ca-certificates \
+            poppler-utils tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng \
+            imagemagick ghostscript default-jre-headless ffmpeg coturn clamav clamav-daemon \
+            libreoffice cups-client rsync openssh-client iproute2 nftables
+          do
+            printf '%s\n' "$DEPENDS" | grep -F "$dependency" >/dev/null || {
+              echo "Required server dependency missing from DEB metadata: $dependency" >&2
+              exit 1
+            }
+          done
+
+          dpkg-deb -c "$DEB" | grep -F './opt/simpleoffice4me/.install-extras'
+          dpkg-deb -c "$DEB" | grep -F './lib/systemd/system/simpleoffice4me.service'
+          dpkg-deb -c "$DEB" | grep -F './lib/systemd/system/simpleoffice-mini-services.service'
+          dpkg-deb -c "$DEB" | grep -F './lib/systemd/system/simpleoffice-firewall-agent.socket'
+
+          ARCH="$(dpkg-deb -f "$DEB" Architecture)"
+          mkdir -p artifacts/server
+          OUTPUT="artifacts/server/SimpleOffice4Me-Server-${PROJECT_VERSION}-Debian12-${ARCH}.deb"
+          cp "$DEB" "$OUTPUT"
+          sha256sum "$OUTPUT" > "$OUTPUT.sha256"
+
+      - name: Verify Debian 12 dependency resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -i \
+            -v "$PWD/artifacts/server:/pkg:ro" \
+            debian:12-slim bash -s <<'INNER'
+          set -euo pipefail
+          apt-get update
+          DEB="$(find /pkg -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$DEB"
+          apt-get -s install "$DEB"
+          INNER
+
+      - name: Test offline Python payload on Debian 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -i \
+            -v "$PWD/artifacts/server:/pkg:ro" \
+            debian:12-slim bash -s <<'INNER'
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends python3 python3-venv ca-certificates
+          DEB="$(find /pkg -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$DEB"
+          mkdir -p /tmp/root
+          dpkg-deb -x "$DEB" /tmp/root
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/python -m pip install \
+            --no-index \
+            --find-links /tmp/root/opt/simpleoffice4me/wheelhouse \
+            "simpleoffice4me[ocr,sftp,banking,erasure]"
+          /tmp/venv/bin/python - <<'PY'
+          import importlib.metadata
+          import fints
+          import onnxruntime
+          import paramiko
+          import rapidocr
+          import zfec
+          print(importlib.metadata.version("simpleoffice4me"))
+          print("offline payload ok")
+          PY
+          INNER
+
+      - name: Upload server DEB
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ github.event_name == 'workflow_dispatch' && 'simpleoffice4me-server-deb-installable' || 'simpleoffice4me-server-deb-ci' }}
+          path: artifacts/server/*
+          if-no-files-found: error
+          retention-days: 14

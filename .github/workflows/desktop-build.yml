@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   # Public endpoint only; never expose the GitHub token to desktop packages.
@@ -47,6 +51,9 @@ jobs:
       - name: Install Electron dependencies
         working-directory: desktop/electron
         run: npm install --no-audit --no-fund
+      - name: Synchronize desktop version
+        working-directory: desktop/electron
+        run: npm run sync:version
       - name: Embed public error relay configuration
         shell: bash
         run: |
@@ -68,6 +75,47 @@ jobs:
       - name: Package Electron app
         working-directory: desktop/electron
         run: npx electron-builder --publish never
+      - name: Prepare installable Linux AppImage
+        if: matrix.artifact == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_VERSION="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          print(tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])
+          PY
+          )"
+          mapfile -t APPIMAGES < <(find desktop/electron/dist -maxdepth 1 -type f -name '*.AppImage' -print)
+          if [ "${#APPIMAGES[@]}" -ne 1 ]; then
+            printf 'Expected exactly one AppImage, found %s\n' "${#APPIMAGES[@]}" >&2
+            printf '%s\n' "${APPIMAGES[@]:-}" >&2
+            exit 1
+          fi
+          APPIMAGE="${APPIMAGES[0]}"
+          case "$(basename "$APPIMAGE")" in
+            *"$PROJECT_VERSION"*) ;;
+            *)
+              echo "AppImage filename does not contain project version $PROJECT_VERSION: $APPIMAGE" >&2
+              exit 1
+              ;;
+          esac
+          chmod +x "$APPIMAGE"
+          file "$APPIMAGE" | grep -E 'ELF 64-bit.*x86-64'
+          "$APPIMAGE" --appimage-version
+          mkdir -p artifacts/linux
+          OUTPUT="artifacts/linux/SimpleOffice4Me-Linux-x86_64.AppImage"
+          cp "$APPIMAGE" "$OUTPUT"
+          chmod +x "$OUTPUT"
+          sha256sum "$OUTPUT" > "$OUTPUT.sha256"
+      - name: Upload installable Linux AppImage
+        if: matrix.artifact == 'linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: simpleoffice4me-linux-appimage-installable
+          path: artifacts/linux/*
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@v7
         with:
           name: simpleoffice4me-desktop-${{ matrix.artifact }}

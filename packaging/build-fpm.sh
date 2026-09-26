@@ -33,6 +33,16 @@ PY
 )}"
 ITERATION="${SIMPLEOFFICE_PACKAGE_ITERATION:-1}"
 ARCH="${SIMPLEOFFICE_PACKAGE_ARCH:-$(dpkg --print-architecture 2>/dev/null || printf 'all')}"
+PYTHON_SERIES="$(python3 - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+PYTHON_NEXT_SERIES="$(python3 - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor + 1}")
+PY
+)"
 OUT_DIR="${SIMPLEOFFICE_PACKAGE_OUT:-$ROOT/dist/packages}"
 WORK_DIR="${SIMPLEOFFICE_PACKAGE_WORK:-$ROOT/build/fpm-${BUILD_ROLE}}"
 STAGE="$WORK_DIR/root"
@@ -41,12 +51,18 @@ WHEELHOUSE="$APP_DIR/wheelhouse"
 LICENSE_MASTER_URL="${SIMPLEOFFICE_BUILD_LICENSE_MASTER_URL:-}"
 LICENSE_MASTER_PEER_ID="${SIMPLEOFFICE_BUILD_LICENSE_MASTER_PEER_ID:-license-master}"
 LICENSE_MASTER_MODE="${SIMPLEOFFICE_BUILD_LICENSE_MASTER_MODE:-0}"
+PYTHON_EXTRAS=""
+WHEEL_TARGET="$ROOT"
 
 if [ "$BUILD_ROLE" = "server" ]; then
   case "${LICENSE_MASTER_MODE,,}" in
     1|true|yes|on) ;;
     *) echo "Server-Build muss als Lizenz-Master gebaut werden." >&2; exit 2 ;;
   esac
+  # The server package is intended to be the complete installation artifact.
+  # Bundle all supported Python feature dependencies into its offline wheelhouse.
+  PYTHON_EXTRAS="ocr,sftp,banking,erasure"
+  WHEEL_TARGET="$ROOT[$PYTHON_EXTRAS]"
 else
   case "${LICENSE_MASTER_MODE,,}" in
     0|false|no|off) ;;
@@ -127,7 +143,11 @@ PY
 python3 -m pip wheel \
   --wheel-dir "$WHEELHOUSE" \
   --disable-pip-version-check \
-  "$ROOT"
+  "$WHEEL_TARGET"
+
+if [ -n "$PYTHON_EXTRAS" ]; then
+  printf '%s\n' "$PYTHON_EXTRAS" > "$APP_DIR/.install-extras"
+fi
 
 install -D -m 0755 "$ROOT/packaging/simpleoffice4me-wrapper.sh" "$STAGE/usr/bin/simpleoffice4me"
 install -D -m 0644 "$ROOT/packaging/simpleoffice4me.service" "$STAGE/lib/systemd/system/simpleoffice4me.service"
@@ -139,6 +159,47 @@ install -D -m 0644 "$ROOT/packaging/README-system-package.md" "$STAGE/usr/share/
 
 rm -rf "$APP_DIR/instance"
 
+FPM_DEPENDENCY_ARGS=(
+  --depends "python3 (>= $PYTHON_SERIES)"
+  --depends "python3 (<< $PYTHON_NEXT_SERIES)"
+  --depends "python3-venv"
+  --depends "git"
+  --depends "ca-certificates"
+)
+FPM_RECOMMEND_ARGS=()
+
+FUNCTION_PACKAGES=(
+  poppler-utils
+  tesseract-ocr
+  tesseract-ocr-deu
+  tesseract-ocr-eng
+  imagemagick
+  ghostscript
+  default-jre-headless
+  ffmpeg
+  coturn
+  clamav
+  clamav-daemon
+  libreoffice
+  cups-client
+  rsync
+  openssh-client
+  iproute2
+  nftables
+)
+
+if [ "$BUILD_ROLE" = "server" ]; then
+  # A server .deb must install into a complete, usable host without requiring
+  # the administrator to discover feature dependencies manually.
+  for dependency in "${FUNCTION_PACKAGES[@]}"; do
+    FPM_DEPENDENCY_ARGS+=(--depends "$dependency")
+  done
+else
+  for dependency in "${FUNCTION_PACKAGES[@]}"; do
+    FPM_RECOMMEND_ARGS+=(--deb-recommends "$dependency")
+  done
+fi
+
 fpm \
   -s dir \
   -t deb \
@@ -146,23 +207,13 @@ fpm \
   -v "$VERSION" \
   --iteration "$ITERATION" \
   --architecture "$ARCH" \
-  --description "SimpleOffice4Me self-hosted office and document management (${BUILD_ROLE})" \
+  --description "SimpleOffice4Me self-hosted office and document management ($BUILD_ROLE)" \
   --url "https://github.com/JensKapitza/SimpleOffice4Me" \
   --license "GPL-3.0-or-later" \
   --maintainer "SimpleOffice4Me" \
   --category "office" \
-  --depends "python3 (>= 3.10)" \
-  --depends "python3-venv" \
-  --depends "git" \
-  --depends "ca-certificates" \
-  --deb-recommends "poppler-utils" \
-  --deb-recommends "tesseract-ocr" \
-  --deb-recommends "imagemagick" \
-  --deb-recommends "ghostscript" \
-  --deb-recommends "ffmpeg" \
-  --deb-recommends "coturn" \
-  --deb-recommends "clamav" \
-  --deb-recommends "libreoffice" \
+  "${FPM_DEPENDENCY_ARGS[@]}" \
+  "${FPM_RECOMMEND_ARGS[@]}" \
   --config-files "/etc/simpleoffice4me/simpleoffice.env" \
   --after-install "$ROOT/packaging/postinst.sh" \
   --before-remove "$ROOT/packaging/prerm.sh" \
@@ -173,6 +224,10 @@ fpm \
 
 printf '\nPaket erstellt:\n  %s\n' "$OUT_DIR/${PACKAGE_NAME}_${VERSION}-${ITERATION}_${ARCH}.deb"
 printf 'Build-Typ:\n  %s\n' "$BUILD_ROLE"
+printf 'Python-Serie:\n  %s.x\n' "$PYTHON_SERIES"
 printf 'Lizenz-Master:\n  %s\n' "$LICENSE_MASTER_URL"
 printf 'Master-Build:\n  %s\n' "$LICENSE_MASTER_MODE"
+if [ -n "$PYTHON_EXTRAS" ]; then
+  printf 'Python-Extras:\n  %s\n' "$PYTHON_EXTRAS"
+fi
 printf '\nHinweis: Tokens/Passwoerter wurden nicht in das Paket eingebettet.\n'
