@@ -179,8 +179,11 @@ FUNCTION_PACKAGES=(
   ffmpeg
   coturn
   clamav
+  clamav-daemon
   libreoffice
   cups-client
+  rsync
+  openssh-client
   iproute2
   nftables
 )
