@@ -16,8 +16,31 @@ def androidRuntimeProfiles = [
     'armeabi-v7a': '3.11',
 ]
 def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
-def appVersionCode = 8
-def appVersionName = '1.0.7'
+
+def projectMetadata = file('../../../pyproject.toml')
+if (!projectMetadata.isFile()) {
+    throw new GradleException('Project version source pyproject.toml is missing')
+}
+def projectVersionMatch = projectMetadata.getText('UTF-8') =~ /(?ms)^\[project\]\s.*?^version\s*=\s*['"]([^'"]+)['"]/
+if (!projectVersionMatch.find()) {
+    throw new GradleException('Project version is missing from pyproject.toml [project]')
+}
+def appVersionName = projectVersionMatch.group(1).trim()
+def semanticVersionMatch = appVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/
+if (!semanticVersionMatch.matches()) {
+    throw new GradleException("Android build requires a numeric MAJOR.MINOR.PATCH project version, got ${appVersionName}")
+}
+def versionMajor = semanticVersionMatch.group(1).toInteger()
+def versionMinor = semanticVersionMatch.group(2).toInteger()
+def versionPatch = semanticVersionMatch.group(3).toInteger()
+if (versionMinor > 999 || versionPatch > 999) {
+    throw new GradleException('Android version mapping requires MINOR and PATCH values <= 999')
+}
+def appVersionCode = versionMajor * 1_000_000 + versionMinor * 1_000 + versionPatch
+if (appVersionCode <= 0 || appVersionCode > 2_100_000_000) {
+    throw new GradleException("Derived Android versionCode is outside the supported range: ${appVersionCode}")
+}
+
 if (!expectedPythonVersion) {
     throw new GradleException("Unsupported Android ABI: ${androidAbi}")
 }
@@ -35,8 +58,8 @@ android {
         applicationId 'de.simpleoffice4me.android'
         minSdk 24
         targetSdk 36
-        versionCode 8
-        versionName '1.0.7'
+        versionCode appVersionCode
+        versionName appVersionName
         buildConfigField 'String', 'ERROR_REPORT_URL', "\"${escapedErrorReportUrl}\""
 
         ndk {
@@ -103,6 +126,7 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
         include 'static/**'
         include 'tools/**'
         include 'simpleoffice_*.py'
+        include 'pyproject.toml'
         exclude '**/__pycache__/**'
         exclude '**/*.pyc'
     }

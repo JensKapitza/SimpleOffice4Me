@@ -143,10 +143,16 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertNotIn("getUrl", body)
         self.assertIn('return "runtime-error";', activity)
 
-    def test_android_version_is_bumped(self):
+    def test_android_version_tracks_project_version(self):
         text = self.read("android/apk/app/build.gradle")
-        self.assertRegex(text, r"versionCode\s+8\b")
-        self.assertIn("versionName '1.0.7'", text)
+        project = self.read("pyproject.toml")
+        self.assertRegex(
+            project,
+            r'(?ms)^\[project\].*?^version\s*=\s*["\x27]\d+\.\d+\.\d+["\x27]',
+        )
+        self.assertIn("file('../../../pyproject.toml')", text)
+        self.assertIn("versionCode appVersionCode", text)
+        self.assertIn("versionName appVersionName", text)
         self.assertIn("buildConfig true", text)
 
 

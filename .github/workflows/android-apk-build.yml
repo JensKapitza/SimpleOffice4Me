@@ -10,6 +10,7 @@ on:
       - 'static/**'
       - 'tools/**'
       - 'simpleoffice_*.py'
+      - 'pyproject.toml'
       - '.github/workflows/android-apk-build.yml'
 
 permissions:
@@ -76,6 +77,7 @@ jobs:
           unzip -l "$APK" > /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/app/__init__.py' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/simpleoffice_version.py' /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/pyproject.toml' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/tools/launcher.py' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/templates/' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/static/' /tmp/apk-files.txt
@@ -84,6 +86,29 @@ jobs:
             echo "APK contains native libraries for an unexpected ABI" >&2
             exit 1
           fi
+
+      - name: Verify APK package version matches project version
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='android/apk/app/build/outputs/apk/debug/app-debug.apk'
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT" && test -x "$AAPT"
+          PROJECT_VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('pyproject.toml').read_text(encoding='utf-8')
+          match = re.search(r'(?ms)^\[project\]\s.*?^version\s*=\s*["\x27]([^"\x27]+)["\x27]', text)
+          if not match:
+              raise SystemExit('project version missing')
+          print(match.group(1))
+          PY
+          )"
+          BADGING="$("$AAPT" dump badging "$APK" | head -n 1)"
+          case "$BADGING" in
+            *"versionName='$PROJECT_VERSION'"*) ;;
+            *) echo "APK version does not match project version $PROJECT_VERSION: $BADGING" >&2; exit 1 ;;
+          esac
 
       - name: Verify APK signature and native-library alignment
         shell: bash
