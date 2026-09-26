@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% macro field_help(text) -%}
-<details class="d-inline-block ms-1 align-baseline" data-field-help="manual"><summary class="badge rounded-pill text-bg-light border text-secondary" style="cursor:pointer; list-style:none" aria-label="Hilfe">?</summary><div class="small text-secondary mt-1">{{ text }}</div></details>
+<span class="badge rounded-pill text-bg-light border text-secondary ms-1 align-baseline" data-field-help="manual" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ text }}" role="button" tabindex="0" aria-label="Hilfe: {{ text }}">?</span>
 {%- endmacro %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">

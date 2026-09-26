@@ -19,7 +19,7 @@
   <section class="card mb-4" aria-labelledby="new-receipt-heading"><div class="card-header"><strong id="new-receipt-heading">Beleg eingeben</strong></div><div class="card-body">
     <form method="post" enctype="multipart/form-data" class="row g-3">
       <input type="hidden" name="year" value="{{ year }}">
-      <div class="col-md-3"><label class="form-label" for="direction">Art</label><select id="direction" required class="form-select" name="direction"><option value="expense">Ausgabe</option><option value="income">Einnahme</option></select></div>
+      <div class="col-md-3"><label class="form-label" for="direction">Art</label><select id="direction" class="form-select" name="direction"><option value="expense">Ausgabe</option><option value="income">Einnahme</option></select></div>
       <div class="col-md-3"><label class="form-label" for="receipt-date">Belegdatum</label><input id="receipt-date" required class="form-control" type="date" name="receipt_date" value="{{ today }}"></div>
       <div class="col-md-3"><label class="form-label" for="payment-date">Zahlungsdatum</label><input id="payment-date" class="form-control" type="date" name="payment_date" value="{{ today }}"></div>
       <div class="col-md-3"><label class="form-label" for="payment-method">Zahlungsart</label><select id="payment-method" class="form-select" name="payment_method"><option value="bank">Bank</option><option value="card">Karte</option><option value="cash">Bar</option><option value="paypal">PayPal</option><option value="other">Sonstige</option></select></div>
