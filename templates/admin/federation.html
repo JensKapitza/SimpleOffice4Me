@@ -7,9 +7,14 @@
       <h1 class="h2 mb-1">Federation</h1>
       <p class="text-secondary mb-0">SimpleOffice-Instanzen verbinden, Dateien austauschen und Transfers überwachen.</p>
     </div>
-    <a class="btn btn-primary" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan">
-      <i class="fas fa-network-wired me-1" aria-hidden="true"></i>Netzwerk scannen
-    </a>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-primary" href="{{ url_for('resource_commander.page') }}">
+        <i class="fas fa-columns me-1" aria-hidden="true"></i>Resource Commander
+      </a>
+      <a class="btn btn-primary" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan">
+        <i class="fas fa-network-wired me-1" aria-hidden="true"></i>Netzwerk scannen
+      </a>
+    </div>
   </div>
 
   <nav class="nav nav-pills flex-nowrap overflow-auto gap-1 mb-4" aria-label="Federation-Bereiche">
