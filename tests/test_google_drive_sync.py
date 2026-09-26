@@ -86,6 +86,7 @@ class GoogleDriveSyncTests(unittest.TestCase):
         schema = (ROOT / "app" / "google_drive_schema.py").read_text(encoding="utf-8")
         sync = (ROOT / "app" / "google_drive_sync.py").read_text(encoding="utf-8")
         template = (ROOT / "templates" / "google_drive" / "index.html").read_text(encoding="utf-8")
+        admin = (ROOT / "app" / "google_drive_admin.py").read_text(encoding="utf-8")
         self.assertIn("enabled INTEGER NOT NULL DEFAULT 0", schema)
         self.assertIn("VALUES (?, ?, 'bidirectional', 0, CURRENT_TIMESTAMP)", sync)
         self.assertIn("Die lokale Nutzung benötigt kein Google-Konto.", template)
@@ -93,6 +94,9 @@ class GoogleDriveSyncTests(unittest.TestCase):
         self.assertIn("Google Drive verbinden", template)
         self.assertIn("{% if not drive_allowed %}disabled{% endif %}", template)
         self.assertNotIn('text-bg-warning">fehlt', template)
+        self.assertIn("scopes = GOOGLE_DRIVE_SCOPE", admin)
+        self.assertNotIn("https://www.googleapis.com/auth/contacts.readonly", admin)
+        self.assertNotIn("https://www.googleapis.com/auth/calendar.readonly", admin)
 
     def test_android_token_handoff_is_loopback_session_and_scope_bound(self):
         source = (ROOT / "app" / "google_drive_admin.py").read_text(encoding="utf-8")
