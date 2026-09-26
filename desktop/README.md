@@ -25,9 +25,11 @@ npm install
 npm run dist
 ```
 
-`npm run dist` ruft zuerst `python-setup/build_backend.py` auf. Das Script erzeugt eine eigene Build-Virtualenv, installiert SimpleOffice4Me samt Laufzeitabhängigkeiten und PyInstaller und baut `simpleoffice-python` als eigenständigen Runtime-Binary. Danach packt `electron-builder` den Binary unter `resources/backend/` in die Desktop-App.
+`npm run dist` synchronisiert zuerst die Desktop-Version mit `pyproject.toml` und ruft danach `python-setup/build_backend.py` auf. Das Script erzeugt eine eigene Build-Virtualenv, installiert SimpleOffice4Me samt Laufzeitabhängigkeiten und PyInstaller und baut `simpleoffice-python` als eigenständigen Runtime-Binary. Danach packt `electron-builder` den Binary unter `resources/backend/` in die Desktop-App.
 
 Die Builds werden immer **auf dem Zielbetriebssystem** erzeugt. Insbesondere Windows-EXE/NSIS, macOS-DMG und Linux-AppImage/DEB sollten in separaten CI-Jobs auf Windows, macOS und Linux gebaut werden.
+
+Der Linux-CI-Build veröffentlicht zusätzlich das direkt installierbare Artefakt `simpleoffice4me-linux-appimage-installable`. Darin liegen `SimpleOffice4Me-Linux-x86_64.AppImage` und die zugehörige SHA-256-Datei. Vor dem Upload werden Architektur, AppImage-Runtime und Projektversion geprüft.
 
 ## Laufzeitdaten
 
