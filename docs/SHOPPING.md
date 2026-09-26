@@ -41,6 +41,11 @@ Eine Änderung des Produktgedächtnisses verändert vorhandene Listeneinträge n
 Barcode-Lookups verwenden zuerst das private Produktgedächtnis und danach nur
 Listeneinträge, die der aktuelle Benutzer ohnehin lesen darf.
 
+Bereits bekannte Produkte können über **Nachlegen** erneut auf die aktuelle Liste
+gesetzt werden. Dabei sind **Anzahl / Menge** und **Einheit** vor dem Hinzufügen
+änderbar. Bei einem vorhandenen Listeneintrag können Anzahl/Menge und Einheit mit
+Edit-Recht direkt angepasst werden, ohne den Artikel neu erfassen zu müssen.
+
 ## Offline und Reconnect
 
 Wenn die Shopping-Seite bereits geladen ist, kann ein neuer Artikel bei unterbrochener
