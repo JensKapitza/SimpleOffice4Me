@@ -104,6 +104,21 @@ Der Scan ist ausdrücklich ein lokaler Komfortmechanismus für z. B. Handy → H
 
 Damit wird kein fremdes Internetnetz durchsucht und Link-Local/Cloud-Metadata-Ziele bleiben gesperrt.
 
+## Resource Commander
+
+Der zweigeteilte **Resource Commander** unter `/resource-commander` übernimmt das klassische Commander-Prinzip für lokale und föderierte Ressourcen:
+
+- links und rechts kann jeweils ein Provider gewählt werden;
+- vorhandene aktive Federation-Peers werden als eigene Provider angeboten;
+- wenn mindestens ein Federation-Peer verfügbar ist, wird er beim Öffnen bevorzugt auf der rechten Seite ausgewählt;
+- Verifikationsstatus und lokales Trust-Level werden direkt am Federation-Pane angezeigt;
+- die Aktionsleiste berücksichtigt die effektiven Provider-Capabilities. Lesen, Schreiben, Ordneranlage und Löschen werden nicht nur optisch, sondern weiterhin serverseitig geprüft;
+- providerübergreifendes „Verschieben“ bleibt absichtlich eine sichere Kopie. Die Quelle wird dabei nicht automatisch gelöscht;
+- Federation-Rechte ergeben sich weiterhin aus der lokalen Dokument-Policy. Der angezeigte Trust-Status ersetzt keine Berechtigung;
+- Remote-Zugriff auf die Commander-API verwendet weiterhin den separaten `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` bzw. peer-spezifische Commander-Credentials und nicht den allgemeinen Federation-Transport-Token.
+
+Damit bleibt Discovery/Trust von konkreten Datei-Rechten getrennt, während der Bedienweg für lokale und föderierte Dateien einheitlich ist.
+
 ## Sicherheitsregeln
 
 - Discovery vergibt keine Datenrechte.
