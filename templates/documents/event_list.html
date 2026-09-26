@@ -8,7 +8,7 @@
       {% if severity == 'error' %}<span class="badge text-bg-danger">Fehler</span>{% elif severity == 'warning' %}<span class="badge text-bg-warning">Warnung</span>{% else %}<span class="badge text-bg-secondary">Info</span>{% endif %}
       {% if event.source %}<span class="badge text-bg-light border">{{ event.source }}</span>{% endif %}
     </div>
-    <time class="small text-secondary text-nowrap" datetime="{{ event.at }}">{{ event.at or '—' }}</time>
+    <time class="small text-secondary text-nowrap"{% if event.at %} datetime="{{ (event.at[:23] ~ ('Z' if event.at[-1:] == 'Z' else event.at[-6:])) if event.at|length > 26 else event.at }}"{% endif %}>{{ event.at or '—' }}</time>
   </div>
   <div class="small text-secondary mt-1">
     <strong>Benutzer:</strong> {{ event.actor or 'System/Scanner' }}
