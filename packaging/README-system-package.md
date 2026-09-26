@@ -36,7 +36,15 @@ Einmalig:
 cp packaging/build-server.local.sh.example packaging/build-server.local.sh
 ```
 
-Dort die oeffentliche Server-URL und Peer-ID eintragen. Anschliessend:
+Dort die oeffentliche Server-URL und Peer-ID eintragen. Alternativ koennen automatisierte Builds die nicht geheimen Werte direkt als Umgebungsvariablen setzen:
+
+```bash
+export SIMPLEOFFICE_SERVER_PUBLIC_URL=https://office.example.invalid
+export SIMPLEOFFICE_SERVER_PEER_ID=license-master
+bash packaging/build-server.sh
+```
+
+Beim lokalen Build mit Konfigurationsdatei genuegt weiterhin:
 
 ```bash
 bash packaging/build-server.sh
@@ -104,6 +112,8 @@ sudo systemctl restart simpleoffice4me
 
 ## Abhaengigkeiten und Daten
 
-Als zwingende Debian-Laufzeitabhaengigkeiten werden Python >= 3.10, `python3-venv`, `git` und `ca-certificates` eingetragen. Weitere Funktionspakete wie Poppler, Tesseract OCR, ImageMagick, Ghostscript, FFmpeg, ClamAV, LibreOffice und optional `coturn` für den STUN/TURN-Connectivity-Relay werden als Recommends hinterlegt.
+Als Basisabhaengigkeiten werden Python >= 3.10, `python3-venv`, `git` und `ca-certificates` eingetragen. Beim **Server-Paket** werden zusaetzlich Poppler, Tesseract OCR (Deutsch/Englisch), ImageMagick, Ghostscript, Java, FFmpeg, Coturn, ClamAV, LibreOffice, CUPS-Client, iproute2 und nftables als echte `Depends` eingetragen. Damit installiert `apt` den vollstaendigen Server-Funktionssatz automatisch. Beim Client bleiben diese Werkzeuge `Recommends`.
+
+Das Server-Paket baut außerdem die Python-Extras `ocr`, `sftp`, `banking` und `erasure` samt Abhaengigkeiten in das Offline-Wheelhouse ein. `postinst.sh` installiert diese Extras ohne Internetzugriff aus dem Paket.
 
 Programmdateien liegen unter `/opt`, Benutzerdaten und Instanzkonfiguration unter `/var/lib/simpleoffice4me`. Paketupdates ueberschreiben keine Dokumente oder Instanzdaten. Auch `apt purge` loescht `/var/lib/simpleoffice4me` absichtlich nicht automatisch.
