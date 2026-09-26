@@ -1,8 +1,10 @@
+import io
 import tempfile
 import unittest
 from pathlib import Path
 
 from flask import Flask, g
+from PIL import Image
 
 from app.shopping_store import ShoppingStore
 from app.shopping_web import bp
@@ -74,9 +76,54 @@ class ShoppingWebTests(unittest.TestCase):
         self.assertIn("bleibt lokal vorgemerkt", script)
         self.assertIn('name="request_id"', template)
         self.assertIn('id="shopping-brand"', template)
+        self.assertIn('id="shopping-product-photo"', template)
+        self.assertIn('capture="environment"', template)
+        self.assertIn('enctype="multipart/form-data"', template)
+        self.assertIn('id="shopping-photo-preview"', template)
+        self.assertIn("photo_url", script)
+        self.assertIn("URL.createObjectURL", script)
+        self.assertIn("product_photo", script)
         self.assertIn("Noch einmal hinzufügen", template)
         self.assertIn("shopping.index", nav)
         self.assertIn("app.register_blueprint(shopping_web.bp)", bootstrap)
+
+    def test_product_photo_is_stored_locally_reused_by_barcode_and_access_controlled(self):
+        store = ShoppingStore(self.root)
+        store.create_list("Fotos", "alice", list_id="photos")
+
+        image = io.BytesIO()
+        Image.new("RGB", (32, 24), "white").save(image, format="PNG")
+        image.seek(0)
+        response = self.client.post(
+            "/shopping/lists/photos/items",
+            data={
+                "name": "Joghurt",
+                "barcode": "4006381333931",
+                "product_photo": (image, "joghurt.png"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(302, response.status_code)
+
+        item = store.items("alice", list_id="photos")[0]
+        photo_id = item.get("photo_id", "")
+        self.assertRegex(photo_id, r"^[0-9a-f]{32}\.jpg$")
+        photo_path = store.photo_dir / photo_id
+        self.assertTrue(photo_path.is_file())
+
+        photo = self.client.get(f"/shopping/photos/{photo_id}")
+        self.assertEqual(200, photo.status_code)
+        self.assertEqual("image/jpeg", photo.mimetype)
+        self.assertIn("private", photo.headers.get("Cache-Control", ""))
+
+        lookup = self.client.get("/shopping/barcode?code=4006381333931").get_json()
+        self.assertTrue(lookup["known"])
+        self.assertEqual(photo_id, lookup["item"]["photo_id"])
+        self.assertIn(f"/shopping/photos/{photo_id}", lookup["item"]["photo_url"])
+
+        self.user = {"username": "bob"}
+        denied = self.client.get(f"/shopping/photos/{photo_id}")
+        self.assertEqual(404, denied.status_code)
 
 
     def test_sync_add_returns_json_and_rejects_invalid_data_without_redirect(self):
