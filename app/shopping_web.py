@@ -170,10 +170,16 @@ def add_item(list_id: str):
         values["photo_id"] = ""
     uploaded = request.files.get("product_photo")
     created_photo_id = ""
-    try:
-        if uploaded is not None and uploaded.filename:
+    if uploaded is not None and uploaded.filename:
+        try:
             created_photo_id = _save_product_photo(store, uploaded)
             values["photo_id"] = created_photo_id
+        except ValueError:
+            if sync_request:
+                return jsonify({"ok": False, "error": "Produktfoto konnte nicht verarbeitet werden."}), 400
+            flash("Produktfoto konnte nicht verarbeitet werden. Erlaubt sind gültige Bilder bis 8 MiB.")
+            return _back(list_id)
+    try:
         item = store.add_item(list_id, request.form.get("name", ""), actor, values)
         if sync_request:
             return jsonify({
