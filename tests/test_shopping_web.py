@@ -83,9 +83,44 @@ class ShoppingWebTests(unittest.TestCase):
         self.assertIn("photo_url", script)
         self.assertIn("URL.createObjectURL", script)
         self.assertIn("product_photo", script)
-        self.assertIn("Noch einmal hinzufügen", template)
+        self.assertIn("Nachlegen", template)
+        self.assertIn("Anzahl / Menge", template)
+        self.assertIn("repeat-quantity-", template)
+        self.assertIn("shopping.item_quantity", template)
         self.assertIn("shopping.index", nav)
         self.assertIn("app.register_blueprint(shopping_web.bp)", bootstrap)
+
+    def test_existing_item_quantity_can_be_changed_and_known_product_can_be_readded_with_amount(self):
+        store = ShoppingStore(self.root)
+        store.create_list("Menge", "alice", list_id="quantity")
+        item = store.add_item(
+            "quantity",
+            "Wasser",
+            "alice",
+            {"quantity": "1", "unit": "Kiste", "barcode": "4006381333931"},
+        )
+
+        response = self.client.post(
+            f"/shopping/items/{item['item_id']}/quantity",
+            data={"list_id": "quantity", "quantity": "3", "unit": "Kisten"},
+        )
+        self.assertEqual(302, response.status_code)
+        changed = store.items("alice", list_id="quantity")[0]
+        self.assertEqual("3", changed["quantity"])
+        self.assertEqual("Kisten", changed["unit"])
+
+        response = self.client.post(
+            "/shopping/lists/quantity/items",
+            data={
+                "name": "Wasser",
+                "quantity": "5",
+                "unit": "Kisten",
+                "barcode": "4006381333931",
+            },
+        )
+        self.assertEqual(302, response.status_code)
+        quantities = sorted(row["quantity"] for row in store.items("alice", list_id="quantity"))
+        self.assertEqual(["3", "5"], quantities)
 
     def test_product_photo_is_stored_locally_reused_by_barcode_and_access_controlled(self):
         store = ShoppingStore(self.root)
