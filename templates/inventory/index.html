@@ -64,7 +64,7 @@
 
             <div class="col-12 book-only" hidden>
               <div class="d-flex flex-wrap gap-2 align-items-center">
-                <a id="openlibrary-link" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener noreferrer" hidden>In Open Library öffnen</a>
+                <a id="openlibrary-link" href="https://openlibrary.org/" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener noreferrer" hidden>In Open Library öffnen</a>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-book-data">Geladene Buchdaten leeren</button>
                 <div class="form-check ms-auto"><input class="form-check-input" type="checkbox" value="1" id="replace-metadata"><label class="form-check-label small" for="replace-metadata">Vorhandene Felder überschreiben</label></div>
               </div>
@@ -80,12 +80,12 @@
             <div class="col-12"><label class="form-label" for="tags">Tags</label><input class="form-control" id="tags" name="tags" maxlength="500" placeholder="werkstatt, elektro, privat …"></div>
             <div class="col-12"><label class="form-label" for="description">Beschreibung</label><textarea class="form-control" id="description" name="description" rows="3" maxlength="8000"></textarea></div>
 
-            <div class="col-12 book-only" hidden><div class="border rounded p-3"><div class="d-flex gap-3 align-items-start"><div id="book-cover-wrap" hidden><img id="book-cover" src="" alt="" class="rounded border" style="width:90px;max-height:135px;object-fit:cover" loading="lazy" decoding="async" referrerpolicy="no-referrer"></div><div class="flex-grow-1"><div class="fw-semibold mb-2">Buchdaten</div><div class="row g-2">
+            <div class="col-12 book-only" hidden><div class="border rounded p-3"><div class="d-flex gap-3 align-items-start"><div id="book-cover-wrap" hidden><img id="book-cover" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" class="rounded border" style="width:90px;max-height:135px;object-fit:cover" loading="lazy" decoding="async" referrerpolicy="no-referrer"></div><div class="flex-grow-1"><div class="fw-semibold mb-2">Buchdaten</div><div class="row g-2">
               <div class="col-md-7"><label class="form-label" for="authors">Autor(en)</label><input class="form-control" id="authors" name="authors" maxlength="600"></div>
               <div class="col-md-5"><label class="form-label" for="publisher">Verlag</label><input class="form-control" id="publisher" name="publisher" maxlength="300"></div>
               <div class="col-md-4"><label class="form-label" for="published-date">Erscheinung</label><input class="form-control" id="published-date" name="published_date" maxlength="80"></div>
               <div class="col-md-4"><label class="form-label" for="page-count">Seiten</label><input class="form-control" id="page-count" name="page_count" inputmode="numeric" maxlength="20"></div>
-              <div class="col-md-4"><label class="form-label" for="language">Sprache</label><input class="form-control" id="language" name="language" maxlength="20"></div>
+              <div class="col-md-4"><label class="form-label" for="book-language">Sprache</label><input class="form-control" id="book-language" name="language" maxlength="20"></div>
               <div class="col-12"><label class="form-label" for="categories">Kategorien</label><input class="form-control" id="categories" name="categories" maxlength="600"></div>
             </div></div></div></div></div>
 
@@ -93,7 +93,7 @@
             <div class="col-md-3"><label class="form-label" for="currency">Währung</label><input class="form-control text-uppercase" id="currency" name="currency" maxlength="3" value="EUR"></div>
             <div class="col-md-5"><label class="form-label" for="price-source">Preisquelle</label><input class="form-control" id="price-source" name="price_source" maxlength="120"></div>
 
-            <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">JPEG, PNG oder WebP, maximal 12 MiB. Auf dem Handy kann direkt die Rückkamera verwendet werden.</div><img id="photo-preview" hidden alt="Vorschau des ausgewählten Inventarfotos" class="img-fluid rounded border mt-2" style="max-height:220px;object-fit:contain" loading="lazy" decoding="async"></div>
+            <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">JPEG, PNG oder WebP, maximal 12 MiB. Auf dem Handy kann direkt die Rückkamera verwendet werden.</div><img id="photo-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" hidden alt="Vorschau des ausgewählten Inventarfotos" class="img-fluid rounded border mt-2" style="max-height:220px;object-fit:contain" loading="lazy" decoding="async"></div>
 
             <div class="col-12"><div class="border rounded p-3 bg-body-tertiary"><div class="d-flex justify-content-between align-items-center mb-2"><strong>Prüfung / Wiedervorlage (optional)</strong><span class="small text-secondary">erzeugt eine Aufgabe</span></div><div class="row g-2">
               <div class="col-md-6"><label class="form-label" for="inspection-name">Prüfung</label><input class="form-control" id="inspection-name" name="inspection_name" maxlength="240" placeholder="Elektrische Prüfung, Sichtprüfung …"></div>
