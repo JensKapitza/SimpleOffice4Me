@@ -89,7 +89,7 @@ def ensure_drive_state(user_id: int) -> dict:
     db = get_db()
     db.execute(
         """INSERT INTO google_drive_state(user_id, root_folder_name, direction, enabled, updated_at)
-           VALUES (?, ?, 'bidirectional', 1, CURRENT_TIMESTAMP)
+           VALUES (?, ?, 'bidirectional', 0, CURRENT_TIMESTAMP)
            ON CONFLICT(user_id) DO NOTHING""",
         (int(user_id), DRIVE_ROOT_NAME),
     )
