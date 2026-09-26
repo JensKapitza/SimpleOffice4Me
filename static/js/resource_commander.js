@@ -3,8 +3,8 @@
 
   const state = {
     active: 'left',
-    left: {smart: false, selected: null},
-    right: {smart: false, selected: null},
+    left: {smart: false, selected: null, capabilities: null},
+    right: {smart: false, selected: null, capabilities: null},
     providers: [],
     compare: false,
     compareBusy: false,
@@ -17,6 +17,12 @@
   const other = side => side === 'left' ? 'right' : 'left';
   const providerId = side => pane(side).querySelector('.provider').value || 'self';
   const statusNode = side => pane(side).querySelector('.resource-commander-status');
+  const providerDescriptor = side => state.providers.find(
+    provider => provider.provider_id === providerId(side)
+  ) || null;
+  const capabilities = side => state[side].capabilities
+    || providerDescriptor(side)?.capabilities
+    || {};
 
   function humanSize(value) {
     const n = Number(value || 0);
@@ -43,6 +49,93 @@
 
   function setStatus(side, message) {
     statusNode(side).textContent = message || '';
+  }
+
+  function addContextBadge(target, text, className = '') {
+    const badge = document.createElement('span');
+    badge.className = ['resource-commander-context-badge', className].filter(Boolean).join(' ');
+    badge.textContent = text;
+    target.append(badge);
+  }
+
+  function updateProviderContext(side) {
+    const descriptor = providerDescriptor(side);
+    const detail = pane(side).querySelector('.resource-commander-context-detail');
+    detail.replaceChildren();
+    if (!descriptor) {
+      addContextBadge(detail, 'Provider unbekannt', 'is-warning');
+      return;
+    }
+
+    const caps = capabilities(side);
+    if (descriptor.kind === 'federation') {
+      const federation = descriptor.federation || {};
+      addContextBadge(detail, `Federation · ${descriptor.label}`, 'is-federation');
+      if (federation.peer_id) addContextBadge(detail, federation.peer_id);
+      addContextBadge(
+        detail,
+        federation.verification_state || 'KNOWN_UNVERIFIED',
+        (federation.verification_state || 'KNOWN_UNVERIFIED') === 'KNOWN_UNVERIFIED' ? 'is-warning' : ''
+      );
+      addContextBadge(
+        detail,
+        `Trust ${federation.trust_level || 'NONE'}`,
+        (federation.trust_level || 'NONE') === 'NONE' ? 'is-warning' : ''
+      );
+      if (federation.has_error) addContextBadge(detail, 'letzter Peer-Fehler', 'is-error');
+    } else {
+      addContextBadge(detail, descriptor.label || descriptor.provider_id);
+    }
+
+    const rights = [];
+    if (caps.read) rights.push('lesen');
+    if (caps.write) rights.push('schreiben');
+    if (caps.search) rights.push('suchen');
+    if (caps.delete) rights.push('löschen');
+    addContextBadge(detail, rights.length ? rights.join(' · ') : 'keine Dateiaktionen', rights.length ? '' : 'is-warning');
+  }
+
+  function setActive(side) {
+    state.active = side;
+    for (const candidate of ['left', 'right']) {
+      pane(candidate).classList.toggle('is-active', candidate === side);
+    }
+    updateActions();
+  }
+
+  function updateActions() {
+    const from = state.active;
+    const to = other(from);
+    const source = capabilities(from);
+    const target = capabilities(to);
+    const sameProvider = providerId(from) === providerId(to) && !state[from].smart;
+    const arrow = from === 'left' ? '→' : '←';
+
+    const copyButton = document.getElementById('copy');
+    copyButton.disabled = !(source.read && source.copy && target.write);
+    copyButton.textContent = `F5 Kopieren ${arrow}`;
+    copyButton.title = copyButton.disabled
+      ? 'Quelle muss lesbar und Ziel schreibbar sein'
+      : 'Ausgewählte Datei zum anderen Provider kopieren';
+
+    const moveButton = document.getElementById('move');
+    moveButton.disabled = sameProvider
+      ? !source.move
+      : !(source.read && source.copy && target.write);
+    moveButton.textContent = sameProvider
+      ? `F6 Verschieben ${arrow}`
+      : `F6 Sichere Kopie ${arrow}`;
+    moveButton.title = sameProvider
+      ? 'Innerhalb desselben Providers verschieben'
+      : 'Provider-übergreifend wird aus Sicherheitsgründen nur kopiert; die Quelle bleibt erhalten';
+
+    document.getElementById('mkdir').disabled = !(source.write && source.folders);
+    document.getElementById('delete').disabled = !source.delete;
+
+    const bothReadable = Boolean(capabilities('left').read && capabilities('right').read);
+    document.getElementById('compare').disabled = !bothReadable;
+    document.getElementById('compare-mode').disabled = !bothReadable;
+    document.getElementById('complete').disabled = !bothReadable;
   }
 
   function currentPath(side) {
@@ -80,7 +173,7 @@
       pane(side).querySelectorAll('.selected').forEach(item => item.classList.remove('selected'));
       row.classList.add('selected');
       state[side].selected = entry;
-      state.active = side;
+      setActive(side);
     });
 
     row.addEventListener('dblclick', () => {
@@ -203,7 +296,10 @@
     try {
       setStatus(side, 'Lade …');
       const data = await json(`/resource-commander/api/list?${params}`);
+      state[side].capabilities = data.capabilities || null;
       render(side, data.entries || []);
+      updateProviderContext(side);
+      updateActions();
       if (state.compare) queueMicrotask(runCompare);
     } catch (error) {
       setStatus(side, error.message);
@@ -221,7 +317,10 @@
     });
     try {
       const data = await json(`/resource-commander/api/search?${params}`);
+      state[side].capabilities = data.capabilities || state[side].capabilities;
       render(side, data.entries || []);
+      updateProviderContext(side);
+      updateActions();
     } catch (error) {
       setStatus(side, error.message);
     }
@@ -331,17 +430,23 @@
 
   function bind(side) {
     const element = pane(side);
-    element.addEventListener('mousedown', () => { state.active = side; });
+    element.addEventListener('mousedown', () => setActive(side));
     element.querySelector('.provider').addEventListener('change', () => {
       state[side].smart = false;
+      state[side].capabilities = null;
       updateSmart(side);
+      updateProviderContext(side);
+      updateActions();
       setPath(side, '');
       load(side);
     });
     element.querySelector('.resource-commander-smart').addEventListener('click', () => {
       state[side].smart = !state[side].smart;
+      state[side].capabilities = null;
       setPath(side, '');
       updateSmart(side);
+      updateProviderContext(side);
+      updateActions();
       load(side);
     });
     element.querySelector('.reload').addEventListener('click', () => load(side));
@@ -375,8 +480,16 @@
       }
       bind(side);
       updateSmart(side);
+      updateProviderContext(side);
     }
-    if (state.providers.length > 1) pane('right').querySelector('.provider').selectedIndex = 1;
+    const federationIndex = state.providers.findIndex(provider => provider.kind === 'federation');
+    if (federationIndex >= 0) {
+      pane('right').querySelector('.provider').selectedIndex = federationIndex;
+    } else if (state.providers.length > 1) {
+      pane('right').querySelector('.provider').selectedIndex = 1;
+    }
+    updateProviderContext('right');
+    setActive('left');
     await Promise.all([load('left'), load('right')]);
   }
 
@@ -407,8 +520,13 @@
     setPath('right', leftPath);
     state.left.smart = false;
     state.right.smart = false;
+    state.left.capabilities = null;
+    state.right.capabilities = null;
     updateSmart('left');
     updateSmart('right');
+    updateProviderContext('left');
+    updateProviderContext('right');
+    updateActions();
     load('left');
     load('right');
   });

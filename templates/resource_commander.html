@@ -11,6 +11,7 @@
 <header class="resource-commander-header">
   <strong>Resource Commander</strong>
   <a href="{{ url_for('documents.dashboard') }}">Dokumente</a>
+  <a href="{{ url_for('federation_admin.dashboard') }}">Federation</a>
   <span>F5 Kopieren · F6 Verschieben · F7 Ordner · F8 Löschen</span>
   <span class="resource-commander-legend">= identisch · ~ wahrscheinlich · ≠ verschieden · →/← fehlt</span>
 </header>
@@ -26,6 +27,10 @@
       <input class="path" id="{{ side }}-path" value="" placeholder="/" autocomplete="off">
       <button class="up" type="button" aria-label="Übergeordneten Ordner öffnen">..</button>
       <button class="reload" type="button" aria-label="Neu laden">↻</button>
+    </div>
+    <div class="resource-commander-context" aria-live="polite">
+      <strong class="resource-commander-context-title">Provider</strong>
+      <span class="resource-commander-context-detail"></span>
     </div>
     <div class="resource-commander-bar">
       <label class="visually-hidden" for="{{ side }}-search">Suchen</label>
