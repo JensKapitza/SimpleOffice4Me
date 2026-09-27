@@ -391,6 +391,15 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
     expected_hash = request.headers.get("X-Amz-Content-Sha256", "")
     if not expected_hash or not all(ch in "0123456789abcdefABCDEF" for ch in expected_hash) or len(expected_hash) != 64:
         raise S3Error("InvalidRequest", "A SHA-256 signed payload is required", 400)
+    checksum_header = request.headers.get("X-Amz-Checksum-Sha256", "")
+    expected_checksum = b""
+    if checksum_header:
+        try:
+            expected_checksum = base64.b64decode(checksum_header, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise S3Error("InvalidRequest", "x-amz-checksum-sha256 must be valid base64", 400) from exc
+        if len(expected_checksum) != hashlib.sha256().digest_size:
+            raise S3Error("InvalidRequest", "x-amz-checksum-sha256 has an invalid length", 400)
     limit = int(current_app.config.get("S3_OVERLAY_MAX_UPLOAD_BYTES", current_app.config.get("MAX_CONTENT_LENGTH", 512 * 1024 * 1024)))
     spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     digest = hashlib.sha256()
@@ -407,6 +416,8 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
             spool.write(block)
         if digest.hexdigest() != expected_hash.casefold():
             raise S3Error("BadDigest", "The request body does not match its SHA-256 header", 400)
+        if expected_checksum and not hmac.compare_digest(digest.digest(), expected_checksum):
+            raise S3Error("BadDigest", "The request body does not match x-amz-checksum-sha256", 400)
         spool.seek(0)
         try:
             doc = provider.put_inbox(key[len("inbox/"):], spool, limit, digest.hexdigest())
@@ -421,6 +432,8 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
         response = _response(b"", 200)
         response.headers["ETag"] = f'"{doc.get("sha256", digest.hexdigest())}"'
         response.headers["x-amz-version-id"] = str(doc.get("document_id", ""))
+        if checksum_header:
+            response.headers["x-amz-checksum-sha256"] = base64.b64encode(digest.digest()).decode("ascii")
         return response
     finally:
         spool.close()
