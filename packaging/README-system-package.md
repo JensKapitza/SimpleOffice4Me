@@ -104,6 +104,14 @@ systemctl status simpleoffice4me
 
 Beim Server entsprechend das `simpleoffice4me-server`-Paket installieren.
 
+Direkt nach der Installation zeigt `postinst` die im Paket festgeschriebene Master-Identitaet an: gesetzt/nicht gesetzt, Rolle, Ziel-URL und Peer-ID. Dieselbe Information wird bei jedem Start ins Terminal bzw. systemd-Journal geschrieben und kann jederzeit ohne Neustart abgefragt werden:
+
+```bash
+simpleoffice4me master-status
+```
+
+Die Ausgabe nennt auch die Herkunft der Werte. URL und Peer-ID liegen als nicht geheime Build-Identitaet in `app/build_master.py` des installierten Pakets. Sie werden absichtlich **nicht** aus `/etc/simpleoffice4me/simpleoffice.env` oder anderen Laufzeitvariablen ueberschrieben. Eine Aenderung erfolgt kontrolliert durch einen neuen Paket-Build mit neuer URL/Peer-ID und anschliessende Installation dieses Pakets.
+
 Standardmaessig lauscht SimpleOffice4Me nur auf `127.0.0.1:8080`. Fuer Reverse Proxy oder anderen Port `/etc/simpleoffice4me/simpleoffice.env` aendern und anschliessend:
 
 ```bash
