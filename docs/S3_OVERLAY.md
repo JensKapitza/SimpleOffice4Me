@@ -11,6 +11,7 @@ Diese Integrationsstufe projiziert:
 
 - `contacts/<contact-id>.vcf` für Kontakte, die der Benutzer lesen darf
 - `calendar/events.ics` für sichtbare Termine mit aktiver Kalender-Berechtigung
+- `tasks/<task-id>.ics` für eigene und über Aufgabenlisten freigegebene VTODOs
 - `_meta/overlay.json`
 - `documents/<document-id>/metadata.json`
 - `documents/<document-id>/original/<filename>`
@@ -21,8 +22,8 @@ Die Datei selbst wird über `StoragePort` gelesen und vor der Ausgabe vollständ
 integritätsgeprüft. Range-Reads puffern nur den angeforderten Ausschnitt in
 einem begrenzten Spool und verifizieren trotzdem den vollständigen Blob.
 
-Aufgaben, Projekte, Personal, Mail, Geschäftsdaten, Audit, Recovery und
-Federation sind noch keine S3-Provider. Multipart-Upload ist noch
+Projekte, Personal, Mail, Geschäftsdaten, Audit, Recovery und Federation sind
+noch keine S3-Provider. Multipart-Upload ist noch
 nicht implementiert. Das Overlay darf deshalb noch
 nicht als vollständige Sicht auf alle Anwendungsdaten oder als kompatibel mit
 allen S3-Clients beworben werden. Issue #482 bleibt für diese Ausbau- und
@@ -75,6 +76,7 @@ Aktuell unterstützt:
   konfigurierten vCard-Exportfelder
 - `calendar/events.ics` über die Kalender-Berechtigung und bestehenden
   Terminfreigaben; bei unveränderten Terminen bleibt der Export byteidentisch
+- `tasks/<task-id>.ics` über die bestehenden Leserechte der Aufgabenlisten
 - `ListObjectsV2` mit Prefix, Delimiter, MaxKeys, StartAfter,
   ContinuationToken und `encoding-type=url`
 - `ListObjects` V1 mit Prefix, Delimiter, MaxKeys und Marker

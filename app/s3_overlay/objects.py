@@ -13,6 +13,7 @@ from flask import current_app
 from app.document_store import DocumentStore
 from app.contact_store import ContactStore
 from app.calendar_store import CalendarStore
+from app.todo_store import TodoStore
 from app.safe_paths import resolve_file_under
 from app.virtual_filesystem import VirtualFileSystem
 from app.v2.contracts import LogicalObjectId, StorageLocation
@@ -60,6 +61,7 @@ class DocumentObjects:
         self.store = DocumentStore(self.root)
         self.contacts = ContactStore(self.root)
         self.calendar = CalendarStore(self.root)
+        self.todos = TodoStore(self.root)
         self.vfs = VirtualFileSystem.from_environment(self.root)
         self.actor = f"s3:{username}"
 
@@ -88,7 +90,7 @@ class DocumentObjects:
             if self.contacts_enabled:
                 prefixes.append("contacts/")
             if self.documents_enabled:
-                prefixes.extend(("documents/", "inbox/"))
+                prefixes.extend(("documents/", "inbox/", "tasks/"))
             if self.calendar_enabled:
                 prefixes.append("calendar/")
             data = json.dumps({"schema": "simpleoffice-s3-overlay-v1", "bucket": "simpleoffice",
@@ -115,6 +117,18 @@ class DocumentObjects:
             payload = self.calendar.export_ics(self.username).encode("utf-8")
             modified = max((_timestamp(event.get("updated_at") or event.get("created_at") or event.get("start"))
                             for event in events), default=datetime(1970, 1, 1, tzinfo=timezone.utc))
+            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
+                            "text/calendar; charset=utf-8", payload)
+        if len(parts) == 2 and parts[0] == "tasks" and parts[1].endswith(".ics"):
+            if not self.documents_enabled:
+                return None
+            item_id = parts[1][:-4]
+            task = next((item for item in self.todos.items(self.username) if item.get("id") == item_id), None)
+            if task is None:
+                return None
+            from app.caldav import _todo_ics
+            payload = _todo_ics(task).encode("utf-8")
+            modified = _timestamp(task.get("updated_at") or task.get("created_at"))
             return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
                             "text/calendar; charset=utf-8", payload)
         if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
@@ -186,7 +200,7 @@ class DocumentObjects:
             raise FileNotFoundError("S3 object is unavailable") from exc
 
     def keys(self, *, prefix: str, after: str = "", limit: int = 1000) -> list[S3Object]:
-        """Merge enabled calendar, contact, and document projections in key order."""
+        """Merge enabled calendar, contact, task, and document projections in key order."""
         found: list[S3Object] = []
         meta = self.resolve("_meta/overlay.json")
         if meta and meta.key.startswith(prefix) and meta.key > after:
@@ -196,6 +210,15 @@ class DocumentObjects:
             calendar_obj = self.resolve(calendar_key)
             if calendar_obj:
                 found.append(calendar_obj)
+        if self.documents_enabled and (not prefix or "tasks/".startswith(prefix) or prefix.startswith("tasks/")):
+            task_keys = sorted(
+                f"tasks/{task['id']}.ics" for task in self.todos.items(self.username)
+                if f"tasks/{task['id']}.ics".startswith(prefix) and f"tasks/{task['id']}.ics" > after
+            )[:limit + 1]
+            for key in task_keys:
+                obj = self.resolve(key)
+                if obj:
+                    found.append(obj)
         if self.contacts_enabled and (not prefix or "contacts/".startswith(prefix) or prefix.startswith("contacts/")):
             contact_keys = sorted(
                 f"contacts/{contact['contact_id']}.vcf"

@@ -13,6 +13,7 @@ from app import app
 from app.db import ensure_auth_database, get_db
 from app.contact_store import ContactStore
 from app.calendar_store import CalendarStore
+from app.todo_store import TodoStore
 from app.document_store import DocumentStore
 from app.s3_overlay import auth, credentials
 
@@ -238,6 +239,29 @@ class S3OverlayTests(unittest.TestCase):
             get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, "calendar"))
             get_db().commit()
         self.assertEqual(403, self.request("GET", f"/s3/simpleoffice/{key}").status_code)
+
+    def test_tasks_vtodo_export_uses_existing_task_list_sharing(self):
+        todos = TodoStore(self.root / "documents")
+        own = todos.add("Eigene Aufgabe", "s3-user", {"due": "2026-10-04"})
+        private = todos.add("Private fremde Aufgabe", "other-user")
+        shared_list = todos.create_list({"name": "Geteilte Aufgaben"}, "other-user")
+        todos.update_list(shared_list["list_id"], {"permissions": {"s3-user": ["read"]}}, "other-user")
+        shared = todos.add("Freigegebene Aufgabe", "other-user", {"list_id": shared_list["list_id"]})
+
+        own_key = f"tasks/{own['id']}.ics"
+        shared_key = f"tasks/{shared['id']}.ics"
+        private_key = f"tasks/{private['id']}.ics"
+        own_response = self.request("GET", f"/s3/simpleoffice/{own_key}")
+        shared_response = self.request("GET", f"/s3/simpleoffice/{shared_key}")
+        self.assertEqual(200, own_response.status_code)
+        self.assertEqual(200, shared_response.status_code)
+        self.assertIn(b"BEGIN:VTODO", own_response.data)
+        self.assertIn(b"SUMMARY:Freigegebene Aufgabe", shared_response.data)
+        self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{private_key}").status_code)
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=tasks%2F")
+        self.assertIn(own_key.encode(), listing.data)
+        self.assertIn(shared_key.encode(), listing.data)
+        self.assertNotIn(private_key.encode(), listing.data)
 
     def test_presigned_get_is_read_only_and_verifies_signature(self):
         path = presigned_path("/s3/", self.keypair["access_key"], self.keypair["secret_key"])
