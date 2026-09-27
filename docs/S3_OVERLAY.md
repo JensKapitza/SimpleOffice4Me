@@ -102,8 +102,11 @@ Erfolgreiche Uploads werden mit Principal, Zielschlüssel, Größe und SHA-256 i
 Sicherheitsaudit protokolliert; das Secret bleibt außen vor.
 
 Delete, Copy, ACL-/Tag-/Policy-Mutationen und PUT außerhalb der Inbox werden
-verweigert. Multipart-Upload ist derzeit nicht verfügbar. Große Clients, die
-automatisch auf Multipart wechseln, können daher noch nicht verwendet werden.
+verweigert. Auch Copy-/Tagging-/ACL-Header auf einem ansonsten zulässigen
+Inbox-PUT sowie Multipart-Subresources werden explizit abgelehnt, damit Clients
+keine nicht ausgeführte S3-Semantik als erfolgreich interpretieren. Multipart-
+Upload ist derzeit nicht verfügbar. Große Clients, die automatisch auf
+Multipart wechseln, können daher noch nicht verwendet werden.
 
 ## AWS CLI
 
