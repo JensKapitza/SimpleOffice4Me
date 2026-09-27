@@ -61,7 +61,8 @@ def _authenticate(required_scope: str | None = None) -> tuple[dict, DocumentObje
     documents_enabled = has_feature(row, "documents")
     contacts_enabled = has_feature(row, "contacts")
     calendar_enabled = has_feature(row, "calendar")
-    if not (documents_enabled or contacts_enabled or calendar_enabled):
+    projects_enabled = has_feature(row, "projects")
+    if not (documents_enabled or contacts_enabled or calendar_enabled or projects_enabled):
         raise S3Error("AccessDenied", "S3 access is not available", 403)
     if required_scope == "inbox:put" and not documents_enabled:
         raise S3Error("AccessDenied", "Inbox uploads require document access", 403)
@@ -72,7 +73,8 @@ def _authenticate(required_scope: str | None = None) -> tuple[dict, DocumentObje
         if not request.view_args["key"].startswith(key_prefix):
             raise S3Error("NoSuchKey", "The specified key does not exist", 404)
     return identity, DocumentObjects(identity["username"], documents_enabled=documents_enabled,
-                                     contacts_enabled=contacts_enabled, calendar_enabled=calendar_enabled)
+                                     contacts_enabled=contacts_enabled, calendar_enabled=calendar_enabled,
+                                     projects_enabled=projects_enabled)
 
 
 def _response(payload: str | bytes = b"", status: int = 200, content_type: str = "application/xml; charset=utf-8") -> Response:
@@ -230,7 +232,7 @@ def _list_objects(provider: DocumentObjects, identity: dict):
 def _get_object(provider: DocumentObjects, identity: dict, key: str, *, head: bool):
     key = key.lstrip("/")
     if (key.startswith("_meta/") or key.startswith("documents/") or key.startswith("contacts/")
-            or key.startswith("calendar/") or key.startswith("tasks/")):
+            or key.startswith("calendar/") or key.startswith("tasks/") or key.startswith("projects/")):
         if "read" not in identity["scopes"]:
             raise S3Error("AccessDenied", "The S3 credential lacks read access", 403)
         obj = provider.resolve(key)

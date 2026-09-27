@@ -14,6 +14,7 @@ from app.document_store import DocumentStore
 from app.contact_store import ContactStore
 from app.calendar_store import CalendarStore
 from app.todo_store import TodoStore
+from app.project_store import ProjectStore
 from app.safe_paths import resolve_file_under
 from app.virtual_filesystem import VirtualFileSystem
 from app.v2.contracts import LogicalObjectId, StorageLocation
@@ -52,16 +53,18 @@ class DocumentObjects:
     """Read enabled domain projections through their existing authorization paths."""
 
     def __init__(self, username: str, *, documents_enabled: bool = True, contacts_enabled: bool = True,
-                 calendar_enabled: bool = True):
+                 calendar_enabled: bool = True, projects_enabled: bool = True):
         self.username = username
         self.documents_enabled = documents_enabled
         self.contacts_enabled = contacts_enabled
         self.calendar_enabled = calendar_enabled
+        self.projects_enabled = projects_enabled
         self.root = current_app.config["DOCUMENT_ROOT"]
         self.store = DocumentStore(self.root)
         self.contacts = ContactStore(self.root)
         self.calendar = CalendarStore(self.root)
         self.todos = TodoStore(self.root)
+        self.projects = ProjectStore(self.root)
         self.vfs = VirtualFileSystem.from_environment(self.root)
         self.actor = f"s3:{username}"
 
@@ -91,6 +94,8 @@ class DocumentObjects:
                 prefixes.append("contacts/")
             if self.documents_enabled:
                 prefixes.extend(("documents/", "inbox/", "tasks/"))
+            if self.projects_enabled:
+                prefixes.append("projects/")
             if self.calendar_enabled:
                 prefixes.append("calendar/")
             data = json.dumps({"schema": "simpleoffice-s3-overlay-v1", "bucket": "simpleoffice",
@@ -127,6 +132,18 @@ class DocumentObjects:
             if task is None:
                 return None
             return self._task_object(key, task)
+        if len(parts) == 2 and parts[0] == "projects" and parts[1].endswith(".json"):
+            if not self.projects_enabled:
+                return None
+            project_id = parts[1][:-5]
+            project = next((row for row in self.projects.projects() if row.get("project_id") == project_id), None)
+            if project is None:
+                return None
+            tasks = [task for task in self.todos.items(self.username) if task.get("project_id") == project_id]
+            payload = self._project_json(project, tasks)
+            modified = _timestamp(project.get("updated_at") or project.get("created_at"))
+            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
+                            "application/json", payload)
         if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
             path = "inbox/" + "/".join(parts[2:])
             try:
@@ -184,6 +201,17 @@ class DocumentObjects:
         return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
                         "text/calendar; charset=utf-8", payload)
 
+    @staticmethod
+    def _project_json(project: dict[str, Any], tasks: list[dict[str, Any]]) -> bytes:
+        project_fields = ("project_id", "title", "description", "location", "status", "planned_start",
+                          "planned_end", "resources", "created_at", "updated_at")
+        task_fields = ("id", "title", "description", "status", "percent_complete", "priority", "start",
+                       "due", "project_phase", "assigned_to", "predecessors", "result", "created_at", "updated_at")
+        safe_project = {key: project[key] for key in project_fields if key in project}
+        safe_tasks = [{key: task[key] for key in task_fields if key in task} for task in tasks]
+        return json.dumps({"schema": "simpleoffice-project-v1", **safe_project, "tasks": safe_tasks},
+                          ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
     def read_to(self, obj: S3Object, target, *, start: int = 0, length: int | None = None) -> int:
         if obj.body is not None:
             payload = obj.body[start:] if length is None else obj.body[start:start + length]
@@ -204,7 +232,7 @@ class DocumentObjects:
             raise FileNotFoundError("S3 object is unavailable") from exc
 
     def keys(self, *, prefix: str, after: str = "", limit: int = 1000) -> list[S3Object]:
-        """Merge enabled calendar, contact, task, and document projections in key order."""
+        """Merge enabled calendar, contact, task, project, and document projections in key order."""
         found: list[S3Object] = []
         meta = self.resolve("_meta/overlay.json")
         if meta and meta.key.startswith(prefix) and meta.key > after:
@@ -220,6 +248,22 @@ class DocumentObjects:
                 key = f"tasks/{task['id']}.ics"
                 if key.startswith(prefix) and key > after:
                     found.append(self._task_object(key, task))
+                    if len(found) >= limit + 1:
+                        break
+        if self.projects_enabled and (not prefix or "projects/".startswith(prefix) or prefix.startswith("projects/")):
+            task_rows = self.todos.items(self.username)
+            task_by_project: dict[str, list[dict[str, Any]]] = {}
+            for task in task_rows:
+                task_by_project.setdefault(str(task.get("project_id") or ""), []).append(task)
+            projects = sorted(self.projects.projects(), key=lambda project: str(project.get("project_id", "")))
+            for project in projects:
+                key = f"projects/{project['project_id']}.json"
+                if key.startswith(prefix) and key > after:
+                    payload = self._project_json(project, task_by_project.get(str(project["project_id"]), []))
+                    obj = S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
+                                   _timestamp(project.get("updated_at") or project.get("created_at")),
+                                   "application/json", payload)
+                    found.append(obj)
                     if len(found) >= limit + 1:
                         break
         if self.contacts_enabled and (not prefix or "contacts/".startswith(prefix) or prefix.startswith("contacts/")):

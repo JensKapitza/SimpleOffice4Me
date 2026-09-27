@@ -14,6 +14,7 @@ from app.db import ensure_auth_database, get_db
 from app.contact_store import ContactStore
 from app.calendar_store import CalendarStore
 from app.todo_store import TodoStore
+from app.project_store import ProjectStore
 from app.document_store import DocumentStore
 from app.s3_overlay import auth, credentials
 
@@ -262,6 +263,34 @@ class S3OverlayTests(unittest.TestCase):
         self.assertIn(own_key.encode(), listing.data)
         self.assertIn(shared_key.encode(), listing.data)
         self.assertNotIn(private_key.encode(), listing.data)
+
+    def test_project_json_export_is_feature_gated_and_uses_visible_tasks(self):
+        with app.app_context():
+            user_id = get_db().execute("SELECT id FROM user WHERE username='s3-user'").fetchone()["id"]
+            for feature in ("documents", "contacts", "calendar"):
+                get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, feature))
+            get_db().commit()
+
+        project = ProjectStore(self.root / "documents").create_project(
+            {"title": "S3 Projekt", "description": "Sichtbare Beschreibung"}, "s3-user",
+        )
+        TodoStore(self.root / "documents").add(
+            "Projektaufgabe", "s3-user", {"project_id": project["project_id"], "due": "2026-10-05"},
+        )
+        key = f"projects/{project['project_id']}.json"
+        response = self.request("GET", f"/s3/simpleoffice/{key}")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/json", response.mimetype)
+        self.assertIn(b"Sichtbare Beschreibung", response.data)
+        self.assertIn(b"Projektaufgabe", response.data)
+        self.assertNotIn(b"time_groups", response.data)
+
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=projects%2F")
+        self.assertIn(key.encode(), listing.data)
+        with app.app_context():
+            get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, "projects"))
+            get_db().commit()
+        self.assertEqual(403, self.request("GET", f"/s3/simpleoffice/{key}").status_code)
 
     def test_presigned_get_is_read_only_and_verifies_signature(self):
         path = presigned_path("/s3/", self.keypair["access_key"], self.keypair["secret_key"])
