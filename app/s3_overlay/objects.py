@@ -126,11 +126,7 @@ class DocumentObjects:
             task = next((item for item in self.todos.items(self.username) if item.get("id") == item_id), None)
             if task is None:
                 return None
-            from app.caldav import _todo_ics
-            payload = _todo_ics(task).encode("utf-8")
-            modified = _timestamp(task.get("updated_at") or task.get("created_at"))
-            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
-                            "text/calendar; charset=utf-8", payload)
+            return self._task_object(key, task)
         if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
             path = "inbox/" + "/".join(parts[2:])
             try:
@@ -180,6 +176,14 @@ class DocumentObjects:
         except (OSError, ValueError, PermissionError) as exc:
             raise FileNotFoundError("S3 object is unavailable") from exc
 
+    @staticmethod
+    def _task_object(key: str, task: dict[str, Any]) -> S3Object:
+        from app.caldav import _todo_ics
+        payload = _todo_ics(task).encode("utf-8")
+        modified = _timestamp(task.get("updated_at") or task.get("created_at"))
+        return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
+                        "text/calendar; charset=utf-8", payload)
+
     def read_to(self, obj: S3Object, target, *, start: int = 0, length: int | None = None) -> int:
         if obj.body is not None:
             payload = obj.body[start:] if length is None else obj.body[start:start + length]
@@ -211,14 +215,13 @@ class DocumentObjects:
             if calendar_obj:
                 found.append(calendar_obj)
         if self.documents_enabled and (not prefix or "tasks/".startswith(prefix) or prefix.startswith("tasks/")):
-            task_keys = sorted(
-                f"tasks/{task['id']}.ics" for task in self.todos.items(self.username)
-                if f"tasks/{task['id']}.ics".startswith(prefix) and f"tasks/{task['id']}.ics" > after
-            )[:limit + 1]
-            for key in task_keys:
-                obj = self.resolve(key)
-                if obj:
-                    found.append(obj)
+            tasks = sorted(self.todos.items(self.username), key=lambda item: str(item.get("id", "")))
+            for task in tasks:
+                key = f"tasks/{task['id']}.ics"
+                if key.startswith(prefix) and key > after:
+                    found.append(self._task_object(key, task))
+                    if len(found) >= limit + 1:
+                        break
         if self.contacts_enabled and (not prefix or "contacts/".startswith(prefix) or prefix.startswith("contacts/")):
             contact_keys = sorted(
                 f"contacts/{contact['contact_id']}.vcf"
