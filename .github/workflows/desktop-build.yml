@@ -59,6 +59,19 @@ jobs:
           path: desktop/electron/package-lock.json
           if-no-files-found: error
           retention-days: 1
+      - name: Emit generated lockfile for repository pinning
+        if: matrix.artifact == 'linux'
+        working-directory: desktop/electron
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+          encoded = base64.b64encode(Path("package-lock.json").read_bytes()).decode("ascii")
+          for index in range(0, len(encoded), 48000):
+              print(f"SIMPLEOFFICE_LOCK_{index // 48000:04d}={encoded[index:index + 48000]}")
+          print(f"SIMPLEOFFICE_LOCK_CHUNKS={(len(encoded) + 47999) // 48000}")
+          PY
       - name: Synchronize desktop version
         working-directory: desktop/electron
         run: npm run sync:version
