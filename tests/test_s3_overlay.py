@@ -141,6 +141,27 @@ class S3OverlayTests(unittest.TestCase):
         tampered = next_path.replace("continuation-token=", "continuation-token=x")
         self.assertEqual(400, self.request("GET", tampered).status_code)
 
+    def test_list_objects_v2_delimiter_paginates_distinct_prefixes(self):
+        second = self.root / "documents" / "inbox" / "s3-user" / "second.txt"
+        second.parent.mkdir(parents=True, exist_ok=True)
+        second.write_bytes(b"another document")
+        store = DocumentStore(self.root / "documents")
+        store.scan()
+        first_path = "/s3/simpleoffice?list-type=2&max-keys=1&prefix=documents%2F&delimiter=%2F"
+        first = self.request("GET", first_path)
+        self.assertEqual(200, first.status_code)
+        self.assertIn(b"KeyCount>1", first.data)
+        import re
+        prefixes = re.findall(rb"<CommonPrefixes><Prefix>(.*?)</Prefix></CommonPrefixes>", first.data)
+        self.assertEqual(1, len(prefixes))
+        token = re.search(rb"<NextContinuationToken>([^<]+)", first.data).group(1).decode()
+        next_path = f"/s3/simpleoffice?continuation-token={quote(token, safe='')}&list-type=2&max-keys=1&prefix=documents%2F&delimiter=%2F"
+        second_page = self.request("GET", next_path)
+        next_prefixes = re.findall(rb"<CommonPrefixes><Prefix>(.*?)</Prefix></CommonPrefixes>", second_page.data)
+        self.assertEqual(200, second_page.status_code)
+        self.assertEqual(1, len(next_prefixes))
+        self.assertNotEqual(prefixes[0], next_prefixes[0])
+
     def test_presigned_get_is_read_only_and_verifies_signature(self):
         path = presigned_path("/s3/", self.keypair["access_key"], self.keypair["secret_key"])
         self.assertEqual(200, self.client.get(path).status_code)

@@ -165,34 +165,48 @@ def _list_objects(provider: DocumentObjects, identity: dict):
     delimiter = request.args.get("delimiter", "")
     if delimiter and len(delimiter) > 1:
         raise S3Error("InvalidArgument", "delimiter must be one character", 400)
-    rows = provider.keys(prefix=prefix, after=after, limit=max(1, count)) if count else []
-    contents = []
-    common = set()
-    last_key = ""
-    for obj in rows:
-        relative = obj.key[len(prefix):] if obj.key.startswith(prefix) else obj.key
-        if delimiter and delimiter in relative:
-            common.add(prefix + relative.split(delimiter, 1)[0] + delimiter)
-            last_key = obj.key
-            continue
-        contents.append(obj)
-        last_key = obj.key
-        if len(contents) + len(common) >= count:
+    entries = []
+    seen_common = set()
+    seen_entries = set()
+    last_key = after
+    scan_after = after
+    truncated = False
+    batch_size = max(100, min(1000, count + 1))
+    while True:
+        rows = provider.keys(prefix=prefix, after=scan_after, limit=batch_size)
+        if not rows:
             break
-    truncated = len(rows) > len(contents) + len(common) or len(rows) > count
+        for obj in rows:
+            relative = obj.key[len(prefix):] if obj.key.startswith(prefix) else obj.key
+            common_prefix = prefix + relative.split(delimiter, 1)[0] + delimiter if delimiter and delimiter in relative else None
+            entry = ("prefix", common_prefix) if common_prefix is not None else ("object", obj.key)
+            if entry not in seen_entries and (common_prefix is None or common_prefix not in seen_common):
+                if len(entries) >= count:
+                    truncated = True
+                    break
+                seen_entries.add(entry)
+                if common_prefix is not None:
+                    seen_common.add(common_prefix)
+                entries.append((entry[0], common_prefix if common_prefix is not None else obj))
+            last_key = obj.key
+        if truncated or len(rows) <= batch_size:
+            break
+        scan_after = last_key
     encoding = request.args.get("encoding-type") == "url"
     def key_text(value: str) -> str:
         return quote(value, safe="/-_.~") if encoding else value
-    parts = [element("Name", BUCKET), element("Prefix", key_text(prefix)), element("KeyCount", len(contents) + len(common)), element("MaxKeys", count), element("IsTruncated", str(truncated).lower())]
+    parts = [element("Name", BUCKET), element("Prefix", key_text(prefix)), element("KeyCount", len(entries)), element("MaxKeys", count), element("IsTruncated", str(truncated).lower())]
     if request.args.get("continuation-token"):
         parts.append(element("ContinuationToken", request.args["continuation-token"]))
     if truncated and last_key:
         token = _cursor_encode(last_key)
         parts.append(element("NextContinuationToken", token))
-    for obj in contents:
-        parts.append("<Contents>" + element("Key", key_text(obj.key)) + element("LastModified", obj.modified.strftime("%Y-%m-%dT%H:%M:%S.000Z")) + element("ETag", f'"{obj.etag}"') + element("Size", obj.size) + element("StorageClass", "STANDARD") + "</Contents>")
-    for item in sorted(common):
-        parts.append("<CommonPrefixes>" + element("Prefix", key_text(item)) + "</CommonPrefixes>")
+    for kind, value in entries:
+        if kind == "prefix":
+            parts.append("<CommonPrefixes>" + element("Prefix", key_text(value)) + "</CommonPrefixes>")
+        else:
+            obj = value
+            parts.append("<Contents>" + element("Key", key_text(obj.key)) + element("LastModified", obj.modified.strftime("%Y-%m-%dT%H:%M:%S.000Z")) + element("ETag", f'"{obj.etag}"') + element("Size", obj.size) + element("StorageClass", "STANDARD") + "</Contents>")
     parts.append(element("EncodingType", "url") if encoding else "")
     return _response(xml_document("ListBucketResult", "".join(parts)))
 
