@@ -200,7 +200,10 @@ class S3OverlayTests(unittest.TestCase):
         self.assertNotIn(private_key.encode(), listing.data)
         with app.app_context():
             user_id = get_db().execute("SELECT id FROM user WHERE username='s3-user'").fetchone()["id"]
-            get_db().execute("INSERT INTO user_permission(user_id,feature,enabled) VALUES(?,?,0)", (user_id, "contacts"))
+            get_db().execute(
+                "INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)",
+                (user_id, "contacts"),
+            )
             get_db().commit()
         self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{own_key}").status_code)
         hidden_listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=contacts%2F")
