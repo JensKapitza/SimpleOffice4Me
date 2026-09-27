@@ -224,6 +224,16 @@ class StoragePort(Protocol):
     ) -> OperationResult[StoredObject]:
         ...
 
+    def import_stream_at(
+        self,
+        location: StorageLocation,
+        stream: BinaryIO,
+        *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        """Stream a new object to an exact namespace location."""
+        ...
+
     def replace_bytes(
         self,
         object_id: LogicalObjectId,

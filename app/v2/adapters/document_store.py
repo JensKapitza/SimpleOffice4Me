@@ -234,6 +234,29 @@ class DocumentStoreStorageAdapter:
         except (OSError, RuntimeError, ValueError) as exc:
             return self._failure(exc)
 
+    def import_stream_at(
+        self, location: StorageLocation, stream: BinaryIO, *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        try:
+            raw_target = self.store.root / location.relative_path
+            target = raw_target.resolve(strict=False)
+            if self.store.root not in target.parents:
+                raise ValueError("destination is outside the managed document root")
+            parent = raw_target.parent
+            while parent != self.store.root:
+                if parent.is_symlink():
+                    raise ValueError("destination collection cannot contain symlinks")
+                parent = parent.parent
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self.store.ensure_folder_policy(target.parent, self.actor)
+            metadata = self.store.create_document_stream_at(
+                location.relative_path, stream, self.actor, max_bytes=int(max_bytes),
+            )
+            return OperationResult.success(self._stored(metadata))
+        except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
     def replace_bytes(
         self,
         object_id: LogicalObjectId,

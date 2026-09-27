@@ -261,6 +261,55 @@ class V2AuthoritativeStorageAdapter:
             return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection changed object identity")
         return self._compat_result(stored.object_id)
 
+    def import_stream_at(
+        self, location, stream, *, max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            return self._error(ErrorCode.INVALID_INPUT, "upload size limit must be positive")
+        destination = self._projection_destination(location)
+        if not destination.ok:
+            return OperationResult(error=destination.error)
+        source = getattr(stream, "stream", stream)
+        with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b") as spool:
+            total = 0
+            while True:
+                block = source.read(1024 * 1024)
+                if block is None:
+                    return self._error(ErrorCode.INVALID_INPUT, "storage stream returned no bytes")
+                block = bytes(block)
+                if not block:
+                    break
+                total += len(block)
+                if total > max_bytes:
+                    return self._error(ErrorCode.INVALID_INPUT, "stream exceeds configured size limit")
+                spool.write(block)
+            spool.seek(0)
+            primary = self.primary.import_stream_at(location, spool, max_bytes=max_bytes)
+            if not primary.ok:
+                return OperationResult(error=primary.error)
+            stored = primary.value
+            target = self.root / stored.location.relative_path
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                self.store.ensure_folder_policy(target.parent)
+                spool.seek(0)
+                metadata = self.store.create_document_stream_at(
+                    stored.location.relative_path, spool, self.actor,
+                    max_bytes=max_bytes, document_id=stored.object_id.value,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                rolled_back = self._discard_new(stored)
+                if not rolled_back:
+                    return self._error(
+                        ErrorCode.STORAGE_UNAVAILABLE,
+                        "V2 import committed but compatibility projection and rollback failed",
+                        retryable=True,
+                    )
+                return self._projection_failure(exc)
+        if metadata.get("document_id") != stored.object_id.value:
+            return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection changed object identity")
+        return self._compat_result(stored.object_id)
+
     def replace_bytes(
         self,
         object_id: LogicalObjectId,

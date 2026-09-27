@@ -187,6 +187,13 @@ app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
 app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
+app.config['S3_OVERLAY_ENABLED'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_ENABLED', '0').strip().casefold() in {'1', 'true', 'yes', 'on'}
+app.config['S3_OVERLAY_REGION'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_REGION', 'us-east-1').strip() or 'us-east-1'
+try:
+    s3_overlay_upload_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_UPLOAD_MIB', str(app.config['MAX_CONTENT_LENGTH'] // MIB)))
+except ValueError:
+    s3_overlay_upload_mib = app.config['MAX_CONTENT_LENGTH'] // MIB
+app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = min(max(1, s3_overlay_upload_mib), app.config['MAX_CONTENT_LENGTH'] // MIB) * MIB
 app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes()
 app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
 app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
@@ -308,6 +315,9 @@ from . import gamification_routes
 app.register_blueprint(gamification_routes.bp)
 from . import screen_share
 app.register_blueprint(screen_share.bp)
+
+from .s3_overlay import bp as s3_overlay_bp
+app.register_blueprint(s3_overlay_bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
 

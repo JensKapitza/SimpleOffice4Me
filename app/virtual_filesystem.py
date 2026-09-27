@@ -261,6 +261,20 @@ class VirtualFileSystem:
             )
         )
 
+    def copy_verified_range_to(self, actor: str, path: str | Path, target, *, start: int = 0, length: int | None = None):
+        """Copy a range through StoragePort after enforcing the virtual path ACL."""
+        resource = self.require(actor, path, "read")
+        if not resource.is_file() or resource.is_symlink():
+            raise FileNotFoundError(self.relative(resource))
+        resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
+        document = self.store.get_document(resource)
+        return self._storage_value(
+            self._storage(actor).copy_verified_range_to(
+                LogicalObjectId(str(document["document_id"])), target,
+                start=start, length=length,
+            )
+        )
+
     def write_bytes(
         self,
         actor: str,
