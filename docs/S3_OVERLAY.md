@@ -20,8 +20,8 @@ integritätsgeprüft. Range-Reads puffern nur den angeforderten Ausschnitt in
 einem begrenzten Spool und verifizieren trotzdem den vollständigen Blob.
 
 Kontakte, Kalender, Aufgaben, Projekte, Personal, Mail, Geschäftsdaten, Audit,
-Recovery und Federation sind noch keine S3-Provider. Auch ListObjects V1 und
-Multipart-Upload sind noch nicht implementiert. Das Overlay darf deshalb noch
+Recovery und Federation sind noch keine S3-Provider. Multipart-Upload ist noch
+nicht implementiert. Das Overlay darf deshalb noch
 nicht als vollständige Sicht auf alle Anwendungsdaten oder als kompatibel mit
 allen S3-Clients beworben werden. Issue #482 bleibt für diese Ausbau- und
 Gesamtabnahme offen.
@@ -71,6 +71,7 @@ Aktuell unterstützt:
 - `ListBuckets`, `HeadBucket`, `GetBucketLocation`, `GetBucketVersioning`
 - `ListObjectsV2` mit Prefix, Delimiter, MaxKeys, StartAfter,
   ContinuationToken und `encoding-type=url`
+- `ListObjects` V1 mit Prefix, Delimiter, MaxKeys und Marker
 - `HeadObject`, `GetObject`, einzelne Byte-Range-Requests sowie If-Match,
   If-None-Match, If-Modified-Since und If-Unmodified-Since
 - `PutObject` ausschließlich für neue Inbox-Inhalte

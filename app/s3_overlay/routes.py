@@ -149,8 +149,10 @@ def _cursor_encode(key: str) -> str:
 
 
 def _list_objects(provider: DocumentObjects, identity: dict):
-    if "list-type" in request.args and request.args.get("list-type") != "2":
-        raise S3Error("InvalidArgument", "Only ListObjectsV2 is supported", 400)
+    list_type = request.args.get("list-type")
+    if list_type not in {None, "2"}:
+        raise S3Error("InvalidArgument", "The requested ListObjects version is not supported", 400)
+    legacy = list_type is None
     try:
         count = int(request.args.get("max-keys", "1000"))
     except ValueError as exc:
@@ -161,7 +163,10 @@ def _list_objects(provider: DocumentObjects, identity: dict):
     access_prefix = identity.get("prefix", "")
     if access_prefix and not prefix.startswith(access_prefix):
         prefix = access_prefix
-    after = _cursor_decode(request.args["continuation-token"]) if request.args.get("continuation-token") else request.args.get("start-after", "")
+    if legacy:
+        after = request.args.get("marker", "")
+    else:
+        after = _cursor_decode(request.args["continuation-token"]) if request.args.get("continuation-token") else request.args.get("start-after", "")
     delimiter = request.args.get("delimiter", "")
     if delimiter and len(delimiter) > 1:
         raise S3Error("InvalidArgument", "delimiter must be one character", 400)
@@ -196,11 +201,16 @@ def _list_objects(provider: DocumentObjects, identity: dict):
     def key_text(value: str) -> str:
         return quote(value, safe="/-_.~") if encoding else value
     parts = [element("Name", BUCKET), element("Prefix", key_text(prefix)), element("KeyCount", len(entries)), element("MaxKeys", count), element("IsTruncated", str(truncated).lower())]
-    if request.args.get("continuation-token"):
+    if legacy:
+        parts.append(element("Marker", key_text(request.args.get("marker", ""))))
+    elif request.args.get("continuation-token"):
         parts.append(element("ContinuationToken", request.args["continuation-token"]))
     if truncated and last_key:
-        token = _cursor_encode(last_key)
-        parts.append(element("NextContinuationToken", token))
+        if legacy:
+            parts.append(element("NextMarker", key_text(last_key)))
+        else:
+            token = _cursor_encode(last_key)
+            parts.append(element("NextContinuationToken", token))
     for kind, value in entries:
         if kind == "prefix":
             parts.append("<CommonPrefixes>" + element("Prefix", key_text(value)) + "</CommonPrefixes>")

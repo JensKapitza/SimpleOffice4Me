@@ -162,6 +162,18 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(1, len(next_prefixes))
         self.assertNotEqual(prefixes[0], next_prefixes[0])
 
+    def test_list_objects_v1_marker_paginates(self):
+        prefix = f"documents/{self.document['document_id']}/"
+        first = self.request("GET", f"/s3/simpleoffice?max-keys=1&prefix={quote(prefix, safe='')}")
+        self.assertEqual(200, first.status_code)
+        self.assertIn(b"<ListBucketResult", first.data)
+        import re
+        marker = re.search(rb"<NextMarker>([^<]+)", first.data).group(1).decode()
+        second = self.request("GET", f"/s3/simpleoffice?max-keys=1&marker={quote(marker, safe='')}&prefix={quote(prefix, safe='')}")
+        self.assertEqual(200, second.status_code)
+        self.assertIn(b"original/readme.txt", second.data)
+        self.assertIn(f"<Marker>{marker}</Marker>".encode(), second.data)
+
     def test_presigned_get_is_read_only_and_verifies_signature(self):
         path = presigned_path("/s3/", self.keypair["access_key"], self.keypair["secret_key"])
         self.assertEqual(200, self.client.get(path).status_code)
