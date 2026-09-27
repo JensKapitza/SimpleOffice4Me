@@ -369,6 +369,17 @@ def _serve_object(provider: DocumentObjects, obj, *, head: bool):
 def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
     if not key.startswith("inbox/") or len(key) <= len("inbox/"):
         raise S3Error("AccessDenied", "PUT is allowed only for inbox objects", 403)
+    unsupported_args = {"acl", "tagging", "uploads", "uploadId", "partNumber", "delete"}
+    if unsupported_args.intersection(request.args):
+        raise S3Error("AccessDenied", "This S3 object mutation is not supported", 403)
+    lowered_headers = {name.casefold() for name in request.headers.keys()}
+    if (
+        "x-amz-copy-source" in lowered_headers
+        or "x-amz-tagging" in lowered_headers
+        or "x-amz-acl" in lowered_headers
+        or any(name.startswith("x-amz-grant-") for name in lowered_headers)
+    ):
+        raise S3Error("AccessDenied", "Copy, tagging and ACL mutations are not supported", 403)
     expected_hash = request.headers.get("X-Amz-Content-Sha256", "")
     if not expected_hash or not all(ch in "0123456789abcdefABCDEF" for ch in expected_hash) or len(expected_hash) != 64:
         raise S3Error("InvalidRequest", "A SHA-256 signed payload is required", 400)
