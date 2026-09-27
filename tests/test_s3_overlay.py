@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -468,6 +469,29 @@ class S3OverlayTests(unittest.TestCase):
         self.assertIn(b"SignatureDoesNotMatch", bad.data)
         forbidden = self.request("PUT", "/s3/simpleoffice/documents/nope/original/nope", b"x")
         self.assertEqual(403, forbidden.status_code)
+
+    def test_inbox_put_verifies_optional_sha256_checksum_header(self):
+        body = b"checksum protected upload"
+        checksum = base64.b64encode(hashlib.sha256(body).digest()).decode("ascii")
+        uploaded = self.request(
+            "PUT",
+            "/s3/simpleoffice/inbox/checksum.txt",
+            body,
+            extra={"X-Amz-Checksum-Sha256": checksum},
+        )
+        self.assertEqual(200, uploaded.status_code)
+        self.assertEqual(checksum, uploaded.headers["x-amz-checksum-sha256"])
+
+        bad_checksum = base64.b64encode(hashlib.sha256(b"different").digest()).decode("ascii")
+        rejected = self.request(
+            "PUT",
+            "/s3/simpleoffice/inbox/bad-checksum.txt",
+            body,
+            extra={"X-Amz-Checksum-Sha256": bad_checksum},
+        )
+        self.assertEqual(400, rejected.status_code)
+        self.assertIn(b"<Code>BadDigest</Code>", rejected.data)
+        self.assertFalse((self.root / "documents" / "inbox" / "s3-user" / "bad-checksum.txt").exists())
 
     def test_copy_tagging_acl_multipart_and_delete_mutations_are_rejected(self):
         copy_path = "/s3/simpleoffice/inbox/copied.bin"
