@@ -12,6 +12,7 @@ from urllib.parse import quote, parse_qsl, urlsplit
 from app import app
 from app.db import ensure_auth_database, get_db
 from app.contact_store import ContactStore
+from app.calendar_store import CalendarStore
 from app.document_store import DocumentStore
 from app.s3_overlay import auth, credentials
 
@@ -209,6 +210,34 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{own_key}").status_code)
         hidden_listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=contacts%2F")
         self.assertNotIn(own_key.encode(), hidden_listing.data)
+
+    def test_calendar_ics_export_uses_visibility_and_calendar_permission(self):
+        calendar = CalendarStore(self.root / "documents")
+        calendar.add("Eigener Termin", "Privater Inhalt", "2026-10-01T09:00", "2026-10-01T10:00", "", "s3-user")
+        calendar.add("Fremder Termin", "Nicht freigegeben", "2026-10-02T09:00", "2026-10-02T10:00", "", "other-user")
+        key = "calendar/events.ics"
+
+        first = self.request("GET", f"/s3/simpleoffice/{key}")
+        self.assertEqual(200, first.status_code)
+        self.assertEqual("text/calendar", first.mimetype)
+        self.assertIn(b"SUMMARY:Eigener Termin", first.data)
+        self.assertNotIn(b"Fremder Termin", first.data)
+        second = self.request("GET", f"/s3/simpleoffice/{key}")
+        self.assertEqual(first.data, second.data)
+        self.assertEqual(first.headers["ETag"], second.headers["ETag"])
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=calendar%2F")
+        self.assertIn(key.encode(), listing.data)
+
+        with app.app_context():
+            user_id = get_db().execute("SELECT id FROM user WHERE username='s3-user'").fetchone()["id"]
+            for feature in ("documents", "contacts"):
+                get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, feature))
+            get_db().commit()
+        self.assertEqual(200, self.request("GET", f"/s3/simpleoffice/{key}").status_code)
+        with app.app_context():
+            get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, "calendar"))
+            get_db().commit()
+        self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{key}").status_code)
 
     def test_presigned_get_is_read_only_and_verifies_signature(self):
         path = presigned_path("/s3/", self.keypair["access_key"], self.keypair["secret_key"])

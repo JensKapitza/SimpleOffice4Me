@@ -12,6 +12,7 @@ from flask import current_app
 
 from app.document_store import DocumentStore
 from app.contact_store import ContactStore
+from app.calendar_store import CalendarStore
 from app.safe_paths import resolve_file_under
 from app.virtual_filesystem import VirtualFileSystem
 from app.v2.contracts import LogicalObjectId, StorageLocation
@@ -49,13 +50,16 @@ def _safe_metadata(document: dict[str, Any]) -> bytes:
 class DocumentObjects:
     """Read enabled domain projections through their existing authorization paths."""
 
-    def __init__(self, username: str, *, documents_enabled: bool = True, contacts_enabled: bool = True):
+    def __init__(self, username: str, *, documents_enabled: bool = True, contacts_enabled: bool = True,
+                 calendar_enabled: bool = True):
         self.username = username
         self.documents_enabled = documents_enabled
         self.contacts_enabled = contacts_enabled
+        self.calendar_enabled = calendar_enabled
         self.root = current_app.config["DOCUMENT_ROOT"]
         self.store = DocumentStore(self.root)
         self.contacts = ContactStore(self.root)
+        self.calendar = CalendarStore(self.root)
         self.vfs = VirtualFileSystem.from_environment(self.root)
         self.actor = f"s3:{username}"
 
@@ -85,6 +89,8 @@ class DocumentObjects:
                 prefixes.append("contacts/")
             if self.documents_enabled:
                 prefixes.extend(("documents/", "inbox/"))
+            if self.calendar_enabled:
+                prefixes.append("calendar/")
             data = json.dumps({"schema": "simpleoffice-s3-overlay-v1", "bucket": "simpleoffice",
                                "prefixes": prefixes,
                                "operations": ["ListBuckets", "HeadBucket", "ListObjects", "ListObjectsV2", "HeadObject", "GetObject", "PutObject(inbox only)"]},
@@ -102,6 +108,15 @@ class DocumentObjects:
                 return None
             return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
                             _timestamp(contact.get("updated_at")), "text/vcard; charset=utf-8", payload)
+        if key == "calendar/events.ics":
+            if not self.calendar_enabled:
+                return None
+            events = self.calendar.events(self.username)
+            payload = self.calendar.export_ics(self.username).encode("utf-8")
+            modified = max((_timestamp(event.get("updated_at") or event.get("created_at") or event.get("start"))
+                            for event in events), default=datetime(1970, 1, 1, tzinfo=timezone.utc))
+            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
+                            "text/calendar; charset=utf-8", payload)
         if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
             path = "inbox/" + "/".join(parts[2:])
             try:
@@ -171,11 +186,16 @@ class DocumentObjects:
             raise FileNotFoundError("S3 object is unavailable") from exc
 
     def keys(self, *, prefix: str, after: str = "", limit: int = 1000) -> list[S3Object]:
-        """Merge the enabled contact and document projections in S3 key order."""
+        """Merge enabled calendar, contact, and document projections in key order."""
         found: list[S3Object] = []
         meta = self.resolve("_meta/overlay.json")
         if meta and meta.key.startswith(prefix) and meta.key > after:
             found.append(meta)
+        calendar_key = "calendar/events.ics"
+        if (self.calendar_enabled and calendar_key.startswith(prefix) and calendar_key > after):
+            calendar_obj = self.resolve(calendar_key)
+            if calendar_obj:
+                found.append(calendar_obj)
         if self.contacts_enabled and (not prefix or "contacts/".startswith(prefix) or prefix.startswith("contacts/")):
             contact_keys = sorted(
                 f"contacts/{contact['contact_id']}.vcf"

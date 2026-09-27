@@ -60,7 +60,8 @@ def _authenticate(required_scope: str | None = None) -> tuple[dict, DocumentObje
         raise S3Error("AccessDenied", "S3 access is not available", 403)
     documents_enabled = has_feature(row, "documents")
     contacts_enabled = has_feature(row, "contacts")
-    if not (documents_enabled or contacts_enabled):
+    calendar_enabled = has_feature(row, "calendar")
+    if not (documents_enabled or contacts_enabled or calendar_enabled):
         raise S3Error("AccessDenied", "S3 access is not available", 403)
     if required_scope == "inbox:put" and not documents_enabled:
         raise S3Error("AccessDenied", "Inbox uploads require document access", 403)
@@ -71,7 +72,7 @@ def _authenticate(required_scope: str | None = None) -> tuple[dict, DocumentObje
         if not request.view_args["key"].startswith(key_prefix):
             raise S3Error("NoSuchKey", "The specified key does not exist", 404)
     return identity, DocumentObjects(identity["username"], documents_enabled=documents_enabled,
-                                     contacts_enabled=contacts_enabled)
+                                     contacts_enabled=contacts_enabled, calendar_enabled=calendar_enabled)
 
 
 def _response(payload: str | bytes = b"", status: int = 200, content_type: str = "application/xml; charset=utf-8") -> Response:
