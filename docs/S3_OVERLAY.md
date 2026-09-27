@@ -96,10 +96,12 @@ Aktuell unterstützt:
   If-None-Match, If-Modified-Since und If-Unmodified-Since
 - `PutObject` ausschließlich für neue Inbox-Inhalte
 
-Payloads bei PUT müssen mit SHA-256 signiert sein. Der Upload wird in einem
-begrenzten Spool verarbeitet, nach erfolgreicher Prüfsummenvalidierung über
-`StoragePort.import_stream_at` direkt im persönlichen Inbox-Unterordner
-abgelegt. Wiederholtes PUT desselben Schlüssels mit identischem Inhalt ist
+Payloads bei PUT müssen mit SHA-256 signiert sein. Ein zusätzlich gesendeter
+`x-amz-checksum-sha256` wird ebenfalls geprüft und bei Erfolg in der Antwort
+bestätigt. Der Upload wird in einem begrenzten Spool verarbeitet, nach
+erfolgreicher Prüfsummenvalidierung über `StoragePort.import_stream_at` direkt
+im persönlichen Inbox-Unterordner abgelegt. Wiederholtes PUT desselben
+Schlüssels mit identischem Inhalt ist
 idempotent; anderer Inhalt für denselben Schlüssel wird mit 412 abgelehnt.
 Erfolgreiche Uploads werden mit Principal, Zielschlüssel, Größe und SHA-256 im
 Sicherheitsaudit protokolliert; das Secret bleibt außen vor.
