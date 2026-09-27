@@ -88,22 +88,71 @@ class DocumentObjects:
             return None
         return row if self._authorized(row) else None
 
-    def resolve(self, key: str) -> S3Object | None:
+    def _meta_object(self, key: str) -> S3Object | None:
+        prefixes = ["_meta/"]
+        if self.contacts_enabled:
+            prefixes.extend(("contacts/", "invoices/"))
+        if self.documents_enabled:
+            prefixes.extend(("documents/", "inbox/", "tasks/"))
+        if self.projects_enabled:
+            prefixes.append("projects/")
+        if self.calendar_enabled:
+            prefixes.append("calendar/")
         if key == "_meta/overlay.json":
-            prefixes = ["_meta/"]
-            if self.contacts_enabled:
-                prefixes.extend(("contacts/", "invoices/"))
-            if self.documents_enabled:
-                prefixes.extend(("documents/", "inbox/", "tasks/"))
-            if self.projects_enabled:
-                prefixes.append("projects/")
-            if self.calendar_enabled:
-                prefixes.append("calendar/")
-            data = json.dumps({"schema": "simpleoffice-s3-overlay-v1", "bucket": "simpleoffice",
-                               "prefixes": prefixes,
-                               "operations": ["ListBuckets", "HeadBucket", "ListObjects", "ListObjectsV2", "HeadObject", "GetObject", "PutObject(inbox only)"]},
-                              sort_keys=True, separators=(",", ":")).encode()
-            return S3Object(key, len(data), hashlib.sha256(data).hexdigest(), datetime.now(timezone.utc), "application/json", data)
+            payload = {
+                "schema": "simpleoffice-s3-overlay-v1",
+                "bucket": "simpleoffice",
+                "prefixes": prefixes,
+                "excluded_secret_classes": [
+                    "password-hashes", "session-secrets", "oauth-tokens", "app-passwords",
+                    "s3-secret-keys", "private-keys", "encryption-keys", "recovery-secrets",
+                    "federation-secrets",
+                ],
+                "operations": [
+                    "ListBuckets", "HeadBucket", "GetBucketLocation", "GetBucketVersioning",
+                    "ListObjects", "ListObjectsV2", "HeadObject", "GetObject", "PutObject(inbox only)",
+                ],
+            }
+        elif key == "_meta/schema.json":
+            payload = {
+                "schema": "simpleoffice-s3-schema-v1",
+                "object_schemas": {
+                    "documents/*/metadata.json": "simpleoffice-document-v1",
+                    "contacts/*.vcf": "vCard",
+                    "invoices/*.json": "simpleoffice-invoice-v1",
+                    "calendar/events.ics": "iCalendar",
+                    "tasks/*.ics": "VTODO/iCalendar",
+                    "projects/*.json": "simpleoffice-project-v1",
+                },
+                "encoding": "utf-8",
+                "etag": "sha256-or-authoritative-content-hash",
+            }
+        elif key == "_meta/capabilities.json":
+            payload = {
+                "schema": "simpleoffice-s3-capabilities-v1",
+                "read": [
+                    "ListBuckets", "HeadBucket", "GetBucketLocation", "GetBucketVersioning",
+                    "ListObjects", "ListObjectsV2", "HeadObject", "GetObject", "single-range",
+                    "conditional-get", "presigned-get", "presigned-head",
+                ],
+                "write": ["PutObject:inbox/"],
+                "unsupported_mutations": [
+                    "DeleteObject", "DeleteObjects", "CopyObject", "PutObjectTagging",
+                    "PutBucketAcl", "PutObjectAcl", "CreateBucket", "DeleteBucket",
+                ],
+                "multipart_upload": False,
+                "virtual_hosted_style": False,
+                "path_style": True,
+            }
+        else:
+            return None
+        data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        modified = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        return S3Object(key, len(data), hashlib.sha256(data).hexdigest(), modified, "application/json", data)
+
+    def resolve(self, key: str) -> S3Object | None:
+        if key.startswith("_meta/"):
+            return self._meta_object(key)
         parts = key.split("/")
         if len(parts) == 2 and parts[0] == "contacts" and parts[1].endswith(".vcf"):
             if not self.contacts_enabled:
@@ -314,9 +363,10 @@ class DocumentObjects:
     def keys(self, *, prefix: str, after: str = "", limit: int = 1000) -> list[S3Object]:
         """Merge enabled calendar, contact, task, project, and document projections in key order."""
         found: list[S3Object] = []
-        meta = self.resolve("_meta/overlay.json")
-        if meta and meta.key.startswith(prefix) and meta.key > after:
-            found.append(meta)
+        for meta_key in ("_meta/capabilities.json", "_meta/overlay.json", "_meta/schema.json"):
+            meta = self.resolve(meta_key)
+            if meta and meta.key.startswith(prefix) and meta.key > after:
+                found.append(meta)
         calendar_key = "calendar/events.ics"
         if (self.calendar_enabled and calendar_key.startswith(prefix) and calendar_key > after):
             calendar_obj = self.resolve(calendar_key)
