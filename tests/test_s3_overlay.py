@@ -190,7 +190,8 @@ class S3OverlayTests(unittest.TestCase):
 
         own_card = self.request("GET", f"/s3/simpleoffice/{own_key}")
         self.assertEqual(200, own_card.status_code)
-        self.assertEqual("text/vcard; charset=utf-8", own_card.mimetype)
+        self.assertEqual("text/vcard", own_card.mimetype)
+        self.assertIn("charset=utf-8", own_card.content_type)
         self.assertIn(b"FN:Eigener Kontakt", own_card.data)
         self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{private_key}").status_code)
 
