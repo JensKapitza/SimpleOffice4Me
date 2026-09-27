@@ -199,6 +199,11 @@ try:
 except ValueError:
     s3_overlay_upload_mib = app.config['MAX_CONTENT_LENGTH'] // MIB
 app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = min(max(1, s3_overlay_upload_mib), app.config['MAX_CONTENT_LENGTH'] // MIB) * MIB
+try:
+    s3_overlay_staging_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_STAGING_MIB', '2048'))
+except ValueError:
+    s3_overlay_staging_mib = 2048
+app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, s3_overlay_staging_mib), 65536) * MIB
 app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes()
 app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
 app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()

@@ -7,6 +7,7 @@ import hmac
 import io
 import json
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -24,6 +25,7 @@ from app.db import get_db
 
 from . import auth, credentials
 from .objects import DocumentObjects
+from .multipart import MultipartError, MultipartStore
 from .xml import document as xml_document, element, error as xml_error
 
 
@@ -78,6 +80,14 @@ def _authenticate(required_scope: str | None = None) -> tuple[dict, DocumentObje
                                      projects_enabled=projects_enabled, mail_enabled=mail_enabled)
 
 
+def _multipart_store() -> MultipartStore:
+    return MultipartStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _multipart_request() -> bool:
+    return any(name in request.args for name in ("uploads", "uploadId", "partNumber"))
+
+
 def _response(payload: str | bytes = b"", status: int = 200, content_type: str = "application/xml; charset=utf-8") -> Response:
     response = Response(payload, status=status, content_type=content_type)
     response.headers["x-amz-request-id"] = getattr(g, "request_id", uuid.uuid4().hex)
@@ -114,7 +124,9 @@ def list_buckets():
 @bp.route("/s3/<bucket>/<path:key>", methods=["GET", "HEAD", "PUT", "POST", "DELETE"])
 def bucket_object(bucket: str, key: str):
     method = request.method
-    identity, provider = _authenticate("inbox:put" if method == "PUT" else "read")
+    multipart = _multipart_request()
+    required_scope = "inbox:put" if multipart or method == "PUT" else "read"
+    identity, provider = _authenticate(required_scope)
     if bucket != BUCKET:
         raise S3Error("NoSuchBucket", "The specified bucket does not exist", 404)
     if not key:
@@ -125,11 +137,23 @@ def bucket_object(bucket: str, key: str):
             return _response(xml_document("LocationConstraint", escape(region)))
         if method == "GET" and "versioning" in request.args:
             return _response(xml_document("VersioningConfiguration", ""))
+        if method == "GET" and "uploads" in request.args:
+            return _list_multipart_uploads(identity)
         if method == "GET":
             return _list_objects(provider, identity)
         raise S3Error("MethodNotAllowed", "The requested bucket operation is not supported", 405)
     if method == "PUT":
+        if "uploadId" in request.args or "partNumber" in request.args:
+            return _put_multipart_part(identity, key)
         return _put_inbox(provider, identity, key)
+    if method == "POST" and "uploads" in request.args:
+        return _initiate_multipart(identity, key)
+    if method == "POST" and "uploadId" in request.args:
+        return _complete_multipart(identity, provider, key)
+    if method == "DELETE" and "uploadId" in request.args:
+        return _abort_multipart(identity, key)
+    if method == "GET" and "uploadId" in request.args:
+        return _list_multipart_parts(identity, key)
     if method in {"POST", "DELETE"}:
         raise S3Error("AccessDenied", "This S3 mutation is not supported", 403)
     return _get_object(provider, identity, key, head=method == "HEAD")
@@ -406,14 +430,7 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
     unsupported_args = {"acl", "tagging", "uploads", "uploadId", "partNumber", "delete"}
     if unsupported_args.intersection(request.args):
         raise S3Error("AccessDenied", "This S3 object mutation is not supported", 403)
-    lowered_headers = {name.casefold() for name in request.headers.keys()}
-    if (
-        "x-amz-copy-source" in lowered_headers
-        or "x-amz-tagging" in lowered_headers
-        or "x-amz-acl" in lowered_headers
-        or any(name.startswith("x-amz-grant-") for name in lowered_headers)
-    ):
-        raise S3Error("AccessDenied", "Copy, tagging and ACL mutations are not supported", 403)
+    _reject_copy_acl_headers()
     expected_hash = request.headers.get("X-Amz-Content-Sha256", "")
     if not expected_hash or not all(ch in "0123456789abcdefABCDEF" for ch in expected_hash) or len(expected_hash) != 64:
         raise S3Error("InvalidRequest", "A SHA-256 signed payload is required", 400)
@@ -446,6 +463,8 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
             raise S3Error("BadDigest", "The request body does not match x-amz-checksum-sha256", 400)
         spool.seek(0)
         try:
+            _scan_inbox_upload(spool, identity, key)
+            spool.seek(0)
             doc = provider.put_inbox(key[len("inbox/"):], spool, limit, digest.hexdigest())
         except FileExistsError as exc:
             raise S3Error("PreconditionFailed", "The inbox key already exists", 412) from exc
@@ -463,6 +482,189 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
         return response
     finally:
         spool.close()
+
+
+def _scan_inbox_upload(spool, identity: dict, key: str) -> None:
+    if not current_app.config.get("WEBDAV_UPLOAD_SCAN", False):
+        return
+    from app.attachment_security import AttachmentSecurity, QuarantineCapacityError
+
+    spool.seek(0)
+    try:
+        result = AttachmentSecurity(current_app.config["DOCUMENT_ROOT"]).scan_webdav_upload(
+            spool, f"s3:{identity['username']}", key,
+            max(1, int(current_app.config.get("WEBDAV_QUARANTINE_BYTES", 200 * 1024 * 1024))),
+            source_type="s3-inbox",
+        )
+    except QuarantineCapacityError as exc:
+        raise S3Error("ServiceUnavailable", "The upload scan quarantine is full", 507) from exc
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise S3Error("ServiceUnavailable", "Malware scanner unavailable; upload was not published", 503,
+                      {"Retry-After": "60"}) from exc
+    if result.get("verdict") != "clean":
+        raise S3Error("AccessDenied", "Malware detected; the upload was quarantined", 422)
+    spool.seek(0)
+
+
+def _reject_copy_acl_headers() -> None:
+    lowered = {name.casefold() for name in request.headers.keys()}
+    if ("x-amz-copy-source" in lowered or "x-amz-tagging" in lowered or "x-amz-acl" in lowered
+            or any(name.startswith("x-amz-grant-") for name in lowered)):
+        raise S3Error("AccessDenied", "Copy, tagging and ACL mutations are not supported", 403)
+
+
+def _reject_unsupported_multipart_args(allowed: set[str]) -> None:
+    unsupported = {name.casefold() for name in request.args} - allowed
+    if unsupported.intersection({"acl", "tagging", "delete", "uploads", "uploadid", "partnumber"}):
+        raise S3Error("AccessDenied", "This multipart operation is not supported", 403)
+
+
+def _initiate_multipart(identity: dict, key: str):
+    _reject_copy_acl_headers()
+    _reject_unsupported_multipart_args({"uploads"})
+    store = _multipart_store()
+    try:
+        store.validate_key(key)
+        upload_id = store.initiate(key, identity["username"], identity["access_key"])
+    except MultipartError as exc:
+        raise S3Error("InvalidArgument", str(exc), 400) from exc
+    body = element("Bucket", BUCKET) + element("Key", key) + element("UploadId", upload_id)
+    return _response(xml_document("InitiateMultipartUploadResult", body))
+
+
+def _put_multipart_part(identity: dict, key: str):
+    _reject_copy_acl_headers()
+    _reject_unsupported_multipart_args({"uploadid", "partnumber"})
+    upload_id = request.args.get("uploadId", "")
+    raw_number = request.args.get("partNumber", "")
+    try:
+        part_number = int(raw_number)
+    except ValueError as exc:
+        raise S3Error("InvalidArgument", "partNumber must be an integer", 400) from exc
+    limit = int(current_app.config.get("S3_OVERLAY_MAX_UPLOAD_BYTES", current_app.config.get("MAX_CONTENT_LENGTH", 512 * 1024 * 1024)))
+    expected_hash = request.headers.get("X-Amz-Content-Sha256", "")
+    if not re.fullmatch(r"[A-Fa-f0-9]{64}", expected_hash):
+        raise S3Error("InvalidRequest", "A SHA-256 signed payload is required", 400)
+    if request.content_length is not None and request.content_length > limit:
+        raise S3Error("EntityTooLarge", "The part exceeds the configured upload limit", 413)
+    try:
+        etag, _size = _multipart_store().put_part(
+            key, upload_id, part_number, identity["username"], identity["access_key"],
+            request.stream, limit, expected_hash,
+        )
+    except MultipartError as exc:
+        code, status = ("NoSuchUpload", 404) if "does not exist" in str(exc) else ("InvalidPart", 400)
+        raise S3Error(code, str(exc), status) from exc
+    response = _response(b"")
+    response.headers["ETag"] = f'"{etag}"'
+    return response
+
+
+def _complete_multipart(identity: dict, provider: DocumentObjects, key: str):
+    _reject_copy_acl_headers()
+    _reject_unsupported_multipart_args({"uploadid"})
+    upload_id = request.args.get("uploadId", "")
+    limit = int(current_app.config.get("S3_OVERLAY_MAX_UPLOAD_BYTES", current_app.config.get("MAX_CONTENT_LENGTH", 512 * 1024 * 1024)))
+    if request.content_length is not None and request.content_length > 1024 * 1024:
+        raise S3Error("EntityTooLarge", "The multipart manifest is too large", 413)
+    body = request.get_data(cache=True)
+    expected_hash = request.headers.get("X-Amz-Content-Sha256", "")
+    if not re.fullmatch(r"[A-Fa-f0-9]{64}", expected_hash) or hashlib.sha256(body).hexdigest() != expected_hash.casefold():
+        raise S3Error("BadDigest", "The multipart manifest does not match its signed SHA-256", 400)
+    spool = None
+    try:
+        spool, digest, total, etag = _multipart_store().complete(
+            key, upload_id, identity["username"], identity["access_key"], body, limit,
+        )
+        spool.seek(0)
+        _scan_inbox_upload(spool, identity, key)
+        spool.seek(0)
+        doc = provider.put_inbox(key[len("inbox/"):], spool, limit, digest)
+        actor = get_db().execute("SELECT id, username FROM user WHERE username=?", (identity["username"],)).fetchone()
+        audit("s3_inbox_uploaded", "s3-inbox-upload", str(doc.get("document_id", "")),
+              detail={"key": key, "source": "s3-inbox-multipart", "size": total, "sha256": digest,
+                      "access_key_id": identity["access_key"]}, actor=actor)
+        _multipart_store().finish(upload_id, identity["username"], identity["access_key"], key)
+    except FileExistsError as exc:
+        raise S3Error("PreconditionFailed", "The inbox key already exists", 412) from exc
+    except MultipartError as exc:
+        code, status = ("NoSuchUpload", 404) if "does not exist" in str(exc) else ("InvalidPart", 400)
+        raise S3Error(code, str(exc), status) from exc
+    except ValueError as exc:
+        raise S3Error("InvalidArgument", "The completed inbox upload could not be imported", 400) from exc
+    finally:
+        if spool is not None:
+            spool.close()
+    location = request.url_root.rstrip("/") + S3_PREFIX + "/" + BUCKET + "/" + quote(key, safe="/")
+    response = _response(xml_document("CompleteMultipartUploadResult",
+        element("Location", location) + element("Bucket", BUCKET) + element("Key", key) + element("ETag", f'"{etag}"')))
+    response.headers["ETag"] = f'"{etag}"'
+    return response
+
+
+def _abort_multipart(identity: dict, key: str):
+    try:
+        _multipart_store().abort(request.args.get("uploadId", ""), identity["username"], identity["access_key"], key)
+    except MultipartError as exc:
+        raise S3Error("NoSuchUpload", str(exc), 404) from exc
+    return _response(b"", 204)
+
+
+def _multipart_page_size(name: str, default: int) -> int:
+    try:
+        value = int(request.args.get(name, str(default)))
+    except ValueError as exc:
+        raise S3Error("InvalidArgument", f"{name} must be an integer", 400) from exc
+    if not 0 <= value <= 1000:
+        raise S3Error("InvalidArgument", f"{name} must be between 0 and 1000", 400)
+    return value
+
+
+def _list_multipart_parts(identity: dict, key: str):
+    marker = _multipart_page_size("part-number-marker", 0)
+    max_parts = _multipart_page_size("max-parts", 1000)
+    if max_parts == 0:
+        raise S3Error("InvalidArgument", "max-parts must be at least 1", 400)
+    try:
+        all_rows = _multipart_store().list_parts(request.args.get("uploadId", ""), identity["username"], identity["access_key"], key)
+    except MultipartError as exc:
+        raise S3Error("NoSuchUpload", str(exc), 404) from exc
+    candidates = [row for row in all_rows if row["part_number"] > marker]
+    rows = candidates[:max_parts]
+    truncated = len(candidates) > len(rows)
+    next_marker = rows[-1]["part_number"] if truncated and rows else marker
+    pieces = [element("Bucket", BUCKET), element("Key", key), element("UploadId", request.args.get("uploadId", "")),
+              element("PartNumberMarker", marker), element("NextPartNumberMarker", next_marker),
+              element("MaxParts", max_parts), element("IsTruncated", str(truncated).lower())]
+    for row in rows:
+        updated = datetime.fromtimestamp(row.get("updated_at", 0), timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        pieces.append("<Part>" + element("PartNumber", row["part_number"]) + element("LastModified", updated)
+                      + element("ETag", f'"{row["etag"]}"') + element("Size", row["size"]) + "</Part>")
+    return _response(xml_document("ListPartsResult", "".join(pieces)))
+
+
+def _list_multipart_uploads(identity: dict):
+    prefix = request.args.get("prefix", "")
+    max_uploads = _multipart_page_size("max-uploads", 1000)
+    if max_uploads == 0:
+        raise S3Error("InvalidArgument", "max-uploads must be at least 1", 400)
+    key_marker = request.args.get("key-marker", "")
+    upload_marker = request.args.get("upload-id-marker", "")
+    all_rows = _multipart_store().list_uploads(identity["username"], identity["access_key"], prefix)
+    candidates = [row for row in all_rows if (row["key"], row["upload_id"]) > (key_marker, upload_marker)]
+    rows = candidates[:max_uploads]
+    truncated = len(candidates) > len(rows)
+    next_key = rows[-1]["key"] if truncated and rows else ""
+    next_upload = rows[-1]["upload_id"] if truncated and rows else ""
+    pieces = [element("Bucket", BUCKET), element("KeyMarker", key_marker), element("UploadIdMarker", upload_marker),
+              element("NextKeyMarker", next_key), element("NextUploadIdMarker", next_upload),
+              element("Prefix", prefix), element("MaxUploads", max_uploads), element("IsTruncated", str(truncated).lower())]
+    for row in rows:
+        pieces.append("<Upload>" + element("Key", row["key"]) + element("UploadId", row["upload_id"])
+                      + "<Initiator>" + element("ID", identity["username"]) + "</Initiator>"
+                      + "<Owner>" + element("ID", identity["username"]) + "</Owner>"
+                      + element("StorageClass", "STANDARD") + "</Upload>")
+    return _response(xml_document("ListMultipartUploadsResult", "".join(pieces)))
 
 
 @bp.route("/admin/s3-overlay", methods=["GET", "POST"])

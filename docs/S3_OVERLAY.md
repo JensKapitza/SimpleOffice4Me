@@ -34,8 +34,9 @@ einem begrenzten Spool und verifizieren trotzdem den vollständigen Blob.
 Personal, Geschäftsdaten, Audit, Recovery und Federation sind noch keine
 S3-Provider. Mailkonten und deren archivierte Nachrichten werden nur lesend
 abgebildet; Konto-Einstellungen, Zugangsdaten, Sieve-Skripte und Archivzustände
-bleiben ausgeschlossen. Multipart-Upload ist noch
-nicht implementiert. Das Overlay darf deshalb noch
+bleiben ausgeschlossen. Inbox-Multipart-Uploads werden nur als temporäres,
+Access-Key-gebundenes Staging unterstützt und nach 24 Stunden bereinigt. Das
+Overlay darf deshalb noch
 nicht als vollständige Sicht auf alle Anwendungsdaten oder als kompatibel mit
 allen S3-Clients beworben werden. Issue #482 bleibt für diese Ausbau- und
 Gesamtabnahme offen.
@@ -49,6 +50,7 @@ SIMPLEOFFICE_S3_OVERLAY_ENABLED=true
 SIMPLEOFFICE_S3_OVERLAY_REGION=us-east-1
 SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS=900
 SIMPLEOFFICE_S3_MAX_UPLOAD_MIB=512
+SIMPLEOFFICE_S3_MAX_STAGING_MIB=2048
 ```
 
 Nach einem Neustart lautet die Endpoint-URL `https://<server>/s3`. Path-Style
@@ -58,7 +60,10 @@ Reverse Proxy muss HTTPS korrekt an Flask weitergegeben werden.
 
 Die S3-Grenze kann mit `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` verkleinert werden. Sie
 kann das globale Upload-Limit der Anwendung nicht überschreiten. Ungültige
-Werte fallen auf das globale Limit zurück. Die zulässige SigV4-Uhrabweichung
+Werte fallen auf das globale Limit zurück. `SIMPLEOFFICE_S3_MAX_STAGING_MIB`
+begrenzt den gesamten temporären Multipart-Speicher (Standard 2048 MiB,
+zulässig 64 bis 65536 MiB). Pro Zugang sind höchstens 20 Uploads gleichzeitig
+aktiv. Die zulässige SigV4-Uhrabweichung
 wird mit `SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS` eingestellt, standardmäßig
 900 Sekunden und serverseitig auf maximal 3600 Sekunden begrenzt.
 
@@ -101,6 +106,8 @@ Aktuell unterstützt:
   werden ausgelassen
 - `email/<account-id>/<archive-path>.eml` über die Mail-Berechtigung und die
   Kontoeigentümerschaft; nur EML-Dateien im privaten Archiv werden veröffentlicht
+- `Multipart Initiate/UploadPart/Complete/Abort` ausschließlich für Inbox-Keys;
+  Teile sind SHA-256-signiert, das Staging wird nach 24 Stunden entfernt
 - `exports/` enthält nur die je Feature sichtbaren Datensätze. Die Manifestzeilen
   referenzieren dieselben virtuellen Schlüssel; Exporte werden bei jeder Anfrage
   neu aus den autoritativen Stores erzeugt und nicht dauerhaft zwischengespeichert.
@@ -122,11 +129,11 @@ Erfolgreiche Uploads werden mit Principal, Zielschlüssel, Größe und SHA-256 i
 Sicherheitsaudit protokolliert; das Secret bleibt außen vor.
 
 Delete, Copy, ACL-/Tag-/Policy-Mutationen und PUT außerhalb der Inbox werden
-verweigert. Auch Copy-/Tagging-/ACL-Header auf einem ansonsten zulässigen
-Inbox-PUT sowie Multipart-Subresources werden explizit abgelehnt, damit Clients
-keine nicht ausgeführte S3-Semantik als erfolgreich interpretieren. Multipart-
-Upload ist derzeit nicht verfügbar. Große Clients, die automatisch auf
-Multipart wechseln, können daher noch nicht verwendet werden.
+verweigert. Copy-/Tagging-/ACL-Header werden auch auf Multipart-Anfragen
+abgelehnt. Multipart-Teile werden mit restriktiven Dateirechten temporär
+gestaged und beim Abschluss geordnet über den V2-Inbox-Import übernommen.
+Nicht finale Teile müssen mindestens 5 MiB groß sein; Teilanzahl und Gesamtgröße
+sind begrenzt. Verwaiste Uploads werden nach 24 Stunden entfernt.
 
 ## AWS CLI
 
@@ -166,9 +173,11 @@ funktioniert.
 
 ## Ausstehende Teile aus Issue #482
 
-Für die vollständige Abnahme fehlen mindestens Provider für die übrigen
-autoritativen Datenbereiche, eine sichere Provider-Coverage-Prüfung,
-virtuelle Sammel-Exporte, Multipart-Inbox-Uploads, praktische Tests mit
-AWS CLI/boto3/rclone/MinIO mc sowie die erweiterte Betriebs- und
-Security-Abnahme. ListObjects V1 und die aktuell dokumentierte
-Conditional-Request-Semantik sind bereits implementiert und regressionstestet.
+Für die vollständige Abnahme fehlen Provider für Personal-/Arbeitszeit-, Finanz-,
+Formular-, Rental-, Chat-, Telemetrie-, Bibliotheks-, Telefonie-, Audit-,
+Recovery- und Federation-Daten. Die Coverage-Prüfung markiert diese Quellen als `pending-provider`; sie sind
+noch nicht über S3 verfügbar. Die Prüfung verhindert nur, dass erkannte Stores
+unbemerkt bleiben; sie ersetzt keine dieser Projektionen.
+Praktische Tests mit AWS CLI, boto3, rclone und MinIO mc sowie die erweiterte
+Betriebs- und Security-Abnahme stehen ebenfalls aus. ListObjects V1 und die
+Conditional-Request-Semantik sind implementiert und regressionstestet.

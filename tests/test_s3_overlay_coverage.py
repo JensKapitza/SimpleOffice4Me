@@ -32,8 +32,8 @@ class S3OverlayCoverageTests(unittest.TestCase):
             "Update S3 persistence coverage with a provider or explicit security/ownership exclusion.",
         )
         for module, classification in PERSISTENCE_COVERAGE.items():
-            self.assertTrue(classification.startswith(("provider:", "admin-provider:", "excluded:")), module)
-            if classification.startswith(("admin-provider:", "excluded:")):
+            self.assertTrue(classification.startswith(("provider:", "pending-provider:", "excluded:")), module)
+            if classification.startswith(("pending-provider:", "excluded:")):
                 self.assertGreater(len(classification.split(":", 1)[1].strip()), 12, module)
 
 

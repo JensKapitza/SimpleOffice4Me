@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -120,7 +121,8 @@ class AttachmentSecurity:
         self.registry = self.control / "malware-scan.json"
         self.scanner = scanner or ClamAV()
 
-    def scan_webdav_upload(self, payload: bytes, actor: str, target_path: str, max_quarantine_bytes: int, *, source_type: str = "webdav-put") -> dict[str, Any]:
+    def scan_webdav_upload(self, payload: bytes | BinaryIO, actor: str, target_path: str,
+                           max_quarantine_bytes: int, *, source_type: str = "webdav-put") -> dict[str, Any]:
         """Scan one untrusted PUT body before it can enter the visible tree."""
         if not actor.strip() or not target_path.strip():
             raise ValueError("a named actor and target path are required")
@@ -137,17 +139,30 @@ class AttachmentSecurity:
             if candidate.is_symlink() or not candidate.is_file():
                 raise RuntimeError("WebDAV quarantine contains an unsafe entry")
             used += candidate.stat().st_size
-        if len(payload) > max_quarantine_bytes or used + len(payload) > max_quarantine_bytes:
-            raise QuarantineCapacityError("WebDAV quarantine capacity is exhausted")
         scan_id = uuid.uuid4().hex
         pending = self.webdav_quarantine / f"{scan_id}.pending"
-        with pending.open("xb") as handle:
-            os.chmod(pending, 0o600)
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        digest = hashlib.sha256(payload).hexdigest()
-        base = {"scan_id": scan_id, "scanned_at": utc_now(), "actor": actor, "source_type": source_type, "target_path": target_path, "filename": Path(target_path).name, "size": len(payload), "sha256": digest}
+        source = io.BytesIO(payload) if isinstance(payload, bytes) else payload
+        digest_state = hashlib.sha256()
+        size = 0
+        try:
+            with pending.open("xb") as handle:
+                os.chmod(pending, 0o600)
+                while True:
+                    block = source.read(1024 * 1024)
+                    if not block:
+                        break
+                    size += len(block)
+                    if size > max_quarantine_bytes or used + size > max_quarantine_bytes:
+                        raise QuarantineCapacityError("WebDAV quarantine capacity is exhausted")
+                    digest_state.update(block)
+                    handle.write(block)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except Exception:
+            pending.unlink(missing_ok=True)
+            raise
+        digest = digest_state.hexdigest()
+        base = {"scan_id": scan_id, "scanned_at": utc_now(), "actor": actor, "source_type": source_type, "target_path": target_path, "filename": Path(target_path).name, "size": size, "sha256": digest}
         try:
             verdict = self.scanner.scan(pending)
             if verdict.verdict not in {"clean", "infected"}:
