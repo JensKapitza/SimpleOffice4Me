@@ -58,15 +58,20 @@ def _authenticate(required_scope: str | None = None) -> tuple[dict, DocumentObje
     row = get_db().execute("SELECT * FROM user WHERE username=?", (identity["username"],)).fetchone()
     if row is None or row["is_disabled"]:
         raise S3Error("AccessDenied", "S3 access is not available", 403)
-    if not has_feature(row, "documents"):
+    documents_enabled = has_feature(row, "documents")
+    contacts_enabled = has_feature(row, "contacts")
+    if not (documents_enabled or contacts_enabled):
         raise S3Error("AccessDenied", "S3 access is not available", 403)
+    if required_scope == "inbox:put" and not documents_enabled:
+        raise S3Error("AccessDenied", "Inbox uploads require document access", 403)
     if required_scope and required_scope not in identity["scopes"]:
         raise S3Error("AccessDenied", "The S3 credential lacks the required scope", 403)
     key_prefix = identity.get("prefix", "")
     if key_prefix and request.view_args and request.view_args.get("key"):
         if not request.view_args["key"].startswith(key_prefix):
             raise S3Error("NoSuchKey", "The specified key does not exist", 404)
-    return identity, DocumentObjects(identity["username"])
+    return identity, DocumentObjects(identity["username"], documents_enabled=documents_enabled,
+                                     contacts_enabled=contacts_enabled)
 
 
 def _response(payload: str | bytes = b"", status: int = 200, content_type: str = "application/xml; charset=utf-8") -> Response:
@@ -223,7 +228,7 @@ def _list_objects(provider: DocumentObjects, identity: dict):
 
 def _get_object(provider: DocumentObjects, identity: dict, key: str, *, head: bool):
     key = key.lstrip("/")
-    if key.startswith("_meta/") or key.startswith("documents/"):
+    if key.startswith("_meta/") or key.startswith("documents/") or key.startswith("contacts/"):
         if "read" not in identity["scopes"]:
             raise S3Error("AccessDenied", "The S3 credential lacks read access", 403)
         obj = provider.resolve(key)

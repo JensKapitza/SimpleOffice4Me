@@ -1,14 +1,15 @@
 # S3-Overlay
 
 Das S3-Overlay stellt einen signierten, schreibgeschützten S3-Zugriff auf
-Dokumente bereit. Die einzige unterstützte fachliche Schreiboperation ist ein
+Kontakte und Dokumente bereit. Die einzige unterstützte fachliche Schreiboperation ist ein
 neuer Dateiimport in die Inbox. Dokumentdateien bleiben im vorhandenen
 Dokumentenspeicher; der S3-Zugang ist keine zweite Datenbank und kein Backup.
 
 ## Status und Grenzen
 
-Diese erste Integrationsstufe projiziert ausschließlich:
+Diese Integrationsstufe projiziert:
 
+- `contacts/<contact-id>.vcf` für Kontakte, die der Benutzer lesen darf
 - `_meta/overlay.json`
 - `documents/<document-id>/metadata.json`
 - `documents/<document-id>/original/<filename>`
@@ -19,8 +20,8 @@ Die Datei selbst wird über `StoragePort` gelesen und vor der Ausgabe vollständ
 integritätsgeprüft. Range-Reads puffern nur den angeforderten Ausschnitt in
 einem begrenzten Spool und verifizieren trotzdem den vollständigen Blob.
 
-Kontakte, Kalender, Aufgaben, Projekte, Personal, Mail, Geschäftsdaten, Audit,
-Recovery und Federation sind noch keine S3-Provider. Multipart-Upload ist noch
+Kalender, Aufgaben, Projekte, Personal, Mail, Geschäftsdaten, Audit, Recovery
+und Federation sind noch keine S3-Provider. Multipart-Upload ist noch
 nicht implementiert. Das Overlay darf deshalb noch
 nicht als vollständige Sicht auf alle Anwendungsdaten oder als kompatibel mit
 allen S3-Clients beworben werden. Issue #482 bleibt für diese Ausbau- und
@@ -51,7 +52,7 @@ Administratoren finden die Verwaltung unter **Administration → S3-Overlay**
 oder `/admin/s3-overlay`. Zugänge sind auf 1 bis 365 Tage begrenzt; höchstens
 zehn aktive Zugänge pro Benutzer sind zulässig. Berechtigungen:
 
-- `read`: Dokumente, die der Benutzer auch im virtuellen Dateisystem lesen darf.
+- `read`: Kontakte gemäß Kontaktfreigabe und Dokumente gemäß virtuellem Dateisystem.
 - `inbox:put`: neue Objekte ausschließlich unter `inbox/` importieren.
 - optionaler Key-Prefix: zusätzliche Beschränkung des S3-Namespace.
 
@@ -69,6 +70,8 @@ Aktuell unterstützt:
 - AWS Signature Version 4 im Authorization-Header
 - presigned GET/HEAD-Requests (maximal sieben Tage)
 - `ListBuckets`, `HeadBucket`, `GetBucketLocation`, `GetBucketVersioning`
+- `contacts/<contact-id>.vcf` über die vorhandene Kontaktfreigabe und die
+  konfigurierten vCard-Exportfelder
 - `ListObjectsV2` mit Prefix, Delimiter, MaxKeys, StartAfter,
   ContinuationToken und `encoding-type=url`
 - `ListObjects` V1 mit Prefix, Delimiter, MaxKeys und Marker
@@ -110,7 +113,8 @@ funktioniert.
 
 - Kein anonymes S3.
 - Eine S3-Credential ersetzt keine fachliche Benutzerberechtigung.
-- Listings und Objektzugriffe verwenden die vorhandenen Dokumentordnerrechte.
+- Kontaktzugriffe verwenden vorhandene Kontaktfreigaben; Dokumentzugriffe
+  verwenden die bestehenden Dokumentordnerrechte.
 - Interne Steuerdateien, Geheimnisse und physische Blob-Pfade werden nicht
   projiziert.
 - Dokumente werden vor GET/Range vollständig integritätsgeprüft.

@@ -11,6 +11,7 @@ from urllib.parse import quote, parse_qsl, urlsplit
 
 from app import app
 from app.db import ensure_auth_database, get_db
+from app.contact_store import ContactStore
 from app.document_store import DocumentStore
 from app.s3_overlay import auth, credentials
 
@@ -179,6 +180,31 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(200, second.status_code)
         self.assertIn(b"original/readme.txt", second.data)
         self.assertIn(f"<Marker>{marker}</Marker>".encode(), second.data)
+
+    def test_contacts_vcard_export_uses_contact_sharing_permissions(self):
+        contacts = ContactStore(self.root / "documents")
+        own = contacts.upsert({"display_name": "Eigener Kontakt", "email": "own@example.test"}, "s3-user")
+        private = contacts.upsert({"display_name": "Privater Kontakt", "email": "private@example.test"}, "other-user")
+        own_key = f"contacts/{own['contact_id']}.vcf"
+        private_key = f"contacts/{private['contact_id']}.vcf"
+
+        own_card = self.request("GET", f"/s3/simpleoffice/{own_key}")
+        self.assertEqual(200, own_card.status_code)
+        self.assertEqual("text/vcard; charset=utf-8", own_card.mimetype)
+        self.assertIn(b"FN:Eigener Kontakt", own_card.data)
+        self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{private_key}").status_code)
+
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=contacts%2F")
+        self.assertEqual(200, listing.status_code)
+        self.assertIn(own_key.encode(), listing.data)
+        self.assertNotIn(private_key.encode(), listing.data)
+        with app.app_context():
+            user_id = get_db().execute("SELECT id FROM user WHERE username='s3-user'").fetchone()["id"]
+            get_db().execute("INSERT INTO user_permission(user_id,feature,enabled) VALUES(?,?,0)", (user_id, "contacts"))
+            get_db().commit()
+        self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{own_key}").status_code)
+        hidden_listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=contacts%2F")
+        self.assertNotIn(own_key.encode(), hidden_listing.data)
 
     def test_presigned_get_is_read_only_and_verifies_signature(self):
         path = presigned_path("/s3/", self.keypair["access_key"], self.keypair["secret_key"])

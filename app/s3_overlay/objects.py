@@ -11,6 +11,7 @@ from typing import Any, BinaryIO
 from flask import current_app
 
 from app.document_store import DocumentStore
+from app.contact_store import ContactStore
 from app.safe_paths import resolve_file_under
 from app.virtual_filesystem import VirtualFileSystem
 from app.v2.contracts import LogicalObjectId, StorageLocation
@@ -46,16 +47,21 @@ def _safe_metadata(document: dict[str, Any]) -> bytes:
 
 
 class DocumentObjects:
-    """Read the current document projection through the existing VFS and StoragePort."""
+    """Read enabled domain projections through their existing authorization paths."""
 
-    def __init__(self, username: str):
+    def __init__(self, username: str, *, documents_enabled: bool = True, contacts_enabled: bool = True):
         self.username = username
+        self.documents_enabled = documents_enabled
+        self.contacts_enabled = contacts_enabled
         self.root = current_app.config["DOCUMENT_ROOT"]
         self.store = DocumentStore(self.root)
+        self.contacts = ContactStore(self.root)
         self.vfs = VirtualFileSystem.from_environment(self.root)
         self.actor = f"s3:{username}"
 
     def _authorized(self, document: dict[str, Any]) -> bool:
+        if not self.documents_enabled:
+            return False
         path = str(document.get("last_path") or "")
         if not path or path.startswith("[external]") or document.get("deleted_at"):
             return False
@@ -75,11 +81,22 @@ class DocumentObjects:
     def resolve(self, key: str) -> S3Object | None:
         if key == "_meta/overlay.json":
             data = json.dumps({"schema": "simpleoffice-s3-overlay-v1", "bucket": "simpleoffice",
-                               "prefixes": ["documents/", "inbox/", "_meta/"],
-                               "operations": ["ListBuckets", "HeadBucket", "ListObjectsV2", "HeadObject", "GetObject", "PutObject(inbox only)"]},
+                               "prefixes": ["contacts/", "documents/", "inbox/", "_meta/"],
+                               "operations": ["ListBuckets", "HeadBucket", "ListObjects", "ListObjectsV2", "HeadObject", "GetObject", "PutObject(inbox only)"]},
                               sort_keys=True, separators=(",", ":")).encode()
             return S3Object(key, len(data), hashlib.sha256(data).hexdigest(), datetime.now(timezone.utc), "application/json", data)
         parts = key.split("/")
+        if len(parts) == 2 and parts[0] == "contacts" and parts[1].endswith(".vcf"):
+            if not self.contacts_enabled:
+                return None
+            contact_id = parts[1][:-4]
+            try:
+                contact = self.contacts.get(contact_id, self.username)
+                payload = self.contacts.vcard(contact_id, self.username).encode("utf-8")
+            except (OSError, ValueError):
+                return None
+            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
+                            _timestamp(contact.get("updated_at")), "text/vcard; charset=utf-8", payload)
         if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
             path = "inbox/" + "/".join(parts[2:])
             try:
@@ -149,11 +166,22 @@ class DocumentObjects:
             raise FileNotFoundError("S3 object is unavailable") from exc
 
     def keys(self, *, prefix: str, after: str = "", limit: int = 1000) -> list[S3Object]:
-        """Page by stable document ID from the existing SQLite listing index."""
+        """Merge the enabled contact and document projections in S3 key order."""
         found: list[S3Object] = []
         meta = self.resolve("_meta/overlay.json")
         if meta and meta.key.startswith(prefix) and meta.key > after:
             found.append(meta)
+        if self.contacts_enabled and (not prefix or "contacts/".startswith(prefix) or prefix.startswith("contacts/")):
+            contact_keys = sorted(
+                f"contacts/{contact['contact_id']}.vcf"
+                for contact in self.contacts.contacts(self.username)
+                if f"contacts/{contact['contact_id']}.vcf".startswith(prefix)
+                and f"contacts/{contact['contact_id']}.vcf" > after
+            )
+            for key in contact_keys[:limit + 1]:
+                obj = self.resolve(key)
+                if obj:
+                    found.append(obj)
         start_id = ""
         marker_parts = after.split("/")
         if len(marker_parts) > 1 and marker_parts[0] == "documents":
