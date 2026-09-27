@@ -153,6 +153,14 @@ jobs:
           print(importlib.metadata.version("simpleoffice4me"))
           print("offline payload ok")
           PY
+
+          cd /tmp/root/opt/simpleoffice4me
+          MASTER_STATUS="$(/tmp/venv/bin/python -m tools.launcher master-status)"
+          printf '%s\n' "$MASTER_STATUS"
+          printf '%s\n' "$MASTER_STATUS" | grep -F 'Status: gesetzt'
+          printf '%s\n' "$MASTER_STATUS" | grep -F 'Rolle: Server/Lizenz-Master'
+          printf '%s\n' "$MASTER_STATUS" | grep -F 'Oeffentliche Server-URL: https://ci.simpleoffice4me.invalid'
+          printf '%s\n' "$MASTER_STATUS" | grep -F 'Peer-ID: license-master-ci'
           INNER
 
       - name: Upload server DEB
