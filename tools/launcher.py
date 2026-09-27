@@ -13,6 +13,7 @@ import errno
 import json
 import os
 import re
+import runpy
 import signal
 import socket
 import subprocess
@@ -32,15 +33,14 @@ _SAFE_REGION = re.compile(r"[a-z0-9_-]{1,80}\Z")
 
 def master_identity_status() -> dict[str, object]:
     """Return the immutable master identity compiled into this package."""
-    from app.build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_PEER_ID, LICENSE_MASTER_URL
-
-    url = str(LICENSE_MASTER_URL or "").strip()
-    peer_id = str(LICENSE_MASTER_PEER_ID or "").strip()
+    values = runpy.run_path(str(PROJECT_ROOT / "app" / "build_master.py"))
+    url = str(values.get("LICENSE_MASTER_URL") or "").strip()
+    peer_id = str(values.get("LICENSE_MASTER_PEER_ID") or "").strip()
     return {
         "configured": bool(url and peer_id),
         "url": url,
         "peer_id": peer_id,
-        "is_master": bool(LICENSE_MASTER_MODE),
+        "is_master": bool(values.get("LICENSE_MASTER_MODE")),
     }
 
 
@@ -373,10 +373,10 @@ def main() -> None:
         default="start",
     )
     args = parser.parse_args()
-    from tools import service_control
     if args.command == "master-status":
         print_master_identity_status()
         return
+    from tools import service_control
     if args.command == "status":
         print("Laufende Dienste: " + (", ".join(service_control.running_roles()) or "keine"))
         print_master_identity_status()
