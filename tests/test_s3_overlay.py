@@ -11,7 +11,7 @@ from urllib.parse import quote, parse_qsl, urlsplit
 from app import app
 from app.db import ensure_auth_database, get_db
 from app.document_store import DocumentStore
-from app.s3_overlay import credentials
+from app.s3_overlay import auth, credentials
 
 
 def _signing_key(secret: str, day: str, region: str = "us-east-1") -> bytes:
@@ -100,6 +100,22 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(b"overlay", ranged.data)
         self.assertEqual("bytes 3-9/20", ranged.headers["Content-Range"])
 
+    def test_http_date_conditionals_and_unsatisfied_range_headers(self):
+        key = f"documents/{self.document['document_id']}/original/readme.txt"
+        path = "/s3/simpleoffice/" + key
+        head = self.request("HEAD", path)
+        last_modified = head.headers["Last-Modified"]
+        not_modified = self.request("GET", path, extra={"If-Modified-Since": last_modified})
+        self.assertEqual(304, not_modified.status_code)
+        self.assertIn("ETag", not_modified.headers)
+        not_changed = self.request("GET", path, extra={"If-Unmodified-Since": last_modified})
+        self.assertEqual(200, not_changed.status_code)
+        changed = self.request("GET", path, extra={"If-Unmodified-Since": "Sun, 06 Nov 1994 08:49:37 GMT"})
+        self.assertEqual(412, changed.status_code)
+        invalid = self.request("GET", path, extra={"Range": "bytes=999-"})
+        self.assertEqual(416, invalid.status_code)
+        self.assertEqual("bytes */20", invalid.headers["Content-Range"])
+
     def test_inbox_put_is_idempotent_and_rejects_different_content(self):
         path = "/s3/simpleoffice/inbox/from-client.txt"
         uploaded = self.request("PUT", path, b"incoming bytes")
@@ -140,6 +156,13 @@ class S3OverlayTests(unittest.TestCase):
         self.assertIn(b"SignatureDoesNotMatch", bad.data)
         forbidden = self.request("PUT", "/s3/simpleoffice/documents/nope/original/nope", b"x")
         self.assertEqual(403, forbidden.status_code)
+
+    def test_authorization_parser_bounds_untrusted_header_length(self):
+        header = "AWS4-HMAC-SHA256 " + ("  " * 3000) + "Credential=x, SignedHeaders=host, Signature=s"
+        parsed = auth._authorization_fields(header)
+        self.assertEqual("x", parsed["Credential"])
+        with self.assertRaises(auth.SignatureError):
+            auth._authorization_fields("AWS4-HMAC-SHA256 " + (" " * 8192))
 
     def test_secret_is_encrypted_at_rest_and_revocation_takes_effect(self):
         secret = self.keypair["secret_key"].encode()

@@ -71,8 +71,8 @@ Aktuell unterstützt:
 - `ListBuckets`, `HeadBucket`, `GetBucketLocation`, `GetBucketVersioning`
 - `ListObjectsV2` mit Prefix, Delimiter, MaxKeys, StartAfter,
   ContinuationToken und `encoding-type=url`
-- `HeadObject`, `GetObject`, einzelne Byte-Range-Requests sowie If-Match und
-  If-None-Match
+- `HeadObject`, `GetObject`, einzelne Byte-Range-Requests sowie If-Match,
+  If-None-Match, If-Modified-Since und If-Unmodified-Since
 - `PutObject` ausschließlich für neue Inbox-Inhalte
 
 Payloads bei PUT müssen mit SHA-256 signiert sein. Der Upload wird in einem
@@ -111,6 +111,7 @@ funktioniert.
 - Interne Steuerdateien, Geheimnisse und physische Blob-Pfade werden nicht
   projiziert.
 - Dokumente werden vor GET/Range vollständig integritätsgeprüft.
+- Nicht erfüllbare Byte-Ranges liefern `416` mit `Content-Range: bytes */<size>`.
 - Upload-Schlüssel werden validiert; gleiche Zielschlüssel überschreiben keine
   Inbox-Dateien.
 - S3-Zugangsdaten und Secrets werden nicht in Auditdetails oder Logs abgelegt.

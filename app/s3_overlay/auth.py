@@ -12,7 +12,8 @@ from flask import current_app, request
 
 from . import credentials
 
-_AUTH = re.compile(r"^AWS4-HMAC-SHA256\s+(.+)$")
+_AUTH_PREFIX = "AWS4-HMAC-SHA256"
+_MAX_AUTH_HEADER_LENGTH = 8192
 _MAX_SKEW_SECONDS = 900
 _MAX_PRESIGN_SECONDS = 7 * 24 * 3600
 
@@ -56,11 +57,19 @@ def _canonical_headers(names: list[str]) -> str:
 
 
 def _authorization_fields(value: str) -> dict[str, str]:
-    match = _AUTH.fullmatch(value or "")
-    if not match:
+    value = value or ""
+    if len(value) > _MAX_AUTH_HEADER_LENGTH:
+        raise SignatureError("S3 authorization header is too large")
+    if not value.startswith(_AUTH_PREFIX):
         raise SignatureError("S3 authentication required")
+    remainder = value[len(_AUTH_PREFIX):]
+    if not remainder or remainder[0] not in " \t":
+        raise SignatureError("S3 authentication required")
+    payload = remainder.lstrip(" \t")
+    if not payload:
+        raise SignatureError("Malformed S3 authorization header")
     fields = {}
-    for part in match.group(1).split(","):
+    for part in payload.split(","):
         key, separator, item = part.strip().partition("=")
         if not separator or key in fields:
             raise SignatureError("Malformed S3 authorization header")

@@ -11,6 +11,7 @@ import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 from xml.sax.saxutils import escape
 
@@ -32,10 +33,11 @@ BUCKET = "simpleoffice"
 
 
 class S3Error(Exception):
-    def __init__(self, code: str, message: str, status: int):
+    def __init__(self, code: str, message: str, status: int, headers: dict[str, str] | None = None):
         self.code = code
         self.message = message
         self.status = status
+        self.headers = headers or {}
 
 
 def _enabled() -> bool:
@@ -76,7 +78,9 @@ def _response(payload: str | bytes = b"", status: int = 200, content_type: str =
 
 @bp.errorhandler(S3Error)
 def _s3_error(exc: S3Error):
-    return _response(xml_error(exc.code, exc.message, getattr(g, "request_id", "unknown")), exc.status)
+    response = _response(xml_error(exc.code, exc.message, getattr(g, "request_id", "unknown")), exc.status)
+    response.headers.update(exc.headers)
+    return response
 
 
 @bp.errorhandler(RequestEntityTooLarge)
@@ -217,34 +221,81 @@ def _get_object(provider: DocumentObjects, identity: dict, key: str, *, head: bo
     return _serve_object(provider, obj, head=head)
 
 
+def _http_date(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _etag_matches(header: str, tag: str, *, weak: bool = False) -> bool:
+    for candidate in header.split(","):
+        candidate = candidate.strip()
+        if candidate == "*":
+            return True
+        if weak:
+            candidate = candidate[2:] if candidate.startswith("W/") else candidate
+            comparison = tag[2:] if tag.startswith("W/") else tag
+        else:
+            comparison = tag
+        if candidate == comparison:
+            return True
+    return False
+
+
+def _range_error(message: str, size: int) -> S3Error:
+    return S3Error("InvalidRange", message, 416, {"Content-Range": f"bytes */{size}"})
+
+
 def _serve_object(provider: DocumentObjects, obj, *, head: bool):
     tag = f'"{obj.etag}"'
-    if request.headers.get("If-Match") and request.headers["If-Match"] not in {tag, "*"}:
+    if_match = request.headers.get("If-Match", "")
+    if if_match and not _etag_matches(if_match, tag):
         raise S3Error("PreconditionFailed", "If-Match condition failed", 412)
-    if request.headers.get("If-None-Match") in {tag, "*"}:
-        return _response(b"", 304)
+    if_unmodified = _http_date(request.headers.get("If-Unmodified-Since", ""))
+    if not if_match and if_unmodified and obj.modified.replace(microsecond=0) > if_unmodified:
+        raise S3Error("PreconditionFailed", "If-Unmodified-Since condition failed", 412)
+    if_none_match = request.headers.get("If-None-Match", "")
+    if if_none_match and _etag_matches(if_none_match, tag, weak=True):
+        response = _response(b"", 304)
+        response.headers.update({"ETag": tag, "Last-Modified": obj.modified.strftime("%a, %d %b %Y %H:%M:%S GMT")})
+        return response
+    if_modified = _http_date(request.headers.get("If-Modified-Since", ""))
+    if not if_none_match and if_modified and obj.modified.replace(microsecond=0) <= if_modified:
+        response = _response(b"", 304)
+        response.headers.update({"ETag": tag, "Last-Modified": obj.modified.strftime("%a, %d %b %Y %H:%M:%S GMT")})
+        return response
     status = 200
     start = 0
     end = obj.size - 1
     range_header = request.headers.get("Range", "")
     if not head and range_header:
         if not range_header.startswith("bytes=") or "," in range_header:
-            raise S3Error("InvalidRange", "Only one byte range is supported", 416)
+            raise _range_error("Only one byte range is supported", obj.size)
         start_text, sep, end_text = range_header[6:].partition("-")
         if not sep:
-            raise S3Error("InvalidRange", "The byte range is invalid", 416)
+            raise _range_error("The byte range is invalid", obj.size)
         try:
             if not start_text:
                 suffix = int(end_text)
+                if suffix <= 0:
+                    raise ValueError("suffix must be positive")
                 start = max(0, obj.size - suffix)
                 end = obj.size - 1
             else:
                 start = int(start_text)
                 end = min(int(end_text), obj.size - 1) if end_text else obj.size - 1
         except ValueError as exc:
-            raise S3Error("InvalidRange", "The byte range is invalid", 416) from exc
+            raise _range_error("The byte range is invalid", obj.size) from exc
         if start < 0 or end < start or start >= obj.size:
-            raise S3Error("InvalidRange", "The requested range is not satisfiable", 416)
+            raise _range_error("The requested range is not satisfiable", obj.size)
         status = 206
     selected_length = 0 if head else (end - start + 1 if status == 206 else obj.size)
     if head:
