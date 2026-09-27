@@ -40,6 +40,7 @@ Das Overlay ist standardmäßig deaktiviert. In der Serverumgebung setzen:
 ```text
 SIMPLEOFFICE_S3_OVERLAY_ENABLED=true
 SIMPLEOFFICE_S3_OVERLAY_REGION=us-east-1
+SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS=900
 SIMPLEOFFICE_S3_MAX_UPLOAD_MIB=512
 ```
 
@@ -50,7 +51,9 @@ Reverse Proxy muss HTTPS korrekt an Flask weitergegeben werden.
 
 Die S3-Grenze kann mit `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` verkleinert werden. Sie
 kann das globale Upload-Limit der Anwendung nicht überschreiten. Ungültige
-Werte fallen auf das globale Limit zurück.
+Werte fallen auf das globale Limit zurück. Die zulässige SigV4-Uhrabweichung
+wird mit `SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS` eingestellt, standardmäßig
+900 Sekunden und serverseitig auf maximal 3600 Sekunden begrenzt.
 
 ## S3-Zugänge verwalten
 
