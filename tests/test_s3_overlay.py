@@ -5,7 +5,7 @@ import hmac
 import json
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, parse_qsl, urlsplit
 
@@ -26,8 +26,9 @@ def _signing_key(secret: str, day: str, region: str = "us-east-1") -> bytes:
     return sign(sign(sign(key, region), "s3"), "aws4_request")
 
 
-def signed_headers(method: str, path: str, access: str, secret: str, body: bytes = b"", extra: dict | None = None) -> dict:
-    date = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+def signed_headers(method: str, path: str, access: str, secret: str, body: bytes = b"", extra: dict | None = None,
+                   date: str | None = None) -> dict:
+    date = date or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     day = date[:8]
     payload_hash = hashlib.sha256(body).hexdigest()
     headers = {"Host": "localhost", "X-Amz-Date": date, "X-Amz-Content-Sha256": payload_hash, **(extra or {})}
@@ -43,14 +44,14 @@ def signed_headers(method: str, path: str, access: str, secret: str, body: bytes
     return headers
 
 
-def presigned_path(path: str, access: str, secret: str) -> str:
+def presigned_path(path: str, access: str, secret: str, *, method: str = "GET") -> str:
     date = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     day = date[:8]
     scope = f"{day}/us-east-1/s3/aws4_request"
     params = {"X-Amz-Algorithm": "AWS4-HMAC-SHA256", "X-Amz-Credential": f"{access}/{scope}",
               "X-Amz-Date": date, "X-Amz-Expires": "300", "X-Amz-SignedHeaders": "host"}
     canonical_query = "&".join(f"{quote(k, safe='-_.~')}={quote(v, safe='-_.~')}" for k, v in sorted(params.items()))
-    canonical = "\n".join(("GET", path, canonical_query, "host:localhost\n", "host", "UNSIGNED-PAYLOAD"))
+    canonical = "\n".join((method, path, canonical_query, "host:localhost\n", "host", "UNSIGNED-PAYLOAD"))
     string_to_sign = "\n".join(("AWS4-HMAC-SHA256", date, scope, hashlib.sha256(canonical.encode()).hexdigest()))
     params["X-Amz-Signature"] = hmac.new(_signing_key(secret, day), string_to_sign.encode(), hashlib.sha256).hexdigest()
     encoded = "&".join(f"{quote(k, safe='-_.~')}={quote(v, safe='-_.~')}" for k, v in sorted(params.items()))
@@ -396,6 +397,34 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(200, self.client.get(path).status_code)
         forbidden = presigned_path("/s3/simpleoffice/inbox/a", self.keypair["access_key"], self.keypair["secret_key"])
         self.assertEqual(403, self.client.put(forbidden, data=b"data").status_code)
+
+    def test_presigned_head_and_configured_clock_skew(self):
+        key = f"documents/{self.document['document_id']}/original/readme.txt"
+        object_path = "/s3/simpleoffice/" + key
+        head_path = presigned_path(object_path, self.keypair["access_key"], self.keypair["secret_key"], method="HEAD")
+        head = self.client.head(head_path)
+        self.assertEqual(200, head.status_code)
+        self.assertEqual("20", head.headers["Content-Length"])
+
+        old_skew = app.config.get("S3_OVERLAY_CLOCK_SKEW_SECONDS")
+        try:
+            app.config["S3_OVERLAY_CLOCK_SKEW_SECONDS"] = 1
+            stale_date = (datetime.now(timezone.utc) - timedelta(seconds=10)).strftime("%Y%m%dT%H%M%SZ")
+            headers = signed_headers(
+                "GET",
+                object_path,
+                self.keypair["access_key"],
+                self.keypair["secret_key"],
+                date=stale_date,
+            )
+            stale = self.client.get(object_path, headers=headers)
+            self.assertEqual(403, stale.status_code)
+            self.assertIn(b"outside the allowed clock skew", stale.data)
+        finally:
+            if old_skew is None:
+                app.config.pop("S3_OVERLAY_CLOCK_SKEW_SECONDS", None)
+            else:
+                app.config["S3_OVERLAY_CLOCK_SKEW_SECONDS"] = old_skew
 
     def test_bad_signature_and_forbidden_write_are_rejected(self):
         path = "/s3/simpleoffice/documents/missing/original/x.bin"
