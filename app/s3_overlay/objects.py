@@ -5,7 +5,7 @@ import hashlib
 import json
 import mimetypes
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -125,7 +125,7 @@ class DocumentObjects:
                 return None
             payload = self._invoice_json(invoice_row)
             return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
-                            _timestamp(invoice_row.get("updated_at") or invoice_row.get("issue_date")),
+                            self._invoice_modified(invoice_row),
                             "application/json", payload)
         if key == "calendar/events.ics":
             if not self.calendar_enabled:
@@ -271,6 +271,17 @@ class DocumentObjects:
         return json.dumps({"schema": "simpleoffice-invoice-v1", **payload}, ensure_ascii=False,
                           sort_keys=True, separators=(",", ":")).encode("utf-8")
 
+    @staticmethod
+    def _invoice_modified(invoice: dict[str, Any]) -> datetime:
+        modified = _timestamp(invoice.get("updated_at") or invoice.get("issue_date"))
+        if invoice.get("payment_state", {}).get("status") == "overdue":
+            try:
+                overdue_since = _timestamp(invoice["due_date"]) + timedelta(days=1)
+                modified = max(modified, overdue_since)
+            except (KeyError, TypeError, ValueError):
+                pass
+        return modified
+
     @classmethod
     def _project_object(cls, key: str, project: dict[str, Any], tasks: list[dict[str, Any]]) -> S3Object:
         payload = cls._project_json(project, tasks)
@@ -349,7 +360,7 @@ class DocumentObjects:
                 if key.startswith(prefix) and key > after:
                     payload = self._invoice_json(invoice)
                     found.append(S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
-                                          _timestamp(invoice.get("updated_at") or invoice.get("issue_date")),
+                                          self._invoice_modified(invoice),
                                           "application/json", payload))
                     if len(found) >= limit + 1:
                         break
