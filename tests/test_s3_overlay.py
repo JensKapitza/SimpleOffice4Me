@@ -90,6 +90,36 @@ class S3OverlayTests(unittest.TestCase):
         headers = signed_headers(method, path, self.keypair["access_key"], self.keypair["secret_key"], body, extra)
         return self.client.open(path, method=method, data=body, headers=headers)
 
+    def test_meta_schema_and_capabilities_are_stable_and_listed(self):
+        overlay = self.request("GET", "/s3/simpleoffice/_meta/overlay.json")
+        schema = self.request("GET", "/s3/simpleoffice/_meta/schema.json")
+        capabilities = self.request("GET", "/s3/simpleoffice/_meta/capabilities.json")
+        self.assertEqual(200, overlay.status_code)
+        self.assertEqual(200, schema.status_code)
+        self.assertEqual(200, capabilities.status_code)
+
+        overlay_payload = overlay.get_json()
+        schema_payload = schema.get_json()
+        capabilities_payload = capabilities.get_json()
+        self.assertEqual("simpleoffice-s3-overlay-v1", overlay_payload["schema"])
+        self.assertIn("password-hashes", overlay_payload["excluded_secret_classes"])
+        self.assertEqual("simpleoffice-s3-schema-v1", schema_payload["schema"])
+        self.assertEqual("simpleoffice-s3-capabilities-v1", capabilities_payload["schema"])
+        self.assertFalse(capabilities_payload["multipart_upload"])
+        self.assertTrue(capabilities_payload["path_style"])
+        self.assertFalse(capabilities_payload["virtual_hosted_style"])
+
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=_meta%2F")
+        self.assertEqual(200, listing.status_code)
+        self.assertIn(b"_meta/overlay.json", listing.data)
+        self.assertIn(b"_meta/schema.json", listing.data)
+        self.assertIn(b"_meta/capabilities.json", listing.data)
+
+        repeated = self.request("GET", "/s3/simpleoffice/_meta/capabilities.json")
+        self.assertEqual(capabilities.data, repeated.data)
+        self.assertEqual(capabilities.headers["ETag"], repeated.headers["ETag"])
+        self.assertEqual(capabilities.headers["Last-Modified"], repeated.headers["Last-Modified"])
+
     def test_sigv4_lists_and_reads_document_with_range_and_head(self):
         bucket = self.request("GET", "/s3/")
         self.assertEqual(200, bucket.status_code)
