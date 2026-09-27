@@ -232,7 +232,7 @@ class S3OverlayTests(unittest.TestCase):
 
         with app.app_context():
             user_id = get_db().execute("SELECT id FROM user WHERE username='s3-user'").fetchone()["id"]
-            for feature in ("documents", "contacts"):
+            for feature in ("documents", "contacts", "projects"):
                 get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, feature))
             get_db().commit()
         self.assertEqual(200, self.request("GET", f"/s3/simpleoffice/{key}").status_code)
