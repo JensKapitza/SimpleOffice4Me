@@ -166,6 +166,28 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(json.loads(event["detail"])["source"], "s3-inbox")
         self.assertNotIn(self.keypair["secret_key"], event["detail"])
 
+    def test_list_objects_v2_zero_limit_and_response_selection_fields(self):
+        zero = self.request("GET", "/s3/simpleoffice?list-type=2&max-keys=0")
+        self.assertEqual(200, zero.status_code)
+        self.assertIn(b"<KeyCount>0</KeyCount>", zero.data)
+        self.assertIn(b"<MaxKeys>0</MaxKeys>", zero.data)
+        self.assertIn(b"<IsTruncated>false</IsTruncated>", zero.data)
+        self.assertNotIn(b"<Contents>", zero.data)
+        self.assertNotIn(b"<NextContinuationToken>", zero.data)
+
+        selected = self.request(
+            "GET",
+            "/s3/simpleoffice?list-type=2&delimiter=%2F&encoding-type=url&start-after=_meta%2Fcapabilities.json",
+        )
+        self.assertEqual(200, selected.status_code)
+        self.assertIn(b"<Delimiter>%2F</Delimiter>", selected.data)
+        self.assertIn(b"<EncodingType>url</EncodingType>", selected.data)
+        self.assertIn(b"<StartAfter>_meta%2Fcapabilities.json</StartAfter>", selected.data)
+
+        invalid_encoding = self.request("GET", "/s3/simpleoffice?list-type=2&encoding-type=invalid")
+        self.assertEqual(400, invalid_encoding.status_code)
+        self.assertIn(b"<Code>InvalidArgument</Code>", invalid_encoding.data)
+
     def test_list_objects_v2_paginates_and_checks_continuation_token(self):
         prefix = f"documents/{self.document['document_id']}/"
         first_path = f"/s3/simpleoffice?list-type=2&max-keys=1&prefix={quote(prefix, safe='')}"
