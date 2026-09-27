@@ -14,7 +14,9 @@ Diese Integrationsstufe projiziert:
 - `calendar/events.ics` für sichtbare Termine mit aktiver Kalender-Berechtigung
 - `tasks/<task-id>.ics` für eigene und über Aufgabenlisten freigegebene VTODOs
 - `projects/<project-id>.json` mit definierten Projektfeldern und sichtbaren Aufgaben
-- `_meta/overlay.json`
+- `_meta/overlay.json` mit sichtbaren Prefixen, Operationen und expliziten Secret-Ausschlüssen
+- `_meta/schema.json` mit den aktuell exportierten Objektformaten
+- `_meta/capabilities.json` mit der tatsächlich unterstützten S3-Funktionsmenge und den noch fehlenden Funktionen
 - `documents/<document-id>/metadata.json`
 - `documents/<document-id>/original/<filename>`
 - `inbox/<username>/<client-key>` für eigene S3-Inbox-Uploads
@@ -74,6 +76,7 @@ Aktuell unterstützt:
 - AWS Signature Version 4 im Authorization-Header
 - presigned GET/HEAD-Requests (maximal sieben Tage)
 - `ListBuckets`, `HeadBucket`, `GetBucketLocation`, `GetBucketVersioning`
+- maschinenlesbare Overlay-, Schema- und Capability-Metadaten unter `_meta/`
 - `contacts/<contact-id>.vcf` über die vorhandene Kontaktfreigabe und die
   konfigurierten vCard-Exportfelder
 - `invoices/<invoice-id>.json` nur über die bestehende Berechtigung zum Verwalten
@@ -142,6 +145,7 @@ funktioniert.
 
 Für die vollständige Abnahme fehlen mindestens Provider für die übrigen
 autoritativen Datenbereiche, eine sichere Provider-Coverage-Prüfung,
-ListObjects-V1-Kompatibilität (falls nötig), Multipart-Inbox-Uploads,
-komplette Conditional-Request-Semantik, praktische Tests mit AWS CLI/boto3/
-rclone/MinIO mc sowie die erweiterte Betriebs- und Security-Abnahme.
+virtuelle Sammel-Exporte, Multipart-Inbox-Uploads, praktische Tests mit
+AWS CLI/boto3/rclone/MinIO mc sowie die erweiterte Betriebs- und
+Security-Abnahme. ListObjects V1 und die aktuell dokumentierte
+Conditional-Request-Semantik sind bereits implementiert und regressionstestet.
