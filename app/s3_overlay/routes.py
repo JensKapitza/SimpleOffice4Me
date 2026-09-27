@@ -178,6 +178,9 @@ def _list_objects(provider: DocumentObjects, identity: dict):
     delimiter = request.args.get("delimiter", "")
     if delimiter and len(delimiter) > 1:
         raise S3Error("InvalidArgument", "delimiter must be one character", 400)
+    encoding_type = request.args.get("encoding-type")
+    if encoding_type not in {None, "url"}:
+        raise S3Error("InvalidArgument", "encoding-type must be url", 400)
     entries = []
     seen_common = set()
     seen_entries = set()
@@ -185,34 +188,40 @@ def _list_objects(provider: DocumentObjects, identity: dict):
     scan_after = after
     truncated = False
     batch_size = max(100, min(1000, count + 1))
-    while True:
-        rows = provider.keys(prefix=prefix, after=scan_after, limit=batch_size)
-        if not rows:
-            break
-        for obj in rows:
-            relative = obj.key[len(prefix):] if obj.key.startswith(prefix) else obj.key
-            common_prefix = prefix + relative.split(delimiter, 1)[0] + delimiter if delimiter and delimiter in relative else None
-            entry = ("prefix", common_prefix) if common_prefix is not None else ("object", obj.key)
-            if entry not in seen_entries and (common_prefix is None or common_prefix not in seen_common):
-                if len(entries) >= count:
-                    truncated = True
-                    break
-                seen_entries.add(entry)
-                if common_prefix is not None:
-                    seen_common.add(common_prefix)
-                entries.append((entry[0], common_prefix if common_prefix is not None else obj))
-            last_key = obj.key
-        if truncated or len(rows) <= batch_size:
-            break
-        scan_after = last_key
-    encoding = request.args.get("encoding-type") == "url"
+    if count:
+        while True:
+            rows = provider.keys(prefix=prefix, after=scan_after, limit=batch_size)
+            if not rows:
+                break
+            for obj in rows:
+                relative = obj.key[len(prefix):] if obj.key.startswith(prefix) else obj.key
+                common_prefix = prefix + relative.split(delimiter, 1)[0] + delimiter if delimiter and delimiter in relative else None
+                entry = ("prefix", common_prefix) if common_prefix is not None else ("object", obj.key)
+                if entry not in seen_entries and (common_prefix is None or common_prefix not in seen_common):
+                    if len(entries) >= count:
+                        truncated = True
+                        break
+                    seen_entries.add(entry)
+                    if common_prefix is not None:
+                        seen_common.add(common_prefix)
+                    entries.append((entry[0], common_prefix if common_prefix is not None else obj))
+                last_key = obj.key
+            if truncated or len(rows) <= batch_size:
+                break
+            scan_after = last_key
+    encoding = encoding_type == "url"
     def key_text(value: str) -> str:
         return quote(value, safe="/-_.~") if encoding else value
     parts = [element("Name", BUCKET), element("Prefix", key_text(prefix)), element("KeyCount", len(entries)), element("MaxKeys", count), element("IsTruncated", str(truncated).lower())]
+    if delimiter:
+        parts.append(element("Delimiter", key_text(delimiter)))
     if legacy:
         parts.append(element("Marker", key_text(request.args.get("marker", ""))))
-    elif request.args.get("continuation-token"):
-        parts.append(element("ContinuationToken", request.args["continuation-token"]))
+    else:
+        if request.args.get("continuation-token"):
+            parts.append(element("ContinuationToken", request.args["continuation-token"]))
+        if request.args.get("start-after"):
+            parts.append(element("StartAfter", key_text(request.args["start-after"])))
     if truncated and last_key:
         if legacy:
             parts.append(element("NextMarker", key_text(last_key)))
