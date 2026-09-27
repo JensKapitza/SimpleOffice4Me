@@ -80,8 +80,13 @@ class DocumentObjects:
 
     def resolve(self, key: str) -> S3Object | None:
         if key == "_meta/overlay.json":
+            prefixes = ["_meta/"]
+            if self.contacts_enabled:
+                prefixes.append("contacts/")
+            if self.documents_enabled:
+                prefixes.extend(("documents/", "inbox/"))
             data = json.dumps({"schema": "simpleoffice-s3-overlay-v1", "bucket": "simpleoffice",
-                               "prefixes": ["contacts/", "documents/", "inbox/", "_meta/"],
+                               "prefixes": prefixes,
                                "operations": ["ListBuckets", "HeadBucket", "ListObjects", "ListObjectsV2", "HeadObject", "GetObject", "PutObject(inbox only)"]},
                               sort_keys=True, separators=(",", ":")).encode()
             return S3Object(key, len(data), hashlib.sha256(data).hexdigest(), datetime.now(timezone.utc), "application/json", data)
