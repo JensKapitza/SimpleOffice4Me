@@ -167,6 +167,34 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(json.loads(event["detail"])["source"], "s3-inbox")
         self.assertNotIn(self.keypair["secret_key"], event["detail"])
 
+    def test_prefix_scoped_credentials_preserve_requested_listing_filter(self):
+        contact = ContactStore(self.root / "documents").upsert(
+            {"display_name": "Prefix Kontakt", "email": "prefix@example.test"},
+            "s3-user",
+        )
+        with app.app_context():
+            restricted = credentials.create("s3-user", "contacts only", ["read"], "contacts/", 7)
+
+        root_path = "/s3/simpleoffice?list-type=2&delimiter=%2F"
+        root_headers = signed_headers(
+            "GET", root_path, restricted["access_key"], restricted["secret_key"],
+        )
+        root_listing = self.client.get(root_path, headers=root_headers)
+        self.assertEqual(200, root_listing.status_code)
+        self.assertIn(b"<Prefix></Prefix>", root_listing.data)
+        self.assertIn(b"<CommonPrefixes><Prefix>contacts/</Prefix></CommonPrefixes>", root_listing.data)
+        self.assertNotIn(b"<Prefix>documents/</Prefix>", root_listing.data)
+
+        disjoint_path = "/s3/simpleoffice?list-type=2&prefix=documents%2F"
+        disjoint_headers = signed_headers(
+            "GET", disjoint_path, restricted["access_key"], restricted["secret_key"],
+        )
+        disjoint = self.client.get(disjoint_path, headers=disjoint_headers)
+        self.assertEqual(200, disjoint.status_code)
+        self.assertIn(b"<Prefix>documents/</Prefix>", disjoint.data)
+        self.assertIn(b"<KeyCount>0</KeyCount>", disjoint.data)
+        self.assertNotIn(contact["contact_id"].encode(), disjoint.data)
+
     def test_list_objects_v2_zero_limit_and_response_selection_fields(self):
         zero = self.request("GET", "/s3/simpleoffice?list-type=2&max-keys=0")
         self.assertEqual(200, zero.status_code)
