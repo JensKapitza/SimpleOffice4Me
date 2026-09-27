@@ -190,6 +190,11 @@ app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
 app.config['S3_OVERLAY_ENABLED'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_ENABLED', '0').strip().casefold() in {'1', 'true', 'yes', 'on'}
 app.config['S3_OVERLAY_REGION'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_REGION', 'us-east-1').strip() or 'us-east-1'
 try:
+    s3_overlay_clock_skew = int(os.environ.get('SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS', '900'))
+except ValueError:
+    s3_overlay_clock_skew = 900
+app.config['S3_OVERLAY_CLOCK_SKEW_SECONDS'] = min(max(0, s3_overlay_clock_skew), 3600)
+try:
     s3_overlay_upload_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_UPLOAD_MIB', str(app.config['MAX_CONTENT_LENGTH'] // MIB)))
 except ValueError:
     s3_overlay_upload_mib = app.config['MAX_CONTENT_LENGTH'] // MIB
