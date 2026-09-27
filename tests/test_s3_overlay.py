@@ -180,9 +180,9 @@ class S3OverlayTests(unittest.TestCase):
             "/s3/simpleoffice?list-type=2&delimiter=%2F&encoding-type=url&start-after=_meta%2Fcapabilities.json",
         )
         self.assertEqual(200, selected.status_code)
-        self.assertIn(b"<Delimiter>%2F</Delimiter>", selected.data)
+        self.assertIn(b"<Delimiter>/</Delimiter>", selected.data)
         self.assertIn(b"<EncodingType>url</EncodingType>", selected.data)
-        self.assertIn(b"<StartAfter>_meta%2Fcapabilities.json</StartAfter>", selected.data)
+        self.assertIn(b"<StartAfter>_meta/capabilities.json</StartAfter>", selected.data)
 
         invalid_encoding = self.request("GET", "/s3/simpleoffice?list-type=2&encoding-type=invalid")
         self.assertEqual(400, invalid_encoding.status_code)
