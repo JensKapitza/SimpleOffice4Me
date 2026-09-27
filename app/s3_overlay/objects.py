@@ -530,7 +530,9 @@ class DocumentObjects:
             return None
         base = self.root / "email" / _owner_key(self.username) / account_id
         raw_candidate = base.joinpath(*parts[2:])
-        if any(parent.is_symlink() for parent in (self.root / "email", base.parent, base, *raw_candidate.parents)):
+        if raw_candidate.is_symlink() or any(
+            parent.is_symlink() for parent in (self.root / "email", base.parent, base, *raw_candidate.parents)
+        ):
             return None
         try:
             candidate = raw_candidate.resolve(strict=True)
