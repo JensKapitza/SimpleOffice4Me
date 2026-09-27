@@ -407,6 +407,29 @@ class S3OverlayTests(unittest.TestCase):
         forbidden = self.request("PUT", "/s3/simpleoffice/documents/nope/original/nope", b"x")
         self.assertEqual(403, forbidden.status_code)
 
+    def test_copy_tagging_acl_multipart_and_delete_mutations_are_rejected(self):
+        copy_path = "/s3/simpleoffice/inbox/copied.bin"
+        copied = self.request(
+            "PUT",
+            copy_path,
+            b"",
+            extra={"X-Amz-Copy-Source": "/simpleoffice/documents/source/original/file.bin"},
+        )
+        self.assertEqual(403, copied.status_code)
+        self.assertIn(b"AccessDenied", copied.data)
+
+        tagged = self.request("PUT", "/s3/simpleoffice/inbox/tagged.bin", b"data", extra={"X-Amz-Tagging": "a=b"})
+        self.assertEqual(403, tagged.status_code)
+
+        acl = self.request("PUT", "/s3/simpleoffice/inbox/acl.bin", b"data", extra={"X-Amz-Acl": "private"})
+        self.assertEqual(403, acl.status_code)
+
+        multipart = self.request("PUT", "/s3/simpleoffice/inbox/part.bin?partNumber=1&uploadId=test", b"data")
+        self.assertEqual(403, multipart.status_code)
+
+        deleted = self.request("DELETE", "/s3/simpleoffice/inbox/from-client.txt")
+        self.assertEqual(403, deleted.status_code)
+
     def test_authorization_parser_bounds_untrusted_header_length(self):
         header = "AWS4-HMAC-SHA256 " + ("  " * 3000) + "Credential=x, SignedHeaders=host, Signature=s"
         parsed = auth._authorization_fields(header)
