@@ -237,7 +237,7 @@ class S3OverlayTests(unittest.TestCase):
         with app.app_context():
             get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, "calendar"))
             get_db().commit()
-        self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{key}").status_code)
+        self.assertEqual(403, self.request("GET", f"/s3/simpleoffice/{key}").status_code)
 
     def test_presigned_get_is_read_only_and_verifies_signature(self):
         path = presigned_path("/s3/", self.keypair["access_key"], self.keypair["secret_key"])
