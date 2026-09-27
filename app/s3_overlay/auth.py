@@ -14,7 +14,6 @@ from . import credentials
 
 _AUTH_PREFIX = "AWS4-HMAC-SHA256"
 _MAX_AUTH_HEADER_LENGTH = 8192
-_MAX_SKEW_SECONDS = 900
 _MAX_PRESIGN_SECONDS = 7 * 24 * 3600
 
 
@@ -133,7 +132,8 @@ def authenticate() -> dict:
         signature = params.get("x-amz-signature", "")
         timestamp = _date(date_text).timestamp()
         now = time.time()
-        if expires < 1 or expires > _MAX_PRESIGN_SECONDS or timestamp - now > _MAX_SKEW_SECONDS or now > timestamp + expires:
+        allowed_skew = int(current_app.config.get("S3_OVERLAY_CLOCK_SKEW_SECONDS", 900))
+        if expires < 1 or expires > _MAX_PRESIGN_SECONDS or timestamp - now > allowed_skew or now > timestamp + expires:
             raise SignatureError("Presigned S3 request has expired")
         names = [name.casefold() for name in signed_names]
         if names != sorted(set(names)) or "host" not in names:
@@ -148,7 +148,8 @@ def authenticate() -> dict:
         if not date_text:
             raise SignatureError("S3 request date is required")
         timestamp = _date(date_text).timestamp()
-        if abs(time.time() - timestamp) > _MAX_SKEW_SECONDS:
+        allowed_skew = int(current_app.config.get("S3_OVERLAY_CLOCK_SKEW_SECONDS", 900))
+        if abs(time.time() - timestamp) > allowed_skew:
             raise SignatureError("S3 request date is outside the allowed clock skew")
         names = fields.get("SignedHeaders", "").split(";")
         if names != sorted(set(names)) or "host" not in names:
