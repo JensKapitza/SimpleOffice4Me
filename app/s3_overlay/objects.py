@@ -140,10 +140,7 @@ class DocumentObjects:
             if project is None:
                 return None
             tasks = [task for task in self.todos.items(self.username) if task.get("project_id") == project_id]
-            payload = self._project_json(project, tasks)
-            modified = _timestamp(project.get("updated_at") or project.get("created_at"))
-            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
-                            "application/json", payload)
+            return self._project_object(key, project, tasks)
         if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
             path = "inbox/" + "/".join(parts[2:])
             try:
@@ -212,6 +209,16 @@ class DocumentObjects:
         return json.dumps({"schema": "simpleoffice-project-v1", **safe_project, "tasks": safe_tasks},
                           ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
+    @classmethod
+    def _project_object(cls, key: str, project: dict[str, Any], tasks: list[dict[str, Any]]) -> S3Object:
+        payload = cls._project_json(project, tasks)
+        modified = max(
+            [_timestamp(project.get("updated_at") or project.get("created_at"))]
+            + [_timestamp(task.get("updated_at") or task.get("created_at")) for task in tasks]
+        )
+        return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified,
+                        "application/json", payload)
+
     def read_to(self, obj: S3Object, target, *, start: int = 0, length: int | None = None) -> int:
         if obj.body is not None:
             payload = obj.body[start:] if length is None else obj.body[start:start + length]
@@ -259,11 +266,8 @@ class DocumentObjects:
             for project in projects:
                 key = f"projects/{project['project_id']}.json"
                 if key.startswith(prefix) and key > after:
-                    payload = self._project_json(project, task_by_project.get(str(project["project_id"]), []))
-                    obj = S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
-                                   _timestamp(project.get("updated_at") or project.get("created_at")),
-                                   "application/json", payload)
-                    found.append(obj)
+                    tasks = task_by_project.get(str(project["project_id"]), [])
+                    found.append(self._project_object(key, project, tasks))
                     if len(found) >= limit + 1:
                         break
         if self.contacts_enabled and (not prefix or "contacts/".startswith(prefix) or prefix.startswith("contacts/")):
