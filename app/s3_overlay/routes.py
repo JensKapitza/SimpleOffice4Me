@@ -134,7 +134,7 @@ def bucket_object(bucket: str, key: str):
     return _get_object(provider, identity, key, head=method == "HEAD")
 
 
-def _cursor_decode(token: str) -> str:
+def _cursor_decode(token: str, *, prefix: str, delimiter: str, access_key: str) -> str:
     try:
         payload_text, mac_text = token.split(".", 1)
         payload = base64.urlsafe_b64decode(payload_text + "=" * (-len(payload_text) % 4))
@@ -142,15 +142,25 @@ def _cursor_decode(token: str) -> str:
         if not hmac.compare_digest(expected, mac_text):
             raise ValueError("bad token")
         value = json.loads(payload.decode("utf-8"))
-        if not isinstance(value, dict) or value.get("v") != 1 or not isinstance(value.get("key"), str):
+        if (
+            not isinstance(value, dict)
+            or value.get("v") != 2
+            or not isinstance(value.get("key"), str)
+            or value.get("prefix") != prefix
+            or value.get("delimiter") != delimiter
+            or value.get("access") != access_key
+        ):
             raise ValueError("bad token")
         return value["key"]
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise S3Error("InvalidArgument", "The continuation token is invalid", 400) from exc
 
 
-def _cursor_encode(key: str) -> str:
-    payload = json.dumps({"v": 1, "key": key}, separators=(",", ":")).encode()
+def _cursor_encode(key: str, *, prefix: str, delimiter: str, access_key: str) -> str:
+    payload = json.dumps(
+        {"v": 2, "key": key, "prefix": prefix, "delimiter": delimiter, "access": access_key},
+        separators=(",", ":"),
+    ).encode()
     token = base64.urlsafe_b64encode(payload).rstrip(b"=").decode()
     mac = hmac.new(bytes(current_app.config["SECRET_KEY"], "utf-8") if isinstance(current_app.config["SECRET_KEY"], str) else current_app.config["SECRET_KEY"], payload, hashlib.sha256).hexdigest()
     return token + "." + mac
@@ -178,13 +188,22 @@ def _list_objects(provider: DocumentObjects, identity: dict):
             scan_prefix = access_prefix
         else:
             prefix_disjoint = True
-    if legacy:
-        after = request.args.get("marker", "")
-    else:
-        after = _cursor_decode(request.args["continuation-token"]) if request.args.get("continuation-token") else request.args.get("start-after", "")
     delimiter = request.args.get("delimiter", "")
     if delimiter and len(delimiter) > 1:
         raise S3Error("InvalidArgument", "delimiter must be one character", 400)
+    if legacy:
+        after = request.args.get("marker", "")
+    else:
+        after = (
+            _cursor_decode(
+                request.args["continuation-token"],
+                prefix=prefix,
+                delimiter=delimiter,
+                access_key=identity["access_key"],
+            )
+            if request.args.get("continuation-token")
+            else request.args.get("start-after", "")
+        )
     encoding_type = request.args.get("encoding-type")
     if encoding_type not in {None, "url"}:
         raise S3Error("InvalidArgument", "encoding-type must be url", 400)
@@ -234,7 +253,12 @@ def _list_objects(provider: DocumentObjects, identity: dict):
             if delimiter:
                 parts.append(element("NextMarker", key_text(last_key)))
         else:
-            token = _cursor_encode(last_key)
+            token = _cursor_encode(
+                last_key,
+                prefix=prefix,
+                delimiter=delimiter,
+                access_key=identity["access_key"],
+            )
             parts.append(element("NextContinuationToken", token))
     for kind, value in entries:
         if kind == "prefix":
