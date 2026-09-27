@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -125,6 +126,11 @@ class S3OverlayTests(unittest.TestCase):
         collision = self.request("PUT", path, b"different")
         self.assertEqual(412, collision.status_code)
         self.assertTrue((self.root / "documents" / "inbox" / "s3-user" / "from-client.txt").is_file())
+        with app.app_context():
+            event = get_db().execute("SELECT actor_name, target_id, detail FROM security_event WHERE action='s3_inbox_uploaded' ORDER BY rowid DESC LIMIT 1").fetchone()
+        self.assertEqual("s3-user", event["actor_name"])
+        self.assertEqual(json.loads(event["detail"])["source"], "s3-inbox")
+        self.assertNotIn(self.keypair["secret_key"], event["detail"])
 
     def test_list_objects_v2_paginates_and_checks_continuation_token(self):
         prefix = f"documents/{self.document['document_id']}/"

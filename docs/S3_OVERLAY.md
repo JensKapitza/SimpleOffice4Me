@@ -81,6 +81,8 @@ begrenzten Spool verarbeitet, nach erfolgreicher Prüfsummenvalidierung über
 `StoragePort.import_stream_at` direkt im persönlichen Inbox-Unterordner
 abgelegt. Wiederholtes PUT desselben Schlüssels mit identischem Inhalt ist
 idempotent; anderer Inhalt für denselben Schlüssel wird mit 412 abgelehnt.
+Erfolgreiche Uploads werden mit Principal, Zielschlüssel, Größe und SHA-256 im
+Sicherheitsaudit protokolliert; das Secret bleibt außen vor.
 
 Delete, Copy, ACL-/Tag-/Policy-Mutationen und PUT außerhalb der Inbox werden
 verweigert. Multipart-Upload ist derzeit nicht verfügbar. Große Clients, die

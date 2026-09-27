@@ -376,6 +376,10 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
             raise S3Error("PreconditionFailed", "The inbox key already exists", 412) from exc
         except ValueError as exc:
             raise S3Error("InvalidArgument", "The inbox key or file could not be imported", 400) from exc
+        actor = get_db().execute("SELECT id, username FROM user WHERE username=?", (identity["username"],)).fetchone()
+        audit("s3_inbox_uploaded", "s3-inbox-upload", str(doc.get("document_id", "")),
+              detail={"key": key, "source": "s3-inbox", "size": total, "sha256": digest.hexdigest(),
+                      "access_key_id": identity["access_key"]}, actor=actor)
         response = _response(b"", 200)
         response.headers["ETag"] = f'"{doc.get("sha256", digest.hexdigest())}"'
         response.headers["x-amz-version-id"] = str(doc.get("document_id", ""))
