@@ -1,7 +1,9 @@
 """Virtual S3 object projection for documents and safe metadata."""
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import mimetypes
 import os
@@ -17,6 +19,7 @@ from app.contact_store import ContactStore
 from app.calendar_store import CalendarStore
 from app.todo_store import TodoStore
 from app.project_store import ProjectStore
+from app.object_store import ObjectStore
 from app.mail_client import MailStore, _owner_key
 from app.safe_paths import resolve_file_under
 from app.virtual_filesystem import VirtualFileSystem
@@ -70,6 +73,7 @@ class DocumentObjects:
         self.calendar = CalendarStore(self.root)
         self.todos = TodoStore(self.root)
         self.projects = ProjectStore(self.root)
+        self.objects = ObjectStore(self.root)
         self.vfs = VirtualFileSystem.from_environment(self.root)
         self.actor = f"s3:{username}"
         secret = current_app.config["SECRET_KEY"]
@@ -108,10 +112,13 @@ class DocumentObjects:
             prefixes.extend(("documents/", "inbox/", "tasks/"))
         if self.projects_enabled:
             prefixes.append("projects/")
+        if self.documents_enabled:
+            prefixes.append("objects/")
         if self.calendar_enabled:
             prefixes.append("calendar/")
         if self.mail_enabled:
             prefixes.append("email/")
+        prefixes.append("exports/")
         if key == "_meta/overlay.json":
             payload = {
                 "schema": "simpleoffice-s3-overlay-v1",
@@ -137,7 +144,12 @@ class DocumentObjects:
                     "calendar/events.ics": "iCalendar",
                     "tasks/*.ics": "VTODO/iCalendar",
                     "projects/*.json": "simpleoffice-project-v1",
+                    "objects/*.json": "simpleoffice-object-v1",
                     "email/*/*.eml": "RFC 5322 message/rfc822",
+                    "exports/*.csv": "UTF-8 CSV",
+                    "exports/*.vcf": "vCard",
+                    "exports/*.ics": "iCalendar",
+                    "exports/*.jsonl": "JSON Lines",
                 },
                 "encoding": "utf-8",
                 "etag": "sha256-or-authoritative-content-hash",
@@ -168,6 +180,8 @@ class DocumentObjects:
     def resolve(self, key: str) -> S3Object | None:
         if key.startswith("_meta/"):
             return self._meta_object(key)
+        if key.startswith("exports/"):
+            return self._export_object(key)
         mail_obj = self._mail_object(key)
         if mail_obj is not None:
             return mail_obj
@@ -220,6 +234,18 @@ class DocumentObjects:
                 return None
             tasks = [task for task in self.todos.items(self.username) if task.get("project_id") == project_id]
             return self._project_object(key, project, tasks)
+        if len(parts) == 2 and parts[0] == "objects" and parts[1].endswith(".json"):
+            if not self.documents_enabled:
+                return None
+            object_id = parts[1][:-5]
+            try:
+                item = self.objects.object(object_id)
+            except (OSError, ValueError):
+                return None
+            payload = self._object_json(item)
+            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
+                            _timestamp(item.get("updated_at") or item.get("created_at")),
+                            "application/json", payload)
         if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
             path = "inbox/" + "/".join(parts[2:])
             try:
@@ -292,6 +318,145 @@ class DocumentObjects:
         safe_tasks = [{key: task[key] for key in task_fields if key in task} for task in tasks]
         return json.dumps({"schema": "simpleoffice-project-v1", **safe_project, "tasks": safe_tasks},
                           ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    def _object_json(self, item: dict[str, Any]) -> bytes:
+        fields = {str(name): value for name, value in item.get("fields", {}).items()
+                  if not any(part in str(name).casefold() for part in
+                             ("password", "secret", "token", "credential", "private_key", "encryption_key"))}
+        safe = {name: item[name] for name in (
+            "object_id", "sequence_id", "display_id", "name", "type", "status", "description",
+            "identifier", "location", "expires_at", "tags", "created_at", "updated_at",
+        ) if name in item}
+        safe["fields"] = fields
+        safe["invoice"] = {name: value for name, value in item.get("invoice_effective", {}).items()
+                           if name not in {"default_net_price", "default_gross_price", "default_vat_rate", "default_price_group"}}
+        safe["notes"] = [{name: note[name] for name in ("note_id", "text", "created_at") if name in note}
+                          for note in item.get("notes", []) if isinstance(note, dict)]
+        safe["document_ids"] = [document_id for document_id in item.get("document_ids", [])
+                                if self._document(str(document_id)) is not None]
+        return json.dumps({"schema": "simpleoffice-object-v1", **safe}, ensure_ascii=False,
+                          sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    @staticmethod
+    def _jsonl(rows: list[dict[str, Any]]) -> bytes:
+        return b"".join(json.dumps(row, ensure_ascii=False, sort_keys=True,
+                                   separators=(",", ":")).encode("utf-8") + b"\n" for row in rows)
+
+    @staticmethod
+    def _csv(rows: list[dict[str, Any]], columns: tuple[str, ...]) -> bytes:
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore", lineterminator="\r\n")
+        writer.writeheader()
+        for row in rows:
+            safe = {}
+            for key, value in row.items():
+                if isinstance(value, str) and value.lstrip("\t\r ").startswith(("=", "+", "-", "@")):
+                    value = "'" + value
+                safe[key] = value
+            writer.writerow(safe)
+        return output.getvalue().encode("utf-8")
+
+    def _export_object(self, key: str) -> S3Object | None:
+        name = key.removeprefix("exports/")
+        if "/" in name:
+            return None
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        if name in {"contacts.csv", "contacts.vcf"}:
+            if not self.contacts_enabled:
+                return None
+            contacts = self.contacts.contacts(self.username)
+            modified = max((_timestamp(row.get("updated_at")) for row in contacts), default=epoch)
+            if name == "contacts.vcf":
+                payload = self.contacts.export_vcards(self.username).encode("utf-8")
+                mime = "text/vcard; charset=utf-8"
+            else:
+                rows = []
+                for row in contacts:
+                    fields = row.get("fields", {})
+                    rows.append({"contact_id": row.get("contact_id", ""),
+                                 "display_name": fields.get("display_name", ""),
+                                 "email": fields.get("email", ""), "phone": fields.get("phone", ""),
+                                 "organization": fields.get("organization", ""),
+                                 "tags": ", ".join(row.get("tags", [])), "updated_at": row.get("updated_at", "")})
+                payload = self._csv(rows, ("contact_id", "display_name", "email", "phone", "organization", "tags", "updated_at"))
+                mime = "text/csv; charset=utf-8"
+        elif name == "calendar.ics":
+            if not self.calendar_enabled:
+                return None
+            original = self.resolve("calendar/events.ics")
+            if not original:
+                return None
+            payload, mime, modified = original.body or b"", original.content_type, original.modified
+        elif name == "tasks.jsonl":
+            if not self.documents_enabled:
+                return None
+            fields = ("id", "title", "description", "status", "percent_complete", "priority", "start", "due",
+                      "project_phase", "assigned_to", "predecessors", "result", "created_at", "updated_at")
+            rows = [{"schema": "simpleoffice-task-v1", **{field: row[field] for field in fields if field in row}}
+                    for row in self.todos.items(self.username)]
+            payload = self._jsonl(rows)
+            modified = max((_timestamp(row.get("updated_at") or row.get("created_at")) for row in rows), default=epoch)
+            mime = "application/x-ndjson; charset=utf-8"
+        elif name == "projects.jsonl":
+            if not self.projects_enabled:
+                return None
+            tasks = self.todos.items(self.username)
+            projects = self.projects.projects()
+            rows = [json.loads(self._project_json(project, [task for task in tasks
+                    if task.get("project_id") == project.get("project_id")])) for project in projects]
+            payload = self._jsonl(rows)
+            modified = max((_timestamp(row.get("updated_at") or row.get("created_at")) for row in projects), default=epoch)
+            mime = "application/x-ndjson; charset=utf-8"
+        elif name == "invoices.csv":
+            if not self.contacts_enabled:
+                return None
+            invoices = self._visible_invoices()
+            rows = [{"invoice_id": row.get("invoice_id", ""), "invoice_number": row.get("invoice_number", ""),
+                     "contact_id": row.get("contact_id", ""), "status": row.get("status", ""),
+                     "issue_date": row.get("issue_date", ""), "due_date": row.get("due_date", ""),
+                     "currency": row.get("currency", ""), **row.get("totals", {})} for row in invoices]
+            columns = ("invoice_id", "invoice_number", "contact_id", "status", "issue_date", "due_date",
+                       "currency", "net", "tax", "gross")
+            payload = self._csv(rows, columns)
+            modified = max((self._invoice_modified(row) for row in invoices), default=epoch)
+            mime = "text/csv; charset=utf-8"
+        elif name == "documents.csv":
+            if not self.documents_enabled:
+                return None
+            rows = []
+            for row in self.store.list_documents():
+                if not self._authorized(row):
+                    continue
+                rows.append({"document_id": row.get("document_id", ""),
+                             "filename": str(row.get("last_path", "")).replace("\\", "/").rsplit("/", 1)[-1],
+                             "size": row.get("size", 0), "sha256": row.get("sha256", ""),
+                             "tags": ", ".join(row.get("tags", [])), "state": row.get("state", ""),
+                             "last_seen_at": row.get("last_seen_at", "")})
+            payload = self._csv(rows, ("document_id", "filename", "size", "sha256", "tags", "state", "last_seen_at"))
+            modified = max((_timestamp(row.get("last_seen_at")) for row in rows), default=epoch)
+            mime = "text/csv; charset=utf-8"
+        elif name == "mail.jsonl":
+            if not self.mail_enabled:
+                return None
+            mails = self.keys(prefix="email/", include_exports=False)
+            rows = [{"schema": "simpleoffice-mail-index-v1", "key": row.key, "size": row.size,
+                     "etag": row.etag, "last_modified": row.modified.isoformat()} for row in mails]
+            payload = self._jsonl(rows)
+            modified = max((row.modified for row in mails), default=epoch)
+            mime = "application/x-ndjson; charset=utf-8"
+        elif name == "manifest.jsonl":
+            rows, after = [], ""
+            while True:
+                page = self.keys(prefix="", after=after, limit=1000, include_exports=False)
+                rows.extend({"key": row.key, "size": row.size, "etag": row.etag,
+                             "content_type": row.content_type, "last_modified": row.modified.isoformat()} for row in page)
+                if len(page) <= 1000:
+                    break
+                after = page[-1].key
+            payload, mime, modified = self._jsonl(rows), "application/x-ndjson; charset=utf-8", epoch
+        else:
+            return None
+        return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(), modified, mime, payload)
 
     def _visible_invoices(self) -> list[dict[str, Any]]:
         if not self.contacts_enabled:
@@ -398,7 +563,8 @@ class DocumentObjects:
         except (OSError, ValueError, PermissionError) as exc:
             raise FileNotFoundError("S3 object is unavailable") from exc
 
-    def keys(self, *, prefix: str, after: str = "", limit: int = 1000) -> list[S3Object]:
+    def keys(self, *, prefix: str, after: str = "", limit: int = 1000,
+             include_exports: bool = True) -> list[S3Object]:
         """Merge enabled calendar, contact, task, project, and document projections in key order."""
         found: list[S3Object] = []
         if self.mail_enabled and (not prefix or "email/".startswith(prefix) or prefix.startswith("email/")):
@@ -454,6 +620,16 @@ class DocumentObjects:
                     found.append(self._project_object(key, project, tasks))
                     if len(found) >= limit + 1:
                         break
+        if self.documents_enabled and (not prefix or "objects/".startswith(prefix) or prefix.startswith("objects/")):
+            for item in self.objects.objects():
+                key = f"objects/{item['object_id']}.json"
+                if key.startswith(prefix) and key > after:
+                    payload = self._object_json(item)
+                    found.append(S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
+                                          _timestamp(item.get("updated_at") or item.get("created_at")),
+                                          "application/json", payload))
+                    if len(found) >= limit + 1:
+                        break
         if self.contacts_enabled and (not prefix or "contacts/".startswith(prefix) or prefix.startswith("contacts/")):
             contact_keys = sorted(
                 f"contacts/{contact['contact_id']}.vcf"
@@ -480,17 +656,12 @@ class DocumentObjects:
         if len(marker_parts) > 1 and marker_parts[0] == "documents":
             start_id = marker_parts[1]
         last_id = ""
-        self.store.initialize()
         while len(found) < limit + 1:
-            with self.store._db() as db:
-                rows = db.execute(
-                    "SELECT document_id FROM document_listing WHERE document_id>=? ORDER BY document_id LIMIT 200",
-                    (start_id,),
-                ).fetchall()
+            rows = self.store.list_documents_after(start_id, 200)
             if not rows:
                 break
-            for row in rows:
-                document_id = str(row[0])
+            for document_row in rows:
+                document_id = str(document_row.get("document_id", ""))
                 if document_id == last_id:
                     continue
                 last_id = document_id
@@ -515,6 +686,17 @@ class DocumentObjects:
             if len(rows) < 200 or len(found) >= limit + 1:
                 break
             start_id = last_id + "\x00"
+        if include_exports and (not prefix or "exports/".startswith(prefix) or prefix.startswith("exports/")):
+            export_names = (
+                "contacts.csv", "contacts.vcf", "calendar.ics", "tasks.jsonl", "projects.jsonl",
+                "invoices.csv", "documents.csv", "mail.jsonl", "manifest.jsonl",
+            )
+            for name in export_names:
+                key = f"exports/{name}"
+                if key.startswith(prefix) and key > after:
+                    obj = self._export_object(key)
+                    if obj:
+                        found.append(obj)
         return sorted(found, key=lambda item: item.key)[:limit + 1]
 
     def _mail_object(self, key: str) -> S3Object | None:

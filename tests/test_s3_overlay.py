@@ -18,6 +18,7 @@ from app.todo_store import TodoStore
 from app.project_store import ProjectStore
 from app.document_store import DocumentStore
 from app.mail_client import MailStore, _owner_key
+from app.object_store import ObjectStore
 from app.s3_overlay import auth, credentials
 
 
@@ -167,6 +168,39 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(404, hidden.status_code)
         denied = self.request("PUT", "/s3/simpleoffice/email/new.eml", b"not allowed")
         self.assertEqual(403, denied.status_code)
+
+    def test_objects_are_exported_as_secret_filtered_json(self):
+        item = ObjectStore(self.root / "documents").create({
+            "name": "S3 Switch", "type": "Network", "description": "Core switch",
+            "fields": "ports=24\napi_token=do-not-export",
+        }, "s3-user")
+        key = f"objects/{item['object_id']}.json"
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=objects%2F")
+        self.assertIn(key.encode(), listing.data)
+        response = self.request("GET", "/s3/simpleoffice/" + key)
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual("simpleoffice-object-v1", payload["schema"])
+        self.assertEqual("24", payload["fields"]["ports"])
+        self.assertNotIn("api_token", payload["fields"])
+        self.assertNotIn("created_by", payload)
+
+    def test_virtual_csv_vcard_and_manifest_exports_are_listed(self):
+        contact = ContactStore(self.root / "documents").upsert(
+            {"display_name": "Export Kontakt", "email": "export@example.test"}, "s3-user",
+        )
+        csv_response = self.request("GET", "/s3/simpleoffice/exports/contacts.csv")
+        self.assertEqual(200, csv_response.status_code)
+        self.assertIn(b"Export Kontakt", csv_response.data)
+        vcard = self.request("GET", "/s3/simpleoffice/exports/contacts.vcf")
+        self.assertEqual(200, vcard.status_code)
+        self.assertIn(b"BEGIN:VCARD", vcard.data)
+        manifest = self.request("GET", "/s3/simpleoffice/exports/manifest.jsonl")
+        self.assertEqual(200, manifest.status_code)
+        self.assertIn(f"contacts/{contact['contact_id']}.vcf".encode(), manifest.data)
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=exports%2F")
+        self.assertIn(b"exports/contacts.csv", listing.data)
+        self.assertIn(b"exports/manifest.jsonl", listing.data)
 
     def test_http_date_conditionals_and_unsatisfied_range_headers(self):
         key = f"documents/{self.document['document_id']}/original/readme.txt"

@@ -14,7 +14,11 @@ Diese Integrationsstufe projiziert:
 - `calendar/events.ics` für sichtbare Termine mit aktiver Kalender-Berechtigung
 - `tasks/<task-id>.ics` für eigene und über Aufgabenlisten freigegebene VTODOs
 - `projects/<project-id>.json` mit definierten Projektfeldern und sichtbaren Aufgaben
+- `objects/<object-id>.json` mit bereinigten Inventar-/Geschäftsobjektfeldern
 - `email/<account-id>/<archive-path>.eml` für archivierte Nachrichten eigener Mailkonten
+- `exports/contacts.csv`, `contacts.vcf`, `calendar.ics`, `tasks.jsonl`,
+  `projects.jsonl`, `invoices.csv`, `documents.csv`, `mail.jsonl` und
+  `manifest.jsonl` als aus den Fachquellen erzeugte virtuelle Sammelobjekte
 - `_meta/overlay.json` mit sichtbaren Prefixen, Operationen und expliziten Secret-Ausschlüssen
 - `_meta/schema.json` mit den aktuell exportierten Objektformaten
 - `_meta/capabilities.json` mit der tatsächlich unterstützten S3-Funktionsmenge und den noch fehlenden Funktionen
@@ -92,8 +96,14 @@ Aktuell unterstützt:
 - `tasks/<task-id>.ics` über die bestehenden Leserechte der Aufgabenlisten
 - `projects/<project-id>.json` über die Projekte-Berechtigung; interne Repository-
   und Abrechnungsdaten werden nicht exportiert
+- `objects/<object-id>.json` über die Dokumente-Berechtigung; verknüpfte Dokumente
+  werden nur bei bestehender VFS-Leseberechtigung referenziert und Secret-Felder
+  werden ausgelassen
 - `email/<account-id>/<archive-path>.eml` über die Mail-Berechtigung und die
   Kontoeigentümerschaft; nur EML-Dateien im privaten Archiv werden veröffentlicht
+- `exports/` enthält nur die je Feature sichtbaren Datensätze. Die Manifestzeilen
+  referenzieren dieselben virtuellen Schlüssel; Exporte werden bei jeder Anfrage
+  neu aus den autoritativen Stores erzeugt und nicht dauerhaft zwischengespeichert.
 - `ListObjectsV2` mit Prefix, Delimiter, MaxKeys, StartAfter,
   ContinuationToken und `encoding-type=url`
 - `ListObjects` V1 mit Prefix, Delimiter, MaxKeys und Marker
