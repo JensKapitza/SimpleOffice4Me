@@ -68,6 +68,19 @@ class LicenseBuildTests(unittest.TestCase):
         self.assertNotIn("SIMPLEOFFICE_LICENSE_MASTER_URL", routes)
         self.assertIn("SIMPLEOFFICE_LICENSE_MASTER_TOKEN", routes)
 
+    def test_master_identity_is_reported_on_install_start_and_status(self):
+        launcher = (ROOT / "tools" / "launcher.py").read_text(encoding="utf-8")
+        postinst = (ROOT / "packaging" / "postinst.sh").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "server-deb-build.yml").read_text(encoding="utf-8")
+        self.assertIn("master-status", launcher)
+        self.assertIn("print_master_identity_status()", launcher)
+        self.assertIn("Status: {'gesetzt' if configured else 'NICHT GESETZT'}", launcher)
+        self.assertIn("keine Laufzeit-Umschaltung", launcher)
+        self.assertIn("-m tools.launcher master-status", postinst)
+        self.assertIn("Rolle: Server/Lizenz-Master", workflow)
+        self.assertIn("Oeffentliche Server-URL: https://ci.simpleoffice4me.invalid", workflow)
+        self.assertIn("Peer-ID: license-master-ci", workflow)
+
     def test_blocked_client_is_visible_and_federation_can_refuse_it(self):
         layout = (ROOT / "templates" / "layout.html").read_text(encoding="utf-8")
         routes = (ROOT / "app" / "license_routes.py").read_text(encoding="utf-8")
