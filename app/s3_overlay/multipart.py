@@ -157,6 +157,9 @@ class MultipartStore:
         except OSError as exc:
             staged.unlink(missing_ok=True)
             raise MultipartError("The multipart part could not be staged") from exc
+        except Exception:
+            staged.unlink(missing_ok=True)
+            raise
         return md5.hexdigest(), total
 
     def complete(self, key: str, upload_id: str, username: str, access_key: str, xml_body: bytes,

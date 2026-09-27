@@ -608,6 +608,7 @@ class S3OverlayTests(unittest.TestCase):
                       + f"<ETag>{part.headers['ETag']}</ETag></Part></CompleteMultipartUpload>").encode()
         complete = self.request("POST", f"/s3/simpleoffice/{key}?uploadId={upload_id}", completion)
         self.assertEqual(200, complete.status_code)
+        self.assertRegex(complete.headers["ETag"], r'^"[a-f0-9]{32}-1"$')
         imported = self.root / "documents" / "inbox" / "s3-user" / "multipart-note.txt"
         self.assertEqual(content, imported.read_bytes())
         read_back = self.request("GET", "/s3/simpleoffice/" + key)
