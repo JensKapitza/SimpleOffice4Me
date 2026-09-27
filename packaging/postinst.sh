@@ -87,6 +87,12 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl restart simpleoffice-mini-services.service >/dev/null 2>&1 || true
 fi
 
+printf '\nMaster-Identitaet des installierten Pakets:\n'
+(
+    cd "$APP_DIR"
+    "$VENV/bin/python" -m tools.launcher master-status
+)
+
 cat <<'EOF'
 SimpleOffice4Me wurde installiert.
 Start:   sudo systemctl start simpleoffice4me
