@@ -169,8 +169,15 @@ def _list_objects(provider: DocumentObjects, identity: dict):
         raise S3Error("InvalidArgument", "max-keys must be between 0 and 1000", 400)
     prefix = request.args.get("prefix", "")
     access_prefix = identity.get("prefix", "")
-    if access_prefix and not prefix.startswith(access_prefix):
-        prefix = access_prefix
+    scan_prefix = prefix
+    prefix_disjoint = False
+    if access_prefix:
+        if prefix.startswith(access_prefix):
+            scan_prefix = prefix
+        elif access_prefix.startswith(prefix):
+            scan_prefix = access_prefix
+        else:
+            prefix_disjoint = True
     if legacy:
         after = request.args.get("marker", "")
     else:
@@ -188,9 +195,9 @@ def _list_objects(provider: DocumentObjects, identity: dict):
     scan_after = after
     truncated = False
     batch_size = max(100, min(1000, count + 1))
-    if count:
+    if count and not prefix_disjoint:
         while True:
-            rows = provider.keys(prefix=prefix, after=scan_after, limit=batch_size)
+            rows = provider.keys(prefix=scan_prefix, after=scan_after, limit=batch_size)
             if not rows:
                 break
             for obj in rows:
