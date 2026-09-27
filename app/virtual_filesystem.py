@@ -79,7 +79,7 @@ class VirtualFileSystem:
 
     @staticmethod
     def username(actor: str) -> str:
-        return actor.split(":", 1)[1] if actor.startswith(("webdav:", "sftp:", "rsync:")) else actor
+        return actor.split(":", 1)[1] if actor.startswith(("webdav:", "sftp:", "rsync:", "s3:")) else actor
 
     @classmethod
     def from_environment(cls, root: str | Path) -> "VirtualFileSystem":

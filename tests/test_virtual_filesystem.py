@@ -35,6 +35,14 @@ class VirtualFileSystemTest(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.vfs.set_grants("team", {"bob": "manage"}, "bob")
 
+    def test_s3_actor_uses_authenticated_user_for_document_acl(self):
+        self.vfs.set_grants(".", {"alice": "manage", "bob": "read"}, "admin")
+
+        self.assertEqual("alice", self.vfs.username("s3:alice"))
+        self.assertTrue(self.vfs.allows("s3:alice", "team/public.txt", "read"))
+        self.assertTrue(self.vfs.allows("s3:bob", "team/public.txt", "read"))
+        self.assertFalse(self.vfs.allows("s3:mallory", "team/public.txt", "read"))
+
     def test_non_inheriting_child_can_revoke_parent_and_grant_another_user(self):
         self.vfs.set_grants(".", {"alice": "manage", "bob": "read"}, "admin")
         self.vfs.set_grants("team/private", {"carol": "write", "alice": "manage"}, "admin", inherit=False)
