@@ -17,6 +17,7 @@ from app.calendar_store import CalendarStore
 from app.todo_store import TodoStore
 from app.project_store import ProjectStore
 from app.document_store import DocumentStore
+from app.mail_client import MailStore, _owner_key
 from app.s3_overlay import auth, credentials
 
 
@@ -136,6 +137,36 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(206, ranged.status_code)
         self.assertEqual(b"overlay", ranged.data)
         self.assertEqual("bytes 3-9/20", ranged.headers["Content-Range"])
+
+    def test_owned_mail_archive_is_listed_and_read_only(self):
+        store = MailStore(self.root / "documents", b"test-s3-master-key")
+        account = store.save_account("s3-user", {
+            "host": "imap.example.test", "username": "s3-user@example.test",
+            "security": "tls", "folder": "INBOX",
+        }, "mail-password", True)
+        archive = self.root / "documents" / "email" / _owner_key("s3-user") / account["id"] / "2026"
+        archive.mkdir(parents=True)
+        message = b"From: sender@example.test\r\nSubject: Archive test\r\n\r\nHello\r\n"
+        (archive / "message.eml").write_bytes(message)
+
+        key = f"email/{account['id']}/2026/message.eml"
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=" + quote(f"email/{account['id']}/"))
+        self.assertEqual(200, listing.status_code)
+        self.assertIn(key.encode(), listing.data)
+        response = self.request("GET", "/s3/simpleoffice/" + key)
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(message, response.data)
+        ranged = self.request("GET", "/s3/simpleoffice/" + key, extra={"Range": "bytes=0-4"})
+        self.assertEqual(206, ranged.status_code)
+        self.assertEqual(message[:5], ranged.data)
+        with app.app_context():
+            user_id = get_db().execute("SELECT id FROM user WHERE username='s3-user'").fetchone()["id"]
+            get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at) VALUES(?,?,0,'2026-01-01T00:00:00+00:00')", (user_id, "mail"))
+            get_db().commit()
+        hidden = self.request("GET", "/s3/simpleoffice/" + key)
+        self.assertEqual(404, hidden.status_code)
+        denied = self.request("PUT", "/s3/simpleoffice/email/new.eml", b"not allowed")
+        self.assertEqual(403, denied.status_code)
 
     def test_http_date_conditionals_and_unsatisfied_range_headers(self):
         key = f"documents/{self.document['document_id']}/original/readme.txt"

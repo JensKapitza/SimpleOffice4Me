@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ from app.contact_store import ContactStore
 from app.calendar_store import CalendarStore
 from app.todo_store import TodoStore
 from app.project_store import ProjectStore
+from app.mail_client import MailStore, _owner_key
 from app.safe_paths import resolve_file_under
 from app.virtual_filesystem import VirtualFileSystem
 from app.v2.contracts import LogicalObjectId, StorageLocation
@@ -32,6 +34,7 @@ class S3Object:
     body: bytes | None = None
     document_id: str = ""
     source_path: str = ""
+    mail_path: str = ""
 
 
 def _timestamp(value: object) -> datetime:
@@ -54,12 +57,13 @@ class DocumentObjects:
     """Read enabled domain projections through their existing authorization paths."""
 
     def __init__(self, username: str, *, documents_enabled: bool = True, contacts_enabled: bool = True,
-                 calendar_enabled: bool = True, projects_enabled: bool = True):
+                 calendar_enabled: bool = True, projects_enabled: bool = True, mail_enabled: bool = False):
         self.username = username
         self.documents_enabled = documents_enabled
         self.contacts_enabled = contacts_enabled
         self.calendar_enabled = calendar_enabled
         self.projects_enabled = projects_enabled
+        self.mail_enabled = mail_enabled
         self.root = Path(current_app.config["DOCUMENT_ROOT"])
         self.store = DocumentStore(self.root)
         self.contacts = ContactStore(self.root)
@@ -68,6 +72,14 @@ class DocumentObjects:
         self.projects = ProjectStore(self.root)
         self.vfs = VirtualFileSystem.from_environment(self.root)
         self.actor = f"s3:{username}"
+        secret = current_app.config["SECRET_KEY"]
+        self.mail = MailStore(self.root, secret.encode("utf-8") if isinstance(secret, str) else secret)
+        self._owned_mail_accounts: list[dict[str, Any]] | None = None
+
+    def _mail_accounts(self) -> list[dict[str, Any]]:
+        if self._owned_mail_accounts is None:
+            self._owned_mail_accounts = self.mail.accounts(self.username)
+        return self._owned_mail_accounts
 
     def _authorized(self, document: dict[str, Any]) -> bool:
         if not self.documents_enabled:
@@ -98,6 +110,8 @@ class DocumentObjects:
             prefixes.append("projects/")
         if self.calendar_enabled:
             prefixes.append("calendar/")
+        if self.mail_enabled:
+            prefixes.append("email/")
         if key == "_meta/overlay.json":
             payload = {
                 "schema": "simpleoffice-s3-overlay-v1",
@@ -123,6 +137,7 @@ class DocumentObjects:
                     "calendar/events.ics": "iCalendar",
                     "tasks/*.ics": "VTODO/iCalendar",
                     "projects/*.json": "simpleoffice-project-v1",
+                    "email/*/*.eml": "RFC 5322 message/rfc822",
                 },
                 "encoding": "utf-8",
                 "etag": "sha256-or-authoritative-content-hash",
@@ -153,6 +168,9 @@ class DocumentObjects:
     def resolve(self, key: str) -> S3Object | None:
         if key.startswith("_meta/"):
             return self._meta_object(key)
+        mail_obj = self._mail_object(key)
+        if mail_obj is not None:
+            return mail_obj
         parts = key.split("/")
         if len(parts) == 2 and parts[0] == "contacts" and parts[1].endswith(".vcf"):
             if not self.contacts_enabled:
@@ -243,6 +261,11 @@ class DocumentObjects:
     def read(self, obj: S3Object) -> bytes:
         if obj.body is not None:
             return obj.body
+        if obj.mail_path:
+            current = self.resolve(obj.key)
+            if current is None or current.mail_path != obj.mail_path:
+                raise FileNotFoundError("S3 object is unavailable")
+            return Path(obj.mail_path).read_bytes()
         document = self._document(obj.document_id)
         if document is None or str(document.get("last_path") or "") != obj.source_path:
             raise FileNotFoundError("S3 object is unavailable")
@@ -345,6 +368,21 @@ class DocumentObjects:
         if obj.body is not None:
             payload = obj.body[start:] if length is None else obj.body[start:start + length]
             return target.write(payload)
+        if obj.mail_path:
+            current = self.resolve(obj.key)
+            if current is None or current.mail_path != obj.mail_path:
+                raise FileNotFoundError("S3 object is unavailable")
+            remaining = max(0, obj.size - start) if length is None else min(length, max(0, obj.size - start))
+            copied = 0
+            with Path(obj.mail_path).open("rb") as source:
+                source.seek(start)
+                while copied < remaining:
+                    chunk = source.read(min(1024 * 1024, remaining - copied))
+                    if not chunk:
+                        break
+                    target.write(chunk)
+                    copied += len(chunk)
+            return copied
         document = self._document(obj.document_id)
         if document is None or str(document.get("last_path") or "") != obj.source_path:
             raise FileNotFoundError("S3 object is unavailable")
@@ -363,6 +401,29 @@ class DocumentObjects:
     def keys(self, *, prefix: str, after: str = "", limit: int = 1000) -> list[S3Object]:
         """Merge enabled calendar, contact, task, project, and document projections in key order."""
         found: list[S3Object] = []
+        if self.mail_enabled and (not prefix or "email/".startswith(prefix) or prefix.startswith("email/")):
+            for account in self._mail_accounts():
+                account_id = str(account.get("id", ""))
+                base = self.root / "email" / _owner_key(self.username) / account_id
+                if not base.is_dir() or base.is_symlink():
+                    continue
+                for folder, dirs, filenames in os.walk(base, followlinks=False):
+                    dirs[:] = [name for name in dirs if not (Path(folder) / name).is_symlink()]
+                    for filename in filenames:
+                        if not filename.lower().endswith(".eml"):
+                            continue
+                        relative = (Path(folder) / filename).relative_to(base).as_posix()
+                        key = f"email/{account_id}/{relative}"
+                        if key.startswith(prefix) and key > after:
+                            obj = self._mail_object(key)
+                            if obj:
+                                found.append(obj)
+                                if len(found) >= limit + 1:
+                                    break
+                    if len(found) >= limit + 1:
+                        break
+                if len(found) >= limit + 1:
+                    break
         for meta_key in ("_meta/capabilities.json", "_meta/overlay.json", "_meta/schema.json"):
             meta = self.resolve(meta_key)
             if meta and meta.key.startswith(prefix) and meta.key > after:
@@ -455,6 +516,37 @@ class DocumentObjects:
                 break
             start_id = last_id + "\x00"
         return sorted(found, key=lambda item: item.key)[:limit + 1]
+
+    def _mail_object(self, key: str) -> S3Object | None:
+        if not self.mail_enabled:
+            return None
+        parts = key.split("/")
+        if len(parts) < 3 or parts[0] != "email" or not parts[-1].lower().endswith(".eml"):
+            return None
+        account_id = parts[1]
+        if not any(str(account.get("id")) == account_id for account in self._mail_accounts()):
+            return None
+        if any(part in {"", ".", ".."} or any(ord(char) < 32 for char in part) for part in parts[2:]):
+            return None
+        base = self.root / "email" / _owner_key(self.username) / account_id
+        raw_candidate = base.joinpath(*parts[2:])
+        if any(parent.is_symlink() for parent in (self.root / "email", base.parent, base, *raw_candidate.parents)):
+            return None
+        try:
+            candidate = raw_candidate.resolve(strict=True)
+            candidate.relative_to(base.resolve(strict=True))
+            if not candidate.is_file():
+                return None
+            stat = candidate.stat()
+        except (OSError, ValueError):
+            return None
+        modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+        digest_hash = hashlib.sha256()
+        with candidate.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest_hash.update(chunk)
+        digest = digest_hash.hexdigest()
+        return S3Object(key, stat.st_size, digest, modified, "message/rfc822", None, mail_path=str(candidate))
 
     def put_inbox(self, key: str, source: BinaryIO, max_bytes: int, expected_sha256: str) -> dict[str, Any]:
         from app.safe_paths import safe_filename

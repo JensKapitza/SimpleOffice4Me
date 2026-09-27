@@ -1,7 +1,7 @@
 # S3-Overlay
 
 Das S3-Overlay stellt einen signierten, schreibgeschützten S3-Zugriff auf
-Kontakte, Rechnungen und Dokumente bereit. Die einzige unterstützte fachliche Schreiboperation ist ein
+Kontakte, Rechnungen, archivierte E-Mails und Dokumente bereit. Die einzige unterstützte fachliche Schreiboperation ist ein
 neuer Dateiimport in die Inbox. Dokumentdateien bleiben im vorhandenen
 Dokumentenspeicher; der S3-Zugang ist keine zweite Datenbank und kein Backup.
 
@@ -14,6 +14,7 @@ Diese Integrationsstufe projiziert:
 - `calendar/events.ics` für sichtbare Termine mit aktiver Kalender-Berechtigung
 - `tasks/<task-id>.ics` für eigene und über Aufgabenlisten freigegebene VTODOs
 - `projects/<project-id>.json` mit definierten Projektfeldern und sichtbaren Aufgaben
+- `email/<account-id>/<archive-path>.eml` für archivierte Nachrichten eigener Mailkonten
 - `_meta/overlay.json` mit sichtbaren Prefixen, Operationen und expliziten Secret-Ausschlüssen
 - `_meta/schema.json` mit den aktuell exportierten Objektformaten
 - `_meta/capabilities.json` mit der tatsächlich unterstützten S3-Funktionsmenge und den noch fehlenden Funktionen
@@ -26,8 +27,10 @@ Die Datei selbst wird über `StoragePort` gelesen und vor der Ausgabe vollständ
 integritätsgeprüft. Range-Reads puffern nur den angeforderten Ausschnitt in
 einem begrenzten Spool und verifizieren trotzdem den vollständigen Blob.
 
-Personal, Mail, Geschäftsdaten, Audit, Recovery und Federation sind noch keine
-S3-Provider. Multipart-Upload ist noch
+Personal, Geschäftsdaten, Audit, Recovery und Federation sind noch keine
+S3-Provider. Mailkonten und deren archivierte Nachrichten werden nur lesend
+abgebildet; Konto-Einstellungen, Zugangsdaten, Sieve-Skripte und Archivzustände
+bleiben ausgeschlossen. Multipart-Upload ist noch
 nicht implementiert. Das Overlay darf deshalb noch
 nicht als vollständige Sicht auf alle Anwendungsdaten oder als kompatibel mit
 allen S3-Clients beworben werden. Issue #482 bleibt für diese Ausbau- und
@@ -89,6 +92,8 @@ Aktuell unterstützt:
 - `tasks/<task-id>.ics` über die bestehenden Leserechte der Aufgabenlisten
 - `projects/<project-id>.json` über die Projekte-Berechtigung; interne Repository-
   und Abrechnungsdaten werden nicht exportiert
+- `email/<account-id>/<archive-path>.eml` über die Mail-Berechtigung und die
+  Kontoeigentümerschaft; nur EML-Dateien im privaten Archiv werden veröffentlicht
 - `ListObjectsV2` mit Prefix, Delimiter, MaxKeys, StartAfter,
   ContinuationToken und `encoding-type=url`
 - `ListObjects` V1 mit Prefix, Delimiter, MaxKeys und Marker
