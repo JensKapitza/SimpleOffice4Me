@@ -259,11 +259,16 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(200, first.status_code)
         self.assertIn(b"<ListBucketResult", first.data)
         import re
-        marker = re.search(rb"<NextMarker>([^<]+)", first.data).group(1).decode()
+        marker = re.search(rb"<Key>([^<]+)", first.data).group(1).decode()
+        self.assertNotIn(b"<NextMarker>", first.data)
         second = self.request("GET", f"/s3/simpleoffice?max-keys=1&marker={quote(marker, safe='')}&prefix={quote(prefix, safe='')}")
         self.assertEqual(200, second.status_code)
         self.assertIn(b"original/readme.txt", second.data)
         self.assertIn(f"<Marker>{marker}</Marker>".encode(), second.data)
+
+        delimited = self.request("GET", "/s3/simpleoffice?delimiter=%2F&max-keys=1")
+        self.assertEqual(200, delimited.status_code)
+        self.assertIn(b"<NextMarker>", delimited.data)
 
     def test_contacts_vcard_export_uses_contact_sharing_permissions(self):
         contacts = ContactStore(self.root / "documents")
