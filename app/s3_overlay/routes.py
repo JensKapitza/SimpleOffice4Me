@@ -231,7 +231,8 @@ def _list_objects(provider: DocumentObjects, identity: dict):
             parts.append(element("StartAfter", key_text(request.args["start-after"])))
     if truncated and last_key:
         if legacy:
-            parts.append(element("NextMarker", key_text(last_key)))
+            if delimiter:
+                parts.append(element("NextMarker", key_text(last_key)))
         else:
             token = _cursor_encode(last_key)
             parts.append(element("NextContinuationToken", token))
