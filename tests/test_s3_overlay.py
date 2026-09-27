@@ -233,6 +233,16 @@ class S3OverlayTests(unittest.TestCase):
         tampered = next_path.replace("continuation-token=", "continuation-token=x")
         self.assertEqual(400, self.request("GET", tampered).status_code)
 
+        wrong_prefix = f"/s3/simpleoffice?continuation-token={quote(token, safe='')}&list-type=2&max-keys=1&prefix=contacts%2F"
+        self.assertEqual(400, self.request("GET", wrong_prefix).status_code)
+
+        with app.app_context():
+            other = credentials.create("s3-user", "other client", ["read"], "", 7)
+        other_headers = signed_headers("GET", next_path, other["access_key"], other["secret_key"])
+        other_response = self.client.get(next_path, headers=other_headers)
+        self.assertEqual(400, other_response.status_code)
+        self.assertIn(b"<Code>InvalidArgument</Code>", other_response.data)
+
     def test_list_objects_v2_delimiter_paginates_distinct_prefixes(self):
         second = self.root / "documents" / "inbox" / "s3-user" / "second.txt"
         second.parent.mkdir(parents=True, exist_ok=True)
