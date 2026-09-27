@@ -51,6 +51,14 @@ jobs:
       - name: Install Electron dependencies
         working-directory: desktop/electron
         run: npm install --no-audit --no-fund
+      - name: Export generated npm lockfile
+        if: matrix.artifact == 'linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: simpleoffice4me-desktop-generated-package-lock
+          path: desktop/electron/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
       - name: Synchronize desktop version
         working-directory: desktop/electron
         run: npm run sync:version
