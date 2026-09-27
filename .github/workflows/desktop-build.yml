@@ -50,28 +50,7 @@ jobs:
         run: node -e "const major=Number(process.versions.node.split('.')[0]); if (major < 24) process.exit(1); console.log(process.version)"
       - name: Install Electron dependencies
         working-directory: desktop/electron
-        run: npm install --no-audit --no-fund
-      - name: Export generated npm lockfile
-        if: matrix.artifact == 'linux'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: simpleoffice4me-desktop-generated-package-lock
-          path: desktop/electron/package-lock.json
-          if-no-files-found: error
-          retention-days: 1
-      - name: Emit generated lockfile for repository pinning
-        if: matrix.artifact == 'linux'
-        working-directory: desktop/electron
-        shell: bash
-        run: |
-          python - <<'PY'
-          import base64
-          from pathlib import Path
-          encoded = base64.b64encode(Path("package-lock.json").read_bytes()).decode("ascii")
-          for index in range(0, len(encoded), 48000):
-              print(f"SIMPLEOFFICE_LOCK_{index // 48000:04d}={encoded[index:index + 48000]}")
-          print(f"SIMPLEOFFICE_LOCK_CHUNKS={(len(encoded) + 47999) // 48000}")
-          PY
+        run: npm ci --no-audit --no-fund
       - name: Synchronize desktop version
         working-directory: desktop/electron
         run: npm run sync:version
@@ -95,7 +74,7 @@ jobs:
         run: npm run build:backend
       - name: Package Electron app
         working-directory: desktop/electron
-        run: npx electron-builder --publish never
+        run: npm run package:desktop
       - name: Prepare installable Linux AppImage
         if: matrix.artifact == 'linux'
         shell: bash
