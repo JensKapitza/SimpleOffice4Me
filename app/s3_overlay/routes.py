@@ -232,6 +232,7 @@ def _list_objects(provider: DocumentObjects, identity: dict):
 def _get_object(provider: DocumentObjects, identity: dict, key: str, *, head: bool):
     key = key.lstrip("/")
     if (key.startswith("_meta/") or key.startswith("documents/") or key.startswith("contacts/")
+            or key.startswith("invoices/")
             or key.startswith("calendar/") or key.startswith("tasks/") or key.startswith("projects/")):
         if "read" not in identity["scopes"]:
             raise S3Error("AccessDenied", "The S3 credential lacks read access", 403)

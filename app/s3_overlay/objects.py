@@ -6,6 +6,7 @@ import json
 import mimetypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, BinaryIO
 
 from flask import current_app
@@ -59,7 +60,7 @@ class DocumentObjects:
         self.contacts_enabled = contacts_enabled
         self.calendar_enabled = calendar_enabled
         self.projects_enabled = projects_enabled
-        self.root = current_app.config["DOCUMENT_ROOT"]
+        self.root = Path(current_app.config["DOCUMENT_ROOT"])
         self.store = DocumentStore(self.root)
         self.contacts = ContactStore(self.root)
         self.calendar = CalendarStore(self.root)
@@ -91,7 +92,7 @@ class DocumentObjects:
         if key == "_meta/overlay.json":
             prefixes = ["_meta/"]
             if self.contacts_enabled:
-                prefixes.append("contacts/")
+                prefixes.extend(("contacts/", "invoices/"))
             if self.documents_enabled:
                 prefixes.extend(("documents/", "inbox/", "tasks/"))
             if self.projects_enabled:
@@ -115,6 +116,17 @@ class DocumentObjects:
                 return None
             return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
                             _timestamp(contact.get("updated_at")), "text/vcard; charset=utf-8", payload)
+        if len(parts) == 2 and parts[0] == "invoices" and parts[1].endswith(".json"):
+            if not self.contacts_enabled:
+                return None
+            invoice_id = parts[1][:-5]
+            invoice_row = next((row for row in self._visible_invoices() if row.get("invoice_id") == invoice_id), None)
+            if invoice_row is None:
+                return None
+            payload = self._invoice_json(invoice_row)
+            return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
+                            _timestamp(invoice_row.get("updated_at") or invoice_row.get("issue_date")),
+                            "application/json", payload)
         if key == "calendar/events.ics":
             if not self.calendar_enabled:
                 return None
@@ -209,6 +221,56 @@ class DocumentObjects:
         return json.dumps({"schema": "simpleoffice-project-v1", **safe_project, "tasks": safe_tasks},
                           ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
+    def _visible_invoices(self) -> list[dict[str, Any]]:
+        if not self.contacts_enabled:
+            return []
+        from app.business_document_generation import invoices
+
+        manageable_ids = {
+            str(contact.get("contact_id", ""))
+            for contact in self.contacts.contacts(self.username)
+            if self.contacts.can_manage_contact(contact, self.username)
+        }
+        return [row for row in invoices(self.root) if str(row.get("contact_id", "")) in manageable_ids]
+
+    @staticmethod
+    def _invoice_json(invoice: dict[str, Any]) -> bytes:
+        fields = ("invoice_id", "invoice_number", "contact_id", "status", "issue_date", "service_date",
+                  "due_date", "currency", "payment_terms", "payment_state", "document_id", "created_at",
+                  "updated_at")
+        payload = {field: invoice[field] for field in fields if field in invoice}
+        nested_fields = {
+            "seller": ("name", "street", "postal", "city", "state", "country", "email", "vat_id",
+                       "tax_number", "iban", "bic", "bank"),
+            "buyer": ("name", "label", "street", "postal", "city", "state", "country", "email", "vat_id",
+                      "tax_number"),
+            "totals": ("net", "tax", "gross", "due", "vat_groups"),
+        }
+        for field, allowlist in nested_fields.items():
+            value = invoice.get(field)
+            if isinstance(value, dict):
+                payload[field] = {name: value[name] for name in allowlist if name in value}
+        line_fields = ("line_id", "description", "object_name", "quantity", "unit", "net_unit_price", "vat_rate",
+                       "net_total", "tax_total", "gross_total")
+        if isinstance(invoice.get("lines"), list):
+            payload["lines"] = [
+                {name: line[name] for name in line_fields if name in line}
+                for line in invoice["lines"] if isinstance(line, dict)
+            ]
+        list_fields = {
+            "payments": ("payment_id", "amount", "paid_at", "reference", "source"),
+            "credit_notes": ("credit_note_number", "issue_date", "reason", "currency", "amounts", "gross"),
+            "write_offs": ("written_off_at", "reason", "amount", "original_outstanding", "stop_collection"),
+        }
+        for field, allowlist in list_fields.items():
+            if isinstance(invoice.get(field), list):
+                payload[field] = [
+                    {name: item[name] for name in allowlist if name in item}
+                    for item in invoice[field] if isinstance(item, dict)
+                ]
+        return json.dumps({"schema": "simpleoffice-invoice-v1", **payload}, ensure_ascii=False,
+                          sort_keys=True, separators=(",", ":")).encode("utf-8")
+
     @classmethod
     def _project_object(cls, key: str, project: dict[str, Any], tasks: list[dict[str, Any]]) -> S3Object:
         payload = cls._project_json(project, tasks)
@@ -281,6 +343,16 @@ class DocumentObjects:
                 obj = self.resolve(key)
                 if obj:
                     found.append(obj)
+        if self.contacts_enabled and (not prefix or "invoices/".startswith(prefix) or prefix.startswith("invoices/")):
+            for invoice in self._visible_invoices():
+                key = f"invoices/{invoice['invoice_id']}.json"
+                if key.startswith(prefix) and key > after:
+                    payload = self._invoice_json(invoice)
+                    found.append(S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
+                                          _timestamp(invoice.get("updated_at") or invoice.get("issue_date")),
+                                          "application/json", payload))
+                    if len(found) >= limit + 1:
+                        break
         start_id = ""
         marker_parts = after.split("/")
         if len(marker_parts) > 1 and marker_parts[0] == "documents":

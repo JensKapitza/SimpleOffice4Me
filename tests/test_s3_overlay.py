@@ -213,6 +213,53 @@ class S3OverlayTests(unittest.TestCase):
         hidden_listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=contacts%2F")
         self.assertNotIn(own_key.encode(), hidden_listing.data)
 
+    def test_invoice_export_requires_contact_management_and_omits_internal_history(self):
+        contacts = ContactStore(self.root / "documents")
+        own = contacts.upsert({"display_name": "Eigener Kunde"}, "s3-user")
+        reader_contact = contacts.upsert({"display_name": "Nur lesbarer Kunde"}, "other-user")
+        contacts.share(reader_contact["contact_id"], [], "other-user", readers=["s3-user"])
+        private = contacts.upsert({"display_name": "Privater Kunde"}, "other-user")
+
+        invoice_dir = self.root / "documents" / ".simpleoffice-meta" / "invoices"
+        invoice_dir.mkdir(parents=True)
+        def add_invoice(invoice_id: str, contact_id: str) -> None:
+            row = {
+                "invoice_id": invoice_id, "invoice_number": f"RE-{invoice_id}", "contact_id": contact_id,
+                "status": "open", "issue_date": "2026-09-01", "due_date": "2026-09-30",
+                "currency": "EUR", "seller": {"name": "Verkäufer", "iban": "DE00SECRET", "internal_secret": "omit-me"},
+                "buyer": {"name": "Kunde"}, "lines": [{"description": "Leistung", "gross": "119.00"}],
+                "totals": {"net": "100.00", "tax": "19.00", "gross": "119.00"},
+                "payments": [], "history": [{"actor": "private-user", "note": "intern"}],
+                "created_at": "2026-09-01T10:00:00+00:00", "updated_at": "2026-09-02T10:00:00+00:00",
+            }
+            (invoice_dir / f"{invoice_id}.json").write_text(json.dumps(row), encoding="utf-8")
+
+        add_invoice("own-1", own["contact_id"])
+        add_invoice("reader-1", reader_contact["contact_id"])
+        add_invoice("private-1", private["contact_id"])
+        own_key = "invoices/own-1.json"
+        own_response = self.request("GET", f"/s3/simpleoffice/{own_key}")
+        self.assertEqual(200, own_response.status_code)
+        self.assertEqual("application/json", own_response.mimetype)
+        self.assertIn(b"DE00SECRET", own_response.data)
+        self.assertNotIn(b"omit-me", own_response.data)
+        self.assertNotIn(b"history", own_response.data)
+        self.assertNotIn(b"private-user", own_response.data)
+        self.assertEqual(404, self.request("GET", "/s3/simpleoffice/invoices/reader-1.json").status_code)
+        self.assertEqual(404, self.request("GET", "/s3/simpleoffice/invoices/private-1.json").status_code)
+
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=invoices%2F")
+        self.assertIn(own_key.encode(), listing.data)
+        self.assertNotIn(b"reader-1", listing.data)
+        self.assertNotIn(b"private-1", listing.data)
+        with app.app_context():
+            user_id = get_db().execute("SELECT id FROM user WHERE username='s3-user'").fetchone()["id"]
+            get_db().execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at,updated_by) VALUES(?,?,0,CURRENT_TIMESTAMP,NULL)", (user_id, "contacts"))
+            get_db().commit()
+        self.assertEqual(404, self.request("GET", f"/s3/simpleoffice/{own_key}").status_code)
+        hidden_listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=invoices%2F")
+        self.assertNotIn(own_key.encode(), hidden_listing.data)
+
     def test_calendar_ics_export_uses_visibility_and_calendar_permission(self):
         calendar = CalendarStore(self.root / "documents")
         calendar.add("Eigener Termin", "Privater Inhalt", "2026-10-01T09:00", "2026-10-01T10:00", "", "s3-user")

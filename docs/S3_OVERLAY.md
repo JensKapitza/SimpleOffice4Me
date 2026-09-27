@@ -1,7 +1,7 @@
 # S3-Overlay
 
 Das S3-Overlay stellt einen signierten, schreibgeschützten S3-Zugriff auf
-Kontakte und Dokumente bereit. Die einzige unterstützte fachliche Schreiboperation ist ein
+Kontakte, Rechnungen und Dokumente bereit. Die einzige unterstützte fachliche Schreiboperation ist ein
 neuer Dateiimport in die Inbox. Dokumentdateien bleiben im vorhandenen
 Dokumentenspeicher; der S3-Zugang ist keine zweite Datenbank und kein Backup.
 
@@ -10,6 +10,7 @@ Dokumentenspeicher; der S3-Zugang ist keine zweite Datenbank und kein Backup.
 Diese Integrationsstufe projiziert:
 
 - `contacts/<contact-id>.vcf` für Kontakte, die der Benutzer lesen darf
+- `invoices/<invoice-id>.json` für Rechnungen zu Kontakten, die der Benutzer verwalten darf
 - `calendar/events.ics` für sichtbare Termine mit aktiver Kalender-Berechtigung
 - `tasks/<task-id>.ics` für eigene und über Aufgabenlisten freigegebene VTODOs
 - `projects/<project-id>.json` mit definierten Projektfeldern und sichtbaren Aufgaben
@@ -55,7 +56,7 @@ Administratoren finden die Verwaltung unter **Administration → S3-Overlay**
 oder `/admin/s3-overlay`. Zugänge sind auf 1 bis 365 Tage begrenzt; höchstens
 zehn aktive Zugänge pro Benutzer sind zulässig. Berechtigungen:
 
-- `read`: Kontakte gemäß Kontaktfreigabe und Dokumente gemäß virtuellem Dateisystem.
+- `read`: Kontakte gemäß Kontaktfreigabe, Rechnungen für verwaltbare Kontakte und Dokumente gemäß virtuellem Dateisystem.
 - `inbox:put`: neue Objekte ausschließlich unter `inbox/` importieren.
 - optionaler Key-Prefix: zusätzliche Beschränkung des S3-Namespace.
 
@@ -75,6 +76,8 @@ Aktuell unterstützt:
 - `ListBuckets`, `HeadBucket`, `GetBucketLocation`, `GetBucketVersioning`
 - `contacts/<contact-id>.vcf` über die vorhandene Kontaktfreigabe und die
   konfigurierten vCard-Exportfelder
+- `invoices/<invoice-id>.json` nur über die bestehende Berechtigung zum Verwalten
+  des zugehörigen Kontakts; interne Änderungshistorie wird ausgelassen
 - `calendar/events.ics` über die Kalender-Berechtigung und bestehenden
   Terminfreigaben; bei unveränderten Terminen bleibt der Export byteidentisch
 - `tasks/<task-id>.ics` über die bestehenden Leserechte der Aufgabenlisten
