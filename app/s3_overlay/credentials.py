@@ -13,6 +13,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
+from cryptography.exceptions import InvalidTag
 from flask import current_app
 
 
@@ -57,7 +58,12 @@ def create(username: str, label: str, scopes: list[str], prefix: str, expires_da
         raise ValueError("Ungültiger S3-Rechteumfang.")
     if isinstance(expires_days, bool) or not 1 <= int(expires_days) <= 365:
         raise ValueError("Gültigkeit muss zwischen 1 und 365 Tagen liegen.")
-    if len(prefix) > 300 or any(ord(ch) < 32 for ch in prefix) or ".." in prefix.split("/"):
+    prefix = str(prefix or "").strip().lstrip("/")
+    if (
+        len(prefix) > 300
+        or any(ord(ch) < 32 for ch in prefix)
+        or any(part in {".", ".."} for part in prefix.split("/"))
+    ):
         raise ValueError("Ungültiger Prefix.")
     access = "SO" + secrets.token_hex(16).upper()
     secret = secrets.token_urlsafe(36)
@@ -70,11 +76,11 @@ def create(username: str, label: str, scopes: list[str], prefix: str, expires_da
         if active >= 10:
             raise ValueError("Höchstens 10 aktive S3-Zugänge sind erlaubt.")
         db.execute("INSERT INTO s3_credential(access_key,username,label,scopes,prefix,nonce,encrypted_secret,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                   (access, username, label, json.dumps(scopes), prefix.strip("/"), nonce, encrypted, now, now + int(expires_days) * 86400))
+                   (access, username, label, json.dumps(scopes), prefix, nonce, encrypted, now, now + int(expires_days) * 86400))
         db.commit()
     finally:
         db.close()
-    return {"access_key": access, "secret_key": secret, "label": label, "scopes": scopes, "prefix": prefix.strip("/"), "expires_at": now + int(expires_days) * 86400}
+    return {"access_key": access, "secret_key": secret, "label": label, "scopes": scopes, "prefix": prefix, "expires_at": now + int(expires_days) * 86400}
 
 
 def get(access_key: str, *, include_secret: bool = False) -> dict | None:
@@ -88,7 +94,12 @@ def get(access_key: str, *, include_secret: bool = False) -> dict | None:
     result = {"access_key": row["access_key"], "username": row["username"], "label": row["label"],
               "scopes": json.loads(row["scopes"]), "prefix": row["prefix"], "expires_at": row["expires_at"]}
     if include_secret:
-        result["secret_key"] = AESGCM(_key()).decrypt(bytes(row["nonce"]), bytes(row["encrypted_secret"]), access_key.encode()).decode()
+        try:
+            result["secret_key"] = AESGCM(_key()).decrypt(
+                bytes(row["nonce"]), bytes(row["encrypted_secret"]), access_key.encode()
+            ).decode()
+        except (InvalidTag, UnicodeDecodeError, ValueError):
+            return None
     return result
 
 
