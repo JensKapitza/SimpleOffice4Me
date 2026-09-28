@@ -545,6 +545,28 @@ class S3OverlayTests(unittest.TestCase):
             else:
                 app.config["S3_OVERLAY_CLOCK_SKEW_SECONDS"] = old_skew
 
+    def test_upload_only_credential_can_probe_bucket_without_read_scope(self):
+        with app.app_context():
+            upload_only = credentials.create("s3-user", "upload only", ["inbox:put"], "inbox/", 7)
+
+        for method, path in (
+            ("HEAD", "/s3/simpleoffice"),
+            ("GET", "/s3/simpleoffice?location="),
+            ("GET", "/s3/simpleoffice?versioning="),
+        ):
+            headers = signed_headers(
+                method, path, upload_only["access_key"], upload_only["secret_key"],
+            )
+            response = self.client.open(path, method=method, headers=headers)
+            self.assertEqual(200, response.status_code)
+
+        list_path = "/s3/simpleoffice?list-type=2"
+        headers = signed_headers(
+            "GET", list_path, upload_only["access_key"], upload_only["secret_key"],
+        )
+        listing = self.client.get(list_path, headers=headers)
+        self.assertEqual(403, listing.status_code)
+
     def test_bad_signature_and_forbidden_write_are_rejected(self):
         path = "/s3/simpleoffice/documents/missing/original/x.bin"
         headers = signed_headers("GET", path, self.keypair["access_key"], self.keypair["secret_key"])
