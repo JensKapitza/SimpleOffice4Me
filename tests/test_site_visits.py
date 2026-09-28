@@ -123,6 +123,14 @@ class SiteVisitScanTests(unittest.TestCase):
         self.assertEqual(256, network.num_addresses)
         self.assertEqual([80, 443], ports)
 
+    def test_named_port_groups_combine_with_custom_ports_and_are_bounded(self):
+        _, ports = parse_scan_request("192.168.1.0/24", "1234,80", True, ["web", "mail"])
+        self.assertEqual([80, 443, 8080, 8443, 25, 110, 143, 465, 587, 993, 995, 1234], ports)
+        with self.assertRaisesRegex(ValueError, "Unbekannte Portgruppe"):
+            parse_scan_request("192.168.1.0/24", "80", True, ["all_ports"])
+        with self.assertRaisesRegex(ValueError, "Maximal"):
+            parse_scan_request("192.168.1.0/24", "1,2,3,4,5,6,7", True, ["web", "mail", "file_sharing", "remote_access", "databases"])
+
     @patch("app.site_visit_scan.socket.create_connection")
     def test_scan_only_attempts_selected_tcp_ports(self, connect):
         from contextlib import closing
