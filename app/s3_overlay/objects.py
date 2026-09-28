@@ -247,8 +247,10 @@ class DocumentObjects:
             return S3Object(key, len(payload), hashlib.sha256(payload).hexdigest(),
                             _timestamp(item.get("updated_at") or item.get("created_at")),
                             "application/json", payload)
-        if len(parts) >= 3 and parts[0] == "inbox" and parts[1] == self.username:
-            path = "inbox/" + "/".join(parts[2:])
+        if len(parts) >= 2 and parts[0] == "inbox":
+            relative_key = "/".join(parts[1:])
+            path = ("inbox/" + relative_key if len(parts) >= 3 and parts[1] == self.username
+                    else f"inbox/{self.username}/{relative_key}")
             try:
                 document = self.store.get_document(path)
             except (OSError, ValueError):
@@ -732,6 +734,8 @@ class DocumentObjects:
         parts = key.split("/")
         if not key or len(key.encode("utf-8")) > 1024 or any(part in {"", ".", ".."} or any(ord(ch) < 32 for ch in part) for part in parts):
             raise ValueError("Invalid inbox object key")
+        if len(parts) > 1 and parts[0] == self.username:
+            parts = parts[1:]
         safe_parts = [safe_filename(part, fallback="upload.bin", max_length=180) for part in parts]
         destination = "inbox/" + self.username + "/" + "/".join(safe_parts)
         lock_dir = self.store.control / "s3-inbox-locks"
