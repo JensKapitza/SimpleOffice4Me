@@ -20,6 +20,7 @@ _TRUE_VALUES = {"1", "true", "yes", "on"}
 _DISCOVERY_PATH = "/.well-known/simpleoffice-federation"
 _MAX_DISCOVERY_RESPONSE = 1024 * 1024
 _USER_AGENT = "SimpleOffice4Me-Federation-Discovery/1"
+_SHARED_IPV4 = ipaddress.ip_network("100.64.0.0/10")
 _BASE_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._~-]{1,80}$")
 
 
@@ -129,6 +130,10 @@ def _validate_address(address, allow_private, allow_loopback):
         raise ValueError("loopback federation discovery is disabled")
     if address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved:
         raise ValueError("peer endpoint resolves to a forbidden network address")
+    if address.version == 4 and address in _SHARED_IPV4:
+        if allow_private:
+            return
+        raise ValueError("shared/private federation discovery requires explicit local-target permission")
     if address.is_private and not allow_private:
         raise ValueError("private federation discovery requires SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1")
     if not address.is_global and not address.is_private:
@@ -246,6 +251,8 @@ def fetch_discovery_profile_auto(value, timeout=8, *, allow_private=None, allow_
                 allow_private=allow_private,
                 allow_loopback=allow_loopback,
             )
+        except ssl.SSLCertVerificationError as exc:
+            raise ConnectionError("TLS certificate verification failed") from exc
         except (OSError, http.client.HTTPException) as exc:
             last_transport_error = exc
             continue
