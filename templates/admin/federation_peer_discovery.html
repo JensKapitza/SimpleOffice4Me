@@ -13,12 +13,39 @@
         <p class="text-secondary mb-2">Sucht SimpleOffice-Geräte im gleichen lokalen Netz – egal ob die Geräte per WLAN oder LAN verbunden sind.</p>
         <div class="small"><span class="badge text-bg-warning me-1">Sicher</span>Gefundene Geräte werden nur als <strong>bekannt, nicht geprüft</strong> gespeichert und bleiben deaktiviert. Es werden keine Datenrechte automatisch vergeben.</div>
       </div>
-      <form class="d-flex flex-column flex-sm-row gap-2 align-items-sm-end flex-shrink-0" method="post" action="{{ url_for('federation_peer_admin.lan') }}">
+      <form class="row g-2 align-items-end flex-shrink-0" method="post" action="{{ url_for('federation_peer_admin.lan') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <div><label class="form-label mb-1" for="lan-port">SimpleOffice-Port</label><input id="lan-port" class="form-control" name="port" type="number" min="1" max="65535" value="8080" inputmode="numeric" style="max-width:9rem"></div>
-        <button class="btn btn-primary btn-lg" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Netzwerk scannen</button>
+        <div class="col-12 col-sm-auto">
+          <label class="form-label mb-1" for="lan-network">Scan-Basis / CIDR</label>
+          <input id="lan-network" class="form-control" name="network" type="text" placeholder="z. B. 192.168.178.0/24" aria-describedby="lan-network-help" style="min-width:15rem">
+          <div id="lan-network-help" class="form-text">Leer = lokale /24-Netze automatisch. Bei Docker/Podman das vom Container erreichbare LAN angeben; maximal vier private Netze und 1024 Hosts.</div>
+        </div>
+        <div class="col-12 col-sm-auto">
+          <label class="form-label mb-1" for="lan-port">SimpleOffice-Port</label>
+          <input id="lan-port" class="form-control" name="port" type="number" min="1" max="65535" value="8080" inputmode="numeric" style="max-width:9rem">
+        </div>
+        <div class="col-12 col-sm-auto"><button class="btn btn-primary btn-lg" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Netzwerk scannen</button></div>
       </form>
     </div>
+  </div>
+</section>
+
+<section class="card mb-3" id="compatibility-requirements">
+  <div class="card-body">
+    <h2 class="h5 mb-2"><i class="fas fa-code-branch me-2" aria-hidden="true"></i>Kompatibilität / Mindestvoraussetzung</h2>
+    <p class="small text-secondary mb-2">Erreichbar bedeutet noch nicht kompatibel. Für Federation muss sich der unterstützte Protokollbereich überschneiden; jede Fachfunktion wird zusätzlich separat geprüft. Vertrauen und Datenrechte bleiben davon unabhängig.</p>
+    <div class="row g-2 small">
+      <div class="col-12 col-lg-4"><strong>Federation:</strong> {{ compatibility_requirements.protocol_name }} v{{ compatibility_requirements.protocol_min }}{% if compatibility_requirements.protocol_max != compatibility_requirements.protocol_min %}–{{ compatibility_requirements.protocol_max }}{% endif %}</div>
+      <div class="col-12 col-lg-8">
+        <strong>Funktionen:</strong>
+        Chat v{{ compatibility_requirements.features.chat }},
+        Dokumente v{{ compatibility_requirements.features.documents }},
+        Kontakte v{{ compatibility_requirements.features.contacts }},
+        Kalender v{{ compatibility_requirements.features.calendar }},
+        Aufgaben v{{ compatibility_requirements.features.tasks }}
+      </div>
+    </div>
+    <div class="small mt-2"><span class="badge text-bg-secondary me-1">Transport</span>Bei Eingaben ohne Schema wird für die Discovery zuerst HTTPS und danach HTTP geprüft. Explizites HTTPS wird nicht auf HTTP herabgestuft; Zertifikatsprüfung bleibt aktiv.</div>
   </div>
 </section>
 
@@ -53,7 +80,7 @@
 
 <div class="row g-3 mb-3">
 <div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.country') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">Land / Directory</h2><p class="small text-secondary">Peers über ein konfiguriertes regionales Verzeichnis finden.</p><input class="form-control mb-2" name="country" maxlength="2" placeholder="DE" required><button class="btn btn-outline-primary mt-auto" type="submit">Suchen</button></form></div>
-<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.direct') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">IP / URL</h2><p class="small text-secondary">Wenn die Adresse des anderen Geräts bereits bekannt ist.</p><input class="form-control mb-2" name="endpoint" placeholder="http://192.168.1.23:8080" required><button class="btn btn-outline-primary mt-auto" type="submit">Prüfen</button></form></div>
+<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.direct') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">IP / URL</h2><p class="small text-secondary">Host/IP mit Port, vollständige HTTP(S)-URL oder Reverse-Proxy-Basispfad. Ohne Schema wird HTTPS und danach HTTP geprüft.</p><input class="form-control mb-1" name="endpoint" placeholder="192.168.1.23:8080 oder https://host/simpleoffice" aria-describedby="direct-endpoint-help" required><div id="direct-endpoint-help" class="form-text mb-2">Beispiele: <code>100.110.89.7:8765</code>, <code>http://192.168.1.23:8080</code>, <code>https://host/simpleoffice</code>.</div><button class="btn btn-outline-primary mt-auto" type="submit">Prüfen &amp; Kompatibilität testen</button></form></div>
 <div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.email') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">E-Mail</h2><p class="small text-secondary">Rendezvous über eine bekannte E-Mail-Zuordnung.</p><input class="form-control mb-2" name="email" type="email" required><button class="btn btn-outline-primary mt-auto" type="submit">Suchen</button></form></div>
 </div>
 <div class="card card-body mb-3">
