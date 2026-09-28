@@ -19,7 +19,7 @@ Für QR-Labels muss `SIMPLEOFFICE_SERVER_PUBLIC_URL` (oder `SIMPLEOFFICE_FEDERAT
 
 ## LAN-Scan und Grenzen
 
-Der Scan erfordert eine ausdrückliche Checkbox, akzeptiert ausschließlich private IPv4-Netze von `/24` bis `/30`, höchstens 254 Hosts und bis zu 32 TCP-Ports. Er prüft TCP-Verbindungen mit begrenzter Parallelität und Zeitüberschreitung. Er führt keine UDP-, Betriebssystem-, Hersteller-, Sicherheitslücken- oder Exfiltrationsanalyse durch. Der Scan ist nur in Netzen mit eigener Berechtigung zu starten. Ein offener Port beweist weder eine Kompromittierung noch Datenabfluss.
+Der Scan läuft auf dem Anwendungsserver, nicht im Browser des Mitarbeitenden. Das Zielnetz muss vom Server aus erreichbar sein; ein Server außerhalb des Kunden-LANs kann dieses daher nicht direkt scannen. Für entfernte bzw. segmentierte Netze ist ein separat abgesicherter lokaler Scan-Agent erforderlich. Der Scan erfordert eine ausdrückliche Checkbox, akzeptiert ausschließlich private IPv4-Netze von `/24` bis `/30`, höchstens 254 Hosts und bis zu 32 TCP-Ports. Er prüft TCP-Verbindungen mit begrenzter Parallelität und Zeitüberschreitung. Er führt keine UDP-, Betriebssystem-, Hersteller-, Sicherheitslücken- oder Exfiltrationsanalyse durch. Der Scan ist nur in Netzen mit eigener Berechtigung zu starten. Ein offener Port beweist weder eine Kompromittierung noch Datenabfluss.
 
 ## Geheimnisse und Bericht
 
