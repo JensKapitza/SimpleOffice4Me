@@ -344,7 +344,7 @@ def snapshot_diff(visit_id: str):
 def network_scan(visit_id: str):
     _visit(visit_id)
     try:
-        scan = scan_authorized_private_network(request.form.get("cidr", ""), request.form.get("ports", ""), request.form.get("approved") == "1")
+        scan = scan_authorized_private_network(request.form.get("cidr", ""), request.form.get("ports", ""), request.form.get("approved") == "1", profiles=request.form.getlist("profiles"))
         _store().apply_scan(visit_id, _actor(), {**scan, "device_count": len(scan["devices"])})
         flash(f"Scan abgeschlossen: {len(scan['devices'])} Geräte mit mindestens einem offenen TCP-Port erkannt.", "success")
     except (OSError, ValueError) as exc:
