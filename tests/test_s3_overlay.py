@@ -250,6 +250,9 @@ class S3OverlayTests(unittest.TestCase):
         )
         with app.app_context():
             restricted = credentials.create("s3-user", "contacts only", ["read"], "contacts/", 7)
+            stored_restricted = credentials.get(restricted["access_key"])
+        self.assertEqual("contacts/", restricted["prefix"])
+        self.assertEqual("contacts/", stored_restricted["prefix"])
 
         root_path = "/s3/simpleoffice?list-type=2&delimiter=%2F"
         root_headers = signed_headers(
@@ -566,6 +569,21 @@ class S3OverlayTests(unittest.TestCase):
         )
         listing = self.client.get(list_path, headers=headers)
         self.assertEqual(403, listing.status_code)
+
+    def test_unreadable_encrypted_credential_fails_as_s3_auth_error(self):
+        path = "/s3/simpleoffice/_meta/overlay.json"
+        headers = signed_headers(
+            "GET", path, self.keypair["access_key"], self.keypair["secret_key"],
+        )
+        previous_secret = app.config["SECRET_KEY"]
+        try:
+            app.config["SECRET_KEY"] = "different-master-key"
+            response = self.client.get(path, headers=headers)
+        finally:
+            app.config["SECRET_KEY"] = previous_secret
+        self.assertEqual(403, response.status_code)
+        self.assertIn(b"<Code>SignatureDoesNotMatch</Code>", response.data)
+        self.assertEqual("application/xml", response.mimetype)
 
     def test_bad_signature_and_forbidden_write_are_rejected(self):
         path = "/s3/simpleoffice/documents/missing/original/x.bin"
