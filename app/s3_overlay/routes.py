@@ -572,10 +572,14 @@ def _complete_multipart(identity: dict, provider: DocumentObjects, key: str):
     if not re.fullmatch(r"[A-Fa-f0-9]{64}", expected_hash) or hashlib.sha256(body).hexdigest() != expected_hash.casefold():
         raise S3Error("BadDigest", "The multipart manifest does not match its signed SHA-256", 400)
     spool = None
+    store = _multipart_store()
+    completion_claimed = False
+    completed = False
     try:
-        spool, digest, total, etag = _multipart_store().complete(
+        spool, digest, total, etag = store.complete(
             key, upload_id, identity["username"], identity["access_key"], body, limit,
         )
+        completion_claimed = True
         spool.seek(0)
         _scan_inbox_upload(spool, identity, key)
         spool.seek(0)
@@ -584,17 +588,29 @@ def _complete_multipart(identity: dict, provider: DocumentObjects, key: str):
         audit("s3_inbox_uploaded", "s3-inbox-upload", str(doc.get("document_id", "")),
               detail={"key": key, "source": "s3-inbox-multipart", "size": total, "sha256": digest,
                       "access_key_id": identity["access_key"]}, actor=actor)
-        _multipart_store().finish(upload_id, identity["username"], identity["access_key"], key)
+        store.finish(upload_id, identity["username"], identity["access_key"], key)
+        completed = True
     except FileExistsError as exc:
         raise S3Error("PreconditionFailed", "The inbox key already exists", 412) from exc
     except MultipartError as exc:
-        code, status = ("NoSuchUpload", 404) if "does not exist" in str(exc) else ("InvalidPart", 400)
+        message = str(exc)
+        if "does not exist" in message:
+            code, status = "NoSuchUpload", 404
+        elif "already completing" in message:
+            code, status = "OperationAborted", 409
+        else:
+            code, status = "InvalidPart", 400
         raise S3Error(code, str(exc), status) from exc
     except ValueError as exc:
         raise S3Error("InvalidArgument", "The completed inbox upload could not be imported", 400) from exc
     finally:
         if spool is not None:
             spool.close()
+        if completion_claimed and not completed:
+            try:
+                store.release_completion(upload_id, identity["username"], identity["access_key"], key)
+            except (MultipartError, OSError):
+                current_app.logger.warning("Could not release failed S3 multipart completion state", exc_info=True)
     location = request.url_root.rstrip("/") + S3_PREFIX + "/" + BUCKET + "/" + quote(key, safe="/")
     response = _response(xml_document("CompleteMultipartUploadResult",
         element("Location", location) + element("Bucket", BUCKET) + element("Key", key) + element("ETag", f'"{etag}"')))
