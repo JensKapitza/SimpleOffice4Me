@@ -193,6 +193,16 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         )
         self.assertFalse(FederationStore(self.root).get_peer("peer-a")["enabled"])
 
+    def test_direct_discovery_allows_explicit_rfc6598_ip(self):
+        local_profile = {**PROFILE, "base_url": "http://100.110.89.7:8765", "fingerprint": ""}
+        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=local_profile) as fetcher:
+            peer = discover_direct(self.root, "100.110.89.7:8765")
+        self.assertEqual(peer["peer_id"], "peer-a")
+        fetcher.assert_called_once_with(
+            "100.110.89.7:8765", timeout=8, allow_private=True
+        )
+        self.assertEqual(peer["compatibility"]["protocol"], "compatible")
+
     def test_direct_discovery_does_not_allow_private_hostname_implicitly(self):
         with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=PROFILE) as fetcher:
             discover_direct(self.root, "http://printer.home.arpa:8080")
@@ -211,6 +221,8 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
     def test_explicit_scan_network_supports_container_lan(self):
         networks = scan_networks("192.168.77.0/24", addresses=["172.17.0.2"])
         self.assertEqual([str(item) for item in networks], ["192.168.77.0/24"])
+        shared = scan_networks("100.110.89.0/24", addresses=["172.17.0.2"])
+        self.assertEqual([str(item) for item in shared], ["100.110.89.0/24"])
 
     def test_scan_network_rejects_public_and_oversized_ranges(self):
         for value in ("8.8.8.0/24", "10.0.0.0/16"):
