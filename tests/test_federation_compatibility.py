@@ -1,6 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from app.federation_compatibility import compatibility, requirements
+from app.federation_store import FederationStore
 
 
 class FederationCompatibilityTest(unittest.TestCase):
@@ -50,6 +53,25 @@ class FederationCompatibilityTest(unittest.TestCase):
         self.assertEqual(value["protocol_max"], 1)
         self.assertEqual(value["features"]["chat"], 1)
         self.assertEqual(value["features"]["documents"], 1)
+
+    def test_compatibility_snapshot_is_persisted_separately_from_peer_policy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = FederationStore(Path(temp))
+            store.save_peer("peer-a", "Peer A", "https://peer.example", "", {"documents": "receive"}, False)
+            store.set_peer_compatibility(
+                "peer-a",
+                {
+                    "protocol": "compatible",
+                    "protocol_version": "1",
+                    "features": {"chat": True, "documents": True},
+                    "transport": "HTTPS",
+                },
+            )
+            snapshot = store.peer_compatibility("peer-a")
+            self.assertEqual(snapshot["protocol"], "compatible")
+            self.assertTrue(snapshot["features"]["chat"])
+            self.assertGreater(snapshot["checked_at"], 0)
+            self.assertEqual(store.get_peer("peer-a")["policy"], {"documents": "receive"})
 
 
 if __name__ == "__main__":
