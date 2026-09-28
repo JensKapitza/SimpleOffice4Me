@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from app.document_store import DocumentStore
+from app.safe_paths import resolve_under
 
 from ..catalog import CatalogEntry, ObjectCatalog
 from ..contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
@@ -107,7 +108,7 @@ class V2AuthoritativeStorageAdapter:
     def _projection_destination(self, location: StorageLocation) -> OperationResult[Path]:
         try:
             relative = self.store._safe_managed_relative_path(location.relative_path, require_name=True)
-            target = self.root / relative
+            target = resolve_under(self.root, relative, strict=False)
             if not target.parent.is_dir() or target.parent.is_symlink():
                 return self._error(ErrorCode.NOT_FOUND, "destination collection does not exist")
             if target.exists():
@@ -236,8 +237,8 @@ class V2AuthoritativeStorageAdapter:
             if not primary.ok:
                 return OperationResult(error=primary.error)
             stored = primary.value
-            target = self.root / stored.location.relative_path
             try:
+                target = resolve_under(self.root, stored.location.relative_path, strict=False)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 self.store.ensure_folder_policy(target.parent)
                 spool.seek(0)
@@ -288,8 +289,8 @@ class V2AuthoritativeStorageAdapter:
             if not primary.ok:
                 return OperationResult(error=primary.error)
             stored = primary.value
-            target = self.root / stored.location.relative_path
             try:
+                target = resolve_under(self.root, stored.location.relative_path, strict=False)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 self.store.ensure_folder_policy(target.parent)
                 spool.seek(0)
