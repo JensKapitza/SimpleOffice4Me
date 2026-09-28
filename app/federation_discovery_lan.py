@@ -1,8 +1,8 @@
 """User-triggered federation discovery on private IPv4 LAN segments.
 
 Automatic discovery stays narrow and uses local /24 networks. Administrators may
-provide explicit RFC1918 CIDRs for Docker/Podman deployments where the container
-network is not the LAN that should be searched. Explicit ranges are bounded and
+provide explicit RFC1918 or RFC6598 CIDRs for Docker/Podman/VPN deployments where
+the container network is not the LAN that should be searched. Explicit ranges are bounded and
 never allow public, link-local or metadata networks.
 """
 from __future__ import annotations
