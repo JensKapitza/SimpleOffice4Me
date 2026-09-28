@@ -63,7 +63,14 @@
     const video = document.createElement('video'); video.setAttribute('playsinline', ''); video.style.cssText = 'position:fixed;inset:10%;width:80%;height:80%;object-fit:contain;background:#000;z-index:2000';
     const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Kamera schließen'; close.className = 'btn btn-light'; close.style.cssText = 'position:fixed;top:12%;right:12%;z-index:2001'; document.body.append(video, close);
     let stream; try { stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: {ideal: 'environment'}}, audio: false}); video.srcObject = stream; await video.play(); const detector = new BarcodeDetector();
-      const poll = async () => { if (!video.isConnected) return; try { const codes = await detector.detect(video); if (codes[0]) { const target = root.querySelector('[data-barcode-target]'); if (target) target.value = codes[0].rawValue; close.click(); return; } } catch (_) {} requestAnimationFrame(poll); }; poll();
+      const poll = async () => { if (!video.isConnected) return; try { const codes = await detector.detect(video); if (codes[0]) {
+          const value = codes[0].rawValue;
+          try {
+            const label = new URL(value);
+            if (label.origin === location.origin && /^\/site-visits\/[0-9a-f-]{36}$/.test(label.pathname) && label.searchParams.has('asset')) { close.click(); location.assign(label.href); return; }
+          } catch (_) {}
+          const target = root.querySelector('[data-barcode-target]'); if (target) target.value = value; close.click(); return;
+        } } catch (_) {} requestAnimationFrame(poll); }; poll();
     } catch (error) { close.click(); alert(`Kamera konnte nicht geöffnet werden: ${error.message}`); }
     close.addEventListener('click', () => { stream?.getTracks().forEach(track => track.stop()); video.remove(); close.remove(); }, {once: true});
   });
