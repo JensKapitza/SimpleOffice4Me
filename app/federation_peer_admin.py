@@ -198,6 +198,7 @@ def dashboard():
             "enabled": bool(peer.get("enabled", False)),
             "has_token": bool(peer.get("has_token", False)),
             "trust": trust.get_trust(identity["peer_id"]),
+            "compatibility": trust.store.peer_compatibility(identity["peer_id"]),
             "recommendations": recommendations(_root(), identity["peer_id"]),
         })
     try:
