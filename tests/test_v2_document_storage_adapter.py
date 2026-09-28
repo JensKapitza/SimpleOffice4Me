@@ -185,6 +185,25 @@ class DocumentStoreStorageAdapterTest(unittest.TestCase):
         self.assertEqual(len(payload), imported.value.size)
         self.assertEqual(payload, self.adapter.read_bytes(imported.value.object_id).value)
 
+    def test_import_stream_at_rejects_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as outside_name:
+            outside = Path(outside_name)
+            link = self.root / "docs" / "escape"
+            try:
+                link.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            result = self.adapter.import_stream_at(
+                StorageLocation("docs/escape/pwn.txt"),
+                io.BytesIO(b"blocked"),
+                max_bytes=64,
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(ErrorCode.INVALID_INPUT, result.error.code)
+            self.assertFalse((outside / "pwn.txt").exists())
+
     def test_create_conflict_does_not_overwrite_existing_file(self):
         location = StorageLocation("docs/existing.txt")
         self.assertTrue(self.adapter.create_bytes(location, b"first").ok)

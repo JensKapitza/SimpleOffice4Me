@@ -65,7 +65,8 @@ class CalendarStore:
             start = self._ics_datetime(event["start"])
             end = self._ics_datetime(event.get("end") or event["start"])
             uid = event.get("source_uid") or f'{event["event_id"]}@simpleoffice.local'
-            lines.extend(["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{self._ics_escape(event['title'])}", f"DESCRIPTION:{self._ics_escape(event.get('reason', ''))}"])
+            stamp = self._ics_dtstamp(event.get("updated_at") or event.get("created_at") or event["start"])
+            lines.extend(["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{stamp}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"DTSTART:{start}", f"DTEND:{end}", f"SUMMARY:{self._ics_escape(event['title'])}", f"DESCRIPTION:{self._ics_escape(event.get('reason', ''))}"])
             if event.get("description_html"):
                 lines.append(f"X-ALT-DESC;FMTTYPE=text/html:{self._ics_escape(event['description_html'])}")
             tags = [tag["name"] for tag in event.get("tags", []) if tag.get("name")]
@@ -93,7 +94,8 @@ class CalendarStore:
                 lines.extend(serialize_alarm(alarm))
             lines.append("END:VEVENT")
             for override in event.get("recurrence_overrides", []):
-                lines.extend(["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"RECURRENCE-ID:{self._ics_datetime(override['recurrence_id'])}"])
+                override_stamp = self._ics_dtstamp(override.get("updated_at") or event.get("updated_at") or event.get("created_at") or event["start"])
+                lines.extend(["BEGIN:VEVENT", f"UID:{uid}", f"DTSTAMP:{override_stamp}", f"SEQUENCE:{int(event.get('sequence', 0))}", f"RECURRENCE-ID:{self._ics_datetime(override['recurrence_id'])}"])
                 if override.get("status") == "cancelled":
                     lines.append("STATUS:CANCELLED")
                 else:
@@ -652,6 +654,14 @@ class CalendarStore:
         if parsed.tzinfo is not None:
             return parsed.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         return parsed.strftime("%Y%m%dT%H%M%S")
+
+    @staticmethod
+    def _ics_dtstamp(value: str) -> str:
+        """Format a stable UTC iCalendar timestamp from a stored event value."""
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     @classmethod
     def _ics_person(cls, left: str, value: str, attendee: bool = False) -> dict[str, Any]:

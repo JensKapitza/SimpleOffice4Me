@@ -1,0 +1,183 @@
+# S3-Overlay
+
+Das S3-Overlay stellt einen signierten, schreibgeschützten S3-Zugriff auf
+Kontakte, Rechnungen, archivierte E-Mails und Dokumente bereit. Die einzige unterstützte fachliche Schreiboperation ist ein
+neuer Dateiimport in die Inbox. Dokumentdateien bleiben im vorhandenen
+Dokumentenspeicher; der S3-Zugang ist keine zweite Datenbank und kein Backup.
+
+## Status und Grenzen
+
+Diese Integrationsstufe projiziert:
+
+- `contacts/<contact-id>.vcf` für Kontakte, die der Benutzer lesen darf
+- `invoices/<invoice-id>.json` für Rechnungen zu Kontakten, die der Benutzer verwalten darf
+- `calendar/events.ics` für sichtbare Termine mit aktiver Kalender-Berechtigung
+- `tasks/<task-id>.ics` für eigene und über Aufgabenlisten freigegebene VTODOs
+- `projects/<project-id>.json` mit definierten Projektfeldern und sichtbaren Aufgaben
+- `objects/<object-id>.json` mit bereinigten Inventar-/Geschäftsobjektfeldern
+- `email/<account-id>/<archive-path>.eml` für archivierte Nachrichten eigener Mailkonten
+- `exports/contacts.csv`, `contacts.vcf`, `calendar.ics`, `tasks.jsonl`,
+  `projects.jsonl`, `invoices.csv`, `documents.csv`, `mail.jsonl` und
+  `manifest.jsonl` als aus den Fachquellen erzeugte virtuelle Sammelobjekte
+- `_meta/overlay.json` mit sichtbaren Prefixen, Operationen und expliziten Secret-Ausschlüssen
+- `_meta/schema.json` mit den aktuell exportierten Objektformaten
+- `_meta/capabilities.json` mit der tatsächlich unterstützten S3-Funktionsmenge und den noch fehlenden Funktionen
+- `documents/<document-id>/metadata.json`
+- `documents/<document-id>/original/<filename>`
+- `inbox/<username>/<client-key>` für eigene S3-Inbox-Uploads
+
+Dokumentordnerrechte werden über das vorhandene virtuelle Dateisystem geprüft.
+Die Datei selbst wird über `StoragePort` gelesen und vor der Ausgabe vollständig
+integritätsgeprüft. Range-Reads puffern nur den angeforderten Ausschnitt in
+einem begrenzten Spool und verifizieren trotzdem den vollständigen Blob.
+
+Personal, Geschäftsdaten, Audit, Recovery und Federation sind noch keine
+S3-Provider. Mailkonten und deren archivierte Nachrichten werden nur lesend
+abgebildet; Konto-Einstellungen, Zugangsdaten, Sieve-Skripte und Archivzustände
+bleiben ausgeschlossen. Inbox-Multipart-Uploads werden nur als temporäres,
+Access-Key-gebundenes Staging unterstützt und nach 24 Stunden bereinigt. Das
+Overlay darf deshalb noch
+nicht als vollständige Sicht auf alle Anwendungsdaten oder als kompatibel mit
+allen S3-Clients beworben werden. Issue #482 bleibt für diese Ausbau- und
+Gesamtabnahme offen.
+
+## Aktivierung
+
+Das Overlay ist standardmäßig deaktiviert. In der Serverumgebung setzen:
+
+```text
+SIMPLEOFFICE_S3_OVERLAY_ENABLED=true
+SIMPLEOFFICE_S3_OVERLAY_REGION=us-east-1
+SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS=900
+SIMPLEOFFICE_S3_MAX_UPLOAD_MIB=512
+SIMPLEOFFICE_S3_MAX_STAGING_MIB=2048
+```
+
+Nach einem Neustart lautet die Endpoint-URL `https://<server>/s3`. Path-Style
+ist erforderlich; der virtuelle Bucket heißt `simpleoffice`. Außerhalb von
+localhost weist das Overlay unverschlüsselte HTTP-Anfragen ab. Bei einem
+Reverse Proxy muss HTTPS korrekt an Flask weitergegeben werden.
+
+Die S3-Grenze kann mit `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` verkleinert werden. Sie
+kann das globale Upload-Limit der Anwendung nicht überschreiten. Ungültige
+Werte fallen auf das globale Limit zurück. `SIMPLEOFFICE_S3_MAX_STAGING_MIB`
+begrenzt den gesamten temporären Multipart-Speicher (Standard 2048 MiB,
+zulässig 64 bis 65536 MiB). Pro Zugang sind höchstens 20 Uploads gleichzeitig
+aktiv. Die zulässige SigV4-Uhrabweichung
+wird mit `SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS` eingestellt, standardmäßig
+900 Sekunden und serverseitig auf maximal 3600 Sekunden begrenzt.
+
+## S3-Zugänge verwalten
+
+Administratoren finden die Verwaltung unter **Administration → S3-Overlay**
+oder `/admin/s3-overlay`. Zugänge sind auf 1 bis 365 Tage begrenzt; höchstens
+zehn aktive Zugänge pro Benutzer sind zulässig. Berechtigungen:
+
+- `read`: Kontakte gemäß Kontaktfreigabe, Rechnungen für verwaltbare Kontakte und Dokumente gemäß virtuellem Dateisystem.
+- `inbox:put`: neue Objekte ausschließlich unter `inbox/` importieren.
+- optionaler Key-Prefix: zusätzliche Beschränkung des S3-Namespace.
+
+Access Key und Secret werden bei Erstellung angezeigt. Das Secret wird
+verschlüsselt in `.simpleoffice-meta/s3-overlay.sqlite3` abgelegt und ist durch
+den vorhandenen Anwendungs-Session-Schlüssel geschützt. Dieser Schlüssel muss
+bei Backups erhalten bleiben, sonst können gespeicherte S3-Secrets nicht mehr
+entschlüsselt werden. Widerruf wirkt unmittelbar. Ein Secret-Wechsel erfolgt,
+indem ein neuer Zugang erzeugt und der alte widerrufen wird.
+
+## Unterstützte Protokolloperationen
+
+Aktuell unterstützt:
+
+- AWS Signature Version 4 im Authorization-Header
+- presigned GET/HEAD-Requests (maximal sieben Tage)
+- `ListBuckets`, `HeadBucket`, `GetBucketLocation`, `GetBucketVersioning`
+- maschinenlesbare Overlay-, Schema- und Capability-Metadaten unter `_meta/`
+- `contacts/<contact-id>.vcf` über die vorhandene Kontaktfreigabe und die
+  konfigurierten vCard-Exportfelder
+- `invoices/<invoice-id>.json` nur über die bestehende Berechtigung zum Verwalten
+  des zugehörigen Kontakts; interne Änderungshistorie wird ausgelassen
+- `calendar/events.ics` über die Kalender-Berechtigung und bestehenden
+  Terminfreigaben; bei unveränderten Terminen bleibt der Export byteidentisch
+- `tasks/<task-id>.ics` über die bestehenden Leserechte der Aufgabenlisten
+- `projects/<project-id>.json` über die Projekte-Berechtigung; interne Repository-
+  und Abrechnungsdaten werden nicht exportiert
+- `objects/<object-id>.json` über die Dokumente-Berechtigung; verknüpfte Dokumente
+  werden nur bei bestehender VFS-Leseberechtigung referenziert und Secret-Felder
+  werden ausgelassen
+- `email/<account-id>/<archive-path>.eml` über die Mail-Berechtigung und die
+  Kontoeigentümerschaft; nur EML-Dateien im privaten Archiv werden veröffentlicht
+- `Multipart Initiate/UploadPart/Complete/Abort` ausschließlich für Inbox-Keys;
+  Teile sind SHA-256-signiert, das Staging wird nach 24 Stunden entfernt
+- `exports/` enthält nur die je Feature sichtbaren Datensätze. Die Manifestzeilen
+  referenzieren dieselben virtuellen Schlüssel; Exporte werden bei jeder Anfrage
+  neu aus den autoritativen Stores erzeugt und nicht dauerhaft zwischengespeichert.
+- `ListObjectsV2` mit Prefix, Delimiter, MaxKeys, StartAfter,
+  ContinuationToken und `encoding-type=url`
+- `ListObjects` V1 mit Prefix, Delimiter, MaxKeys und Marker
+- `HeadObject`, `GetObject`, einzelne Byte-Range-Requests sowie If-Match,
+  If-None-Match, If-Modified-Since und If-Unmodified-Since
+- `PutObject` ausschließlich für neue Inbox-Inhalte
+
+Payloads bei PUT müssen mit SHA-256 signiert sein. Ein zusätzlich gesendeter
+`x-amz-checksum-sha256` wird ebenfalls geprüft und bei Erfolg in der Antwort
+bestätigt. Der Upload wird in einem begrenzten Spool verarbeitet, nach
+erfolgreicher Prüfsummenvalidierung über `StoragePort.import_stream_at` direkt
+im persönlichen Inbox-Unterordner abgelegt. Wiederholtes PUT desselben
+Schlüssels mit identischem Inhalt ist
+idempotent; anderer Inhalt für denselben Schlüssel wird mit 412 abgelehnt.
+Erfolgreiche Uploads werden mit Principal, Zielschlüssel, Größe und SHA-256 im
+Sicherheitsaudit protokolliert; das Secret bleibt außen vor.
+
+Delete, Copy, ACL-/Tag-/Policy-Mutationen und PUT außerhalb der Inbox werden
+verweigert. Copy-/Tagging-/ACL-Header werden auch auf Multipart-Anfragen
+abgelehnt. Multipart-Teile werden mit restriktiven Dateirechten temporär
+gestaged und beim Abschluss geordnet über den V2-Inbox-Import übernommen.
+Nicht finale Teile müssen mindestens 5 MiB groß sein; Teilanzahl und Gesamtgröße
+sind begrenzt. Verwaiste Uploads werden nach 24 Stunden entfernt.
+
+## AWS CLI
+
+Die CLI muss eine kompatible SigV4-Konfiguration haben. Credentials werden
+interaktiv unter **S3-Overlay** erzeugt und dürfen nicht in Quellcode oder Logs
+abgelegt werden.
+
+```bash
+aws configure set default.s3.addressing_style path
+aws configure set default.region us-east-1
+aws --endpoint-url https://<server>/s3 s3 ls s3://simpleoffice/
+aws --endpoint-url https://<server>/s3 s3 cp s3://simpleoffice/documents/<id>/original/datei.pdf ./datei.pdf
+aws --endpoint-url https://<server>/s3 s3 cp ./datei.pdf s3://simpleoffice/inbox/datei.pdf
+```
+
+Die Befehle sind Beispiele für die unterstützten Operationen, keine Zusage,
+dass jeder AWS-CLI-Unterbefehl oder jedes automatische Multipart-Verhalten
+funktioniert.
+
+## Sicherheits- und Betriebsgrenzen
+
+- Kein anonymes S3.
+- Eine S3-Credential ersetzt keine fachliche Benutzerberechtigung.
+- Kontaktzugriffe verwenden vorhandene Kontaktfreigaben; Dokumentzugriffe
+  verwenden die bestehenden Dokumentordnerrechte.
+- Interne Steuerdateien, Geheimnisse und physische Blob-Pfade werden nicht
+  projiziert.
+- Dokumente werden vor GET/Range vollständig integritätsgeprüft.
+- Nicht erfüllbare Byte-Ranges liefern `416` mit `Content-Range: bytes */<size>`.
+- Upload-Schlüssel werden validiert; gleiche Zielschlüssel überschreiben keine
+  Inbox-Dateien.
+- S3-Zugangsdaten und Secrets werden nicht in Auditdetails oder Logs abgelegt.
+- Admin-Verwaltung ist über die bestehende Session und CSRF-Prüfung geschützt;
+  S3-Protokollzugriffe benötigen SigV4.
+- Die Endpoint-URL sollte nur über TLS und einen korrekt konfigurierten
+  Reverse Proxy veröffentlicht werden.
+
+## Ausstehende Teile aus Issue #482
+
+Für die vollständige Abnahme fehlen Provider für Personal-/Arbeitszeit-, Finanz-,
+Formular-, Rental-, Chat-, Telemetrie-, Bibliotheks-, Telefonie-, Audit-,
+Recovery- und Federation-Daten. Die Coverage-Prüfung markiert diese Quellen als `pending-provider`; sie sind
+noch nicht über S3 verfügbar. Die Prüfung verhindert nur, dass erkannte Stores
+unbemerkt bleiben; sie ersetzt keine dieser Projektionen.
+Praktische Tests mit AWS CLI, boto3, rclone und MinIO mc sowie die erweiterte
+Betriebs- und Security-Abnahme stehen ebenfalls aus. ListObjects V1 und die
+Conditional-Request-Semantik sind implementiert und regressionstestet.

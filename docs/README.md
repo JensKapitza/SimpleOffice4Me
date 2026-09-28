@@ -19,6 +19,8 @@ verlinkt.
 
 ## Dateien und Desktop-Integration
 
+- [S3-Overlay für Dokumente und Inbox-Imports](S3_OVERLAY.md)
+
 - [Systemwerkzeuge, ClamAV und Vorschau-Konverter](SYSTEMWERKZEUGE_VORSCHAU.md)
 - [Schnelle Dokument- und Retrieval-Suche mit UND/ODER/NICHT/XOR/NOR und Teilstrings](DOKUMENTSUCHE_RETRIEVAL.md)
 - [Erststart-Assistent für Windows, Linux, DAV und SFTP](ERSTSTART_UND_DESKTOP_SETUP.md)

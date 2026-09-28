@@ -187,6 +187,23 @@ app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
 app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
+app.config['S3_OVERLAY_ENABLED'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_ENABLED', '0').strip().casefold() in {'1', 'true', 'yes', 'on'}
+app.config['S3_OVERLAY_REGION'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_REGION', 'us-east-1').strip() or 'us-east-1'
+try:
+    s3_overlay_clock_skew = int(os.environ.get('SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS', '900'))
+except ValueError:
+    s3_overlay_clock_skew = 900
+app.config['S3_OVERLAY_CLOCK_SKEW_SECONDS'] = min(max(0, s3_overlay_clock_skew), 3600)
+try:
+    s3_overlay_upload_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_UPLOAD_MIB', str(app.config['MAX_CONTENT_LENGTH'] // MIB)))
+except ValueError:
+    s3_overlay_upload_mib = app.config['MAX_CONTENT_LENGTH'] // MIB
+app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = min(max(1, s3_overlay_upload_mib), app.config['MAX_CONTENT_LENGTH'] // MIB) * MIB
+try:
+    s3_overlay_staging_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_STAGING_MIB', '2048'))
+except ValueError:
+    s3_overlay_staging_mib = 2048
+app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, s3_overlay_staging_mib), 65536) * MIB
 app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes()
 app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
 app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
@@ -308,6 +325,11 @@ from . import gamification_routes
 app.register_blueprint(gamification_routes.bp)
 from . import screen_share
 app.register_blueprint(screen_share.bp)
+from . import site_visits
+app.register_blueprint(site_visits.bp)
+
+from .s3_overlay import bp as s3_overlay_bp
+app.register_blueprint(s3_overlay_bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
 
@@ -583,6 +605,3 @@ def home():
 
 if __name__ == '__main__':
     print("startup using flask internal or gunicorn3 -b :80 app ")
-
-from . import site_visits
-app.register_blueprint(site_visits.bp)

@@ -235,6 +235,11 @@ class ShadowDocumentStorageAdapter:
             )
         )
 
+    def import_stream_at(self, location, stream, *, max_bytes: int = 512 * 1024 * 1024) -> OperationResult[StoredObject]:
+        return self._mirror_result(
+            self.legacy.import_stream_at(location, stream, max_bytes=max_bytes)
+        )
+
     def replace_bytes(
         self,
         object_id: LogicalObjectId,

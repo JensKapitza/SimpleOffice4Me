@@ -194,6 +194,28 @@ class BlobCatalogStorageAdapter:
             return OperationResult(error=audit.error)
         return OperationResult.success(self._stored(entry))
 
+    def import_stream_at(
+        self, location: StorageLocation, stream: BinaryIO, *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        object_id = LogicalObjectId(str(uuid.uuid4()))
+        try:
+            limited = _LimitedReader(stream, int(max_bytes))
+            version = self.blobs.write_stream(object_id, limited)
+            registered = self._register_version(object_id, version, location)
+        except (BlobIntegrityError, OSError, ValueError, TypeError) as exc:
+            return self._failure(exc)
+        if not registered.ok:
+            return self._catalog_failure(registered)
+        entry = registered.value
+        audit = self._audit(
+            entry, "storage_imported_at", location=entry.location.relative_path,
+            version=entry.version_id, size=entry.size,
+        )
+        if not audit.ok:
+            return OperationResult(error=audit.error)
+        return OperationResult.success(self._stored(entry))
+
     def reconcile_external_stream(
         self,
         object_id: LogicalObjectId,
