@@ -165,7 +165,7 @@
               Kalender: {{ '✓' if features.calendar is sameas true else ('✗' if features.calendar is sameas false else '?') }} ·
               Aufgaben: {{ '✓' if features.tasks is sameas true else ('✗' if features.tasks is sameas false else '?') }}
             </div>
-            {% if compat.checked_at %}<div class="text-secondary">zuletzt geprüft: {{ compat.checked_at }}</div>{% endif %}
+            {% if compat.checked_at_label %}<div class="text-secondary">zuletzt geprüft: {{ compat.checked_at_label }}</div>{% endif %}
           </td>
           <td>{{ (peer.trust or {}).verification_state or 'KNOWN_UNVERIFIED' }}</td>
           <td>{{ (peer.trust or {}).trust_level or 'NONE' }}</td>
