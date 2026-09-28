@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import quote, parse_qsl, urlsplit
 
 from app import app
@@ -635,6 +636,29 @@ class S3OverlayTests(unittest.TestCase):
         missing = self.request("GET", f"/s3/simpleoffice/{key}?uploadId={upload_id}")
         self.assertEqual(404, missing.status_code)
         self.assertFalse((self.root / "documents" / "inbox" / "s3-user" / "aborted.bin").exists())
+
+    def test_failed_multipart_completion_can_be_retried(self):
+        key = "inbox/retry-after-scan-error.txt"
+        initiate = self.request("POST", f"/s3/simpleoffice/{key}?uploads=")
+        self.assertEqual(200, initiate.status_code)
+        upload_id = re.search(rb"<UploadId>([^<]+)</UploadId>", initiate.data).group(1).decode()
+        content = b"retry after a temporary scanner failure"
+        part_path = f"/s3/simpleoffice/{key}?partNumber=1&uploadId={upload_id}"
+        part = self.request("PUT", part_path, content)
+        self.assertEqual(200, part.status_code)
+        manifest = ("<CompleteMultipartUpload><Part><PartNumber>1</PartNumber>"
+                    + f"<ETag>{part.headers['ETag']}</ETag></Part></CompleteMultipartUpload>").encode()
+        complete_path = f"/s3/simpleoffice/{key}?uploadId={upload_id}"
+
+        from app.s3_overlay.routes import S3Error
+        with patch("app.s3_overlay.routes._scan_inbox_upload",
+                   side_effect=S3Error("ServiceUnavailable", "simulated scanner outage", 503)):
+            failed = self.request("POST", complete_path, manifest)
+        self.assertEqual(503, failed.status_code)
+
+        retried = self.request("POST", complete_path, manifest)
+        self.assertEqual(200, retried.status_code)
+        self.assertEqual(content, (self.root / "documents" / "inbox" / "s3-user" / "retry-after-scan-error.txt").read_bytes())
 
     def test_authorization_parser_bounds_untrusted_header_length(self):
         header = "AWS4-HMAC-SHA256 " + ("  " * 3000) + "Credential=x, SignedHeaders=host, Signature=s"
