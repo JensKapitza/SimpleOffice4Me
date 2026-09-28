@@ -30,6 +30,7 @@ _RFC1918 = (
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
 )
+_EXPLICIT_SCAN_RANGES = _RFC1918 + (ipaddress.ip_network("100.64.0.0/10"),)
 
 
 def is_private_lan_ipv4(value) -> bool:
@@ -41,7 +42,7 @@ def is_private_lan_ipv4(value) -> bool:
 
 
 def _private_network(network) -> bool:
-    return network.version == 4 and any(network.subnet_of(parent) for parent in _RFC1918)
+    return network.version == 4 and any(network.subnet_of(parent) for parent in _EXPLICIT_SCAN_RANGES)
 
 
 def _configured_addresses() -> list[str]:
@@ -122,14 +123,19 @@ def scan_networks(value="", *, addresses=None) -> list[ipaddress.IPv4Network]:
                 continue
             if "/" not in text:
                 if not is_private_lan_ipv4(text):
-                    raise ValueError("Scan-Basis muss eine private IPv4-Adresse oder ein privates CIDR sein")
+                    try:
+                        address = ipaddress.ip_address(text)
+                    except ValueError as exc:
+                        raise ValueError("Scan-Basis muss eine lokale IPv4-Adresse oder ein CIDR sein") from exc
+                    if address.version != 4 or not any(address in parent for parent in _EXPLICIT_SCAN_RANGES):
+                        raise ValueError("Scan-Basis muss RFC1918 oder RFC6598 (100.64/10) sein")
                 text += "/24"
             try:
                 network = ipaddress.ip_network(text, strict=False)
             except ValueError as exc:
                 raise ValueError("Ungültiges Scan-Netz/CIDR") from exc
             if not _private_network(network):
-                raise ValueError("Es dürfen nur private RFC1918-Netze gescannt werden")
+                raise ValueError("Es dürfen nur RFC1918- oder RFC6598-Netze gescannt werden")
             if network.prefixlen < 22:
                 raise ValueError("Scan-Netz ist zu groß; maximal /22")
             if network not in networks:
