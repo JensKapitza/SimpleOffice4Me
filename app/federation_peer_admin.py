@@ -109,7 +109,20 @@ def _safe_discovery_error(exc):
     if isinstance(exc, (TimeoutError, OSError)):
         return "Netzwerkziel nicht erreichbar. Port, Weiterleitung und Firewall prüfen."
     if isinstance(exc, ValueError):
-        return str(exc)[:240]
+        message = str(exc)
+        translations = {
+            "peer discovery returned an unexpected HTTP status":
+                "Dienst erreichbar, aber der SimpleOffice-Federation-Endpunkt antwortet nicht erfolgreich. Basis-URL und Reverse-Proxy-Pfad prüfen.",
+            "peer discovery response is not valid JSON":
+                "Dienst erreichbar, aber die Federation-Antwort ist kein gültiges JSON.",
+            "peer discovery response must be a JSON object":
+                "Dienst erreichbar, aber die Federation-Antwort hat ein ungültiges Format.",
+            "peer discovery response is too large":
+                "Federation-Antwort ist unerwartet groß und wurde aus Sicherheitsgründen verworfen.",
+            "peer fingerprint does not match public key":
+                "Peer-Profil ist inkonsistent: Fingerprint und öffentlicher Schlüssel passen nicht zusammen.",
+        }
+        return translations.get(message, message[:240])
     current_app.logger.warning(
         "Federation discovery failed (%s)", type(exc).__name__
     )
