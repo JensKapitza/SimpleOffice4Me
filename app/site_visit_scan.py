@@ -43,15 +43,27 @@ def parse_scan_request(cidr: str, ports: str, approved: bool, profiles=()) -> tu
         if not raw:
             continue
         try:
-            value = int(raw)
+            if "-" in raw:
+                start_text, end_text = raw.split("-", 1)
+                start, end = int(start_text.strip()), int(end_text.strip())
+                if not 1 <= start <= end <= 65535:
+                    raise ValueError
+                if end - start + 1 > MAX_PORTS:
+                    raise ValueError(f"Maximal {MAX_PORTS} Ports je Scan")
+                values = range(start, end + 1)
+            else:
+                values = (int(raw),)
         except ValueError as exc:
-            raise ValueError("Ports müssen als einzelne TCP-Portnummern angegeben werden") from exc
-        if not 1 <= value <= 65535:
-            raise ValueError("TCP-Ports müssen zwischen 1 und 65535 liegen")
-        if value not in parsed:
-            parsed.append(value)
-        if len(parsed) > MAX_PORTS:
-            raise ValueError(f"Maximal {MAX_PORTS} Ports je Scan")
+            if str(exc).startswith("Maximal"):
+                raise
+            raise ValueError("TCP-Ports als Nummern oder kleiner Bereich, z. B. 80,443,8000-8005, angeben") from exc
+        for value in values:
+            if not 1 <= value <= 65535:
+                raise ValueError("TCP-Ports müssen zwischen 1 und 65535 liegen")
+            if value not in parsed:
+                parsed.append(value)
+            if len(parsed) > MAX_PORTS:
+                raise ValueError(f"Maximal {MAX_PORTS} Ports je Scan")
     if not parsed:
         raise ValueError("Mindestens einen TCP-Port eingeben")
     return network, parsed
