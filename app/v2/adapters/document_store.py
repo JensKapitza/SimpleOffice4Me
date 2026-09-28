@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from app.document_store import DocumentStore
-from app.safe_paths import resolve_file_under
+from app.safe_paths import resolve_file_under, resolve_under
 
 from ..contracts import (
     ErrorCode,
@@ -239,15 +239,7 @@ class DocumentStoreStorageAdapter:
         max_bytes: int = 512 * 1024 * 1024,
     ) -> OperationResult[StoredObject]:
         try:
-            raw_target = self.store.root / location.relative_path
-            target = raw_target.resolve(strict=False)
-            if self.store.root not in target.parents:
-                raise ValueError("destination is outside the managed document root")
-            parent = raw_target.parent
-            while parent != self.store.root:
-                if parent.is_symlink():
-                    raise ValueError("destination collection cannot contain symlinks")
-                parent = parent.parent
+            target = resolve_under(self.store.root, location.relative_path, strict=False)
             target.parent.mkdir(parents=True, exist_ok=True)
             self.store.ensure_folder_policy(target.parent, self.actor)
             metadata = self.store.create_document_stream_at(
