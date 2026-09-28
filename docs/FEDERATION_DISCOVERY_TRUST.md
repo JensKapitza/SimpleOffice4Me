@@ -75,18 +75,17 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 
 - `SIMPLEOFFICE_FEDERATION_TOKEN` – bestehende Federation-Authentifizierung.
 - `SIMPLEOFFICE_FEDERATION_PEER_ID` – stabile lokale Peer-ID.
-- `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` – von anderen Peers erreichbare URL für veröffentlichte Profile/QR. Für einen direkten WLAN-Well-Known-Aufruf wird die tatsächlich angesprochene lokale Adresse verwendet, wenn keine Public-URL gesetzt ist.
+- `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` – von anderen Peers erreichbare URL für veröffentlichte Profile/QR. Ein sicherer Reverse-Proxy-Basispfad ist zulässig, z. B. `https://office.example/simpleoffice`. Für einen direkten LAN-Well-Known-Aufruf wird die tatsächlich angesprochene lokale Adresse verwendet, wenn keine Public-URL gesetzt ist.
 - `SIMPLEOFFICE_FEDERATION_LABEL` – Anzeigename.
 - `SIMPLEOFFICE_FEDERATION_COUNTRY` – ISO-3166 Alpha-2 Land.
 - `SIMPLEOFFICE_FEDERATION_FINGERPRINT` – öffentlicher Fingerprint der Instanz/Identität.
 - `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` – kommaseparierte Directory-/Bootstrap-URLs.
 - `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1` – erlaubt öffentliche Leseabfragen des Directorys. Registrierung/Rendezvous bleiben authentifiziert.
-- `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1` – erlaubt bei der manuellen direkten Discovery bewusst RFC1918-/ULA-Ziele für LAN/VPN. Der spezielle WLAN-Scan benötigt dieses globale Opt-in nicht, weil er intern auf RFC1918 + lokales `/24` + festen Well-Known-Pfad begrenzt ist.
+- `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1` – erlaubt bei Hostnamen/DNS bewusst private Ziele für LAN/VPN. Explizit eingegebene RFC1918-/RFC6598-IPv4-Literale benötigen dieses globale Opt-in nicht; Link-Local und reservierte Ziele bleiben gesperrt.
 - `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK=1` – erlaubt Loopback-Ziele für lokale Entwicklung/Integrationstests. Standardmäßig ist Loopback gesperrt.
 - `SIMPLEOFFICE_FEDERATION_LAN_ADDRESS` – optional eine oder mehrere kommaseparierte lokale IPv4-Adressen, falls die aktive Host-/LAN-Adresse nicht automatisch erkannt wird. In Containern ist das nicht automatisch die Docker-Bridge-Adresse, die andere Geräte erreichen können.
 - `SIMPLEOFFICE_FEDERATION_LAN_PORTS` – optionale zusätzliche lokale SimpleOffice-Ports; maximal vier Ports werden geprüft.
 - Die **Scan-Basis / CIDR** wird im Admin-UI pro Scan angegeben, wenn die automatische Netzerkennung wegen Docker/Podman, Routing oder VPN nicht zum gewünschten Netz führt.
-- `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` bleibt die dauerhaft veröffentlichte, von anderen Peers erreichbare Basis-URL. Sie kann auch einen sicheren Reverse-Proxy-Basispfad enthalten, z. B. `https://office.example/simpleoffice`.
 - `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY=DE` – aktiviert automatisches Land-Discovery.
 - `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` – Intervall, mindestens eine Stunde; Standard 21600 Sekunden.
 
@@ -104,11 +103,11 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 
 `/admin/federation/peer-discovery`
 
-Dort gibt es als ersten Schnellweg **„Geräte im WLAN suchen“**. Außerdem können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht, persönliche Prüfungen bestätigt, Trust-Level gesetzt und die Weitergabe jeder Trust-Beziehung einzeln festgelegt werden.
+Dort gibt es als ersten Schnellweg **„Netzwerk scannen“**. Außerdem können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht, persönliche Prüfungen bestätigt, Trust-Level gesetzt und die Weitergabe jeder Trust-Beziehung einzeln festgelegt werden.
 
-## WLAN-Scan im Detail
+## Netzwerk-Scan im Detail
 
-Der Scan ist ausdrücklich ein lokaler Komfortmechanismus für z. B. Handy → Handy im selben WLAN:
+Der Scan ist ein lokaler Komfortmechanismus für LAN/WLAN, Container-Netze und ausdrücklich angegebene lokale/VPN-Netze:
 
 1. Ohne Eingabe lokale private IPv4-Adresse bestimmen und das zugehörige `/24` bilden, z. B. `192.168.178.0/24`.
 2. Bei Container-/VPN-Betrieb optional eine explizite Scan-Basis angeben, z. B. `192.168.178.0/24` oder `100.110.89.0/24`.
