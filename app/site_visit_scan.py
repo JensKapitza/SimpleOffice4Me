@@ -28,12 +28,16 @@ TIMING = {0: (1.0, 1), 1: (0.8, 2), 2: (0.6, 6), 3: (0.35, 12), 4: (0.2, MAX_WOR
 
 def parse_nmap_options(value: str) -> dict:
     """Parse a small, explicit Nmap-like allowlist; never invokes a shell or Nmap."""
+    if len(str(value or "")) > 512:
+        raise ValueError("Die Optionszeile ist zu lang")
     try:
         tokens = shlex.split(str(value or ""))
     except ValueError as exc:
         raise ValueError("Scanner-Optionen konnten nicht gelesen werden; Anführungszeichen prüfen") from exc
     if tokens and tokens[0].lower() in {"nmap", "nmap.exe"}:
         tokens.pop(0)
+    if len(tokens) > 64:
+        raise ValueError("Zu viele Scanner-Optionen")
     ports: list[str] = []
     top_count = None
     replace_ports = False
@@ -111,6 +115,8 @@ def parse_scan_request(cidr: str, ports: str, approved: bool, profiles=()) -> tu
     if isinstance(profiles, str):
         profiles = (profiles,)
     selected_profiles = list(dict.fromkeys(str(value).strip() for value in profiles if str(value).strip()))
+    if len(selected_profiles) > len(PORT_PROFILES):
+        raise ValueError("Zu viele Portgruppen ausgewählt")
     unknown_profiles = set(selected_profiles) - PORT_PROFILES.keys()
     if unknown_profiles:
         raise ValueError("Unbekannte Portgruppe ausgewählt")
