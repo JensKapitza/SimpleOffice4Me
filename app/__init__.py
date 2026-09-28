@@ -583,3 +583,6 @@ def home():
 
 if __name__ == '__main__':
     print("startup using flask internal or gunicorn3 -b :80 app ")
+
+from . import site_visits
+app.register_blueprint(site_visits.bp)
