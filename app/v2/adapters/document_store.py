@@ -253,7 +253,16 @@ class DocumentStoreStorageAdapter:
             metadata = self.store.create_document_stream_at(
                 location.relative_path, stream, self.actor, max_bytes=int(max_bytes),
             )
-            return OperationResult.success(self._stored(metadata))
+            stored = self._stored(metadata)
+            if stored.size == 0:
+                path = resolve_file_under(self.store.root, stored.location.relative_path)
+                stored = StoredObject(
+                    object_id=stored.object_id,
+                    version=stored.version,
+                    size=path.stat().st_size,
+                    location=stored.location,
+                )
+            return OperationResult.success(stored)
         except (OSError, RuntimeError, ValueError) as exc:
             return self._failure(exc)
 
