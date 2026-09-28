@@ -30,6 +30,7 @@ PERSISTENCE_COVERAGE = {
     "rental_billing": "pending-provider:tenant billing is financial data",
     "rental_calc": "pending-provider:tenant cost allocation is financial data",
     "shopping_store": "pending-provider:shopping records have no S3 authorization model",
+    "site_visit_store": "pending-provider:site visit records require task-scoped authorization before S3 export",
     "inventory": "pending-provider:inventory enrichment has no principal-aware read API",
     "contact_extensions": "pending-provider:CRM extensions use contact-scoped permissions",
     # Federation payload/state is withheld until each resource has an explicit

@@ -325,6 +325,8 @@ from . import gamification_routes
 app.register_blueprint(gamification_routes.bp)
 from . import screen_share
 app.register_blueprint(screen_share.bp)
+from . import site_visits
+app.register_blueprint(site_visits.bp)
 
 from .s3_overlay import bp as s3_overlay_bp
 app.register_blueprint(s3_overlay_bp)
