@@ -49,7 +49,9 @@ def remember_discovered_peer(root, profile, source):
         # Discovery only makes a peer known. Explicit activation/policy remains
         # a separate administrator decision.
         store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", {}, False)
-    return profile
+    result = compatibility(profile)
+    store.set_peer_compatibility(profile["peer_id"], result)
+    return {**profile, "compatibility": result}
 
 
 def _is_explicit_rfc1918_endpoint(endpoint):
@@ -71,8 +73,7 @@ def _is_explicit_rfc1918_endpoint(endpoint):
 def discover_direct(root, endpoint):
     allow_private = True if _is_explicit_rfc1918_endpoint(endpoint) else None
     data = fetch_discovery_profile_auto(endpoint, timeout=8, allow_private=allow_private)
-    stored = remember_discovered_peer(root, data, "direct")
-    return {**stored, "compatibility": compatibility(stored)}
+    return remember_discovered_peer(root, data, "direct")
 
 
 def discover_country(root, country, urls=None, token=""):
