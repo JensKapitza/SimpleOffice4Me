@@ -678,8 +678,10 @@ class DocumentObjects:
                     self.resolve(f"documents/{document_id}/original/{filename}"),
                 )
                 relative = str(document.get("last_path", "")).replace("\\", "/")
-                if relative.startswith(f"inbox/{self.username}/"):
-                    candidates += (self.resolve(relative),)
+                inbox_prefix = f"inbox/{self.username}/"
+                if relative.startswith(inbox_prefix):
+                    public_inbox_key = "inbox/" + relative[len(inbox_prefix):]
+                    candidates += (self.resolve(public_inbox_key),)
                 for obj in candidates:
                     if obj and obj.key.startswith(prefix) and obj.key > after:
                         found.append(obj)
