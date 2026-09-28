@@ -144,27 +144,26 @@ class ActivityStore:
         before: str = "",
     ) -> list[DomainEvent]:
         size = max(1, min(500, int(limit)))
-        clauses = []
-        params: list[object] = []
-        for column, value in (
-            ("entity_type", entity_type), ("entity_id", entity_id),
-            ("event_type", event_type), ("actor", actor),
-        ):
-            if value:
-                clauses.append(f"{column}=?")
-                params.append(value)
-        if since:
-            clauses.append("occurred_at>=?")
-            params.append(since)
-        if before:
-            clauses.append("event_id<?")
-            params.append(before)
-        where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        params.append(size)
+        params: tuple[object, ...] = (
+            entity_type, entity_type,
+            entity_id, entity_id,
+            event_type, event_type,
+            actor, actor,
+            since, since,
+            before, before,
+            size,
+        )
         with self._db() as db:
             rows = db.execute(
-                f"SELECT * FROM activity_event{where} ORDER BY occurred_at DESC,event_id DESC LIMIT ?",
-                tuple(params),
+                """SELECT * FROM activity_event
+                   WHERE (?='' OR entity_type=?)
+                     AND (?='' OR entity_id=?)
+                     AND (?='' OR event_type=?)
+                     AND (?='' OR actor=?)
+                     AND (?='' OR occurred_at>=?)
+                     AND (?='' OR event_id<?)
+                   ORDER BY occurred_at DESC,event_id DESC LIMIT ?""",
+                params,
             ).fetchall()
         return [
             DomainEvent(
