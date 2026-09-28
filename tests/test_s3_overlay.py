@@ -229,6 +229,10 @@ class S3OverlayTests(unittest.TestCase):
         collision = self.request("PUT", path, b"different")
         self.assertEqual(412, collision.status_code)
         self.assertTrue((self.root / "documents" / "inbox" / "s3-user" / "from-client.txt").is_file())
+        read_back = self.request("GET", path)
+        self.assertEqual(200, read_back.status_code)
+        self.assertEqual(b"incoming bytes", read_back.data)
+        self.assertEqual(str(len(b"incoming bytes")), read_back.headers["Content-Length"])
         with app.app_context():
             event = get_db().execute("SELECT actor_name, target_id, detail FROM security_event WHERE action='s3_inbox_uploaded' ORDER BY rowid DESC LIMIT 1").fetchone()
         self.assertEqual("s3-user", event["actor_name"])
