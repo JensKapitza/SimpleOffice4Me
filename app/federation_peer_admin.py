@@ -191,6 +191,12 @@ def dashboard():
     peers = []
     for identity in trust.list_identities():
         peer = trust.store.get_peer(identity["peer_id"]) or {}
+        peer_compatibility = trust.store.peer_compatibility(identity["peer_id"])
+        checked_at = int(peer_compatibility.get("checked_at") or 0)
+        if checked_at:
+            peer_compatibility["checked_at_label"] = datetime.fromtimestamp(
+                checked_at, tz=timezone.utc
+            ).strftime("%Y-%m-%d %H:%M UTC")
         peers.append({
             **identity,
             "label": peer.get("label") or identity["peer_id"],
@@ -198,7 +204,7 @@ def dashboard():
             "enabled": bool(peer.get("enabled", False)),
             "has_token": bool(peer.get("has_token", False)),
             "trust": trust.get_trust(identity["peer_id"]),
-            "compatibility": trust.store.peer_compatibility(identity["peer_id"]),
+            "compatibility": peer_compatibility,
             "recommendations": recommendations(_root(), identity["peer_id"]),
         })
     try:
