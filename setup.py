@@ -56,7 +56,7 @@ setup(
         "quality": ["ruff==0.16.9"],
         "ocr": [
             "rapidocr==3.9.2",
-            "onnxruntime==1.23.2; python_version == '3.10'",
+            "onnxruntime==1.24.3; python_version == '3.10'",
             "onnxruntime==1.30.0; python_version >= '3.11'",
         ],
         "sftp": ["paramiko>=3.5,<6"],
