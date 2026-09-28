@@ -13,6 +13,7 @@ import errno
 import json
 import os
 import re
+import runpy
 import signal
 import socket
 import subprocess
@@ -28,6 +29,35 @@ SCAN_STATUS_FILE_INTERVAL = 250
 SCAN_STATUS_TIME_INTERVAL = 2.0
 _SAFE_CITY = re.compile(r"[\w .,'()/-]{1,120}\Z", re.UNICODE)
 _SAFE_REGION = re.compile(r"[a-z0-9_-]{1,80}\Z")
+
+
+def master_identity_status() -> dict[str, object]:
+    """Return the immutable master identity compiled into this package."""
+    values = runpy.run_path(str(PROJECT_ROOT / "app" / "build_master.py"))
+    url = str(values.get("LICENSE_MASTER_URL") or "").strip()
+    peer_id = str(values.get("LICENSE_MASTER_PEER_ID") or "").strip()
+    return {
+        "configured": bool(url and peer_id),
+        "url": url,
+        "peer_id": peer_id,
+        "is_master": bool(values.get("LICENSE_MASTER_MODE")),
+    }
+
+
+def print_master_identity_status() -> None:
+    identity = master_identity_status()
+    configured = bool(identity["configured"])
+    is_master = bool(identity["is_master"])
+    role = "Server/Lizenz-Master" if is_master else "Client"
+    url_label = "Oeffentliche Server-URL" if is_master else "Lizenz-Master-URL"
+    print("Master-Identitaet:")
+    print(f"  Status: {'gesetzt' if configured else 'NICHT GESETZT'}")
+    print(f"  Rolle: {role}")
+    print(f"  {url_label}: {identity['url'] or '(leer)'}")
+    print(f"  Peer-ID: {identity['peer_id'] or '(leer)'}")
+    print("  Quelle: im installierten Paket festgeschrieben (app/build_master.py)")
+    print("  Pruefen: simpleoffice4me master-status")
+    print("  Aenderung: Paket mit neuer URL/Peer-ID neu bauen und installieren; keine Laufzeit-Umschaltung.")
 
 
 def _integer_setting(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -243,7 +273,10 @@ def start(configure_only: bool = False) -> None:
     config = first_start_configure()
     if configure_only:
         print(f"Einrichtung gespeichert: {CONFIG_PATH}")
+        print_master_identity_status()
         return
+
+    print_master_identity_status()
 
     existing_pid = running_web_pid()
     if existing_pid is not None:
@@ -333,11 +366,20 @@ def main() -> None:
         mini_main(sys.argv[2:])
         return
     parser = argparse.ArgumentParser(description="SimpleOffice4Me launcher")
-    parser.add_argument("command", nargs="?", choices=("start", "setup", "status", "stop", "restart"), default="start")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("start", "setup", "status", "master-status", "stop", "restart"),
+        default="start",
+    )
     args = parser.parse_args()
+    if args.command == "master-status":
+        print_master_identity_status()
+        return
     from tools import service_control
     if args.command == "status":
         print("Laufende Dienste: " + (", ".join(service_control.running_roles()) or "keine"))
+        print_master_identity_status()
         return
     if args.command in {"stop", "restart"}:
         if not service_control.stop():

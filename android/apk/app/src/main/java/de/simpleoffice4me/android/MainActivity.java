@@ -376,12 +376,14 @@ public class MainActivity extends Activity {
                 + "Object.defineProperty(reading,'message',{value:{records:[]}});this.dispatchEvent(reading);},{once:true});}}"
                 + "window.NDEFReader=NativeNDEFReader;}"
                 + "document.addEventListener('click',function(event){"
-                + "const trigger=event.target&&event.target.closest?event.target.closest('#start-barcode'):null;"
-                + "if(!trigger||('BarcodeDetector' in window))return;"
+                + "const trigger=event.target&&event.target.closest?event.target.closest('#start-barcode,#shopping-barcode-scan'):null;"
+                + "if(!trigger)return;"
+                + "const shopping=trigger.id==='shopping-barcode-scan';"
+                + "if(!shopping&&('BarcodeDetector' in window))return;"
                 + "event.preventDefault();event.stopImmediatePropagation();"
                 + "const state=String(window.SimpleOfficeAndroid.startBarcodeScan(bridgeToken));"
-                + "const status=document.getElementById('scan-status');"
-                + "if(status){status.className='alert alert-'+(state==='ok'?'primary':'warning')+' py-2 small';"
+                + "const status=document.getElementById(shopping?'shopping-scan-status':'scan-status');"
+                + "if(status){status.className='alert alert-'+(state==='ok'?'primary':'warning')+' py-2 '+(shopping?'mb-2':'small');"
                 + "status.textContent=state==='ok'?'Android-Scanner wird geöffnet …':'Nativer Scanner ist nicht verfügbar. Kennung bitte manuell eingeben.';}"
                 + "},true);"
                 + "})();";
@@ -715,8 +717,10 @@ public class MainActivity extends Activity {
         if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) return;
         String quoted = JSONObject.quote(clean);
         String script = "(function(value){"
-                + "const barcode=document.getElementById('barcode');if(!barcode)return;"
+                + "const shopping=document.getElementById('shopping-barcode');"
+                + "const barcode=shopping||document.getElementById('barcode');if(!barcode)return;"
                 + "barcode.value=value;barcode.dispatchEvent(new Event('input',{bubbles:true}));barcode.dispatchEvent(new Event('change',{bubbles:true}));"
+                + "if(shopping){const status=document.getElementById('shopping-scan-status');if(status){status.className='alert alert-success py-2 mb-2';status.textContent='Barcode erkannt: '+value;}return;}"
                 + "const compact=String(value).replace(/[^0-9Xx]/g,'').toUpperCase();"
                 + "const likely=compact.length===10||(compact.length===13&&/^97[89]/.test(compact));"
                 + "const isbn=document.getElementById('isbn');"
@@ -739,9 +743,10 @@ public class MainActivity extends Activity {
     private void applyBarcodeStatusToPage(String state) {
         if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) return;
         String quoted = JSONObject.quote(state);
-        String script = "(function(state){const status=document.getElementById('scan-status');if(!status)return;"
-                + "if(state==='cancelled'){status.className='alert alert-secondary py-2 small';status.textContent='Barcode-Scan abgebrochen.';}"
-                + "else{status.className='alert alert-warning py-2 small';status.textContent='Barcode konnte nicht gelesen werden. Kennung kann manuell eingetragen werden.';}"
+        String script = "(function(state){const shopping=!!document.getElementById('shopping-barcode');"
+                + "const status=document.getElementById(shopping?'shopping-scan-status':'scan-status');if(!status)return;"
+                + "if(state==='cancelled'){status.className='alert alert-secondary py-2 '+(shopping?'mb-2':'small');status.textContent='Barcode-Scan abgebrochen.';}"
+                + "else{status.className='alert alert-warning py-2 '+(shopping?'mb-2':'small');status.textContent='Barcode konnte nicht gelesen werden. Kennung kann manuell eingetragen werden.';}"
                 + "})(" + quoted + ");";
         webView.evaluateJavascript(script, null);
     }

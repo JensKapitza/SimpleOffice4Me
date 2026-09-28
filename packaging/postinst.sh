@@ -28,12 +28,27 @@ if [ ! -x "$VENV/bin/python" ]; then
     python3 -m venv "$VENV"
 fi
 
+INSTALL_SPEC=simpleoffice4me
+EXTRAS_FILE="$APP_DIR/.install-extras"
+if [ -f "$EXTRAS_FILE" ]; then
+    INSTALL_EXTRAS="$(tr -d '[:space:]' < "$EXTRAS_FILE")"
+    case "$INSTALL_EXTRAS" in
+        *[!A-Za-z0-9_,.-]*)
+            echo "Ungueltige Python-Extras im Paket: $INSTALL_EXTRAS" >&2
+            exit 1
+            ;;
+    esac
+    if [ -n "$INSTALL_EXTRAS" ]; then
+        INSTALL_SPEC="simpleoffice4me[$INSTALL_EXTRAS]"
+    fi
+fi
+
 "$VENV/bin/python" -m pip install \
     --no-index \
     --find-links "$APP_DIR/wheelhouse" \
     --disable-pip-version-check \
     --upgrade \
-    simpleoffice4me
+    "$INSTALL_SPEC"
 
 chown -R root:root "$APP_DIR"
 chown -R simpleoffice:simpleoffice "$STATE_DIR"
@@ -71,6 +86,12 @@ if command -v systemctl >/dev/null 2>&1; then
     # config file and activates services without granting sudo to the web app.
     systemctl restart simpleoffice-mini-services.service >/dev/null 2>&1 || true
 fi
+
+printf '\nMaster-Identitaet des installierten Pakets:\n'
+(
+    cd "$APP_DIR"
+    "$VENV/bin/python" -m tools.launcher master-status
+)
 
 cat <<'EOF'
 SimpleOffice4Me wurde installiert.
