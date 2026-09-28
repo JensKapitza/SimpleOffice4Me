@@ -759,6 +759,22 @@ class _DocumentStorePart2:
             reverse=True,
         )
 
+    def list_documents_after(self, document_id: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        """Return a bounded, lexicographically ordered document-index page."""
+        self.initialize()
+        page_size = max(1, min(1000, int(limit)))
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT document_id FROM document_listing WHERE document_id>=? ORDER BY document_id LIMIT ?",
+                (str(document_id), page_size),
+            ).fetchall()
+        documents = []
+        for row in rows:
+            metadata = self._read_json(self.documents / f"{row[0]}.json", {})
+            if metadata.get("document_id"):
+                documents.append(metadata)
+        return documents
+
     def document_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
         self.initialize()
         page = max(1, page); page_size = max(1, min(500, page_size))

@@ -1,3 +1,4 @@
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -133,6 +134,14 @@ class V2VirtualFileSystemStorageBoundaryTests(unittest.TestCase):
             b"existing",
             self.vfs.read_bytes("admin", "team/existing.txt"),
         )
+        entry = self.vfs.file_entry("admin", "team/existing.txt")
+        self.assertEqual(len(b"existing"), entry.size)
+        ranged = io.BytesIO()
+        stored = self.vfs.copy_verified_range_to(
+            "admin", "team/existing.txt", ranged, start=2, length=3,
+        )
+        self.assertEqual(b"ist", ranged.getvalue())
+        self.assertEqual(len(b"existing"), stored.size)
         with self.assertRaises(FileNotFoundError):
             self.vfs.read_bytes("admin", "team/unmanaged.txt")
 

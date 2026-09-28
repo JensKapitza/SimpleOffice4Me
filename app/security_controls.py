@@ -71,6 +71,7 @@ def protect_browser_mutation() -> None:
         "/caldav/",
         "/carddav/",
         "/webdav/",
+        "/s3/",
         "/federation/v1/",
     )) or request.path == "/mcp"
     public_error_report = (

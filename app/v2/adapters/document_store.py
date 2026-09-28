@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from app.document_store import DocumentStore
-from app.safe_paths import resolve_file_under
+from app.safe_paths import resolve_file_under, resolve_under
 
 from ..contracts import (
     ErrorCode,
@@ -224,6 +224,30 @@ class DocumentStoreStorageAdapter:
             stored = self._stored(metadata)
             if stored.size == 0:
                 path = resolve_file_under(self.store.root, str(metadata.get("last_path") or ""))
+                stored = StoredObject(
+                    object_id=stored.object_id,
+                    version=stored.version,
+                    size=path.stat().st_size,
+                    location=stored.location,
+                )
+            return OperationResult.success(stored)
+        except (OSError, RuntimeError, ValueError) as exc:
+            return self._failure(exc)
+
+    def import_stream_at(
+        self, location: StorageLocation, stream: BinaryIO, *,
+        max_bytes: int = 512 * 1024 * 1024,
+    ) -> OperationResult[StoredObject]:
+        try:
+            target = resolve_under(self.store.root, location.relative_path, strict=False)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self.store.ensure_folder_policy(target.parent, self.actor)
+            metadata = self.store.create_document_stream_at(
+                location.relative_path, stream, self.actor, max_bytes=int(max_bytes),
+            )
+            stored = self._stored(metadata)
+            if stored.size == 0:
+                path = resolve_file_under(self.store.root, stored.location.relative_path)
                 stored = StoredObject(
                     object_id=stored.object_id,
                     version=stored.version,
