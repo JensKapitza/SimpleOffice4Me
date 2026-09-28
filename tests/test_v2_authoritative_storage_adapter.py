@@ -249,6 +249,25 @@ class V2AuthoritativeStorageAdapterTests(unittest.TestCase):
             result.value.location.relative_path,
         )
 
+    def test_import_stream_at_rejects_projection_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as outside_name:
+            outside = Path(outside_name)
+            link = self.root / "inbox" / "escape"
+            try:
+                link.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            result = self.adapter.import_stream_at(
+                StorageLocation("inbox/escape/pwn.txt"),
+                io.BytesIO(b"blocked"),
+                max_bytes=64,
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(ErrorCode.INVALID_INPUT, result.error.code)
+            self.assertFalse((outside / "pwn.txt").exists())
+
     def test_stale_expected_sha_is_rejected_before_v2_mutation(self):
         object_id = LogicalObjectId(self.seed["document_id"])
         before = self.catalog.get(object_id).value
