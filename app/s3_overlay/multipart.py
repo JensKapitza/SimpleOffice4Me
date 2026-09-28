@@ -171,6 +171,10 @@ class MultipartStore:
     def _complete_locked(self, key: str, upload_id: str, username: str, access_key: str,
                          xml_body: bytes, max_bytes: int) -> tuple[BinaryIO, str, int, str]:
         folder, metadata = self._folder(upload_id, username=username, access_key=access_key, key=key)
+        if metadata.get("completed"):
+            raise MultipartError("The multipart upload is already completed")
+        if metadata.get("completing"):
+            raise MultipartError("The multipart upload is already completing")
         try:
             root = ElementTree.fromstring(xml_body)
             if root.tag.rsplit("}", 1)[-1] != "CompleteMultipartUpload":
@@ -228,6 +232,19 @@ class MultipartStore:
         with exclusive_file_lock(folder / ".lock"):
             _folder, metadata = self._folder(upload_id, username=username, access_key=access_key, key=key)
             metadata["completed"] = True
+            metadata.pop("completing", None)
+            metadata["updated_at"] = int(time.time())
+            atomic_json_write(folder / "upload.json", metadata)
+            if os.name == "posix":
+                (folder / "upload.json").chmod(0o600)
+
+    def release_completion(self, upload_id: str, username: str, access_key: str, key: str) -> None:
+        """Make a failed, uncommitted completion retryable or abortable."""
+        folder, _metadata = self._folder(upload_id, username=username, access_key=access_key, key=key)
+        with exclusive_file_lock(folder / ".lock"):
+            _folder, metadata = self._folder(upload_id, username=username, access_key=access_key, key=key)
+            if metadata.get("completed") or not metadata.get("completing"):
+                return
             metadata.pop("completing", None)
             metadata["updated_at"] = int(time.time())
             atomic_json_write(folder / "upload.json", metadata)
