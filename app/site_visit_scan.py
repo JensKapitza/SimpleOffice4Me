@@ -11,9 +11,16 @@ MAX_PORTS = 32
 MAX_WORKERS = 24
 MAX_TIMEOUT = 1.0
 RFC1918 = tuple(ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+PORT_PROFILES = {
+    "web": (80, 443, 8080, 8443),
+    "mail": (25, 110, 143, 465, 587, 993, 995),
+    "file_sharing": (139, 445, 548, 2049),
+    "remote_access": (22, 23, 3389, 5900, 5985, 5986),
+    "databases": (1433, 1521, 3306, 5432, 6379, 27017),
+}
 
 
-def parse_scan_request(cidr: str, ports: str, approved: bool) -> tuple[ipaddress.IPv4Network, list[int]]:
+def parse_scan_request(cidr: str, ports: str, approved: bool, profiles=()) -> tuple[ipaddress.IPv4Network, list[int]]:
     if not approved:
         raise ValueError("Netzwerkscan erst nach bestätigter Freigabe starten")
     try:
@@ -24,7 +31,13 @@ def parse_scan_request(cidr: str, ports: str, approved: bool) -> tuple[ipaddress
         raise ValueError("Nur explizit freigegebene private IPv4-Netze können gescannt werden")
     if network.prefixlen < 24 or network.prefixlen > 30 or network.num_addresses > MAX_HOSTS + 2:
         raise ValueError("Netz ist zu groß oder zu klein. Erlaubt sind maximal 254 IPv4-Geräte")
-    parsed: list[int] = []
+    if isinstance(profiles, str):
+        profiles = (profiles,)
+    selected_profiles = list(dict.fromkeys(str(value).strip() for value in profiles if str(value).strip()))
+    unknown_profiles = set(selected_profiles) - PORT_PROFILES.keys()
+    if unknown_profiles:
+        raise ValueError("Unbekannte Portgruppe ausgewählt")
+    parsed: list[int] = [port for profile in selected_profiles for port in PORT_PROFILES[profile]]
     for token in str(ports or "").replace(";", ",").split(","):
         raw = token.strip()
         if not raw:
@@ -57,9 +70,9 @@ def _probe(address: str, ports: list[int], timeout: float) -> dict | None:
     return {"ip": address, "ports": opened}
 
 
-def scan_authorized_private_network(cidr: str, ports: str, approved: bool, *, timeout: float = 0.35) -> dict:
+def scan_authorized_private_network(cidr: str, ports: str, approved: bool, *, profiles=(), timeout: float = 0.35) -> dict:
     """Probe selected TCP ports only; never performs service exploitation or DNS lookup."""
-    network, selected_ports = parse_scan_request(cidr, ports, approved)
+    network, selected_ports = parse_scan_request(cidr, ports, approved, profiles)
     timeout = max(0.1, min(float(timeout), MAX_TIMEOUT))
     addresses = [str(address) for address in network.hosts()]
     devices = []
