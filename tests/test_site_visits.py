@@ -8,7 +8,7 @@ from flask import Flask
 
 from app.site_visit_report import build_visit_report
 from app.site_visits import _selected_report_ids
-from app.site_visit_scan import parse_scan_request, scan_authorized_private_network
+from app.site_visit_scan import parse_nmap_options, parse_scan_request, scan_authorized_private_network
 from app.site_visit_store import SiteVisitStore
 
 
@@ -131,6 +131,23 @@ class SiteVisitScanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Maximal"):
             parse_scan_request("192.168.1.0/24", "1,2,3,4,5,6,7", True, ["web", "mail", "file_sharing", "remote_access", "databases"])
 
+    def test_nmap_like_option_allowlist_maps_to_bounded_scanner_settings(self):
+        options = parse_nmap_options("nmap -sT -n -Pn --open -r -p 8080,9000-9002 -T4")
+        self.assertEqual("8080,9000-9002", options["ports"])
+        self.assertTrue(options["replace_ports"])
+        self.assertEqual(4, options["timing"])
+        self.assertEqual(24, options["workers"])
+        fast = parse_nmap_options("-F")
+        self.assertTrue(fast["replace_ports"])
+        self.assertEqual(32, len(fast["ports"].split(",")))
+        self.assertEqual(5, len(parse_nmap_options("--top-ports 5")["ports"].split(",")))
+        with self.assertRaisesRegex(ValueError, "Nicht unterstützte"):
+            parse_nmap_options("--script vuln")
+        with self.assertRaisesRegex(ValueError, "Nicht unterstützte"):
+            parse_nmap_options("-sS")
+        with self.assertRaisesRegex(ValueError, "0 bis 4"):
+            parse_nmap_options("-T5")
+
     @patch("app.site_visit_scan.socket.create_connection")
     def test_scan_only_attempts_selected_tcp_ports(self, connect):
         from contextlib import closing
@@ -143,6 +160,7 @@ class SiteVisitScanTests(unittest.TestCase):
         self.assertEqual([{"ip": "192.168.1.2", "ports": [unittest.mock.ANY]}], result["devices"])
         self.assertEqual(2, connect.call_count)
         self.assertEqual("tcp", result["devices"][0]["ports"][0]["protocol"])
+        self.assertEqual("TCP connect (-T3)", result["scanner"])
 
 
 if __name__ == "__main__":
