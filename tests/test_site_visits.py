@@ -147,6 +147,10 @@ class SiteVisitScanTests(unittest.TestCase):
             parse_nmap_options("-sS")
         with self.assertRaisesRegex(ValueError, "0 bis 4"):
             parse_nmap_options("-T5")
+        with self.assertRaisesRegex(ValueError, "Nicht unterstützte"):
+            parse_nmap_options("$(touch /tmp/should-not-run)")
+        with self.assertRaisesRegex(ValueError, "zu lang"):
+            parse_nmap_options("-n " + "x" * 600)
 
     @patch("app.site_visit_scan.socket.create_connection")
     def test_scan_only_attempts_selected_tcp_ports(self, connect):
