@@ -144,6 +144,7 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
                 "192.168.1.23:8765", timeout=2, allow_private=True
             )
         self.assertEqual(profile["peer_id"], "peer-a")
+        self.assertEqual(profile["base_url"], "http://192.168.1.23:8765")
         self.assertEqual(fetcher.call_count, 2)
         self.assertEqual(fetcher.call_args_list[0].args[0], "https://192.168.1.23:8765")
         self.assertEqual(fetcher.call_args_list[1].args[0], "http://192.168.1.23:8765")
