@@ -125,11 +125,17 @@ def list_buckets():
 def bucket_object(bucket: str, key: str):
     method = request.method
     multipart = _multipart_request()
-    required_scope = "inbox:put" if multipart or method == "PUT" else "read"
+    bucket_metadata = not key and (
+        method == "HEAD"
+        or (method == "GET" and bool({"location", "versioning"} & set(request.args)))
+    )
+    required_scope = None if bucket_metadata else ("inbox:put" if multipart or method == "PUT" else "read")
     identity, provider = _authenticate(required_scope)
     if bucket != BUCKET:
         raise S3Error("NoSuchBucket", "The specified bucket does not exist", 404)
     if not key:
+        if bucket_metadata and not ({"read", "inbox:put"} & set(identity["scopes"])):
+            raise S3Error("AccessDenied", "The S3 credential lacks bucket access", 403)
         if method == "HEAD":
             return _response(b"", 200)
         if method == "GET" and "location" in request.args:
