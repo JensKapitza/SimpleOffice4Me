@@ -121,6 +121,7 @@ def list_buckets():
 
 
 @bp.route("/s3/<bucket>", defaults={"key": ""}, methods=["GET", "HEAD", "PUT", "POST", "DELETE"])
+@bp.route("/s3/<bucket>/", defaults={"key": ""}, methods=["GET", "HEAD", "PUT", "POST", "DELETE"])
 @bp.route("/s3/<bucket>/<path:key>", methods=["GET", "HEAD", "PUT", "POST", "DELETE"])
 def bucket_object(bucket: str, key: str):
     method = request.method
