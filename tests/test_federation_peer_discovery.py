@@ -171,6 +171,10 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
                 "http://192.168.20.44:8080", timeout=.2, allow_private=True
             )
         self.assertEqual(profile["peer_id"], "peer-a")
+        shared = fetch_discovery_profile(
+            "http://100.110.89.7:8765", timeout=.2, allow_private=True
+        )
+        self.assertEqual(shared["peer_id"], "peer-a")
         with self.assertRaises(ValueError):
             fetch_discovery_profile(
                 "http://169.254.169.254:8080", timeout=.2, allow_private=True
