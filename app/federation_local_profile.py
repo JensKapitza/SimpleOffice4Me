@@ -2,6 +2,7 @@
 import os
 import socket
 
+from .federation_compatibility import local_application, local_features, local_protocol
 from .federation_core import sanitize_peer_id
 from .federation_discovery_endpoint import normalize_endpoint
 from .federation_identity import FederationIdentity
@@ -39,6 +40,9 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
         "country": os.environ.get("SIMPLEOFFICE_FEDERATION_COUNTRY", "").strip().upper()[:2],
         "fingerprint": identity["fingerprint"],
         "public_key": identity["public_key"],
+        "application": local_application(),
+        "federation": local_protocol(),
+        "features": local_features(),
         "capabilities": {
             "discovery": True,
             "trust_claims": True,
