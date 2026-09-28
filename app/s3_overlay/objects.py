@@ -92,8 +92,8 @@ class DocumentObjects:
         if not path or path.startswith("[external]") or document.get("deleted_at"):
             return False
         try:
-            resource = self.vfs.resolve(path, allow_missing=False)
-            return self.vfs.allows(self.actor, resource, "read")
+            entry = self.vfs.file_entry(self.actor, path)
+            return not entry.collection
         except (OSError, ValueError, PermissionError):
             return False
 
@@ -257,8 +257,12 @@ class DocumentObjects:
                 return None
             if not self._authorized(document) or document.get("last_path") != path:
                 return None
-            size = int(document.get("size") or 0)
-            return S3Object(key, size, str(document.get("sha256") or ""), _timestamp(document.get("last_seen_at")),
+            try:
+                entry = self.vfs.file_entry(self.actor, path)
+            except (OSError, ValueError, PermissionError):
+                return None
+            modified = datetime.fromtimestamp(entry.modified_ns / 1_000_000_000, timezone.utc)
+            return S3Object(key, entry.size, str(document.get("sha256") or ""), modified,
                             mimetypes.guess_type(path)[0] or "application/octet-stream", None,
                             str(document.get("document_id") or ""), path)
         if len(parts) < 3 or parts[0] != "documents":
@@ -278,14 +282,11 @@ class DocumentObjects:
         if filename != expected.rsplit("/", 1)[-1]:
             return None
         try:
-            path = self.vfs.resolve(expected, allow_missing=False)
-            if not self.vfs.allows(self.actor, path, "read"):
-                return None
-            size = path.stat().st_size
+            entry = self.vfs.file_entry(self.actor, expected)
         except (OSError, ValueError, PermissionError):
             return None
         digest = str(document.get("sha256") or document.get("content_sha256") or "")
-        return S3Object(key, size, digest, modified, mimetypes.guess_type(filename)[0] or "application/octet-stream", None, document_id, expected)
+        return S3Object(key, entry.size, digest, modified, mimetypes.guess_type(filename)[0] or "application/octet-stream", None, document_id, expected)
 
     def read(self, obj: S3Object) -> bytes:
         if obj.body is not None:
