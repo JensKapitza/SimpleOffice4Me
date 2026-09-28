@@ -233,6 +233,10 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(200, read_back.status_code)
         self.assertEqual(b"incoming bytes", read_back.data)
         self.assertEqual(str(len(b"incoming bytes")), read_back.headers["Content-Length"])
+        listing = self.request("GET", "/s3/simpleoffice?list-type=2&prefix=inbox%2F")
+        self.assertEqual(200, listing.status_code)
+        self.assertIn(b"<Key>inbox/from-client.txt</Key>", listing.data)
+        self.assertNotIn(b"inbox/s3-user/from-client.txt", listing.data)
         with app.app_context():
             event = get_db().execute("SELECT actor_name, target_id, detail FROM security_event WHERE action='s3_inbox_uploaded' ORDER BY rowid DESC LIMIT 1").fetchone()
         self.assertEqual("s3-user", event["actor_name"])
