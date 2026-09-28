@@ -245,12 +245,18 @@ def fetch_discovery_profile_auto(value, timeout=8, *, allow_private=None, allow_
     last_transport_error = None
     for candidate in candidates:
         try:
-            return fetch_discovery_profile(
+            profile = fetch_discovery_profile(
                 candidate,
                 timeout=timeout,
                 allow_private=allow_private,
                 allow_loopback=allow_loopback,
             )
+            result = dict(profile)
+            # A direct administrator-supplied base address is the endpoint just
+            # proven reachable, including the selected HTTP(S) transport and
+            # optional reverse-proxy base path.
+            result["base_url"] = normalize_endpoint(candidate)
+            return result
         except ssl.SSLCertVerificationError as exc:
             raise ConnectionError("TLS certificate verification failed") from exc
         except (OSError, http.client.HTTPException) as exc:
