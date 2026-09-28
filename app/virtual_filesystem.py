@@ -238,6 +238,37 @@ class VirtualFileSystem:
 
         return sorted(result.values(), key=lambda item: item.name.casefold())
 
+    def file_entry(self, actor: str, path: str | Path) -> VirtualEntry:
+        """Return authorized file metadata without exposing a physical storage path."""
+        resource = self.require(actor, path, "read")
+        relative = self.relative(resource)
+        if self._authoritative_v2():
+            if resource.exists() and (resource.is_dir() or resource.is_symlink()):
+                raise FileNotFoundError(relative)
+            catalog = self._catalog().get_by_location(StorageLocation(relative))
+            if not catalog.ok or catalog.value.state is not CatalogState.ACTIVE:
+                raise FileNotFoundError(relative)
+            entry = catalog.value
+            return VirtualEntry(
+                relative,
+                Path(relative).name,
+                False,
+                int(entry.size),
+                int(entry.updated_at) * 1_000_000_000,
+            )
+
+        if not resource.is_file() or resource.is_symlink():
+            raise FileNotFoundError(relative)
+        resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
+        stat_result = resource.stat(follow_symlinks=False)
+        return VirtualEntry(
+            relative,
+            resource.name,
+            False,
+            stat_result.st_size,
+            stat_result.st_mtime_ns,
+        )
+
     def read_bytes(self, actor: str, path: str | Path) -> bytes:
         resource = self.require(actor, path, "read")
         if self._authoritative_v2():
@@ -262,16 +293,25 @@ class VirtualFileSystem:
         )
 
     def copy_verified_range_to(self, actor: str, path: str | Path, target, *, start: int = 0, length: int | None = None):
-        """Copy a range through StoragePort after enforcing the virtual path ACL."""
+        """Copy a verified range through StoragePort after enforcing the path ACL."""
         resource = self.require(actor, path, "read")
-        if not resource.is_file() or resource.is_symlink():
-            raise FileNotFoundError(self.relative(resource))
-        resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
-        document = self.store.get_document(resource)
+        relative = self.relative(resource)
+        if self._authoritative_v2():
+            if resource.exists() and (resource.is_dir() or resource.is_symlink()):
+                raise FileNotFoundError(relative)
+            catalog = self._catalog().get_by_location(StorageLocation(relative))
+            if not catalog.ok or catalog.value.state is not CatalogState.ACTIVE:
+                raise FileNotFoundError(relative)
+            object_id = catalog.value.object_id
+        else:
+            if not resource.is_file() or resource.is_symlink():
+                raise FileNotFoundError(relative)
+            resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
+            document = self.store.get_document(resource)
+            object_id = LogicalObjectId(str(document["document_id"]))
         return self._storage_value(
             self._storage(actor).copy_verified_range_to(
-                LogicalObjectId(str(document["document_id"])), target,
-                start=start, length=length,
+                object_id, target, start=start, length=length,
             )
         )
 
