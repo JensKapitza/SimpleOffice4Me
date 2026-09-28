@@ -14,10 +14,11 @@ from .federation_trust_store import FederationTrustStore
 from .federation_worker import _json_request
 
 
-_RFC1918 = (
+_LOCAL_DIRECT_RANGES = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("100.64.0.0/10"),
 )
 
 
@@ -54,12 +55,12 @@ def remember_discovered_peer(root, profile, source):
     return {**profile, "compatibility": result}
 
 
-def _is_explicit_rfc1918_endpoint(endpoint):
-    """Return true only when the administrator entered an RFC1918 IPv4 literal.
+def _is_explicit_local_endpoint(endpoint):
+    """Allow only an administrator-entered local/shared IPv4 literal.
 
-    Hostnames stay on the strict path even when DNS resolves them to a private
-    address. That preserves the normal DNS-rebinding and SSRF protections while
-    allowing the documented direct-LAN workflow such as 192.168.x.x:8080.
+    RFC1918 and RFC6598 (for example Tailscale-style 100.64/10 addresses) are
+    accepted here. Hostnames stay on the strict path so DNS rebinding cannot
+    silently turn a public hostname into a local SSRF target.
     """
     normalized = normalize_endpoint(endpoint)
     host = urlsplit(normalized).hostname or ""
@@ -67,11 +68,11 @@ def _is_explicit_rfc1918_endpoint(endpoint):
         address = ipaddress.ip_address(host)
     except ValueError:
         return False
-    return address.version == 4 and any(address in network for network in _RFC1918)
+    return address.version == 4 and any(address in network for network in _LOCAL_DIRECT_RANGES)
 
 
 def discover_direct(root, endpoint):
-    allow_private = True if _is_explicit_rfc1918_endpoint(endpoint) else None
+    allow_private = True if _is_explicit_local_endpoint(endpoint) else None
     data = fetch_discovery_profile_auto(endpoint, timeout=8, allow_private=allow_private)
     return remember_discovered_peer(root, data, "direct")
 
