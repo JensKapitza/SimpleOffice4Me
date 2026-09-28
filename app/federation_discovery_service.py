@@ -4,9 +4,10 @@ import os
 import urllib.parse
 from urllib.parse import urlsplit
 
+from .federation_compatibility import compatibility
 from .federation_discovery_country import normalize_country
 from .federation_discovery_email import email_hash
-from .federation_discovery_endpoint import fetch_discovery_profile, normalize_endpoint
+from .federation_discovery_endpoint import fetch_discovery_profile_auto, normalize_endpoint
 from .federation_peer_profile import peer_profile
 from .federation_store import FederationStore
 from .federation_trust_store import FederationTrustStore
@@ -68,11 +69,10 @@ def _is_explicit_rfc1918_endpoint(endpoint):
 
 
 def discover_direct(root, endpoint):
-    if _is_explicit_rfc1918_endpoint(endpoint):
-        data = fetch_discovery_profile(endpoint, timeout=8, allow_private=True)
-    else:
-        data = fetch_discovery_profile(endpoint, timeout=8)
-    return remember_discovered_peer(root, data, "direct")
+    allow_private = True if _is_explicit_rfc1918_endpoint(endpoint) else None
+    data = fetch_discovery_profile_auto(endpoint, timeout=8, allow_private=allow_private)
+    stored = remember_discovered_peer(root, data, "direct")
+    return {**stored, "compatibility": compatibility(stored)}
 
 
 def discover_country(root, country, urls=None, token=""):
