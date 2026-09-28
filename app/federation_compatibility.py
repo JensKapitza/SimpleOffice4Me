@@ -1,6 +1,7 @@
 """Versioned federation compatibility metadata and checks."""
 from __future__ import annotations
 
+from functools import lru_cache
 from urllib.parse import urlsplit
 
 from simpleoffice_version import build_info
@@ -30,12 +31,15 @@ def local_features() -> dict[str, int]:
     return dict(FEATURE_VERSIONS)
 
 
-def local_application() -> dict[str, str]:
+@lru_cache(maxsize=1)
+def _application_identity() -> tuple[str, str]:
     info = build_info()
-    return {
-        "name": "SimpleOffice4Me",
-        "version": str(info.get("release_version") or "2.0.0")[:64],
-    }
+    return "SimpleOffice4Me", str(info.get("release_version") or "2.0.0")[:64]
+
+
+def local_application() -> dict[str, str]:
+    name, version = _application_identity()
+    return {"name": name, "version": version}
 
 
 def _int_version(value):
