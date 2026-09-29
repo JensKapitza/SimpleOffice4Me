@@ -1,0 +1,24 @@
+{% if g.user and v3_search_enabled %}
+<div class="modal fade" id="v3-command-palette" tabindex="-1" aria-labelledby="v3-command-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="v3-command-title"><i class="fas fa-magnifying-glass me-2" aria-hidden="true"></i>Suchen und öffnen</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+      </div>
+      <div class="modal-body">
+        <label class="visually-hidden" for="v3-command-input">Suche oder Befehl</label>
+        <input id="v3-command-input" data-v3-search-input class="form-control form-control-lg" type="search" autocomplete="off" placeholder="Kontakt, Projekt, Dokument oder Befehl …">
+        <div class="small text-secondary mt-2" data-v3-search-status aria-live="polite"></div>
+        <div class="list-group mt-3" data-v3-search-results></div>
+      </div>
+      <div class="modal-footer justify-content-start small text-secondary">
+        <kbd>Ctrl</kbd>+<kbd>K</kbd> · Enter öffnet den ersten Treffer
+      </div>
+    </div>
+  </div>
+</div>
+<button type="button" class="btn btn-primary rounded-circle position-fixed bottom-0 end-0 m-3 d-xxl-none shadow v3-search-mobile-button" data-v3-search-open aria-label="Globale Suche öffnen">
+  <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+</button>
+{% endif %}
