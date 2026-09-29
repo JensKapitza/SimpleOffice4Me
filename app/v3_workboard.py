@@ -66,7 +66,7 @@ def _event_row(event: dict[str, Any]) -> dict[str, Any]:
         "end": str(event.get("end", "")),
         "status": str(event.get("status", "active")),
         "priority": 0,
-        "project_id": str(metadata.get("project_id", "")),
+        "project_id": str(event.get("project_id") or metadata.get("project_id", "")),
         "contact_id": str(event.get("contact_id", "")),
         "calendar_id": str(event.get("calendar_id", "default")),
         "recurrence_id": str(event.get("recurrence_id", "")),
