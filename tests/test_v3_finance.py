@@ -160,7 +160,7 @@ class V3FinanceLifecycleTests(unittest.TestCase):
         self.assertEqual("2026-0001", attempt.reserved_number)
 
     def test_process_interruption_remains_visible_until_recovery(self):
-        row = self._write_invoice()
+        self._write_invoice()
         with mock.patch(
             "app.business_documents.finalize_invoice",
             side_effect=KeyboardInterrupt,
