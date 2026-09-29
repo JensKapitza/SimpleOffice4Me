@@ -63,6 +63,7 @@ PERSISTENCE_COVERAGE = {
     "v2.encrypted_recovery_fragments": "excluded:encrypted recovery fragments and key material",
     "v2.master_keys": "excluded:master encryption key profiles",
     "v2.jobs": "excluded:internal storage processing jobs and recovery state",
+    "v3_jobs": "excluded:background queue state is internal operational metadata",
     "v2.vault_payload_store": "excluded:encrypted vault payloads",
     "v2.overlay": "excluded:storage overlay migration state",
     # Operational state, device control, caches and internal services.
