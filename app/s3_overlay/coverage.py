@@ -50,6 +50,7 @@ PERSISTENCE_COVERAGE = {
     "v3_automation": "excluded:automation rules and execution state are internal workflow metadata",
     "v3_finance": "pending-provider:business lifecycle records require contact-scoped finance authorization",
     "v3_extensions": "excluded:extension manifests and approval state are internal integration configuration",
+    "v3_federation": "excluded:federation envelopes, replay state and peer capabilities require trust-scoped access",
     # Auth, credentials, keys, encrypted payloads and recovery material.
     "android_auth": "excluded:authentication factors and device secrets",
     "db": "excluded:account hashes, session state and authorization records",
