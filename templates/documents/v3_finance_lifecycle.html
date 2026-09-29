@@ -8,7 +8,7 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}">Rechnungen</a>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <section class="card mb-4">
     <div class="card-header"><strong>Neues Geschäftsdokument</strong></div>
