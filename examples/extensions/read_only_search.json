@@ -1,0 +1,19 @@
+{
+  "id": "example.readonly-search",
+  "name": "Read-only Search Example",
+  "version": "1.0.0",
+  "api_version": 1,
+  "extension_points": [
+    "search_provider",
+    "health_check"
+  ],
+  "capabilities": [
+    "search.read",
+    "health.read"
+  ],
+  "transport": {
+    "type": "http",
+    "endpoint": "http://127.0.0.1:8765/simpleoffice-extension",
+    "timeout_seconds": 1
+  }
+}
