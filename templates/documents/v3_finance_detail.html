@@ -9,7 +9,7 @@
     {% if item.kind == 'invoice' and item.external_id %}<a class="btn btn-primary" href="{{ url_for('contact_audit.business_documents.invoice_detail',invoice_id=item.external_id) }}">Bestehende Rechnung öffnen</a>{% endif %}
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="row g-4">
     <section class="col-xl-8">
@@ -22,7 +22,7 @@
           <div class="col-md-3"><label class="form-label">Betrag</label><input class="form-control" name="amount" value="{{ item.working.amount|default('') }}"></div>
           <div class="col-md-2"><label class="form-label">Währung</label><input class="form-control" name="currency" value="{{ item.working.currency|default('EUR') }}"></div>
           <div class="col-12"><label class="form-label">Beschreibung</label><textarea class="form-control" name="description" rows="5">{{ item.working.description|default('') }}</textarea></div>
-          <div class="col-12"><button class="btn btn-primary">Entwurf speichern</button></div>
+          <div class="col-12"><button type="submit" class="btn btn-primary">Entwurf speichern</button></div>
         </form>
       </div></div>
       {% endif %}
@@ -51,7 +51,7 @@
         <form method="post" action="{{ url_for('v3_finance.transition',lifecycle_id=item.lifecycle_id) }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <select class="form-select mb-2" name="status">{% for status in allowed_transitions %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select>
-          <button class="btn btn-outline-primary w-100">Status übernehmen</button>
+          <button type="submit" class="btn btn-outline-primary w-100">Status übernehmen</button>
         </form>
       </div></div>
       {% endif %}
@@ -62,7 +62,7 @@
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <select class="form-select mb-2" name="target_kind">{% for kind in successor_kinds %}<option value="{{ kind }}">{{ kind }}</option>{% endfor %}</select>
           <label class="form-label">Rechnungsentwurf-ID (nur bei Ziel invoice)</label><input class="form-control mb-2" name="invoice_id">
-          <button class="btn btn-outline-success w-100">Nachfolger anlegen</button>
+          <button type="submit" class="btn btn-outline-success w-100">Nachfolger anlegen</button>
         </form>
       </div></div>
       {% endif %}
@@ -70,7 +70,7 @@
       {% if item.kind == 'invoice' %}
       <div class="card mb-4"><div class="card-header"><strong>Finalisierung</strong></div><div class="card-body">
         {% if attempts %}{% set attempt = attempts[0] %}<dl class="small row"><dt class="col-5">Versuch</dt><dd class="col-7"><code>{{ attempt.attempt_id[:12] }}</code></dd><dt class="col-5">Status</dt><dd class="col-7">{{ attempt.state }}</dd><dt class="col-5">Reservierte Nr.</dt><dd class="col-7">{{ attempt.reserved_number or '—' }}</dd><dt class="col-5">Fehler</dt><dd class="col-7">{{ attempt.error or '—' }}</dd></dl>{% endif %}
-        {% if item.status in ('finalizing','failed') %}<form method="post" action="{{ url_for('v3_finance.recover',lifecycle_id=item.lifecycle_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">{% if g.user.is_admin %}<input type="hidden" name="force" value="1">{% endif %}<button class="btn btn-outline-warning w-100">Finalisierung abgleichen / recovern</button></form>{% endif %}
+        {% if item.status in ('finalizing','failed') %}<form method="post" action="{{ url_for('v3_finance.recover',lifecycle_id=item.lifecycle_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">{% if g.user.is_admin %}<input type="hidden" name="force" value="1">{% endif %}<button type="submit" class="btn btn-outline-warning w-100">Finalisierung abgleichen / recovern</button></form>{% endif %}
       </div></div>
       {% endif %}
 
