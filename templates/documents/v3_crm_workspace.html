@@ -1,0 +1,91 @@
+{% extends "layout.html" %}
+{% block title %}CRM 3.0 · {{ workspace.contact.fields.display_name }}{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+{% set contact = workspace.contact %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">← Kontakt</a>
+      <h1 class="h2 mt-2 mb-1">CRM 3.0: {{ contact.fields.display_name }}</h1>
+      <p class="text-secondary mb-0">Beziehungen und Arbeitskontext ohne Kopie der Fachdaten.</p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-outline-primary" href="{{ url_for('contact_audit.crm_contact', contact_id=contact.contact_id) }}">CRM-Stammdaten</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">Kontakt</a>
+    </div>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+
+  {% if workspace.legacy_company %}
+  <div class="alert alert-secondary">
+    Bestehende Firmenzuordnung:
+    <a href="{{ url_for('v3_crm.contact_workspace', contact_id=workspace.legacy_company.contact_id) }}">{{ workspace.legacy_company.fields.display_name }}</a>.
+    Diese ContactStore-/CardDAV-Zuordnung bleibt unverändert bestehen.
+  </div>
+  {% endif %}
+
+  <div class="row g-4">
+    <section class="col-xl-8">
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between"><strong>Rollen und Beziehungen</strong><span class="badge text-bg-light border">{{ workspace.roles|length }}</span></div>
+        <div class="table-responsive">
+          <table class="table align-middle mb-0">
+            <thead><tr><th>Rolle</th><th>Von</th><th>Zu</th><th>Zeitraum</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            {% for role in workspace.roles %}
+              <tr>
+                <td><strong>{{ role.label or role.role }}</strong>{% if role.title %}<div class="small text-secondary">{{ role.title }}</div>{% endif %}</td>
+                <td><code>{{ role.subject.type }}:{{ role.subject.id }}</code></td>
+                <td><code>{{ role.object.type }}:{{ role.object.id }}</code></td>
+                <td>{{ role.valid_from or '—' }} – {{ role.valid_to or 'offen' }}</td>
+                <td><span class="badge {{ 'text-bg-success' if role.status == 'active' else 'text-bg-secondary' }}">{{ role.status }}</span></td>
+                <td>{% if role.status != 'former' %}<form method="post" action="{{ url_for('v3_crm.end_relationship', contact_id=contact.contact_id, relation_id=role.relation_id, role_id=role.role_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary">Beenden</button></form>{% endif %}</td>
+              </tr>
+            {% else %}<tr><td colspan="6" class="text-secondary">Noch keine 3.0-Beziehungen.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="row g-4">
+        <section class="col-lg-6"><div class="card h-100"><div class="card-header"><strong>Ansprechpartner / Personen</strong></div><div class="list-group list-group-flush">{% for item in workspace.company_people %}<a class="list-group-item list-group-item-action" href="{{ url_for('v3_crm.contact_workspace',contact_id=item.contact_id) }}">{{ item.fields.display_name }}<div class="small text-secondary">{{ item.fields.title }} {{ item.fields.email }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine zugeordneten Personen.</div>{% endfor %}</div></div></section>
+        <section class="col-lg-6"><div class="card h-100"><div class="card-header"><strong>Projekte</strong></div><div class="list-group list-group-flush">{% for item in workspace.projects %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.project_detail',project_id=item.project_id) }}">{{ item.title }}<div class="small text-secondary">{{ item.status }} · {{ item.location }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine sichtbaren verknüpften Projekte.</div>{% endfor %}</div></div></section>
+        <section class="col-lg-6"><div class="card h-100"><div class="card-header"><strong>Aufgaben</strong></div><div class="list-group list-group-flush">{% for item in workspace.tasks[:20] %}<div class="list-group-item">{{ item.title }}<div class="small text-secondary">{{ item.status }}{% if item.due %} · {{ item.due }}{% endif %}</div></div>{% else %}<div class="list-group-item text-secondary">Keine sichtbaren Aufgaben.</div>{% endfor %}</div></div></section>
+        <section class="col-lg-6"><div class="card h-100"><div class="card-header"><strong>Termine</strong></div><div class="list-group list-group-flush">{% for item in workspace.events[:20] %}<div class="list-group-item">{{ item.title }}<div class="small text-secondary">{{ item.start }}{% if item.end %} – {{ item.end }}{% endif %}</div></div>{% else %}<div class="list-group-item text-secondary">Keine sichtbaren Termine.</div>{% endfor %}</div></div></section>
+        <section class="col-lg-6"><div class="card h-100"><div class="card-header"><strong>Dokumente</strong></div><div class="list-group list-group-flush">{% for item in workspace.documents[:20] %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail',document_id=item.document_id) }}">{{ item.last_path.rsplit('/',1)[-1] }}<div class="small text-secondary">{{ item.state }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine sichtbaren Dokumente.</div>{% endfor %}</div></div></section>
+        <section class="col-lg-6"><div class="card h-100"><div class="card-header"><strong>Rechnungen</strong></div><div class="list-group list-group-flush">{% for item in workspace.invoices[:20] %}<a class="list-group-item list-group-item-action" href="{{ url_for('contact_audit.business_documents.invoice_detail',invoice_id=item.invoice_id) }}">{{ item.invoice_number or item.invoice_id }}<div class="small text-secondary">{{ item.status }} · {{ item.totals.gross|default('') }} {{ item.currency }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine sichtbaren Rechnungen.</div>{% endfor %}</div></div></section>
+      </div>
+
+      <div class="card mt-4">
+        <div class="card-header"><strong>Verlauf / Kommunikation</strong></div>
+        <div class="list-group list-group-flush">{% for item in workspace.timeline[:50] %}<div class="list-group-item"><div class="d-flex justify-content-between gap-2"><strong>{{ item.subject or item.type or item.kind or 'Eintrag' }}</strong><small class="text-secondary">{{ item.at }}</small></div><div class="small text-secondary">{{ item.note|default('') }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch kein Verlauf.</div>{% endfor %}</div>
+      </div>
+    </section>
+
+    <aside class="col-xl-4">
+      <div class="card sticky-xl-top" style="top:5rem">
+        <div class="card-header"><strong>Beziehung hinzufügen</strong></div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('v3_crm.add_relationship',contact_id=contact.contact_id) }}" class="row g-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-6"><label class="form-label">Quelle als</label><select class="form-select" name="source_type"><option value="contact">Person/Kontakt</option><option value="company">Firma</option></select></div>
+            <div class="col-6"><label class="form-label">Zieltyp</label><select class="form-select" name="target_type"><option value="company">Firma</option><option value="contact">Kontakt</option><option value="project">Projekt</option></select></div>
+            <div class="col-12"><label class="form-label">Ziel-ID</label><input required class="form-control" name="target_id"></div>
+            <div class="col-12"><label class="form-label">Rolle</label><select class="form-select" name="role"><option value="works_at">arbeitet bei</option><option value="contact_for">Ansprechpartner für</option><option value="customer">Kunde</option><option value="supplier">Lieferant</option><option value="employee">Mitarbeiter</option><option value="parent_company">Muttergesellschaft</option><option value="subsidiary">Tochtergesellschaft</option><option value="custom">Frei</option></select></div>
+            <div class="col-12"><label class="form-label">Freie Bezeichnung</label><input class="form-control" name="label" maxlength="160"></div>
+            <div class="col-6"><label class="form-label">Von</label><input class="form-control" type="date" name="valid_from"></div>
+            <div class="col-6"><label class="form-label">Bis</label><input class="form-control" type="date" name="valid_to"></div>
+            <div class="col-12"><label class="form-label">Status</label><select class="form-select" name="status"><option value="active">aktiv</option><option value="planned">geplant</option><option value="former">ehemalig</option></select></div>
+            <div class="col-12"><label class="form-label">Funktion / Titel</label><input class="form-control" name="title" maxlength="200"></div>
+            <div class="col-12"><label class="form-label">Hinweis</label><textarea class="form-control" name="note" rows="3" maxlength="4000"></textarea></div>
+            <div class="col-12"><button class="btn btn-primary w-100">Beziehung speichern</button></div>
+          </form>
+          <p class="small text-secondary mt-3 mb-0">CardDAV/vCard-Kontaktfelder werden dadurch nicht verändert.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+{% endblock %}
