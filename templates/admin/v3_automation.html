@@ -4,7 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <h1 class="h2 mb-1">Automation 3.0</h1>
   <p class="text-secondary">Deklarative Regeln ohne freie Codeausführung.</p>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if not enabled %}
     <div class="alert alert-secondary">Die Capability <code>v3.automation</code> ist deaktiviert.</div>
   {% else %}

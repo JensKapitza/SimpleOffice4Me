@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+{% block title %}Extensions 3.0{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h2 mb-1">Extensions 3.0</h1><p class="text-secondary mb-0">Versionierte Integrationen ohne dynamisches Laden von Python-/JavaScript-Code.</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Systeminventar</a>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if not enabled %}<div class="alert alert-secondary" role="status" aria-live="polite">Die Capability <code>v3.extensions</code> ist deaktiviert. Registrierte Manifeste werden nicht aufgerufen.</div>{% endif %}
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>Externes Manifest registrieren</strong></div>
+    <div class="card-body">
+      <p class="small text-secondary">Nur HTTP-Manifeste. Das Manifest darf keine Tokens, Passwörter oder Secretwerte enthalten; <code>auth_ref</code> ist nur eine Referenz.</p>
+      <form method="post" action="{{ url_for('v3_extensions_admin.register') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <textarea class="form-control font-monospace mb-2" name="manifest" rows="10" required placeholder='{"id":"example.search","version":"1.0.0","api_version":1,...}'></textarea>
+        <button type="submit" class="btn btn-primary">Manifest validieren und registrieren</button>
+      </form>
+    </div>
+  </section>
+
+  {% for error in errors %}<div class="alert alert-danger"><strong>{{ error.id }}</strong>: {{ error.error }}</div>{% endfor %}
+
+  {% for row in rows %}
+  <section class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+      <div><strong>{{ row.manifest.name }}</strong> <code>{{ row.manifest.extension_id }}</code> · v{{ row.manifest.version }} · API {{ row.manifest.api_version }}</div>
+      <span class="badge {{ 'text-bg-success' if row.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if row.enabled else 'inaktiv' }}</span>
+    </div>
+    <div class="card-body">
+      <dl class="row small">
+        <dt class="col-md-3">Transport</dt><dd class="col-md-9">{{ row.manifest.transport_type }}{% if row.manifest.endpoint %} · <code>{{ row.manifest.endpoint }}</code>{% endif %}</dd>
+        <dt class="col-md-3">Extension Points</dt><dd class="col-md-9">{% for point in row.manifest.extension_points %}<span class="badge text-bg-light border me-1">{{ point }}</span>{% endfor %}</dd>
+        <dt class="col-md-3">Bereit</dt><dd class="col-md-9">{% for point in row.ready_points %}<span class="badge text-bg-success me-1">{{ point }}</span>{% else %}—{% endfor %}</dd>
+        <dt class="col-md-3">Auth-Referenz</dt><dd class="col-md-9"><code>{{ row.manifest.auth_ref or '—' }}</code> <span class="text-secondary">(kein Secretwert)</span></dd>
+      </dl>
+      <form method="post" action="{{ url_for('v3_extensions_admin.state',extension_id=row.manifest.extension_id) }}" class="border rounded p-3 mb-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="enabled-{{ loop.index }}" {% if row.enabled %}checked{% endif %}><label class="form-check-label" for="enabled-{{ loop.index }}">Extension aktiv</label></div>
+        <div class="small fw-semibold mb-1">Lokal freigegebene Capabilities</div>
+        {% for capability in row.manifest.capabilities %}
+          <label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="capabilities" value="{{ capability }}" {% if capability in row.approved_capabilities %}checked{% endif %}>{{ capability }}</label>
+        {% endfor %}
+        <div class="mt-2"><button type="submit" class="btn btn-sm btn-primary">Freigaben speichern</button></div>
+      </form>
+      <div class="d-flex flex-wrap gap-2">
+        {% if 'health_check' in row.ready_points %}<form method="post" action="{{ url_for('v3_extensions_admin.health',extension_id=row.manifest.extension_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-primary">Health prüfen</button></form>{% endif %}
+        {% if not row.enabled and row.manifest.transport_type == 'http' %}<form method="post" action="{{ url_for('v3_extensions_admin.delete',extension_id=row.manifest.extension_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Manifest entfernen?')">Manifest entfernen</button></form>{% endif %}
+      </div>
+    </div>
+  </section>
+  {% else %}<div class="alert alert-secondary" role="status" aria-live="polite">Noch keine Extensions registriert.</div>{% endfor %}
+</main>
+{% endblock %}

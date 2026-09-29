@@ -13,6 +13,18 @@ from .safe_paths import resolve_file_under
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 
+def _v3_finance_enabled() -> bool:
+    from .v3_capabilities import enabled
+    return enabled("v3.finance")
+
+
+def _v3_finance_sync(root: Path, row: dict[str, Any], actor: str) -> None:
+    if not _v3_finance_enabled():
+        return
+    from .v3_finance import track_invoice_best_effort
+    track_invoice_best_effort(root, row, actor)
+
+
 
 def _link_path(root: Path) -> Path:
     path=root/CONTROL_DIR/LINK_FILE; path.parent.mkdir(parents=True,exist_ok=True); return path
@@ -445,8 +457,13 @@ def contact_invoice(contact_id:str):
     if request.method=="POST":
         try:
             row=save_invoice_draft(root,contact_id,request.form,actor,draft_id)
+            _v3_finance_sync(root,row,actor)
             if request.form.get("action")=="finalize":
-                row,document=finalize_invoice(root,row["invoice_id"],actor)
+                if _v3_finance_enabled():
+                    from .v3_finance import finalize_invoice_tracked
+                    row,document=finalize_invoice_tracked(root,row["invoice_id"],actor)
+                else:
+                    row,document=finalize_invoice(root,row["invoice_id"],actor)
                 if row["zugferd"]["status"] == "validated": message = f"Invoice {row['invoice_number']} finalized, linked and technically validated." if g.language == "en" else f"Rechnung {row['invoice_number']} finalisiert, verknüpft und technisch validiert."
                 else: message = f"Invoice {row['invoice_number']} was created, but technical validation failed: {row['zugferd']['status']}." if g.language == "en" else f"Rechnung {row['invoice_number']} wurde erzeugt, aber die technische Validierung ist fehlgeschlagen: {row['zugferd']['status']}."
                 flash(message);return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
@@ -588,7 +605,8 @@ def invoice_payment(invoice_id:str):
     try:row=invoice(root,invoice_id)
     except ValueError:abort(404)
     if not ContactStore(root).can_manage(row["contact_id"],actor):abort(403)
-    try:record_invoice_payment(root,invoice_id,request.form,actor);flash(translate(g.language,"invoice.payment.saved"))
+    try:
+        updated=record_invoice_payment(root,invoice_id,request.form,actor);_v3_finance_sync(root,updated,actor);flash(translate(g.language,"invoice.payment.saved"))
     except ValueError as exc:
         keys={"invoice is already paid":"invoice.payment.error.paid","payment amount must be positive and not exceed the outstanding amount":"invoice.payment.error.amount","payment date must be a valid ISO date":"invoice.payment.error.date"}; flash(translate(g.language,keys.get(str(exc),"invoice.payment.error.default")))
     return redirect(url_for(".invoice_detail",invoice_id=invoice_id))
@@ -601,7 +619,8 @@ def invoice_write_off(invoice_id: str):
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
     error_keys = {"a draft invoice cannot be written off":"writeoff.error.draft","invoice has no collectible outstanding amount":"writeoff.error.no_outstanding","write-off reason is invalid":"writeoff.error.reason","a note is required for another write-off reason":"writeoff.error.note","write-off amount must be positive and not exceed the collectible outstanding amount":"writeoff.error.amount","write-off date must be a valid ISO date":"writeoff.error.date","write-off date cannot precede the invoice date":"writeoff.error.date_before_invoice","stopping collection requires writing off the full collectible outstanding amount":"writeoff.error.stop_requires_full"}
-    try: write_off_invoice(root, invoice_id, request.form, actor); flash(translate(g.language, "writeoff.saved"))
+    try:
+        updated=write_off_invoice(root, invoice_id, request.form, actor);_v3_finance_sync(root,updated,actor);flash(translate(g.language, "writeoff.saved"))
     except ValueError as exc: flash(translate(g.language, error_keys.get(str(exc), "writeoff.error")))
     return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 
@@ -613,7 +632,7 @@ def invoice_apply_credit(invoice_id: str):
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
     try:
-        updated = apply_available_customer_credit(root, invoice_id, actor); amount = updated.get("credit_applied", "0.00"); flash("Kundenguthaben wurde auf die Rechnung angewendet." if amount != "0.00" else "Kein verrechenbares Kundenguthaben vorhanden.")
+        updated = apply_available_customer_credit(root, invoice_id, actor); _v3_finance_sync(root, updated, actor); amount = updated.get("credit_applied", "0.00"); flash("Kundenguthaben wurde auf die Rechnung angewendet." if amount != "0.00" else "Kein verrechenbares Kundenguthaben vorhanden.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 
@@ -624,7 +643,8 @@ def invoice_credit_note(invoice_id: str):
     try: row = invoice(root, invoice_id)
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
-    try: note, _document = create_credit_note(root, invoice_id, request.form.get("amount", ""), request.form.get("reason", ""), actor); flash(f"Gutschrift {note['credit_note_number']} wurde erstellt.")
+    try:
+        note, _document = create_credit_note(root, invoice_id, request.form.get("amount", ""), request.form.get("reason", ""), actor); _v3_finance_sync(root, invoice(root, invoice_id), actor); flash(f"Gutschrift {note['credit_note_number']} wurde erstellt.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 

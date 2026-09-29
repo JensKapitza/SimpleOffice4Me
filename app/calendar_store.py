@@ -747,9 +747,13 @@ class CalendarStore:
         if any(tag["visibility"] not in ("private", "family", "external") for tag in valid_tags):
             raise ValueError("invalid tag visibility")
         changed_at = utc_now()
-        description = description_fields(reason, str((metadata or {}).get("description_html", "")), str((metadata or {}).get("description_format", "")), existing)
+        metadata_values = metadata or {}
+        project_id = str(metadata_values.get("project_id", (existing or {}).get("project_id", "")) or "").strip()
+        if len(project_id) > 128:
+            raise ValueError("calendar project id exceeds 128 characters")
+        description = description_fields(reason, str(metadata_values.get("description_html", "")), str(metadata_values.get("description_format", "")), existing)
         appointment = CalendarStore._appointment_metadata(metadata, existing)
-        values = {"title": title.strip(), **description, "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, **normalize_metadata(metadata, existing), **appointment}
+        values = {"title": title.strip(), **description, "start": start.strip(), "end": end.strip(), "contact_id": contact_id.strip() or None, "project_id": project_id, "visibility": visibility, "public_notice": public_notice.strip(), "tags": valid_tags, **normalize_metadata(metadata, existing), **appointment}
         changes = list(existing.get("changes", [])) if existing else []
         for field, new_value in values.items():
             old_value = existing.get(field, "") if existing else ""
