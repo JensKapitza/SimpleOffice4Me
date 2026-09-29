@@ -16,6 +16,7 @@ from flask import current_app
 from .host_automation import HostAutomationStore, recommended_idle_rule
 from .host_services import host_services_snapshot
 from .system_identity import application_version, system_info
+from .v3_capabilities import snapshot as v3_capability_snapshot
 from .system_management import (
     COCKPIT_PARITY,
     QNAP_PARITY,
@@ -131,6 +132,7 @@ def _cached_inventory(process_id: int, five_minute_bucket: int, document_root: s
             "upload_limit_mib": int(app.config["MAX_CONTENT_LENGTH"]) // (1024 * 1024),
             "mcp_enabled": bool(app.config.get("MCP_ENABLED")),
             "webdav_clamav": bool(app.config.get("WEBDAV_UPLOAD_SCAN")),
+            "v3_capabilities": v3_capability_snapshot(),
         },
         "modules": blueprints,
         "packages": _package_versions(),
