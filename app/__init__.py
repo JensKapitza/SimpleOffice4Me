@@ -321,6 +321,9 @@ app.register_blueprint(v3_inbox_routes.bp)
 from . import v3_automation_routes
 app.register_blueprint(v3_automation_routes.bp)
 
+from . import v3_workboard_routes
+app.register_blueprint(v3_workboard_routes.bp)
+
 from . import v3_entity_routes
 app.register_blueprint(v3_entity_routes.bp)
 
