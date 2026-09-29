@@ -6,7 +6,7 @@
     <div><h1 class="h2 mb-1">Workboard 3.0</h1><p class="text-secondary mb-0">Aufgaben und Termine gemeinsam planen, Standards getrennt halten.</p></div>
     <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('tasks.board') }}">Aufgaben</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.calendar') }}">Kalender</a></div>
   </div>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if not enabled %}
     <div class="alert alert-secondary">Die Capability <code>v3.workboard</code> ist deaktiviert.</div>
   {% else %}

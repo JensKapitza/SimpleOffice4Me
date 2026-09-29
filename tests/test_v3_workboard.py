@@ -28,7 +28,7 @@ class V3WorkboardTests(unittest.TestCase):
             {"start": "2026-10-01T09:00:00", "due": "2026-10-01T10:00:00", "project_id": "p1"},
         )
         event = self.calendar.add(
-            "Meeting", "", "2026-10-01T09:30:00", "2026-10-01T10:30:00",
+            "Meeting", "reason", "2026-10-01T09:30:00", "2026-10-01T10:30:00",
             "", "alice", metadata={"project_id": "p1"},
         )
         rows = self.service.agenda(
