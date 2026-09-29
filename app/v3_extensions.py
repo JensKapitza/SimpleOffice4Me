@@ -681,7 +681,7 @@ def external_search_hits(
         "search",
         {
             "query": " ".join(str(query).split())[:200],
-            "actor": str(actor)[:200],
+            "authenticated": bool(str(actor).strip()),
             "limit": max(1, min(100, int(limit))),
         },
     )
