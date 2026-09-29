@@ -343,7 +343,12 @@ def default_registry(
     registry.register("migration", _migration_probe(root), required=True, timeout_seconds=1.0)
     registry.register("index", _index_probe(root), required=True, timeout_seconds=1.5)
     registry.register("jobs", _jobs_probe(root, bool(caps.get("v3.jobs"))), timeout_seconds=1.0)
-    clamav_configured = bool(cfg.get("CLAMAV_ENABLED") or cfg.get("WEBDAV_CLAMAV") or cfg.get("CLAMAV_SCANNER"))
+    clamav_configured = bool(
+        cfg.get("CLAMAV_ENABLED")
+        or cfg.get("WEBDAV_CLAMAV")
+        or cfg.get("WEBDAV_UPLOAD_SCAN")
+        or cfg.get("CLAMAV_SCANNER")
+    )
     registry.register("clamav", _clamav_probe(clamav_configured), timeout_seconds=5.0)
     registry.register("s3", _s3_probe(bool(cfg.get("S3_OVERLAY_ENABLED"))), timeout_seconds=0.5)
     registry.register("federation", _federation_probe(bool(caps.get("v3.federation"))), timeout_seconds=1.0)
