@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import sqlite3
 import uuid
@@ -17,6 +18,7 @@ TRIGGERS = {"event", "schedule", "check"}
 MAX_ACTIONS = 20
 MAX_CONDITIONS = 40
 MAX_DEPTH = 8
+LOG = logging.getLogger(__name__)
 
 
 def _utc() -> str:
@@ -145,7 +147,8 @@ class ActionRegistry:
             return False
         try:
             return bool(check(principal, payload))
-        except Exception:
+        except Exception as exc:
+            LOG.warning("automation authorizer failed action=%s type=%s", name, type(exc).__name__)
             return False
 
     def invoke(
@@ -429,7 +432,8 @@ class AutomationEngine:
                 continue
             try:
                 self.actions.invoke(principal, action_type, payload, context)
-            except Exception:
+            except Exception as exc:
+                LOG.warning("automation action failed action=%s type=%s", action_type, type(exc).__name__)
                 result = ExecutionResult("failed", True, False, tuple(planned), "automation action failed")
                 self.store.record_execution(rule, key=key, correlation_id=correlation, principal=principal, result=result)
                 return result
