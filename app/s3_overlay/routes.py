@@ -22,6 +22,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from app.access_control import audit, has_feature, is_admin
 from app.auth import login_required
 from app.db import get_db
+from app.v3_inbox import record_completed_best_effort
 
 from . import auth, credentials
 from .objects import DocumentObjects
@@ -480,6 +481,17 @@ def _put_inbox(provider: DocumentObjects, identity: dict, key: str):
         audit("s3_inbox_uploaded", "s3-inbox-upload", str(doc.get("document_id", "")),
               detail={"key": key, "source": "s3-inbox", "size": total, "sha256": digest.hexdigest(),
                       "access_key_id": identity["access_key"]}, actor=actor)
+        record_completed_best_effort(
+            current_app.config["DOCUMENT_ROOT"],
+            source="s3",
+            source_key=key,
+            original_name=key[len("inbox/"):],
+            actor=identity["username"],
+            document_id=str(doc.get("document_id", "")),
+            sha256=str(doc.get("sha256") or digest.hexdigest()),
+            size=int(doc.get("size") or total),
+            malware_status="clean" if current_app.config.get("WEBDAV_UPLOAD_SCAN", False) else "not_configured",
+        )
         response = _response(b"", 200)
         response.headers["ETag"] = f'"{doc.get("sha256", digest.hexdigest())}"'
         response.headers["x-amz-version-id"] = str(doc.get("document_id", ""))

@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex justify-content-between align-items-start mb-4"><div><h1 class="h2 mb-1">Inbox 3.0</h1><p class="text-secondary mb-0">Nachvollziehbare Eingänge aus Web, S3 und weiteren Quellen.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}">Dokumente</a></div>
+  {% if not enabled %}<div class="alert alert-secondary">Die Capability <code>v3.inbox</code> ist deaktiviert. Der bestehende Dokument-Upload bleibt unverändert verfügbar.</div>{% else %}
+  <form class="row g-2 mb-3" method="get"><div class="col-md-4"><input class="form-control" name="source" value="{{ source }}" placeholder="Quelle"></div><div class="col-md-4"><input class="form-control" name="status" value="{{ status }}" placeholder="Status"></div><div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filtern</button></div></form>
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Datei</th><th scope="col">Quelle</th><th scope="col">Status</th><th scope="col">Scan</th><th scope="col">Dokument</th><th scope="col">Aktion</th></tr></thead><tbody>
+    {% for item in items %}<tr><td>{{ item.original_name }}</td><td>{{ item.source }}</td><td>{{ item.status }}</td><td>{{ item.malware_status or '—' }}</td><td><code>{{ item.document_id or '—' }}</code></td><td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('v3_inbox.detail',item_id=item.item_id) }}">Details</a></td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Keine Einträge.</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% endif %}
+</main>
+{% endblock %}

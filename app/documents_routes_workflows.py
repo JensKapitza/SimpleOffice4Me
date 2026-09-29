@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
+from .v3_inbox_web import begin_web_inbox_upload, complete_web_inbox_upload, fail_web_inbox_upload
 from .v2.contracts import LogicalObjectId, StorageLocation
 from .v2.storage_runtime import (
     restore_document as restore_document_v2,
@@ -21,7 +22,12 @@ def upload():
     storage = _storage(actor)
     archive = request.form.get("archive") == "1"
     max_bytes = int(current_app.config["MAX_CONTENT_LENGTH"])
-    for item in files:
+    for item_index, item in enumerate(files):
+        source_key = f"{getattr(g, 'request_id', 'web')}:{item_index}:{item.filename}"
+        inbox = begin_web_inbox_upload(current_app.config, item, actor, source_key)
+        if inbox["error"]:
+            flash(f"{item.filename}: {inbox['error']}")
+            continue
         try:
             result = storage.import_stream(
                 item.stream,
@@ -30,6 +36,9 @@ def upload():
                 max_bytes=max_bytes,
             )
             if not result.ok:
+                fail_web_inbox_upload(
+                    current_app.config["DOCUMENT_ROOT"], inbox["item"], result.error.message
+                )
                 flash(f"{item.filename}: {result.error.message}")
                 continue
             if defaults["default_tags"] or defaults["default_state"] != "new":
@@ -42,8 +51,22 @@ def upload():
                     )
                 if defaults["default_state"] != "new":
                     _store().set_state(metadata["document_id"], defaults["default_state"], actor)
+            document_id = result.value.object_id.value
+            imported_metadata = _store().get_document(document_id)
+            complete_web_inbox_upload(
+                current_app.config["DOCUMENT_ROOT"],
+                inbox,
+                source_key=source_key,
+                original_name=item.filename,
+                actor=actor,
+                document_id=document_id,
+                imported_metadata=imported_metadata,
+                imported_size=result.value.size,
+                mime_type=item.mimetype or "",
+            )
             stored += 1
         except (OSError, ValueError) as exc:
+            fail_web_inbox_upload(current_app.config["DOCUMENT_ROOT"], inbox["item"], str(exc))
             flash(f"{item.filename}: {exc}")
     if stored:
         flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")

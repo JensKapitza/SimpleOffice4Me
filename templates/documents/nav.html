@@ -58,6 +58,7 @@
           </a>
           <ul class="dropdown-menu" aria-labelledby="nav-documents">
             <li><a class="dropdown-item" href="{{ url_for('documents.index') }}"><i class="fas fa-folder-open fa-fw me-2" aria-hidden="true"></i>{{ tr('documents') }}</a></li>
+            {% if v3_inbox_enabled %}<li><a class="dropdown-item" href="{{ url_for('v3_inbox.index') }}"><i class="fas fa-inbox fa-fw me-2" aria-hidden="true"></i>Inbox 3.0</a></li>{% endif %}
             <li><a class="dropdown-item" href="{{ url_for('documents.document_search') }}"><i class="fas fa-magnifying-glass fa-fw me-2" aria-hidden="true"></i>Suchen</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.replication') }}"><i class="fas fa-hard-drive fa-fw me-2" aria-hidden="true"></i>Speicher</a></li>
             <li><a class="dropdown-item" href="{{ url_for('contact_audit.business_documents.template_manager') }}"><i class="fas fa-file-signature fa-fw me-2" aria-hidden="true"></i>Vorlagen</a></li>
