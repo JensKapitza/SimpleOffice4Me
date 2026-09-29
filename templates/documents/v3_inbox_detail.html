@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <a href="{{ url_for('v3_inbox.index') }}">← Inbox</a>
+  <h1 class="h3 mt-3">{{ item.original_name }}</h1>
+  <dl class="row"><dt class="col-sm-3">Quelle</dt><dd class="col-sm-9">{{ item.source }} / {{ item.source_key }}</dd><dt class="col-sm-3">Status</dt><dd class="col-sm-9">{{ item.status }}</dd><dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 text-break"><code>{{ item.sha256 or '—' }}</code></dd><dt class="col-sm-3">Dokument</dt><dd class="col-sm-9">{% if item.document_id %}<a href="{{ url_for('documents.detail',document_id=item.document_id) }}">{{ item.document_id }}</a>{% else %}—{% endif %}</dd></dl>
+  <div class="row g-4"><section class="col-lg-7"><div class="card"><div class="card-header">Pipeline</div><div class="list-group list-group-flush">{% for step in steps %}<div class="list-group-item"><strong>{{ step.step }}</strong> · {{ step.status }}<div class="small text-secondary">{{ step.detail }}</div></div>{% endfor %}</div></div></section>
+  <section class="col-lg-5"><div class="card"><div class="card-header">Zuordnen</div><div class="card-body"><form method="post" action="{{ url_for('v3_inbox.assign',item_id=item.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><select class="form-select mb-2" name="target_type"><option value="contact">Kontakt</option><option value="company">Firma</option><option value="project">Projekt</option><option value="task">Aufgabe</option></select><input class="form-control mb-2" name="target_id" required placeholder="ID"><button type="submit" class="btn btn-primary">Zuordnen</button></form>{% for row in item.assignments %}<div class="small mt-2"><code>{{ row.target_type }}</code> {{ row.target_id }}</div>{% endfor %}</div></div></section></div>
+</main>
+{% endblock %}
