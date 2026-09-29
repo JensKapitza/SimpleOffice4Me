@@ -486,10 +486,13 @@ class ContactManagement:
             source_owner = source.get("owner") or self.store._principal(str(source.get("created_by", "")))
             if target_owner != source_owner:
                 raise ValueError("contacts with different owners cannot be merged")
+            from .v3_crm import finalize_contact_merge, prepare_contact_merge
+            prepare_contact_merge(self.store.root, target_id, [source_id], actor)
             merged = self._merge_pair_locked(target, source, actor)
             payload["contacts"] = [item for item in payload.get("contacts", []) if item.get("contact_id") not in {target_id, source_id}] + [merged]
             atomic_json_write(self.store.contacts_path, payload)
             self.store.history.record("contacts_merged", actor, "contacts", target_id, {"target_id": target_id, "source_id": source_id, "result": merged})
+            finalize_contact_merge(self.store.root, [source_id])
             return merged
 
     def merge_many(self, contact_ids: list[str], actor: str, target_id: str = "") -> dict[str, Any]:
@@ -517,6 +520,14 @@ class ContactManagement:
                 raise ValueError("contacts with different owners cannot be merged")
             target = by_id.get(target_id) if target_id in unique_ids else max(selected, key=self._contact_completeness)
             sources = [contact for contact in selected if contact is not target]
+            from .v3_crm import finalize_contact_merge, prepare_contact_merge
+            source_ids = [str(contact.get("contact_id", "")) for contact in sources]
+            prepare_contact_merge(
+                self.store.root,
+                str(target.get("contact_id", "")),
+                source_ids,
+                actor,
+            )
             self._snapshots_locked(
                 [(contact, "merge_target" if contact is target else "merge_source") for contact in selected],
                 actor,
@@ -533,6 +544,7 @@ class ContactManagement:
                 "contacts_multi_merged", actor, "contacts", str(merged.get("contact_id", "")),
                 {"contact_ids": unique_ids, "target_id": merged.get("contact_id", ""), "result": merged},
             )
+            finalize_contact_merge(self.store.root, source_ids)
             return merged
 
     def bulk_merge(self, pairs: list[tuple[str, str]], actor: str) -> list[dict[str, Any]]:
@@ -579,6 +591,10 @@ class ContactManagement:
                 if score < 70 or not trivial or any(self._is_blocking_bulk_conflict(row) for row in preview):
                     raise ValueError("bulk merge only accepts high-confidence pairs without conflicting values")
 
+            from .v3_crm import finalize_contact_merge, prepare_contact_merge
+            for target_id, source_id in normalized_pairs:
+                prepare_contact_merge(self.store.root, target_id, [source_id], actor)
+
             self._snapshots_locked(
                 [
                     (by_id[contact_id], reason)
@@ -598,6 +614,10 @@ class ContactManagement:
             self.store.history.record(
                 "contacts_bulk_merged", actor, "contacts", "bulk",
                 {"pairs": audit_rows, "count": len(merged_rows)},
+            )
+            finalize_contact_merge(
+                self.store.root,
+                [source_id for _target_id, source_id in normalized_pairs],
             )
         return merged_rows
 
