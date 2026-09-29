@@ -54,14 +54,29 @@ def _relation_db(root: Path) -> Path:
     return root / ".simpleoffice-meta" / "v3-relations.sqlite3"
 
 
+def _contact_lookup(store: ContactStore, contact_id: str) -> dict[str, Any] | None:
+    """Read one contact without acquiring the contacts write lock.
+
+    CRM relation checks can run while ContactManagement already holds that
+    lock during a merge. Calling ContactStore.get()/can_manage() there would
+    re-enter the non-reentrant file lock and deadlock the merge.
+    """
+    payload = store._read(store.contacts_path, {"contacts": []})
+    return next(
+        (
+            item
+            for item in payload.get("contacts", [])
+            if str(item.get("contact_id", "")) == contact_id
+        ),
+        None,
+    )
+
+
 def _contact_resolver(root: Path):
     store = ContactStore(root)
 
     def resolve(ref: EntityRef):
-        try:
-            return store.get(ref.id)
-        except ValueError:
-            return None
+        return _contact_lookup(store, ref.id)
 
     return resolve
 
@@ -70,14 +85,14 @@ def _contact_authorizer(root: Path):
     store = ContactStore(root)
 
     def authorize(principal: str, action: str, ref: EntityRef) -> bool:
+        contact = _contact_lookup(store, ref.id)
+        if contact is None:
+            return False
+        principal = store._principal(principal)
         if action == "read":
-            try:
-                store.get(ref.id, principal)
-                return True
-            except ValueError:
-                return False
+            return store._can_read(contact, principal)
         if action == "link":
-            return store.can_manage(ref.id, principal)
+            return store._can_manage(contact, principal)
         return False
 
     return authorize
