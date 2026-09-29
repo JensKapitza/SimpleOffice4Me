@@ -48,6 +48,7 @@ PERSISTENCE_COVERAGE = {
     "v3_activity": "excluded:activity metadata may reveal protected entity history",
     "v3_relations": "excluded:relation graph state requires entity-level authorization",
     "v3_automation": "excluded:automation rules and execution state are internal workflow metadata",
+    "v3_finance": "pending-provider:business lifecycle records require contact-scoped finance authorization",
     "v3_extensions": "excluded:extension manifests and approval state are internal integration configuration",
     # Auth, credentials, keys, encrypted payloads and recovery material.
     "android_auth": "excluded:authentication factors and device secrets",
