@@ -8,6 +8,7 @@ from flask import Blueprint, Response, current_app, flash, g, redirect, render_t
 
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
+from .federation_compatibility import requirements
 from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
@@ -99,6 +100,56 @@ def _policy_redirect(peer_id):
     return redirect(url_for("federation_peer_admin.policy", peer_id=peer_id))
 
 
+def _safe_discovery_error(exc):
+    if isinstance(exc, ConnectionError):
+        return (
+            "Dienst nicht erreichbar. Ohne Schema werden HTTPS und HTTP geprüft. "
+            "Port, Weiterleitung und Firewall prüfen."
+        )
+    if isinstance(exc, (TimeoutError, OSError)):
+        return "Netzwerkziel nicht erreichbar. Port, Weiterleitung und Firewall prüfen."
+    if isinstance(exc, ValueError):
+        message = str(exc)
+        translations = {
+            "peer discovery returned an unexpected HTTP status":
+                "Dienst erreichbar, aber der SimpleOffice-Federation-Endpunkt antwortet nicht erfolgreich. Basis-URL und Reverse-Proxy-Pfad prüfen.",
+            "peer discovery response is not valid JSON":
+                "Dienst erreichbar, aber die Federation-Antwort ist kein gültiges JSON.",
+            "peer discovery response must be a JSON object":
+                "Dienst erreichbar, aber die Federation-Antwort hat ein ungültiges Format.",
+            "peer discovery response is too large":
+                "Federation-Antwort ist unerwartet groß und wurde aus Sicherheitsgründen verworfen.",
+            "peer fingerprint does not match public key":
+                "Peer-Profil ist inkonsistent: Fingerprint und öffentlicher Schlüssel passen nicht zusammen.",
+        }
+        return translations.get(message, message[:240])
+    current_app.logger.warning(
+        "Federation discovery failed (%s)", type(exc).__name__
+    )
+    return "Netzwerkprüfung fehlgeschlagen. Server-Log prüfen."
+
+
+def _compatibility_summary(peer):
+    state = peer.get("compatibility") if isinstance(peer, dict) else {}
+    state = state if isinstance(state, dict) else {}
+    protocol = str(state.get("protocol") or "unknown")
+    features = state.get("features") if isinstance(state.get("features"), dict) else {}
+    labels = {
+        "chat": "Chat",
+        "documents": "Dokumente",
+        "contacts": "Kontakte",
+        "calendar": "Kalender",
+        "tasks": "Aufgaben",
+    }
+    supported = [labels[name] for name in labels if features.get(name) is True]
+    if protocol == "compatible":
+        detail = ", ".join(supported) if supported else "keine bestätigte Fachfunktion"
+        return f"Federation-Protokoll kompatibel; bestätigt: {detail}."
+    if protocol == "incompatible":
+        return "Federation-Protokoll nicht kompatibel."
+    return "Federation-Protokollversion nicht angegeben; Kompatibilität ist noch unbekannt."
+
+
 def _connect_addresses():
     """Return device IPv4 addresses for QR connect, without RFC1918 filtering."""
     values = []
@@ -153,6 +204,12 @@ def dashboard():
     peers = []
     for identity in trust.list_identities():
         peer = trust.store.get_peer(identity["peer_id"]) or {}
+        peer_compatibility = trust.store.peer_compatibility(identity["peer_id"])
+        checked_at = int(peer_compatibility.get("checked_at") or 0)
+        if checked_at:
+            peer_compatibility["checked_at_label"] = datetime.fromtimestamp(
+                checked_at, tz=timezone.utc
+            ).strftime("%Y-%m-%d %H:%M UTC")
         peers.append({
             **identity,
             "label": peer.get("label") or identity["peer_id"],
@@ -160,6 +217,7 @@ def dashboard():
             "enabled": bool(peer.get("enabled", False)),
             "has_token": bool(peer.get("has_token", False)),
             "trust": trust.get_trust(identity["peer_id"]),
+            "compatibility": peer_compatibility,
             "recommendations": recommendations(_root(), identity["peer_id"]),
         })
     try:
@@ -175,6 +233,7 @@ def dashboard():
         own_qr=own_qr,
         lan_connect_profiles=_lan_connect_profiles(),
         lan_receive=_receive_state().status(),
+        compatibility_requirements=requirements(),
     )
 
 
@@ -225,15 +284,26 @@ def lan_qr_svg(index):
 def lan():
     try:
         ports = scan_ports(request.form.get("port", ""))
-        result = discover_lan(_root(), ports=ports)
+        result = discover_lan(
+            _root(),
+            ports=ports,
+            networks=request.form.get("network", ""),
+        )
         networks = ", ".join(result["networks"])
+        protocol_states = [
+            (peer.get("compatibility") or {}).get("protocol", "unknown")
+            for peer in result["peers"]
+        ]
         flash(
-            f"WLAN-Scan abgeschlossen: {len(result['peers'])} SimpleOffice-Gerät(e) gefunden. "
+            f"Netzwerk-Scan abgeschlossen: {len(result['peers'])} SimpleOffice-Gerät(e) gefunden. "
+            f"Federation kompatibel: {protocol_states.count('compatible')}, "
+            f"inkompatibel: {protocol_states.count('incompatible')}, "
+            f"unbekannt: {protocol_states.count('unknown')}. "
             f"Netz: {networks}; Ports: {', '.join(str(port) for port in result['ports'])}. "
             "Gefundene Geräte bleiben bekannt/nicht geprüft und deaktiviert."
         )
     except Exception as exc:
-        flash(f"WLAN-Scan fehlgeschlagen: {exc}")
+        flash(f"Netzwerk-Scan fehlgeschlagen: {_safe_discovery_error(exc)}")
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -242,12 +312,12 @@ def lan():
 def direct():
     try:
         peer = discover_direct(_root(), request.form.get("endpoint", ""))
-        flash(f"Peer {peer['peer_id']} gefunden und als bekannt/nicht geprüft gespeichert.")
-    except Exception as exc:
         flash(
-            f"Direkte Peer-Suche fehlgeschlagen: {exc}. "
-            "Prüfe, ob der Dienst auf dieser IP und diesem Port läuft und ob eine Firewall die Verbindung blockiert."
+            f"Peer {peer['peer_id']} gefunden und als bekannt/nicht geprüft gespeichert. "
+            + _compatibility_summary(peer)
         )
+    except Exception as exc:
+        flash(f"Direkte Peer-Suche fehlgeschlagen: {_safe_discovery_error(exc)}")
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 

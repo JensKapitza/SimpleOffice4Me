@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div><h1 class="h2">Background Jobs</h1><p class="text-secondary mb-0">Persistente 3.0-Queue; der Webserver bleibt auch ohne Worker nutzbar.</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Systeminventar</a>
+  </div>
+  {% if not enabled %}<div class="alert alert-secondary">Die Capability <code>v3.jobs</code> ist deaktiviert.</div>
+  {% else %}
+  <div class="row g-3 mb-4">
+    <div class="col"><div class="card card-body"><strong>Wartend</strong><span>{{ metrics.queued }}</span></div></div>
+    <div class="col"><div class="card card-body"><strong>Laufend</strong><span>{{ metrics.running }}</span></div></div>
+    <div class="col"><div class="card card-body"><strong>Fehler</strong><span>{{ metrics.failed }}</span></div></div>
+    <div class="col"><div class="card card-body"><strong>Ältester Job</strong><span>{{ metrics.oldest_age_seconds }} s</span></div></div>
+  </div>
+  <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">Typ</th><th scope="col">Status</th><th scope="col">Versuch</th><th scope="col">Principal</th><th scope="col">Fehler</th><th scope="col">Aktion</th></tr></thead><tbody>
+  {% for job in jobs %}<tr><td><code>{{ job.kind }}</code></td><td>{{ job.state }}</td><td>{{ job.attempt }}/{{ job.max_attempts }}</td><td>{{ job.principal }}</td><td>{{ job.last_error }}</td><td>{% if job.state == 'failed' %}<form method="post" action="{{ url_for('v3_jobs_admin.retry',job_id=job.job_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-primary">Erneut starten</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Keine Jobs.</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% endif %}
+</main>
+{% endblock %}

@@ -4,19 +4,21 @@ import os
 import urllib.parse
 from urllib.parse import urlsplit
 
+from .federation_compatibility import compatibility
 from .federation_discovery_country import normalize_country
 from .federation_discovery_email import email_hash
-from .federation_discovery_endpoint import fetch_discovery_profile, normalize_endpoint
+from .federation_discovery_endpoint import fetch_discovery_profile_auto, normalize_endpoint
 from .federation_peer_profile import peer_profile
 from .federation_store import FederationStore
 from .federation_trust_store import FederationTrustStore
 from .federation_worker import _json_request
 
 
-_RFC1918 = (
+_LOCAL_DIRECT_RANGES = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("100.64.0.0/10"),
 )
 
 
@@ -48,15 +50,17 @@ def remember_discovered_peer(root, profile, source):
         # Discovery only makes a peer known. Explicit activation/policy remains
         # a separate administrator decision.
         store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", {}, False)
-    return profile
+    result = compatibility(profile)
+    store.set_peer_compatibility(profile["peer_id"], result)
+    return {**profile, "compatibility": result}
 
 
-def _is_explicit_rfc1918_endpoint(endpoint):
-    """Return true only when the administrator entered an RFC1918 IPv4 literal.
+def _is_explicit_local_endpoint(endpoint):
+    """Allow only an administrator-entered local/shared IPv4 literal.
 
-    Hostnames stay on the strict path even when DNS resolves them to a private
-    address. That preserves the normal DNS-rebinding and SSRF protections while
-    allowing the documented direct-LAN workflow such as 192.168.x.x:8080.
+    RFC1918 and RFC6598 (for example Tailscale-style 100.64/10 addresses) are
+    accepted here. Hostnames stay on the strict path so DNS rebinding cannot
+    silently turn a public hostname into a local SSRF target.
     """
     normalized = normalize_endpoint(endpoint)
     host = urlsplit(normalized).hostname or ""
@@ -64,14 +68,12 @@ def _is_explicit_rfc1918_endpoint(endpoint):
         address = ipaddress.ip_address(host)
     except ValueError:
         return False
-    return address.version == 4 and any(address in network for network in _RFC1918)
+    return address.version == 4 and any(address in network for network in _LOCAL_DIRECT_RANGES)
 
 
 def discover_direct(root, endpoint):
-    if _is_explicit_rfc1918_endpoint(endpoint):
-        data = fetch_discovery_profile(endpoint, timeout=8, allow_private=True)
-    else:
-        data = fetch_discovery_profile(endpoint, timeout=8)
+    allow_private = True if _is_explicit_local_endpoint(endpoint) else None
+    data = fetch_discovery_profile_auto(endpoint, timeout=8, allow_private=allow_private)
     return remember_discovered_peer(root, data, "direct")
 
 
