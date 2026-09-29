@@ -1,17 +1,7 @@
 """Peer profile validation for federation discovery."""
-from .federation_compatibility import normalize_feature_versions, normalize_protocol_descriptor
 from .federation_core import sanitize_peer_id
 from .federation_discovery_endpoint import normalize_endpoint
 from .federation_identity import public_key_fingerprint
-
-
-def _application(data):
-    value = data.get("application") if isinstance(data, dict) else None
-    if not isinstance(value, dict):
-        return {}
-    name = str(value.get("name") or "").strip()[:80]
-    version = str(value.get("version") or "").strip()[:64]
-    return {"name": name, "version": version} if name else {}
 
 
 def peer_profile(data):
@@ -32,8 +22,5 @@ def peer_profile(data):
         "country": country,
         "fingerprint": fingerprint,
         "public_key": public_key,
-        "application": _application(data),
-        "federation": normalize_protocol_descriptor(data.get("federation")),
-        "features": normalize_feature_versions(data.get("features")),
         "capabilities": data.get("capabilities") if isinstance(data.get("capabilities"), dict) else {},
     }

@@ -312,6 +312,9 @@ app.register_blueprint(admin.bp)
 from . import v3_jobs_admin
 app.register_blueprint(v3_jobs_admin.bp)
 
+from . import v3_search_routes
+app.register_blueprint(v3_search_routes.bp)
+
 from . import v3_entity_routes
 app.register_blueprint(v3_entity_routes.bp)
 

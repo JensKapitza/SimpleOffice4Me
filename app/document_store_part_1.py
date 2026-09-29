@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from .document_store_core import *  # noqa: F401,F403
 from .safe_paths import resolve_file_under
-from .v3_activity import emit_activity_best_effort
 
 
 class _DocumentStorePart1:
@@ -212,7 +211,6 @@ class _DocumentStorePart1:
         self.scan()
         metadata = self.get_document(target)
         self._record_revision("document_imported", actor, "documents", metadata["document_id"], metadata)
-        emit_activity_best_effort(self.root, "document.imported", actor, entity_type="document", entity_id=metadata["document_id"], source="document_store")
         return target
 
     def import_directory(self, source: str | Path, label: str, actor: str = "system") -> dict[str, int | str]:

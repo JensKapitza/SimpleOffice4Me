@@ -8,7 +8,7 @@ TEMPLATES = ROOT / "templates"
 
 class TemplateShellTests(unittest.TestCase):
     def test_all_templates_use_the_translatable_layout(self):
-        fragments = {"documents/event_list.html", "documents/invoice_positions.html", "documents/nav.html"}
+        fragments = {"documents/event_list.html", "documents/invoice_positions.html", "documents/nav.html", "v3_command_palette.html"}
         for template in TEMPLATES.rglob("*.html"):
             content = template.read_text(encoding="utf-8")
             relative = str(template.relative_to(TEMPLATES))

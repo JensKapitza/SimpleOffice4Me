@@ -1,16 +1,15 @@
 """Validation and pinned HTTP access for federation discovery targets.
 
 Direct discovery deliberately accepts an administrator supplied host, but it must
-never turn into an unrestricted server-side URL fetch. DNS is resolved once per
-candidate, every returned address is checked, and the actual HTTP connection is
-pinned to one of those checked addresses to avoid DNS-rebinding between
-validation and connect.
+never turn into an unrestricted server-side URL fetch. Only a canonical server
+base URL is accepted. DNS is resolved once, every returned address is checked,
+and the actual HTTP connection is pinned to one of those checked addresses to
+avoid DNS-rebinding between validation and connect.
 """
 import http.client
 import ipaddress
 import json
 import os
-import re
 import socket
 import ssl
 from urllib.parse import urlsplit, urlunsplit
@@ -20,8 +19,6 @@ _TRUE_VALUES = {"1", "true", "yes", "on"}
 _DISCOVERY_PATH = "/.well-known/simpleoffice-federation"
 _MAX_DISCOVERY_RESPONSE = 1024 * 1024
 _USER_AGENT = "SimpleOffice4Me-Federation-Discovery/1"
-_SHARED_IPV4 = ipaddress.ip_network("100.64.0.0/10")
-_BASE_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._~-]{1,80}$")
 
 
 def _env_flag(name):
@@ -53,20 +50,8 @@ def _hostname(value):
     return address.compressed
 
 
-def _base_path(value):
-    path = str(value or "")
-    if path in {"", "/"}:
-        return ""
-    if len(path) > 256 or not path.startswith("/") or "\\" in path or "%" in path:
-        raise ValueError("invalid peer endpoint base path")
-    parts = path.strip("/").split("/")
-    if any(part in {"", ".", ".."} or not _BASE_PATH_SEGMENT.fullmatch(part) for part in parts):
-        raise ValueError("invalid peer endpoint base path")
-    return "/" + "/".join(parts)
-
-
 def normalize_endpoint(value):
-    """Return a canonical federation server base URL, optionally with base path."""
+    """Return a canonical federation server base URL."""
     value = str(value or "").strip()
     if "://" not in value:
         value = "https://" + value
@@ -75,8 +60,8 @@ def normalize_endpoint(value):
         raise ValueError("invalid peer endpoint")
     if parsed.username or parsed.password:
         raise ValueError("credentials are not allowed in peer endpoint")
-    if parsed.query or parsed.fragment:
-        raise ValueError("peer endpoint must not contain query or fragment")
+    if parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+        raise ValueError("peer endpoint must be a server base URL without path, query or fragment")
     try:
         port = parsed.port
     except ValueError as exc:
@@ -87,7 +72,7 @@ def normalize_endpoint(value):
     netloc = _format_host(host)
     if port is not None:
         netloc = f"{netloc}:{port}"
-    return urlunsplit((parsed.scheme, netloc, _base_path(parsed.path), "", ""))
+    return urlunsplit((parsed.scheme, netloc, "", "", ""))
 
 
 def _format_host(host):
@@ -130,10 +115,6 @@ def _validate_address(address, allow_private, allow_loopback):
         raise ValueError("loopback federation discovery is disabled")
     if address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved:
         raise ValueError("peer endpoint resolves to a forbidden network address")
-    if address.version == 4 and address in _SHARED_IPV4:
-        if allow_private:
-            return
-        raise ValueError("shared/private federation discovery requires explicit local-target permission")
     if address.is_private and not allow_private:
         raise ValueError("private federation discovery requires SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1")
     if not address.is_global and not address.is_private:
@@ -195,11 +176,6 @@ def _host_header(host, port, scheme):
     return rendered if port == default_port else f"{rendered}:{port}"
 
 
-def _request_path(parsed):
-    base = str(parsed.path or "").rstrip("/")
-    return base + _DISCOVERY_PATH
-
-
 def fetch_discovery_profile(value, timeout=8, *, allow_private=None, allow_loopback=None):
     """Fetch the fixed discovery document through an IP-pinned connection."""
     _base_url, parsed, port, addresses = _validated_target(
@@ -210,7 +186,7 @@ def fetch_discovery_profile(value, timeout=8, *, allow_private=None, allow_loopb
     try:
         connection.request(
             "GET",
-            _request_path(parsed),
+            _DISCOVERY_PATH,
             headers={
                 "Accept": "application/json",
                 "Host": _host_header(parsed.hostname, port, parsed.scheme),
@@ -232,36 +208,3 @@ def fetch_discovery_profile(value, timeout=8, *, allow_private=None, allow_loopb
     if not isinstance(profile, dict):
         raise ValueError("peer discovery response must be a JSON object")
     return profile
-
-
-def fetch_discovery_profile_auto(value, timeout=8, *, allow_private=None, allow_loopback=None):
-    """Probe HTTPS then HTTP only when the administrator omitted the scheme.
-
-    Explicit HTTPS never downgrades. TLS certificate verification remains active.
-    The fallback is discovery-only and sends no credentials.
-    """
-    raw = str(value or "").strip()
-    candidates = [raw] if "://" in raw else [f"https://{raw}", f"http://{raw}"]
-    last_transport_error = None
-    for candidate in candidates:
-        try:
-            profile = fetch_discovery_profile(
-                candidate,
-                timeout=timeout,
-                allow_private=allow_private,
-                allow_loopback=allow_loopback,
-            )
-            result = dict(profile)
-            # A direct administrator-supplied base address is the endpoint just
-            # proven reachable, including the selected HTTP(S) transport and
-            # optional reverse-proxy base path.
-            result["base_url"] = normalize_endpoint(candidate)
-            return result
-        except ssl.SSLCertVerificationError as exc:
-            raise ConnectionError("TLS certificate verification failed") from exc
-        except (OSError, http.client.HTTPException) as exc:
-            last_transport_error = exc
-            continue
-    if last_transport_error is not None:
-        raise ConnectionError("peer endpoint is not reachable via the requested transport") from last_transport_error
-    raise ValueError("peer discovery failed")

@@ -54,11 +54,6 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["base_url"], "http://192.168.44.20:8080")
         self.assertTrue(response.json["capabilities"]["lan_discovery"])
-        self.assertEqual(response.json["federation"]["name"], "simpleoffice-federation")
-        self.assertEqual(response.json["federation"]["min_version"], 1)
-        self.assertEqual(response.json["federation"]["max_version"], 1)
-        self.assertEqual(response.json["features"]["chat"], 1)
-        self.assertEqual(response.json["features"]["documents"], 1)
 
     def test_register_publishes_without_disabling_existing_peer(self):
         FederationStore(self.root).save_peer("peer-a", "Old", "https://old.example", "", {}, True)

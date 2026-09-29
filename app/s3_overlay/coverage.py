@@ -45,7 +45,6 @@ PERSISTENCE_COVERAGE = {
     "federation_rendezvous_store": "excluded:rendezvous state contains endpoint and nonce data",
     "federation_peer_schema": "excluded:peer protocol schemas are internal implementation state",
     "v2.federation_policy": "excluded:federation policies contain private sharing configuration",
-    "v3_activity": "excluded:activity metadata may reveal protected entity history",
     # Auth, credentials, keys, encrypted payloads and recovery material.
     "android_auth": "excluded:authentication factors and device secrets",
     "db": "excluded:account hashes, session state and authorization records",
@@ -63,7 +62,6 @@ PERSISTENCE_COVERAGE = {
     "v2.encrypted_recovery_fragments": "excluded:encrypted recovery fragments and key material",
     "v2.master_keys": "excluded:master encryption key profiles",
     "v2.jobs": "excluded:internal storage processing jobs and recovery state",
-    "v3_jobs": "excluded:background queue state is internal operational metadata",
     "v2.vault_payload_store": "excluded:encrypted vault payloads",
     "v2.overlay": "excluded:storage overlay migration state",
     # Operational state, device control, caches and internal services.

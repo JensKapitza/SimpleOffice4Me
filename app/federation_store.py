@@ -78,12 +78,6 @@ class FederationStore:
                     last_seen_at INTEGER,
                     last_error TEXT NOT NULL DEFAULT ''
                 );
-                CREATE TABLE IF NOT EXISTS federation_peer_compatibility(
-                    peer_id TEXT PRIMARY KEY,
-                    result_json TEXT NOT NULL DEFAULT '{}',
-                    checked_at INTEGER NOT NULL,
-                    FOREIGN KEY(peer_id) REFERENCES federation_peer(peer_id) ON DELETE CASCADE
-                );
                 CREATE TABLE IF NOT EXISTS federation_transfer(
                     transfer_id TEXT PRIMARY KEY,
                     direction TEXT NOT NULL,
@@ -190,32 +184,6 @@ class FederationStore:
             raise ValueError("Unbekannter Federation-Peer")
         encrypted = str(peer.get("token_enc") or "")
         return unprotect_value(encrypted, f"federation-peer:{peer['peer_id']}")
-
-    def set_peer_compatibility(self, peer_id: str, result: dict[str, Any]) -> None:
-        peer_id = sanitize_peer_id(peer_id)
-        clean = result if isinstance(result, dict) else {}
-        with self._db() as db:
-            db.execute(
-                """INSERT INTO federation_peer_compatibility(peer_id,result_json,checked_at)
-                   VALUES(?,?,?)
-                   ON CONFLICT(peer_id) DO UPDATE SET
-                     result_json=excluded.result_json, checked_at=excluded.checked_at""",
-                (peer_id, _json(clean), _now()),
-            )
-
-    def peer_compatibility(self, peer_id: str) -> dict[str, Any]:
-        peer_id = sanitize_peer_id(peer_id)
-        with self._db() as db:
-            row = db.execute(
-                "SELECT result_json,checked_at FROM federation_peer_compatibility WHERE peer_id=?",
-                (peer_id,),
-            ).fetchone()
-        if row is None:
-            return {}
-        result = _load(row["result_json"], {})
-        if not isinstance(result, dict):
-            result = {}
-        return {**result, "checked_at": int(row["checked_at"])}
 
     def set_peer_health(self, peer_id: str, *, error: str = "", seen: bool = False) -> None:
         peer_id = sanitize_peer_id(peer_id)

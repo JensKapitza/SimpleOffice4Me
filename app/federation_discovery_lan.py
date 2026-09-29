@@ -1,9 +1,9 @@
-"""User-triggered federation discovery on private IPv4 LAN segments.
+"""User-triggered federation discovery on the local IPv4 WLAN segment.
 
-Automatic discovery stays narrow and uses local /24 networks. Administrators may
-provide explicit RFC1918 or RFC6598 CIDRs for Docker/Podman/VPN deployments where
-the container network is not the LAN that should be searched. Explicit ranges are bounded and
-never allow public, link-local or metadata networks.
+The scanner is deliberately narrow: it only probes RFC1918 addresses in the
+same /24 as this instance and only asks the fixed SimpleOffice well-known
+endpoint on configured application ports. It is not an Internet scanner and it
+does not grant trust or data permissions.
 """
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import os
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .federation_compatibility import compatibility
 from .federation_discovery_endpoint import fetch_discovery_profile
 from .federation_discovery_service import remember_discovered_peer
 from .federation_local_profile import local_peer_id
@@ -21,7 +20,7 @@ from .federation_peer_profile import peer_profile
 _DEFAULT_PORT = 8080
 _MAX_PORTS = 4
 _MAX_NETWORKS = 4
-_MAX_SCAN_HOSTS = 1024
+_MAX_HOSTS = 254 * _MAX_NETWORKS
 _DEFAULT_TIMEOUT = 0.35
 _MAX_TIMEOUT = 1.5
 _MAX_WORKERS = 32
@@ -30,7 +29,6 @@ _RFC1918 = (
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
 )
-_EXPLICIT_SCAN_RANGES = _RFC1918 + (ipaddress.ip_network("100.64.0.0/10"),)
 
 
 def is_private_lan_ipv4(value) -> bool:
@@ -39,10 +37,6 @@ def is_private_lan_ipv4(value) -> bool:
     except ValueError:
         return False
     return address.version == 4 and any(address in network for network in _RFC1918)
-
-
-def _private_network(network) -> bool:
-    return network.version == 4 and any(network.subnet_of(parent) for parent in _EXPLICIT_SCAN_RANGES)
 
 
 def _configured_addresses() -> list[str]:
@@ -111,99 +105,45 @@ def scan_ports(extra_port=None) -> list[int]:
     return ports or [_DEFAULT_PORT]
 
 
-def scan_networks(value="", *, addresses=None) -> list[ipaddress.IPv4Network]:
-    """Resolve explicit scan CIDRs or derive the legacy local /24 networks."""
-    raw = str(value or "").strip()
-    if raw:
-        networks = []
-        tokens = raw.replace(";", ",").replace("\n", ",").split(",")
-        for token in tokens:
-            text = token.strip()
-            if not text:
-                continue
-            if "/" not in text:
-                if not is_private_lan_ipv4(text):
-                    try:
-                        address = ipaddress.ip_address(text)
-                    except ValueError as exc:
-                        raise ValueError("Scan-Basis muss eine lokale IPv4-Adresse oder ein CIDR sein") from exc
-                    if address.version != 4 or not any(address in parent for parent in _EXPLICIT_SCAN_RANGES):
-                        raise ValueError("Scan-Basis muss RFC1918 oder RFC6598 (100.64/10) sein")
-                text += "/24"
-            try:
-                network = ipaddress.ip_network(text, strict=False)
-            except ValueError as exc:
-                raise ValueError("Ungültiges Scan-Netz/CIDR") from exc
-            if not _private_network(network):
-                raise ValueError("Es dürfen nur RFC1918- oder RFC6598-Netze gescannt werden")
-            if network.prefixlen < 22:
-                raise ValueError("Scan-Netz ist zu groß; maximal /22")
-            if network not in networks:
-                networks.append(network)
-            if len(networks) > _MAX_NETWORKS:
-                raise ValueError("Maximal vier Scan-Netze sind erlaubt")
-        if not networks:
-            raise ValueError("Mindestens ein Scan-Netz angeben")
-    else:
-        local = list(addresses) if addresses is not None else local_lan_addresses()
-        local = [value for value in local if is_private_lan_ipv4(value)][:_MAX_NETWORKS]
-        if not local:
-            raise ValueError("Kein privates IPv4-WLAN/LAN gefunden; bei Docker Scan-Netz explizit angeben")
-        networks = []
-        for value in local:
-            network = ipaddress.ip_network(f"{value}/24", strict=False)
-            if network not in networks:
-                networks.append(network)
-
-    host_count = sum(max(0, int(network.num_addresses) - 2) for network in networks)
-    if host_count > _MAX_SCAN_HOSTS:
-        raise ValueError(f"Scan-Bereich zu groß; maximal {_MAX_SCAN_HOSTS} Hosts")
-    return networks
-
-
-def _targets_for_networks(networks, addresses, ports) -> list[str]:
+def _targets(addresses, ports) -> list[str]:
     own = {ipaddress.ip_address(value) for value in addresses if is_private_lan_ipv4(value)}
     endpoints: list[str] = []
+    networks = []
+    for address in own:
+        network = ipaddress.ip_network(f"{address}/24", strict=False)
+        if network not in networks:
+            networks.append(network)
     for network in networks[:_MAX_NETWORKS]:
         for address in network.hosts():
             if address in own:
                 continue
             for port in ports:
                 endpoints.append(f"http://{address.compressed}:{port}")
-                if len(endpoints) >= _MAX_SCAN_HOSTS * max(1, len(ports)):
+                if len(endpoints) >= _MAX_HOSTS * max(1, len(ports)):
                     return endpoints
     return endpoints
 
 
-def _targets(addresses, ports) -> list[str]:
-    networks = scan_networks("", addresses=addresses)
-    return _targets_for_networks(networks, addresses, ports)
-
-
 def _probe(endpoint: str, timeout: float):
-    candidates = [endpoint]
-    if endpoint.startswith("http://"):
-        candidates.append("https://" + endpoint[len("http://"):])
-    for candidate in candidates:
-        try:
-            data = fetch_discovery_profile(candidate, timeout=timeout, allow_private=True)
-            data = dict(data)
-            # The address we just proved reachable is more useful for local
-            # transfer than an unrelated public URL advertised by the peer.
-            data["base_url"] = candidate
-            return peer_profile(data)
-        except (OSError, ValueError):
-            continue
-    return None
+    try:
+        data = fetch_discovery_profile(endpoint, timeout=timeout, allow_private=True)
+        data = dict(data)
+        # The LAN address is the endpoint we just proved reachable and is more
+        # useful for phone-to-phone transfer than an unrelated public URL.
+        data["base_url"] = endpoint
+        return peer_profile(data)
+    except (OSError, ValueError):
+        return None
 
 
-def discover_lan(root, *, addresses=None, ports=None, networks=None, timeout=_DEFAULT_TIMEOUT) -> dict:
+def discover_lan(root, *, addresses=None, ports=None, timeout=_DEFAULT_TIMEOUT) -> dict:
     addresses = list(addresses) if addresses is not None else local_lan_addresses()
     addresses = [value for value in addresses if is_private_lan_ipv4(value)][:_MAX_NETWORKS]
-    selected_networks = scan_networks(networks or "", addresses=addresses)
+    if not addresses:
+        raise ValueError("Kein privates IPv4-WLAN/LAN gefunden")
     ports = scan_ports() if ports is None else [int(value) for value in ports if 1 <= int(value) <= 65535][:_MAX_PORTS]
     timeout = max(0.1, min(float(timeout), _MAX_TIMEOUT))
-    targets = _targets_for_networks(selected_networks, addresses, ports)
+    targets = _targets(addresses, ports)
     found = {}
     own_peer = local_peer_id()
 
@@ -215,11 +155,12 @@ def discover_lan(root, *, addresses=None, ports=None, networks=None, timeout=_DE
                 continue
             source = "lan:" + profile["base_url"].split("//", 1)[-1].split(":", 1)[0]
             stored = remember_discovered_peer(root, profile, source)
-            found[stored["peer_id"]] = {**stored, "compatibility": compatibility(stored)}
+            found[stored["peer_id"]] = stored
 
+    networks = sorted({str(ipaddress.ip_network(f"{value}/24", strict=False)) for value in addresses})
     return {
         "peers": sorted(found.values(), key=lambda item: (item["label"].casefold(), item["peer_id"])),
-        "networks": [str(network) for network in selected_networks],
+        "networks": networks,
         "ports": ports,
         "probed": len(targets),
     }

@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 from app.federation_discovery_email import email_hash
 from app.federation_discovery_endpoint import (
     fetch_discovery_profile,
-    fetch_discovery_profile_auto,
     normalize_endpoint,
     validate_discovery_endpoint,
 )
@@ -18,7 +17,6 @@ from app.federation_discovery_lan import (
     discover_lan,
     is_private_lan_ipv4,
     local_lan_addresses,
-    scan_networks,
     scan_ports,
 )
 from app.federation_discovery_service import discover_direct
@@ -35,18 +33,6 @@ PROFILE = {
     "base_url": "https://peer.example",
     "country": "DE",
     "fingerprint": "sha256:test",
-    "federation": {
-        "name": "simpleoffice-federation",
-        "min_version": 1,
-        "max_version": 1,
-    },
-    "features": {
-        "chat": 1,
-        "documents": 1,
-        "contacts": 1,
-        "calendar": 1,
-        "tasks": 1,
-    },
     "capabilities": {"discovery": True},
 }
 
@@ -65,18 +51,11 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
     def test_endpoint_defaults_to_https(self):
         self.assertEqual(normalize_endpoint("peer.example"), "https://peer.example")
 
-    def test_endpoint_accepts_safe_reverse_proxy_base_path(self):
-        self.assertEqual(
-            normalize_endpoint("https://peer.example/simpleoffice"),
-            "https://peer.example/simpleoffice",
-        )
-
-    def test_endpoint_rejects_query_fragment_and_unsafe_base_path(self):
+    def test_endpoint_rejects_non_base_url_components(self):
         for value in (
+            "https://peer.example/admin",
             "https://peer.example?next=http://127.0.0.1",
             "https://peer.example#internal",
-            "https://peer.example/a/../admin",
-            "https://peer.example/%2e%2e/admin",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 normalize_endpoint(value)
@@ -120,46 +99,6 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         self.assertEqual(request_kwargs["headers"]["Host"], "peer.example")
         connection.close.assert_called_once_with()
 
-    def test_discovery_fetch_prefixes_safe_base_path(self):
-        resolved = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
-        connection = Mock()
-        response = Mock(status=200)
-        response.read.return_value = json.dumps(PROFILE).encode("utf-8")
-        connection.getresponse.return_value = response
-        with patch("app.federation_discovery_endpoint.socket.getaddrinfo", return_value=resolved), patch(
-            "app.federation_discovery_endpoint._connection_for", return_value=connection
-        ):
-            fetch_discovery_profile("https://peer.example/simpleoffice", timeout=8)
-        self.assertEqual(
-            connection.request.call_args.args,
-            ("GET", "/simpleoffice/.well-known/simpleoffice-federation"),
-        )
-
-    def test_scheme_less_direct_probe_falls_back_from_https_to_http(self):
-        with patch(
-            "app.federation_discovery_endpoint.fetch_discovery_profile",
-            side_effect=[OSError("tls transport mismatch"), PROFILE],
-        ) as fetcher:
-            profile = fetch_discovery_profile_auto(
-                "192.168.1.23:8765", timeout=2, allow_private=True
-            )
-        self.assertEqual(profile["peer_id"], "peer-a")
-        self.assertEqual(profile["base_url"], "http://192.168.1.23:8765")
-        self.assertEqual(fetcher.call_count, 2)
-        self.assertEqual(fetcher.call_args_list[0].args[0], "https://192.168.1.23:8765")
-        self.assertEqual(fetcher.call_args_list[1].args[0], "http://192.168.1.23:8765")
-
-    def test_explicit_https_probe_never_downgrades(self):
-        with patch(
-            "app.federation_discovery_endpoint.fetch_discovery_profile",
-            side_effect=OSError("tls failure"),
-        ) as fetcher:
-            with self.assertRaises(ConnectionError):
-                fetch_discovery_profile_auto(
-                    "https://192.168.1.23:8765", timeout=2, allow_private=True
-                )
-        fetcher.assert_called_once()
-
     def test_internal_lan_fetch_can_probe_private_but_not_link_local(self):
         connection = Mock()
         response = Mock()
@@ -170,27 +109,21 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             profile = fetch_discovery_profile(
                 "http://192.168.20.44:8080", timeout=.2, allow_private=True
             )
-            shared = fetch_discovery_profile(
-                "http://100.110.89.7:8765", timeout=.2, allow_private=True
-            )
         self.assertEqual(profile["peer_id"], "peer-a")
-        self.assertEqual(shared["peer_id"], "peer-a")
         with self.assertRaises(ValueError):
             fetch_discovery_profile(
                 "http://169.254.169.254:8080", timeout=.2, allow_private=True
             )
 
     def test_direct_discovery_uses_pinned_fetcher(self):
-        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=PROFILE) as fetcher:
+        with patch("app.federation_discovery_service.fetch_discovery_profile", return_value=PROFILE) as fetcher:
             peer = discover_direct(self.root, "https://peer.example")
         self.assertEqual(peer["peer_id"], "peer-a")
-        fetcher.assert_called_once_with(
-            "https://peer.example", timeout=8, allow_private=None
-        )
+        fetcher.assert_called_once_with("https://peer.example", timeout=8)
 
     def test_direct_discovery_allows_explicit_rfc1918_ip(self):
         local_profile = {**PROFILE, "base_url": "http://192.168.1.23:8080", "fingerprint": ""}
-        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=local_profile) as fetcher:
+        with patch("app.federation_discovery_service.fetch_discovery_profile", return_value=local_profile) as fetcher:
             peer = discover_direct(self.root, "http://192.168.1.23:8080")
         self.assertEqual(peer["peer_id"], "peer-a")
         fetcher.assert_called_once_with(
@@ -198,22 +131,10 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         )
         self.assertFalse(FederationStore(self.root).get_peer("peer-a")["enabled"])
 
-    def test_direct_discovery_allows_explicit_rfc6598_ip(self):
-        local_profile = {**PROFILE, "base_url": "http://100.110.89.7:8765", "fingerprint": ""}
-        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=local_profile) as fetcher:
-            peer = discover_direct(self.root, "100.110.89.7:8765")
-        self.assertEqual(peer["peer_id"], "peer-a")
-        fetcher.assert_called_once_with(
-            "100.110.89.7:8765", timeout=8, allow_private=True
-        )
-        self.assertEqual(peer["compatibility"]["protocol"], "compatible")
-
     def test_direct_discovery_does_not_allow_private_hostname_implicitly(self):
-        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=PROFILE) as fetcher:
+        with patch("app.federation_discovery_service.fetch_discovery_profile", return_value=PROFILE) as fetcher:
             discover_direct(self.root, "http://printer.home.arpa:8080")
-        fetcher.assert_called_once_with(
-            "http://printer.home.arpa:8080", timeout=8, allow_private=None
-        )
+        fetcher.assert_called_once_with("http://printer.home.arpa:8080", timeout=8)
 
     def test_lan_target_generation_stays_inside_local_24(self):
         targets = _targets(["192.168.50.23"], [8080])
@@ -222,17 +143,6 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         self.assertNotIn("http://192.168.50.23:8080", targets)
         self.assertFalse(any("192.168.51." in endpoint for endpoint in targets))
         self.assertEqual(len(targets), 253)
-
-    def test_explicit_scan_network_supports_container_lan(self):
-        networks = scan_networks("192.168.77.0/24", addresses=["172.17.0.2"])
-        self.assertEqual([str(item) for item in networks], ["192.168.77.0/24"])
-        shared = scan_networks("100.110.89.0/24", addresses=["172.17.0.2"])
-        self.assertEqual([str(item) for item in shared], ["100.110.89.0/24"])
-
-    def test_scan_network_rejects_public_and_oversized_ranges(self):
-        for value in ("8.8.8.0/24", "10.0.0.0/16"):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                scan_networks(value)
 
     def test_lan_scan_accepts_only_rfc1918_ipv4(self):
         for value in ("10.2.3.4", "172.16.1.1", "172.31.255.2", "192.168.1.2"):

@@ -112,6 +112,7 @@
         </div>
       </div>
 
+      {% if v3_search_enabled %}<button type="button" class="btn btn-sm btn-outline-light me-2 my-2 my-xxl-0 text-nowrap" data-v3-search-open title="Ctrl+K"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Palette <kbd class="ms-1">Ctrl K</kbd></button>{% endif %}
       <form method="get" action="{{ url_for('documents.quick_search') }}" class="d-flex my-2 my-xxl-0 me-xxl-2" role="search" aria-label="{{ 'Global quick search' if g.language == 'en' else 'Globale Schnellsuche' }}">
         <label class="visually-hidden" for="global-quick-search">{{ 'Quick search' if g.language == 'en' else 'Schnellsuche' }}</label>
         <div class="input-group input-group-sm">

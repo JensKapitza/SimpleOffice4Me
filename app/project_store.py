@@ -11,7 +11,6 @@ from typing import Any
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
-from .v3_activity import emit_activity_best_effort
 
 
 PROJECT_STATES = {"open", "active", "waiting", "completed", "cancelled"}
@@ -55,7 +54,6 @@ class ProjectStore:
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
         }
         self._write_change(project, actor, "project_created")
-        emit_activity_best_effort(self.root, "project.created", actor, entity_type="project", entity_id=project["project_id"], source="project_store")
         return project
 
     def update_project(self, project_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:

@@ -1,0 +1,9 @@
+
+.v3-search-mobile-button {
+  z-index: 1030;
+  width: 3rem;
+  height: 3rem;
+}
+#v3-command-palette .list-group-item strong {
+  overflow-wrap: anywhere;
+}
