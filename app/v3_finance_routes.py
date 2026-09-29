@@ -62,7 +62,10 @@ def _require_document(lifecycle_id: str):
 @bp.get("")
 @login_required
 def index():
-    _require_finance()
+    if not has_feature(g.user, "documents"):
+        abort(403)
+    if not enabled("v3.finance"):
+        return redirect(url_for("contact_audit.business_documents.invoice_overview"))
     rows = [
         row
         for row in _store().list(limit=300)
