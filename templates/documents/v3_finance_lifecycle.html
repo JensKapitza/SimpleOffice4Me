@@ -8,7 +8,7 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}">Rechnungen</a>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
 
   <section class="card mb-4">
     <div class="card-header"><strong>Neues Geschäftsdokument</strong></div>
@@ -23,14 +23,14 @@
         <div class="col-md-2"><label class="form-label">Betrag</label><input class="form-control" name="amount" inputmode="decimal"></div>
         <div class="col-md-2"><label class="form-label">Währung</label><input class="form-control" name="currency" value="EUR" maxlength="3"></div>
         <div class="col-12"><label class="form-label">Beschreibung</label><textarea class="form-control" name="description" rows="3" maxlength="4000"></textarea></div>
-        <div class="col-12"><button class="btn btn-primary">Entwurf anlegen</button></div>
+        <div class="col-12"><button type="submit" class="btn btn-primary">Entwurf anlegen</button></div>
       </form>
     </div>
   </section>
 
   <div class="table-responsive">
     <table class="table align-middle">
-      <thead><tr><th>Typ</th><th>Titel</th><th>Status</th><th>Kontakt</th><th>Projekt</th><th>Nummer / extern</th><th></th></tr></thead>
+      <thead><tr><th scope="col">Typ</th><th scope="col">Titel</th><th scope="col">Status</th><th scope="col">Kontakt</th><th scope="col">Projekt</th><th scope="col">Nummer / extern</th><th scope="col">Aktion</th></tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
