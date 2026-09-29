@@ -48,11 +48,15 @@ def _detail(report: dict) -> dict:
 
 @bp.get("/health/live")
 def live():
+    if not enabled("v3.health"):
+        abort(404)
     return jsonify({"status": "healthy", "live": True})
 
 
 @bp.get("/health/ready")
 def ready():
+    if not enabled("v3.health"):
+        abort(404)
     report = _report()
     return jsonify(public_summary(report)), 200 if report.get("ready") else 503
 
