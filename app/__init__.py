@@ -321,6 +321,9 @@ app.register_blueprint(v3_crm_routes.bp)
 from . import v3_health_routes
 app.register_blueprint(v3_health_routes.bp)
 
+from . import v3_federation_routes
+app.register_blueprint(v3_federation_routes.bp)
+
 from . import v3_jobs_admin
 app.register_blueprint(v3_jobs_admin.bp)
 
