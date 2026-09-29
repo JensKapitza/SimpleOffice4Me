@@ -46,6 +46,7 @@ PERSISTENCE_COVERAGE = {
     "federation_peer_schema": "excluded:peer protocol schemas are internal implementation state",
     "v2.federation_policy": "excluded:federation policies contain private sharing configuration",
     "v3_activity": "excluded:activity metadata may reveal protected entity history",
+    "v3_relations": "excluded:relation graph state requires entity-level authorization",
     # Auth, credentials, keys, encrypted payloads and recovery material.
     "android_auth": "excluded:authentication factors and device secrets",
     "db": "excluded:account hashes, session state and authorization records",
