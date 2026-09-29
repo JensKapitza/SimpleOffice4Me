@@ -67,6 +67,7 @@ public class MainActivity extends Activity {
     private final AndroidIntentRouter intentRouter = new AndroidIntentRouter();
     private AndroidDownloadHandler downloadHandler;
     private AndroidGoogleAuthorization googleAuthorization;
+    private AndroidOfflineWorksetStore offlineWorksetStore;
     private WebView webView;
     private ProgressBar progress;
     private TextView status;
@@ -91,6 +92,7 @@ public class MainActivity extends Activity {
         intentRouter.accept(getIntent());
         downloadHandler = new AndroidDownloadHandler(this);
         googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
+        offlineWorksetStore = new AndroidOfflineWorksetStore(this);
         ScreenCaptureService.setListener(this::dispatchNativeScreenEvent);
         buildUi();
         executor.execute(this::prepareAndStartBackend);
@@ -349,6 +351,14 @@ public class MainActivity extends Activity {
         return "(function(){"
                 + "if(!window.SimpleOfficeAndroid)return;"
                 + "const bridgeToken=" + quotedToken + ";"
+                + "window.SimpleOfficeOffline={"
+                + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineStatus(bridgeToken))),"
+                + "cache:(id,kind,version,payload,retention)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload??''),Number(retention||86400))),"
+                + "read:(id,kind)=>JSON.parse(String(window.SimpleOfficeAndroid.readOfflineItem(bridgeToken,String(id||''),String(kind||'')))),"
+                + "enqueue:(type,id,baseVersion,payload)=>String(window.SimpleOfficeAndroid.enqueueOfflineMutation(bridgeToken,String(type||''),String(id||''),String(baseVersion||''),String(payload??''))),"
+                + "outbox:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineOutbox(bridgeToken))),"
+                + "ack:(operationId,status)=>String(window.SimpleOfficeAndroid.acknowledgeOfflineMutation(bridgeToken,String(operationId||''),String(status||''))),"
+                + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken))};"
                 + "window.SimpleOfficeNativeAudio={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
                 + "startSender:(targets,bitrate)=>String(window.SimpleOfficeAndroid.startAudioSender(bridgeToken,JSON.stringify(targets||[]),Number(bitrate||64))),"
@@ -587,6 +597,51 @@ public class MainActivity extends Activity {
             if (csrf.length() < 32 || csrf.length() > 256 || googleAuthorization == null) return "invalid";
             mainHandler.post(() -> googleAuthorization.authorize(normalizedAction, csrf));
             return "ok";
+        }
+
+        @JavascriptInterface
+        public String offlineStatus(String token) {
+            return bridgeAllowed(token) && offlineWorksetStore != null
+                    ? offlineWorksetStore.statusJson()
+                    : "{\"enabled\":false,\"error\":\"blocked\"}";
+        }
+
+        @JavascriptInterface
+        public String cacheOfflineItem(
+                String token, String itemId, String kind, String version, String payload, long retentionSeconds) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.cacheItem(itemId, kind, version, payload, retentionSeconds);
+        }
+
+        @JavascriptInterface
+        public String readOfflineItem(String token, String itemId, String kind) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "{\"status\":\"blocked\"}";
+            return offlineWorksetStore.readItem(itemId, kind);
+        }
+
+        @JavascriptInterface
+        public String enqueueOfflineMutation(
+                String token, String mutationType, String targetId, String baseVersion, String payload) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.enqueueMutation(mutationType, targetId, baseVersion, payload);
+        }
+
+        @JavascriptInterface
+        public String offlineOutbox(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "[]";
+            return offlineWorksetStore.outboxJson();
+        }
+
+        @JavascriptInterface
+        public String acknowledgeOfflineMutation(String token, String operationId, String resultStatus) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.acknowledgeMutation(operationId, resultStatus);
+        }
+
+        @JavascriptInterface
+        public String clearOfflineData(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.clear();
         }
 
         @JavascriptInterface
