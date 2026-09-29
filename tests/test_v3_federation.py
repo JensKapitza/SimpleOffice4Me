@@ -24,7 +24,7 @@ class V3FederationContractTests(unittest.TestCase):
             self.peer_id,
             "Remote",
             "https://remote.example.test",
-            "test-token",
+            "",
             policy={
                 "data_classes": {
                     "documents": {"receive": True, "auto_accept": True},
