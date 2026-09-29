@@ -225,10 +225,33 @@ def navigation_provider(query: str, context: SearchContext, limit: int):
             break
 
 
+def extension_provider(query: str, context: SearchContext, limit: int):
+    from .v3_extensions import external_search_hits
+
+    rows, _failures = external_search_hits(
+        context.root,
+        query,
+        actor=context.actor,
+        limit=limit,
+    )
+    for row in rows:
+        yield SearchHit(
+            "extensions",
+            row["kind"],
+            "extension",
+            row["ref_id"] or row["extension_id"],
+            row["title"],
+            row["subtitle"],
+            row["url"],
+            60,
+        )
+
+
 def default_registry() -> SearchRegistry:
     registry = SearchRegistry()
     registry.register("commands", navigation_provider)
     registry.register("contacts", contact_provider, feature="contacts")
     registry.register("projects", project_provider, feature="projects")
     registry.register("documents", document_provider, feature="documents")
+    registry.register("extensions", extension_provider)
     return registry
