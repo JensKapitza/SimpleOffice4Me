@@ -309,6 +309,9 @@ app.register_blueprint(mail_reader_routes.bp)
 from . import admin
 app.register_blueprint(admin.bp)
 
+from . import v3_extensions_admin
+app.register_blueprint(v3_extensions_admin.bp)
+
 from . import v3_jobs_admin
 app.register_blueprint(v3_jobs_admin.bp)
 
