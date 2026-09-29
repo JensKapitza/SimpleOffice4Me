@@ -96,6 +96,19 @@ def negotiate(remote: Mapping[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def health_snapshot() -> dict[str, Any]:
+    """Return a bounded readiness snapshot for the optional v3 health registry."""
+    return {
+        "status": "healthy",
+        "code": "federation_v3_ready",
+        "message": "Federation 3.0 transfer contract is available",
+        "metrics": {
+            "envelope_version": ENVELOPE_VERSION,
+            "base_object_types": len(BASE_OBJECT_VERSIONS),
+        },
+    }
+
+
 @dataclass(frozen=True)
 class FederationEnvelope:
     message_id: str
