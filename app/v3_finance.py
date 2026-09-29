@@ -46,11 +46,11 @@ TRANSITIONS = {
         "draft": {"finalizing", "cancelled"},
         "finalizing": {"final", "failed"},
         "failed": {"draft", "cancelled"},
-        "final": {"sent", "partial", "paid", "overdue", "written_off", "cancelled"},
-        "sent": {"partial", "paid", "overdue", "written_off", "cancelled"},
-        "partial": {"paid", "overdue", "written_off", "cancelled"},
-        "overdue": {"partial", "paid", "written_off", "cancelled"},
-        "paid": {"cancelled"},
+        "final": {"sent", "partial", "paid", "overdue", "written_off"},
+        "sent": {"partial", "paid", "overdue", "written_off"},
+        "partial": {"paid", "overdue", "written_off"},
+        "overdue": {"partial", "paid", "written_off"},
+        "paid": set(),
         "written_off": set(),
         "cancelled": set(),
     },
@@ -434,6 +434,15 @@ class FinanceLifecycleStore:
         if source.status not in CONVERSION_READY.get(source.kind, set()):
             raise ValueError("source document is not ready for conversion")
         frozen = dict(source.snapshot or source.working)
+        if target_kind == "invoice":
+            if not str(external_id).strip():
+                raise ValueError("invoice conversion requires an existing invoice draft")
+            from .business_document_generation import invoice
+            invoice_row = invoice(self.root, str(external_id).strip())
+            if invoice_row.get("status") != "draft":
+                raise ValueError("invoice successor must still be a draft")
+            if source.contact_id and str(invoice_row.get("contact_id", "")) != source.contact_id:
+                raise ValueError("invoice successor belongs to another contact")
         title_prefix = {
             "order": "Auftrag",
             "delivery_note": "Lieferschein",
@@ -822,7 +831,7 @@ def finalize_invoice_tracked(
     root = Path(root).expanduser().resolve()
     from .business_document_generation import invoice, _invoice_store_path
     from .business_documents import finalize_invoice
-    from .document_store import atomic_json_write
+    from .document_store import DocumentStore, atomic_json_write
     from .file_lock import exclusive_file_lock
 
     before = invoice(root, invoice_id)
