@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h2 mb-1">Automation 3.0</h1>
+  <p class="text-secondary">Deklarative Regeln ohne freie Codeausführung.</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+  {% if not enabled %}
+    <div class="alert alert-secondary">Die Capability <code>v3.automation</code> ist deaktiviert.</div>
+  {% else %}
+  <div class="row g-4">
+    <section class="col-xl-5">
+      <div class="card"><div class="card-header"><strong>Neue Regel</strong></div><div class="card-body">
+        <form method="post" action="{{ url_for('v3_automation.create') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label" for="automation-name">Name</label>
+          <input id="automation-name" class="form-control mb-2" name="name" required maxlength="200">
+          <label class="form-label" for="automation-trigger">Trigger (JSON)</label>
+          <textarea id="automation-trigger" class="form-control font-monospace mb-2" name="trigger_json" rows="3">{"type":"event","name":"finance.invoice.overdue"}</textarea>
+          <label class="form-label" for="automation-conditions">Bedingungen (JSON)</label>
+          <textarea id="automation-conditions" class="form-control font-monospace mb-2" name="conditions_json" rows="3">[]</textarea>
+          <label class="form-label" for="automation-actions">Aktionen (JSON)</label>
+          <textarea id="automation-actions" class="form-control font-monospace mb-2" name="actions_json" rows="4">[{"type":"task.create","payload":{"title":"Rechnung prüfen"}}]</textarea>
+          <div class="form-check mb-3"><input class="form-check-input" type="checkbox" value="1" name="enabled" id="automation-enabled"><label class="form-check-label" for="automation-enabled">Aktiv</label></div>
+          <button type="submit" class="btn btn-primary">Speichern</button>
+        </form>
+      </div></div>
+    </section>
+    <section class="col-xl-7">
+      <div class="card mb-4"><div class="card-header"><strong>Regeln</strong></div>
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+          <thead><tr><th scope="col">Name</th><th scope="col">Trigger</th><th scope="col">Version</th><th scope="col">Status</th><th scope="col">Aktion</th></tr></thead>
+          <tbody>{% for rule in rules %}<tr><td>{{ rule.name }}</td><td><code>{{ rule.trigger.type }}</code> {{ rule.trigger.name|default('') }}</td><td>{{ rule.version }}</td><td>{{ 'aktiv' if rule.enabled else 'inaktiv' }}</td><td><form method="post" action="{{ url_for('v3_automation.toggle',rule_id=rule.rule_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Deaktivieren' if rule.enabled else 'Aktivieren' }}</button></form></td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Keine Regeln.</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </div>
+      <div class="card"><div class="card-header"><strong>Letzte Ausführungen</strong></div>
+        <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Zeit</th><th scope="col">Status</th><th scope="col">Regel</th></tr></thead><tbody>{% for row in logs %}<tr><td>{{ row.created_at }}</td><td>{{ row.status }}</td><td><code>{{ row.rule_id }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Keine Ausführungen.</td></tr>{% endfor %}</tbody></table></div>
+      </div>
+    </section>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
