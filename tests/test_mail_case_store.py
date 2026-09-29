@@ -42,7 +42,9 @@ class MailCaseStoreTests(unittest.TestCase):
         first = self.store.mark_read("alice", self.case_id, "sha512:one")
         second = self.store.mark_read("alice", self.case_id, "sha512:one")
         self.assertEqual(first["first_read_at"], second["first_read_at"])
-        self.assertEqual([], self.store.read_state("bob", self.case_id, "sha512:one"))
+        bob_view = self.store.read_state("bob", self.case_id, "sha512:one")
+        self.assertEqual(["local:alice"], [row["participant_reference"] for row in bob_view])
+        self.assertNotIn("local:bob", [row["participant_reference"] for row in bob_view])
         rows = self.store.read_state("alice", self.case_id, "sha512:one")
         self.assertEqual("local:alice", rows[0]["participant_reference"])
 
