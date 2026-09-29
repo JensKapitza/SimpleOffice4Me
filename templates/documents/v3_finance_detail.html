@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+{% block title %}{{ item.title }} · Finance 3.0{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <a href="{{ url_for('v3_finance.index') }}">← Lifecycle</a>
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mt-3 mb-4">
+    <div><div class="small text-uppercase text-secondary">{{ item.kind }}</div><h1 class="h2 mb-1">{{ item.title }}</h1><p class="mb-0"><span class="badge text-bg-secondary">{{ item.status }}</span> · Version {{ item.version }}</p></div>
+    {% if item.kind == 'invoice' and item.external_id %}<a class="btn btn-primary" href="{{ url_for('contact_audit.business_documents.invoice_detail',invoice_id=item.external_id) }}">Bestehende Rechnung öffnen</a>{% endif %}
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+
+  <div class="row g-4">
+    <section class="col-xl-8">
+      {% if item.status == 'draft' and item.kind != 'invoice' %}
+      <div class="card mb-4"><div class="card-header"><strong>Entwurf</strong></div><div class="card-body">
+        <form method="post" action="{{ url_for('v3_finance.update_draft',lifecycle_id=item.lifecycle_id) }}" class="row g-2">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="col-12"><label class="form-label">Titel</label><input class="form-control" name="title" value="{{ item.title }}"></div>
+          <div class="col-md-7"><label class="form-label">Betreff</label><input class="form-control" name="subject" value="{{ item.working.subject|default('') }}"></div>
+          <div class="col-md-3"><label class="form-label">Betrag</label><input class="form-control" name="amount" value="{{ item.working.amount|default('') }}"></div>
+          <div class="col-md-2"><label class="form-label">Währung</label><input class="form-control" name="currency" value="{{ item.working.currency|default('EUR') }}"></div>
+          <div class="col-12"><label class="form-label">Beschreibung</label><textarea class="form-control" name="description" rows="5">{{ item.working.description|default('') }}</textarea></div>
+          <div class="col-12"><button class="btn btn-primary">Entwurf speichern</button></div>
+        </form>
+      </div></div>
+      {% endif %}
+
+      <div class="card mb-4"><div class="card-header"><strong>Snapshot / Referenzen</strong></div><div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-4">Lifecycle-ID</dt><dd class="col-sm-8"><code>{{ item.lifecycle_id }}</code></dd>
+          <dt class="col-sm-4">Vorgänger</dt><dd class="col-sm-8">{% if item.predecessor_id %}<a href="{{ url_for('v3_finance.detail',lifecycle_id=item.predecessor_id) }}">{{ item.predecessor_id }}</a>{% else %}—{% endif %}</dd>
+          <dt class="col-sm-4">Kontakt</dt><dd class="col-sm-8"><code>{{ item.contact_id or '—' }}</code></dd>
+          <dt class="col-sm-4">Projekt</dt><dd class="col-sm-8"><code>{{ item.project_id or '—' }}</code></dd>
+          <dt class="col-sm-4">Externe ID</dt><dd class="col-sm-8"><code>{{ item.external_id or '—' }}</code></dd>
+          <dt class="col-sm-4">Nummer</dt><dd class="col-sm-8">{{ item.number or '—' }}</dd>
+          <dt class="col-sm-4">Korrekturbeleg</dt><dd class="col-sm-8"><code>{{ item.correction_id or '—' }}</code></dd>
+        </dl>
+        {% if item.snapshot %}<hr><pre class="small mb-0 text-wrap">{{ item.snapshot|tojson(indent=2) }}</pre>{% endif %}
+      </div></div>
+
+      <div class="card"><div class="card-header"><strong>Unveränderliche Historie</strong></div><div class="list-group list-group-flush">
+        {% for row in history %}<div class="list-group-item"><div class="d-flex justify-content-between gap-2"><strong>{{ row.action }}</strong><small class="text-secondary">{{ row.occurred_at_iso }}</small></div><div class="small">{{ row.from_status }}{% if row.to_status %} → {{ row.to_status }}{% endif %} · {{ row.actor }}</div></div>{% else %}<div class="list-group-item text-secondary">Keine Historie.</div>{% endfor %}
+      </div></div>
+    </section>
+
+    <aside class="col-xl-4">
+      {% if allowed_transitions %}
+      <div class="card mb-4"><div class="card-header"><strong>Status ändern</strong></div><div class="card-body">
+        <form method="post" action="{{ url_for('v3_finance.transition',lifecycle_id=item.lifecycle_id) }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <select class="form-select mb-2" name="status">{% for status in allowed_transitions %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select>
+          <button class="btn btn-outline-primary w-100">Status übernehmen</button>
+        </form>
+      </div></div>
+      {% endif %}
+
+      {% if successor_kinds %}
+      <div class="card mb-4"><div class="card-header"><strong>Nachfolger erzeugen</strong></div><div class="card-body">
+        <form method="post" action="{{ url_for('v3_finance.convert',lifecycle_id=item.lifecycle_id) }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <select class="form-select mb-2" name="target_kind">{% for kind in successor_kinds %}<option value="{{ kind }}">{{ kind }}</option>{% endfor %}</select>
+          <label class="form-label">Rechnungsentwurf-ID (nur bei Ziel invoice)</label><input class="form-control mb-2" name="invoice_id">
+          <button class="btn btn-outline-success w-100">Nachfolger anlegen</button>
+        </form>
+      </div></div>
+      {% endif %}
+
+      {% if item.kind == 'invoice' %}
+      <div class="card mb-4"><div class="card-header"><strong>Finalisierung</strong></div><div class="card-body">
+        {% if attempts %}{% set attempt = attempts[0] %}<dl class="small row"><dt class="col-5">Versuch</dt><dd class="col-7"><code>{{ attempt.attempt_id[:12] }}</code></dd><dt class="col-5">Status</dt><dd class="col-7">{{ attempt.state }}</dd><dt class="col-5">Reservierte Nr.</dt><dd class="col-7">{{ attempt.reserved_number or '—' }}</dd><dt class="col-5">Fehler</dt><dd class="col-7">{{ attempt.error or '—' }}</dd></dl>{% endif %}
+        {% if item.status in ('finalizing','failed') %}<form method="post" action="{{ url_for('v3_finance.recover',lifecycle_id=item.lifecycle_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">{% if g.user.is_admin %}<input type="hidden" name="force" value="1">{% endif %}<button class="btn btn-outline-warning w-100">Finalisierung abgleichen / recovern</button></form>{% endif %}
+      </div></div>
+      {% endif %}
+
+      <div class="card"><div class="card-header"><strong>Nachfolger</strong></div><div class="list-group list-group-flush">{% for row in successors %}<a class="list-group-item list-group-item-action" href="{{ url_for('v3_finance.detail',lifecycle_id=row.lifecycle_id) }}">{{ row.kind }} · {{ row.title }}<div class="small text-secondary">{{ row.status }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine Nachfolger.</div>{% endfor %}</div></div>
+    </aside>
+  </div>
+</main>
+{% endblock %}
