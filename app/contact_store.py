@@ -16,6 +16,7 @@ from typing import Any
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
+from .v3_activity import emit_activity_best_effort
 from .vcard_utils import (
     MAX_CONTACT_PHOTO_BYTES,
     MAX_RAW_PHOTO_LINE_CHARS,
@@ -317,6 +318,7 @@ class ContactStore:
                 linked["changes"] = linked["changes"][-200:]; linked["updated_at"] = changed_at; linked["updated_by"] = actor; synced.append(dict(linked))
         atomic_json_write(self.contacts_path, payload)
         self.history.record("contact_updated" if existing else "contact_created", actor, "contacts", contact["contact_id"], contact)
+        emit_activity_best_effort(self.root, "contact.updated" if existing else "contact.created", actor, entity_type="contact", entity_id=contact["contact_id"], source="contact_store")
         for linked in synced:
             self.history.record("contact_company_synced", actor, "contacts", linked["contact_id"], linked)
         return contact
