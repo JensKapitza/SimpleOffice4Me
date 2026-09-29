@@ -12,37 +12,60 @@
   let timer = null;
   let sequence = 0;
 
-  const escapeHtml = (value) => String(value ?? '').replace(
-    /[&<>"']/g,
-    (ch) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    })[ch]
-  );
+  const clearResults = () => list.replaceChildren();
+
+  const safeHref = (value) => {
+    try {
+      const url = new URL(String(value ?? ''), window.location.origin);
+      return url.origin === window.location.origin ? url.href : '#';
+    } catch {
+      return '#';
+    }
+  };
 
   const render = (rows) => {
+    clearResults();
     if (!rows.length) {
-      list.innerHTML = '<div class="list-group-item text-secondary">Keine Treffer.</div>';
+      const empty = document.createElement('div');
+      empty.className = 'list-group-item text-secondary';
+      empty.textContent = 'Keine Treffer.';
+      list.appendChild(empty);
       return;
     }
-    list.innerHTML = rows.map((row, index) => {
-      return '<a class="list-group-item list-group-item-action" href="' +
-        escapeHtml(row.url) + '" data-v3-result="' + index + '">' +
-        '<div class="d-flex justify-content-between gap-2"><strong>' +
-        escapeHtml(row.title) + '</strong><span class="badge text-bg-light border">' +
-        escapeHtml(row.kind) + '</span></div><div class="small text-secondary text-truncate">' +
-        escapeHtml(row.subtitle) + '</div></a>';
-    }).join('');
+
+    const fragment = document.createDocumentFragment();
+    rows.forEach((row, index) => {
+      const link = document.createElement('a');
+      link.className = 'list-group-item list-group-item-action';
+      link.href = safeHref(row.url);
+      link.dataset.v3Result = String(index);
+
+      const heading = document.createElement('div');
+      heading.className = 'd-flex justify-content-between gap-2';
+
+      const title = document.createElement('strong');
+      title.textContent = String(row.title ?? '');
+
+      const badge = document.createElement('span');
+      badge.className = 'badge text-bg-light border';
+      badge.textContent = String(row.kind ?? '');
+
+      const subtitle = document.createElement('div');
+      subtitle.className = 'small text-secondary text-truncate';
+      subtitle.textContent = String(row.subtitle ?? '');
+
+      heading.append(title, badge);
+      link.append(heading, subtitle);
+      fragment.appendChild(link);
+    });
+    list.appendChild(fragment);
   };
 
   const run = async () => {
     const q = input.value.trim();
     if (controller) controller.abort();
     if (!q) {
-      list.innerHTML = '';
+      clearResults();
       status.textContent = '';
       return;
     }
@@ -68,7 +91,7 @@
     } catch (error) {
       if (error.name === 'AbortError') return;
       if (current === sequence) {
-        list.innerHTML = '';
+        clearResults();
         status.textContent = 'Suche vorübergehend nicht verfügbar.';
       }
     }
@@ -112,7 +135,7 @@
   modalEl.addEventListener('hidden.bs.modal', () => {
     if (controller) controller.abort();
     input.value = '';
-    list.innerHTML = '';
+    clearResults();
     status.textContent = '';
   });
 })();
