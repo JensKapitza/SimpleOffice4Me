@@ -10,6 +10,7 @@ from app.v3_federation import (
     FederationContract,
     capability_descriptor,
     negotiate,
+    health_snapshot,
 )
 
 
@@ -78,6 +79,13 @@ class V3FederationContractTests(unittest.TestCase):
         descriptor = capability_descriptor()
         self.assertTrue(descriptor["legacy_v1_parallel"])
         self.assertFalse(descriptor["trust"]["transitive_default"])
+
+    def test_health_snapshot_reports_component_ready(self):
+        snapshot = health_snapshot()
+        self.assertEqual("healthy", snapshot["status"])
+        self.assertEqual("federation_v3_ready", snapshot["code"])
+        self.assertEqual(1, snapshot["metrics"]["envelope_version"])
+
 
     def test_receive_is_idempotent(self):
         first = self.contract.receive(self.envelope())
