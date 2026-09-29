@@ -77,5 +77,13 @@ def index():
 @admin_required
 def detail():
     if not enabled("v3.health"):
-        abort(404)
-    return jsonify(_detail(_report()))
+        return jsonify({
+            "enabled": False,
+            "status": "not_configured",
+            "live": True,
+            "ready": True,
+            "checks": [],
+        })
+    payload = _detail(_report())
+    payload["enabled"] = True
+    return jsonify(payload)
