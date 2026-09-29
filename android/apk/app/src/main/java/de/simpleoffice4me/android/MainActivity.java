@@ -353,7 +353,7 @@ public class MainActivity extends Activity {
                 + "const bridgeToken=" + quotedToken + ";"
                 + "window.SimpleOfficeOffline={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineStatus(bridgeToken))),"
-                + "cache:(id,kind,version,payload,retention)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload??''),Number(retention||86400))),"
+                + "cache:(id,kind,version,payload,retention)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload==null?'':payload),Number(retention||86400))),"
                 + "read:(id,kind)=>JSON.parse(String(window.SimpleOfficeAndroid.readOfflineItem(bridgeToken,String(id||''),String(kind||'')))),"
                 + "enqueue:(type,id,baseVersion,payload)=>String(window.SimpleOfficeAndroid.enqueueOfflineMutation(bridgeToken,String(type||''),String(id||''),String(baseVersion||''),String(payload??''))),"
                 + "outbox:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineOutbox(bridgeToken))),"
