@@ -89,6 +89,7 @@
               <li><a class="dropdown-item" href="{{ url_for('licensing_admin.index') }}"><i class="fas fa-key fa-fw me-2" aria-hidden="true"></i>{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a></li>
               <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear fa-fw me-2" aria-hidden="true"></i>Administration</a></li>
               <li><a class="dropdown-item" href="{{ url_for('s3_overlay.manage') }}"><i class="fas fa-database fa-fw me-2" aria-hidden="true"></i>S3-Overlay</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('v3_extensions_admin.index') }}"><i class="fas fa-puzzle-piece fa-fw me-2" aria-hidden="true"></i>Extensions 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}"><i class="fas fa-server fa-fw me-2" aria-hidden="true"></i>Mini Services</a></li>
             {% endif %}
           </ul>
@@ -109,6 +110,7 @@
             <li><a class="dropdown-item" href="{{ url_for('vault.index') }}"><i class="fas fa-key fa-fw me-2" aria-hidden="true"></i>Passwort-Vault</a></li>
             <li><a class="dropdown-item" href="{{ url_for('google_drive_admin.index') }}"><i class="fab fa-google-drive fa-fw me-2" aria-hidden="true"></i>Drive</a></li>
             <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}"><i class="fas fa-plug fa-fw me-2" aria-hidden="true"></i>MCP</a></li>
+            {% for item in v3_extension_ui_items|default([]) %}<li><a class="dropdown-item" href="{{ item.url }}"><i class="fas fa-puzzle-piece fa-fw me-2" aria-hidden="true"></i>{{ item.label }}</a></li>{% endfor %}
           </ul>
         </div>
       </div>
