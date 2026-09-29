@@ -315,6 +315,9 @@ app.register_blueprint(v3_finance_routes.bp)
 from . import v3_extensions_admin
 app.register_blueprint(v3_extensions_admin.bp)
 
+from . import v3_crm_routes
+app.register_blueprint(v3_crm_routes.bp)
+
 from . import v3_jobs_admin
 app.register_blueprint(v3_jobs_admin.bp)
 

@@ -3,6 +3,7 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
+  {% if v3_crm_enabled %}<div class="alert alert-primary d-flex flex-wrap justify-content-between align-items-center gap-2"><span>CRM 3.0-Beziehungen und zusammengeführte Arbeitsansicht sind verfügbar.</span><a class="btn btn-sm btn-primary" href="{{ url_for('v3_crm.contact_workspace', contact_id=contact.contact_id) }}">CRM 3.0 öffnen</a></div>{% endif %}
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4"><div><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">← Kontakt</a><h1 class="h3 mt-2">CRM: {{ contact.fields.display_name }}</h1><p class="text-secondary">Kaufmännische Daten bleiben serverseitig und werden durch CardDAV-/Thunderbird-Änderungen nicht gelöscht.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.crm_proposals') }}">Externe Änderungsvorschläge</a></div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 

@@ -294,6 +294,28 @@ class RelationStore:
                     break
         return result
 
+    def update_metadata(self, principal: str, relation_id: str, metadata: dict) -> Relation:
+        relation = self.get(principal, relation_id)
+        if relation is None:
+            raise LookupError("unknown relation")
+        if not self.registry.can(principal, "link", relation.source):
+            raise PermissionError("relation permission denied")
+        if not self.registry.can(principal, "link", relation.target):
+            raise PermissionError("relation permission denied")
+        payload = dict(metadata or {})
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > 16 * 1024:
+            raise ValueError("relation metadata is too large")
+        with self._db() as db:
+            db.execute(
+                "UPDATE v3_relation SET metadata_json=? WHERE relation_id=?",
+                (encoded, relation_id),
+            )
+        updated = self.get(principal, relation_id)
+        if updated is None:
+            raise LookupError("relation disappeared")
+        return updated
+
     def remove(self, principal: str, relation_id: str) -> bool:
         with self._db() as db:
             row = db.execute("SELECT * FROM v3_relation WHERE relation_id=?", (relation_id,)).fetchone()
