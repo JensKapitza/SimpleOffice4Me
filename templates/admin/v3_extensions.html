@@ -7,8 +7,8 @@
     <div><h1 class="h2 mb-1">Extensions 3.0</h1><p class="text-secondary mb-0">Versionierte Integrationen ohne dynamisches Laden von Python-/JavaScript-Code.</p></div>
     <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Systeminventar</a>
   </div>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
-  {% if not enabled %}<div class="alert alert-secondary" role="status">Die Capability <code>v3.extensions</code> ist deaktiviert. Registrierte Manifeste werden nicht aufgerufen.</div>{% endif %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if not enabled %}<div class="alert alert-secondary" role="status" aria-live="polite">Die Capability <code>v3.extensions</code> ist deaktiviert. Registrierte Manifeste werden nicht aufgerufen.</div>{% endif %}
 
   <section class="card mb-4">
     <div class="card-header"><strong>Externes Manifest registrieren</strong></div>
@@ -52,6 +52,6 @@
       </div>
     </div>
   </section>
-  {% else %}<div class="alert alert-secondary" role="status">Noch keine Extensions registriert.</div>{% endfor %}
+  {% else %}<div class="alert alert-secondary" role="status" aria-live="polite">Noch keine Extensions registriert.</div>{% endfor %}
 </main>
 {% endblock %}
