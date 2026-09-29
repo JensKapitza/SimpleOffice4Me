@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block title %}Finance 3.0 · Lifecycle{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h2 mb-1">Finance 3.0 · Geschäftsdokumente</h1><p class="text-secondary mb-0">Angebot → Auftrag → Lieferschein → bestehende Rechnung → Zahlung.</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}">Rechnungen</a>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>Neues Geschäftsdokument</strong></div>
+    <div class="card-body">
+      <form method="post" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-3"><label class="form-label">Typ</label><select class="form-select" name="kind">{% for kind in generic_kinds %}<option value="{{ kind }}">{{ {'offer':'Angebot','order':'Auftrag','delivery_note':'Lieferschein'}.get(kind,kind) }}</option>{% endfor %}</select></div>
+        <div class="col-md-5"><label class="form-label">Titel</label><input required class="form-control" name="title" maxlength="300"></div>
+        <div class="col-md-2"><label class="form-label">Kontakt-ID</label><input class="form-control" name="contact_id"></div>
+        <div class="col-md-2"><label class="form-label">Projekt-ID</label><input class="form-control" name="project_id"></div>
+        <div class="col-md-5"><label class="form-label">Betreff</label><input class="form-control" name="subject" maxlength="300"></div>
+        <div class="col-md-2"><label class="form-label">Betrag</label><input class="form-control" name="amount" inputmode="decimal"></div>
+        <div class="col-md-2"><label class="form-label">Währung</label><input class="form-control" name="currency" value="EUR" maxlength="3"></div>
+        <div class="col-12"><label class="form-label">Beschreibung</label><textarea class="form-control" name="description" rows="3" maxlength="4000"></textarea></div>
+        <div class="col-12"><button type="submit" class="btn btn-primary">Entwurf anlegen</button></div>
+      </form>
+    </div>
+  </section>
+
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead><tr><th scope="col">Typ</th><th scope="col">Titel</th><th scope="col">Status</th><th scope="col">Kontakt</th><th scope="col">Projekt</th><th scope="col">Nummer / extern</th><th scope="col">Aktion</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ {'offer':'Angebot','order':'Auftrag','delivery_note':'Lieferschein','invoice':'Rechnung'}.get(row.kind,row.kind) }}</td>
+          <td>{{ row.title }}</td>
+          <td><span class="badge text-bg-secondary">{{ row.status }}</span></td>
+          <td><code>{{ row.contact_id or '—' }}</code></td>
+          <td><code>{{ row.project_id or '—' }}</code></td>
+          <td>{{ row.number or row.external_id or '—' }}</td>
+          <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('v3_finance.detail',lifecycle_id=row.lifecycle_id) }}">Öffnen</a></td>
+        </tr>
+      {% else %}<tr><td colspan="7" class="text-secondary">Noch keine Lifecycle-Dokumente.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+{% endblock %}
