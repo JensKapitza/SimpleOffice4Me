@@ -89,6 +89,7 @@
               <li><a class="dropdown-item" href="{{ url_for('licensing_admin.index') }}"><i class="fas fa-key fa-fw me-2" aria-hidden="true"></i>{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a></li>
               <li><a class="dropdown-item" href="{{ url_for('admin.users') }}"><i class="fas fa-users-gear fa-fw me-2" aria-hidden="true"></i>Administration</a></li>
               <li><a class="dropdown-item" href="{{ url_for('s3_overlay.manage') }}"><i class="fas fa-database fa-fw me-2" aria-hidden="true"></i>S3-Overlay</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('v3_health.index') }}"><i class="fas fa-heart-pulse fa-fw me-2" aria-hidden="true"></i>System Health 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('v3_extensions_admin.index') }}"><i class="fas fa-puzzle-piece fa-fw me-2" aria-hidden="true"></i>Extensions 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}"><i class="fas fa-server fa-fw me-2" aria-hidden="true"></i>Mini Services</a></li>
             {% endif %}
