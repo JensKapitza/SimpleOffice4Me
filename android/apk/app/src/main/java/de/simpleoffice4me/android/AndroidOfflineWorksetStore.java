@@ -26,7 +26,7 @@ final class AndroidOfflineWorksetStore {
     static final long MAX_ITEM_BYTES = 16L * 1024L * 1024L;
     static final long MAX_TOTAL_BYTES = 128L * 1024L * 1024L;
     static final int MAX_ITEMS = 128;
-    static final int MAX_OUTBOX = 256;
+    static final int MAX_OUTBOX = 64;
     static final long MAX_RETENTION_SECONDS = 30L * 24L * 60L * 60L;
 
     private static final String IDENTITY_PREFS = "simpleoffice-android-identity";
@@ -172,7 +172,7 @@ final class AndroidOfflineWorksetStore {
         String normalizedVersion = normalizeVersion(baseVersion);
         if (normalizedId == null || normalizedVersion == null || payload == null) return "invalid";
         byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
-        if (payloadBytes.length > 256 * 1024) return "too-large";
+        if (payloadBytes.length > 8 * 1024) return "too-large";
 
         JSONArray outbox = state.optJSONArray("outbox");
         if (outbox == null || outbox.length() >= MAX_OUTBOX) return "quota";
