@@ -44,7 +44,8 @@ class V2ChunkCryptoTest(unittest.TestCase):
     def test_ciphertext_tamper_fails_closed(self):
         session = self.crypto.begin_chunk_encryption(self.master, purpose=self.purpose)
         chunk = session.encrypt_chunk(0, b"authenticated")
-        tampered = dataclasses.replace(chunk, ciphertext=chunk.ciphertext[:-2] + "AA")
+        replacement = "A" if chunk.ciphertext[0] != "A" else "B"
+        tampered = dataclasses.replace(chunk, ciphertext=replacement + chunk.ciphertext[1:])
 
         with self.assertRaises(ValueError):
             session.decrypt_chunk(tampered, expected_index=0)
