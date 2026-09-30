@@ -119,11 +119,14 @@ Schreibmodus aktiviert ist.
 
 Vor dem SMTP-Zugriff wird der Entwurf atomar auf `sending` gesetzt. Parallele
 oder wiederholte Klicks können deshalb keinen zweiten Versand starten. Bei einem
-Transportfehler wird `failed` gespeichert; eine Wiederholung erfordert eine
-neue bewusste Anforderung und Freigabe. Nach erfolgreichem SMTP-Versand werden
-die ausgehende EML und der Status `sent` mit dem Vorgang verknüpft. Scheitert
-nur die nachgelagerte Vorgangsfinalisierung, bleibt `sending` bestehen und die
-Oberfläche warnt ausdrücklich davor, erneut zu senden.
+eindeutig vor der Annahme feststehenden Fehler wird `failed` gespeichert; eine
+Wiederholung erfordert eine neue bewusste Anforderung und Freigabe. Ist nach dem
+SMTP-Aufruf dagegen unklar, ob der Server die Nachricht bereits angenommen hat,
+bleibt der Entwurf absichtlich in `sending`, damit keine Doppelzustellung durch
+einen Retry entsteht. Nach erfolgreichem SMTP-Versand werden die ausgehende EML
+und der Status `sent` mit dem Vorgang verknüpft. Scheitert nur die nachgelagerte
+Vorgangsfinalisierung, bleibt ebenfalls `sending` bestehen und die Oberfläche
+warnt ausdrücklich davor, erneut zu senden.
 
 CC und BCC werden als SMTP-Empfänger berücksichtigt; BCC wird nicht als
 Nachrichtenheader in die EML geschrieben. Die Absenderidentität im Entwurf ist
