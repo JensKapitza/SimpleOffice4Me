@@ -106,13 +106,30 @@
           <div class="list-group-item"><div class="d-flex justify-content-between gap-2"><strong><i class="fas fa-comment me-1"></i>{{ item.author }}</strong><small>{{ item.created_at }}</small></div><div class="mt-2" style="white-space:pre-wrap">{{ item.body }}</div></div>
           {% elif item.kind == 'draft' %}
           <div class="list-group-item"><div class="d-flex justify-content-between gap-2"><strong><i class="fas fa-file-pen me-1"></i>Entwurf · {{ item.author }}</strong><span class="badge text-bg-secondary">{{ item.status }}</span></div>
-            {% if 'compose' in case_view.permissions %}
+            {% if 'compose' in case_view.permissions and item.status in ['draft','rejected','failed'] %}
             <form method="post" action="{{ url_for('mail_reader.update_case_draft', case_id=case_view.id, draft_id=item.id) }}" class="row g-2 mt-1">
               <div class="col-md-6"><label class="form-label">An</label><input class="form-control form-control-sm" name="to" required value="{{ item.recipients_to }}"></div><div class="col-md-6"><label class="form-label">Absenderidentität</label><input class="form-control form-control-sm" name="sender_identity" value="{{ item.sender_identity }}"></div>
               <div class="col-md-6"><label class="form-label">CC</label><input class="form-control form-control-sm" name="cc" value="{{ item.recipients_cc }}"></div><div class="col-md-6"><label class="form-label">BCC</label><input class="form-control form-control-sm" name="bcc" value="{{ item.recipients_bcc }}"></div>
               <div class="col-12"><label class="form-label">Betreff</label><input class="form-control form-control-sm" name="subject" required value="{{ item.subject }}"></div><div class="col-12"><label class="form-label">Text</label><textarea class="form-control" name="body" rows="4">{{ item.body }}</textarea></div>
               <div class="col-12"><button class="btn btn-sm btn-outline-primary" type="submit">Entwurf aktualisieren</button></div>
-            </form>{% else %}<div class="mt-2">{{ item.subject }}</div>{% endif %}
+            </form>
+            {% else %}
+            <div class="mt-2"><strong>An:</strong> {{ item.recipients_to }}{% if item.recipients_cc %} · <strong>CC:</strong> {{ item.recipients_cc }}{% endif %}<br><strong>Betreff:</strong> {{ item.subject }}</div>
+            {% endif %}
+            <div class="d-flex flex-wrap gap-2 mt-2">
+              {% if 'send_request' in case_view.permissions and item.status in ['draft','rejected','failed'] %}
+              <form method="post" action="{{ url_for('mail_reader.request_case_draft_send', case_id=case_view.id, draft_id=item.id) }}"><button class="btn btn-sm btn-outline-primary" type="submit">Versand anfordern</button></form>
+              {% endif %}
+              {% if g.user['username'] == case_view.account_owner and item.status == 'ready' %}
+              <form method="post" action="{{ url_for('mail_reader.review_case_draft_send', case_id=case_view.id, draft_id=item.id) }}"><input type="hidden" name="decision" value="approve"><button class="btn btn-sm btn-success" type="submit">Freigeben</button></form>
+              <form method="post" action="{{ url_for('mail_reader.review_case_draft_send', case_id=case_view.id, draft_id=item.id) }}"><input type="hidden" name="decision" value="reject"><button class="btn btn-sm btn-outline-danger" type="submit">Ablehnen</button></form>
+              {% endif %}
+              {% if g.user['username'] == case_view.account_owner and item.status == 'approved' %}
+              <form method="post" action="{{ url_for('mail_reader.send_case_draft', case_id=case_view.id, draft_id=item.id) }}"><button class="btn btn-sm btn-success" type="submit"><i class="fas fa-paper-plane me-1"></i>Jetzt senden</button></form>
+              {% endif %}
+              {% if item.status == 'sending' %}<span class="small text-warning">Versandstatus wird finalisiert; nicht erneut senden.</span>{% endif %}
+              {% if item.status == 'sent' %}<span class="small text-success">Versendet und als EML im Vorgang archiviert.</span>{% endif %}
+            </div>
           </div>
           {% endif %}
         {% else %}<div class="list-group-item text-secondary">Noch keine Vorgangsaktivität.</div>{% endfor %}
