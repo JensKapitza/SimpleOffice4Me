@@ -33,6 +33,7 @@ MAX_MESSAGES_PER_RUN = 1000
 MAX_SCRIPT_BYTES = 1024 * 1024
 MAX_OUTBOUND_BYTES = 25 * 1024 * 1024
 MAX_RECIPIENTS = 100
+MAX_OUTBOUND_ATTACHMENTS = 20
 
 
 class ImapAuthenticationError(RuntimeError):
@@ -320,6 +321,30 @@ def _optional_mailboxes(value: str) -> list[str]:
     return _mailboxes(value) if value.strip() else []
 
 
+def _outbound_attachment(value: dict[str, Any]) -> tuple[str, str, str, bytes]:
+    if not isinstance(value, dict):
+        raise ValueError("attachment must be an object")
+    filename = Path(str(value.get("filename", "")).replace("\\", "/")).name.strip(" .")
+    content_type = str(value.get("content_type", "application/octet-stream")).strip().casefold()
+    payload = value.get("payload")
+    if not filename or len(filename) > 180 or any(ord(ch) < 32 or ord(ch) == 127 for ch in filename):
+        raise ValueError("invalid attachment filename")
+    if not isinstance(payload, (bytes, bytearray)):
+        raise ValueError("attachment payload must be bytes")
+    raw = bytes(payload)
+    if len(raw) > MAX_OUTBOUND_BYTES:
+        raise ValueError("attachment exceeds outbound message limit")
+    maintype, separator, subtype = content_type.partition("/")
+    token = re.compile(r"^[a-z0-9!#def _optional_mailboxes(value: str) -> list[str]:
+    return _mailboxes(value) if value.strip() else []
+
+
+class SmtpSubmission:^_.+-]{1,100}$")
+    if not separator or not token.fullmatch(maintype) or not token.fullmatch(subtype):
+        raise ValueError("invalid attachment content type")
+    return filename, maintype, subtype, raw
+
+
 class SmtpSubmission:
     """Authenticated RFC 6409 submission with mandatory local EML archiving."""
 
@@ -354,6 +379,7 @@ class SmtpSubmission:
     def compose(
         account: dict[str, Any], recipients: str, subject: str, body: str,
         calendar_data: str = "", *, cc: str = "", bcc: str = "",
+        attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     ) -> tuple[bytes, list[str], str]:
         to_targets = _mailboxes(recipients)
         cc_targets = _optional_mailboxes(cc)
@@ -391,6 +417,14 @@ class SmtpSubmission:
             if method not in {"REQUEST", "REPLY", "CANCEL", "COUNTER", "DECLINECOUNTER", "PUBLISH"}:
                 raise ValueError("unsupported iTIP method")
             message.add_attachment(encoded, maintype="text", subtype="calendar", params={"method": method, "charset": "UTF-8"}, filename="termin.ics")
+        attachment_rows = list(attachments)
+        if len(attachment_rows) > MAX_OUTBOUND_ATTACHMENTS:
+            raise ValueError("too many outbound attachments")
+        for attachment in attachment_rows:
+            filename, maintype, subtype, payload = _outbound_attachment(attachment)
+            message.add_attachment(
+                payload, maintype=maintype, subtype=subtype, filename=filename
+            )
         raw = message.as_bytes(policy=policy.SMTP)
         if len(raw) > MAX_OUTBOUND_BYTES:
             raise ValueError("outbound message exceeds 25 MiB")
@@ -423,11 +457,21 @@ class SmtpSubmission:
     def send(
         self, actor: str, account: dict[str, Any], recipients: str, subject: str,
         body: str, calendar_data: str = "", *, cc: str = "", bcc: str = "",
+        attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     ) -> dict[str, Any]:
         raw, targets, message_id = self.compose(
-            account, recipients, subject, body, calendar_data, cc=cc, bcc=bcc
+            account, recipients, subject, body, calendar_data,
+            cc=cc, bcc=bcc, attachments=attachments,
         )
-        detail = {"message_id": message_id, "from": account["smtp_from"], "recipients": targets, "subject": subject.strip()[:500], "calendar": bool(calendar_data), "at": utc_now()}
+        detail = {
+            "message_id": message_id,
+            "from": account["smtp_from"],
+            "recipients": targets,
+            "subject": subject.strip()[:500],
+            "calendar": bool(calendar_data),
+            "attachment_count": len(attachments),
+            "at": utc_now(),
+        }
         archived = self.store.archive_outbound(actor, account, raw, "pending", detail)
         try:
             client = self._connect(account)
