@@ -139,6 +139,11 @@ class MailStore:
             raise KeyError("mail account does not exist")
         return dict(row)
 
+    def ui_features(self, owner: str, account_id: str) -> dict[str, bool]:
+        """Return non-secret UI visibility preferences for one owned mail account."""
+        row = self._owned_row(owner, account_id)
+        return _mail_ui_features(row.get("ui_features"))
+
     def account(self, actor: str, account_id: str, password: str = "") -> dict[str, Any]:
         row = self._owned_row(actor, account_id)
         result = dict(row)
