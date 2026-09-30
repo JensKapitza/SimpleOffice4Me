@@ -348,6 +348,56 @@ class MailCaseStore:
             ]
         return visible[0] if len(visible) == 1 else None
 
+    def message_case_links(self, actor: str, account_id: str) -> dict[str, dict[str, dict]]:
+        """Return unambiguous visible case indicators for one mail account."""
+        if not account_id:
+            return {"by_reference": {}, "by_message_id": {}}
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT m.mail_reference,m.message_id,m.case_id,c.title,c.status,
+                          p.permissions_json
+                   FROM mail_case_message m
+                   JOIN mail_case c ON c.id=m.case_id
+                   JOIN mail_case_participant p ON p.case_id=c.id
+                   WHERE c.account_id=? AND p.participant_type='local_user'
+                     AND p.local_user_id=?""",
+                (account_id, actor),
+            ).fetchall()
+        by_reference: dict[str, dict] = {}
+        by_message_id: dict[str, dict] = {}
+        ambiguous_references: set[str] = set()
+        ambiguous_message_ids: set[str] = set()
+        for row in rows:
+            try:
+                permissions = set(json.loads(row["permissions_json"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if "read" not in permissions:
+                continue
+            case = {
+                "id": str(row["case_id"]),
+                "title": str(row["title"]),
+                "status": str(row["status"]),
+            }
+            reference = str(row["mail_reference"])
+            existing = by_reference.get(reference)
+            if existing is not None and existing["id"] != case["id"]:
+                ambiguous_references.add(reference)
+            else:
+                by_reference[reference] = case
+            message_id = str(row["message_id"] or "").strip()
+            if message_id:
+                existing_message = by_message_id.get(message_id)
+                if existing_message is not None and existing_message["id"] != case["id"]:
+                    ambiguous_message_ids.add(message_id)
+                else:
+                    by_message_id[message_id] = case
+        for reference in ambiguous_references:
+            by_reference.pop(reference, None)
+        for message_id in ambiguous_message_ids:
+            by_message_id.pop(message_id, None)
+        return {"by_reference": by_reference, "by_message_id": by_message_id}
+
     def add_participant(
         self, actor: str, case_id: str, *, local_user_id: str | None = None,
         peer_id: str | None = None, remote_user_id: str | None = None,
