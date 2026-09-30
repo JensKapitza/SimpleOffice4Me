@@ -136,6 +136,7 @@
 </section>
 
 {% if not accounts %}<div class="alert alert-secondary">Noch kein Mailkonto vorhanden. <a href="{{ url_for('mail_client.index') }}">IMAP-Konto konfigurieren</a>.</div>
+  {% elif mode == 'case' %}
   {% elif mode == 'archive' %}
   <div class="row g-3">
     <section class="col-xl-5 col-lg-6"><div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>Archivierte Mails</strong><span class="badge text-bg-secondary">{{ archive_rows|length }}</span></div><div class="list-group list-group-flush" style="max-height:72vh;overflow:auto">
