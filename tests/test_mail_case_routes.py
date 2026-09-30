@@ -148,6 +148,40 @@ class MailCaseRouteTests(unittest.TestCase):
         self.assertIn("Kundenfall", body)
         self.assertIn("Interner Kommentar", body)
 
+        archive_list = self.alice.get(
+            "/documents/mail/reader?account=work&mode=archive"
+        )
+        self.assertEqual(200, archive_list.status_code)
+        self.assertIn("Vorgang: Kundenfall", archive_list.get_data(as_text=True))
+
+        with (
+            patch("app.mail_reader_routes.ImapWebClient.folders", return_value=[]),
+            patch(
+                "app.mail_reader_routes.ImapWebClient.messages",
+                return_value={
+                    "page": 1,
+                    "total": 1,
+                    "has_prev": False,
+                    "has_next": False,
+                    "messages": [{
+                        "uid": "1",
+                        "subject": "Angebot",
+                        "from": "customer@example.test",
+                        "to": "alice@example.test",
+                        "date": "Wed, 30 Sep 2026 10:00:00 +0200",
+                        "message_id": "<root@example.test>",
+                        "size": 123,
+                        "seen": False,
+                    }],
+                },
+            ),
+        ):
+            inbox_list = self.alice.get(
+                "/documents/mail/reader?account=work&folder=INBOX"
+            )
+        self.assertEqual(200, inbox_list.status_code)
+        self.assertIn("Vorgang: Kundenfall", inbox_list.get_data(as_text=True))
+
         cases = MailCaseStore(self.root)
         case_id = cases.list_cases("alice")[0]["id"]
         self.assertEqual(
