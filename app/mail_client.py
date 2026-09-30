@@ -335,8 +335,10 @@ def _outbound_attachment(value: dict[str, Any]) -> tuple[str, str, str, bytes]:
     if len(raw) > MAX_OUTBOUND_BYTES:
         raise ValueError("attachment exceeds outbound message limit")
     maintype, separator, subtype = content_type.partition("/")
-    token = re.compile(r"^[a-z0-9!#def _optional_mailboxes(value: str) -> list[str]:
-    return _mailboxes(value) if value.strip() else []
+    token = re.compile(r"^[a-z0-9!#$&^_.+-]{1,100}$")
+    if not separator or not token.fullmatch(maintype) or not token.fullmatch(subtype):
+        raise ValueError("invalid attachment content type")
+    return filename, maintype, subtype, raw
 
 
 class SmtpSubmission:^_.+-]{1,100}$")
