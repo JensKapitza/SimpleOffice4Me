@@ -118,6 +118,9 @@ CRAWL_SKIP_EXACT = {
     "/auth/logout",
     "/auth/register",
 }
+CRAWL_SKIP_AUTH_PREFIXES = (
+    "/auth/google",
+)
 CRAWL_SKIP_SUFFIXES = (
     ".7z", ".bin", ".csv", ".doc", ".docx", ".eml", ".gif", ".gz", ".ics",
     ".jpeg", ".jpg", ".json", ".odt", ".ods", ".odp", ".pdf", ".png", ".ppt",
@@ -138,6 +141,8 @@ def browser_page_candidate(url: str) -> bool:
     path = parsed.path or "/"
     lowered = path.casefold()
     if path in CRAWL_SKIP_EXACT or any(path.startswith(prefix) for prefix in CRAWL_SKIP_PREFIXES):
+        return False
+    if any(path.startswith(prefix) for prefix in CRAWL_SKIP_AUTH_PREFIXES):
         return False
     if lowered.endswith(CRAWL_SKIP_SUFFIXES):
         return False
