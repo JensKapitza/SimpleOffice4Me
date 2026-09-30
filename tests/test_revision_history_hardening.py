@@ -221,5 +221,32 @@ class RevisionHistoryHardeningTest(unittest.TestCase):
             self.assertTrue(history.verify_event_chain()["valid"])
 
 
+    def test_events_returns_bounded_exact_filtered_redacted_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            history.record(
+                "mail_case_created", "alice", "mail-case", "case-a",
+                {"status": "offen", "password": "must-not-leak"},
+            )
+            history.record(
+                "mail_case_status_changed", "bob", "mail-case", "case-a",
+                {"status": "wartet"},
+            )
+            history.record(
+                "other_event", "alice", "other", "case-a", {"status": "ignored"},
+            )
+            rows = history.events(category="mail-case", key="case-a", limit=1)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("mail_case_status_changed", rows[0]["action"])
+            self.assertEqual("bob", rows[0]["actor"])
+
+            all_rows = history.events(category="mail-case", key="case-a", limit=10)
+            self.assertEqual(
+                ["mail_case_status_changed", "mail_case_created"],
+                [row["action"] for row in all_rows],
+            )
+            self.assertNotIn("must-not-leak", json.dumps(all_rows))
+
+
 if __name__ == "__main__":
     unittest.main()
