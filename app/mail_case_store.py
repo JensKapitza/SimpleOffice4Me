@@ -262,6 +262,10 @@ class MailCaseStore:
                  json.dumps(list(references)[:100]), now),
             )
         self._audit("mail_case_created", actor, case_id, {"account_id": account_id, "mail_reference": mail_reference})
+        self._audit(
+            "mail_case_message_added", actor, case_id,
+            {"mail_reference": mail_reference, "initial": True},
+        )
         return case_id
 
     def get_case(self, actor: str, case_id: str) -> dict:
