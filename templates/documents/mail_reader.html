@@ -8,7 +8,7 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div><h1 class="h3 mb-1"><i class="fas fa-envelope me-2"></i>Mail</h1><p class="text-secondary mb-0">Webmail mit Postfach, Archiv, Kontakten und Kalender-Verknüpfung.</p></div>
     <div class="d-flex flex-wrap gap-2 align-items-center">
-      {% if selected %}
+      {% if selected and mode != 'case' %}
       <form method="post" action="{{ url_for('mail_client.set_readonly', account_id=selected.id) }}" class="d-inline">
         <input type="hidden" name="writable" value="{{ '1' if read_only else '0' }}">
         <button type="submit" class="btn btn-sm {{ 'btn-warning' if read_only else 'btn-success' }}" title="{{ 'Schreibzugriff ausdrücklich freigeben' if read_only else 'Konto wieder schreibschützen' }}">
@@ -31,9 +31,9 @@
     </form>
   </div></section>
 
-  {% if selected and read_only %}<div class="alert alert-warning" role="status"><strong>Read-only ist aktiv.</strong> Lesen, Suchen, Anhänge prüfen und lokal archivieren funktionieren. Senden, Verschieben, Gelesen-Status, neue Ordner und Sieve-Änderungen sind blockiert. Der gelbe <strong>Read-only</strong>-Schalter oben gibt Schreibzugriff ausdrücklich frei.</div>{% endif %}
+  {% if selected and mode != 'case' and read_only %}<div class="alert alert-warning" role="status"><strong>Read-only ist aktiv.</strong> Lesen, Suchen, Anhänge prüfen und lokal archivieren funktionieren. Senden, Verschieben, Gelesen-Status, neue Ordner und Sieve-Änderungen sind blockiert. Der gelbe <strong>Read-only</strong>-Schalter oben gibt Schreibzugriff ausdrücklich frei.</div>{% endif %}
 
-  {% if selected and not read_only %}
+  {% if selected and mode != 'case' and not read_only %}
   <section id="compose-panel" class="collapse {{ 'show' if compose.to or compose.subject else '' }} mb-3"><div class="card border-success"><div class="card-header d-flex justify-content-between align-items-center"><strong><i class="fas fa-pen me-2"></i>Neue Nachricht</strong><button type="button" class="btn-close" data-bs-toggle="collapse" data-bs-target="#compose-panel" aria-controls="compose-panel" aria-expanded="{{ 'true' if compose.to or compose.subject else 'false' }}" aria-label="Editor schließen"></button></div><div class="card-body">
     <form method="post" action="{{ url_for('mail_reader.send_message') }}" class="row g-3"><input type="hidden" name="account" value="{{ selected.id }}">
       <div class="col-lg-8"><label class="form-label" for="compose-to">An</label><input id="compose-to" class="form-control" required name="recipients" value="{{ compose.to }}" list="contact-suggestions" placeholder="name@example.org"><datalist id="contact-suggestions"></datalist><div class="form-text">Vorschläge kommen aus dem SimpleOffice-Adressbuch.</div></div>
@@ -89,7 +89,7 @@
         {% if 'manage_participants' in case_view.permissions %}
         <form method="post" action="{{ url_for('mail_reader.add_case_participant', case_id=case_view.id) }}" class="row g-2 align-items-end mt-1">
           <div class="col-md-5"><label class="form-label" for="case-user">Benutzer</label><select id="case-user" class="form-select" name="username" required><option value="">Bitte wählen</option>{% for user in case_users %}{% if user.username != case_view.account_owner %}<option value="{{ user.username }}">{{ user.display_name or user.username }} ({{ user.username }})</option>{% endif %}{% endfor %}</select></div>
-          <div class="col-md-5"><label class="form-label d-block">Rechte zusätzlich zu Lesen</label>{% for permission in ['comment','compose','send_request','manage_status','manage_mail'] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="permission" value="{{ permission }}"> <span class="form-check-label">{{ permission }}</span></label>{% endfor %}</div>
+          <div class="col-md-5"><label class="form-label d-block">Rechte zusätzlich zu Lesen</label>{% for permission in ['comment','compose','send_request','manage_participants','manage_status','manage_mail'] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="permission" value="{{ permission }}"> <span class="form-check-label">{{ permission }}</span></label>{% endfor %}</div>
           <div class="col-md-2"><button class="btn btn-outline-primary w-100" type="submit">Hinzufügen</button></div>
         </form>{% endif %}
       </div>
@@ -99,6 +99,11 @@
         {% for item in case_timeline %}
           {% if item.kind == 'mail' %}
           <div class="list-group-item"><div class="d-flex flex-wrap justify-content-between gap-2"><div><i class="fas fa-envelope me-1"></i><strong>{{ item.direction }}</strong> {% if item.message_id %}<code>{{ item.message_id }}</code>{% endif %}</div><small>{{ item.created_at }}</small></div>
+            <div class="small text-secondary mt-2">
+              <strong>Persönlich gelesen:</strong>
+              {% for read in item.read_state %}<span class="badge text-bg-light me-1">{{ read.participant_reference|replace('local:','') }} · {{ read.last_read_at }}</span>{% else %}<span>Noch von keinem Teilnehmer im Vorgang geöffnet.</span>{% endfor %}
+              <span class="ms-1">(unabhängig vom IMAP-Status)</span>
+            </div>
             {% if item.mail_reference.startswith('sha512:') %}<a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('mail_reader.index', case=case_view.id, case_mail=item.mail_reference[7:]) }}#mail-case">EML im Vorgang lesen</a>{% endif %}
             {% if 'manage_mail' in case_view.permissions %}<form method="post" action="{{ url_for('mail_reader.remove_case_message', case_id=case_view.id) }}" class="d-inline"><input type="hidden" name="mail_reference" value="{{ item.mail_reference }}"><button class="btn btn-sm btn-outline-danger mt-2" type="submit">Zuordnung entfernen</button></form>{% endif %}
           </div>
@@ -114,7 +119,25 @@
               <div class="col-12"><button class="btn btn-sm btn-outline-primary" type="submit">Entwurf aktualisieren</button></div>
             </form>
             {% else %}
-            <div class="mt-2"><strong>An:</strong> {{ item.recipients_to }}{% if item.recipients_cc %} · <strong>CC:</strong> {{ item.recipients_cc }}{% endif %}<br><strong>Betreff:</strong> {{ item.subject }}</div>
+            <div class="mt-2"><strong>An:</strong> {{ item.recipients_to }}{% if item.recipients_cc %} · <strong>CC:</strong> {{ item.recipients_cc }}{% endif %}<br><strong>Betreff:</strong> {{ item.subject }}<div class="mt-2" style="white-space:pre-wrap">{{ item.body }}</div></div>
+            {% endif %}
+            {% if item.attachments %}
+            <div class="mt-2"><strong>Anhänge:</strong>
+              {% for attachment in item.attachments %}
+              <span class="d-inline-flex align-items-center gap-1 me-2 mb-1">
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('mail_reader.case_draft_attachment', case_id=case_view.id, draft_id=item.id, document_id=attachment.document_id) }}"><i class="fas fa-paperclip me-1"></i>{{ attachment.filename }} · {{ (attachment.size / 1024)|round(1) }} KiB</a>
+                {% if 'compose' in case_view.permissions and item.status in ['draft','rejected','failed'] %}
+                <form method="post" action="{{ url_for('mail_reader.remove_case_draft_attachment', case_id=case_view.id, draft_id=item.id, document_id=attachment.document_id) }}"><button class="btn btn-sm btn-outline-danger" type="submit" aria-label="Anhang entfernen">×</button></form>
+                {% endif %}
+              </span>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if 'compose' in case_view.permissions and item.status in ['draft','rejected','failed'] %}
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('mail_reader.add_case_draft_attachment', case_id=case_view.id, draft_id=item.id) }}" class="d-flex flex-wrap gap-2 align-items-end mt-2">
+              <div><label class="form-label small mb-1">Anhang hinzufügen</label><input class="form-control form-control-sm" type="file" name="attachment" required></div>
+              <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="fas fa-shield-virus me-1"></i>Prüfen & hinzufügen</button>
+            </form>
             {% endif %}
             <div class="d-flex flex-wrap gap-2 mt-2">
               {% if 'send_request' in case_view.permissions and item.status in ['draft','rejected','failed'] %}
@@ -141,12 +164,21 @@
 
       {% if 'comment' in case_view.permissions %}<form method="post" action="{{ url_for('mail_reader.add_case_comment', case_id=case_view.id) }}" class="mb-3"><label class="form-label" for="case-comment">Interner Kommentar</label><textarea id="case-comment" class="form-control mb-2" name="body" rows="3" maxlength="1048576" required></textarea><button class="btn btn-outline-primary" type="submit">Intern speichern</button><span class="small text-secondary ms-2">Wird nicht per SMTP versendet.</span></form>{% endif %}
       {% if 'compose' in case_view.permissions %}
-      <form method="post" action="{{ url_for('mail_reader.create_case_draft', case_id=case_view.id) }}" class="card card-body"><h3 class="h6">Antwortentwurf</h3><div class="row g-2">
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('mail_reader.create_case_draft', case_id=case_view.id) }}" class="card card-body"><h3 class="h6">Antwortentwurf</h3><div class="row g-2">
         <div class="col-md-6"><label class="form-label">An</label><input class="form-control" name="to" required value="{{ case_mail_preview.from if case_mail_preview else '' }}"></div><div class="col-md-6"><label class="form-label">Absenderidentität</label><input class="form-control" name="sender_identity" placeholder="optional"></div>
         <div class="col-md-6"><label class="form-label">CC</label><input class="form-control" name="cc"></div><div class="col-md-6"><label class="form-label">BCC</label><input class="form-control" name="bcc"></div>
         <div class="col-12"><label class="form-label">Betreff</label><input class="form-control" name="subject" required value="{{ ('Re: ' ~ case_mail_preview.subject) if case_mail_preview else '' }}"></div><div class="col-12"><label class="form-label">Text</label><textarea class="form-control" name="body" rows="5"></textarea></div>
+        <div class="col-12"><label class="form-label">Anhänge</label><input class="form-control" type="file" name="attachments" multiple><div class="form-text">Anhänge werden vor der Speicherung mit dem vorhandenen ClamAV-Gate geprüft.</div></div>
         <div class="col-12"><button class="btn btn-primary" type="submit">Entwurf speichern</button><span class="small text-secondary ms-2">Kein Versand.</span></div>
       </div></form>{% endif %}
+
+      {% if case_history %}
+      <details class="mt-3"><summary class="fw-semibold">Vorgangshistorie ({{ case_history|length }})</summary><div class="list-group list-group-flush mt-2">
+        {% for event in case_history %}
+        <div class="list-group-item px-0 py-2"><div class="d-flex flex-wrap justify-content-between gap-2"><span><strong>{{ event.action_label or event.action }}</strong> · {{ event.actor }}</span><small class="text-secondary">{{ event.at }}</small></div>{% if event.details %}<div class="small text-secondary text-break">{{ event.details }}</div>{% endif %}</div>
+        {% endfor %}
+      </div></details>
+      {% endif %}
       {% else %}<div class="text-secondary">Wähle links einen Vorgang oder erstelle einen aus einer E-Mail.</div>{% endif %}
     </section>
   </div></div>
