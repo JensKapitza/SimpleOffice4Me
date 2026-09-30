@@ -237,10 +237,14 @@ class MailStore:
             "smtp_from": smtp_from,
             "smtp_password_env": str(data.get("smtp_password_env", "")).strip()[:120],
             "smtp_password": stored_smtp_password,
-            "ui_features": {
-                name: str(data.get(f"ui_{name}", "")) == "1"
-                for name in MAIL_UI_FEATURES
-            },
+            "ui_features": (
+                {
+                    name: str(data.get(f"ui_{name}", "")) == "1"
+                    for name in MAIL_UI_FEATURES
+                }
+                if any(f"ui_{name}" in data for name in MAIL_UI_FEATURES)
+                else _mail_ui_features((previous or {}).get("ui_features"))
+            ),
             "updated_at": utc_now(),
         }
         payload["accounts"] = [x for x in payload["accounts"] if not (x.get("id") == account_id and x.get("owner") == actor)] + [row]
