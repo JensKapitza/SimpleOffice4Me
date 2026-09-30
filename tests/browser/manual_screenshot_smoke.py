@@ -236,11 +236,14 @@ def update_route_coverage(summary: dict[str, object]) -> None:
     if not isinstance(inventory, dict) or not inventory.get("loaded"):
         summary["route_coverage"] = {"available": False}
         return
-    visited_paths = {
-        urlparse(str(entry.get("final_url") or entry.get("requested_url") or "")).path
-        for entry in summary.get("pages", [])
-        if isinstance(entry, dict)
-    }
+    visited_paths: set[str] = set()
+    for entry in summary.get("pages", []):
+        if not isinstance(entry, dict):
+            continue
+        for key in ("requested_url", "final_url"):
+            value = str(entry.get(key) or "")
+            if value:
+                visited_paths.add(urlparse(value).path)
     covered = 0
     uncovered_static: list[dict[str, object]] = []
     uncovered_dynamic: list[dict[str, object]] = []
