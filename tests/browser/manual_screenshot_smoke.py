@@ -2,8 +2,8 @@
 """Manual Playwright smoke test for SimpleOffice4Me.
 
 The test creates the first local admin through the real registration form,
-logs in, opens core navigation pages (or every navigation link), stores
-full-page screenshots and writes a machine-readable summary.
+logs in, inventories live Flask GET routes, crawls reachable internal pages,
+stores full-page screenshots and writes a machine-readable summary.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def compact(value: str) -> str:
 def slug(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     safe = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
-    return safe or "page"
+    return safe[:80] or "page"
 
 
 def same_origin(url: str) -> bool:
@@ -1010,6 +1010,14 @@ def main() -> int:
                     entry["status"] = status
                     entry["content_type"] = content_type
                     entry["final_url"] = page.url
+
+                    if not same_primary_origin(page.url):
+                        entry["external_redirect"] = True
+                        failures.append(
+                            f"{label}: Weiterleitung außerhalb der Testinstanz ({page.url})"
+                        )
+                        pages.append(entry)
+                        continue
 
                     is_html = "text/html" in content_type.casefold()
                     entry["html"] = is_html
