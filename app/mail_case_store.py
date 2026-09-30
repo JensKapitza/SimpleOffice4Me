@@ -70,6 +70,7 @@ class MailCaseStore:
                 title TEXT NOT NULL,
                 status TEXT NOT NULL,
                 account_id TEXT NOT NULL,
+                account_owner TEXT NOT NULL DEFAULT '',
                 created_by TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -107,6 +108,12 @@ class MailCaseStore:
                     (participant_type='federated_user' AND local_user_id IS NULL AND peer_id IS NOT NULL AND remote_user_id IS NOT NULL)
                 )
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_mail_case_participant_local
+                ON mail_case_participant(case_id, local_user_id)
+                WHERE participant_type='local_user';
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_mail_case_participant_federated
+                ON mail_case_participant(case_id, peer_id, remote_user_id)
+                WHERE participant_type='federated_user';
             CREATE TABLE IF NOT EXISTS mail_case_read_state(
                 case_id TEXT NOT NULL REFERENCES mail_case(id) ON DELETE CASCADE,
                 message_reference TEXT NOT NULL,
@@ -138,6 +145,12 @@ class MailCaseStore:
                 updated_at TEXT NOT NULL
             );
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(mail_case)")}
+            if "account_owner" not in columns:
+                db.execute("ALTER TABLE mail_case ADD COLUMN account_owner TEXT NOT NULL DEFAULT ''")
+            db.execute(
+                "UPDATE mail_case SET account_owner=created_by WHERE account_owner=''"
+            )
 
     def _audit(self, event: str, actor: str, case_id: str, detail: dict) -> None:
         if self.history is not None:
@@ -181,8 +194,10 @@ class MailCaseStore:
         owner_permissions = sorted(PERMISSIONS)
         with self._db(write=True) as db:
             db.execute(
-                "INSERT INTO mail_case VALUES(?,?,?,?,?,?,?,NULL)",
-                (case_id, title, "offen", account_id, actor, now, now),
+                """INSERT INTO mail_case
+                   (id,title,status,account_id,account_owner,created_by,created_at,updated_at,closed_at)
+                   VALUES(?,?,?,?,?,?,?,?,NULL)""",
+                (case_id, title, "offen", account_id, actor, actor, now, now),
             )
             db.execute(
                 """INSERT INTO mail_case_participant
@@ -238,7 +253,10 @@ class MailCaseStore:
                    ORDER BY c.updated_at DESC""",
                 (actor,),
             ).fetchall()
-            return [dict(row) for row in rows]
+            return [
+                dict(row) for row in rows
+                if "read" in self._permissions_for(db, row["id"], actor)
+            ]
 
     def add_participant(
         self, actor: str, case_id: str, *, local_user_id: str | None = None,
@@ -257,6 +275,21 @@ class MailCaseStore:
         now = _now()
         with self._db(write=True) as db:
             self._require(db, case_id, actor, "manage_participants")
+            if participant_type == "local_user":
+                duplicate = db.execute(
+                    """SELECT 1 FROM mail_case_participant
+                       WHERE case_id=? AND participant_type='local_user' AND local_user_id=?""",
+                    (case_id, local_user_id),
+                ).fetchone()
+            else:
+                duplicate = db.execute(
+                    """SELECT 1 FROM mail_case_participant
+                       WHERE case_id=? AND participant_type='federated_user'
+                         AND peer_id=? AND remote_user_id=?""",
+                    (case_id, peer_id, remote_user_id),
+                ).fetchone()
+            if duplicate is not None:
+                raise ValueError("mail case participant already exists")
             cur = db.execute(
                 """INSERT INTO mail_case_participant
                    (case_id,participant_type,local_user_id,peer_id,remote_user_id,permissions_json,added_by,added_at)
@@ -371,16 +404,23 @@ class MailCaseStore:
         self._audit("mail_case_status_changed", actor, case_id, {"status": status})
 
     def find_thread_case(self, actor: str, *, in_reply_to: str = "", references: Iterable[str] = ()) -> str | None:
-        candidates = [x.strip() for x in [in_reply_to, *references] if x and x.strip()]
+        candidates = list(dict.fromkeys(
+            x.strip() for x in [in_reply_to, *references] if x and x.strip()
+        ))
         if not candidates:
             return None
-        placeholders = ",".join("?" for _ in candidates)
+        case_ids: set[str] = set()
         with self._db() as db:
-            rows = db.execute(
-                f"""SELECT DISTINCT m.case_id FROM mail_case_message m
-                    JOIN mail_case_participant p ON p.case_id=m.case_id
-                    WHERE m.message_id IN ({placeholders})
-                      AND p.participant_type='local_user' AND p.local_user_id=?""",
-                (*candidates, actor),
-            ).fetchall()
-        return rows[0]["case_id"] if len(rows) == 1 else None
+            for candidate in candidates[:101]:
+                rows = db.execute(
+                    """SELECT DISTINCT case_id FROM mail_case_message
+                       WHERE message_id=?""",
+                    (candidate,),
+                ).fetchall()
+                for row in rows:
+                    case_id = str(row["case_id"])
+                    if "read" in self._permissions_for(db, case_id, actor):
+                        case_ids.add(case_id)
+                        if len(case_ids) > 1:
+                            return None
+        return next(iter(case_ids)) if len(case_ids) == 1 else None
