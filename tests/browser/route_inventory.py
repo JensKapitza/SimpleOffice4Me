@@ -38,6 +38,7 @@ AUTH_EXACT = {
     "/auth/register",
 }
 STATIC_RE = re.compile(r"<[^>]+>")
+RULE_ARGUMENT_RE = re.compile(r"<(?:(?P<converter>[^:<>]+):)?[^<>]+>")
 
 
 def browser_candidate(rule: str, endpoint: str) -> tuple[bool, str]:
@@ -59,6 +60,18 @@ def browser_candidate(rule: str, endpoint: str) -> tuple[bool, str]:
     return True, ""
 
 
+def rule_pattern(rule: str) -> str:
+    parts: list[str] = []
+    offset = 0
+    for match in RULE_ARGUMENT_RE.finditer(rule):
+        parts.append(re.escape(rule[offset:match.start()]))
+        converter = (match.group("converter") or "").casefold()
+        parts.append(".+" if converter == "path" else "[^/]+")
+        offset = match.end()
+    parts.append(re.escape(rule[offset:]))
+    return "^" + "".join(parts) + "$"
+
+
 def main() -> None:
     routes: list[dict[str, object]] = []
     for rule in sorted(app.url_map.iter_rules(), key=lambda item: (item.rule, item.endpoint)):
@@ -73,6 +86,7 @@ def main() -> None:
                 "methods": methods,
                 "dynamic": bool(rule.arguments) or bool(STATIC_RE.search(rule.rule)),
                 "arguments": sorted(rule.arguments),
+                "path_regex": rule_pattern(rule.rule),
                 "browser_candidate": candidate,
                 "skip_reason": reason,
             }
