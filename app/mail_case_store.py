@@ -349,14 +349,13 @@ class MailCaseStore:
         return {"first_read_at": first, "last_read_at": now}
 
     def read_state(self, actor: str, case_id: str, message_reference: str) -> list[dict]:
-        participant = self._participant_ref(actor)
         with self._db() as db:
             self._require(db, case_id, actor, "read")
             return [dict(x) for x in db.execute(
                 """SELECT participant_reference,first_read_at,last_read_at
                    FROM mail_case_read_state
-                   WHERE case_id=? AND message_reference=? AND participant_reference=?""",
-                (case_id, message_reference, participant),
+                   WHERE case_id=? AND message_reference=?""",
+                (case_id, message_reference),
             )]
 
     def add_comment(self, actor: str, case_id: str, body: str) -> str:
