@@ -829,6 +829,7 @@ def main() -> int:
         "base_url": BASE_URL,
         "peer_base_url": PEER_BASE_URL,
         "scope": SCOPE,
+        "max_pages": MAX_PAGES,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
         "pages": [],
         "console_errors": [],
@@ -914,20 +915,30 @@ def main() -> int:
                 }))"""
             )
 
-            deduplicated: list[dict[str, str]] = []
-            seen_urls: set[str] = set()
+            navigation: list[dict[str, str]] = []
+            seen_navigation_urls: set[str] = set()
             for item in raw_links:
                 label = compact(str(item.get("label", "")))
-                href = urldefrag(str(item.get("href", "")))[0]
-                if not label or not href or not same_origin(href) or href in seen_urls:
+                href = canonical_browser_url(str(item.get("href", "")))
+                if (
+                    not label
+                    or not href
+                    or not browser_page_candidate(href)
+                    or href in seen_navigation_urls
+                ):
                     continue
-                seen_urls.add(href)
-                deduplicated.append({"label": label, "href": href})
+                seen_navigation_urls.add(href)
+                navigation.append(
+                    {"label": label, "href": href, "source": "navigation"}
+                )
 
-            if SCOPE == "all-navigation":
-                selected = deduplicated
+            route_seeds = load_route_inventory(summary)
+            if SCOPE == "all-pages":
+                selected = [*route_seeds, *navigation]
+            elif SCOPE == "all-navigation":
+                selected = navigation
             elif SCOPE == "core":
-                by_label = {item["label"]: item for item in deduplicated}
+                by_label = {item["label"]: item for item in navigation}
                 selected = []
                 missing = []
                 for label in CORE_LABELS:
@@ -946,14 +957,38 @@ def main() -> int:
                 )
 
             if not selected:
-                raise RuntimeError("Keine Navigationsseiten für den Screenshot-Test gefunden.")
+                raise RuntimeError("Keine Browser-Seiten für den Screenshot-Test gefunden.")
 
-            for number, item in enumerate(selected, start=1):
+            queue: deque[dict[str, str]] = deque()
+            queued_urls: set[str] = set()
+
+            def enqueue(item: dict[str, str]) -> None:
+                href = canonical_browser_url(item["href"])
+                if href in queued_urls or not browser_page_candidate(href):
+                    return
+                queued_urls.add(href)
+                queue.append({**item, "href": href})
+
+            for item in selected:
+                enqueue(item)
+
+            number = 0
+            while queue:
+                if number >= MAX_PAGES:
+                    failures.append(
+                        f"Browser-Crawl hat das Limit von {MAX_PAGES} Seiten erreicht; "
+                        f"{len(queue)} URL(s) blieben ungeprüft."
+                    )
+                    break
+
+                item = queue.popleft()
+                number += 1
                 label = item["label"]
                 url = item["href"]
                 entry: dict[str, object] = {
                     "label": label,
                     "requested_url": url,
+                    "source": item.get("source", "unknown"),
                 }
                 try:
                     response = page.goto(url, wait_until="domcontentloaded")
@@ -961,33 +996,48 @@ def main() -> int:
                         page.wait_for_load_state("networkidle", timeout=3_000)
                     except PlaywrightTimeoutError:
                         pass
-                    page.wait_for_timeout(200)
+                    page.wait_for_timeout(150)
 
                     status = response.status if response is not None else None
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        if response is not None
+                        else ""
+                    )
                     entry["status"] = status
+                    entry["content_type"] = content_type
                     entry["final_url"] = page.url
 
-                    filename = f"{number:02d}-{slug(label)}.png"
-                    page.screenshot(
-                        path=str(OUTPUT_DIR / filename),
-                        full_page=True,
-                        animations="disabled",
-                    )
-                    entry["screenshot"] = filename
-                    write_html_snapshot(
-                        page,
-                        label,
-                        f"peer-a-{number:02d}",
-                        summary,
-                        failures,
-                    )
+                    is_html = "text/html" in content_type.casefold()
+                    entry["html"] = is_html
+                    if is_html:
+                        filename = f"{number:04d}-{slug(label)}.png"
+                        page.screenshot(
+                            path=str(OUTPUT_DIR / filename),
+                            full_page=True,
+                            animations="disabled",
+                        )
+                        entry["screenshot"] = filename
+                        write_html_snapshot(
+                            page,
+                            label,
+                            f"peer-a-{number:04d}",
+                            summary,
+                            failures,
+                        )
+
+                        if SCOPE == "all-pages":
+                            for discovered in discover_links(page):
+                                enqueue(discovered)
 
                     if status is None or status >= 400:
                         failures.append(
-                            f"{label}: HTTP {status if status is not None else 'unbekannt'}"
+                            f"{label}: HTTP {status if status is not None else 'unbekannt'} ({url})"
                         )
                     if "/auth/login" in page.url:
-                        failures.append(f"{label}: unerwartet zur Anmeldung umgeleitet")
+                        failures.append(
+                            f"{label}: unerwartet zur Anmeldung umgeleitet ({url})"
+                        )
                 except PlaywrightError as exc:
                     entry["error"] = str(exc)
                     failures.append(f"{label}: Browserfehler: {exc}")
@@ -1019,6 +1069,9 @@ def main() -> int:
     except Exception as exc:
         failures.append(f"Fataler Browser-Testfehler: {type(exc).__name__}: {exc}")
 
+    update_route_coverage(summary)
+    write_screenshot_gallery(summary)
+
     if page_errors:
         failures.append(f"{len(page_errors)} JavaScript-Page-Error(s) erkannt.")
     if server_errors:
@@ -1036,6 +1089,7 @@ def main() -> int:
             {
                 "pages": len(pages),
                 "html_snapshots": len(summary["html5"]["snapshots"]),  # type: ignore[index]
+                "route_coverage": summary.get("route_coverage"),
                 "peer_to_peer": PEER_TO_PEER,
                 "p2p_checks": summary["peer_to_peer"]["checks"],  # type: ignore[index]
                 "console_errors": len(console_errors),
