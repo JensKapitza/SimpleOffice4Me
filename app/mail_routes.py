@@ -104,7 +104,7 @@ def index():
     delegations: list[dict] = []
     delegation_users: list[dict] = []
     if selected:
-        delegations = _cases(store).send_delegations(_actor(), selected["id"])
+        delegations = _cases(store).delegations.list(_actor(), selected["id"])
         rows = get_db().execute(
             "SELECT username,display_name FROM user WHERE is_disabled=0 AND username<>? ORDER BY username COLLATE NOCASE",
             (_actor(),),
@@ -174,7 +174,7 @@ def save_send_delegation(account_id: str):
         ).fetchone()
         if exists is None:
             raise ValueError("delegate user does not exist")
-        _cases(store).set_send_delegation(
+        _cases(store).delegations.set(
             _actor(), account_id, delegate_user,
             valid_from=request.form.get("valid_from", ""),
             valid_until=request.form.get("valid_until", ""),
@@ -196,7 +196,7 @@ def remove_send_delegation(account_id: str):
     store = _store()
     try:
         _owned_account(store, account_id)
-        _cases(store).remove_send_delegation(
+        _cases(store).delegations.remove(
             _actor(), account_id, request.form.get("delegate_user", "").strip()
         )
         flash("Versanddelegation entfernt.")
