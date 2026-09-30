@@ -187,11 +187,15 @@ def index():
     case_users: list[dict] = []
     case_history: list[dict] = []
     ui_features = selected.get("ui_features", {}) if selected else {}
+    can_delegated_send = False
 
     if case_id:
         try:
             case_view = cases.get_case(_actor(), case_id)
             ui_features = store.ui_features(case_view["account_owner"], case_view["account_id"])
+            can_delegated_send = cases.has_active_send_delegation(
+                case_view["account_owner"], case_view["account_id"], _actor()
+            )
             if case_mail_id:
                 reference = _mail_reference(case_mail_id)
                 if any(row["mail_reference"] == reference for row in case_view["messages"]):
@@ -305,6 +309,7 @@ def index():
         preview_case_id=preview_case_id,
         suggested_case_id=suggested_case_id,
         ui_features=ui_features,
+        can_delegated_send=can_delegated_send,
     )
 
 
