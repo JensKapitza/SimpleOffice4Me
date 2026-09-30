@@ -15,6 +15,8 @@ Damit bleiben drei Zustände bewusst getrennt:
   EML-Referenz gespeichert. Das Öffnen im Vorgang setzt kein IMAP-Flag.
 - **Vorgangsstatus** beschreibt den Arbeitsstand: `offen`,
   `in_bearbeitung`, `wartet` oder `erledigt`.
+- **Entwurfs-/Versandstatus** bildet die Freigabe getrennt ab: `draft`,
+  `ready`, `approved`, `sending`, `sent`, `rejected` oder `failed`.
 
 ## Architektur und Datenhaltung
 
@@ -68,8 +70,10 @@ Jede Operation prüft die Rechte serverseitig. Unterstützt werden:
 Der Kontoinhaber wird beim Erstellen als lokaler Teilnehmer mit allen Rechten
 eingetragen und kann weder entfernt noch auf einen eingeschränkten Rechtesatz
 reduziert werden. Ein Benutzer ohne `read` sieht den Vorgang nicht.
-`comment`, `compose`, Teilnehmer-, Status- und Mailänderungen werden jeweils
-separat geprüft.
+`comment`, `compose`, `send_request`, Teilnehmer-, Status- und Mailänderungen
+werden jeweils separat geprüft. Eine Versandfreigabe und der tatsächliche
+SMTP-Versand dürfen ausschließlich durch den Besitzer des zugehörigen
+Mailkontos erfolgen.
 
 Teilnehmer können als `local_user` oder als vorbereiteter
 `federated_user` mit `peer_id` und `remote_user_id` modelliert werden.
@@ -97,16 +101,34 @@ Eine reine Vorgangsansicht öffnet keine IMAP-Verbindung. Dadurch können
 berechtigte Mitarbeiter an archivierten E-Mails mitarbeiten, ohne Zugriff auf
 das ursprüngliche Mailkonto oder dessen Zugangsdaten zu erhalten.
 
-## Interne Kommentare und Entwürfe
+## Interne Kommentare, Entwürfe und Versandfreigabe
 
 Interne Kommentare sind eigene Vorgangsdatensätze und werden niemals an SMTP
-übergeben. Entwürfe speichern Empfänger, optionale Absenderidentität, Betreff
-und Text getrennt von der EML. Das Erstellen oder Ändern eines Entwurfs versendet
+übergeben. Entwürfe speichern An/CC/BCC, optionale Absenderidentität, Betreff und
+Text getrennt von der EML. Das Erstellen oder Ändern eines Entwurfs versendet
 keine Nachricht.
 
-Die Absenderidentität ist bewusst nur eine Referenz im Entwurf. Eine vollständige
-Identitäts-/Signaturverwaltung und delegierter Federation-Versand gehören nicht
-zu diesem Kern.
+Ein Teilnehmer mit `send_request` kann den aktuellen Entwurf zur Freigabe
+einreichen. Ab `ready` ist der Inhalt gesperrt, damit er nach Einreichung nicht
+unbemerkt verändert werden kann. Nur der Mailkontoinhaber kann die Anfrage
+freigeben oder ablehnen. Ein freigegebener Entwurf kann nur vom Kontoinhaber
+versendet werden und nur dann, wenn für das Konto der bestehende explizite
+Schreibmodus aktiviert ist.
+
+Vor dem SMTP-Zugriff wird der Entwurf atomar auf `sending` gesetzt. Parallele
+oder wiederholte Klicks können deshalb keinen zweiten Versand starten. Bei einem
+Transportfehler wird `failed` gespeichert; eine Wiederholung erfordert eine
+neue bewusste Anforderung und Freigabe. Nach erfolgreichem SMTP-Versand werden
+die ausgehende EML und der Status `sent` mit dem Vorgang verknüpft. Scheitert
+nur die nachgelagerte Vorgangsfinalisierung, bleibt `sending` bestehen und die
+Oberfläche warnt ausdrücklich davor, erneut zu senden.
+
+CC und BCC werden als SMTP-Empfänger berücksichtigt; BCC wird nicht als
+Nachrichtenheader in die EML geschrieben. Die Absenderidentität im Entwurf ist
+bewusst nur eine Referenz. Der tatsächliche Absender stammt weiterhin aus der
+konfigurierten SMTP-Identität des Kontoinhabers. Eine vollständige
+Identitäts-/Signaturverwaltung und ein Federation-Transport des Freigabeablaufs
+gehören nicht zu diesem Kern.
 
 ## Anhänge
 
@@ -152,6 +174,9 @@ Die Regressionstests prüfen insbesondere:
 - Entfernen einer Zuordnung ohne EML-Löschung,
 - interne Kommentare,
 - Entwurfserstellung und -änderung,
+- manipulationsgeschützte Versandanforderung und Kontoinhaber-Freigabe,
+- Read-only-Sperre vor SMTP und atomaren Doppelversandschutz,
+- CC/BCC-Verarbeitung ohne BCC-Header,
 - exaktes und kontogebundenes Threading,
 - stabile SHA-512-Identität bei Live-Mails,
 - Route-/UI-Zugriff für delegierte Teilnehmer ohne Mailkonto,
