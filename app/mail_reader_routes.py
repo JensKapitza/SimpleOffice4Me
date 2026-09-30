@@ -36,7 +36,7 @@ def _cases(store: MailStore | None = None) -> MailCaseStore:
 
 
 def _case_redirect(case_id: str):
-    return redirect(url_for("mail_reader.index", case=case_id) + "#mail-case")
+    return redirect(url_for("mail_reader.index", case=case_id, mode="case") + "#mail-case")
 
 
 def _mail_reference(archive_id: str) -> str:
@@ -115,12 +115,12 @@ def index():
     web = ImapWebClient(store)
     cases = _cases(store)
     accounts, selected = _selection(store)
-    mode = request.args.get("mode", "inbox")
+    case_id = request.args.get("case", "").strip()
+    mode = request.args.get("mode", "case" if case_id else "inbox")
     query = request.args.get("q", "").strip()
     folder = request.args.get("folder", "").strip()
     uid = request.args.get("uid", "").strip()
     archive_id = request.args.get("mail", "").strip()
-    case_id = request.args.get("case", "").strip()
     case_mail_id = request.args.get("case_mail", "").strip().casefold()
     page = max(1, request.args.get("page", 1, type=int) or 1)
     folders: list[dict] = []
@@ -171,7 +171,7 @@ def index():
             case_timeline = []
             case_mail_preview = None
 
-    if selected:
+    if selected and mode != "case":
         read_only = MailAccountPolicy(store).read_only(_actor(), selected["id"])
         if mode == "archive":
             archive_rows = reader.local_archive(_actor(), selected["id"], query=query, limit=200)
