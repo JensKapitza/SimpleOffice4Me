@@ -14,7 +14,7 @@ from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, l
 from .mail_case_store import MailCaseStore
 from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
-from .mail_client import MailStore, SmtpSubmission
+from .mail_client import MailStore, SmtpDeliveryStateUnknown, SmtpSubmission
 from .mail_reader import MailReader
 from .mail_webclient import ImapWebClient, MailAccountPolicy, MailReadOnlyError, contact_recipients
 
@@ -589,6 +589,19 @@ def send_case_draft(case_id: str, draft_id: str):
             bcc=draft["recipients_bcc"],
             attachments=outbound_attachments,
         )
+    except SmtpDeliveryStateUnknown as exc:
+        # The SMTP server may already have accepted the message. Keep the draft
+        # in the non-editable/non-requestable "sending" state so a user cannot
+        # accidentally send a duplicate. Reconciliation must be explicit.
+        current_app.logger.warning(
+            "Mail case SMTP delivery state unknown for %s/%s: %s",
+            case_id, draft_id, exc.delivery_status,
+        )
+        flash(
+            "Der SMTP-Zustand ist unklar: Die Nachricht könnte bereits angenommen worden sein. "
+            "Nicht erneut senden; Versand/Archiv und Serverprotokoll prüfen."
+        )
+        return _case_redirect(case_id)
     except Exception as exc:
         if draft is not None:
             try:
