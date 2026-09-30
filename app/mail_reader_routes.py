@@ -575,8 +575,9 @@ def send_case_draft(case_id: str, draft_id: str):
     draft = None
     try:
         draft = cases.begin_draft_send(_actor(), case_id, draft_id)
-        MailAccountPolicy(store).require_writable(_actor(), draft["account_id"])
-        account = _smtp_account(store, draft["account_id"])
+        account_owner = draft["account_owner"]
+        MailAccountPolicy(store).require_writable(account_owner, draft["account_id"])
+        account = store.smtp_account(account_owner, draft["account_id"])
         attachment_store = _draft_attachment_store()
         outbound_attachments = [
             {
@@ -588,7 +589,7 @@ def send_case_draft(case_id: str, draft_id: str):
             for attachment in draft.get("attachments", [])
         ]
         result = SmtpSubmission(store).send(
-            _actor(),
+            draft["account_owner"],
             account,
             draft["recipients_to"],
             draft["subject"],
@@ -623,6 +624,11 @@ def send_case_draft(case_id: str, draft_id: str):
         return _case_redirect(case_id)
 
     try:
+        if _actor() != draft["account_owner"]:
+            store.history.record(
+                "mail_case_delegated_send_executed", _actor(), "mail-case", case_id,
+                {"draft_id": draft_id, "account_owner": draft["account_owner"], "account_id": draft["account_id"]},
+            )
         cases.complete_draft_send(
             _actor(), case_id, draft_id,
             f"sha512:{result['sha512']}", result["message_id"],
