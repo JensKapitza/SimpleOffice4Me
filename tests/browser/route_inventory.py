@@ -37,6 +37,9 @@ AUTH_EXACT = {
     "/auth/logout",
     "/auth/register",
 }
+AUTH_PREFIXES = (
+    "/auth/google",
+)
 STATIC_RE = re.compile(r"<[^>]+>")
 RULE_ARGUMENT_RE = re.compile(r"<(?:(?P<converter>[^:<>]+):)?[^<>]+>")
 
@@ -44,7 +47,7 @@ RULE_ARGUMENT_RE = re.compile(r"<(?:(?P<converter>[^:<>]+):)?[^<>]+>")
 def browser_candidate(rule: str, endpoint: str) -> tuple[bool, str]:
     if rule == "/favicon.ico" or rule.startswith("/static/"):
         return False, "static-asset"
-    if rule in AUTH_EXACT:
+    if rule in AUTH_EXACT or any(rule.startswith(prefix) for prefix in AUTH_PREFIXES):
         return False, "authentication-flow"
     if any(rule.startswith(prefix) for prefix in PROTOCOL_PREFIXES):
         return False, "protocol-or-api"
