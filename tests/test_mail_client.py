@@ -2,6 +2,8 @@ import io
 import json
 import tempfile
 import unittest
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from unittest.mock import patch
 
@@ -263,6 +265,51 @@ class MailClientTests(unittest.TestCase):
                 "Doppelt",
                 "Text",
                 cc="SAME@example.test",
+            )
+
+
+    def test_smtp_compose_embeds_bounded_attachment_without_bcc_header(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        raw, targets, _ = SmtpSubmission.compose(
+            account,
+            "to@example.test",
+            "Mit Anhang",
+            "Text",
+            bcc="hidden@example.test",
+            attachments=[
+                {
+                    "filename": "../../bericht.txt",
+                    "content_type": "text/plain",
+                    "payload": b"attachment body",
+                }
+            ],
+        )
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        self.assertIsNone(message["Bcc"])
+        self.assertEqual(
+            {"to@example.test", "hidden@example.test"},
+            set(targets),
+        )
+        attachments = list(message.iter_attachments())
+        self.assertEqual(1, len(attachments))
+        self.assertEqual("bericht.txt", attachments[0].get_filename())
+        self.assertEqual(b"attachment body", attachments[0].get_payload(decode=True))
+
+    def test_smtp_compose_rejects_unsafe_attachment_metadata(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        with self.assertRaises(ValueError):
+            SmtpSubmission.compose(
+                account,
+                "to@example.test",
+                "Anhang",
+                "Text",
+                attachments=[
+                    {
+                        "filename": "bad.txt",
+                        "content_type": "text/plain\r\nX-Evil: yes",
+                        "payload": b"x",
+                    }
+                ],
             )
 
 
