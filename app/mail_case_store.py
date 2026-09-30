@@ -20,7 +20,7 @@ PERMISSIONS = {
     "read", "comment", "compose", "send_request",
     "manage_participants", "manage_status", "manage_mail",
 }
-DRAFT_STATUSES = {"draft", "ready", "approved", "sent", "rejected"}
+DRAFT_STATUSES = {"draft", "ready", "approved", "sending", "sent", "rejected", "failed"}
 
 
 def _now() -> str:
@@ -530,17 +530,159 @@ class MailCaseStore:
             ).fetchone()
             if row is None:
                 raise KeyError(draft_id)
-            if row["status"] in {"sent", "approved"}:
-                raise ValueError("approved or sent draft cannot be edited")
+            if row["status"] in {"ready", "approved", "sending", "sent"}:
+                raise ValueError("submitted, approved or sent draft cannot be edited")
+            next_status = "draft" if row["status"] in {"rejected", "failed"} else row["status"]
             db.execute(
                 """UPDATE mail_case_draft
                    SET sender_identity=?,recipients_to=?,recipients_cc=?,recipients_bcc=?,
-                       subject=?,body=?,updated_at=?
+                       subject=?,body=?,status=?,updated_at=?
                    WHERE case_id=? AND id=?""",
-                (sender_identity, recipients_to, cc, bcc, subject[:998], body, now, case_id, draft_id),
+                (sender_identity, recipients_to, cc, bcc, subject[:998], body,
+                 next_status, now, case_id, draft_id),
             )
             db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
         self._audit("mail_case_draft_changed", actor, case_id, {"draft_id": draft_id})
+
+    def request_draft_send(self, actor: str, case_id: str, draft_id: str) -> None:
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "send_request")
+            row = db.execute(
+                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] not in {"draft", "rejected", "failed"}:
+                raise ValueError("draft is not requestable")
+            db.execute(
+                "UPDATE mail_case_draft SET status='ready',updated_at=? WHERE case_id=? AND id=?",
+                (now, case_id, draft_id),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit("mail_case_send_requested", actor, case_id, {"draft_id": draft_id})
+
+    def review_draft_send(
+        self, actor: str, case_id: str, draft_id: str, *, approve: bool,
+    ) -> None:
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "manage_mail")
+            case = db.execute(
+                "SELECT account_owner FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            if case is None or case["account_owner"] != actor:
+                raise PermissionError("only the mail account owner can review send requests")
+            row = db.execute(
+                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] != "ready":
+                raise ValueError("draft is not awaiting review")
+            status = "approved" if approve else "rejected"
+            db.execute(
+                "UPDATE mail_case_draft SET status=?,updated_at=? WHERE case_id=? AND id=?",
+                (status, now, case_id, draft_id),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_send_approved" if approve else "mail_case_send_rejected",
+            actor, case_id, {"draft_id": draft_id},
+        )
+
+    def begin_draft_send(self, actor: str, case_id: str, draft_id: str) -> dict:
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "manage_mail")
+            case = db.execute(
+                "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            if case is None or case["account_owner"] != actor:
+                raise PermissionError("only the mail account owner can send a case draft")
+            row = db.execute(
+                "SELECT * FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] != "approved":
+                raise ValueError("draft is not approved")
+            db.execute(
+                "UPDATE mail_case_draft SET status='sending',updated_at=? WHERE case_id=? AND id=?",
+                (now, case_id, draft_id),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+            result = dict(row)
+            result["account_id"] = case["account_id"]
+            result["account_owner"] = case["account_owner"]
+            result["status"] = "sending"
+        self._audit("mail_case_send_started", actor, case_id, {"draft_id": draft_id})
+        return result
+
+    def fail_draft_send(self, actor: str, case_id: str, draft_id: str, error_type: str) -> None:
+        now = _now()
+        with self._db(write=True) as db:
+            case = db.execute(
+                "SELECT account_owner FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            if case is None or case["account_owner"] != actor:
+                raise PermissionError("only the mail account owner can fail a send")
+            row = db.execute(
+                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] != "sending":
+                raise ValueError("draft is not sending")
+            db.execute(
+                "UPDATE mail_case_draft SET status='failed',updated_at=? WHERE case_id=? AND id=?",
+                (now, case_id, draft_id),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_send_failed", actor, case_id,
+            {"draft_id": draft_id, "error_type": str(error_type)[:120]},
+        )
+
+    def complete_draft_send(
+        self, actor: str, case_id: str, draft_id: str, mail_reference: str,
+        message_id: str,
+    ) -> None:
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "manage_mail")
+            case = db.execute(
+                "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            if case is None or case["account_owner"] != actor:
+                raise PermissionError("only the mail account owner can complete a send")
+            row = db.execute(
+                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] != "sending":
+                raise ValueError("draft is not sending")
+            db.execute(
+                """INSERT INTO mail_case_message
+                   (case_id,mail_reference,direction,message_id,in_reply_to,references_json,created_at)
+                   VALUES(?,?,'outbound',?,'','[]',?)""",
+                (case_id, mail_reference, message_id[:998], now),
+            )
+            db.execute(
+                "UPDATE mail_case_draft SET status='sent',updated_at=? WHERE case_id=? AND id=?",
+                (now, case_id, draft_id),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_send_sent", actor, case_id,
+            {"draft_id": draft_id, "mail_reference": mail_reference, "message_id": message_id[:998]},
+        )
 
     def set_status(self, actor: str, case_id: str, status: str) -> None:
         if status not in STATUSES:
