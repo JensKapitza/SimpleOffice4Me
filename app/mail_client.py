@@ -316,6 +316,10 @@ def _mailboxes(value: str) -> list[str]:
     return parsed
 
 
+def _optional_mailboxes(value: str) -> list[str]:
+    return _mailboxes(value) if value.strip() else []
+
+
 class SmtpSubmission:
     """Authenticated RFC 6409 submission with mandatory local EML archiving."""
 
@@ -347,8 +351,18 @@ class SmtpSubmission:
         return detail
 
     @staticmethod
-    def compose(account: dict[str, Any], recipients: str, subject: str, body: str, calendar_data: str = "") -> tuple[bytes, list[str], str]:
-        targets = _mailboxes(recipients)
+    def compose(
+        account: dict[str, Any], recipients: str, subject: str, body: str,
+        calendar_data: str = "", *, cc: str = "", bcc: str = "",
+    ) -> tuple[bytes, list[str], str]:
+        to_targets = _mailboxes(recipients)
+        cc_targets = _optional_mailboxes(cc)
+        bcc_targets = _optional_mailboxes(bcc)
+        targets = [*to_targets, *cc_targets, *bcc_targets]
+        if len(targets) > MAX_RECIPIENTS:
+            raise ValueError("one to 100 recipients are required")
+        if len({address.casefold() for address in targets}) != len(targets):
+            raise ValueError("duplicate recipients are not allowed")
         sender = _mailboxes(str(account.get("smtp_from", account.get("username", ""))))
         if len(sender) != 1:
             raise ValueError("exactly one sender address is required")
@@ -358,7 +372,9 @@ class SmtpSubmission:
             raise ValueError("message body exceeds 1 MiB")
         message = EmailMessage(policy=policy.SMTP)
         message["From"] = sender[0]
-        message["To"] = ", ".join(targets)
+        message["To"] = ", ".join(to_targets)
+        if cc_targets:
+            message["Cc"] = ", ".join(cc_targets)
         message["Subject"] = subject.strip()
         message["Date"] = formatdate(localtime=True)
         message_id = make_msgid(domain=sender[0].rsplit("@", 1)[1])
@@ -404,8 +420,13 @@ class SmtpSubmission:
             try: client.quit()
             except Exception: client.close()
 
-    def send(self, actor: str, account: dict[str, Any], recipients: str, subject: str, body: str, calendar_data: str = "") -> dict[str, Any]:
-        raw, targets, message_id = self.compose(account, recipients, subject, body, calendar_data)
+    def send(
+        self, actor: str, account: dict[str, Any], recipients: str, subject: str,
+        body: str, calendar_data: str = "", *, cc: str = "", bcc: str = "",
+    ) -> dict[str, Any]:
+        raw, targets, message_id = self.compose(
+            account, recipients, subject, body, calendar_data, cc=cc, bcc=bcc
+        )
         detail = {"message_id": message_id, "from": account["smtp_from"], "recipients": targets, "subject": subject.strip()[:500], "calendar": bool(calendar_data), "at": utc_now()}
         archived = self.store.archive_outbound(actor, account, raw, "pending", detail)
         try:
