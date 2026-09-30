@@ -35,6 +35,20 @@ MAX_OUTBOUND_BYTES = 25 * 1024 * 1024
 MAX_RECIPIENTS = 100
 MAX_OUTBOUND_ATTACHMENTS = 20
 
+MAIL_UI_FEATURES = (
+    "inbox", "archive", "duplicates", "compose", "cases",
+    "participants", "comments", "drafts", "delegation",
+    "contacts", "calendar", "sieve",
+)
+
+
+def _mail_ui_features(value: object | None = None) -> dict[str, bool]:
+    defaults = {name: True for name in MAIL_UI_FEATURES}
+    if not isinstance(value, dict):
+        return defaults
+    return {name: bool(value.get(name, True)) for name in MAIL_UI_FEATURES}
+
+
 
 class ImapAuthenticationError(RuntimeError):
     """Safe, actionable IMAP authentication failure without credentials."""
@@ -114,6 +128,7 @@ class MailStore:
             safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
             safe["password_saved"] = bool(row.get("password"))
             safe["smtp_password_saved"] = bool(row.get("smtp_password"))
+            safe["ui_features"] = _mail_ui_features(row.get("ui_features"))
             result.append(safe)
         return result
 
@@ -217,6 +232,10 @@ class MailStore:
             "smtp_from": smtp_from,
             "smtp_password_env": str(data.get("smtp_password_env", "")).strip()[:120],
             "smtp_password": stored_smtp_password,
+            "ui_features": {
+                name: str(data.get(f"ui_{name}", "")) == "1"
+                for name in MAIL_UI_FEATURES
+            },
             "updated_at": utc_now(),
         }
         payload["accounts"] = [x for x in payload["accounts"] if not (x.get("id") == account_id and x.get("owner") == actor)] + [row]
@@ -225,6 +244,7 @@ class MailStore:
         safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
         safe["password_saved"] = bool(row["password"])
         safe["smtp_password_saved"] = bool(row["smtp_password"])
+        safe["ui_features"] = _mail_ui_features(row.get("ui_features"))
         self.history.record("mail_account_updated" if previous else "mail_account_created", actor, "mail-accounts", account_id, safe)
         return safe
 
