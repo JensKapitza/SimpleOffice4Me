@@ -966,7 +966,7 @@ def main() -> int:
 
             route_seeds = load_route_inventory(summary)
             if SCOPE == "all-pages":
-                selected = [*route_seeds, *navigation]
+                selected = [*navigation, *route_seeds]
             elif SCOPE == "all-navigation":
                 selected = navigation
             elif SCOPE == "core":
@@ -1081,10 +1081,19 @@ def main() -> int:
                             for discovered in discover_links(page):
                                 enqueue(discovered)
 
-                    if status is None or status >= 400:
+                    source = str(entry.get("source") or "")
+                    status_is_failure = (
+                        status is None
+                        or status >= 500
+                        or status == 404
+                        or (source != "route-inventory" and status >= 400)
+                    )
+                    if status_is_failure:
                         failures.append(
                             f"{label}: HTTP {status if status is not None else 'unbekannt'} ({url})"
                         )
+                    elif status is not None and status >= 400:
+                        entry["access_limited"] = True
                     if "/auth/login" in page.url:
                         failures.append(
                             f"{label}: unerwartet zur Anmeldung umgeleitet ({url})"
