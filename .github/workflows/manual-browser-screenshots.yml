@@ -56,7 +56,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile             tests/browser/manual_screenshot_smoke.py             tests/browser/route_inventory.py
+          python -m py_compile \
+            tests/browser/manual_screenshot_smoke.py \
+            tests/browser/route_inventory.py
 
       - name: Install Playwright
         shell: bash
