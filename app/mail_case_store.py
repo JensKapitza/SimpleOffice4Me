@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
+from .document_store import CONTROL_DIR
+
 STATUSES = {"offen", "in_bearbeitung", "wartet", "erledigt"}
 PERMISSIONS = {
     "read", "comment", "compose", "send_request",
@@ -37,8 +39,8 @@ class MailCaseStore:
     """SQLite-backed collaboration metadata with transactional permission checks."""
 
     def __init__(self, root: str | Path, history=None):
-        self.root = Path(root)
-        self.path = self.root / ".simpleoffice" / "mail-cases.sqlite3"
+        self.root = Path(root).expanduser().resolve()
+        self.path = self.root / CONTROL_DIR / "mail-cases.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.history = history
         self._initialize()
@@ -258,6 +260,22 @@ class MailCaseStore:
                 if "read" in self._permissions_for(db, row["id"], actor)
             ]
 
+    def case_for_message(self, actor: str, account_id: str, mail_reference: str) -> str | None:
+        if not account_id or not mail_reference:
+            return None
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT DISTINCT m.case_id
+                   FROM mail_case_message m JOIN mail_case c ON c.id=m.case_id
+                   WHERE c.account_id=? AND m.mail_reference=?""",
+                (account_id, mail_reference),
+            ).fetchall()
+            visible = [
+                str(row["case_id"]) for row in rows
+                if "read" in self._permissions_for(db, str(row["case_id"]), actor)
+            ]
+        return visible[0] if len(visible) == 1 else None
+
     def add_participant(
         self, actor: str, case_id: str, *, local_user_id: str | None = None,
         peer_id: str | None = None, remote_user_id: str | None = None,
@@ -301,11 +319,80 @@ class MailCaseStore:
         self._audit("mail_case_participant_added", actor, case_id, {"participant_id": participant_id, "type": participant_type})
         return participant_id
 
+    def update_participant_permissions(
+        self, actor: str, case_id: str, participant_id: int, permissions: Iterable[str],
+    ) -> None:
+        perms = _permissions(permissions)
+        if not perms:
+            raise ValueError("participant needs at least one permission")
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "manage_participants")
+            row = db.execute(
+                "SELECT participant_type,local_user_id FROM mail_case_participant WHERE case_id=? AND id=?",
+                (case_id, int(participant_id)),
+            ).fetchone()
+            if row is None:
+                raise KeyError(participant_id)
+            case = db.execute(
+                "SELECT account_owner FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            if (
+                row["participant_type"] == "local_user"
+                and case is not None
+                and row["local_user_id"] == case["account_owner"]
+                and set(perms) != PERMISSIONS
+            ):
+                raise ValueError("account owner permissions cannot be reduced")
+            db.execute(
+                "UPDATE mail_case_participant SET permissions_json=? WHERE case_id=? AND id=?",
+                (json.dumps(perms), case_id, int(participant_id)),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_participant_permissions_changed", actor, case_id,
+            {"participant_id": int(participant_id), "permissions": perms},
+        )
+
+    def remove_participant(self, actor: str, case_id: str, participant_id: int) -> None:
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "manage_participants")
+            row = db.execute(
+                """SELECT participant_type,local_user_id,peer_id,remote_user_id
+                   FROM mail_case_participant WHERE case_id=? AND id=?""",
+                (case_id, int(participant_id)),
+            ).fetchone()
+            if row is None:
+                raise KeyError(participant_id)
+            case = db.execute(
+                "SELECT account_owner FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            if (
+                row["participant_type"] == "local_user"
+                and case is not None
+                and row["local_user_id"] == case["account_owner"]
+            ):
+                raise ValueError("account owner cannot be removed from mail case")
+            db.execute(
+                "DELETE FROM mail_case_participant WHERE case_id=? AND id=?",
+                (case_id, int(participant_id)),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_participant_removed", actor, case_id,
+            {"participant_id": int(participant_id), "type": row["participant_type"]},
+        )
+
     def add_message(
         self, actor: str, case_id: str, account_id: str, mail_reference: str,
         *, direction: str = "inbound", message_id: str = "", in_reply_to: str = "",
         references: Iterable[str] = (),
     ) -> None:
+        if direction not in {"inbound", "outbound"}:
+            raise ValueError("invalid mail direction")
+        if not mail_reference:
+            raise ValueError("mail reference is required")
         now = _now()
         with self._db(write=True) as db:
             self._require(db, case_id, actor, "manage_mail")
@@ -321,6 +408,29 @@ class MailCaseStore:
             )
             db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
         self._audit("mail_case_message_added", actor, case_id, {"mail_reference": mail_reference})
+
+    def remove_message(self, actor: str, case_id: str, mail_reference: str) -> None:
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "manage_mail")
+            row = db.execute(
+                "SELECT 1 FROM mail_case_message WHERE case_id=? AND mail_reference=?",
+                (case_id, mail_reference),
+            ).fetchone()
+            if row is None:
+                raise KeyError(mail_reference)
+            db.execute(
+                "DELETE FROM mail_case_message WHERE case_id=? AND mail_reference=?",
+                (case_id, mail_reference),
+            )
+            db.execute(
+                "DELETE FROM mail_case_read_state WHERE case_id=? AND message_reference=?",
+                (case_id, mail_reference),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_message_removed", actor, case_id, {"mail_reference": mail_reference}
+        )
 
     def mark_read(self, actor: str, case_id: str, message_reference: str) -> dict:
         now = _now()
@@ -377,8 +487,14 @@ class MailCaseStore:
         self, actor: str, case_id: str, recipients_to: str, subject: str, body: str,
         *, sender_identity: str = "", cc: str = "", bcc: str = "",
     ) -> str:
-        if not recipients_to.strip() or not subject.strip():
+        recipients_to = recipients_to.strip()
+        subject = subject.strip()
+        if not recipients_to or not subject:
             raise ValueError("recipient and subject are required")
+        if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
+            raise ValueError("recipient list is too long")
+        if len(body.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("draft body is too large")
         draft_id, now = uuid.uuid4().hex, _now()
         with self._db(write=True) as db:
             self._require(db, case_id, actor, "compose")
@@ -393,6 +509,39 @@ class MailCaseStore:
         self._audit("mail_case_draft_created", actor, case_id, {"draft_id": draft_id})
         return draft_id
 
+    def update_draft(
+        self, actor: str, case_id: str, draft_id: str, recipients_to: str,
+        subject: str, body: str, *, sender_identity: str = "", cc: str = "", bcc: str = "",
+    ) -> None:
+        recipients_to = recipients_to.strip()
+        subject = subject.strip()
+        if not recipients_to or not subject:
+            raise ValueError("recipient and subject are required")
+        if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
+            raise ValueError("recipient list is too long")
+        if len(body.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("draft body is too large")
+        now = _now()
+        with self._db(write=True) as db:
+            self._require(db, case_id, actor, "compose")
+            row = db.execute(
+                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] in {"sent", "approved"}:
+                raise ValueError("approved or sent draft cannot be edited")
+            db.execute(
+                """UPDATE mail_case_draft
+                   SET sender_identity=?,recipients_to=?,recipients_cc=?,recipients_bcc=?,
+                       subject=?,body=?,updated_at=?
+                   WHERE case_id=? AND id=?""",
+                (sender_identity, recipients_to, cc, bcc, subject[:998], body, now, case_id, draft_id),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit("mail_case_draft_changed", actor, case_id, {"draft_id": draft_id})
+
     def set_status(self, actor: str, case_id: str, status: str) -> None:
         if status not in STATUSES:
             raise ValueError("invalid mail case status")
@@ -405,7 +554,10 @@ class MailCaseStore:
             )
         self._audit("mail_case_status_changed", actor, case_id, {"status": status})
 
-    def find_thread_case(self, actor: str, *, in_reply_to: str = "", references: Iterable[str] = ()) -> str | None:
+    def find_thread_case(
+        self, actor: str, *, account_id: str = "", in_reply_to: str = "",
+        references: Iterable[str] = (),
+    ) -> str | None:
         candidates = list(dict.fromkeys(
             x.strip() for x in [in_reply_to, *references] if x and x.strip()
         ))
@@ -414,11 +566,18 @@ class MailCaseStore:
         case_ids: set[str] = set()
         with self._db() as db:
             for candidate in candidates[:101]:
-                rows = db.execute(
-                    """SELECT DISTINCT case_id FROM mail_case_message
-                       WHERE message_id=?""",
-                    (candidate,),
-                ).fetchall()
+                if account_id:
+                    rows = db.execute(
+                        """SELECT DISTINCT m.case_id
+                           FROM mail_case_message m JOIN mail_case c ON c.id=m.case_id
+                           WHERE m.message_id=? AND c.account_id=?""",
+                        (candidate, account_id),
+                    ).fetchall()
+                else:
+                    rows = db.execute(
+                        "SELECT DISTINCT case_id FROM mail_case_message WHERE message_id=?",
+                        (candidate,),
+                    ).fetchall()
                 for row in rows:
                     case_id = str(row["case_id"])
                     if "read" in self._permissions_for(db, case_id, actor):
