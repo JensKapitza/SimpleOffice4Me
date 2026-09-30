@@ -98,16 +98,23 @@ final class AndroidOfflineWorksetStore {
             temporary.delete();
             return "io-error";
         }
-        if (target.exists() && !target.delete()) {
+        File backup = new File(root, target.getName() + ".bak");
+        if (backup.exists() && !backup.delete()) {
+            temporary.delete();
+            return "io-error";
+        }
+        if (target.exists() && !target.renameTo(backup)) {
             temporary.delete();
             return "io-error";
         }
         if (!temporary.renameTo(target)) {
             temporary.delete();
+            if (backup.isFile()) backup.renameTo(target);
             return "io-error";
         }
 
         JSONObject metadata = new JSONObject();
+        String previousItems = items.toString();
         try {
             metadata.put("id", normalizedId);
             metadata.put("kind", normalizedKind);
@@ -115,17 +122,19 @@ final class AndroidOfflineWorksetStore {
             metadata.put("savedAt", System.currentTimeMillis());
             metadata.put("expiresAt", expiresAt);
             metadata.put("bytes", bytes.length);
-            String previousItems = items.toString();
             if (existing >= 0) items.put(existing, metadata);
             else items.put(metadata);
             if (!persist()) {
                 state.put("items", new JSONArray(previousItems));
                 target.delete();
+                if (backup.isFile()) backup.renameTo(target);
                 return "io-error";
             }
+            backup.delete();
             return "ok";
         } catch (JSONException error) {
             target.delete();
+            if (backup.isFile()) backup.renameTo(target);
             return "state-error";
         }
     }
@@ -218,6 +227,7 @@ final class AndroidOfflineWorksetStore {
         for (int i = 0; i < outbox.length(); i++) {
             JSONObject operation = outbox.optJSONObject(i);
             if (operation != null && id.equals(operation.optString("operationId"))) {
+                String previousOutbox = outbox.toString();
                 if ("synced".equals(status)) {
                     outbox.remove(i);
                 } else {
@@ -227,7 +237,14 @@ final class AndroidOfflineWorksetStore {
                         return "state-error";
                     }
                 }
-                if (!persist()) return "io-error";
+                if (!persist()) {
+                    try {
+                        state.put("outbox", new JSONArray(previousOutbox));
+                    } catch (JSONException error) {
+                        return "state-error";
+                    }
+                    return "io-error";
+                }
                 return "ok";
             }
         }
@@ -352,6 +369,7 @@ final class AndroidOfflineWorksetStore {
         if (!root.exists() && !root.mkdirs()) return false;
         File file = new File(root, INDEX);
         File temporary = new File(root, INDEX + ".tmp");
+        File backup = new File(root, INDEX + ".bak");
         try (FileOutputStream output = new FileOutputStream(temporary, false)) {
             byte[] data = state.toString().getBytes(StandardCharsets.UTF_8);
             output.write(data);
@@ -360,14 +378,20 @@ final class AndroidOfflineWorksetStore {
             temporary.delete();
             return false;
         }
-        if (file.exists() && !file.delete()) {
+        if (backup.exists() && !backup.delete()) {
+            temporary.delete();
+            return false;
+        }
+        if (file.exists() && !file.renameTo(backup)) {
             temporary.delete();
             return false;
         }
         if (!temporary.renameTo(file)) {
             temporary.delete();
+            if (backup.isFile()) backup.renameTo(file);
             return false;
         }
+        backup.delete();
         return true;
     }
 
