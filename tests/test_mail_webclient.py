@@ -87,5 +87,28 @@ class MailWebClientPolicyTests(unittest.TestCase):
             _encode_modified_utf7("bad\nfolder")
 
 
+    def test_message_exposes_stable_digest_and_thread_headers_without_mutating_imap(self):
+        web = ImapWebClient(self.store)
+        raw = (
+            b"From: sender@example.test\r\n"
+            b"To: jens@example.test\r\n"
+            b"Subject: Antwort\r\n"
+            b"Message-ID: <reply@example.test>\r\n"
+            b"In-Reply-To: <root@example.test>\r\n"
+            b"References: <older@example.test> <root@example.test>\r\n"
+            b"\r\nBody"
+        )
+        web._raw_message = MagicMock(return_value=(raw, set()))
+        message = web.message(self.store.account(self.actor, "work"), "INBOX", "42")
+        self.assertEqual("<reply@example.test>", message["message_id"])
+        self.assertEqual("<root@example.test>", message["in_reply_to"])
+        self.assertEqual(
+            ["<older@example.test>", "<root@example.test>"],
+            message["references"],
+        )
+        self.assertEqual(128, len(message["sha512"]))
+        web._raw_message.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

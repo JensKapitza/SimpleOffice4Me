@@ -88,6 +88,7 @@ PERSISTENCE_COVERAGE = {
     "itip": "excluded:calendar invitation processing state",
     "library.object_care": "pending-provider:physical library records lack principal-aware access",
     "library.store": "pending-provider:library patron data is private",
+    "mail_case_store": "excluded:collaboration metadata requires mail-case participant ACLs and is not a generic S3 projection",
     "mail_index": "excluded:internal mail search index; EML archive provider is authoritative",
     "osm_address_storage": "excluded:public geodata index, not application-owned user data",
     "printershare_store": "excluded:printer credentials and job control state",

@@ -395,6 +395,31 @@ class RevisionHistory:
             except (OSError, RuntimeError, subprocess.SubprocessError):
                 return event_hash
 
+    def events(
+        self, *, category: str = "", key: str = "", limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return bounded, already-redacted audit events for an exact subject filter."""
+        category = str(category).strip()
+        key = str(key).strip()
+        limit = max(1, min(int(limit), 1000))
+        events_dir = self.root / "events"
+        if not events_dir.is_dir():
+            return []
+        rows: list[dict[str, Any]] = []
+        for path in sorted(events_dir.glob("*.json"), reverse=True):
+            try:
+                event = _read_json_strict(path)
+            except ValueError:
+                continue
+            if category and str(event.get("category", "")) != category:
+                continue
+            if key and str(event.get("key", "")) != key:
+                continue
+            rows.append(event)
+            if len(rows) >= limit:
+                break
+        return rows
+
     def verify_event_chain(self) -> dict[str, Any]:
         """Verify event content, ordering, links and the persisted chain head without crashing on corruption."""
         events_dir = self.root / "events"
