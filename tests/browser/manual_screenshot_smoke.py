@@ -17,7 +17,7 @@ import sys
 import unicodedata
 from collections import deque
 from pathlib import Path
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urldefrag, urljoin, urlparse
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -123,15 +123,34 @@ CRAWL_SKIP_AUTH_PREFIXES = (
 )
 CRAWL_SKIP_SUFFIXES = (
     ".7z", ".bin", ".csv", ".doc", ".docx", ".eml", ".gif", ".gz", ".ics",
-    ".jpeg", ".jpg", ".json", ".odt", ".ods", ".odp", ".pdf", ".png", ".ppt",
-    ".pptx", ".svg", ".tar", ".txt", ".vcf", ".webp", ".xls", ".xlsx", ".xml", ".zip",
+    ".jpeg", ".jpg", ".js", ".json", ".odt", ".ods", ".odp", ".pdf", ".png",
+    ".ppt", ".pptx", ".svg", ".tar", ".txt", ".vcf", ".webmanifest", ".webp",
+    ".xls", ".xlsx", ".xml", ".zip",
+)
+CRAWL_VOLATILE_QUERY_KEYS = {
+    "cursor", "date", "day", "end", "from", "limit", "month", "offset", "order",
+    "page", "q", "query", "search", "sort", "start", "to", "week", "year",
+}
+CRAWL_SENSITIVE_QUERY_KEYS = {
+    "code", "key", "secret", "sig", "signature", "state", "token",
+}
+MAX_QUERY_VARIANTS_PER_PATH = max(
+    1, int(os.environ.get("BROWSER_MAX_QUERY_VARIANTS_PER_PATH", "20"))
 )
 
 
 def canonical_browser_url(url: str) -> str:
     clean = urldefrag(url)[0]
     parsed = urlparse(clean)
-    return parsed._replace(fragment="").geturl()
+    filtered_query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.casefold() not in CRAWL_VOLATILE_QUERY_KEYS
+    ]
+    return parsed._replace(
+        query=urlencode(sorted(filtered_query)),
+        fragment="",
+    ).geturl()
 
 
 def browser_page_candidate(url: str) -> bool:
@@ -140,6 +159,9 @@ def browser_page_candidate(url: str) -> bool:
     parsed = urlparse(url)
     path = parsed.path or "/"
     lowered = path.casefold()
+    query_keys = {key.casefold() for key, _value in parse_qsl(parsed.query, keep_blank_values=True)}
+    if query_keys & CRAWL_SENSITIVE_QUERY_KEYS:
+        return False
     if path in CRAWL_SKIP_EXACT or any(path.startswith(prefix) for prefix in CRAWL_SKIP_PREFIXES):
         return False
     if any(path.startswith(prefix) for prefix in CRAWL_SKIP_AUTH_PREFIXES):
@@ -838,6 +860,8 @@ def main() -> int:
         "peer_base_url": PEER_BASE_URL,
         "scope": SCOPE,
         "max_pages": MAX_PAGES,
+        "max_query_variants_per_path": MAX_QUERY_VARIANTS_PER_PATH,
+        "crawl_skipped_query_variants": 0,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
         "pages": [],
         "console_errors": [],
@@ -969,11 +993,22 @@ def main() -> int:
 
             queue: deque[dict[str, str]] = deque()
             queued_urls: set[str] = set()
+            queued_query_variants: dict[str, int] = {}
 
             def enqueue(item: dict[str, str]) -> None:
                 href = canonical_browser_url(item["href"])
                 if href in queued_urls or not browser_page_candidate(href):
                     return
+                parsed = urlparse(href)
+                path_key = parsed.path or "/"
+                if parsed.query:
+                    variants = queued_query_variants.get(path_key, 0)
+                    if variants >= MAX_QUERY_VARIANTS_PER_PATH:
+                        summary["crawl_skipped_query_variants"] = int(
+                            summary.get("crawl_skipped_query_variants", 0)
+                        ) + 1
+                        return
+                    queued_query_variants[path_key] = variants + 1
                 queued_urls.add(href)
                 queue.append({**item, "href": href})
 
