@@ -246,5 +246,64 @@ class MailCaseStoreTests(unittest.TestCase):
         )
 
 
+    def test_send_request_is_frozen_until_account_owner_reviews_it(self):
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob",
+            permissions={"read", "compose", "send_request", "manage_mail"},
+        )
+        draft_id = self.store.create_draft(
+            "bob", self.case_id, "kunde@example.test", "Re: Angebot", "Antwort",
+            cc="team@example.test", bcc="audit@example.test",
+        )
+        self.store.request_draft_send("bob", self.case_id, draft_id)
+        row = self.store.get_case("bob", self.case_id)["drafts"][0]
+        self.assertEqual("ready", row["status"])
+        with self.assertRaises(ValueError):
+            self.store.update_draft(
+                "bob", self.case_id, draft_id,
+                "changed@example.test", "Manipuliert", "Nach Freigabe geändert",
+            )
+        with self.assertRaises(PermissionError):
+            self.store.review_draft_send(
+                "bob", self.case_id, draft_id, approve=True,
+            )
+
+        self.store.review_draft_send(
+            "alice", self.case_id, draft_id, approve=True,
+        )
+        sending = self.store.begin_draft_send("alice", self.case_id, draft_id)
+        self.assertEqual("sending", sending["status"])
+        self.assertEqual("acc-1", sending["account_id"])
+        self.store.complete_draft_send(
+            "alice", self.case_id, draft_id,
+            "sha512:sent-message", "<sent@example.test>",
+        )
+        case = self.store.get_case("alice", self.case_id)
+        self.assertEqual("sent", case["drafts"][0]["status"])
+        self.assertEqual(
+            "sha512:sent-message",
+            case["messages"][-1]["mail_reference"],
+        )
+        self.assertEqual("outbound", case["messages"][-1]["direction"])
+
+    def test_failed_send_requires_explicit_new_request(self):
+        draft_id = self.store.create_draft(
+            "alice", self.case_id, "kunde@example.test", "Re: Angebot", "Antwort",
+        )
+        self.store.request_draft_send("alice", self.case_id, draft_id)
+        self.store.review_draft_send("alice", self.case_id, draft_id, approve=True)
+        self.store.begin_draft_send("alice", self.case_id, draft_id)
+        self.store.fail_draft_send("alice", self.case_id, draft_id, "TimeoutError")
+        self.assertEqual(
+            "failed", self.store.get_case("alice", self.case_id)["drafts"][0]["status"]
+        )
+        with self.assertRaises(ValueError):
+            self.store.begin_draft_send("alice", self.case_id, draft_id)
+        self.store.request_draft_send("alice", self.case_id, draft_id)
+        self.assertEqual(
+            "ready", self.store.get_case("alice", self.case_id)["drafts"][0]["status"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
