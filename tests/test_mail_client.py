@@ -238,4 +238,32 @@ class MailClientTests(unittest.TestCase):
         with self.assertRaises(ValueError): SmtpSubmission.compose(account, "bob@example.test", "Hallo\r\nBcc: victim@example.test", "Text")
 
 
+    def test_smtp_cc_and_bcc_keep_bcc_out_of_message_headers(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        raw, targets, _ = SmtpSubmission.compose(
+            account,
+            "to@example.test",
+            "Verteiler",
+            "Text",
+            cc="cc@example.test",
+            bcc="hidden@example.test",
+        )
+        parsed = __import__("email").message_from_bytes(raw)
+        self.assertEqual("to@example.test", parsed["To"])
+        self.assertEqual("cc@example.test", parsed["Cc"])
+        self.assertIsNone(parsed["Bcc"])
+        self.assertEqual(
+            {"to@example.test", "cc@example.test", "hidden@example.test"},
+            set(targets),
+        )
+        with self.assertRaises(ValueError):
+            SmtpSubmission.compose(
+                account,
+                "same@example.test",
+                "Doppelt",
+                "Text",
+                cc="SAME@example.test",
+            )
+
+
 if __name__ == "__main__": unittest.main()
