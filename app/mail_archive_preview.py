@@ -78,6 +78,8 @@ def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
         "cc": _header(message.get("Cc")),
         "date": _header(message.get("Date")),
         "message_id": _header(message.get("Message-ID")),
+        "in_reply_to": _header(message.get("In-Reply-To")),
+        "references": str(message.get("References") or "").split()[:100],
         "text": _message_text(message),
         "attachments": attachments,
         "size": len(raw),
