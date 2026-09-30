@@ -32,6 +32,16 @@ NON_PAGE_TOKENS = (
     "/raw",
     "/stream",
 )
+NON_PAGE_ENDPOINTS = {
+    "library.resolve_location",
+    "service_worker",
+}
+NON_PAGE_RULE_SUFFIXES = (
+    ".js",
+    ".json",
+    ".webmanifest",
+    ".xml",
+)
 AUTH_EXACT = {
     "/auth/login",
     "/auth/logout",
@@ -45,8 +55,14 @@ RULE_ARGUMENT_RE = re.compile(r"<(?:(?P<converter>[^:<>]+):)?[^<>]+>")
 
 
 def browser_candidate(rule: str, endpoint: str) -> tuple[bool, str]:
-    if rule == "/favicon.ico" or rule.startswith("/static/"):
+    if (
+        rule == "/favicon.ico"
+        or rule.startswith("/static/")
+        or rule.casefold().endswith(NON_PAGE_RULE_SUFFIXES)
+    ):
         return False, "static-asset"
+    if endpoint in NON_PAGE_ENDPOINTS:
+        return False, "non-page-get"
     if rule in AUTH_EXACT or any(rule.startswith(prefix) for prefix in AUTH_PREFIXES):
         return False, "authentication-flow"
     if any(rule.startswith(prefix) for prefix in PROTOCOL_PREFIXES):
