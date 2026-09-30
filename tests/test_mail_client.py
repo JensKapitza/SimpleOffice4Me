@@ -87,6 +87,39 @@ class MailClientTests(unittest.TestCase):
         damaged = token[:-2] + ("AA" if token[-2:] != "AA" else "BB")
         with self.assertRaises(Exception): box.decrypt(damaged)
 
+    def test_mail_ui_features_default_visible_and_can_be_configured(self):
+        visible = self.store.accounts("alice")[0]["ui_features"]
+        self.assertTrue(all(visible.values()))
+
+        saved = self.store.save_account(
+            "alice",
+            {
+                "id": self.account["id"],
+                "host": "imap.example.test",
+                "port": 993,
+                "security": "tls",
+                "username": "alice@example.test",
+                "folder": "INBOX",
+                "sieve_port": 4190,
+                "smtp_from": "alice@example.test",
+                "ui_inbox": "1",
+                "ui_archive": "1",
+                "ui_cases": "1",
+                "ui_delegation": "1",
+            },
+            "",
+            True,
+        )
+        self.assertTrue(saved["ui_features"]["inbox"])
+        self.assertTrue(saved["ui_features"]["cases"])
+        self.assertTrue(saved["ui_features"]["delegation"])
+        self.assertFalse(saved["ui_features"]["sieve"])
+        self.assertFalse(saved["ui_features"]["compose"])
+        self.assertEqual(
+            saved["ui_features"],
+            self.store.ui_features("alice", self.account["id"]),
+        )
+
     def test_saved_password_state_is_visible_without_exposing_secret(self):
         listed = self.store.accounts("alice")[0]
         self.assertTrue(listed["password_saved"])
