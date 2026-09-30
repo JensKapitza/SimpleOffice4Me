@@ -66,3 +66,33 @@ Wake-Lock bei Energiesparmaßnahmen beenden; Termux sollte deshalb von der
 Akkuoptimierung ausgenommen werden. Das Telefon-Setup bindet nur an `127.0.0.1`
 und ist nicht aus dem WLAN erreichbar. Ressourcenintensive Dokument-, OSM- und
 Sensor-Hintergrunddienste bleiben auf dem Telefon standardmäßig deaktiviert.
+
+
+## Kontrollierter Offline-Arbeitsbereich in der APK
+
+Die native APK besitzt zusätzlich zum unveränderten PWA-Verhalten einen begrenzten
+app-privaten Offline-Arbeitsbereich. Er ist **kein Spiegel des Servers** und wird
+nur über die native, token-geschützte WebView-Brücke angesprochen.
+
+- Nur ausdrücklich ausgewählte Einträge der Typen Dokument, Projekt, Notiz und
+  Aufgabe können lokal abgelegt werden.
+- Jeder Eintrag benötigt eine Server-Version bzw. ETag sowie eine begrenzte
+  Aufbewahrungszeit. Abgelaufene Einträge werden entfernt.
+- Der Speicher ist auf 128 Einträge, 16 MiB je Eintrag und 128 MiB insgesamt
+  begrenzt. Der Bereich liegt ausschließlich im privaten App-Dateisystem.
+- Der Cache ist an die in Android ausgewählte SimpleOffice-Identität gebunden.
+  Ein Accountwechsel verwirft vorhandene Offline-Daten vor der Freigabe.
+- Offline-Änderungen sind zunächst absichtlich auf Notizen und Aufgabenstatus
+  begrenzt. Die Outbox enthält eine eindeutige Operation-ID und die Basisversion.
+  Damit kann die Server-Synchronisation idempotent arbeiten und Konflikte als
+  `conflict` markieren, statt still Last-Write-Wins anzuwenden.
+- Über die native Brücke kann der gesamte Offline-Bereich manuell gelöscht
+  werden. Passwörter, Session-Secrets und Federation-Schlüssel gehören nicht in
+  diesen Store.
+- Die PWA bleibt unverändert: Ihr Service Worker speichert weiterhin keine
+  Kontakte, Personal-, Kalender- oder Dokumentdaten.
+
+Die native JavaScript-API heißt `window.SimpleOfficeOffline` und stellt Status,
+Cache-Lesen/-Schreiben, Outbox, Acknowledge sowie Clear bereit. Fachmodule müssen
+weiterhin selbst entscheiden, welche Datensätze offline zulässig sind und wie
+eine Server-Version erzeugt bzw. ein Konflikt aufgelöst wird.
