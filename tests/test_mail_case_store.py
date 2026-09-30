@@ -370,5 +370,23 @@ class MailCaseStoreTests(unittest.TestCase):
             self.assertTrue(row["last_read_at"])
 
 
+    def test_draft_rejects_header_injection_before_approval(self):
+        with self.assertRaises(ValueError):
+            self.store.create_draft(
+                "alice", self.case_id, "kunde@example.test\r\nBcc: evil@example.test",
+                "Re: Angebot", "Antwort",
+            )
+        with self.assertRaises(ValueError):
+            self.store.create_draft(
+                "alice", self.case_id, "kunde@example.test",
+                "Re: Angebot\nX-Evil: yes", "Antwort",
+            )
+        with self.assertRaises(ValueError):
+            self.store.create_draft(
+                "alice", self.case_id, "kunde@example.test",
+                "Re: Angebot", "Antwort", sender_identity="identity\r\nX-Evil: yes",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
