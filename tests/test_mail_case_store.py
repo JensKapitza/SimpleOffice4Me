@@ -139,5 +139,112 @@ class MailCaseStoreTests(unittest.TestCase):
             self.store.set_status("alice", self.case_id, "\\Seen")
 
 
+    def test_store_uses_existing_control_directory(self):
+        self.assertEqual(
+            self.root / ".simpleoffice-meta" / "mail-cases.sqlite3",
+            self.store.path,
+        )
+
+    def test_participant_permissions_can_be_changed_and_participant_removed(self):
+        participant_id = self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob", permissions={"read"},
+        )
+        self.store.update_participant_permissions(
+            "alice", self.case_id, participant_id, {"read", "comment"},
+        )
+        row = next(
+            item for item in self.store.get_case("alice", self.case_id)["participants"]
+            if item["id"] == participant_id
+        )
+        self.assertEqual({"read", "comment"}, set(row["permissions"]))
+        self.store.remove_participant("alice", self.case_id, participant_id)
+        self.assertFalse(any(
+            item["id"] == participant_id
+            for item in self.store.get_case("alice", self.case_id)["participants"]
+        ))
+        with self.assertRaises(PermissionError):
+            self.store.get_case("bob", self.case_id)
+
+    def test_account_owner_cannot_be_removed_or_have_permissions_reduced(self):
+        owner = next(
+            item for item in self.store.get_case("alice", self.case_id)["participants"]
+            if item["local_user_id"] == "alice"
+        )
+        with self.assertRaises(ValueError):
+            self.store.update_participant_permissions(
+                "alice", self.case_id, owner["id"], {"read"},
+            )
+        with self.assertRaises(ValueError):
+            self.store.remove_participant("alice", self.case_id, owner["id"])
+
+    def test_message_relation_can_be_removed_without_changing_other_case_data(self):
+        self.store.add_message(
+            "alice", self.case_id, "acc-1", "sha512:two",
+            message_id="<two@example.test>",
+        )
+        self.store.mark_read("alice", self.case_id, "sha512:two")
+        self.store.add_comment("alice", self.case_id, "Bleibt erhalten.")
+        self.store.remove_message("alice", self.case_id, "sha512:two")
+        case = self.store.get_case("alice", self.case_id)
+        self.assertEqual(["sha512:one"], [row["mail_reference"] for row in case["messages"]])
+        self.assertEqual("Bleibt erhalten.", case["comments"][0]["body"])
+        self.assertEqual([], self.store.read_state("alice", self.case_id, "sha512:two"))
+
+    def test_draft_can_be_updated_but_not_without_compose_permission(self):
+        draft_id = self.store.create_draft(
+            "alice", self.case_id, "kunde@example.test", "Re: Angebot", "Alt",
+        )
+        self.store.update_draft(
+            "alice", self.case_id, draft_id,
+            "neu@example.test", "Re: Neu", "Neuer Text", cc="cc@example.test",
+        )
+        row = self.store.get_case("alice", self.case_id)["drafts"][0]
+        self.assertEqual("neu@example.test", row["recipients_to"])
+        self.assertEqual("cc@example.test", row["recipients_cc"])
+        self.assertEqual("Neuer Text", row["body"])
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob", permissions={"read"},
+        )
+        with self.assertRaises(PermissionError):
+            self.store.update_draft(
+                "bob", self.case_id, draft_id,
+                "x@example.test", "Re: X", "Nicht erlaubt",
+            )
+
+    def test_case_for_message_is_account_scoped_and_requires_read(self):
+        self.assertEqual(
+            self.case_id,
+            self.store.case_for_message("alice", "acc-1", "sha512:one"),
+        )
+        self.assertIsNone(
+            self.store.case_for_message("alice", "other-account", "sha512:one")
+        )
+        self.assertIsNone(
+            self.store.case_for_message("bob", "acc-1", "sha512:one")
+        )
+
+    def test_thread_lookup_is_scoped_to_mail_account(self):
+        other = self.store.create_case(
+            "alice", "Anderes Konto", "acc-2", "sha512:other-account",
+            message_id="<same@example.test>",
+        )
+        same_account = self.store.create_case(
+            "alice", "Gleiches Konto", "acc-1", "sha512:same-account",
+            message_id="<same@example.test>",
+        )
+        self.assertEqual(
+            same_account,
+            self.store.find_thread_case(
+                "alice", account_id="acc-1", in_reply_to="<same@example.test>",
+            ),
+        )
+        self.assertEqual(
+            other,
+            self.store.find_thread_case(
+                "alice", account_id="acc-2", references=["<same@example.test>"],
+            ),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
