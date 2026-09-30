@@ -115,9 +115,14 @@ final class AndroidOfflineWorksetStore {
             metadata.put("savedAt", System.currentTimeMillis());
             metadata.put("expiresAt", expiresAt);
             metadata.put("bytes", bytes.length);
+            String previousItems = items.toString();
             if (existing >= 0) items.put(existing, metadata);
             else items.put(metadata);
-            persist();
+            if (!persist()) {
+                state.put("items", new JSONArray(previousItems));
+                target.delete();
+                return "io-error";
+            }
             return "ok";
         } catch (JSONException error) {
             target.delete();
@@ -186,8 +191,12 @@ final class AndroidOfflineWorksetStore {
             operation.put("createdAt", System.currentTimeMillis());
             operation.put("status", "pending");
             operation.put("payload", payload);
+            String previousOutbox = outbox.toString();
             outbox.put(operation);
-            persist();
+            if (!persist()) {
+                state.put("outbox", new JSONArray(previousOutbox));
+                return "io-error";
+            }
             return operationId;
         } catch (JSONException error) {
             return "state-error";
@@ -218,7 +227,7 @@ final class AndroidOfflineWorksetStore {
                         return "state-error";
                     }
                 }
-                persist();
+                if (!persist()) return "io-error";
                 return "ok";
             }
         }
@@ -228,8 +237,7 @@ final class AndroidOfflineWorksetStore {
     synchronized String clear() {
         deleteRecursively(root);
         state = emptyState(currentOwner());
-        persist();
-        return "ok";
+        return persist() ? "ok" : "io-error";
     }
 
     private void enforceOwner() {
@@ -299,12 +307,13 @@ final class AndroidOfflineWorksetStore {
     }
 
     private long totalBytes() {
-        JSONArray items = state.optJSONArray("items");
         long total = 0L;
-        if (items == null) return 0L;
-        for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.optJSONObject(i);
-            if (item != null) total += Math.max(0L, item.optLong("bytes", 0L));
+        File[] files = root.listFiles();
+        if (files == null) return 0L;
+        for (File file : files) {
+            if (file.isFile() && file.getName().endsWith(".cache")) {
+                total += Math.max(0L, file.length());
+            }
         }
         return total;
     }
@@ -339,8 +348,8 @@ final class AndroidOfflineWorksetStore {
         return normalized.isEmpty() || normalized.length() > 256 ? null : normalized;
     }
 
-    private void persist() {
-        if (!root.exists() && !root.mkdirs()) return;
+    private boolean persist() {
+        if (!root.exists() && !root.mkdirs()) return false;
         File file = new File(root, INDEX);
         File temporary = new File(root, INDEX + ".tmp");
         try (FileOutputStream output = new FileOutputStream(temporary, false)) {
@@ -349,13 +358,17 @@ final class AndroidOfflineWorksetStore {
             output.getFD().sync();
         } catch (Exception error) {
             temporary.delete();
-            return;
+            return false;
         }
         if (file.exists() && !file.delete()) {
             temporary.delete();
-            return;
+            return false;
         }
-        if (!temporary.renameTo(file)) temporary.delete();
+        if (!temporary.renameTo(file)) {
+            temporary.delete();
+            return false;
+        }
+        return true;
     }
 
     private static String ownerFingerprint(String owner) {
