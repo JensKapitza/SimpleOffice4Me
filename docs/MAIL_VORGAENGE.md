@@ -35,7 +35,7 @@ Die Tabellen bilden folgende Bereiche ab:
 - `mail_case_read_state`: `first_read_at` und `last_read_at` je Teilnehmer
   und Nachricht.
 - `mail_case_comment`: ausschließlich interne Kommunikation.
-- `mail_case_draft`: Antwortentwürfe; noch kein impliziter Versand.
+- `mail_case_draft`: Antwortentwürfe einschließlich geprüfter Attachment-Referenzen; noch kein impliziter Versand.
 
 Mailinhalt, IMAP-/SMTP-Passwörter und andere Credentials werden nicht in dieser
 Datenbank gespeichert.
@@ -94,8 +94,10 @@ Die Vorgangsansicht enthält:
 - Timeline aus E-Mails, internen Kommentaren und Entwürfen,
 - EML-Vorschau,
 - interne Kommentarfunktion,
-- Antwortentwürfe,
-- bestehende ClamAV-gesicherte Anhangsdownloads.
+- Antwortentwürfe mit geprüften Anhängen,
+- persönlicher Lesestatus je Nachricht und Teilnehmer,
+- bestehende ClamAV-gesicherte Anhangsdownloads,
+- gefilterte Vorgangshistorie aus der manipulationsgeschützten RevisionHistory.
 
 Eine reine Vorgangsansicht öffnet keine IMAP-Verbindung. Dadurch können
 berechtigte Mitarbeiter an archivierten E-Mails mitarbeiten, ohne Zugriff auf
@@ -105,8 +107,8 @@ das ursprüngliche Mailkonto oder dessen Zugangsdaten zu erhalten.
 
 Interne Kommentare sind eigene Vorgangsdatensätze und werden niemals an SMTP
 übergeben. Entwürfe speichern An/CC/BCC, optionale Absenderidentität, Betreff und
-Text getrennt von der EML. Das Erstellen oder Ändern eines Entwurfs versendet
-keine Nachricht.
+Text sowie eine begrenzte Liste geprüfter Attachment-Referenzen getrennt von
+der EML. Das Erstellen oder Ändern eines Entwurfs versendet keine Nachricht.
 
 Ein Teilnehmer mit `send_request` kann den aktuellen Entwurf zur Freigabe
 einreichen. Ab `ready` ist der Inhalt gesperrt, damit er nach Einreichung nicht
@@ -132,9 +134,27 @@ gehören nicht zu diesem Kern.
 
 ## Anhänge
 
-Anhänge bleiben Bestandteil der jeweiligen EML. Beim Download aus einem Vorgang
-wird der bestehende ClamAV-Gate wiederverwendet. Ein Vorgang erzeugt keine
-zweite unsichere Attachment-Ablage.
+Anhänge eingehender oder bereits archivierter E-Mails bleiben Bestandteil der
+jeweiligen unveränderten EML. Beim Download aus einem Vorgang wird der bestehende
+ClamAV-Gate wiederverwendet.
+
+Entwurfsanhänge durchlaufen vor jeder Aufnahme in einen Entwurf den vorhandenen
+`AttachmentSecurity.scan_webdav_upload`-Quarantänepfad. Nur der Verdict
+`clean` wird in den verwalteten Dokumentenspeicher übernommen. Die Dateien
+liegen unter einem eigenen MailCase-Ordner, dessen Dokument-ACL ausschließlich
+den Mailkontoinhaber als `manage` enthält. Berechtigte Vorgangsteilnehmer lesen
+den Anhang nur über die Vorgangsroute nach erneuter serverseitiger Case-ACL-
+Prüfung; dadurch entsteht keine unabhängige Dokumentfreigabe.
+
+Im Entwurf werden nur Dokument-ID, bereinigter Dateiname, MIME-Typ, Größe,
+SHA-256 und Scan-ID gespeichert. Vor Download und SMTP-Versand werden
+Vorgangs-/Entwurfsherkunft, Malware-Scan, Scan-ID, SHA-256 und Dateigröße erneut
+gegen die aktuelle Datei geprüft. Eine nach dem Scan veränderte Datei wird
+abgewiesen. Es gelten maximal 20 Entwurfsanhänge, 50 MiB pro Anhang und weiterhin
+das bestehende 25-MiB-Limit für die vollständig serialisierte ausgehende E-Mail.
+
+BCC-Empfänger werden nur in der SMTP-Envelope geführt; auch bei Nachrichten mit
+Anhängen entsteht kein `Bcc`-Header.
 
 Interne Kommentar-Anhänge sind derzeit nicht implementiert; sie sind optional
 und kein Akzeptanzkriterium des Kernmodells.
@@ -148,7 +168,10 @@ Passwörter und vollständige Credentials werden nicht in Audit-Details kopiert.
 
 Unter anderem werden Erstellung, Mailzuordnung, Entfernen einer Zuordnung,
 Teilnehmeränderungen, Lesestatus, Kommentare, Entwürfe, Statusänderungen,
-EML-Ansicht und Anhangsdownload erfasst.
+EML-Ansicht, Entwurfs-Anhangsänderungen, Versandfreigaben, Versandstatus und
+Anhangsdownloads erfasst. Die Vorgangsoberfläche zeigt die letzten gefilterten
+Audit-Ereignisse an; geheime Felder bleiben dabei durch die bestehende
+RevisionHistory-Redaktion ausgeschlossen.
 
 ## Sicherheit
 
@@ -169,11 +192,12 @@ Die Regressionstests prüfen insbesondere:
 
 - private Vorgänge und serverseitige Rechte,
 - Teilnehmerrechte einschließlich Schutz des Kontoinhabers,
-- getrennten persönlichen Lesestatus,
+- getrennten persönlichen Lesestatus einschließlich UI-Projektion,
 - mehrere E-Mails und Kontogrenzen,
 - Entfernen einer Zuordnung ohne EML-Löschung,
 - interne Kommentare,
 - Entwurfserstellung und -änderung,
+- ClamAV-geprüfte owner-private Entwurfsanhänge samt Hash-/Provenienzprüfung,
 - manipulationsgeschützte Versandanforderung und Kontoinhaber-Freigabe,
 - Read-only-Sperre vor SMTP und atomaren Doppelversandschutz,
 - CC/BCC-Verarbeitung ohne BCC-Header,
