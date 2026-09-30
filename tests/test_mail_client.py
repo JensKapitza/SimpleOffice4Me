@@ -210,7 +210,7 @@ class MailClientTests(unittest.TestCase):
         self.assertNotIn("error", document["attributes"]["email_origin"])
         actions = [json.loads(path.read_text())["action"] for path in (self.root / ".simpleoffice-history" / "events").glob("*.json")]
         self.assertIn("smtp_message_pending", actions)
-        self.assertIn("smtp_message_failed", actions)
+        self.assertIn("smtp_message_unknown", actions)
 
     def test_smtp_authentication_response_is_not_persisted_in_archive_or_history(self):
         account = self.store.smtp_account("alice", self.account["id"])
