@@ -31,15 +31,11 @@ def _target_by_id(store: MailStore, actor: str, account_id: str, archive_id: str
         raise FileNotFoundError("mail archive does not exist")
 
     matches: list[Path] = []
-    for target in base.glob(f"*/{archive_id}.eml"):
+    for target in base.rglob(f"{archive_id}.eml"):
         if target.is_file() and not target.is_symlink():
             matches.append(target.resolve())
             if len(matches) > 1:
                 break
-    if not matches:
-        direct = base / f"{archive_id}.eml"
-        if direct.is_file() and not direct.is_symlink():
-            matches.append(direct.resolve())
     if len(matches) != 1:
         raise FileNotFoundError("archive message does not exist or is ambiguous")
     try:
