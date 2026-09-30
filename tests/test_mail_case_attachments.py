@@ -54,9 +54,7 @@ class MailCaseAttachmentStoreTests(unittest.TestCase):
         document = DocumentStore(self.root).get_document(attachment["document_id"])
         self.assertEqual(self.case_id, document["attributes"]["mail_case_attachment"]["case_id"])
         self.assertEqual("clean", document["attributes"]["malware_scan"]["verdict"])
-        policy_path = (
-            self.root / "MailCases" / self.case_id / ".simpleoffice-meta" / "folder-policy.json"
-        )
+        policy_path = self.root / "MailCases" / self.case_id / ".simpleoffice-folder.json"
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
         self.assertEqual(
             [{"principal": "alice", "role": "manage"}],
