@@ -305,5 +305,70 @@ class MailCaseStoreTests(unittest.TestCase):
         )
 
 
+    def test_draft_attachment_metadata_is_bounded_visible_and_frozen_after_request(self):
+        draft_id = self.store.create_draft(
+            "alice", self.case_id, "kunde@example.test", "Re: Angebot", "Antwort",
+        )
+        attachment = {
+            "document_id": "doc-1",
+            "filename": "angebot.pdf",
+            "content_type": "application/pdf",
+            "size": 1234,
+            "sha256": "a" * 64,
+            "scan_id": "scan-1",
+        }
+        self.store.add_draft_attachment("alice", self.case_id, draft_id, attachment)
+        case = self.store.get_case("alice", self.case_id)
+        self.assertEqual([attachment], case["drafts"][0]["attachments"])
+        self.assertEqual(
+            attachment,
+            self.store.draft_attachment("alice", self.case_id, draft_id, "doc-1"),
+        )
+
+        self.store.request_draft_send("alice", self.case_id, draft_id)
+        with self.assertRaises(ValueError):
+            self.store.add_draft_attachment(
+                "alice", self.case_id, draft_id,
+                {**attachment, "document_id": "doc-2", "sha256": "b" * 64},
+            )
+        with self.assertRaises(ValueError):
+            self.store.remove_draft_attachment(
+                "alice", self.case_id, draft_id, "doc-1",
+            )
+
+    def test_draft_attachment_can_be_removed_while_editable(self):
+        draft_id = self.store.create_draft(
+            "alice", self.case_id, "kunde@example.test", "Re: Angebot", "Antwort",
+        )
+        attachment = {
+            "document_id": "doc-remove",
+            "filename": "notiz.txt",
+            "content_type": "text/plain",
+            "size": 7,
+            "sha256": "c" * 64,
+            "scan_id": "scan-remove",
+        }
+        self.store.add_draft_attachment("alice", self.case_id, draft_id, attachment)
+        self.store.remove_draft_attachment(
+            "alice", self.case_id, draft_id, "doc-remove",
+        )
+        self.assertEqual([], self.store.get_case("alice", self.case_id)["drafts"][0]["attachments"])
+
+    def test_case_projection_includes_personal_read_state_per_message(self):
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob", permissions={"read"},
+        )
+        self.store.mark_read("alice", self.case_id, "sha512:one")
+        self.store.mark_read("bob", self.case_id, "sha512:one")
+        message = self.store.get_case("alice", self.case_id)["messages"][0]
+        self.assertEqual(
+            {"local:alice", "local:bob"},
+            {row["participant_reference"] for row in message["read_state"]},
+        )
+        for row in message["read_state"]:
+            self.assertTrue(row["first_read_at"])
+            self.assertTrue(row["last_read_at"])
+
+
 if __name__ == "__main__":
     unittest.main()
