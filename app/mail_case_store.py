@@ -155,6 +155,20 @@ class MailCaseStore:
             CREATE UNIQUE INDEX IF NOT EXISTS uq_mail_case_participant_federated
                 ON mail_case_participant(case_id, peer_id, remote_user_id)
                 WHERE participant_type='federated_user';
+            CREATE TABLE IF NOT EXISTS mail_send_delegation(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_owner TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                delegate_user TEXT NOT NULL,
+                valid_from TEXT NOT NULL DEFAULT '',
+                valid_until TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(account_owner, account_id, delegate_user)
+            );
+            CREATE INDEX IF NOT EXISTS idx_mail_send_delegation_lookup
+                ON mail_send_delegation(account_owner, account_id, delegate_user, enabled);
             CREATE TABLE IF NOT EXISTS mail_case_read_state(
                 case_id TEXT NOT NULL REFERENCES mail_case(id) ON DELETE CASCADE,
                 message_reference TEXT NOT NULL,
@@ -797,6 +811,91 @@ class MailCaseStore:
                     return attachment
         raise KeyError(document_id)
 
+    @staticmethod
+    def _delegation_date(value: str) -> str:
+        value = str(value or "").strip()
+        if not value:
+            return ""
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("delegation date must use YYYY-MM-DD") from exc
+        return parsed.isoformat()
+
+    def set_send_delegation(
+        self, owner: str, account_id: str, delegate_user: str, *,
+        valid_from: str = "", valid_until: str = "", enabled: bool = True,
+    ) -> None:
+        owner = owner.strip()
+        account_id = account_id.strip()
+        delegate_user = delegate_user.strip()
+        if not owner or not account_id or not delegate_user or delegate_user == owner:
+            raise ValueError("valid owner, account and different delegate are required")
+        start = self._delegation_date(valid_from)
+        end = self._delegation_date(valid_until)
+        if start and end and start > end:
+            raise ValueError("delegation start must not be after end")
+        now = _now()
+        with self._db(write=True) as db:
+            db.execute(
+                """INSERT INTO mail_send_delegation
+                   (account_owner,account_id,delegate_user,valid_from,valid_until,enabled,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?)
+                   ON CONFLICT(account_owner,account_id,delegate_user)
+                   DO UPDATE SET valid_from=excluded.valid_from,valid_until=excluded.valid_until,
+                                 enabled=excluded.enabled,updated_at=excluded.updated_at""",
+                (owner, account_id, delegate_user, start, end, int(bool(enabled)), now, now),
+            )
+        self._audit(
+            "mail_send_delegation_changed", owner, account_id,
+            {"delegate_user": delegate_user, "valid_from": start, "valid_until": end, "enabled": bool(enabled)},
+        )
+
+    def remove_send_delegation(self, owner: str, account_id: str, delegate_user: str) -> None:
+        with self._db(write=True) as db:
+            row = db.execute(
+                """SELECT 1 FROM mail_send_delegation
+                   WHERE account_owner=? AND account_id=? AND delegate_user=?""",
+                (owner, account_id, delegate_user),
+            ).fetchone()
+            if row is None:
+                raise KeyError(delegate_user)
+            db.execute(
+                """DELETE FROM mail_send_delegation
+                   WHERE account_owner=? AND account_id=? AND delegate_user=?""",
+                (owner, account_id, delegate_user),
+            )
+        self._audit(
+            "mail_send_delegation_removed", owner, account_id,
+            {"delegate_user": delegate_user},
+        )
+
+    def send_delegations(self, owner: str, account_id: str) -> list[dict]:
+        with self._db() as db:
+            return [dict(row) for row in db.execute(
+                """SELECT delegate_user,valid_from,valid_until,enabled,created_at,updated_at
+                   FROM mail_send_delegation
+                   WHERE account_owner=? AND account_id=?
+                   ORDER BY delegate_user COLLATE NOCASE""",
+                (owner, account_id),
+            )]
+
+    def has_active_send_delegation(
+        self, owner: str, account_id: str, delegate_user: str, *, on_date: str = "",
+    ) -> bool:
+        day = self._delegation_date(on_date) if on_date else datetime.now(timezone.utc).date().isoformat()
+        with self._db() as db:
+            row = db.execute(
+                """SELECT valid_from,valid_until,enabled FROM mail_send_delegation
+                   WHERE account_owner=? AND account_id=? AND delegate_user=?""",
+                (owner, account_id, delegate_user),
+            ).fetchone()
+        if row is None or not bool(row["enabled"]):
+            return False
+        start = str(row["valid_from"] or "")
+        end = str(row["valid_until"] or "")
+        return (not start or day >= start) and (not end or day <= end)
+
     def request_draft_send(self, actor: str, case_id: str, draft_id: str) -> None:
         now = _now()
         with self._db(write=True) as db:
@@ -809,12 +908,25 @@ class MailCaseStore:
                 raise KeyError(draft_id)
             if row["status"] not in {"draft", "rejected", "failed"}:
                 raise ValueError("draft is not requestable")
+            case = db.execute(
+                "SELECT account_owner,account_id FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            delegated = bool(
+                case is not None and actor != case["account_owner"]
+                and self.has_active_send_delegation(case["account_owner"], case["account_id"], actor)
+            )
+            next_status = "approved" if delegated else "ready"
             db.execute(
-                "UPDATE mail_case_draft SET status='ready',updated_at=? WHERE case_id=? AND id=?",
-                (now, case_id, draft_id),
+                "UPDATE mail_case_draft SET status=?,updated_at=? WHERE case_id=? AND id=?",
+                (next_status, now, case_id, draft_id),
             )
             db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
         self._audit("mail_case_send_requested", actor, case_id, {"draft_id": draft_id})
+        if delegated:
+            self._audit(
+                "mail_case_send_auto_approved", actor, case_id,
+                {"draft_id": draft_id, "account_owner": case["account_owner"]},
+            )
 
     def review_draft_send(
         self, actor: str, case_id: str, draft_id: str, *, approve: bool,
@@ -849,12 +961,20 @@ class MailCaseStore:
     def begin_draft_send(self, actor: str, case_id: str, draft_id: str) -> dict:
         now = _now()
         with self._db(write=True) as db:
-            self._require(db, case_id, actor, "manage_mail")
             case = db.execute(
                 "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
             ).fetchone()
-            if case is None or case["account_owner"] != actor:
-                raise PermissionError("only the mail account owner can send a case draft")
+            if case is None:
+                raise KeyError(case_id)
+            delegated = actor != case["account_owner"] and self.has_active_send_delegation(
+                case["account_owner"], case["account_id"], actor
+            )
+            if actor == case["account_owner"]:
+                self._require(db, case_id, actor, "manage_mail")
+            else:
+                self._require(db, case_id, actor, "send_request")
+                if not delegated:
+                    raise PermissionError("active mail send delegation required")
             row = db.execute(
                 "SELECT * FROM mail_case_draft WHERE case_id=? AND id=?",
                 (case_id, draft_id),
@@ -886,10 +1006,14 @@ class MailCaseStore:
         now = _now()
         with self._db(write=True) as db:
             case = db.execute(
-                "SELECT account_owner FROM mail_case WHERE id=?", (case_id,)
+                "SELECT account_owner,account_id FROM mail_case WHERE id=?", (case_id,)
             ).fetchone()
-            if case is None or case["account_owner"] != actor:
-                raise PermissionError("only the mail account owner can fail a send")
+            delegated = bool(
+                case is not None and actor != case["account_owner"]
+                and self.has_active_send_delegation(case["account_owner"], case["account_id"], actor)
+            )
+            if case is None or (case["account_owner"] != actor and not delegated):
+                raise PermissionError("active mail send delegation required")
             row = db.execute(
                 "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
                 (case_id, draft_id),
@@ -914,12 +1038,20 @@ class MailCaseStore:
     ) -> None:
         now = _now()
         with self._db(write=True) as db:
-            self._require(db, case_id, actor, "manage_mail")
             case = db.execute(
                 "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
             ).fetchone()
-            if case is None or case["account_owner"] != actor:
-                raise PermissionError("only the mail account owner can complete a send")
+            if case is None:
+                raise KeyError(case_id)
+            delegated = actor != case["account_owner"] and self.has_active_send_delegation(
+                case["account_owner"], case["account_id"], actor
+            )
+            if actor == case["account_owner"]:
+                self._require(db, case_id, actor, "manage_mail")
+            else:
+                self._require(db, case_id, actor, "send_request")
+                if not delegated:
+                    raise PermissionError("active mail send delegation required")
             row = db.execute(
                 "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
                 (case_id, draft_id),
