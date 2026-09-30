@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from .document_store import CONTROL_DIR
+from .mail_case_draft_metadata import attachment_metadata as _attachment_metadata
+from .mail_send_delegation import MailSendDelegationStore
 
 STATUSES = {"offen", "in_bearbeitung", "wartet", "erledigt"}
 PERMISSIONS = {
@@ -22,7 +24,6 @@ PERMISSIONS = {
 }
 DRAFT_STATUSES = {"draft", "ready", "approved", "sending", "sent", "rejected", "failed"}
 MAX_DRAFT_ATTACHMENTS = 20
-MAX_DRAFT_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 def _now() -> str:
@@ -37,43 +38,6 @@ def _permissions(value: Iterable[str]) -> list[str]:
     return result
 
 
-def _attachment_metadata(value: dict) -> dict:
-    if not isinstance(value, dict):
-        raise ValueError("draft attachment metadata must be an object")
-    document_id = str(value.get("document_id", "")).strip()
-    filename = Path(str(value.get("filename", "")).replace("\\", "/")).name.strip(" .")
-    content_type = str(value.get("content_type", "application/octet-stream")).strip()
-    sha256 = str(value.get("sha256", "")).strip().casefold()
-    scan_id = str(value.get("scan_id", "")).strip()
-    try:
-        size = int(value.get("size", -1))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("invalid draft attachment size") from exc
-    if not document_id or len(document_id) > 300:
-        raise ValueError("draft attachment document id is required")
-    if not filename or len(filename) > 180 or any(ord(ch) < 32 or ord(ch) == 127 for ch in filename):
-        raise ValueError("invalid draft attachment filename")
-    if (
-        "/" not in content_type or len(content_type) > 200
-        or any(ch in content_type for ch in "\r\n")
-    ):
-        raise ValueError("invalid draft attachment content type")
-    if size < 0 or size > MAX_DRAFT_ATTACHMENT_BYTES:
-        raise ValueError("draft attachment exceeds the 50 MiB limit")
-    if len(sha256) != 64 or any(ch not in "0123456789abcdef" for ch in sha256):
-        raise ValueError("draft attachment SHA-256 is invalid")
-    if not scan_id or len(scan_id) > 300:
-        raise ValueError("draft attachment malware scan id is required")
-    return {
-        "document_id": document_id,
-        "filename": filename,
-        "content_type": content_type,
-        "size": size,
-        "sha256": sha256,
-        "scan_id": scan_id,
-    }
-
-
 class MailCaseStore:
     """SQLite-backed collaboration metadata with transactional permission checks."""
 
@@ -83,6 +47,7 @@ class MailCaseStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.history = history
         self._initialize()
+        self.delegations = MailSendDelegationStore(self.root, history=history)
 
     @contextmanager
     def _db(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
@@ -155,20 +120,6 @@ class MailCaseStore:
             CREATE UNIQUE INDEX IF NOT EXISTS uq_mail_case_participant_federated
                 ON mail_case_participant(case_id, peer_id, remote_user_id)
                 WHERE participant_type='federated_user';
-            CREATE TABLE IF NOT EXISTS mail_send_delegation(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                account_owner TEXT NOT NULL,
-                account_id TEXT NOT NULL,
-                delegate_user TEXT NOT NULL,
-                valid_from TEXT NOT NULL DEFAULT '',
-                valid_until TEXT NOT NULL DEFAULT '',
-                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(account_owner, account_id, delegate_user)
-            );
-            CREATE INDEX IF NOT EXISTS idx_mail_send_delegation_lookup
-                ON mail_send_delegation(account_owner, account_id, delegate_user, enabled);
             CREATE TABLE IF NOT EXISTS mail_case_read_state(
                 case_id TEXT NOT NULL REFERENCES mail_case(id) ON DELETE CASCADE,
                 message_reference TEXT NOT NULL,
@@ -811,91 +762,6 @@ class MailCaseStore:
                     return attachment
         raise KeyError(document_id)
 
-    @staticmethod
-    def _delegation_date(value: str) -> str:
-        value = str(value or "").strip()
-        if not value:
-            return ""
-        try:
-            parsed = datetime.strptime(value, "%Y-%m-%d").date()
-        except ValueError as exc:
-            raise ValueError("delegation date must use YYYY-MM-DD") from exc
-        return parsed.isoformat()
-
-    def set_send_delegation(
-        self, owner: str, account_id: str, delegate_user: str, *,
-        valid_from: str = "", valid_until: str = "", enabled: bool = True,
-    ) -> None:
-        owner = owner.strip()
-        account_id = account_id.strip()
-        delegate_user = delegate_user.strip()
-        if not owner or not account_id or not delegate_user or delegate_user == owner:
-            raise ValueError("valid owner, account and different delegate are required")
-        start = self._delegation_date(valid_from)
-        end = self._delegation_date(valid_until)
-        if start and end and start > end:
-            raise ValueError("delegation start must not be after end")
-        now = _now()
-        with self._db(write=True) as db:
-            db.execute(
-                """INSERT INTO mail_send_delegation
-                   (account_owner,account_id,delegate_user,valid_from,valid_until,enabled,created_at,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?)
-                   ON CONFLICT(account_owner,account_id,delegate_user)
-                   DO UPDATE SET valid_from=excluded.valid_from,valid_until=excluded.valid_until,
-                                 enabled=excluded.enabled,updated_at=excluded.updated_at""",
-                (owner, account_id, delegate_user, start, end, int(bool(enabled)), now, now),
-            )
-        self._audit(
-            "mail_send_delegation_changed", owner, account_id,
-            {"delegate_user": delegate_user, "valid_from": start, "valid_until": end, "enabled": bool(enabled)},
-        )
-
-    def remove_send_delegation(self, owner: str, account_id: str, delegate_user: str) -> None:
-        with self._db(write=True) as db:
-            row = db.execute(
-                """SELECT 1 FROM mail_send_delegation
-                   WHERE account_owner=? AND account_id=? AND delegate_user=?""",
-                (owner, account_id, delegate_user),
-            ).fetchone()
-            if row is None:
-                raise KeyError(delegate_user)
-            db.execute(
-                """DELETE FROM mail_send_delegation
-                   WHERE account_owner=? AND account_id=? AND delegate_user=?""",
-                (owner, account_id, delegate_user),
-            )
-        self._audit(
-            "mail_send_delegation_removed", owner, account_id,
-            {"delegate_user": delegate_user},
-        )
-
-    def send_delegations(self, owner: str, account_id: str) -> list[dict]:
-        with self._db() as db:
-            return [dict(row) for row in db.execute(
-                """SELECT delegate_user,valid_from,valid_until,enabled,created_at,updated_at
-                   FROM mail_send_delegation
-                   WHERE account_owner=? AND account_id=?
-                   ORDER BY delegate_user COLLATE NOCASE""",
-                (owner, account_id),
-            )]
-
-    def has_active_send_delegation(
-        self, owner: str, account_id: str, delegate_user: str, *, on_date: str = "",
-    ) -> bool:
-        day = self._delegation_date(on_date) if on_date else datetime.now(timezone.utc).date().isoformat()
-        with self._db() as db:
-            row = db.execute(
-                """SELECT valid_from,valid_until,enabled FROM mail_send_delegation
-                   WHERE account_owner=? AND account_id=? AND delegate_user=?""",
-                (owner, account_id, delegate_user),
-            ).fetchone()
-        if row is None or not bool(row["enabled"]):
-            return False
-        start = str(row["valid_from"] or "")
-        end = str(row["valid_until"] or "")
-        return (not start or day >= start) and (not end or day <= end)
-
     def request_draft_send(self, actor: str, case_id: str, draft_id: str) -> None:
         now = _now()
         with self._db(write=True) as db:
@@ -913,7 +779,7 @@ class MailCaseStore:
             ).fetchone()
             delegated = bool(
                 case is not None and actor != case["account_owner"]
-                and self.has_active_send_delegation(case["account_owner"], case["account_id"], actor)
+                and self.delegations.has_active(case["account_owner"], case["account_id"], actor)
             )
             next_status = "approved" if delegated else "ready"
             db.execute(
@@ -966,7 +832,7 @@ class MailCaseStore:
             ).fetchone()
             if case is None:
                 raise KeyError(case_id)
-            delegated = actor != case["account_owner"] and self.has_active_send_delegation(
+            delegated = actor != case["account_owner"] and self.delegations.has_active(
                 case["account_owner"], case["account_id"], actor
             )
             if actor == case["account_owner"]:
@@ -1010,7 +876,7 @@ class MailCaseStore:
             ).fetchone()
             delegated = bool(
                 case is not None and actor != case["account_owner"]
-                and self.has_active_send_delegation(case["account_owner"], case["account_id"], actor)
+                and self.delegations.has_active(case["account_owner"], case["account_id"], actor)
             )
             if case is None or (case["account_owner"] != actor and not delegated):
                 raise PermissionError("active mail send delegation required")
@@ -1043,7 +909,7 @@ class MailCaseStore:
             ).fetchone()
             if case is None:
                 raise KeyError(case_id)
-            delegated = actor != case["account_owner"] and self.has_active_send_delegation(
+            delegated = actor != case["account_owner"] and self.delegations.has_active(
                 case["account_owner"], case["account_id"], actor
             )
             if actor == case["account_owner"]:
