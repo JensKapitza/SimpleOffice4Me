@@ -47,6 +47,7 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String statusJson() {
+        enforceOwner();
         pruneExpired();
         JSONObject result = new JSONObject();
         try {
@@ -69,6 +70,7 @@ final class AndroidOfflineWorksetStore {
             String version,
             String payload,
             long retentionSeconds) {
+        enforceOwner();
         String normalizedId = normalizeId(itemId);
         String normalizedKind = normalizeKind(kind);
         String normalizedVersion = normalizeVersion(version);
@@ -140,6 +142,7 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String readItem(String itemId, String kind) {
+        enforceOwner();
         pruneExpired();
         String normalizedId = normalizeId(itemId);
         String normalizedKind = normalizeKind(kind);
@@ -180,6 +183,7 @@ final class AndroidOfflineWorksetStore {
             String targetId,
             String baseVersion,
             String payload) {
+        enforceOwner();
         String normalizedType = mutationType == null ? "" : mutationType.trim().toLowerCase(Locale.ROOT);
         if (!("note".equals(normalizedType) || "task_status".equals(normalizedType))) return "unsupported";
         String normalizedId = normalizeId(targetId);
@@ -213,11 +217,13 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String outboxJson() {
+        enforceOwner();
         JSONArray outbox = state.optJSONArray("outbox");
         return outbox == null ? "[]" : outbox.toString();
     }
 
     synchronized String acknowledgeMutation(String operationId, String resultStatus) {
+        enforceOwner();
         String id = operationId == null ? "" : operationId.trim();
         String status = resultStatus == null ? "" : resultStatus.trim().toLowerCase(Locale.ROOT);
         if (id.isEmpty()) return "invalid";
@@ -252,6 +258,7 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String clear() {
+        enforceOwner();
         deleteRecursively(root);
         state = emptyState(currentOwner());
         return persist() ? "ok" : "io-error";
