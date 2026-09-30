@@ -561,10 +561,19 @@ class MailCaseStore:
     ) -> str:
         recipients_to = recipients_to.strip()
         subject = subject.strip()
+        sender_identity = sender_identity.strip()
+        cc = cc.strip()
+        bcc = bcc.strip()
         if not recipients_to or not subject:
             raise ValueError("recipient and subject are required")
+        if any("\r" in value or "\n" in value for value in (recipients_to, cc, bcc, sender_identity, subject)):
+            raise ValueError("draft header fields must not contain line breaks")
         if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
             raise ValueError("recipient list is too long")
+        if len(subject.encode("utf-8")) > 998:
+            raise ValueError("draft subject is too long")
+        if len(sender_identity) > 500:
+            raise ValueError("sender identity reference is too long")
         if len(body.encode("utf-8")) > 1024 * 1024:
             raise ValueError("draft body is too large")
         draft_id, now = uuid.uuid4().hex, _now()
@@ -588,10 +597,19 @@ class MailCaseStore:
     ) -> None:
         recipients_to = recipients_to.strip()
         subject = subject.strip()
+        sender_identity = sender_identity.strip()
+        cc = cc.strip()
+        bcc = bcc.strip()
         if not recipients_to or not subject:
             raise ValueError("recipient and subject are required")
+        if any("\r" in value or "\n" in value for value in (recipients_to, cc, bcc, sender_identity, subject)):
+            raise ValueError("draft header fields must not contain line breaks")
         if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
             raise ValueError("recipient list is too long")
+        if len(subject.encode("utf-8")) > 998:
+            raise ValueError("draft subject is too long")
+        if len(sender_identity) > 500:
+            raise ValueError("sender identity reference is too long")
         if len(body.encode("utf-8")) > 1024 * 1024:
             raise ValueError("draft body is too large")
         now = _now()
