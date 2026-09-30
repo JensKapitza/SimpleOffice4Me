@@ -320,12 +320,12 @@ class MailCaseStoreTests(unittest.TestCase):
             "alice", self.case_id, local_user_id="bob",
             permissions={"read", "compose", "send_request"},
         )
-        self.store.set_send_delegation(
+        self.store.delegations.set(
             "alice", "acc-1", "bob",
             valid_from="2000-01-01", valid_until="2999-12-31",
         )
         self.assertTrue(
-            self.store.has_active_send_delegation("alice", "acc-1", "bob")
+            self.store.delegations.has_active("alice", "acc-1", "bob")
         )
         draft_id = self.store.create_draft(
             "bob", self.case_id, "kunde@example.test", "Re: Delegation", "Antwort",
@@ -346,9 +346,9 @@ class MailCaseStoreTests(unittest.TestCase):
             self.store.get_case("bob", self.case_id)["drafts"][0]["status"],
         )
 
-        self.store.remove_send_delegation("alice", "acc-1", "bob")
+        self.store.delegations.remove("alice", "acc-1", "bob")
         self.assertFalse(
-            self.store.has_active_send_delegation("alice", "acc-1", "bob")
+            self.store.delegations.has_active("alice", "acc-1", "bob")
         )
         draft_id = self.store.create_draft(
             "bob", self.case_id, "kunde@example.test", "Re: Ohne Delegation", "Antwort",
@@ -362,27 +362,27 @@ class MailCaseStoreTests(unittest.TestCase):
             self.store.begin_draft_send("bob", self.case_id, draft_id)
 
     def test_send_delegation_validity_window_and_validation(self):
-        self.store.set_send_delegation(
+        self.store.delegations.set(
             "alice", "acc-1", "bob",
             valid_from="2026-10-01", valid_until="2026-10-15",
         )
         self.assertFalse(
-            self.store.has_active_send_delegation(
+            self.store.delegations.has_active(
                 "alice", "acc-1", "bob", on_date="2026-09-30",
             )
         )
         self.assertTrue(
-            self.store.has_active_send_delegation(
+            self.store.delegations.has_active(
                 "alice", "acc-1", "bob", on_date="2026-10-10",
             )
         )
         self.assertFalse(
-            self.store.has_active_send_delegation(
+            self.store.delegations.has_active(
                 "alice", "acc-1", "bob", on_date="2026-10-16",
             )
         )
         with self.assertRaises(ValueError):
-            self.store.set_send_delegation(
+            self.store.delegations.set(
                 "alice", "acc-1", "bob",
                 valid_from="2026-10-15", valid_until="2026-10-01",
             )
