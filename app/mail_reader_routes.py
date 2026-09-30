@@ -224,10 +224,14 @@ def index():
 
     if selected and mode != "case":
         read_only = MailAccountPolicy(store).read_only(_actor(), selected["id"])
+        case_links = cases.message_case_links(_actor(), selected["id"])
         if mode == "archive":
             archive_rows = reader.local_archive(_actor(), selected["id"], query=query, limit=200)
             for row in archive_rows:
                 row["archive_id"] = Path(row["path"]).stem.casefold()
+                row["case"] = case_links["by_reference"].get(
+                    _mail_reference(row["archive_id"])
+                )
             if archive_id:
                 try:
                     archive_preview = load_local_eml_by_id(store, _actor(), selected["id"], archive_id)
@@ -252,6 +256,10 @@ def index():
                 folder = folder or selected.get("folder", "INBOX") or "INBOX"
                 mailbox = web.messages(account, folder, page=page, per_page=50, query=query)
                 messages = mailbox["messages"]
+                for message in messages:
+                    message["case"] = case_links["by_message_id"].get(
+                        str(message.get("message_id", "")).strip()
+                    )
                 if uid:
                     preview = web.message(account, folder, uid)
                     reference = _mail_reference(preview["sha512"])
