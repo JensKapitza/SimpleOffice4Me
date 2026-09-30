@@ -4,7 +4,9 @@ import hashlib
 import io
 import tempfile
 import unittest
+from email import policy
 from email.message import EmailMessage
+from email.parser import BytesParser
 from pathlib import Path
 from unittest.mock import patch
 
@@ -350,8 +352,11 @@ class MailCaseRouteTests(unittest.TestCase):
             set(smtp.sent[0][1]),
         )
         self.assertNotIn(b"Bcc:", smtp.sent[0][2])
-        self.assertIn(b"answer.txt", smtp.sent[0][2])
-        self.assertIn(b"delegated attachment", smtp.sent[0][2])
+        parsed = BytesParser(policy=policy.default).parsebytes(smtp.sent[0][2])
+        attachments = list(parsed.iter_attachments())
+        self.assertEqual(1, len(attachments))
+        self.assertEqual("answer.txt", attachments[0].get_filename())
+        self.assertEqual(b"delegated attachment", attachments[0].get_payload(decode=True))
 
 
     def test_read_only_participant_cannot_remove_draft_attachment(self):
