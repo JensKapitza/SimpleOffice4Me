@@ -61,6 +61,15 @@ def _owner_key(actor: str) -> str:
     return hashlib.sha256(actor.encode("utf-8")).hexdigest()[:32]
 
 
+class SmtpDeliveryStateUnknown(RuntimeError):
+    """SMTP may already have accepted at least one recipient; automatic retry is unsafe."""
+
+    def __init__(self, delivery_status: str, result: dict[str, Any]):
+        super().__init__("SMTP delivery state is not safely retryable")
+        self.delivery_status = delivery_status
+        self.result = dict(result)
+
+
 class SecretBox:
     """Encrypt saved mail secrets with an installation-specific master key."""
 
@@ -475,23 +484,66 @@ class SmtpSubmission:
             "at": utc_now(),
         }
         archived = self.store.archive_outbound(actor, account, raw, "pending", detail)
+
+        def archive_state(state: str, extra: dict[str, Any] | None = None) -> None:
+            try:
+                self.store.archive_outbound(
+                    actor, account, raw, state, {**detail, **(extra or {})}
+                )
+            except Exception:
+                # The pending EML already exists. Do not turn an audit/storage
+                # follow-up failure into a reason to submit the message again.
+                pass
+
         try:
             client = self._connect(account)
+        except Exception as exc:
+            archive_state("failed", self._safe_transport_error(exc))
+            raise
+
+        try:
             try:
                 refused = client.sendmail(account["smtp_from"], targets, raw)
-                if refused:
+            except (
+                smtplib.SMTPRecipientsRefused,
+                smtplib.SMTPSenderRefused,
+                smtplib.SMTPAuthenticationError,
+                smtplib.SMTPDataError,
+            ) as exc:
+                archive_state("failed", self._safe_transport_error(exc))
+                raise
+            except Exception as exc:
+                archive_state("unknown", self._safe_transport_error(exc))
+                raise SmtpDeliveryStateUnknown(
+                    "unknown", {**archived, "message_id": message_id, "recipients": len(targets)}
+                ) from exc
+
+            if refused:
+                if len(refused) >= len(targets):
+                    archive_state("failed", {"refused_recipients": len(refused)})
                     raise RuntimeError(f"SMTP refused {len(refused)} recipient(s)")
-            finally:
-                try: client.quit()
-                except Exception: client.close()
+                archive_state("partial", {"refused_recipients": len(refused)})
+                raise SmtpDeliveryStateUnknown(
+                    "partial", {**archived, "message_id": message_id, "recipients": len(targets)}
+                )
+        finally:
+            try:
+                client.quit()
+            except Exception:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+        try:
+            self.store.archive_outbound(actor, account, raw, "sent", detail)
         except Exception as exc:
-            self.store.archive_outbound(
-                actor, account, raw, "failed",
-                {**detail, **self._safe_transport_error(exc)},
-            )
-            raise
-        self.store.archive_outbound(actor, account, raw, "sent", detail)
+            raise SmtpDeliveryStateUnknown(
+                "accepted_unarchived",
+                {**archived, "message_id": message_id, "recipients": len(targets)},
+            ) from exc
         return {**archived, "message_id": message_id, "recipients": len(targets)}
+
 
 
 class ImapArchive:
