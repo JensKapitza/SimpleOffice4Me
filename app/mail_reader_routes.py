@@ -193,7 +193,7 @@ def index():
         try:
             case_view = cases.get_case(_actor(), case_id)
             ui_features = store.ui_features(case_view["account_owner"], case_view["account_id"])
-            can_delegated_send = cases.has_active_send_delegation(
+            can_delegated_send = cases.delegations.has_active(
                 case_view["account_owner"], case_view["account_id"], _actor()
             )
             if case_mail_id:
