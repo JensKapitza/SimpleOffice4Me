@@ -84,8 +84,10 @@ noch keinen vollständigen Federation-Versand.
 
 Die vorhandene Mailoberfläche bleibt erhalten. Aus einer Live- oder
 Archiv-Nachricht kann ein Vorgang erstellt oder die E-Mail einem vorhandenen
-Vorgang hinzugefügt werden. Bei einem eindeutigen Thread-Treffer wird die
-passende Zuordnung angeboten, aber nicht automatisch ausgeführt.
+Vorgang hinzugefügt werden. Postfach- und Archivlisten zeigen bei eindeutig
+zugeordneten Nachrichten direkt den Vorgang als Indikator an. Bei einem
+eindeutigen Thread-Treffer wird die passende Zuordnung angeboten, aber nicht
+automatisch ausgeführt.
 
 Die Vorgangsansicht enthält:
 
