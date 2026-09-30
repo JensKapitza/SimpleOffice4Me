@@ -53,10 +53,12 @@ class MailCaseStoreTests(unittest.TestCase):
         second = self.store.mark_read("alice", self.case_id, "sha512:one")
         self.assertEqual(first["first_read_at"], second["first_read_at"])
         bob_view = self.store.read_state("bob", self.case_id, "sha512:one")
-        self.assertEqual(["local:alice"], [row["participant_reference"] for row in bob_view])
-        self.assertNotIn("local:bob", [row["participant_reference"] for row in bob_view])
+        self.assertEqual([], bob_view)
+        self.store.mark_read("bob", self.case_id, "sha512:one")
+        bob_view = self.store.read_state("bob", self.case_id, "sha512:one")
+        self.assertEqual(["local:bob"], [row["participant_reference"] for row in bob_view])
         rows = self.store.read_state("alice", self.case_id, "sha512:one")
-        self.assertEqual("local:alice", rows[0]["participant_reference"])
+        self.assertEqual(["local:alice"], [row["participant_reference"] for row in rows])
 
     def test_multiple_messages_can_share_one_case_but_not_cross_account(self):
         self.store.add_message(
