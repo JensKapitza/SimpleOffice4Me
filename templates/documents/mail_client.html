@@ -35,6 +35,25 @@
         <div class="col-md-6"><label class="form-label">Absenderadresse</label><input class="form-control" type="email" name="smtp_from" value="{{ selected.smtp_from if selected else '' }}" placeholder="wie IMAP-Benutzer"></div>
         <div class="col-md-6"><label class="form-label">Eigenes SMTP-Passwort</label><input class="form-control" type="password" name="smtp_password" autocomplete="new-password"><div class="form-text">Optional; wird nur zusammen mit der obigen Speicheroption verschlüsselt abgelegt.</div></div>
         <div class="col-md-6"><label class="form-label">SMTP-Passwort-Env</label><input class="form-control" name="smtp_password_env" value="{{ selected.smtp_password_env if selected else '' }}" placeholder="optional"></div>
+
+        <div class="col-12"><hr><h2 class="h6">Sichtbare Mail-Funktionen</h2>
+          <p class="small text-secondary">Diese Schalter steuern die Oberfläche dieses Mailkontos. Sie vergeben keine zusätzlichen Rechte.</p>
+          <div class="row g-2">
+            {% set ui_labels = [
+              ('inbox','Postfach'),('archive','Archiv'),('duplicates','Dubletten'),('compose','Neue Mail / Senden'),
+              ('cases','Mail-Vorgänge'),('participants','Vorgangs-Teilnehmer'),('comments','Interne Kommentare'),
+              ('drafts','Antwortentwürfe'),('delegation','Versanddelegation / Urlaubsvertretung'),
+              ('contacts','Kontakte'),('calendar','Kalender'),('sieve','Sieve')
+            ] %}
+            {% for key,label in ui_labels %}
+            <div class="col-md-6"><div class="form-check">
+              <input class="form-check-input" type="checkbox" name="ui_{{ key }}" value="1" id="ui-{{ key }}"
+                     {% if not selected or selected.ui_features[key] %}checked{% endif %}>
+              <label class="form-check-label" for="ui-{{ key }}">{{ label }}</label>
+            </div></div>
+            {% endfor %}
+          </div>
+        </div>
         <div class="col-12"><button type="submit" class="btn btn-primary">Konfiguration speichern</button></div>
       </form>
     </div></div></section>
@@ -46,7 +65,7 @@
           <form class="col-md-7 d-flex flex-wrap gap-2" method="post" action="{{ url_for('mail_client.archive', account_id=account.id) }}"><input class="form-control form-control-sm w-auto" type="number" min="1" max="1000" name="limit" value="250" aria-label="Maximale Nachrichten"><input class="form-control form-control-sm flex-grow-1" type="password" name="password" placeholder="Passwort, falls nicht gespeichert"><div class="form-check align-self-center"><input class="form-check-input" type="checkbox" value="1" name="extract_attachments" id="extract-{{ account.id }}"><label class="form-check-label small" for="extract-{{ account.id }}">Anhänge bestätigen und mit ClamAV prüfen</label></div><button type="submit" class="btn btn-sm btn-primary">Jetzt kopieren</button></form></div>
         </article>{% else %}<p class="text-secondary mb-0">Noch kein IMAP-Konto konfiguriert.</p>{% endfor %}
       </div></div>
-      {% if selected %}<div class="card mb-4"><div class="card-header"><strong>Nachricht senden</strong></div><div class="card-body">
+      {% if selected and selected.ui_features.compose %}<div class="card mb-4"><div class="card-header"><strong>Nachricht senden</strong></div><div class="card-body">
         <div class="alert alert-secondary small">Die Nachricht wird vor dem ersten Netzwerkaufruf als EML archiviert. Das Archiv ist privat und über dieselben Dokumentrechte erreichbar.</div>
         <form method="post" action="{{ url_for('mail_client.send', account_id=selected.id) }}" class="row g-3">
           <div class="col-md-8"><label class="form-label">Empfänger</label><input class="form-control" required name="recipients" placeholder="person@example.org, team@example.org"></div>
@@ -57,7 +76,38 @@
           <div class="col-12 d-flex gap-2"><button type="submit" class="btn btn-primary">Archivieren und senden</button><button type="submit" class="btn btn-outline-secondary" formaction="{{ url_for('mail_client.test_smtp', account_id=selected.id) }}" formnovalidate>Nur SMTP-Login testen</button></div>
         </form>
       </div></div>{% endif %}
-      {% if selected %}<div class="card"><div class="card-header d-flex justify-content-between align-items-center gap-2"><strong>Sieve-Skripte</strong>{% if sieve_state.active %}<span class="badge text-bg-success">Aktiv: {{ sieve_state.active }}</span>{% endif %}</div><div class="card-body">
+      {% if selected and selected.ui_features.delegation %}
+      <div class="card mb-4" id="mail-delegation"><div class="card-header"><strong>Versanddelegation / Urlaubsvertretung</strong></div><div class="card-body">
+        <div class="alert alert-warning small">
+          Eine aktive Delegation erlaubt der gewählten Person, freigegebene Vorgangs-Mails über dieses Konto zu senden.
+          Das SMTP-/IMAP-Passwort wird nicht offengelegt. Die Aktion wird protokolliert.
+        </div>
+        <form method="post" action="{{ url_for('mail_client.save_send_delegation', account_id=selected.id) }}" class="row g-2 align-items-end mb-3">
+          <div class="col-md-4"><label class="form-label">Vertretung</label><select class="form-select" name="delegate_user" required><option value="">Benutzer wählen</option>{% for user in delegation_users %}<option value="{{ user.username }}">{{ user.display_name or user.username }} ({{ user.username }})</option>{% endfor %}</select></div>
+          <div class="col-md-3"><label class="form-label">Gültig ab</label><input class="form-control" type="date" name="valid_from"></div>
+          <div class="col-md-3"><label class="form-label">Gültig bis</label><input class="form-control" type="date" name="valid_until"><div class="form-text">Leer = dauerhaft.</div></div>
+          <input type="hidden" name="enabled" value="1">
+          <div class="col-md-2"><button class="btn btn-warning w-100" type="submit">Delegation speichern</button></div>
+        </form>
+        {% for delegation in delegations %}
+        <div class="border rounded p-2 mb-2 d-flex flex-wrap justify-content-between gap-2 align-items-center">
+          <div><strong>{{ delegation.delegate_user }}</strong>
+            <span class="badge {{ 'text-bg-success' if delegation.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if delegation.enabled else 'deaktiviert' }}</span>
+            <div class="small text-secondary">
+              {% if delegation.valid_from %}ab {{ delegation.valid_from }}{% else %}ab sofort{% endif %}
+              · {% if delegation.valid_until %}bis {{ delegation.valid_until }}{% else %}dauerhaft{% endif %}
+            </div>
+          </div>
+          <form method="post" action="{{ url_for('mail_client.remove_send_delegation', account_id=selected.id) }}">
+            <input type="hidden" name="delegate_user" value="{{ delegation.delegate_user }}">
+            <button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button>
+          </form>
+        </div>
+        {% else %}<p class="text-secondary mb-0">Keine Versanddelegation eingerichtet.</p>{% endfor %}
+      </div></div>
+      {% endif %}
+
+      {% if selected and selected.ui_features.sieve %}<div class="card"><div class="card-header d-flex justify-content-between align-items-center gap-2"><strong>Sieve-Skripte</strong>{% if sieve_state.active %}<span class="badge text-bg-success">Aktiv: {{ sieve_state.active }}</span>{% endif %}</div><div class="card-body">
         <div class="alert alert-secondary small">Vor jedem Hochladen oder Aktivieren lädt SimpleOffice <strong>alle aktuell auf dem ManageSieve-Server vorhandenen Skripte</strong> herunter und versioniert Änderungen lokal. Dadurch bleibt auch die bisher aktive Serverfassung erhalten.</div>
         <div class="row g-3 mb-3">
           <form class="col-lg-6" method="post" action="{{ url_for('mail_client.sync_sieve', account_id=selected.id) }}">
