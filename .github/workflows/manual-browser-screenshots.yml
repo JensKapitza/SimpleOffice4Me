@@ -52,6 +52,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Validate browser test syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile             tests/browser/manual_screenshot_smoke.py             tests/browser/route_inventory.py
+
       - name: Install Playwright
         shell: bash
         run: |
@@ -131,7 +137,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p test-results/browser
-          docker exec simpleoffice-browser-peer-a             python tests/browser/route_inventory.py             > test-results/browser/route-inventory.json
+          docker exec simpleoffice-browser-peer-a \
+            python tests/browser/route_inventory.py \
+            > test-results/browser/route-inventory.json
 
       - name: Run browser screenshot and peer-to-peer test
         env:
