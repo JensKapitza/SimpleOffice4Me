@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import tempfile
 import unittest
 from email.message import EmailMessage
@@ -11,9 +12,16 @@ from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
+from app.attachment_security import ScanResult
+from app.mail_case_attachments import MailCaseAttachmentStore
 from app.mail_case_store import MailCaseStore
 from app.mail_client import MailStore, SmtpSubmission, _owner_key
 from app.mail_webclient import MailAccountPolicy
+
+
+class FakeScanner:
+    def scan(self, path):
+        return ScanResult("clean", "test result", "fake")
 
 
 class MailCaseRouteTests(unittest.TestCase):
@@ -157,7 +165,10 @@ class MailCaseRouteTests(unittest.TestCase):
             f"/documents/mail/reader?mode=case&case={case_id}&case_mail={self.first_digest}"
         )
         self.assertEqual(200, bob_view.status_code)
-        self.assertIn("Kundenfall", bob_view.get_data(as_text=True))
+        bob_body = bob_view.get_data(as_text=True)
+        self.assertIn("Kundenfall", bob_body)
+        self.assertIn("Persönlich gelesen:", bob_body)
+        self.assertIn("Vorgangshistorie", bob_body)
         read_rows = cases.read_state("alice", case_id, f"sha512:{self.first_digest}")
         self.assertIn("local:bob", {row["participant_reference"] for row in read_rows})
 
@@ -242,6 +253,28 @@ class MailCaseRouteTests(unittest.TestCase):
         )
         draft_id = cases.get_case("alice", case_id)["drafts"][0]["id"]
 
+        attachment_service = MailCaseAttachmentStore(self.root, scanner=FakeScanner())
+        with patch(
+            "app.mail_reader_routes._draft_attachment_store",
+            return_value=attachment_service,
+        ):
+            uploaded = self.bob.post(
+                f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/attachment",
+                data={"attachment": (io.BytesIO(b"delegated attachment"), "answer.txt")},
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+        self.assertEqual(200, uploaded.status_code)
+        draft = cases.get_case("alice", case_id)["drafts"][0]
+        self.assertEqual("answer.txt", draft["attachments"][0]["filename"])
+
+        downloaded = self.bob.get(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/attachment/"
+            + draft["attachments"][0]["document_id"]
+        )
+        self.assertEqual(200, downloaded.status_code)
+        self.assertEqual(b"delegated attachment", downloaded.data)
+
         self.bob.post(
             f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/request-send"
         )
@@ -317,6 +350,37 @@ class MailCaseRouteTests(unittest.TestCase):
             set(smtp.sent[0][1]),
         )
         self.assertNotIn(b"Bcc:", smtp.sent[0][2])
+        self.assertIn(b"answer.txt", smtp.sent[0][2])
+        self.assertIn(b"delegated attachment", smtp.sent[0][2])
+
+
+    def test_read_only_participant_cannot_remove_draft_attachment(self):
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case(
+            "alice", "Anhangsschutz", "work", f"sha512:{self.first_digest}",
+            message_id="<root@example.test>",
+        )
+        draft_id = cases.create_draft(
+            "alice", case_id, "customer@example.test", "Re: Anhang", "Antwort",
+        )
+        service = MailCaseAttachmentStore(self.root, scanner=FakeScanner())
+        attachment = service.save(
+            b"owner attachment", "owner.txt", "text/plain", "alice",
+            case_id=case_id, draft_id=draft_id, owner="alice",
+        )
+        cases.add_draft_attachment("alice", case_id, draft_id, attachment)
+        self.alice.post(
+            f"/documents/mail/reader/case/{case_id}/participant",
+            data={"username": "bob"},
+        )
+        response = self.bob.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/attachment/"
+            f"{attachment['document_id']}/remove",
+            follow_redirects=True,
+        )
+        self.assertEqual(200, response.status_code)
+        current = cases.get_case("alice", case_id)["drafts"][0]["attachments"]
+        self.assertEqual([attachment], current)
 
 
 if __name__ == "__main__":
