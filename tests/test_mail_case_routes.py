@@ -17,7 +17,7 @@ from app import db as database
 from app.attachment_security import ScanResult
 from app.mail_case_attachments import MailCaseAttachmentStore
 from app.mail_case_store import MailCaseStore
-from app.mail_client import MailStore, SmtpSubmission, _owner_key
+from app.mail_client import MailStore, SmtpDeliveryStateUnknown, SmtpSubmission, _owner_key
 from app.mail_webclient import MailAccountPolicy
 
 
@@ -357,6 +357,34 @@ class MailCaseRouteTests(unittest.TestCase):
         self.assertEqual(1, len(attachments))
         self.assertEqual("answer.txt", attachments[0].get_filename())
         self.assertEqual(b"delegated attachment", attachments[0].get_payload(decode=True))
+
+
+    def test_unknown_smtp_delivery_state_cannot_be_retried(self):
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case(
+            "alice", "Unklarer SMTP-Status", "work", f"sha512:{self.first_digest}",
+            message_id="<root@example.test>",
+        )
+        draft_id = cases.create_draft(
+            "alice", case_id, "customer@example.test", "Re: Status", "Antwort",
+        )
+        cases.request_draft_send("alice", case_id, draft_id)
+        cases.review_draft_send("alice", case_id, draft_id, approve=True)
+        MailAccountPolicy(self.mail_store).set_read_only("alice", "work", False)
+
+        uncertain = SmtpDeliveryStateUnknown("unknown", {"recipients": 1})
+        with patch.object(SmtpSubmission, "send", side_effect=uncertain):
+            response = self.alice.post(
+                f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/send",
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("könnte bereits angenommen", response.get_data(as_text=True))
+        draft = cases.get_case("alice", case_id)["drafts"][0]
+        self.assertEqual("sending", draft["status"])
+        with self.assertRaises(ValueError):
+            cases.request_draft_send("alice", case_id, draft_id)
 
 
     def test_read_only_participant_cannot_remove_draft_attachment(self):
