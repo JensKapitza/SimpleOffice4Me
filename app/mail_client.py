@@ -33,6 +33,7 @@ MAX_MESSAGES_PER_RUN = 1000
 MAX_SCRIPT_BYTES = 1024 * 1024
 MAX_OUTBOUND_BYTES = 25 * 1024 * 1024
 MAX_RECIPIENTS = 100
+MAX_OUTBOUND_ATTACHMENTS = 20
 
 
 class ImapAuthenticationError(RuntimeError):
@@ -58,6 +59,15 @@ def _owner_key(actor: str) -> str:
     if not actor.strip():
         raise ValueError("a named user is required")
     return hashlib.sha256(actor.encode("utf-8")).hexdigest()[:32]
+
+
+class SmtpDeliveryStateUnknown(RuntimeError):
+    """SMTP may already have accepted at least one recipient; automatic retry is unsafe."""
+
+    def __init__(self, delivery_status: str, result: dict[str, Any]):
+        super().__init__("SMTP delivery state is not safely retryable")
+        self.delivery_status = delivery_status
+        self.result = dict(result)
 
 
 class SecretBox:
@@ -316,6 +326,30 @@ def _mailboxes(value: str) -> list[str]:
     return parsed
 
 
+def _optional_mailboxes(value: str) -> list[str]:
+    return _mailboxes(value) if value.strip() else []
+
+
+def _outbound_attachment(value: dict[str, Any]) -> tuple[str, str, str, bytes]:
+    if not isinstance(value, dict):
+        raise ValueError("attachment must be an object")
+    filename = Path(str(value.get("filename", "")).replace("\\", "/")).name.strip(" .")
+    content_type = str(value.get("content_type", "application/octet-stream")).strip().casefold()
+    payload = value.get("payload")
+    if not filename or len(filename) > 180 or any(ord(ch) < 32 or ord(ch) == 127 for ch in filename):
+        raise ValueError("invalid attachment filename")
+    if not isinstance(payload, (bytes, bytearray)):
+        raise ValueError("attachment payload must be bytes")
+    raw = bytes(payload)
+    if len(raw) > MAX_OUTBOUND_BYTES:
+        raise ValueError("attachment exceeds outbound message limit")
+    maintype, separator, subtype = content_type.partition("/")
+    token = re.compile(r"^[a-z0-9!#$&^_.+-]{1,100}$")
+    if not separator or not token.fullmatch(maintype) or not token.fullmatch(subtype):
+        raise ValueError("invalid attachment content type")
+    return filename, maintype, subtype, raw
+
+
 class SmtpSubmission:
     """Authenticated RFC 6409 submission with mandatory local EML archiving."""
 
@@ -347,8 +381,19 @@ class SmtpSubmission:
         return detail
 
     @staticmethod
-    def compose(account: dict[str, Any], recipients: str, subject: str, body: str, calendar_data: str = "") -> tuple[bytes, list[str], str]:
-        targets = _mailboxes(recipients)
+    def compose(
+        account: dict[str, Any], recipients: str, subject: str, body: str,
+        calendar_data: str = "", *, cc: str = "", bcc: str = "",
+        attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    ) -> tuple[bytes, list[str], str]:
+        to_targets = _mailboxes(recipients)
+        cc_targets = _optional_mailboxes(cc)
+        bcc_targets = _optional_mailboxes(bcc)
+        targets = [*to_targets, *cc_targets, *bcc_targets]
+        if len(targets) > MAX_RECIPIENTS:
+            raise ValueError("one to 100 recipients are required")
+        if len({address.casefold() for address in targets}) != len(targets):
+            raise ValueError("duplicate recipients are not allowed")
         sender = _mailboxes(str(account.get("smtp_from", account.get("username", ""))))
         if len(sender) != 1:
             raise ValueError("exactly one sender address is required")
@@ -358,7 +403,9 @@ class SmtpSubmission:
             raise ValueError("message body exceeds 1 MiB")
         message = EmailMessage(policy=policy.SMTP)
         message["From"] = sender[0]
-        message["To"] = ", ".join(targets)
+        message["To"] = ", ".join(to_targets)
+        if cc_targets:
+            message["Cc"] = ", ".join(cc_targets)
         message["Subject"] = subject.strip()
         message["Date"] = formatdate(localtime=True)
         message_id = make_msgid(domain=sender[0].rsplit("@", 1)[1])
@@ -375,6 +422,14 @@ class SmtpSubmission:
             if method not in {"REQUEST", "REPLY", "CANCEL", "COUNTER", "DECLINECOUNTER", "PUBLISH"}:
                 raise ValueError("unsupported iTIP method")
             message.add_attachment(encoded, maintype="text", subtype="calendar", params={"method": method, "charset": "UTF-8"}, filename="termin.ics")
+        attachment_rows = list(attachments)
+        if len(attachment_rows) > MAX_OUTBOUND_ATTACHMENTS:
+            raise ValueError("too many outbound attachments")
+        for attachment in attachment_rows:
+            filename, maintype, subtype, payload = _outbound_attachment(attachment)
+            message.add_attachment(
+                payload, maintype=maintype, subtype=subtype, filename=filename
+            )
         raw = message.as_bytes(policy=policy.SMTP)
         if len(raw) > MAX_OUTBOUND_BYTES:
             raise ValueError("outbound message exceeds 25 MiB")
@@ -404,27 +459,85 @@ class SmtpSubmission:
             try: client.quit()
             except Exception: client.close()
 
-    def send(self, actor: str, account: dict[str, Any], recipients: str, subject: str, body: str, calendar_data: str = "") -> dict[str, Any]:
-        raw, targets, message_id = self.compose(account, recipients, subject, body, calendar_data)
-        detail = {"message_id": message_id, "from": account["smtp_from"], "recipients": targets, "subject": subject.strip()[:500], "calendar": bool(calendar_data), "at": utc_now()}
+    def send(
+        self, actor: str, account: dict[str, Any], recipients: str, subject: str,
+        body: str, calendar_data: str = "", *, cc: str = "", bcc: str = "",
+        attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    ) -> dict[str, Any]:
+        raw, targets, message_id = self.compose(
+            account, recipients, subject, body, calendar_data,
+            cc=cc, bcc=bcc, attachments=attachments,
+        )
+        detail = {
+            "message_id": message_id,
+            "from": account["smtp_from"],
+            "recipients": targets,
+            "subject": subject.strip()[:500],
+            "calendar": bool(calendar_data),
+            "attachment_count": len(attachments),
+            "at": utc_now(),
+        }
         archived = self.store.archive_outbound(actor, account, raw, "pending", detail)
+
+        def archive_state(state: str, extra: dict[str, Any] | None = None) -> None:
+            try:
+                self.store.archive_outbound(
+                    actor, account, raw, state, {**detail, **(extra or {})}
+                )
+            except Exception:
+                # The pending EML already exists. Do not turn an audit/storage
+                # follow-up failure into a reason to submit the message again.
+                pass
+
         try:
             client = self._connect(account)
+        except Exception as exc:
+            archive_state("failed", self._safe_transport_error(exc))
+            raise
+
+        try:
             try:
                 refused = client.sendmail(account["smtp_from"], targets, raw)
-                if refused:
+            except (
+                smtplib.SMTPRecipientsRefused,
+                smtplib.SMTPSenderRefused,
+                smtplib.SMTPAuthenticationError,
+                smtplib.SMTPDataError,
+            ) as exc:
+                archive_state("failed", self._safe_transport_error(exc))
+                raise
+            except Exception as exc:
+                archive_state("unknown", self._safe_transport_error(exc))
+                raise SmtpDeliveryStateUnknown(
+                    "unknown", {**archived, "message_id": message_id, "recipients": len(targets)}
+                ) from exc
+
+            if refused:
+                if len(refused) >= len(targets):
+                    archive_state("failed", {"refused_recipients": len(refused)})
                     raise RuntimeError(f"SMTP refused {len(refused)} recipient(s)")
-            finally:
-                try: client.quit()
-                except Exception: client.close()
+                archive_state("partial", {"refused_recipients": len(refused)})
+                raise SmtpDeliveryStateUnknown(
+                    "partial", {**archived, "message_id": message_id, "recipients": len(targets)}
+                )
+        finally:
+            try:
+                client.quit()
+            except Exception:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+        try:
+            self.store.archive_outbound(actor, account, raw, "sent", detail)
         except Exception as exc:
-            self.store.archive_outbound(
-                actor, account, raw, "failed",
-                {**detail, **self._safe_transport_error(exc)},
-            )
-            raise
-        self.store.archive_outbound(actor, account, raw, "sent", detail)
+            raise SmtpDeliveryStateUnknown(
+                "accepted_unarchived",
+                {**archived, "message_id": message_id, "recipients": len(targets)},
+            ) from exc
         return {**archived, "message_id": message_id, "recipients": len(targets)}
+
 
 
 class ImapArchive:
