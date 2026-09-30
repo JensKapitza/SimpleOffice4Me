@@ -7,10 +7,12 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
+from .attachment_security import MAX_ATTACHMENT_BYTES
 from .auth import login_required
 from .db import get_db
 from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id
 from .mail_case_store import MailCaseStore
+from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
 from .mail_client import MailStore, SmtpSubmission
 from .mail_reader import MailReader
@@ -56,6 +58,51 @@ def _mail_source(store: MailStore, account_id: str) -> tuple[str, dict]:
     result = MailReader(store).archive_uid(_actor(), account, folder, uid)
     archive_id = Path(result["path"]).stem.casefold()
     return archive_id, load_local_eml_by_id(store, _actor(), account_id, archive_id)
+
+
+def _draft_attachment_store() -> MailCaseAttachmentStore:
+    return MailCaseAttachmentStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _save_draft_upload(
+    cases: MailCaseStore, case_id: str, draft_id: str, upload,
+) -> dict:
+    case = cases.get_case(_actor(), case_id)
+    if "compose" not in case["permissions"]:
+        raise PermissionError("mail case compose permission required")
+    draft = next((row for row in case["drafts"] if row["id"] == draft_id), None)
+    if draft is None:
+        raise KeyError(draft_id)
+    if draft["status"] not in {"draft", "rejected", "failed"}:
+        raise ValueError("submitted, approved or sent draft cannot accept attachments")
+    if upload is None or not upload.filename:
+        raise ValueError("attachment file is required")
+    payload = upload.stream.read(MAX_ATTACHMENT_BYTES + 1)
+    if len(payload) > MAX_ATTACHMENT_BYTES:
+        raise ValueError("draft attachment exceeds the 50 MiB limit")
+    attachment = _draft_attachment_store().save(
+        payload,
+        upload.filename,
+        upload.mimetype or "application/octet-stream",
+        _actor(),
+        case_id=case_id,
+        draft_id=draft_id,
+        owner=case["account_owner"],
+    )
+    try:
+        cases.add_draft_attachment(_actor(), case_id, draft_id, attachment)
+    except Exception:
+        try:
+            _draft_attachment_store().documents.soft_delete_document(
+                attachment["document_id"], _actor(), expected_sha256=attachment["sha256"]
+            )
+        except Exception:
+            current_app.logger.exception(
+                "Orphaned mail-case draft attachment cleanup failed for %s/%s",
+                case_id, draft_id,
+            )
+        raise
+    return attachment
 
 
 def _mail_direction(store: MailStore, account_id: str, preview: dict) -> str:
@@ -138,17 +185,11 @@ def index():
     case_timeline: list[dict] = []
     case_mail_preview = None
     case_users: list[dict] = []
+    case_history: list[dict] = []
 
     if case_id:
         try:
             case_view = cases.get_case(_actor(), case_id)
-            for item in case_view["messages"]:
-                case_timeline.append({"kind": "mail", **item})
-            for item in case_view["comments"]:
-                case_timeline.append({"kind": "comment", **item})
-            for item in case_view["drafts"]:
-                case_timeline.append({"kind": "draft", **item})
-            case_timeline.sort(key=lambda row: (str(row.get("created_at", "")), str(row.get("id", ""))))
             if case_mail_id:
                 reference = _mail_reference(case_mail_id)
                 if any(row["mail_reference"] == reference for row in case_view["messages"]):
@@ -161,6 +202,15 @@ def index():
                         "mail_case_message_viewed", _actor(), "mail-case", case_id,
                         {"mail_reference": reference, "account_id": case_view["account_id"]},
                     )
+                    case_view = cases.get_case(_actor(), case_id)
+            for item in case_view["messages"]:
+                case_timeline.append({"kind": "mail", **item})
+            for item in case_view["comments"]:
+                case_timeline.append({"kind": "comment", **item})
+            for item in case_view["drafts"]:
+                case_timeline.append({"kind": "draft", **item})
+            case_timeline.sort(key=lambda row: (str(row.get("created_at", "")), str(row.get("id", ""))))
+            case_history = store.history.events(category="mail-case", key=case_id, limit=100)
             if "manage_participants" in case_view["permissions"]:
                 rows = get_db().execute(
                     "SELECT username,display_name FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
@@ -170,6 +220,7 @@ def index():
             case_view = None
             case_timeline = []
             case_mail_preview = None
+            case_history = []
 
     if selected and mode != "case":
         read_only = MailAccountPolicy(store).read_only(_actor(), selected["id"])
@@ -240,6 +291,7 @@ def index():
         case_timeline=case_timeline,
         case_mail_preview=case_mail_preview,
         case_users=case_users,
+        case_history=case_history,
         preview_case_id=preview_case_id,
         suggested_case_id=suggested_case_id,
     )
@@ -365,17 +417,25 @@ def add_case_comment(case_id: str):
 @bp.post("/case/<case_id>/draft")
 @login_required
 def create_case_draft(case_id: str):
+    cases = _cases()
     try:
-        _cases().create_draft(
+        draft_id = cases.create_draft(
             _actor(), case_id,
             request.form.get("to", ""), request.form.get("subject", ""), request.form.get("body", ""),
             sender_identity=request.form.get("sender_identity", ""),
             cc=request.form.get("cc", ""), bcc=request.form.get("bcc", ""),
         )
-        flash("Antwortentwurf wurde im Vorgang gespeichert und nicht versendet.")
+        uploaded = [item for item in request.files.getlist("attachments") if item and item.filename]
+        for item in uploaded:
+            _save_draft_upload(cases, case_id, draft_id, item)
+        flash(
+            f"Antwortentwurf wurde mit {len(uploaded)} Anhang/Anhängen gespeichert und nicht versendet."
+            if uploaded else
+            "Antwortentwurf wurde im Vorgang gespeichert und nicht versendet."
+        )
     except Exception as exc:
         current_app.logger.warning("Mail case draft failed for %s: %s", _actor(), type(exc).__name__)
-        flash("Antwortentwurf konnte nicht gespeichert werden.")
+        flash(f"Antwortentwurf oder Anhang konnte nicht gespeichert werden ({type(exc).__name__}).")
     return _case_redirect(case_id)
 
 
@@ -394,6 +454,80 @@ def update_case_draft(case_id: str, draft_id: str):
         current_app.logger.warning("Mail case draft update failed for %s: %s", _actor(), type(exc).__name__)
         flash("Antwortentwurf konnte nicht aktualisiert werden.")
     return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/draft/<draft_id>/attachment")
+@login_required
+def add_case_draft_attachment(case_id: str, draft_id: str):
+    cases = _cases()
+    try:
+        upload = request.files.get("attachment")
+        attachment = _save_draft_upload(cases, case_id, draft_id, upload)
+        flash(f"Anhang „{attachment['filename']}“ wurde geprüft und gespeichert.")
+    except Exception as exc:
+        current_app.logger.warning(
+            "Mail case draft attachment failed for %s: %s", _actor(), type(exc).__name__
+        )
+        flash(f"Anhang wurde nicht gespeichert ({type(exc).__name__}).")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/draft/<draft_id>/attachment/<document_id>/remove")
+@login_required
+def remove_case_draft_attachment(case_id: str, draft_id: str, document_id: str):
+    cases = _cases()
+    try:
+        attachment = cases.draft_attachment(_actor(), case_id, draft_id, document_id)
+        cases.remove_draft_attachment(_actor(), case_id, draft_id, document_id)
+        try:
+            _draft_attachment_store().documents.soft_delete_document(
+                document_id, _actor(), expected_sha256=attachment["sha256"]
+            )
+        except Exception:
+            current_app.logger.exception(
+                "Mail case detached attachment cleanup failed for %s/%s/%s",
+                case_id, draft_id, document_id,
+            )
+        flash("Anhang wurde aus dem Entwurf entfernt.")
+    except Exception as exc:
+        current_app.logger.warning(
+            "Mail case draft attachment remove failed for %s: %s", _actor(), type(exc).__name__
+        )
+        flash("Anhang konnte nicht entfernt werden.")
+    return _case_redirect(case_id)
+
+
+@bp.get("/case/<case_id>/draft/<draft_id>/attachment/<document_id>")
+@login_required
+def case_draft_attachment(case_id: str, draft_id: str, document_id: str):
+    cases = _cases()
+    try:
+        attachment = cases.draft_attachment(_actor(), case_id, draft_id, document_id)
+        payload = _draft_attachment_store().read(
+            case_id=case_id, draft_id=draft_id, attachment=attachment
+        )
+        _store().history.record(
+            "mail_case_draft_attachment_downloaded", _actor(), "mail-case", case_id,
+            {
+                "draft_id": draft_id,
+                "document_id": document_id,
+                "filename": attachment["filename"],
+                "sha256": attachment["sha256"],
+            },
+        )
+        return send_file(
+            io.BytesIO(payload),
+            mimetype=attachment["content_type"],
+            as_attachment=True,
+            download_name=attachment["filename"],
+            max_age=0,
+        )
+    except Exception as exc:
+        current_app.logger.warning(
+            "Mail case draft attachment download denied for %s: %s", _actor(), type(exc).__name__
+        )
+        flash("Entwurfsanhang konnte nicht sicher geöffnet werden.")
+        return _case_redirect(case_id)
 
 
 @bp.post("/case/<case_id>/draft/<draft_id>/request-send")
@@ -435,6 +569,16 @@ def send_case_draft(case_id: str, draft_id: str):
         draft = cases.begin_draft_send(_actor(), case_id, draft_id)
         MailAccountPolicy(store).require_writable(_actor(), draft["account_id"])
         account = _smtp_account(store, draft["account_id"])
+        attachment_store = _draft_attachment_store()
+        outbound_attachments = [
+            {
+                **attachment,
+                "payload": attachment_store.read(
+                    case_id=case_id, draft_id=draft_id, attachment=attachment
+                ),
+            }
+            for attachment in draft.get("attachments", [])
+        ]
         result = SmtpSubmission(store).send(
             _actor(),
             account,
@@ -443,6 +587,7 @@ def send_case_draft(case_id: str, draft_id: str):
             draft["body"],
             cc=draft["recipients_cc"],
             bcc=draft["recipients_bcc"],
+            attachments=outbound_attachments,
         )
     except Exception as exc:
         if draft is not None:
