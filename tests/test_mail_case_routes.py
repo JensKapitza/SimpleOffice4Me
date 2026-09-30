@@ -5,13 +5,15 @@ import tempfile
 import unittest
 from email.message import EmailMessage
 from pathlib import Path
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
 from app.mail_case_store import MailCaseStore
-from app.mail_client import MailStore, _owner_key
+from app.mail_client import MailStore, SmtpSubmission, _owner_key
+from app.mail_webclient import MailAccountPolicy
 
 
 class MailCaseRouteTests(unittest.TestCase):
@@ -213,6 +215,108 @@ class MailCaseRouteTests(unittest.TestCase):
         )
         case = cases.get_case("alice", case_id)
         self.assertEqual([], case["comments"])
+
+
+    def test_send_request_requires_owner_approval_and_explicit_writable_account(self):
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case(
+            "alice", "Versandfreigabe", "work", f"sha512:{self.first_digest}",
+            message_id="<root@example.test>",
+        )
+        self.alice.post(
+            f"/documents/mail/reader/case/{case_id}/participant",
+            data={
+                "username": "bob",
+                "permission": ["compose", "send_request"],
+            },
+        )
+        self.bob.post(
+            f"/documents/mail/reader/case/{case_id}/draft",
+            data={
+                "to": "customer@example.test",
+                "cc": "team@example.test",
+                "bcc": "hidden@example.test",
+                "subject": "Re: Angebot",
+                "body": "Freigegebene Antwort",
+            },
+        )
+        draft_id = cases.get_case("alice", case_id)["drafts"][0]["id"]
+
+        self.bob.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/request-send"
+        )
+        self.assertEqual(
+            "ready", cases.get_case("alice", case_id)["drafts"][0]["status"]
+        )
+
+        self.bob.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/review",
+            data={"decision": "approve"},
+        )
+        self.assertEqual(
+            "ready", cases.get_case("alice", case_id)["drafts"][0]["status"]
+        )
+
+        self.alice.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/review",
+            data={"decision": "approve"},
+        )
+        self.assertEqual(
+            "approved", cases.get_case("alice", case_id)["drafts"][0]["status"]
+        )
+
+        blocked = self.alice.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/send",
+            follow_redirects=True,
+        )
+        self.assertEqual(200, blocked.status_code)
+        self.assertIn("Versand fehlgeschlagen", blocked.get_data(as_text=True))
+        self.assertEqual(
+            "failed", cases.get_case("alice", case_id)["drafts"][0]["status"]
+        )
+
+        self.bob.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/request-send"
+        )
+        self.alice.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/review",
+            data={"decision": "approve"},
+        )
+        MailAccountPolicy(self.mail_store).set_read_only("alice", "work", False)
+
+        class FakeSmtp:
+            def __init__(self):
+                self.sent = []
+
+            def sendmail(self, sender, recipients, raw):
+                self.sent.append((sender, recipients, raw))
+                return {}
+
+            def quit(self):
+                pass
+
+            def close(self):
+                pass
+
+        smtp = FakeSmtp()
+        with patch.object(SmtpSubmission, "_connect", return_value=smtp):
+            sent = self.alice.post(
+                f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/send",
+                follow_redirects=True,
+            )
+        self.assertEqual(200, sent.status_code)
+        self.assertIn("versandt und im Vorgang archiviert", sent.get_data(as_text=True))
+
+        case = cases.get_case("alice", case_id)
+        self.assertEqual("sent", case["drafts"][0]["status"])
+        outbound = [row for row in case["messages"] if row["direction"] == "outbound"]
+        self.assertEqual(1, len(outbound))
+        self.assertTrue(outbound[0]["mail_reference"].startswith("sha512:"))
+        self.assertEqual(
+            {"customer@example.test", "team@example.test", "hidden@example.test"},
+            set(smtp.sent[0][1]),
+        )
+        self.assertNotIn(b"Bcc:", smtp.sent[0][2])
 
 
 if __name__ == "__main__":
