@@ -8,7 +8,9 @@ from pathlib import Path
 from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
+from .db import get_db
 from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id
+from .mail_case_store import MailCaseStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
 from .mail_client import MailStore, SmtpSubmission
 from .mail_reader import MailReader
@@ -26,6 +28,44 @@ def _store() -> MailStore:
     secret = current_app.config["SECRET_KEY"]
     raw = secret.encode("utf-8") if isinstance(secret, str) else bytes(secret)
     return MailStore(current_app.config["DOCUMENT_ROOT"], raw)
+
+
+def _cases(store: MailStore | None = None) -> MailCaseStore:
+    mail_store = store or _store()
+    return MailCaseStore(current_app.config["DOCUMENT_ROOT"], history=mail_store.history)
+
+
+def _case_redirect(case_id: str):
+    return redirect(url_for("mail_reader.index", case=case_id) + "#mail-case")
+
+
+def _mail_reference(archive_id: str) -> str:
+    return f"sha512:{archive_id.strip().casefold()}"
+
+
+def _mail_source(store: MailStore, account_id: str) -> tuple[str, dict]:
+    archive_id = request.form.get("archive_id", "").strip().casefold()
+    if archive_id:
+        preview = load_local_eml_by_id(store, _actor(), account_id, archive_id)
+        return archive_id, preview
+    folder = request.form.get("folder", "").strip()
+    uid = request.form.get("uid", "").strip()
+    if not folder or not uid:
+        raise ValueError("mail source is required")
+    account = _account(store, account_id)
+    result = MailReader(store).archive_uid(_actor(), account, folder, uid)
+    archive_id = Path(result["path"]).stem.casefold()
+    return archive_id, load_local_eml_by_id(store, _actor(), account_id, archive_id)
+
+
+def _mail_direction(store: MailStore, account_id: str, preview: dict) -> str:
+    account = next((row for row in store.accounts(_actor()) if row["id"] == account_id), {})
+    sender = str(preview.get("from", "")).casefold()
+    own = {
+        str(account.get("username", "")).strip().casefold(),
+        str(account.get("smtp_from", "")).strip().casefold(),
+    } - {""}
+    return "outbound" if any(address in sender for address in own) else "inbound"
 
 
 def _selection(store: MailStore):
@@ -73,12 +113,15 @@ def index():
     store = _store()
     reader = MailReader(store)
     web = ImapWebClient(store)
+    cases = _cases(store)
     accounts, selected = _selection(store)
     mode = request.args.get("mode", "inbox")
     query = request.args.get("q", "").strip()
     folder = request.args.get("folder", "").strip()
     uid = request.args.get("uid", "").strip()
     archive_id = request.args.get("mail", "").strip()
+    case_id = request.args.get("case", "").strip()
+    case_mail_id = request.args.get("case_mail", "").strip().casefold()
     page = max(1, request.args.get("page", 1, type=int) or 1)
     folders: list[dict] = []
     messages: list[dict] = []
@@ -88,6 +131,45 @@ def index():
     archive_rows: list[dict] = []
     connection_error = ""
     read_only = True
+    preview_case_id = None
+    suggested_case_id = None
+    case_rows = cases.list_cases(_actor())
+    case_view = None
+    case_timeline: list[dict] = []
+    case_mail_preview = None
+    case_users: list[dict] = []
+
+    if case_id:
+        try:
+            case_view = cases.get_case(_actor(), case_id)
+            for item in case_view["messages"]:
+                case_timeline.append({"kind": "mail", **item})
+            for item in case_view["comments"]:
+                case_timeline.append({"kind": "comment", **item})
+            for item in case_view["drafts"]:
+                case_timeline.append({"kind": "draft", **item})
+            case_timeline.sort(key=lambda row: (str(row.get("created_at", "")), str(row.get("id", ""))))
+            if case_mail_id:
+                reference = _mail_reference(case_mail_id)
+                if any(row["mail_reference"] == reference for row in case_view["messages"]):
+                    case_mail_preview = load_local_eml_by_id(
+                        store, case_view["account_owner"], case_view["account_id"], case_mail_id
+                    )
+                    _add_attachment_scan_state(case_mail_preview)
+                    cases.mark_read(_actor(), case_id, reference)
+                    store.history.record(
+                        "mail_case_message_viewed", _actor(), "mail-case", case_id,
+                        {"mail_reference": reference, "account_id": case_view["account_id"]},
+                    )
+            if "manage_participants" in case_view["permissions"]:
+                rows = get_db().execute(
+                    "SELECT username,display_name FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
+                ).fetchall()
+                case_users = [dict(row) for row in rows]
+        except (PermissionError, KeyError, ValueError, FileNotFoundError):
+            case_view = None
+            case_timeline = []
+            case_mail_preview = None
 
     if selected:
         read_only = MailAccountPolicy(store).read_only(_actor(), selected["id"])
@@ -100,6 +182,15 @@ def index():
                     archive_preview = load_local_eml_by_id(store, _actor(), selected["id"], archive_id)
                     _add_attachment_scan_state(archive_preview)
                     _audit_archive_view(store, selected["id"], archive_preview)
+                    reference = _mail_reference(archive_preview["sha512"])
+                    preview_case_id = cases.case_for_message(_actor(), selected["id"], reference)
+                    if preview_case_id:
+                        cases.mark_read(_actor(), preview_case_id, reference)
+                    suggested_case_id = cases.find_thread_case(
+                        _actor(), account_id=selected["id"],
+                        in_reply_to=archive_preview.get("in_reply_to", ""),
+                        references=archive_preview.get("references", ()),
+                    )
                 except (ValueError, PermissionError, FileNotFoundError, KeyError) as exc:
                     current_app.logger.warning("Local EML preview denied for %s: %s", _actor(), type(exc).__name__)
                     flash("Die archivierte Nachricht konnte nicht geöffnet werden.")
@@ -112,6 +203,15 @@ def index():
                 messages = mailbox["messages"]
                 if uid:
                     preview = web.message(account, folder, uid)
+                    reference = _mail_reference(preview["sha512"])
+                    preview_case_id = cases.case_for_message(_actor(), selected["id"], reference)
+                    if preview_case_id:
+                        cases.mark_read(_actor(), preview_case_id, reference)
+                    suggested_case_id = cases.find_thread_case(
+                        _actor(), account_id=selected["id"],
+                        in_reply_to=preview.get("in_reply_to", ""),
+                        references=preview.get("references", ()),
+                    )
             except Exception as exc:
                 current_app.logger.warning("IMAP webclient failed for %s: %s", _actor(), type(exc).__name__)
                 if isinstance(exc, ValueError) and "password is required" in str(exc):
@@ -135,7 +235,214 @@ def index():
         connection_error=connection_error,
         read_only=read_only,
         compose=_compose_prefill(),
+        case_rows=case_rows,
+        case_view=case_view,
+        case_timeline=case_timeline,
+        case_mail_preview=case_mail_preview,
+        case_users=case_users,
+        preview_case_id=preview_case_id,
+        suggested_case_id=suggested_case_id,
     )
+
+
+@bp.post("/case/create")
+@login_required
+def create_case():
+    store = _store()
+    account_id = request.form.get("account", "").strip()
+    try:
+        archive_id, preview = _mail_source(store, account_id)
+        case_id = _cases(store).create_case(
+            _actor(),
+            request.form.get("title", "").strip() or preview.get("subject", "") or "(ohne Betreff)",
+            account_id,
+            _mail_reference(archive_id),
+            direction=_mail_direction(store, account_id, preview),
+            message_id=preview.get("message_id", ""),
+            in_reply_to=preview.get("in_reply_to", ""),
+            references=preview.get("references", ()),
+        )
+        flash("Vorgang wurde erstellt; die E-Mail bleibt unverändert archiviert.")
+        return _case_redirect(case_id)
+    except Exception as exc:
+        current_app.logger.warning("Mail case creation failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Vorgang konnte nicht erstellt werden ({type(exc).__name__}).")
+        return redirect(url_for("mail_reader.index", account=account_id))
+
+
+@bp.post("/case/<case_id>/message")
+@login_required
+def add_case_message(case_id: str):
+    store = _store()
+    account_id = request.form.get("account", "").strip()
+    try:
+        archive_id, preview = _mail_source(store, account_id)
+        _cases(store).add_message(
+            _actor(), case_id, account_id, _mail_reference(archive_id),
+            direction=_mail_direction(store, account_id, preview),
+            message_id=preview.get("message_id", ""),
+            in_reply_to=preview.get("in_reply_to", ""),
+            references=preview.get("references", ()),
+        )
+        flash("E-Mail wurde dem Vorgang zugeordnet.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case message add failed for %s: %s", _actor(), type(exc).__name__)
+        flash("E-Mail konnte nicht zum Vorgang hinzugefügt werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/message/remove")
+@login_required
+def remove_case_message(case_id: str):
+    try:
+        _cases().remove_message(_actor(), case_id, request.form.get("mail_reference", "").strip())
+        flash("E-Mail-Zuordnung wurde entfernt; die archivierte EML bleibt unverändert erhalten.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case message remove failed for %s: %s", _actor(), type(exc).__name__)
+        flash("E-Mail-Zuordnung konnte nicht entfernt werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/participant")
+@login_required
+def add_case_participant(case_id: str):
+    username = request.form.get("username", "").strip()
+    try:
+        row = get_db().execute(
+            "SELECT username FROM user WHERE username=? COLLATE NOCASE AND is_disabled=0",
+            (username,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown local user")
+        permissions = set(request.form.getlist("permission")) | {"read"}
+        _cases().add_participant(
+            _actor(), case_id, local_user_id=str(row["username"]), permissions=permissions
+        )
+        flash("Teilnehmer wurde hinzugefügt.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case participant add failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Teilnehmer konnte nicht hinzugefügt werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/participant/<int:participant_id>")
+@login_required
+def update_case_participant(case_id: str, participant_id: int):
+    try:
+        permissions = set(request.form.getlist("permission")) | {"read"}
+        _cases().update_participant_permissions(_actor(), case_id, participant_id, permissions)
+        flash("Teilnehmerrechte wurden aktualisiert.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case participant update failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Teilnehmerrechte konnten nicht geändert werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/participant/<int:participant_id>/remove")
+@login_required
+def remove_case_participant(case_id: str, participant_id: int):
+    try:
+        _cases().remove_participant(_actor(), case_id, participant_id)
+        flash("Teilnehmer wurde entfernt.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case participant remove failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Teilnehmer konnte nicht entfernt werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/comment")
+@login_required
+def add_case_comment(case_id: str):
+    try:
+        _cases().add_comment(_actor(), case_id, request.form.get("body", ""))
+        flash("Interner Kommentar wurde gespeichert.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case comment failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Interner Kommentar konnte nicht gespeichert werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/draft")
+@login_required
+def create_case_draft(case_id: str):
+    try:
+        _cases().create_draft(
+            _actor(), case_id,
+            request.form.get("to", ""), request.form.get("subject", ""), request.form.get("body", ""),
+            sender_identity=request.form.get("sender_identity", ""),
+            cc=request.form.get("cc", ""), bcc=request.form.get("bcc", ""),
+        )
+        flash("Antwortentwurf wurde im Vorgang gespeichert und nicht versendet.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case draft failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Antwortentwurf konnte nicht gespeichert werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/draft/<draft_id>")
+@login_required
+def update_case_draft(case_id: str, draft_id: str):
+    try:
+        _cases().update_draft(
+            _actor(), case_id, draft_id,
+            request.form.get("to", ""), request.form.get("subject", ""), request.form.get("body", ""),
+            sender_identity=request.form.get("sender_identity", ""),
+            cc=request.form.get("cc", ""), bcc=request.form.get("bcc", ""),
+        )
+        flash("Antwortentwurf wurde aktualisiert.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case draft update failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Antwortentwurf konnte nicht aktualisiert werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/status")
+@login_required
+def update_case_status(case_id: str):
+    try:
+        _cases().set_status(_actor(), case_id, request.form.get("status", "").strip())
+        flash("Vorgangsstatus wurde aktualisiert.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case status update failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Vorgangsstatus konnte nicht aktualisiert werden.")
+    return _case_redirect(case_id)
+
+
+@bp.get("/case/<case_id>/attachment/<archive_id>/<int:part_index>")
+@login_required
+def case_attachment(case_id: str, archive_id: str, part_index: int):
+    store = _store()
+    cases = _cases(store)
+    try:
+        case = cases.get_case(_actor(), case_id)
+        reference = _mail_reference(archive_id)
+        if not any(row["mail_reference"] == reference for row in case["messages"]):
+            raise KeyError(reference)
+        attachment = load_local_attachment_by_id(
+            store, case["account_owner"], case["account_id"], archive_id, part_index
+        )
+        record = scan_attachment_for_download(
+            current_app.config["DOCUMENT_ROOT"], _actor(), case["account_id"], archive_id,
+            attachment["name"], attachment["payload"],
+        )
+        if record.get("verdict") != "clean":
+            flash("Anhang wurde nicht freigegeben, weil der ClamAV-Scan nicht sauber abgeschlossen wurde.")
+            return _case_redirect(case_id)
+        store.history.record(
+            "mail_case_attachment_downloaded", _actor(), "mail-case", case_id,
+            {"mail_reference": reference, "part": part_index, "filename": attachment["name"], "scan_id": record["scan_id"]},
+        )
+        return send_file(
+            io.BytesIO(attachment["payload"]),
+            mimetype=attachment["type"] or "application/octet-stream",
+            as_attachment=True,
+            download_name=attachment["name"],
+            max_age=0,
+        )
+    except Exception as exc:
+        current_app.logger.warning("Mail case attachment denied for %s: %s", _actor(), type(exc).__name__)
+        flash("Anhang konnte nicht sicher geöffnet werden.")
+        return _case_redirect(case_id)
 
 
 @bp.get("/contacts")
