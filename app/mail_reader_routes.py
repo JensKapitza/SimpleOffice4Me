@@ -396,6 +396,83 @@ def update_case_draft(case_id: str, draft_id: str):
     return _case_redirect(case_id)
 
 
+@bp.post("/case/<case_id>/draft/<draft_id>/request-send")
+@login_required
+def request_case_draft_send(case_id: str, draft_id: str):
+    try:
+        _cases().request_draft_send(_actor(), case_id, draft_id)
+        flash("Versand wurde beim Mailkontoinhaber angefordert.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case send request failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Versandanforderung konnte nicht erstellt werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/draft/<draft_id>/review")
+@login_required
+def review_case_draft_send(case_id: str, draft_id: str):
+    decision = request.form.get("decision", "").strip()
+    try:
+        if decision not in {"approve", "reject"}:
+            raise ValueError("invalid send review decision")
+        _cases().review_draft_send(
+            _actor(), case_id, draft_id, approve=decision == "approve"
+        )
+        flash("Versand freigegeben." if decision == "approve" else "Versand abgelehnt.")
+    except Exception as exc:
+        current_app.logger.warning("Mail case send review failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Versandfreigabe konnte nicht geändert werden.")
+    return _case_redirect(case_id)
+
+
+@bp.post("/case/<case_id>/draft/<draft_id>/send")
+@login_required
+def send_case_draft(case_id: str, draft_id: str):
+    store = _store()
+    cases = _cases(store)
+    draft = None
+    try:
+        draft = cases.begin_draft_send(_actor(), case_id, draft_id)
+        MailAccountPolicy(store).require_writable(_actor(), draft["account_id"])
+        account = _smtp_account(store, draft["account_id"])
+        result = SmtpSubmission(store).send(
+            _actor(),
+            account,
+            draft["recipients_to"],
+            draft["subject"],
+            draft["body"],
+            cc=draft["recipients_cc"],
+            bcc=draft["recipients_bcc"],
+        )
+    except Exception as exc:
+        if draft is not None:
+            try:
+                cases.fail_draft_send(_actor(), case_id, draft_id, type(exc).__name__)
+            except Exception:
+                current_app.logger.exception(
+                    "Mail case failed-send state could not be persisted for %s", case_id
+                )
+        current_app.logger.warning("Mail case SMTP send failed for %s: %s", _actor(), type(exc).__name__)
+        flash(f"Versand fehlgeschlagen ({type(exc).__name__}). Es wurde nicht automatisch erneut gesendet.")
+        return _case_redirect(case_id)
+
+    try:
+        cases.complete_draft_send(
+            _actor(), case_id, draft_id,
+            f"sha512:{result['sha512']}", result["message_id"],
+        )
+        flash(f"Nachricht an {result['recipients']} Empfänger versandt und im Vorgang archiviert.")
+    except Exception:
+        current_app.logger.exception(
+            "Mail was sent but mail-case finalization failed for %s/%s", case_id, draft_id
+        )
+        flash(
+            "Die Nachricht wurde per SMTP versandt, aber der Vorgang konnte nicht finalisiert werden. "
+            "Nicht erneut senden; Serverprotokoll prüfen."
+        )
+    return _case_redirect(case_id)
+
+
 @bp.post("/case/<case_id>/status")
 @login_required
 def update_case_status(case_id: str):
