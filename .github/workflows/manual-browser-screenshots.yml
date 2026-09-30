@@ -1,4 +1,4 @@
-name: Manual browser peer-to-peer and HTML5 test
+name: Manual browser all-pages, peer-to-peer and HTML5 test
 
 on:
   workflow_dispatch:
@@ -6,11 +6,17 @@ on:
       scope:
         description: Seitenumfang fuer den Browser-Test
         required: true
-        default: core
+        default: all-pages
         type: choice
         options:
-          - core
+          - all-pages
           - all-navigation
+          - core
+      max_pages:
+        description: Maximale Zahl automatisch zu pruefender Browser-URLs
+        required: true
+        default: '800'
+        type: string
       fail_on_console_errors:
         description: Browser-Console-Errors als Testfehler behandeln
         required: true
@@ -33,7 +39,7 @@ env:
 
 jobs:
   browser-screenshot:
-    name: Browser smoke, P2P and HTML5 validation
+    name: Browser all-pages smoke, P2P and HTML5 validation
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -120,9 +126,18 @@ jobs:
           docker logs simpleoffice-browser-peer-b || true
           exit 1
 
+      - name: Export live Flask route inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/browser
+          docker exec simpleoffice-browser-peer-a             python tests/browser/route_inventory.py             > test-results/browser/route-inventory.json
+
       - name: Run browser screenshot and peer-to-peer test
         env:
-          BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'core' }}
+          BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all-pages' }}
+          BROWSER_MAX_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_pages || '800' }}
+          BROWSER_ROUTE_INVENTORY: test-results/browser/route-inventory.json
           BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ github.event_name == 'workflow_dispatch' && inputs.fail_on_console_errors || true }}
         shell: bash
         run: |
