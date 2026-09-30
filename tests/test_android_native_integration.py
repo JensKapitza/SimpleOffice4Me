@@ -205,6 +205,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("previousItems", store)
         self.assertNotIn("getExternalStorage", store)
         self.assertNotIn("Environment.getExternalStorage", store)
+        self.assertNotIn("payload??", activity)
+        self.assertGreaterEqual(store.count("enforceOwner();"), 8)
 
     def test_android_7_and_both_abis_remain_supported(self):
         gradle = self.read(ANDROID / "build.gradle")
