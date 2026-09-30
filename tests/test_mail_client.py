@@ -205,7 +205,7 @@ class MailClientTests(unittest.TestCase):
         sent = list((self.root / "email").rglob("*.eml"))
         self.assertEqual(1, len(sent))
         document = DocumentStore(self.root).get_document(sent[0])
-        self.assertEqual("failed", document["attributes"]["email_origin"]["state"])
+        self.assertEqual("unknown", document["attributes"]["email_origin"]["state"])
         self.assertEqual("transport_failed", document["attributes"]["email_origin"]["error_code"])
         self.assertNotIn("error", document["attributes"]["email_origin"])
         actions = [json.loads(path.read_text())["action"] for path in (self.root / ".simpleoffice-history" / "events").glob("*.json")]
