@@ -350,12 +350,6 @@ def _outbound_attachment(value: dict[str, Any]) -> tuple[str, str, str, bytes]:
     return filename, maintype, subtype, raw
 
 
-class SmtpSubmission:^_.+-]{1,100}$")
-    if not separator or not token.fullmatch(maintype) or not token.fullmatch(subtype):
-        raise ValueError("invalid attachment content type")
-    return filename, maintype, subtype, raw
-
-
 class SmtpSubmission:
     """Authenticated RFC 6409 submission with mandatory local EML archiving."""
 
