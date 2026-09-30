@@ -197,6 +197,12 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('"note".equals(normalizedType)', store)
         self.assertIn('"task_status".equals(normalizedType)', store)
         self.assertIn('"conflict".equals(status)', store)
+        self.assertIn("private boolean persist()", store)
+        self.assertIn('INDEX + ".bak"', store)
+        self.assertIn('target.getName() + ".bak"', store)
+        self.assertIn('file.getName().endsWith(".cache")', store)
+        self.assertIn("previousOutbox", store)
+        self.assertIn("previousItems", store)
         self.assertNotIn("getExternalStorage", store)
         self.assertNotIn("Environment.getExternalStorage", store)
 
