@@ -223,6 +223,35 @@ class MailCaseStoreTests(unittest.TestCase):
             self.store.case_for_message("bob", "acc-1", "sha512:one")
         )
 
+    def test_message_case_links_are_account_scoped_permission_filtered_and_unambiguous(self):
+        links = self.store.message_case_links("alice", "acc-1")
+        self.assertEqual(self.case_id, links["by_reference"]["sha512:one"]["id"])
+        self.assertEqual(self.case_id, links["by_message_id"]["<one@example.test>"]["id"])
+        self.assertEqual(
+            {"by_reference": {}, "by_message_id": {}},
+            self.store.message_case_links("bob", "acc-1"),
+        )
+
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob", permissions={"read"},
+        )
+        self.assertEqual(
+            self.case_id,
+            self.store.message_case_links("bob", "acc-1")["by_reference"]["sha512:one"]["id"],
+        )
+        self.assertEqual(
+            {"by_reference": {}, "by_message_id": {}},
+            self.store.message_case_links("alice", "other-account"),
+        )
+
+        duplicate_header = self.store.create_case(
+            "alice", "Mehrdeutiger Header", "acc-1", "sha512:two",
+            message_id="<one@example.test>",
+        )
+        links = self.store.message_case_links("alice", "acc-1")
+        self.assertEqual(duplicate_header, links["by_reference"]["sha512:two"]["id"])
+        self.assertNotIn("<one@example.test>", links["by_message_id"])
+
     def test_thread_lookup_is_scoped_to_mail_account(self):
         other = self.store.create_case(
             "alice", "Anderes Konto", "acc-2", "sha512:other-account",
