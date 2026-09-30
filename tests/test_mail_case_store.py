@@ -22,8 +22,18 @@ class MailCaseStoreTests(unittest.TestCase):
         case = self.store.get_case("alice", self.case_id)
         self.assertIn("read", case["permissions"])
         self.assertIn("manage_participants", case["permissions"])
+        self.assertEqual("alice", case["account_owner"])
         with self.assertRaises(PermissionError):
             self.store.get_case("bob", self.case_id)
+
+    def test_list_and_thread_lookup_require_read_permission(self):
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob", permissions={"comment"},
+        )
+        self.assertEqual([], self.store.list_cases("bob"))
+        self.assertIsNone(
+            self.store.find_thread_case("bob", in_reply_to="<one@example.test>")
+        )
 
     def test_participant_permissions_are_server_side(self):
         self.store.add_participant(
@@ -86,6 +96,24 @@ class MailCaseStoreTests(unittest.TestCase):
         )
         self.assertNotEqual(self.case_id, other)
         self.assertIsNone(self.store.find_thread_case("alice", references=["<one@example.test>"]))
+
+    def test_duplicate_participants_are_rejected(self):
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob", permissions={"read"},
+        )
+        with self.assertRaises(ValueError):
+            self.store.add_participant(
+                "alice", self.case_id, local_user_id="bob", permissions={"read"},
+            )
+        self.store.add_participant(
+            "alice", self.case_id, peer_id="peer-7", remote_user_id="remote-9",
+            permissions={"read"},
+        )
+        with self.assertRaises(ValueError):
+            self.store.add_participant(
+                "alice", self.case_id, peer_id="peer-7", remote_user_id="remote-9",
+                permissions={"read"},
+            )
 
     def test_federated_participant_shape_does_not_require_local_user(self):
         participant_id = self.store.add_participant(
