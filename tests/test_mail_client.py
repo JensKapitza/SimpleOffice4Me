@@ -10,7 +10,7 @@ from unittest.mock import patch
 from app import app
 from app.db import ensure_auth_database
 from app.document_store import DocumentStore
-from app.mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SecretBox, SmtpSubmission
+from app.mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SecretBox, SmtpDeliveryStateUnknown, SmtpSubmission
 from app.virtual_filesystem import VirtualFileSystem
 
 
@@ -198,8 +198,10 @@ class MailClientTests(unittest.TestCase):
     def test_smtp_failure_remains_archived_and_audited(self):
         account = self.store.smtp_account("alice", self.account["id"])
         with patch.object(SmtpSubmission, "_connect", return_value=FakeSmtp(fail=True)):
-            with self.assertRaisesRegex(RuntimeError, "unavailable"):
+            with self.assertRaises(SmtpDeliveryStateUnknown) as raised:
                 SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Fehler", "Inhalt")
+        self.assertEqual("unknown", raised.exception.delivery_status)
+        self.assertNotIn("unavailable", str(raised.exception))
         sent = list((self.root / "email").rglob("*.eml"))
         self.assertEqual(1, len(sent))
         document = DocumentStore(self.root).get_document(sent[0])
