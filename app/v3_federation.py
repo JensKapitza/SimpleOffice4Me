@@ -603,6 +603,20 @@ class FederationContractStore:
                 (str(error)[:240], _utc(), str(message_id)),
             )
 
+    def delete_mail_outbox_target(
+        self,
+        peer_id: str,
+        object_ref: str,
+        recipient_user_id: str,
+    ) -> None:
+        peer_id = sanitize_peer_id(peer_id)
+        coalesce_key = f"{str(object_ref)[:240]}|{str(recipient_user_id)[:200]}"[:700]
+        with self.federation._db() as db:
+            db.execute(
+                "DELETE FROM federation_v3_mail_outbox WHERE peer_id=? AND coalesce_key=?",
+                (peer_id, coalesce_key),
+            )
+
     def delete_mail_outbox(self, message_id: str) -> None:
         with self.federation._db() as db:
             db.execute(
