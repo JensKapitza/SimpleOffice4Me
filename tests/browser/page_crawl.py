@@ -246,7 +246,7 @@ def discover_links(page, *, base_url: str) -> list[dict[str, str]]:
                 ).toLowerCase();
                 if (method === 'get') add(element, element.getAttribute('formaction'), 'dom-get-formaction');
             });
-            document.querySelectorAll('[data-href]').forEach(element => {
+            document.querySelectorAll('a[data-href], [role="link"][data-href]').forEach(element => {
                 add(element, element.getAttribute('data-href'), 'dom-data-href');
             });
             document.querySelectorAll('meta[http-equiv="refresh" i][content]').forEach(element => {
