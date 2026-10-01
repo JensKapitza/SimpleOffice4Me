@@ -15,7 +15,8 @@ from .revision_history import RevisionHistory
 
 
 RESOURCE = re.compile(r"^[A-Za-z0-9._-]{1,160}\.ics$")
-OFFLINE_OPERATION = re.compile(r"^[A-Za-z0-9._:-]{8,160}$")\nSTATUSES = {"needs-action", "in-process", "completed", "cancelled"}
+OFFLINE_OPERATION = re.compile(r"^[A-Za-z0-9._:-]{8,160}$")
+STATUSES = {"needs-action", "in-process", "completed", "cancelled"}
 LIST_PERMISSIONS = {"read", "create", "edit", "complete", "delete", "manage"}
 
 
