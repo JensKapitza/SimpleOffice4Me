@@ -237,6 +237,17 @@ final class AndroidOfflineWorksetStore {
         JSONArray items = state.optJSONArray("items");
         int index = items == null ? -1 : findItem(items, normalizedId, normalizedKind);
         if (index < 0) return "missing";
+        JSONArray outbox = state.optJSONArray("outbox");
+        if (outbox != null) {
+            for (int i = 0; i < outbox.length(); i++) {
+                JSONObject operation = outbox.optJSONObject(i);
+                if (operation == null || !normalizedId.equals(operation.optString("targetId"))) continue;
+                String status = operation.optString("status", "pending");
+                if ("pending".equals(status) || "conflict".equals(status) || "rejected".equals(status)) {
+                    return "pending-mutation";
+                }
+            }
+        }
 
         File target = itemFile(normalizedKind, normalizedId);
         File backup = new File(root, target.getName() + ".remove.bak");
