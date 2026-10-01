@@ -374,6 +374,14 @@ final class AndroidOfflineWorksetStore {
         return persist() ? "ok" : "io-error";
     }
 
+    synchronized String clearForAccountSwitch() {
+        if (!enforceOwner()) return "blocked";
+        if (!deleteRecursively(root)) return "io-error";
+        state = emptyState("");
+        sessionOwner = "";
+        return "ok";
+    }
+
     private boolean enforceOwner() {
         String owner = currentOwner();
         if (owner.isEmpty()) return false;
