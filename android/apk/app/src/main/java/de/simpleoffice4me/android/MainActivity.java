@@ -217,6 +217,7 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 localPageVisible = isLocalUrl(url);
+                if (offlineWorksetStore != null) offlineWorksetStore.unbindOwner();
                 if (!localPageVisible) {
                     stopNfcReader();
                     denyPendingCameraPermission();
@@ -352,7 +353,10 @@ public class MainActivity extends Activity {
         return "(function(){"
                 + "if(!window.SimpleOfficeAndroid)return;"
                 + "const bridgeToken=" + quotedToken + ";"
-                + "if(document.documentElement.dataset.v3AndroidOffline==='1'){window.SimpleOfficeOffline={"
+                + "const offlineOwner=String(document.documentElement.dataset.v3AndroidOfflineOwner||'').trim();"
+                + "const offlineEnabled=document.documentElement.dataset.v3AndroidOffline==='1'&&offlineOwner!=='';"
+                + "const offlineBound=offlineEnabled&&String(window.SimpleOfficeAndroid.bindOfflineOwner(bridgeToken,offlineOwner))==='ok';"
+                + "if(offlineBound){window.SimpleOfficeOffline={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineStatus(bridgeToken))),"
                 + "items:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineItems(bridgeToken))),"
                 + "cache:(id,kind,version,payload,retention,workset)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload==null?'':payload),Number(retention||86400),String(workset||'default'))),"
@@ -363,7 +367,7 @@ public class MainActivity extends Activity {
                 + "ack:(operationId,status)=>String(window.SimpleOfficeAndroid.acknowledgeOfflineMutation(bridgeToken,String(operationId||''),String(status||''))),"
                 + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken)),"
                 + "switchAccount:()=>String(window.SimpleOfficeAndroid.switchOfflineAccount(bridgeToken))};}"
-                + "else{delete window.SimpleOfficeOffline;}"
+                + "else{window.SimpleOfficeAndroid.unbindOfflineOwner(bridgeToken);delete window.SimpleOfficeOffline;}"
                 + "window.dispatchEvent(new Event('simpleoffice:native-ready'));"
                 + "window.SimpleOfficeNativeAudio={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
@@ -602,6 +606,19 @@ public class MainActivity extends Activity {
             if (!("connect".equals(normalizedAction) || "sync".equals(normalizedAction))) return "invalid";
             if (csrf.length() < 32 || csrf.length() > 256 || googleAuthorization == null) return "invalid";
             mainHandler.post(() -> googleAuthorization.authorize(normalizedAction, csrf));
+            return "ok";
+        }
+
+        @JavascriptInterface
+        public String bindOfflineOwner(String token, String owner) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.bindOwner(owner);
+        }
+
+        @JavascriptInterface
+        public String unbindOfflineOwner(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            offlineWorksetStore.unbindOwner();
             return "ok";
         }
 
