@@ -211,6 +211,10 @@ class ReaderRoutesTests(unittest.TestCase):
         self.assertEqual(422, page.status_code)
         self.assertIn("nicht im Reader", page.get_data(as_text=True))
 
+    def test_direct_unknown_reader_document_fails_closed(self):
+        self.assertEqual(404, self.client.get("/documents/reader/not-a-document").status_code)
+        self.assertEqual(404, self.client.get("/documents/reader/not-a-document/epub/0").status_code)
+
     def test_document_feature_permission_blocks_reader(self):
         self.login(self.limited_id)
         self.assertEqual(403, self.client.get("/documents/reader").status_code)
