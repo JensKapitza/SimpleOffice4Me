@@ -156,7 +156,7 @@
           metadata.version,
           JSON.stringify({status: select.value})
         );
-        if (!operation || ['unsupported', 'invalid', 'quota', 'too-large', 'io-error', 'state-error'].includes(operation)) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(operation || '')) {
           show(`Änderung konnte nicht vorgemerkt werden: ${operation || 'unbekannt'}`, 'warning');
           return;
         }
@@ -177,6 +177,10 @@
     const task = await serverTask(id);
     const result = bridge.cache(task.id, 'task', task.version, JSON.stringify(task), 7 * 24 * 60 * 60, 'tasks');
     if (result !== 'ok') throw new Error(`Serverstand konnte lokal nicht gespeichert werden: ${result}`);
+  };
+  const acknowledge = (operationId, status) => {
+    const result = bridge.ack(operationId, status);
+    if (result !== 'ok') throw new Error(`Offline-Status konnte nicht gespeichert werden: ${result}`);
   };
 
   const renderQueue = operations => {
@@ -214,7 +218,7 @@
         accept.addEventListener('click', async () => {
           try {
             await refreshTaskFromServer(op.targetId);
-            bridge.ack(op.operationId, 'discarded');
+            acknowledge(op.operationId, 'discarded');
             show('Konflikt verworfen und aktueller Serverstand geladen.', 'success');
             await render();
           } catch (error) {
@@ -228,8 +232,12 @@
         discard.className = 'btn btn-sm btn-outline-danger mt-2';
         discard.textContent = 'Verworfene Änderung entfernen';
         discard.addEventListener('click', async () => {
-          bridge.ack(op.operationId, 'discarded');
-          await render();
+          try {
+            acknowledge(op.operationId, 'discarded');
+            await render();
+          } catch (error) {
+            show(error.message || String(error), 'warning');
+          }
         });
         row.append(discard);
       }
@@ -298,11 +306,11 @@
           } catch (_) {
             continue;
           }
-          bridge.ack(result.operationId, 'synced');
+          acknowledge(result.operationId, 'synced');
         } else if (result.status === 'conflict') {
-          bridge.ack(result.operationId, 'conflict');
+          acknowledge(result.operationId, 'conflict');
         } else {
-          bridge.ack(result.operationId, 'rejected');
+          acknowledge(result.operationId, 'rejected');
         }
       }
       show('Offline-Änderungen wurden mit dem Server abgeglichen.', 'success');
