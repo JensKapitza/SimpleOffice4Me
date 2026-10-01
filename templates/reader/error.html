@@ -1,0 +1,17 @@
+{% extends "layout.html" %}
+{% block title %}Dokument nicht lesbar{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-lg py-4">
+  <a class="text-decoration-none" href="{{ url_for('reader.shelf') }}">← Bücherregal</a>
+  <div class="alert alert-warning mt-3" role="alert">
+    <h1 class="h4">Dokument kann nicht im Reader geöffnet werden</h1>
+    <p class="mb-2">{{ message }}</p>
+    <p class="small mb-0">Das Original wurde nicht verändert. Du kannst es weiterhin über die normale Dokumentansicht prüfen oder herunterladen.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-primary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">Dokumentdetails</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">Original öffnen</a>
+  </div>
+</main>
+{% endblock %}

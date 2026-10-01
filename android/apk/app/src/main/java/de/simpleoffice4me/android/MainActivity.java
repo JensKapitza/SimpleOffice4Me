@@ -51,6 +51,7 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 public class MainActivity extends Activity {
     private static final String LOCAL_URL = "http://127.0.0.1:8765/";
@@ -62,6 +63,7 @@ public class MainActivity extends Activity {
     private static final int SCREEN_CAPTURE_REQUEST = 704;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Semaphore pdfRenderSlots = new Semaphore(2);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final String nativeBridgeToken = UUID.randomUUID().toString();
     private final AndroidAudioStreamer audioStreamer = new AndroidAudioStreamer();
@@ -368,6 +370,9 @@ public class MainActivity extends Activity {
                 + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken)),"
                 + "switchAccount:()=>String(window.SimpleOfficeAndroid.switchOfflineAccount(bridgeToken))};}"
                 + "else{window.SimpleOfficeAndroid.unbindOfflineOwner(bridgeToken);delete window.SimpleOfficeOffline;}"
+                + "window.SimpleOfficePdf=(function(){const pending=new Map();"
+                + "window.addEventListener('simpleoffice:pdf-render',event=>{const detail=event.detail||{};const item=pending.get(String(detail.requestId||''));if(!item)return;pending.delete(String(detail.requestId||''));if(detail.ok)item.resolve(detail.result||{});else item.reject(new Error(detail.error||'PDF konnte nicht gerendert werden.'));});"
+                + "return {render:(url,page,width)=>new Promise((resolve,reject)=>{const id=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('pdf-'+Date.now()+'-'+Math.random().toString(16).slice(2));pending.set(id,{resolve,reject});const state=String(window.SimpleOfficeAndroid.requestPdfRender(bridgeToken,id,String(url||''),Number(page||0),Number(width||1024)));if(state!=='ok'){pending.delete(id);reject(new Error(state));}})};})();"
                 + "window.dispatchEvent(new Event('simpleoffice:native-ready'));"
                 + "window.SimpleOfficeNativeAudio={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
@@ -553,7 +558,48 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
     }
 
+    private void dispatchPdfRender(String requestId, String resultJson, String error) {
+        if (webView == null || !localPageVisible) return;
+        String id = JSONObject.quote(requestId == null ? "" : requestId);
+        String detail;
+        if (error == null || error.isEmpty()) {
+            detail = "{requestId:" + id + ",ok:true,result:" + resultJson + "}";
+        } else {
+            detail = "{requestId:" + id + ",ok:false,error:" + JSONObject.quote(error) + "}";
+        }
+        webView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('simpleoffice:pdf-render',{detail:" + detail + "}));",
+                null);
+    }
+
     private final class NativeBridge {
+        @JavascriptInterface
+        public String requestPdfRender(String token, String requestId, String url, int page, int width) {
+            if (!bridgeAllowed(token)) return "blocked";
+            String id = requestId == null ? "" : requestId.trim();
+            if (!id.matches("[A-Za-z0-9_-]{8,80}")) return "invalid";
+            if (!pdfRenderSlots.tryAcquire()) return "busy";
+            try {
+                executor.execute(() -> {
+                    try {
+                        String result = AndroidPdfRenderer.render(getCacheDir(), url, page, width);
+                        mainHandler.post(() -> dispatchPdfRender(id, result, ""));
+                    } catch (Exception error) {
+                        String safe = error instanceof SecurityException ? "PDF-Zugriff wurde blockiert."
+                                : error instanceof IllegalArgumentException ? "PDF-Seite oder Dateigröße ist ungültig."
+                                : "PDF konnte nicht gerendert werden.";
+                        mainHandler.post(() -> dispatchPdfRender(id, "{}", safe));
+                    } finally {
+                        pdfRenderSlots.release();
+                    }
+                });
+            } catch (RuntimeException error) {
+                pdfRenderSlots.release();
+                return "unavailable";
+            }
+            return "ok";
+        }
+
         @JavascriptInterface
         public String openCastSettings(String token) {
             if (!bridgeAllowed(token)) return "blocked";

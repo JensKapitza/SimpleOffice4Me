@@ -49,6 +49,7 @@ verlinkt.
 - [LibreOffice über WebDAV](LIBREOFFICE_WEBDAV.md)
 - [Bestätigte Mail-Anhänge und ClamAV](ANHAENGE_CLAMAV.md)
 - [IMAP-Client, Sieve und unveränderliches E-Mail-Archiv](IMAP_SIEVE_EMAIL_ARCHIV.md)
+- [Digitales Bücherregal mit PDF-/EPUB-Reader](DIGITALES_BUECHERREGAL.md)
 - [Kollaborative Mail-Vorgänge, Rechte und individueller Lesestatus](MAIL_VORGAENGE.md)
 - [ClamAV-Prüfung vor WebDAV-Uploads](WEBDAV_UPLOADS_CLAMAV.md)
 - [Eigenständig umgesetzte Ansätze aus TagSpaces](TAGSPACES_ANSAETZE.md)
