@@ -7,7 +7,7 @@ import unicodedata
 from pathlib import Path
 
 
-def _slug(value: str) -> str:
+def slug(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     safe = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
     return safe[:80] or "page"
@@ -26,7 +26,7 @@ def make_html_snapshot_writer(output_dir: Path):
         failures: list[str],
     ) -> None:
         markup = page.content()
-        filename = f"{_slug(prefix)}-{_slug(label)}.html"
+        filename = f"{slug(prefix)}-{slug(label)}.html"
         path = html_dir / filename
         path.write_text(
             markup + ("\n" if not markup.endswith("\n") else ""),
