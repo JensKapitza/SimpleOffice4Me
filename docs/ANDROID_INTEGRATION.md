@@ -118,8 +118,10 @@ zweites Aufgabenmodell angelegt.
 - Der native Store bindet seinen Owner an Android-Identität **und** SimpleOffice-
   Benutzer-ID. Ein Wechsel einer dieser beiden Identitäten löscht den bisherigen
   Offline-Bestand vor dem ersten Lesezugriff.
-- Beim Android-Kontowechsel werden Offline-Store und Outbox vor dem Löschen der
-  Android-Identität und der WebView-Cookies geleert.
+- Beim Android-Kontowechsel werden Offline-Store, Outbox und lokale
+  Owner-Metadaten vollständig entfernt und der Store ungebunden, bevor
+  Android-Identität und WebView-Cookies gelöscht werden. Schlägt die physische
+  Löschung fehl, wird der Kontowechsel abgebrochen.
 
 ## WebView-Lifecycle
 
