@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{ g.language|default('de') }}" data-theme-preference="{{ g.theme_preference|default('system') }}" data-bs-theme="light">
+<html lang="{{ g.language|default('de') }}" data-theme-preference="{{ g.theme_preference|default('system') }}" data-bs-theme="light" data-v3-android-offline="{{ '1' if v3_android_offline_enabled|default(false) else '0' }}" data-v3-android-offline-owner="{{ v3_android_offline_owner|default('') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
