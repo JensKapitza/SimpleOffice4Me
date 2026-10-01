@@ -43,6 +43,7 @@ final class AndroidOfflineWorksetStore {
         this.root = new File(this.context.getFilesDir(), DIRECTORY);
         this.state = loadState();
         enforceOwner();
+        recoverInterruptedItemWrites();
         pruneExpired();
     }
 
@@ -371,24 +372,27 @@ final class AndroidOfflineWorksetStore {
     }
 
     private JSONObject loadState() {
-        File file = new File(root, INDEX);
-        if (!file.isFile() || file.length() > 1024 * 1024) return emptyState(currentOwner());
-        try (FileInputStream input = new FileInputStream(file)) {
-            byte[] data = new byte[(int) file.length()];
-            int offset = 0;
-            while (offset < data.length) {
-                int read = input.read(data, offset, data.length - offset);
-                if (read < 0) break;
-                offset += read;
+        for (String name : new String[]{INDEX, INDEX + ".bak"}) {
+            File file = new File(root, name);
+            if (!file.isFile() || file.length() > 1024 * 1024) continue;
+            try (FileInputStream input = new FileInputStream(file)) {
+                byte[] data = new byte[(int) file.length()];
+                int offset = 0;
+                while (offset < data.length) {
+                    int read = input.read(data, offset, data.length - offset);
+                    if (read < 0) break;
+                    offset += read;
+                }
+                if (offset != data.length) continue;
+                JSONObject parsed = new JSONObject(new String(data, StandardCharsets.UTF_8));
+                if (!(parsed.opt("items") instanceof JSONArray) || !(parsed.opt("outbox") instanceof JSONArray)) {
+                    continue;
+                }
+                return parsed;
+            } catch (Exception ignored) {
             }
-            JSONObject parsed = new JSONObject(new String(data, 0, offset, StandardCharsets.UTF_8));
-            if (!(parsed.opt("items") instanceof JSONArray) || !(parsed.opt("outbox") instanceof JSONArray)) {
-                return emptyState(currentOwner());
-            }
-            return parsed;
-        } catch (Exception error) {
-            return emptyState(currentOwner());
         }
+        return emptyState(currentOwner());
     }
 
     private JSONObject emptyState(String owner) {
@@ -417,6 +421,24 @@ final class AndroidOfflineWorksetStore {
             }
         }
         if (changed) persist();
+    }
+
+    private void recoverInterruptedItemWrites() {
+        JSONArray items = state.optJSONArray("items");
+        if (items == null) return;
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item == null) continue;
+            String id = normalizeId(item.optString("id"));
+            String kind = normalizeKind(item.optString("kind"));
+            if (id == null || kind == null) continue;
+            File target = itemFile(kind, id);
+            if (target.isFile()) continue;
+            File backup = new File(root, target.getName() + ".bak");
+            File removeBackup = new File(root, target.getName() + ".remove.bak");
+            if (backup.isFile() && backup.renameTo(target)) continue;
+            if (removeBackup.isFile()) removeBackup.renameTo(target);
+        }
     }
 
     private long totalBytes() {
