@@ -115,8 +115,9 @@ public final class NavigationActivity extends MainActivity {
         if (webView == null || webView.getUrl() == null) return;
         String script = "(function(online){"
                 + "let box=document.getElementById('android-network-state');"
-                + "if(online){if(box)box.remove();document.documentElement.dataset.soNetwork='online';return;}"
-                + "document.documentElement.dataset.soNetwork='offline';"
+                + "document.documentElement.dataset.soNetwork=online?'online':'offline';"
+                + "window.dispatchEvent(new CustomEvent('simpleoffice:network',{detail:{online:online}}));"
+                + "if(online){if(box)box.remove();return;}"
                 + "const root=document.getElementById('main-content')||document.querySelector('main')||document.body;if(!root)return;"
                 + "if(!box){box=document.createElement('div');box.id='android-network-state';box.className='alert alert-warning py-2';"
                 + "box.setAttribute('role','status');root.insertBefore(box,root.firstChild);}"
