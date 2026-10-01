@@ -209,6 +209,22 @@ class MailCaseFederation:
             object_ref=f"mail-case:{case_id}",
         )
 
+    def send_revoke(
+        self,
+        case_id: str,
+        peer_id: str,
+        remote_user_id: str,
+    ) -> dict[str, Any]:
+        return self._send(
+            peer_id,
+            {
+                "operation": "revoke",
+                "recipient_user_id": remote_user_id,
+                "remote_case_id": case_id,
+            },
+            object_ref=f"mail-case:{case_id}",
+        )
+
     def send_snapshots_for_case(self, actor: str, case_id: str) -> list[dict[str, Any]]:
         case = self.cases.get_case(actor, case_id)
         results: list[dict[str, Any]] = []
@@ -291,6 +307,24 @@ class MailCaseFederation:
                 "operation": operation,
                 "local_case_id": local_case_id,
                 "remote_case_id": str(snapshot.get("case_id") or ""),
+            }
+        elif operation == "revoke":
+            remote_user_id = str(payload.get("recipient_user_id") or "").strip()
+            remote_case_id = str(payload.get("remote_case_id") or "").strip()
+            mapping = self.contract.store.mail_user_mapping(
+                envelope.sender_instance, remote_user_id
+            )
+            if not mapping or not remote_case_id:
+                raise PermissionError("federated mail user mapping is unavailable")
+            removed = self.cases.revoke_federated_snapshot(
+                str(mapping["local_username"]),
+                envelope.sender_instance,
+                remote_case_id,
+            )
+            result = {
+                "operation": operation,
+                "remote_case_id": remote_case_id,
+                "revoked": bool(removed),
             }
         else:
             case_id = str(payload.get("case_id") or "").strip()
