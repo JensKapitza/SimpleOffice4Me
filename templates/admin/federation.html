@@ -314,6 +314,8 @@
   {% elif active_view == 'peers' %}
     {% set peer_policy = edit_peer.get('policy', {}) if edit_peer else {} %}
     {% set document_policy = peer_policy.get('documents', {}) if peer_policy else {} %}
+    {% set data_class_policy = peer_policy.get('data_classes', {}) if peer_policy else {} %}
+    {% set mail_case_policy = data_class_policy.get('mail_cases', {}) if data_class_policy else {} %}
     <div class="row g-4">
       <section class="col-xl-5" id="peer-form">
         <div class="card shadow-sm">
@@ -326,6 +328,7 @@
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="_return_view" value="peers">
               <input type="hidden" name="_documents_policy_form" value="1">
+              <input type="hidden" name="_mail_cases_policy_form" value="1">
               <div class="col-md-6">
                 <label class="form-label" for="peer-id">Peer-ID</label>
                 <input class="form-control" id="peer-id" name="peer_id" value="{{ edit_peer.peer_id if edit_peer else '' }}" {% if edit_peer %}readonly{% endif %} required>
@@ -359,6 +362,25 @@
                     <input class="form-check-input" type="checkbox" name="documents_seed" value="1" {% if document_policy.get('seed', true) %}checked{% endif %}>
                     <span class="form-check-label">Dateien für diesen Peer bereitstellen</span>
                   </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="col-12">
+                <legend class="h6 mb-2">Mail-Vorgang-Federation</legend>
+                <div class="vstack gap-2 border rounded p-3">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="mail_cases_send" value="1" {% if mail_case_policy.get('send', false) %}checked{% endif %}>
+                    <span class="form-check-label">Mail-Vorgänge an diesen Peer senden</span>
+                  </label>
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="mail_cases_receive" value="1" {% if mail_case_policy.get('receive', false) %}checked{% endif %}>
+                    <span class="form-check-label">Mail-Vorgänge von diesem Peer empfangen</span>
+                  </label>
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="mail_cases_auto_accept" value="1" {% if mail_case_policy.get('auto_accept', false) %}checked{% endif %}>
+                    <span class="form-check-label">Empfangene Mail-Vorgänge nach Trust-, Policy- und Benutzerprüfung automatisch anwenden</span>
+                  </label>
+                  <div class="form-text">Ohne explizite Freigabe bleibt die Datenklasse gesperrt. SMTP-/IMAP-Zugangsdaten werden nicht übertragen.</div>
                 </div>
               </fieldset>
 
@@ -442,6 +464,62 @@
         </div>
       </section>
     </div>
+
+    <section class="card shadow-sm mt-4">
+      <div class="card-header">
+        <strong>Federierte Benutzer zuordnen</strong>
+      </div>
+      <div class="card-body">
+        <p class="text-secondary small">Jede Remote-Identität wird pro Peer explizit genau einem aktiven lokalen Benutzer zugeordnet. Ohne Zuordnung werden Mail-Vorgänge nicht angewendet.</p>
+        <form method="post" action="{{ url_for('federation_admin.save_mail_user_mapping') }}" class="row g-3 align-items-end">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="col-lg-4">
+            <label class="form-label" for="mail-map-peer">Peer</label>
+            <select class="form-select" id="mail-map-peer" name="peer_id" required>
+              <option value="">Bitte wählen</option>
+              {% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} ({{ peer.peer_id }})</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-lg-4">
+            <label class="form-label" for="mail-map-remote">Remote-Benutzer-ID</label>
+            <input class="form-control" id="mail-map-remote" name="remote_user_id" maxlength="200" required>
+          </div>
+          <div class="col-lg-3">
+            <label class="form-label" for="mail-map-local">Lokaler Benutzer</label>
+            <select class="form-select" id="mail-map-local" name="local_username" required>
+              <option value="">Bitte wählen</option>
+              {% for user in active_users %}<option value="{{ user.username }}">{{ user.display_name or user.username }} ({{ user.username }})</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-lg-1"><button class="btn btn-primary w-100" type="submit">+</button></div>
+        </form>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead><tr><th>Peer</th><th>Remote-ID</th><th>Lokaler Benutzer</th><th>Geändert</th><th></th></tr></thead>
+          <tbody>
+            {% for mapping in mail_user_mappings %}
+            <tr>
+              <td><code>{{ mapping.peer_id }}</code></td>
+              <td>{{ mapping.remote_user_id }}</td>
+              <td>{{ mapping.local_username }}</td>
+              <td class="small text-secondary">{{ mapping.updated_at }}</td>
+              <td>
+                <form method="post" action="{{ url_for('federation_admin.delete_mail_user_mapping') }}">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="peer_id" value="{{ mapping.peer_id }}">
+                  <input type="hidden" name="remote_user_id" value="{{ mapping.remote_user_id }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Widerrufen</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-secondary text-center py-3">Noch keine Mail-Vorgang-Zuordnungen.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
 
   {% elif active_view == 'transfers' %}
     <section class="card shadow-sm mb-4">
