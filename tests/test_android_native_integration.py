@@ -199,6 +199,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("bindOwner(String owner)", store)
         self.assertIn("unbindOwner()", store)
         self.assertIn('"|user:" + sessionOwner', store)
+        self.assertIn("if (!deleteRecursively(root)) return \"io-error\";", store)
+        self.assertIn('state = emptyState("");', store)
         self.assertIn("enforceOwner()", store)
         self.assertIn('if (!deleteRecursively(root)) return "io-error";', store)
         self.assertIn('state = emptyState("");', store)
