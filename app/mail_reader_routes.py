@@ -433,19 +433,55 @@ def remove_case_message(case_id: str):
 @bp.post("/case/<case_id>/participant")
 @login_required
 def add_case_participant(case_id: str):
-    username = request.form.get("username", "").strip()
+    cases = _cases()
     try:
-        row = get_db().execute(
-            "SELECT username FROM user WHERE username=? COLLATE NOCASE AND is_disabled=0",
-            (username,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("unknown local user")
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated mirror participants are managed by the owner instance")
         permissions = set(request.form.getlist("permission")) | {"read"}
-        _cases().add_participant(
-            _actor(), case_id, local_user_id=str(row["username"]), permissions=permissions
-        )
-        flash("Teilnehmer wurde hinzugefügt.")
+        participant_type = request.form.get("participant_type", "local").strip()
+        if participant_type == "federated":
+            peer_id = request.form.get("peer_id", "").strip()
+            remote_user_id = request.form.get("remote_user_id", "").strip()
+            federation = _mail_case_federation()
+            peer = federation.contract.peers.get_peer(peer_id)
+            if (
+                not peer
+                or not peer.get("enabled")
+                or federation._policy(peer).get("send") is not True
+            ):
+                raise ValueError("Federation-Peer ist für Mail-Vorgänge nicht freigegeben")
+            cases.add_participant(
+                _actor(),
+                case_id,
+                peer_id=peer_id,
+                remote_user_id=remote_user_id,
+                permissions=permissions,
+            )
+            try:
+                result = federation.send_snapshot(case_id, peer_id, remote_user_id)
+                if result.get("status") not in {"accepted", "duplicate"}:
+                    flash(f"Teilnehmer gespeichert; Federation-Empfang ist {result.get('status')}.")
+                else:
+                    flash("Federierter Teilnehmer wurde hinzugefügt und synchronisiert.")
+            except Exception as exc:
+                current_app.logger.warning(
+                    "Initial mail-case federation sync failed for %s: %s",
+                    case_id,
+                    type(exc).__name__,
+                )
+                flash("Federierter Teilnehmer wurde gespeichert; die Gegenstelle konnte noch nicht synchronisiert werden.")
+        else:
+            username = request.form.get("username", "").strip()
+            row = get_db().execute(
+                "SELECT username FROM user WHERE username=? COLLATE NOCASE AND is_disabled=0",
+                (username,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("unknown local user")
+            cases.add_participant(
+                _actor(), case_id, local_user_id=str(row["username"]), permissions=permissions
+            )
+            flash("Teilnehmer wurde hinzugefügt.")
     except Exception as exc:
         current_app.logger.warning("Mail case participant add failed for %s: %s", _actor(), type(exc).__name__)
         flash("Teilnehmer konnte nicht hinzugefügt werden.")
@@ -456,8 +492,26 @@ def add_case_participant(case_id: str):
 @login_required
 def update_case_participant(case_id: str, participant_id: int):
     try:
+        cases = _cases()
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated mirror participants are managed by the owner instance")
+        case = cases.get_case(_actor(), case_id)
+        participant = next((row for row in case["participants"] if int(row["id"]) == int(participant_id)), None)
         permissions = set(request.form.getlist("permission")) | {"read"}
-        _cases().update_participant_permissions(_actor(), case_id, participant_id, permissions)
+        cases.update_participant_permissions(_actor(), case_id, participant_id, permissions)
+        if participant and participant.get("participant_type") == "federated_user":
+            try:
+                _mail_case_federation().send_snapshot(
+                    case_id,
+                    str(participant.get("peer_id") or ""),
+                    str(participant.get("remote_user_id") or ""),
+                )
+            except Exception as exc:
+                current_app.logger.warning(
+                    "Mail-case permission sync failed for %s: %s",
+                    case_id,
+                    type(exc).__name__,
+                )
         flash("Teilnehmerrechte wurden aktualisiert.")
     except Exception as exc:
         current_app.logger.warning("Mail case participant update failed for %s: %s", _actor(), type(exc).__name__)
@@ -469,7 +523,25 @@ def update_case_participant(case_id: str, participant_id: int):
 @login_required
 def remove_case_participant(case_id: str, participant_id: int):
     try:
-        _cases().remove_participant(_actor(), case_id, participant_id)
+        cases = _cases()
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated mirror participants are managed by the owner instance")
+        case = cases.get_case(_actor(), case_id)
+        participant = next((row for row in case["participants"] if int(row["id"]) == int(participant_id)), None)
+        cases.remove_participant(_actor(), case_id, participant_id)
+        if participant and participant.get("participant_type") == "federated_user":
+            try:
+                _mail_case_federation().send_revoke(
+                    case_id,
+                    str(participant.get("peer_id") or ""),
+                    str(participant.get("remote_user_id") or ""),
+                )
+            except Exception as exc:
+                current_app.logger.warning(
+                    "Mail-case revocation delivery failed for %s: %s",
+                    case_id,
+                    type(exc).__name__,
+                )
         flash("Teilnehmer wurde entfernt.")
     except Exception as exc:
         current_app.logger.warning("Mail case participant remove failed for %s: %s", _actor(), type(exc).__name__)
