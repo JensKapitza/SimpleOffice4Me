@@ -397,7 +397,8 @@ final class AndroidOfflineWorksetStore {
                     continue;
                 }
                 return parsed;
-            } catch (Exception ignored) {
+            } catch (IOException | JSONException error) {
+                // Try the transactional backup before falling back to an empty state.
             }
         }
         return emptyState(currentOwner());
