@@ -12,6 +12,43 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MiniPackagingTests(unittest.TestCase):
+    def test_runtime_tools_package_is_installed_by_modern_and_legacy_metadata(self):
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        modern_packages = ast.literal_eval(
+            re.search(r'(?m)^packages\s*=\s*(\[.*\])$', pyproject).group(1)
+        )
+        tree = ast.parse((ROOT / "setup.py").read_text(encoding="utf-8"))
+        setup = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setup"
+        )
+        legacy_packages = ast.literal_eval(
+            next(key.value for key in setup.keywords if key.arg == "packages")
+        )
+        self.assertIn("tools", modern_packages)
+        self.assertIn("tools", legacy_packages)
+        self.assertTrue((ROOT / "tools" / "__init__.py").is_file())
+
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "tools"
+            target.mkdir()
+            shutil.copyfile(ROOT / "tools" / "__init__.py", target / "__init__.py")
+            shutil.copyfile(ROOT / "tools" / "service_control.py", target / "service_control.py")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    "import sys; sys.path.insert(0, sys.argv[1]); from tools.service_control import exclusive_lease",
+                    folder,
+                ],
+                cwd=folder,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_modern_and_legacy_packages_include_all_mini_service_modules(self):
         tree = ast.parse((ROOT / "setup.py").read_text(encoding="utf-8"))
         setup = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
@@ -31,3 +68,7 @@ class MiniPackagingTests(unittest.TestCase):
                         "import sys; sys.path.insert(0, sys.argv[1]); import simpleoffice_network_gateway_runtime; import simpleoffice_mini_control; import simpleoffice_service_lifecycle; import simpleoffice_sip_runtime; import simpleoffice_connection_relay; import simpleoffice_https_connect_tunnel", folder],
                         cwd=folder, capture_output=True, text=True, timeout=20)
                     self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

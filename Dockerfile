@@ -29,6 +29,7 @@ COPY . /opt/simpleoffice4me
 
 RUN python -m venv /opt/simpleoffice4me/.venv \
     && /opt/simpleoffice4me/.venv/bin/pip install --no-cache-dir '.[ocr]' \
+    && /opt/simpleoffice4me/.venv/bin/python -c "import tools.service_control; import app.audio_output_worker" \
     && rm -rf /opt/simpleoffice4me/database /opt/simpleoffice4me/instance \
     && install -d -o simpleoffice -g simpleoffice -m 0750 \
         /var/lib/simpleoffice4me \
