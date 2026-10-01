@@ -65,7 +65,7 @@
     <section class="col-lg-8">
       {% if case_view %}
       <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-        <div><h2 class="h4 mb-1">{{ case_view.title }}</h2><div class="small text-secondary">Vorgang {{ case_view.id }} · Konto {{ case_view.account_id }}</div></div>
+        <div><h2 class="h4 mb-1">{{ case_view.title }}</h2><div class="small text-secondary">Vorgang {{ case_view.id }}{% if case_view.federation_peer_id %} · Federation {{ case_view.federation_peer_id }}{% else %} · Konto {{ case_view.account_id }}{% endif %}</div></div>
         {% if 'manage_status' in case_view.permissions %}
         <form method="post" action="{{ url_for('mail_reader.update_case_status', case_id=case_view.id) }}" class="d-flex gap-2">
           <select class="form-select form-select-sm" name="status" aria-label="Vorgangsstatus">{% for value,label in [('offen','Offen'),('in_bearbeitung','In Bearbeitung'),('wartet','Wartet'),('erledigt','Erledigt')] %}<option value="{{ value }}" {% if case_view.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
@@ -78,7 +78,7 @@
         {% for participant in case_view.participants %}
         <div class="border rounded p-2 mb-2">
           <div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ participant.local_user_id if participant.participant_type == 'local_user' else participant.remote_user_id }}</strong> <span class="badge text-bg-light">{{ participant.participant_type }}</span></div><div class="small text-secondary">{{ participant.permissions|join(', ') }}</div></div>
-          {% if 'manage_participants' in case_view.permissions and not (participant.participant_type == 'local_user' and participant.local_user_id == case_view.account_owner) %}
+          {% if not case_view.federation_peer_id and 'manage_participants' in case_view.permissions and not (participant.participant_type == 'local_user' and participant.local_user_id == case_view.account_owner) %}
           <form method="post" action="{{ url_for('mail_reader.update_case_participant', case_id=case_view.id, participant_id=participant.id) }}" class="mt-2"><div class="d-flex flex-wrap gap-2 align-items-center">
             {% for permission in ['comment','compose','send_request','manage_participants','manage_status','manage_mail'] %}<label class="form-check form-check-inline mb-0"><input class="form-check-input" type="checkbox" name="permission" value="{{ permission }}" {% if permission in participant.permissions %}checked{% endif %}> <span class="form-check-label">{{ permission }}</span></label>{% endfor %}
             <button class="btn btn-sm btn-outline-primary" type="submit">Rechte speichern</button>
@@ -87,12 +87,23 @@
           {% endif %}
         </div>
         {% endfor %}
-        {% if 'manage_participants' in case_view.permissions %}
+        {% if not case_view.federation_peer_id and 'manage_participants' in case_view.permissions %}
         <form method="post" action="{{ url_for('mail_reader.add_case_participant', case_id=case_view.id) }}" class="row g-2 align-items-end mt-1">
-          <div class="col-md-5"><label class="form-label" for="case-user">Benutzer</label><select id="case-user" class="form-select" name="username" required><option value="">Bitte wählen</option>{% for user in case_users %}{% if user.username != case_view.account_owner %}<option value="{{ user.username }}">{{ user.display_name or user.username }} ({{ user.username }})</option>{% endif %}{% endfor %}</select></div>
+          <input type="hidden" name="participant_type" value="local">
+          <div class="col-md-5"><label class="form-label" for="case-user">Lokaler Benutzer</label><select id="case-user" class="form-select" name="username" required><option value="">Bitte wählen</option>{% for user in case_users %}{% if user.username != case_view.account_owner %}<option value="{{ user.username }}">{{ user.display_name or user.username }} ({{ user.username }})</option>{% endif %}{% endfor %}</select></div>
           <div class="col-md-5"><label class="form-label d-block">Rechte zusätzlich zu Lesen</label>{% for permission in ['comment','compose','send_request','manage_participants','manage_status','manage_mail'] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="permission" value="{{ permission }}"> <span class="form-check-label">{{ permission }}</span></label>{% endfor %}</div>
           <div class="col-md-2"><button class="btn btn-outline-primary w-100" type="submit">Hinzufügen</button></div>
-        </form>{% endif %}
+        </form>
+        {% if case_federation_peers %}
+        <form method="post" action="{{ url_for('mail_reader.add_case_participant', case_id=case_view.id) }}" class="row g-2 align-items-end mt-2 border-top pt-2">
+          <input type="hidden" name="participant_type" value="federated">
+          <div class="col-md-3"><label class="form-label" for="case-fed-peer">Federation-Peer</label><select id="case-fed-peer" class="form-select" name="peer_id" required><option value="">Bitte wählen</option>{% for peer in case_federation_peers %}<option value="{{ peer.peer_id }}">{{ peer.label }} ({{ peer.peer_id }})</option>{% endfor %}</select></div>
+          <div class="col-md-3"><label class="form-label" for="case-fed-user">Remote-Benutzer-ID</label><input id="case-fed-user" class="form-control" name="remote_user_id" maxlength="200" required></div>
+          <div class="col-md-4"><label class="form-label d-block">Remote-Rechte zusätzlich zu Lesen</label>{% for permission in ['comment','compose','send_request','manage_status'] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="permission" value="{{ permission }}"> <span class="form-check-label">{{ permission }}</span></label>{% endfor %}</div>
+          <div class="col-md-2"><button class="btn btn-outline-primary w-100" type="submit">Federieren</button></div>
+        </form>
+        {% endif %}
+        {% endif %}
       </div>{% endif %}
 
       <h3 class="h6">Timeline</h3>
@@ -106,7 +117,7 @@
               <span class="ms-1">(unabhängig vom IMAP-Status)</span>
             </div>
             {% if item.mail_reference.startswith('sha512:') %}<a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('mail_reader.index', case=case_view.id, case_mail=item.mail_reference[7:]) }}#mail-case">EML im Vorgang lesen</a>{% endif %}
-            {% if 'manage_mail' in case_view.permissions %}<form method="post" action="{{ url_for('mail_reader.remove_case_message', case_id=case_view.id) }}" class="d-inline"><input type="hidden" name="mail_reference" value="{{ item.mail_reference }}"><button class="btn btn-sm btn-outline-danger mt-2" type="submit">Zuordnung entfernen</button></form>{% endif %}
+            {% if not case_view.federation_peer_id and 'manage_mail' in case_view.permissions %}<form method="post" action="{{ url_for('mail_reader.remove_case_message', case_id=case_view.id) }}" class="d-inline"><input type="hidden" name="mail_reference" value="{{ item.mail_reference }}"><button class="btn btn-sm btn-outline-danger mt-2" type="submit">Zuordnung entfernen</button></form>{% endif %}
           </div>
           {% elif item.kind == 'comment' %}
           <div class="list-group-item"><div class="d-flex justify-content-between gap-2"><strong><i class="fas fa-comment me-1"></i>{{ item.author }}</strong><small>{{ item.created_at }}</small></div><div class="mt-2" style="white-space:pre-wrap">{{ item.body }}</div></div>
@@ -122,7 +133,7 @@
             {% else %}
             <div class="mt-2"><strong>An:</strong> {{ item.recipients_to }}{% if item.recipients_cc %} · <strong>CC:</strong> {{ item.recipients_cc }}{% endif %}<br><strong>Betreff:</strong> {{ item.subject }}<div class="mt-2" style="white-space:pre-wrap">{{ item.body }}</div></div>
             {% endif %}
-            {% if item.attachments %}
+            {% if item.attachments and not case_view.federation_peer_id %}
             <div class="mt-2"><strong>Anhänge:</strong>
               {% for attachment in item.attachments %}
               <span class="d-inline-flex align-items-center gap-1 me-2 mb-1">
@@ -134,7 +145,7 @@
               {% endfor %}
             </div>
             {% endif %}
-            {% if 'compose' in case_view.permissions and item.status in ['draft','rejected','failed'] %}
+            {% if not case_view.federation_peer_id and 'compose' in case_view.permissions and item.status in ['draft','rejected','failed'] %}
             <form method="post" enctype="multipart/form-data" action="{{ url_for('mail_reader.add_case_draft_attachment', case_id=case_view.id, draft_id=item.id) }}" class="d-flex flex-wrap gap-2 align-items-end mt-2">
               <div><label class="form-label small mb-1">Anhang hinzufügen</label><input class="form-control form-control-sm" type="file" name="attachment" required></div>
               <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="fas fa-shield-virus me-1"></i>Prüfen & hinzufügen</button>
@@ -169,7 +180,7 @@
         <div class="col-md-6"><label class="form-label">An</label><input class="form-control" name="to" required value="{{ case_mail_preview.from if case_mail_preview else '' }}"></div><div class="col-md-6"><label class="form-label">Absenderidentität</label><input class="form-control" name="sender_identity" placeholder="optional"></div>
         <div class="col-md-6"><label class="form-label">CC</label><input class="form-control" name="cc"></div><div class="col-md-6"><label class="form-label">BCC</label><input class="form-control" name="bcc"></div>
         <div class="col-12"><label class="form-label">Betreff</label><input class="form-control" name="subject" required value="{{ ('Re: ' ~ case_mail_preview.subject) if case_mail_preview else '' }}"></div><div class="col-12"><label class="form-label">Text</label><textarea class="form-control" name="body" rows="5"></textarea></div>
-        <div class="col-12"><label class="form-label">Anhänge</label><input class="form-control" type="file" name="attachments" multiple><div class="form-text">Anhänge werden vor der Speicherung mit dem vorhandenen ClamAV-Gate geprüft.</div></div>
+        {% if not case_view.federation_peer_id %}<div class="col-12"><label class="form-label">Anhänge</label><input class="form-control" type="file" name="attachments" multiple><div class="form-text">Anhänge werden vor der Speicherung mit dem vorhandenen ClamAV-Gate geprüft.</div></div>{% else %}<div class="col-12"><div class="form-text">Entwurfsanhänge werden bei föderierten Spiegelvorgängen nicht lokal gespeichert. EML-Anhänge bleiben über die Vorgangsfreigabe lesbar.</div></div>{% endif %}
         <div class="col-12"><button class="btn btn-primary" type="submit">Entwurf speichern</button><span class="small text-secondary ms-2">Kein Versand.</span></div>
       </div></form>{% endif %}
 
@@ -186,7 +197,7 @@
 </section>
   {% endif %}
 
-{% if not accounts %}<div class="alert alert-secondary">Noch kein Mailkonto vorhanden. <a href="{{ url_for('mail_client.index') }}">IMAP-Konto konfigurieren</a>.</div>
+{% if not accounts and mode != 'case' %}<div class="alert alert-secondary">Noch kein Mailkonto vorhanden. <a href="{{ url_for('mail_client.index') }}">IMAP-Konto konfigurieren</a>.</div>
   {% elif mode == 'case' %}
   {% elif mode == 'archive' %}
   <div class="row g-3">
