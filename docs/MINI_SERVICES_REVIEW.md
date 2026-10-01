@@ -5,7 +5,7 @@ Historische Ausgangsbasis der unveränderten Qualitätsmatrix: `4a9b798`
 Fortschrittsstand und keine aktuelle Statusquelle. Der aktuelle main-/CI-/PR-
 Abgleich sowie die neu bewertete vollständige Matrix stehen in
 [`MINI_SERVICES_ACCEPTANCE.md`](MINI_SERVICES_ACCEPTANCE.md), zuletzt geprüft
-gegen `c97d47424f1a81249f3ca62514f12291e7dd4101` am 01.10.2026. Diese Datei
+gegen `01fe6fe748146ba339a6f5191430a0cfacdb5bd5` am 01.10.2026. Diese Datei
 bleibt als Vergleichsbasis erhalten. Ein grüner Build ersetzt weder
 Hardwaretests noch eine Prüfung der tatsächlich nutzbaren Ende-zu-Ende-Funktion.
 

@@ -3,7 +3,7 @@
 This matrix is the repository-side negative-case contract for issue #330.
 It separates deterministic CI evidence from scenarios that require real
 operating systems, networks or hardware. Rechecked against main
-`c97d47424f1a81249f3ca62514f12291e7dd4101` on 2026-10-01.
+`01fe6fe748146ba339a6f5191430a0cfacdb5bd5` on 2026-10-01.
 
 Legend:
 

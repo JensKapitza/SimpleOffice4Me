@@ -1,7 +1,7 @@
 # Mini Services external acceptance protocol
 
 Repository basis checked on 2026-10-01: `main` at
-`c97d47424f1a81249f3ca62514f12291e7dd4101`. Issue #330 remains open.
+`01fe6fe748146ba339a6f5191430a0cfacdb5bd5`. Issue #330 remains open.
 The software implementations for Screen and DLNA are present in main; this
 protocol records their runtime checks separately from CI and build evidence.
 

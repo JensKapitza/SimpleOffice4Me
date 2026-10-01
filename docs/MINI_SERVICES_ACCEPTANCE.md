@@ -1,7 +1,7 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 01.10.2026, geprüft gegen `main` `c97d47424f1a81249f3ca62514f12291e7dd4101`.
-Der Abgleich umfasst den zuvor angegebenen Stand `0ac15b1431364d61f322153254401b5a095dfe7c` sowie den danach gemergten PR #537.
+Stand: 01.10.2026, geprüft gegen `main` `01fe6fe748146ba339a6f5191430a0cfacdb5bd5`.
+Der Abgleich umfasst den zuvor angegebenen Stand `0ac15b1431364d61f322153254401b5a095dfe7c` sowie die danach gemergten PRs #537–#542.
 Die historische Matrix basiert auf #296/#298; sie wird hier gegen den heutigen Stand neu bewertet.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
@@ -32,11 +32,17 @@ Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen
   `tools.service_control` auch isoliert importierbar ist. Das schließt eine
   Paketierungslücke im bestehenden Mini-Service-CLI-Laufzeitpfad; es fügt
   keinen neuen Dienst oder eine zweite Startarchitektur hinzu.
+- PR #538 aktualisiert die vorherige Mini-Services-Abnahme nach #537; PR #539
+  aktualisiert separat den 3.0-Release-Gate-Nachweis.
 - Die nach dem 24.09. gemergten Änderungen an Android-Offlinefunktionen und
   den Browser-Routenläufen (#503, #531, #533, #535) ändern die hier bewerteten
   Mini-Service-Protokolle nicht. Dynamische Browser-Routenabdeckung verbessert
   den manuellen UI-Lauf, ist aber kein visueller oder praktischer
   Plattformnachweis.
+- PR #540 ergänzt den Android-PDF-/EPUB-Reader, #541 föderierte Mail-Vorgänge
+  und #542 aktualisiert den Release-Gate-Nachweis. Diese Änderungen bauen
+  keine Mini-Service-Protokolle um. Die Android-ABIs wurden erneut in CI
+  gebaut; reale Android-, Netzwerk- und Hardwareabnahmen bleiben offen.
 
 Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
@@ -48,11 +54,13 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
 ### Status der Issue-Checkliste
 
-- **Aktueller Stand/CI/PR-Abgleich:** auf `c97d4742` vom 01.10.2026 aktualisiert.
-  PR #463 (Abnahme-Gates) und #537 (Paketierung `tools`) sind gemergt. DHCP-
-  Fremdservererkennung (#418) und sichere UFW/firewalld-Verwaltung (#424) sind
-  Bestandteil des Softwarestands und werden nicht mehr als Implementierungslücke
-  geführt. Laufende fachfremde PRs werden nicht als Mini-Services-Nachweis gewertet.
+- **Aktueller Stand/CI/PR-Abgleich:** gegen `01fe6fe7` vom 01.10.2026
+  aktualisiert. PR #463 (Abnahme-Gates), #537 (Paketierung `tools`), #538
+  (vorherige Abnahme), #539 (3.0-Release-Gate), #540 (Android-Reader), #541
+  (Mail-Federation) und #542 (Release-Gate-Aktualisierung) sind gemergt. Es
+  gibt keine offenen PRs. DHCP-Fremdservererkennung (#418) und sichere
+  UFW/firewalld-Verwaltung (#424) bleiben implementiert. Fachfremde PRs werden
+  nicht als Mini-Services-Nachweis gewertet.
 - **Inline-Hilfe:** durch #341 softwareseitig erledigt; visuelle Bedienabnahme
   bleibt als Prüfnachweis offen.
 - **Diagnose-URL-Datenschutz:** durch #338 erledigt.
@@ -161,17 +169,17 @@ Loopback und vom OS zugewiesene Ports. Keine DHCP-Pakete ins LAN, keine externen
 DNS-Anfragen, keine Änderung von Routing oder Firewall. DNS-TCP und -UDP erhalten
 hier getrennte freie Ports: gemessen wird der Lifecycle, nicht DNS-Verkehr.
 
-Aktueller Lauf vom 01.10.2026 auf Prüfcommit `c97d4742`:
+Aktueller Lauf vom 01.10.2026 auf Prüfcommit `01fe6fe7`:
 Python 3.12.14, Linux 6.18.44, x86_64, glibc 2.39.
 Fünf Starts/Stops je Dienst auf derselben Instanz; Konstruktor und Python-Import
 sind nicht in der Startzeit enthalten. CPU ist Prozess-CPU je Start/Stop-Zyklus.
 
 | Dienst | Konstruktion Median / Max ms | Python-Heap-Peak Median / Max KiB | Start Median / Max ms | Doppelstart Median / Max ms | Stop Median / Max ms | CPU Median / Max ms |
 |---|---:|---:|---:|---:|---:|---:|
-| DHCP | 0,357 / 0,697 | 6,125 / 6,344 | 0,225 / 0,336 | 0,003 / 0,005 | 1001,229 / 1001,275 | 0,501 / 0,560 |
-| DNS | 0,180 / 0,337 | 6,208 / 6,599 | 0,426 / 0,669 | 0,004 / 0,009 | 1001,255 / 1001,311 | 0,620 / 0,859 |
-| TFTP | 0,079 / 0,243 | 3,273 / 3,500 | 0,177 / 0,266 | 0,003 / 0,003 | 1001,228 / 1001,496 | 0,314 / 0,398 |
-| SIP | 0,327 / 12,419 | 3,910 / 238,563 | 0,220 / 0,274 | 0,003 / 0,003 | 1001,189 / 1001,300 | 0,359 / 0,418 |
+| DHCP | 0,345 / 0,604 | 6,125 / 6,344 | 0,279 / 0,304 | 0,003 / 0,006 | 1001,226 / 1001,260 | 0,422 / 0,727 |
+| DNS | 0,161 / 0,399 | 6,208 / 6,599 | 0,394 / 0,457 | 0,003 / 0,004 | 1001,209 / 1001,301 | 0,614 / 0,756 |
+| TFTP | 0,095 / 0,231 | 3,273 / 3,500 | 0,258 / 0,312 | 0,003 / 0,003 | 1001,276 / 1001,545 | 0,438 / 0,952 |
+| SIP | 0,294 / 9,803 | 3,910 / 238,916 | 0,238 / 0,277 | 0,003 / 0,003 | 1001,203 / 1001,305 | 0,348 / 0,468 |
 
 Keine zusätzlichen Threads nach Abschluss. Python-Heap-Peak ist nicht
 Gesamtprozess-RSS. Der Stop wartet auf den bestehenden Socket-Timeout von einer
@@ -206,30 +214,30 @@ keine reale Geräteabnahme.
 ## Aktuelle repositoryseitige Nachweise (01.10.2026)
 
 Prüfcommit vor den Dokumentationsänderungen:
-`c97d47424f1a81249f3ca62514f12291e7dd4101`.
+`01fe6fe748146ba339a6f5191430a0cfacdb5bd5`.
 
-- Vollständige Python-Unittest-Suite: 2.677 Tests in 209,140 Sekunden,
-  11 übersprungen, keine Fehler (Python 3.12.14).
-- Projektpolicy, Datei- und Funktionsgrößenlimits, Python-Compileall,
-  Diagnose-Audit sowie der Fünf-Iterationen-Benchmark bestanden lokal.
-- Ruff, pip-audit/Bandit, Docker-Build/Relay-Smoke, die CI-Versionen Python
-  3.10/3.14/3.15-rc und der KoSIT-Integrationstest sind lokale Runner-Gates
-  bzw. externe Build-Gates und werden für diesen PR durch GitHub Actions geprüft.
-  Der KoSIT-Integrationstest bleibt im lokalen Gesamtlauf erwartungsgemäß
-  übersprungen.
+- Vollständige Python-Unittest-Suite: 2.703 Tests je Python 3.10, 3.14 und
+  3.15.0-rc.2, jeweils 15 übersprungen und ohne Fehler (GitHub Actions auf
+  aktuellem main).
+- Projektpolicy, Datei-/Funktionsgrößenlimits, Python-Compileall und CRA-Gate
+  bestanden; Extended Quality und Security Quick Wins sind grün.
+- Dependency-Audit, SBOM, KoSIT/XRechnung, CodeQL, OSSAR, Scorecard,
+  Docker-Build/Relay-Smoke und Push-on-main sind für `01fe6fe7` erfolgreich.
+- Mini-Service-, Gateway-, Netzwerk-Boot-, Audio-, Screen- und CLI-Regressionen:
+  264 gezielte Python-Tests bestanden. `tests/mini_services_frontend.test.cjs`,
+  `tests/screen_share_frontend.test.cjs` und
+  `tests/audio_output_remote.test.cjs`: zusammen 11 Node-Tests bestanden.
 - Der diagnosebezogene AST-Audit (`tools/mini_services_log_audit.py`) lief lokal
   erfolgreich über 42 Quellen.
 - Der Extended-Quality-Benchmark (`python -m tools.mini_services_benchmark
-  --iterations 5`) lief lokal für DHCP, DNS, TFTP und SIP mit null verbleibenden
-  Listener-Threads. Messwerte und Grenzen des aktuellen Laufs stehen unten.
-- 11 Mini-Service-, Audio- und Screen-Frontend-Node-Tests bestanden.
-- `tests/test_mini_packaging.py` ist Bestandteil des vollständigen Unittest-
-  Laufs und prüft die Paketierungskorrektur aus #537.
-- GitHub Actions für den PR-#537-Head `a74b4685` liefen erfolgreich:
-  Tests/Dependency-Audit, Extended Quality, Security Quick Wins, Android APK,
-  Desktop, Docker, CodeQL, OSSAR, Scorecard und Server-DEB. Das bestätigt
-  reproduzierbare Build-/Software-Gates auf diesem PR-Head, keine reale
-  Plattform-, Hardware- oder Laufzeitabnahme.
+  --iterations 5`) lief auf `01fe6fe7` für DHCP, DNS, TFTP und SIP mit null
+  verbleibenden Listener-Threads. Messwerte und Grenzen stehen oben.
+- `tests/test_mini_packaging.py` ist in der vollständigen CI-Suite enthalten;
+  beide Paketdefinitionen schließen `tools.service_control` ein.
+- Die Buildmatrix von PR #540 bestätigt Android ARM32/ARM64, Desktop, Docker
+  und Server-DEB auf demselben Anwendungscode. Auch die Dokumentations-CI von
+  PR #542 und die CI auf main sind erfolgreich. Build-Erfolg ist kein realer
+  Plattform-, Hardware- oder Laufzeitnachweis.
 
 Diese Software-Nachweise sind keine externe Gesamtabnahme. Plattform-,
 Hardware-, Last-, Durchsatz-, Accessibility- und Langzeitprüfungen bleiben
