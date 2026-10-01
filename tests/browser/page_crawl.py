@@ -439,11 +439,7 @@ def write_tested_url_manifest(
     )
 
 
-def route_coverage_failures(
-    summary: dict[str, object],
-    *,
-    require_dynamic: bool = False,
-) -> list[str]:
+def route_coverage_failures(summary: dict[str, object]) -> list[str]:
     """Return actionable coverage failures for the all-pages browser run."""
     coverage = summary.get("route_coverage")
     if not isinstance(coverage, dict) or not coverage.get("available"):
