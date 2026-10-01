@@ -82,6 +82,38 @@ def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
     }
 
 
+def preview_eml_bytes(raw: bytes) -> dict[str, Any]:
+    """Parse a bounded remote EML into escaped-template-ready preview fields."""
+    if len(raw) > MAX_MESSAGE_BYTES:
+        raise ValueError("message exceeds 100 MiB preview limit")
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    attachments: list[dict[str, Any]] = []
+    for index, part in enumerate(message.walk()):
+        if part.get_content_disposition() != "attachment" and not part.get_filename():
+            continue
+        payload = part.get_payload(decode=True) or b""
+        attachments.append({
+            "part": index,
+            "name": _header(part.get_filename()) or f"Anhang-{index}",
+            "type": part.get_content_type()[:120],
+            "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        })
+    return {
+        "sha512": hashlib.sha512(raw).hexdigest(),
+        "subject": _header(message.get("Subject")) or "(ohne Betreff)",
+        "from": _header(message.get("From")),
+        "to": _header(message.get("To")),
+        "cc": _header(message.get("Cc")),
+        "date": _header(message.get("Date")),
+        "message_id": _header(message.get("Message-ID")),
+        "text": _message_text(message),
+        "attachments": attachments,
+        "size": len(raw),
+        "remote": True,
+    }
+
+
 def load_local_eml(store: MailStore, actor: str, account_id: str, relative_path: str) -> dict[str, Any]:
     """Load one owned archive EML without allowing path traversal or symlink escape."""
     base = _owned_archive_base(store, actor, account_id)

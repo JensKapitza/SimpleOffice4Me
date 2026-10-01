@@ -31,6 +31,7 @@ BASE_OBJECT_VERSIONS = {
     "contacts": (1,),
     "calendar": (1,),
     "tasks": (1,),
+    "mail_cases": (1,),
 }
 
 
@@ -423,5 +424,24 @@ class FederationContract:
 
         auto_accept = policy.get("auto_accept") is True
         status = "accepted" if auto_accept else "pending"
+        if envelope.object_type == "mail_cases" and status == "accepted":
+            try:
+                from .mail_case_federation import apply_mail_case_event
+
+                applied = apply_mail_case_event(
+                    self.root,
+                    envelope.sender_instance,
+                    envelope.message_id,
+                    envelope.payload or {},
+                )
+            except PermissionError:
+                self.store.store(envelope, "rejected", error_class="mail_case_acl_denied")
+                return {"status": "rejected", "error": "mail_case_acl_denied"}
+            except (KeyError, TypeError, ValueError):
+                self.store.store(envelope, "rejected", error_class="invalid_mail_case_event")
+                return {"status": "rejected", "error": "invalid_mail_case_event"}
         self.store.store(envelope, status)
-        return {"status": status, "message_id": envelope.message_id}
+        response = {"status": status, "message_id": envelope.message_id}
+        if envelope.object_type == "mail_cases" and status == "accepted":
+            response["result"] = applied
+        return response

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import smtplib
+import os
+import uuid
 
 from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
@@ -10,11 +12,99 @@ from .auth import login_required
 from .db import get_db
 from .mail_autoconfig import discover_mail_settings
 from .mail_case_store import MailCaseStore
+from .mail_case_federation import send_mail_case_event
+from .mail_case_federation import MailCaseFederationIdentityStore
 from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpSubmission
 from .mail_webclient import MailAccountPolicy, MailReadOnlyError
 from .sieve_sync import ManageSieveSyncClient, activate_server_script, server_state, sync_from_server
 
 bp = Blueprint("mail_client", __name__, url_prefix="/documents/mail")
+
+
+@bp.post("/cases/<case_id>/federation/<peer_id>/events")
+@login_required
+def send_federated_case_event(case_id: str, peer_id: str):
+    """Send one ACL-checked mail-case collaboration event to a trusted peer."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) and request.form:
+        data = request.form.to_dict()
+    if not isinstance(data, dict):
+        return jsonify({"error": "invalid_event"}), 400
+    operation = str(data.get("operation") or "")
+    permission = {"case_invitation": "manage_participants", "comment": "comment", "draft": "compose",
+                  "send_request": "send_request",
+                  "send_approval": "manage_mail",
+                  "send_rejection": "manage_mail", "eml_reference": "manage_mail"}.get(operation)
+    if permission is None:
+        return jsonify({"error": "unsupported_operation"}), 400
+    actor = _actor()
+    cases = MailCaseStore(current_app.config["DOCUMENT_ROOT"])
+    try:
+        case = cases.get_case(actor, case_id)
+        if permission not in case.get("permissions", []):
+            raise PermissionError("mail-case permission denied")
+        if operation == "eml_reference":
+            from .federation_mail import MailFederationPolicy, MailFederationStore, _owner
+            from .mail_index import MailSearchIndex
+
+            account_id = str(data.get("account_id") or "")
+            digest = str(data.get("archive_id") or "").strip().casefold()
+            if actor != case.get("account_owner") or account_id != case.get("account_id") or \
+                    not MailFederationPolicy(current_app.config["DOCUMENT_ROOT"]).export_enabled(actor, account_id):
+                raise PermissionError("mail export is not enabled for this account")
+            if not any(item.get("mail_reference") == f"sha512:{digest}" for item in case.get("messages", [])):
+                raise PermissionError("EML is not linked to this case")
+            index = MailSearchIndex(_store())
+            with index._db() as db:
+                row = db.execute(
+                    """SELECT id,raw_sha512 FROM mail_message_index
+                       WHERE owner_key=? AND account_id=? AND raw_sha512=? AND present=1
+                       ORDER BY last_seen_at DESC LIMIT 1""",
+                    (_owner(actor), account_id, digest),
+                ).fetchone()
+            if not row or str(row["raw_sha512"] or "").casefold() != digest:
+                return jsonify({"error": "archived_eml_not_found"}), 404
+            locator = MailFederationStore(current_app.config["DOCUMENT_ROOT"]).locator_for(
+                _owner(actor), account_id, int(row["id"]),
+            )
+            payload = {"operation": operation, "case_id": case_id, "actor_id": actor,
+                       "locator": locator, "content_sha512": digest}
+        else:
+            payload = {key: data[key] for key in ("title", "to", "cc", "bcc", "subject", "body", "draft_id")
+                       if key in data}
+            remote_case_id = MailCaseFederationIdentityStore(
+                current_app.config["DOCUMENT_ROOT"]
+            ).remote_case_id(peer_id, case_id)
+            payload.update({"operation": operation, "case_id": remote_case_id or case_id,
+                            "actor_id": actor})
+        invited = any(item["participant_type"] == "federated_user"
+                      and item.get("peer_id") == peer_id
+                      for item in case["participants"])
+        if not invited:
+            return jsonify({"error": "peer_not_a_case_participant"}), 403
+        message_id = uuid.uuid4().hex
+        try:
+            result = send_mail_case_event(
+                current_app.config["DOCUMENT_ROOT"],
+                os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "simpleoffice-local"),
+                peer_id, message_id, payload,
+            )
+        except ConnectionError:
+            result = MailCaseFederationIdentityStore(
+                current_app.config["DOCUMENT_ROOT"]
+            ).enqueue(peer_id, message_id, payload)
+            return jsonify(result), 202
+    except PermissionError:
+        return jsonify({"error": "mail_case_access_denied"}), 403
+    except KeyError:
+        return jsonify({"error": "mail_case_not_found"}), 404
+    except (ValueError, TypeError):
+        return jsonify({"error": "invalid_event_or_peer"}), 400
+    except ConnectionError:
+        return jsonify({"error": "peer_unreachable"}), 503
+    except RuntimeError:
+        return jsonify({"error": "peer_rejected_event"}), 502
+    return jsonify(result), 200
 
 
 def _actor() -> str:

@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import io
+import hashlib
+import os
+import re
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
@@ -10,11 +15,11 @@ from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_te
 from .attachment_security import MAX_ATTACHMENT_BYTES
 from .auth import login_required
 from .db import get_db
-from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id
+from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id, preview_eml_bytes
 from .mail_case_store import MailCaseStore
 from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
-from .mail_client import MailStore, SmtpDeliveryStateUnknown, SmtpSubmission
+from .mail_client import MAX_MESSAGE_BYTES, MailStore, SmtpDeliveryStateUnknown, SmtpSubmission, _mail_ui_features
 from .mail_reader import MailReader
 from .mail_webclient import ImapWebClient, MailAccountPolicy, MailReadOnlyError, contact_recipients
 
@@ -43,6 +48,54 @@ def _case_redirect(case_id: str):
 
 def _mail_reference(archive_id: str) -> str:
     return f"sha512:{archive_id.strip().casefold()}"
+
+
+def _remote_case_eml(root: str | Path, peer_id: str, locator: str, expected_hash: str) -> dict:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{20,96}", locator):
+        raise ValueError("invalid remote mail locator")
+    if not re.fullmatch(r"[0-9a-f]{128}", str(expected_hash or "").casefold()):
+        raise ValueError("invalid remote mail hash")
+    from .federation_core import sanitize_peer_id
+    from .v3_federation import FederationContract
+
+    peer_id = sanitize_peer_id(peer_id)
+    local_id = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "simpleoffice-local")
+    contract = FederationContract(root, local_id)
+    peer = contract.peers.get_peer(peer_id)
+    if not peer or not peer.get("enabled") or not contract._directly_trusted(peer_id):
+        raise PermissionError("direct peer trust is required")
+    base_url = str(peer.get("base_url") or "").rstrip("/")
+    if not base_url.startswith("https://"):
+        raise PermissionError("HTTPS is required for remote mail")
+    token = contract.peers.peer_token(peer_id)
+    if not token:
+        raise PermissionError("peer credential is unavailable")
+    req = urllib.request.Request(
+        f"{base_url}/federation/v1/mails/{locator}/eml",
+        headers={"Authorization": f"Bearer {token}", "Accept": "message/rfc822"},
+        method="GET",
+    )
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    try:
+        with urllib.request.build_opener(_NoRedirect()).open(req, timeout=15) as response:
+            raw = response.read(MAX_MESSAGE_BYTES + 1)
+            if len(raw) > MAX_MESSAGE_BYTES:
+                raise ValueError("remote EML exceeds the configured size limit")
+            header_hash = str(response.headers.get("X-Content-SHA512") or "").casefold()
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise PermissionError("remote mail export is not authorized") from None
+        raise FileNotFoundError("remote EML is unavailable") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ConnectionError("remote EML peer is unavailable") from exc
+    digest = hashlib.sha512(raw).hexdigest()
+    if digest != str(expected_hash).casefold() or (header_hash and header_hash != digest):
+        raise ValueError("remote EML integrity check failed")
+    return preview_eml_bytes(raw)
 
 
 def _mail_source(store: MailStore, account_id: str) -> tuple[str, dict]:
@@ -168,7 +221,7 @@ def index():
     folder = request.args.get("folder", "").strip()
     uid = request.args.get("uid", "").strip()
     archive_id = request.args.get("mail", "").strip()
-    case_mail_id = request.args.get("case_mail", "").strip().casefold()
+    case_mail_id = request.args.get("case_mail", "").strip()
     page = max(1, request.args.get("page", 1, type=int) or 1)
     folders: list[dict] = []
     messages: list[dict] = []
@@ -192,23 +245,43 @@ def index():
     if case_id:
         try:
             case_view = cases.get_case(_actor(), case_id)
-            ui_features = store.ui_features(case_view["account_owner"], case_view["account_id"])
-            can_delegated_send = cases.delegations.has_active(
-                case_view["account_owner"], case_view["account_id"], _actor()
-            )
+            if str(case_view["account_id"]).startswith("federation:"):
+                ui_features = _mail_ui_features()
+                can_delegated_send = False
+            else:
+                ui_features = store.ui_features(case_view["account_owner"], case_view["account_id"])
+                can_delegated_send = cases.delegations.has_active(
+                    case_view["account_owner"], case_view["account_id"], _actor()
+                )
             if case_mail_id:
-                reference = _mail_reference(case_mail_id)
+                reference = (case_mail_id if case_mail_id.startswith("federation-eml:")
+                             else _mail_reference(case_mail_id))
                 if any(row["mail_reference"] == reference for row in case_view["messages"]):
-                    case_mail_preview = load_local_eml_by_id(
-                        store, case_view["account_owner"], case_view["account_id"], case_mail_id
-                    )
-                    _add_attachment_scan_state(case_mail_preview)
-                    cases.mark_read(_actor(), case_id, reference)
-                    store.history.record(
-                        "mail_case_message_viewed", _actor(), "mail-case", case_id,
-                        {"mail_reference": reference, "account_id": case_view["account_id"]},
-                    )
-                    case_view = cases.get_case(_actor(), case_id)
+                    if reference.startswith("federation-eml:"):
+                        _, peer_id, locator = reference.split(":", 2)
+                        message = next(row for row in case_view["messages"]
+                                       if row["mail_reference"] == reference)
+                        try:
+                            case_mail_preview = _remote_case_eml(
+                                current_app.config["DOCUMENT_ROOT"], peer_id, locator,
+                                str(message.get("content_sha512") or ""),
+                            )
+                        except (ConnectionError, FileNotFoundError, PermissionError, ValueError):
+                            flash("Die föderierte EML ist nicht verfügbar oder konnte nicht verifiziert werden.")
+                        if case_mail_preview is not None:
+                            case_mail_preview["remote"] = True
+                    else:
+                        case_mail_preview = load_local_eml_by_id(
+                            store, case_view["account_owner"], case_view["account_id"], case_mail_id
+                        )
+                        _add_attachment_scan_state(case_mail_preview)
+                    if case_mail_preview is not None:
+                        cases.mark_read(_actor(), case_id, reference)
+                        store.history.record(
+                            "mail_case_message_viewed", _actor(), "mail-case", case_id,
+                            {"mail_reference": reference, "account_id": case_view["account_id"]},
+                        )
+                        case_view = cases.get_case(_actor(), case_id)
             for item in case_view["messages"]:
                 case_timeline.append({"kind": "mail", **item})
             for item in case_view["comments"]:
