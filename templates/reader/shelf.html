@@ -12,7 +12,7 @@
       <div class="col-lg-5"><label class="form-label" for="reader-q">Suche</label><input id="reader-q" class="form-control" type="search" name="q" value="{{ query }}" placeholder="Titel oder Pfad"></div>
       <div class="col-sm-4 col-lg-2"><label class="form-label" for="reader-format">Format</label><select id="reader-format" class="form-select" name="format"><option value="">Alle</option><option value="pdf" {% if format_filter == 'pdf' %}selected{% endif %}>PDF</option><option value="epub" {% if format_filter == 'epub' %}selected{% endif %}>EPUB</option></select></div>
       <div class="col-sm-4 col-lg-2"><label class="form-label" for="reader-status">Stand</label><select id="reader-status" class="form-select" name="status"><option value="">Alle</option><option value="unread" {% if status_filter == 'unread' %}selected{% endif %}>Ungelesen</option><option value="reading" {% if status_filter == 'reading' %}selected{% endif %}>In Arbeit</option><option value="finished" {% if status_filter == 'finished' %}selected{% endif %}>Fertig</option></select></div>
-      <div class="col-sm-4 col-lg-2"><label class="form-label" for="reader-sort">Sortierung</label><select id="reader-sort" class="form-select" name="sort"><option value="recent" {% if sort == 'recent' %}selected{% endif %}>Zuletzt geändert</option><option value="title" {% if sort == 'title' %}selected{% endif %}>Titel</option><option value="progress" {% if sort == 'progress' %}selected{% endif %}>Fortschritt</option></select></div>
+      <div class="col-sm-4 col-lg-2"><label class="form-label" for="reader-sort">Sortierung</label><select id="reader-sort" class="form-select" name="sort"><option value="recent" {% if sort == 'recent' %}selected{% endif %}>Zuletzt gelesen</option><option value="title" {% if sort == 'title' %}selected{% endif %}>Titel</option><option value="author" {% if sort == 'author' %}selected{% endif %}>Autor</option><option value="progress" {% if sort == 'progress' %}selected{% endif %}>Fortschritt</option></select></div>
       <div class="col-lg-1 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Filter</button></div>
     </div>
   </form>
@@ -20,8 +20,10 @@
     {% for book in books %}
     <div class="col-sm-6 col-xl-4">
       <a class="card h-100 text-decoration-none" href="{{ url_for('reader.open_book', document_id=book.document_id) }}">
+        {% if book.format == 'epub' %}<img class="card-img-top object-fit-contain bg-body-tertiary" loading="lazy" decoding="async" src="{{ url_for('reader.epub_cover', document_id=book.document_id) }}" alt="" style="height:12rem" onerror="this.hidden=true">{% endif %}
         <div class="card-body">
           <div class="d-flex justify-content-between gap-2"><h2 class="h5 text-body mb-2">{{ book.title }}</h2><span class="badge text-bg-secondary align-self-start">{{ book.format|upper }}</span></div>
+          {% if book.author %}<div class="small fw-medium text-body mb-1">{{ book.author }}</div>{% endif %}
           <div class="small text-secondary text-break mb-3">{{ book.path }}</div>
           <div class="progress" role="progressbar" aria-label="Lesefortschritt" aria-valuenow="{{ book.progress }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:{{ book.progress }}%">{{ book.progress }}%</div></div>
           {% if book.stale %}<div class="small text-warning mt-2">Dokumentversion geändert – Leseposition muss geprüft werden.</div>{% endif %}
