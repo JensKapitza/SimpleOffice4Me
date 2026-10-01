@@ -89,6 +89,32 @@ Der normale Desktop-/Browser-OAuth-Ablauf bleibt unverändert und kann weiterhin
 
 Für die APK muss ein Android-OAuth-Client zur Paketkennung `de.simpleoffice4me.android` und zum Signatur-Zertifikat der verwendeten APK eingerichtet sein. Für Test-/Debug-Builds und produktiv signierte Builds sind entsprechend die richtigen SHA-Fingerprints zu hinterlegen. Auf dem Gerät müssen Google Play Services für die native Drive-Autorisierung verfügbar sein.
 
+## Kontrollierte Offline-Arbeitsdaten
+
+Die optionale Capability `v3.android_offline` verbindet den bestehenden
+`TodoStore` mit dem app-privaten `AndroidOfflineWorksetStore`. Es wird kein
+zweites Aufgabenmodell angelegt.
+
+- Die Oberfläche **Mehr -> Android Offline** lässt nur ausdrücklich ausgewählte
+  Aufgaben in den lokalen Workset `tasks` übernehmen.
+- Der Browser erhält aus der API nur die für die Offline-Aufgabe benötigte
+  Projektion und einen starken ETag; Secrets und Authentisierungsmaterial gehören
+  nicht zur Projektion.
+- Offline schreibbar ist ausschließlich `task_status`. Die Mutation bleibt bis
+  zur Synchronisation in einer begrenzten nativen Outbox.
+- Der Server prüft bei jeder Mutation die bestehenden Aufgabenrechte und den
+  Basis-ETag. Abweichungen werden als sichtbarer Konflikt behandelt.
+- Eine Operation-ID ist pro Benutzer idempotent. Das Receipt wird im selben
+  atomaren `todo.json`-Commit wie die Statusänderung gespeichert.
+- `NavigationActivity` meldet einen wiederhergestellten Netzwerkzugang an die
+  WebView; die Offline-Oberfläche stößt dann den Outbox-Sync an.
+- `window.SimpleOfficeOffline` wird nur erzeugt, wenn die serverseitige
+  Capability aktiv ist.
+- Beim Kontowechsel werden Offline-Store und Outbox vor dem Löschen der
+  Android-Identität und der WebView-Cookies geleert. Zusätzlich blockiert
+  `enforceOwner()` den Zugriff, falls die gespeicherte Identität dennoch von
+  der aktuellen abweicht.
+
 ## WebView-Lifecycle
 
 Beim Wechsel in den Hintergrund werden zusätzlich zum bestehenden Kamera-/NFC-Cleanup `WebView.onPause()` und `pauseTimers()` aufgerufen. Beim Zurückkehren werden `resumeTimers()` und `WebView.onResume()` ausgeführt.
