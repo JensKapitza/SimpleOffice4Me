@@ -6,6 +6,7 @@ import posixpath
 import re
 import zipfile
 from io import BytesIO
+from xml.etree import ElementTree
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -78,7 +79,7 @@ class EpubBook:
     def _xml(data: bytes):
         try:
             return SafeET.fromstring(data)
-        except (SafeET.ParseError, DefusedXmlException) as exc:
+        except (ElementTree.ParseError, DefusedXmlException) as exc:
             raise ValueError("EPUB contains invalid XML") from exc
 
     def _load(self) -> None:
