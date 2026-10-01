@@ -20,7 +20,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from browser_artifacts import make_html_snapshot_writer
+from browser_artifacts import make_html_snapshot_writer, slug
 from page_crawl import (
     CrawlFrontier,
     MAX_QUERY_VARIANTS_PER_PATH,
@@ -92,6 +92,12 @@ CORE_LABELS = (
 
 def compact(value: str) -> str:
     return " ".join((value or "").split())
+
+
+def same_origin(url: str) -> bool:
+    return same_primary_origin(url, BASE_URL) or (
+        bool(PEER_BASE_URL) and same_primary_origin(url, PEER_BASE_URL)
+    )
 
 
 def slug(value: str) -> str:
