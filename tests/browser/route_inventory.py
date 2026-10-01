@@ -23,6 +23,8 @@ PROTOCOL_PREFIXES = (
     "/federation/",
     "/s3",
     "/.well-known/",
+    "/mcp",
+    "/network-boot/ipxe",
 )
 NON_PAGE_TOKENS = (
     "/blob",
@@ -35,12 +37,26 @@ NON_PAGE_TOKENS = (
 NON_PAGE_ENDPOINTS = {
     "library.resolve_location",
     "service_worker",
+    "admin.activity",
+    "audio_output_admin.scan",
+    "mail_client.autoconfig",
+    "inventory.amazon_search",
+    "inventory.book_lookup",
+    "inventory_marketplace.search",
+    "mcp.endpoint_capabilities",
+    "network_boot_http.ipxe_script",
+    "resource_commander.range_entry",
+    "shopping.barcode_lookup",
+    "vault.api_search",
 }
 NON_PAGE_RULE_SUFFIXES = (
     ".js",
     ".json",
     ".webmanifest",
     ".xml",
+    ".csv",
+    ".pdf",
+    ".svg",
 )
 AUTH_EXACT = {
     "/auth/login",
