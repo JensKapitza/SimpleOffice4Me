@@ -17,6 +17,11 @@ on:
         required: true
         default: '2500'
         type: string
+      max_query_variants_per_path:
+        description: Maximale Zahl unterschiedlicher Query-Ansichten je URL-Pfad
+        required: true
+        default: '50'
+        type: string
       require_dynamic_route_coverage:
         description: Auch nicht materialisierte dynamische Objekt-URLs als Fehler werten
         required: true
@@ -181,6 +186,7 @@ jobs:
         env:
           BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all-pages' }}
           BROWSER_MAX_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_pages || '2500' }}
+          BROWSER_MAX_QUERY_VARIANTS_PER_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.max_query_variants_per_path || '50' }}
           BROWSER_ROUTE_INVENTORY: test-results/browser/route-inventory.json
           BROWSER_REQUIRE_DYNAMIC_ROUTE_COVERAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.require_dynamic_route_coverage || false }}
           BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ github.event_name == 'workflow_dispatch' && inputs.fail_on_console_errors || true }}
