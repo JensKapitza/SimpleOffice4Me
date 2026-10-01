@@ -19,6 +19,8 @@ MAX_ENTRY_BYTES = 20 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED = 200 * 1024 * 1024
 MAX_CHAPTERS = 1_000
 MAX_CHAPTER_TEXT = 2 * 1024 * 1024
+MAX_COVER_BYTES = 10 * 1024 * 1024
+SAFE_COVER_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 
 def _safe_name(value: str) -> str:
@@ -41,13 +43,29 @@ def _local(tag: str) -> str:
 
 
 def _text(root: Any) -> str:
-    chunks = []
-    for value in root.itertext():
-        clean = " ".join(str(value).split())
-        if clean:
-            chunks.append(clean)
-        if sum(len(item) for item in chunks) > MAX_CHAPTER_TEXT:
-            raise ValueError("EPUB chapter text exceeds the supported limit")
+    chunks: list[str] = []
+    size = 0
+
+    def visit(node: Any) -> None:
+        nonlocal size
+        if _local(str(node.tag)) in {"script", "style", "noscript", "template"}:
+            return
+        if node.text:
+            clean = " ".join(str(node.text).split())
+            if clean:
+                chunks.append(clean)
+                size += len(clean)
+        for child in list(node):
+            visit(child)
+            if child.tail:
+                clean = " ".join(str(child.tail).split())
+                if clean:
+                    chunks.append(clean)
+                    size += len(clean)
+            if size > MAX_CHAPTER_TEXT:
+                raise ValueError("EPUB chapter text exceeds the supported limit")
+
+    visit(root)
     return "\n\n".join(chunks)
 
 
@@ -61,6 +79,7 @@ class EpubBook:
         self.spine: list[str] = []
         self.title = ""
         self.author = ""
+        self.cover_item = ""
         self._load()
 
     def _read(self, archive: zipfile.ZipFile, name: str) -> bytes:
@@ -96,6 +115,8 @@ class EpubBook:
                 name = _safe_name(info.filename)
                 if info.is_dir():
                     continue
+                if name in self.entries:
+                    raise ValueError("EPUB contains duplicate archive members")
                 if info.flag_bits & 0x1:
                     raise ValueError("encrypted EPUB members are not supported")
                 if info.file_size < 0 or info.compress_size < 0:
@@ -106,6 +127,8 @@ class EpubBook:
                 if info.file_size > MAX_ENTRY_BYTES:
                     raise ValueError("EPUB member exceeds the supported size")
                 self.entries[name] = info
+            if "META-INF/encryption.xml" in self.entries:
+                raise ValueError("DRM or encrypted EPUB content is not supported")
 
             container = self._xml(self._read(archive, "META-INF/container.xml"))
             rootfile = next(
@@ -122,15 +145,23 @@ class EpubBook:
                     self.title = " ".join("".join(node.itertext()).split())[:500]
                 elif tag == "creator" and not self.author:
                     self.author = " ".join("".join(node.itertext()).split())[:500]
+                elif tag == "meta":
+                    name = str(node.attrib.get("name", "")).strip().casefold()
+                    content = str(node.attrib.get("content", "")).strip()
+                    if name == "cover" and content and not self.cover_item:
+                        self.cover_item = content[:500]
                 elif tag == "item":
                     item_id = str(node.attrib.get("id", "")).strip()
                     href = str(node.attrib.get("href", "")).strip()
                     if item_id and href:
+                        properties = str(node.attrib.get("properties", ""))[:500]
                         self.manifest[item_id] = {
                             "path": _join(package_name, href),
                             "media_type": str(node.attrib.get("media-type", ""))[:200],
-                            "properties": str(node.attrib.get("properties", ""))[:500],
+                            "properties": properties,
                         }
+                        if "cover-image" in properties.split() and not self.cover_item:
+                            self.cover_item = item_id
                 elif tag == "itemref":
                     ref = str(node.attrib.get("idref", "")).strip()
                     if ref:
@@ -145,6 +176,19 @@ class EpubBook:
             "author": self.author,
             "chapters": len(self.spine),
         }
+
+    def cover(self) -> tuple[bytes, str] | None:
+        item = self.manifest.get(self.cover_item)
+        if not item:
+            return None
+        media_type = str(item.get("media_type", "")).casefold()
+        if media_type not in SAFE_COVER_TYPES:
+            return None
+        with zipfile.ZipFile(BytesIO(self.raw)) as archive:
+            payload = self._read(archive, item["path"])
+        if len(payload) > MAX_COVER_BYTES:
+            raise ValueError("EPUB cover exceeds the supported size")
+        return payload, media_type
 
     def chapter(self, index: int) -> dict[str, Any]:
         if index < 0 or index >= len(self.spine):
@@ -176,6 +220,7 @@ class EpubBook:
             "title": title or f"Kapitel {index + 1}",
             "html": body,
             "text_length": len(text),
+            "position_anchor": f"chapter:{item_id}",
         }
 
     def toc(self) -> list[dict[str, Any]]:
