@@ -45,6 +45,10 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
                 ("limited", "unused"),
             )
             db.execute(
+                "INSERT INTO user (username, password, is_admin) VALUES (?, ?, 0)",
+                ("viewer", "unused"),
+            )
+            db.execute(
                 "INSERT INTO user_permission(user_id, feature, enabled, updated_at) "
                 "SELECT id, 'projects', 0, CURRENT_TIMESTAMP FROM user WHERE username='limited'"
             )
@@ -54,6 +58,9 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
             ).fetchone()["id"]
             self.limited_id = db.execute(
                 "SELECT id FROM user WHERE username='limited'"
+            ).fetchone()["id"]
+            self.viewer_id = db.execute(
+                "SELECT id FROM user WHERE username='viewer'"
             ).fetchone()["id"]
 
         self.store = TodoStore(self.documents)
@@ -185,6 +192,42 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
         )
         self.assertEqual("rejected", response.get_json()["results"][0]["status"])
         self.assertEqual("needs-action", self.store.items("admin")[0]["status"])
+
+    def test_read_only_shared_task_cannot_be_changed_offline(self):
+        shared_list = self.store.create_list(
+            {"name": "Offline lesbar", "permissions": {"viewer": ["read"]}},
+            "admin",
+            "offline-read",
+        )
+        shared = self.store.add(
+            "Nur lesen",
+            "admin",
+            {"list_id": shared_list["list_id"], "status": "needs-action"},
+        )
+        self._login(self.viewer_id)
+
+        visible = self.client.get("/api/v3/android-offline/tasks")
+        self.assertEqual(200, visible.status_code)
+        self.assertIn(shared["id"], [row["id"] for row in visible.get_json()["tasks"]])
+
+        response = self.client.post(
+            "/api/v3/android-offline/sync",
+            json={
+                "operations": [{
+                    "operationId": "android-readonly-0001",
+                    "mutationType": "task_status",
+                    "targetId": shared["id"],
+                    "baseVersion": self.store.etag(shared),
+                    "payload": {"status": "in-process"},
+                }]
+            },
+            headers=self.headers,
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("rejected", response.get_json()["results"][0]["status"])
+        unchanged = next(row for row in self.store.items("admin") if row["id"] == shared["id"])
+        self.assertEqual("needs-action", unchanged["status"])
 
     def test_projects_permission_is_required(self):
         self._login(self.limited_id)
