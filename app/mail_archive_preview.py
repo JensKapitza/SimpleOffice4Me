@@ -45,12 +45,8 @@ def _target_by_id(store: MailStore, actor: str, account_id: str, archive_id: str
     return matches[0]
 
 
-def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
-    if not target.is_file() or target.is_symlink():
-        raise FileNotFoundError("archive message does not exist")
-
-    raw = target.read_bytes()
-    if len(raw) > MAX_MESSAGE_BYTES:
+def preview_eml_bytes(raw: bytes, *, path: str = "") -> dict[str, Any]:
+    if not raw or len(raw) > MAX_MESSAGE_BYTES:
         raise ValueError("message exceeds 100 MiB preview limit")
     message = BytesParser(policy=policy.default).parsebytes(raw)
     attachments: list[dict[str, Any]] = []
@@ -66,7 +62,7 @@ def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
             "sha256": hashlib.sha256(payload).hexdigest(),
         })
     return {
-        "path": str(target.relative_to(store.root)),
+        "path": path,
         "sha512": hashlib.sha512(raw).hexdigest(),
         "subject": _header(message.get("Subject")) or "(ohne Betreff)",
         "from": _header(message.get("From")),
@@ -80,6 +76,48 @@ def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
         "attachments": attachments,
         "size": len(raw),
     }
+
+
+def attachment_from_eml_bytes(raw: bytes, part_index: int) -> dict[str, Any]:
+    if part_index < 0 or part_index > 10000:
+        raise ValueError("invalid attachment part")
+    if not raw or len(raw) > MAX_MESSAGE_BYTES:
+        raise ValueError("message exceeds 100 MiB preview limit")
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    parts = list(message.walk())
+    if part_index >= len(parts):
+        raise FileNotFoundError("attachment does not exist")
+    part = parts[part_index]
+    if part.get_content_disposition() != "attachment" and not part.get_filename():
+        raise FileNotFoundError("MIME part is not an attachment")
+    payload = part.get_payload(decode=True) or b""
+    return {
+        "part": part_index,
+        "name": _header(part.get_filename()) or f"Anhang-{part_index}",
+        "type": part.get_content_type()[:120] or "application/octet-stream",
+        "size": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "payload": payload,
+    }
+
+
+def load_local_eml_bytes_by_id(
+    store: MailStore, actor: str, account_id: str, archive_id: str,
+) -> bytes:
+    target = _target_by_id(store, actor, account_id, archive_id)
+    raw = target.read_bytes()
+    if not raw or len(raw) > MAX_MESSAGE_BYTES:
+        raise ValueError("message exceeds 100 MiB preview limit")
+    return raw
+
+
+def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
+    if not target.is_file() or target.is_symlink():
+        raise FileNotFoundError("archive message does not exist")
+    return preview_eml_bytes(
+        target.read_bytes(),
+        path=str(target.relative_to(store.root)),
+    )
 
 
 def load_local_eml(store: MailStore, actor: str, account_id: str, relative_path: str) -> dict[str, Any]:
@@ -111,23 +149,7 @@ def load_local_attachment_by_id(
     """Return one attachment payload from an owned archived EML by stable identifiers."""
     if part_index < 0 or part_index > 10000:
         raise ValueError("invalid attachment part")
-    target = _target_by_id(store, actor, account_id, archive_id)
-    raw = target.read_bytes()
-    if len(raw) > MAX_MESSAGE_BYTES:
-        raise ValueError("message exceeds 100 MiB preview limit")
-    message = BytesParser(policy=policy.default).parsebytes(raw)
-    parts = list(message.walk())
-    if part_index >= len(parts):
-        raise FileNotFoundError("attachment does not exist")
-    part = parts[part_index]
-    if part.get_content_disposition() != "attachment" and not part.get_filename():
-        raise FileNotFoundError("MIME part is not an attachment")
-    payload = part.get_payload(decode=True) or b""
-    return {
-        "part": part_index,
-        "name": _header(part.get_filename()) or f"Anhang-{part_index}",
-        "type": part.get_content_type()[:120] or "application/octet-stream",
-        "size": len(payload),
-        "sha256": hashlib.sha256(payload).hexdigest(),
-        "payload": payload,
-    }
+    return attachment_from_eml_bytes(
+        load_local_eml_bytes_by_id(store, actor, account_id, archive_id),
+        part_index,
+    )
