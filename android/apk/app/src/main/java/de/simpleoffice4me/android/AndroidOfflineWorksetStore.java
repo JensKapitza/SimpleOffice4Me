@@ -440,9 +440,7 @@ final class AndroidOfflineWorksetStore {
 
     private String normalizeKind(String value) {
         String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-        if ("document".equals(normalized) || "project".equals(normalized)
-                || "note".equals(normalized) || "task".equals(normalized)) return normalized;
-        return null;
+        return "task".equals(normalized) ? normalized : null;
     }
 
     private String normalizeVersion(String value) {
