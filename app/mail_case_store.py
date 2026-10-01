@@ -481,14 +481,14 @@ class MailCaseStore:
         with self._db() as db:
             self._require_federated(db, case_id, peer_id, remote_user_id, "read")
             row = db.execute(
-                """SELECT c.account_id,c.account_owner,m.mail_reference
+                """SELECT c.account_id,c.account_owner,c.federation_peer_id,m.mail_reference
                    FROM mail_case c JOIN mail_case_message m ON m.case_id=c.id
                    WHERE c.id=? AND m.mail_reference=?""",
                 (case_id, mail_reference),
             ).fetchone()
             if row is None:
                 raise KeyError(mail_reference)
-            if str(row["federation_peer_id"] if "federation_peer_id" in row.keys() else ""):
+            if str(row["federation_peer_id"] or ""):
                 raise PermissionError("federated mirrors cannot re-export mail content")
             return dict(row)
 
