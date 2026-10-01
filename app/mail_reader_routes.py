@@ -286,7 +286,11 @@ def index():
                 federation = _mail_case_federation(store)
                 case_federation_peers = [
                     peer for peer in federation.contract.peers.list_peers()
-                    if peer.get("enabled") and federation._policy(peer).get("send") is True
+                    if (
+                        peer.get("enabled")
+                        and federation._policy(peer).get("send") is True
+                        and federation.contract._directly_trusted(str(peer["peer_id"]))
+                    )
                 ]
         except (PermissionError, KeyError, ValueError, FileNotFoundError):
             case_view = None
@@ -412,8 +416,11 @@ def add_case_message(case_id: str):
     store = _store()
     account_id = request.form.get("account", "").strip()
     try:
+        cases = _cases(store)
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated mirror mail assignments are managed by the owner instance")
         archive_id, preview = _mail_source(store, account_id)
-        _cases(store).add_message(
+        cases.add_message(
             _actor(), case_id, account_id, _mail_reference(archive_id),
             direction=_mail_direction(store, account_id, preview),
             message_id=preview.get("message_id", ""),
@@ -431,7 +438,11 @@ def add_case_message(case_id: str):
 @login_required
 def remove_case_message(case_id: str):
     try:
-        _cases().remove_message(_actor(), case_id, request.form.get("mail_reference", "").strip())
+        cases = _cases()
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated mirror mail assignments are managed by the owner instance")
+        cases.remove_message(_actor(), case_id, request.form.get("mail_reference", "").strip())
+        _sync_federated_case(case_id)
         flash("E-Mail-Zuordnung wurde entfernt; die archivierte EML bleibt unverändert erhalten.")
     except Exception as exc:
         current_app.logger.warning("Mail case message remove failed for %s: %s", _actor(), type(exc).__name__)
@@ -449,6 +460,9 @@ def add_case_participant(case_id: str):
         permissions = set(request.form.getlist("permission")) | {"read"}
         participant_type = request.form.get("participant_type", "local").strip()
         if participant_type == "federated":
+            supported_permissions = {"read", "comment", "compose", "send_request", "manage_status"}
+            if not permissions <= supported_permissions:
+                raise ValueError("unsupported federated mail-case permission")
             peer_id = request.form.get("peer_id", "").strip()
             remote_user_id = request.form.get("remote_user_id", "").strip()
             federation = _mail_case_federation()
@@ -506,7 +520,13 @@ def update_case_participant(case_id: str, participant_id: int):
             raise PermissionError("federated mirror participants are managed by the owner instance")
         case = cases.get_case(_actor(), case_id)
         participant = next((row for row in case["participants"] if int(row["id"]) == int(participant_id)), None)
+        if participant is None:
+            raise KeyError(participant_id)
         permissions = set(request.form.getlist("permission")) | {"read"}
+        if participant.get("participant_type") == "federated_user":
+            supported_permissions = {"read", "comment", "compose", "send_request", "manage_status"}
+            if not permissions <= supported_permissions:
+                raise ValueError("unsupported federated mail-case permission")
         cases.update_participant_permissions(_actor(), case_id, participant_id, permissions)
         if participant and participant.get("participant_type") == "federated_user":
             try:
