@@ -107,6 +107,7 @@ final class AndroidOfflineWorksetStore {
         if (payload == null) return "invalid";
         byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
         if (bytes.length > MAX_ITEM_BYTES) return "too-large";
+        String contentHash = sha256Bytes(bytes);
 
         long retention = Math.max(60L, Math.min(retentionSeconds, MAX_RETENTION_SECONDS));
         long expiresAt = System.currentTimeMillis() + retention * 1000L;
@@ -154,6 +155,7 @@ final class AndroidOfflineWorksetStore {
             metadata.put("expiresAt", expiresAt);
             metadata.put("bytes", bytes.length);
             metadata.put("workset", normalizedWorkset);
+            metadata.put("contentSha256", contentHash);
             if (existing >= 0) items.put(existing, metadata);
             else items.put(metadata);
             if (!persist()) {
@@ -194,6 +196,10 @@ final class AndroidOfflineWorksetStore {
                 offset += read;
             }
             if (offset != data.length) return errorJson("io-error");
+            String expectedHash = metadata.optString("contentSha256", "");
+            if (!expectedHash.isEmpty() && !expectedHash.equals(sha256Bytes(data))) {
+                return errorJson("integrity");
+            }
             JSONObject result = new JSONObject();
             result.put("status", "ok");
             result.put("id", normalizedId);
@@ -433,11 +439,29 @@ final class AndroidOfflineWorksetStore {
             String kind = normalizeKind(item.optString("kind"));
             if (id == null || kind == null) continue;
             File target = itemFile(kind, id);
-            if (target.isFile()) continue;
             File backup = new File(root, target.getName() + ".bak");
             File removeBackup = new File(root, target.getName() + ".remove.bak");
-            if (backup.isFile() && backup.renameTo(target)) continue;
-            if (removeBackup.isFile()) removeBackup.renameTo(target);
+            String expectedHash = item.optString("contentSha256", "");
+
+            if (target.isFile() && (expectedHash.isEmpty() || fileMatchesHash(target, expectedHash))) {
+                if (!expectedHash.isEmpty()) {
+                    backup.delete();
+                    removeBackup.delete();
+                }
+                continue;
+            }
+
+            File recovery = null;
+            if (!expectedHash.isEmpty()) {
+                if (fileMatchesHash(backup, expectedHash)) recovery = backup;
+                else if (fileMatchesHash(removeBackup, expectedHash)) recovery = removeBackup;
+            } else if (!target.isFile()) {
+                if (backup.isFile()) recovery = backup;
+                else if (removeBackup.isFile()) recovery = removeBackup;
+            }
+            if (recovery == null) continue;
+            if (target.exists() && !target.delete()) continue;
+            recovery.renameTo(target);
         }
     }
 
@@ -522,15 +546,37 @@ final class AndroidOfflineWorksetStore {
     }
 
     private static String sha256(String value) {
+        return sha256Bytes(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String sha256Bytes(byte[] value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder result = new StringBuilder(bytes.length * 2);
-            for (byte b : bytes) result.append(String.format(Locale.ROOT, "%02x", b & 0xff));
-            return result.toString();
+            return hexDigest(digest.digest(value));
         } catch (Exception error) {
             throw new IllegalStateException("SHA-256 unavailable", error);
         }
+    }
+
+    private static boolean fileMatchesHash(File file, String expectedHash) {
+        if (file == null || !file.isFile() || expectedHash == null || expectedHash.isEmpty()) return false;
+        try (FileInputStream input = new FileInputStream(file)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) digest.update(buffer, 0, read);
+            }
+            return expectedHash.equals(hexDigest(digest.digest()));
+        } catch (Exception error) {
+            return false;
+        }
+    }
+
+    private static String hexDigest(byte[] bytes) {
+        StringBuilder result = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) result.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+        return result.toString();
     }
 
     private static String errorJson(String status) {
