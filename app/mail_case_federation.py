@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 from pathlib import Path
 import re
 from typing import Any, Callable, Mapping
@@ -82,15 +83,28 @@ class MailCaseFederation:
         ):
             raise ValueError("peer does not support compatible mail-case federation")
 
+    def _post_envelope(
+        self,
+        peer: Mapping[str, Any],
+        envelope: FederationEnvelope,
+    ) -> dict[str, Any]:
+        return _json_request(
+            str(peer["base_url"]).rstrip("/") + "/federation/v3/receive",
+            method="POST",
+            token=self.contract.peers.peer_token(str(peer["peer_id"])),
+            payload=envelope.to_mapping(),
+            timeout=30,
+        )
+
     def _send(
         self,
         peer_id: str,
         payload: dict[str, Any],
         *,
         object_ref: str,
+        queue_on_error: bool = True,
     ) -> dict[str, Any]:
         peer = self._peer_for_send(peer_id)
-        self._ensure_remote_capability(peer)
         envelope = FederationEnvelope(
             message_id=f"mailcase-{uuid.uuid4().hex}",
             sender_instance=self.contract.local_peer_id,
@@ -104,13 +118,8 @@ class MailCaseFederation:
         # Re-parse to run all shared envelope bounds and syntax checks before IO.
         envelope = FederationEnvelope.from_mapping(envelope.to_mapping())
         try:
-            result = _json_request(
-                str(peer["base_url"]).rstrip("/") + "/federation/v3/receive",
-                method="POST",
-                token=self.contract.peers.peer_token(str(peer["peer_id"])),
-                payload=envelope.to_mapping(),
-                timeout=30,
-            )
+            self._ensure_remote_capability(dict(peer))
+            result = self._post_envelope(peer, envelope)
             self.contract.peers.set_peer_health(str(peer["peer_id"]), seen=True)
             self.contract.peers.record_event(
                 "mail_case_v3_sent",
@@ -122,11 +131,67 @@ class MailCaseFederation:
                 },
             )
             return result
+        except (PermissionError, ValueError):
+            raise
         except Exception as exc:
             self.contract.peers.set_peer_health(
                 str(peer["peer_id"]), error=type(exc).__name__
             )
-            raise
+            if not queue_on_error:
+                raise
+            queued = self.contract.store.queue_mail_outbox(
+                envelope,
+                error=type(exc).__name__,
+            )
+            self.contract.peers.record_event(
+                "mail_case_v3_queued",
+                peer_id=str(peer["peer_id"]),
+                detail={
+                    "message_id": envelope.message_id,
+                    "operation": str(payload.get("operation") or "")[:80],
+                    "error": type(exc).__name__,
+                },
+            )
+            return {
+                "status": "queued",
+                "message_id": envelope.message_id,
+                "attempts": int(queued.get("attempts") or 1),
+            }
+
+    def retry_outbox(self, peer_id: str = "") -> dict[str, int]:
+        delivered = failed = 0
+        rows = self.contract.store.list_mail_outbox(peer_id)
+        for row in rows:
+            message_id = str(row["message_id"])
+            try:
+                payload = json.loads(str(row["envelope_json"]))
+                envelope = FederationEnvelope.from_mapping(payload)
+                peer = self._peer_for_send(str(row["peer_id"]))
+                self._ensure_remote_capability(peer)
+                result = self._post_envelope(peer, envelope)
+                if result.get("status") not in {
+                    "accepted", "duplicate", "pending", "quarantined"
+                }:
+                    raise ValueError("remote federation rejected queued envelope")
+                self.contract.store.delete_mail_outbox(message_id)
+                self.contract.peers.set_peer_health(str(peer["peer_id"]), seen=True)
+                self.contract.peers.record_event(
+                    "mail_case_v3_outbox_delivered",
+                    peer_id=str(peer["peer_id"]),
+                    detail={
+                        "message_id": message_id,
+                        "operation": str(row.get("operation") or "")[:80],
+                        "status": str(result.get("status") or "")[:40],
+                    },
+                )
+                delivered += 1
+            except Exception as exc:
+                self.contract.store.mark_mail_outbox_error(
+                    message_id,
+                    type(exc).__name__,
+                )
+                failed += 1
+        return {"delivered": delivered, "failed": failed, "remaining": len(rows) - delivered}
 
     def snapshot_for(
         self,
@@ -264,6 +329,7 @@ class MailCaseFederation:
             peer_id,
             payload,
             object_ref=f"mail-case:{origin['case_id']}",
+            queue_on_error=False,
         )
         if result.get("status") not in {"accepted", "duplicate"}:
             raise PermissionError(
