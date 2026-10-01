@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import re
+import secrets
 from pathlib import Path
 import sqlite3
 from typing import Any, Mapping
@@ -31,6 +32,7 @@ BASE_OBJECT_VERSIONS = {
     "contacts": (1,),
     "calendar": (1,),
     "tasks": (1,),
+    "mail_cases": (1,),
 }
 
 
@@ -249,6 +251,33 @@ class FederationContractStore:
                     descriptor_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS federation_v3_application(
+                    message_id TEXT PRIMARY KEY,
+                    object_type TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    applied_at TEXT NOT NULL,
+                    FOREIGN KEY(message_id) REFERENCES federation_v3_message(message_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS federation_v3_mail_user_map(
+                    peer_id TEXT NOT NULL,
+                    remote_user_id TEXT NOT NULL,
+                    local_username TEXT NOT NULL,
+                    created_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(peer_id, remote_user_id)
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS federation_v3_mail_user_map_local
+                    ON federation_v3_mail_user_map(peer_id, local_username);
+                CREATE TABLE IF NOT EXISTS federation_v3_mail_content_grant(
+                    token TEXT PRIMARY KEY,
+                    case_id TEXT NOT NULL,
+                    mail_reference TEXT NOT NULL,
+                    peer_id TEXT NOT NULL,
+                    remote_user_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(case_id, mail_reference, peer_id, remote_user_id)
+                );
                 """
             )
 
@@ -291,6 +320,185 @@ class FederationContractStore:
         except json.JSONDecodeError:
             return {}
         return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _clean_remote_user_id(value: Any) -> str:
+        remote_user_id = str(value or "").strip()
+        if not remote_user_id or len(remote_user_id) > 200 or any(ord(ch) < 32 for ch in remote_user_id):
+            raise ValueError("invalid remote user id")
+        return remote_user_id
+
+    @staticmethod
+    def _clean_local_username(value: Any) -> str:
+        username = str(value or "").strip()
+        if not username or len(username) > 160 or any(ord(ch) < 32 for ch in username):
+            raise ValueError("invalid local username")
+        return username
+
+    def set_mail_user_mapping(
+        self,
+        peer_id: str,
+        remote_user_id: str,
+        local_username: str,
+        *,
+        actor: str,
+    ) -> dict[str, Any]:
+        peer_id = sanitize_peer_id(peer_id)
+        remote_user_id = self._clean_remote_user_id(remote_user_id)
+        local_username = self._clean_local_username(local_username)
+        actor = str(actor or "")[:160]
+        now = _utc()
+        with self.federation._db() as db:
+            db.execute(
+                """INSERT INTO federation_v3_mail_user_map(
+                       peer_id,remote_user_id,local_username,created_by,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(peer_id,remote_user_id) DO UPDATE SET
+                     local_username=excluded.local_username,
+                     updated_at=excluded.updated_at,
+                     created_by=excluded.created_by""",
+                (peer_id, remote_user_id, local_username, actor, now, now),
+            )
+        self.federation.record_event(
+            "mail_case_user_mapping_saved",
+            peer_id=peer_id,
+            detail={"remote_user_id": remote_user_id, "local_username": local_username, "actor": actor},
+        )
+        return {
+            "peer_id": peer_id,
+            "remote_user_id": remote_user_id,
+            "local_username": local_username,
+        }
+
+    def delete_mail_user_mapping(self, peer_id: str, remote_user_id: str, *, actor: str) -> bool:
+        peer_id = sanitize_peer_id(peer_id)
+        remote_user_id = self._clean_remote_user_id(remote_user_id)
+        with self.federation._db() as db:
+            cursor = db.execute(
+                "DELETE FROM federation_v3_mail_user_map WHERE peer_id=? AND remote_user_id=?",
+                (peer_id, remote_user_id),
+            )
+            removed = cursor.rowcount > 0
+        if removed:
+            self.federation.record_event(
+                "mail_case_user_mapping_revoked",
+                peer_id=peer_id,
+                detail={"remote_user_id": remote_user_id, "actor": str(actor or "")[:160]},
+            )
+        return removed
+
+    def mail_user_mapping(self, peer_id: str, remote_user_id: str) -> dict[str, Any] | None:
+        peer_id = sanitize_peer_id(peer_id)
+        remote_user_id = self._clean_remote_user_id(remote_user_id)
+        with self.federation._db() as db:
+            row = db.execute(
+                """SELECT peer_id,remote_user_id,local_username,created_by,created_at,updated_at
+                   FROM federation_v3_mail_user_map
+                   WHERE peer_id=? AND remote_user_id=?""",
+                (peer_id, remote_user_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def remote_mail_user(self, peer_id: str, local_username: str) -> str | None:
+        peer_id = sanitize_peer_id(peer_id)
+        local_username = self._clean_local_username(local_username)
+        with self.federation._db() as db:
+            row = db.execute(
+                """SELECT remote_user_id FROM federation_v3_mail_user_map
+                   WHERE peer_id=? AND local_username=?""",
+                (peer_id, local_username),
+            ).fetchone()
+        return str(row[0]) if row else None
+
+    def list_mail_user_mappings(self, peer_id: str = "") -> list[dict[str, Any]]:
+        peer_id = sanitize_peer_id(peer_id) if peer_id else ""
+        with self.federation._db() as db:
+            if peer_id:
+                rows = db.execute(
+                    """SELECT peer_id,remote_user_id,local_username,created_by,created_at,updated_at
+                       FROM federation_v3_mail_user_map WHERE peer_id=?
+                       ORDER BY remote_user_id COLLATE NOCASE""",
+                    (peer_id,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT peer_id,remote_user_id,local_username,created_by,created_at,updated_at
+                       FROM federation_v3_mail_user_map
+                       ORDER BY peer_id,remote_user_id COLLATE NOCASE"""
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def application_result(self, message_id: str) -> dict[str, Any] | None:
+        with self.federation._db() as db:
+            row = db.execute(
+                "SELECT result_json FROM federation_v3_application WHERE message_id=?",
+                (str(message_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(row[0])
+        except json.JSONDecodeError:
+            return None
+        return value if isinstance(value, dict) else None
+
+    def remember_application_result(
+        self,
+        message_id: str,
+        object_type: str,
+        result: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        encoded = _bounded_json(dict(result), 64 * 1024)
+        with self.federation._db() as db:
+            db.execute(
+                """INSERT INTO federation_v3_application(message_id,object_type,result_json,applied_at)
+                   VALUES(?,?,?,?)
+                   ON CONFLICT(message_id) DO NOTHING""",
+                (str(message_id), str(object_type)[:80], encoded, _utc()),
+            )
+        return self.application_result(message_id) or dict(result)
+
+    def mail_content_grant(
+        self,
+        case_id: str,
+        mail_reference: str,
+        peer_id: str,
+        remote_user_id: str,
+    ) -> str:
+        case_id = str(case_id or "").strip()[:240]
+        mail_reference = str(mail_reference or "").strip()[:240]
+        peer_id = sanitize_peer_id(peer_id)
+        remote_user_id = self._clean_remote_user_id(remote_user_id)
+        if not case_id or not mail_reference:
+            raise ValueError("invalid mail content grant")
+        with self.federation._db() as db:
+            row = db.execute(
+                """SELECT token FROM federation_v3_mail_content_grant
+                   WHERE case_id=? AND mail_reference=? AND peer_id=? AND remote_user_id=?""",
+                (case_id, mail_reference, peer_id, remote_user_id),
+            ).fetchone()
+            if row:
+                return str(row[0])
+            token = secrets.token_urlsafe(32)
+            db.execute(
+                """INSERT INTO federation_v3_mail_content_grant(
+                       token,case_id,mail_reference,peer_id,remote_user_id,created_at
+                   ) VALUES(?,?,?,?,?,?)""",
+                (token, case_id, mail_reference, peer_id, remote_user_id, _utc()),
+            )
+        return token
+
+    def resolve_mail_content_grant(self, token: str) -> dict[str, Any] | None:
+        token = str(token or "").strip()
+        if len(token) < 20 or len(token) > 96 or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+            return None
+        with self.federation._db() as db:
+            row = db.execute(
+                """SELECT case_id,mail_reference,peer_id,remote_user_id,created_at
+                   FROM federation_v3_mail_content_grant WHERE token=?""",
+                (token,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def existing(self, message_id: str) -> dict[str, Any] | None:
         with self.federation._db() as db:
