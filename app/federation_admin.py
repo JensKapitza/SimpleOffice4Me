@@ -20,6 +20,7 @@ from .federation_download_worker import process_queue, sync_peer_catalog
 from .federation_orchestrator import orchestrate_third_party
 from .federation_store import FederationStore
 from .federation_worker import _find_blob, peer_capabilities, push_blob_to_peer, remote_availability
+from .mail_case_store import MailCaseStore
 from .safe_paths import resolve_under
 from .v3_federation import FederationContractStore
 
@@ -343,13 +344,24 @@ def save_mail_user_mapping():
 @admin_required
 def delete_mail_user_mapping():
     try:
+        peer_id = request.form.get("peer_id", "").strip()
+        remote_user_id = request.form.get("remote_user_id", "").strip()
+        mapping = _v3_store().mail_user_mapping(peer_id, remote_user_id)
         removed = _v3_store().delete_mail_user_mapping(
-            request.form.get("peer_id", "").strip(),
-            request.form.get("remote_user_id", "").strip(),
+            peer_id,
+            remote_user_id,
             actor=str(g.user["username"]),
         )
+        mirrors = 0
+        if mapping:
+            mirrors = MailCaseStore(
+                current_app.config["DOCUMENT_ROOT"]
+            ).revoke_federated_mirrors_for_user(
+                str(mapping["local_username"]),
+                peer_id,
+            )
         flash(
-            "Federation-Benutzerzuordnung widerrufen."
+            f"Federation-Benutzerzuordnung widerrufen; {mirrors} Spiegelzugriff(e) entzogen."
             if removed else
             "Federation-Benutzerzuordnung war nicht vorhanden."
         )
