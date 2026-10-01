@@ -861,15 +861,24 @@ class MailCaseStore:
                        WHERE id=?""",
                     (title, status, now, now if status == "erledigt" else None, case_id),
                 )
-            db.execute(
-                """INSERT INTO mail_case_participant(
-                       case_id,participant_type,local_user_id,peer_id,remote_user_id,
-                       permissions_json,added_by,added_at
-                   ) VALUES(?,'local_user',?,NULL,NULL,?,?,?)
-                   ON CONFLICT(case_id,local_user_id) WHERE participant_type='local_user'
-                   DO UPDATE SET permissions_json=excluded.permissions_json""",
-                (case_id, local_user, json.dumps(permissions), f"federation:{peer_id}", now),
-            )
+            participant = db.execute(
+                """SELECT id FROM mail_case_participant
+                   WHERE case_id=? AND participant_type='local_user' AND local_user_id=?""",
+                (case_id, local_user),
+            ).fetchone()
+            if participant is None:
+                db.execute(
+                    """INSERT INTO mail_case_participant(
+                           case_id,participant_type,local_user_id,peer_id,remote_user_id,
+                           permissions_json,added_by,added_at
+                       ) VALUES(?,'local_user',?,NULL,NULL,?,?,?)""",
+                    (case_id, local_user, json.dumps(permissions), f"federation:{peer_id}", now),
+                )
+            else:
+                db.execute(
+                    "UPDATE mail_case_participant SET permissions_json=? WHERE id=?",
+                    (json.dumps(permissions), int(participant["id"])),
+                )
 
             seen_messages: set[str] = set()
             for item in messages:
@@ -918,16 +927,30 @@ class MailCaseStore:
                 seen_comments.add(comment_id)
                 created = str(item.get("created_at") or now)[:80]
                 updated = str(item.get("updated_at") or created)[:80]
-                db.execute(
-                    """INSERT INTO mail_case_comment(id,case_id,author,body,created_at,updated_at)
-                       VALUES(?,?,?,?,?,?)
-                       ON CONFLICT(id) DO UPDATE SET
-                         author=excluded.author,body=excluded.body,updated_at=excluded.updated_at""",
-                    (
-                        comment_id, case_id, str(item.get("author") or "federated")[:500],
-                        body, created, updated,
-                    ),
-                )
+                existing_comment = db.execute(
+                    "SELECT case_id FROM mail_case_comment WHERE id=?",
+                    (comment_id,),
+                ).fetchone()
+                if existing_comment is not None and str(existing_comment["case_id"]) != case_id:
+                    raise ValueError("federated comment id belongs to another case")
+                if existing_comment is None:
+                    db.execute(
+                        """INSERT INTO mail_case_comment(id,case_id,author,body,created_at,updated_at)
+                           VALUES(?,?,?,?,?,?)""",
+                        (
+                            comment_id, case_id, str(item.get("author") or "federated")[:500],
+                            body, created, updated,
+                        ),
+                    )
+                else:
+                    db.execute(
+                        """UPDATE mail_case_comment SET author=?,body=?,updated_at=?
+                           WHERE id=? AND case_id=?""",
+                        (
+                            str(item.get("author") or "federated")[:500],
+                            body, updated, comment_id, case_id,
+                        ),
+                    )
             if seen_comments:
                 placeholders = ",".join("?" for _ in seen_comments)
                 db.execute(
@@ -948,27 +971,40 @@ class MailCaseStore:
                 seen_drafts.add(draft_id)
                 created = str(item.get("created_at") or now)[:80]
                 updated = str(item.get("updated_at") or created)[:80]
-                db.execute(
-                    """INSERT INTO mail_case_draft(
-                           id,case_id,author,sender_identity,recipients_to,recipients_cc,
-                           recipients_bcc,subject,body,attachments_json,status,created_at,updated_at
-                       ) VALUES(?,?,?,?,?,?,?,?,?,'[]',?,?,?)
-                       ON CONFLICT(id) DO UPDATE SET
-                         author=excluded.author,sender_identity=excluded.sender_identity,
-                         recipients_to=excluded.recipients_to,recipients_cc=excluded.recipients_cc,
-                         recipients_bcc=excluded.recipients_bcc,subject=excluded.subject,
-                         body=excluded.body,status=excluded.status,updated_at=excluded.updated_at""",
-                    (
-                        draft_id, case_id, str(item.get("author") or "federated")[:500],
-                        str(item.get("sender_identity") or "")[:500],
-                        str(item.get("recipients_to") or "")[:4000],
-                        str(item.get("recipients_cc") or "")[:4000],
-                        str(item.get("recipients_bcc") or "")[:4000],
-                        str(item.get("subject") or "")[:998],
-                        str(item.get("body") or "")[:1024 * 1024],
-                        draft_status, created, updated,
-                    ),
+                existing_draft = db.execute(
+                    "SELECT case_id FROM mail_case_draft WHERE id=?",
+                    (draft_id,),
+                ).fetchone()
+                if existing_draft is not None and str(existing_draft["case_id"]) != case_id:
+                    raise ValueError("federated draft id belongs to another case")
+                draft_values = (
+                    str(item.get("author") or "federated")[:500],
+                    str(item.get("sender_identity") or "")[:500],
+                    str(item.get("recipients_to") or "")[:4000],
+                    str(item.get("recipients_cc") or "")[:4000],
+                    str(item.get("recipients_bcc") or "")[:4000],
+                    str(item.get("subject") or "")[:998],
+                    str(item.get("body") or "")[:1024 * 1024],
+                    draft_status,
+                    created,
+                    updated,
                 )
+                if existing_draft is None:
+                    db.execute(
+                        """INSERT INTO mail_case_draft(
+                               id,case_id,author,sender_identity,recipients_to,recipients_cc,
+                               recipients_bcc,subject,body,attachments_json,status,created_at,updated_at
+                           ) VALUES(?,?,?,?,?,?,?,?,?,'[]',?,?,?)""",
+                        (draft_id, case_id, *draft_values),
+                    )
+                else:
+                    db.execute(
+                        """UPDATE mail_case_draft SET
+                               author=?,sender_identity=?,recipients_to=?,recipients_cc=?,
+                               recipients_bcc=?,subject=?,body=?,status=?,created_at=?,updated_at=?
+                           WHERE id=? AND case_id=?""",
+                        (*draft_values, draft_id, case_id),
+                    )
             if seen_drafts:
                 placeholders = ",".join("?" for _ in seen_drafts)
                 db.execute(
