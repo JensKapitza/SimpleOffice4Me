@@ -364,6 +364,7 @@ public class MainActivity extends Activity {
                 + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken)),"
                 + "switchAccount:()=>String(window.SimpleOfficeAndroid.switchOfflineAccount(bridgeToken))};}"
                 + "else{delete window.SimpleOfficeOffline;}"
+                + "window.dispatchEvent(new Event('simpleoffice:native-ready'));"
                 + "window.SimpleOfficeNativeAudio={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
                 + "startSender:(targets,bitrate)=>String(window.SimpleOfficeAndroid.startAudioSender(bridgeToken,JSON.stringify(targets||[]),Number(bitrate||64))),"
