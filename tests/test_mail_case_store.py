@@ -315,6 +315,78 @@ class MailCaseStoreTests(unittest.TestCase):
         )
         self.assertEqual("outbound", case["messages"][-1]["direction"])
 
+    def test_active_send_delegation_auto_approves_and_allows_delegate_send(self):
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob",
+            permissions={"read", "compose", "send_request"},
+        )
+        self.store.delegations.set(
+            "alice", "acc-1", "bob",
+            valid_from="2000-01-01", valid_until="2999-12-31",
+        )
+        self.assertTrue(
+            self.store.delegations.has_active("alice", "acc-1", "bob")
+        )
+        draft_id = self.store.create_draft(
+            "bob", self.case_id, "kunde@example.test", "Re: Delegation", "Antwort",
+        )
+        self.store.request_draft_send("bob", self.case_id, draft_id)
+        self.assertEqual(
+            "approved",
+            self.store.get_case("bob", self.case_id)["drafts"][0]["status"],
+        )
+        sending = self.store.begin_draft_send("bob", self.case_id, draft_id)
+        self.assertEqual("sending", sending["status"])
+        self.assertEqual("alice", sending["account_owner"])
+        self.store.complete_draft_send(
+            "bob", self.case_id, draft_id, "sha512:delegated", "<delegated@example.test>",
+        )
+        self.assertEqual(
+            "sent",
+            self.store.get_case("bob", self.case_id)["drafts"][0]["status"],
+        )
+
+        self.store.delegations.remove("alice", "acc-1", "bob")
+        self.assertFalse(
+            self.store.delegations.has_active("alice", "acc-1", "bob")
+        )
+        draft_id = self.store.create_draft(
+            "bob", self.case_id, "kunde@example.test", "Re: Ohne Delegation", "Antwort",
+        )
+        self.store.request_draft_send("bob", self.case_id, draft_id)
+        self.assertEqual(
+            "ready",
+            self.store.get_case("bob", self.case_id)["drafts"][-1]["status"],
+        )
+        with self.assertRaises((PermissionError, ValueError)):
+            self.store.begin_draft_send("bob", self.case_id, draft_id)
+
+    def test_send_delegation_validity_window_and_validation(self):
+        self.store.delegations.set(
+            "alice", "acc-1", "bob",
+            valid_from="2026-10-01", valid_until="2026-10-15",
+        )
+        self.assertFalse(
+            self.store.delegations.has_active(
+                "alice", "acc-1", "bob", on_date="2026-09-30",
+            )
+        )
+        self.assertTrue(
+            self.store.delegations.has_active(
+                "alice", "acc-1", "bob", on_date="2026-10-10",
+            )
+        )
+        self.assertFalse(
+            self.store.delegations.has_active(
+                "alice", "acc-1", "bob", on_date="2026-10-16",
+            )
+        )
+        with self.assertRaises(ValueError):
+            self.store.delegations.set(
+                "alice", "acc-1", "bob",
+                valid_from="2026-10-15", valid_until="2026-10-01",
+            )
+
     def test_failed_send_requires_explicit_new_request(self):
         draft_id = self.store.create_draft(
             "alice", self.case_id, "kunde@example.test", "Re: Angebot", "Antwort",

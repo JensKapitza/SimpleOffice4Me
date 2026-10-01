@@ -7,7 +7,9 @@ import smtplib
 from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .db import get_db
 from .mail_autoconfig import discover_mail_settings
+from .mail_case_store import MailCaseStore
 from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpSubmission
 from .mail_webclient import MailAccountPolicy, MailReadOnlyError
 from .sieve_sync import ManageSieveSyncClient, activate_server_script, server_state, sync_from_server
@@ -23,6 +25,18 @@ def _store() -> MailStore:
     secret = current_app.config["SECRET_KEY"]
     raw = secret.encode("utf-8") if isinstance(secret, str) else bytes(secret)
     return MailStore(current_app.config["DOCUMENT_ROOT"], raw)
+
+
+def _cases(store: MailStore | None = None) -> MailCaseStore:
+    mail_store = store or _store()
+    return MailCaseStore(current_app.config["DOCUMENT_ROOT"], history=mail_store.history)
+
+
+def _owned_account(store: MailStore, account_id: str) -> dict:
+    row = next((item for item in store.accounts(_actor()) if item["id"] == account_id), None)
+    if row is None:
+        raise KeyError("mail account does not exist")
+    return row
 
 
 def _account_with_effective_password(store: MailStore, account_id: str) -> dict:
@@ -87,10 +101,20 @@ def index():
         except (OSError, ValueError):
             flash("Sieve-Skript wurde nicht gefunden.")
     readonly = _readonly_map(store, accounts)
+    delegations: list[dict] = []
+    delegation_users: list[dict] = []
+    if selected:
+        delegations = _cases(store).delegations.list(_actor(), selected["id"])
+        rows = get_db().execute(
+            "SELECT username,display_name FROM user WHERE is_disabled=0 AND username<>? ORDER BY username COLLATE NOCASE",
+            (_actor(),),
+        ).fetchall()
+        delegation_users = [dict(row) for row in rows]
     return render_template(
         "documents/mail_client.html", accounts=accounts, selected=selected, scripts=scripts,
         script_name=script_name, script_content=script_content, sieve_state=sieve_state,
         readonly=readonly, selected_read_only=readonly.get(selected["id"], True) if selected else True,
+        delegations=delegations, delegation_users=delegation_users,
     )
 
 
@@ -136,6 +160,53 @@ def set_readonly(account_id: str):
         current_app.logger.warning("Mail account readonly update failed for %s: %s", _actor(), type(exc).__name__)
         flash("Schreibschutz konnte nicht geändert werden.")
     return redirect(url_for("mail_client.index", account=account_id))
+
+
+@bp.post("/accounts/<account_id>/delegation")
+@login_required
+def save_send_delegation(account_id: str):
+    store = _store()
+    try:
+        _owned_account(store, account_id)
+        delegate_user = request.form.get("delegate_user", "").strip()
+        exists = get_db().execute(
+            "SELECT 1 FROM user WHERE username=? AND is_disabled=0", (delegate_user,)
+        ).fetchone()
+        if exists is None:
+            raise ValueError("delegate user does not exist")
+        _cases(store).delegations.set(
+            _actor(), account_id, delegate_user,
+            valid_from=request.form.get("valid_from", ""),
+            valid_until=request.form.get("valid_until", ""),
+            enabled=request.form.get("enabled", "1") == "1",
+        )
+        flash("Versanddelegation gespeichert.")
+    except Exception as exc:
+        current_app.logger.warning(
+            "Mail delegation update failed for %s/%s: %s",
+            _actor(), account_id, type(exc).__name__,
+        )
+        flash("Versanddelegation konnte nicht gespeichert werden.")
+    return redirect(url_for("mail_client.index", account=account_id) + "#mail-delegation")
+
+
+@bp.post("/accounts/<account_id>/delegation/remove")
+@login_required
+def remove_send_delegation(account_id: str):
+    store = _store()
+    try:
+        _owned_account(store, account_id)
+        _cases(store).delegations.remove(
+            _actor(), account_id, request.form.get("delegate_user", "").strip()
+        )
+        flash("Versanddelegation entfernt.")
+    except Exception as exc:
+        current_app.logger.warning(
+            "Mail delegation removal failed for %s/%s: %s",
+            _actor(), account_id, type(exc).__name__,
+        )
+        flash("Versanddelegation konnte nicht entfernt werden.")
+    return redirect(url_for("mail_client.index", account=account_id) + "#mail-delegation")
 
 
 @bp.post("/accounts/<account_id>/test")

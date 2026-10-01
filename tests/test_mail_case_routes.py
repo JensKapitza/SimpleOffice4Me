@@ -393,6 +393,70 @@ class MailCaseRouteTests(unittest.TestCase):
         self.assertEqual(b"delegated attachment", attachments[0].get_payload(decode=True))
 
 
+    def test_owner_can_delegate_automatic_approval_and_delegate_can_send(self):
+        configured = self.alice.post(
+            "/documents/mail/accounts/work/delegation",
+            data={
+                "delegate_user": "bob",
+                "valid_from": "2000-01-01",
+                "valid_until": "2999-12-31",
+                "enabled": "1",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(200, configured.status_code)
+        self.assertIn("Versanddelegation gespeichert", configured.get_data(as_text=True))
+
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case(
+            "alice", "Urlaubsvertretung", "work", f"sha512:{self.first_digest}",
+            message_id="<root@example.test>",
+        )
+        cases.add_participant(
+            "alice", case_id, local_user_id="bob",
+            permissions={"read", "compose", "send_request"},
+        )
+        draft_id = cases.create_draft(
+            "bob", case_id, "customer@example.test", "Re: Urlaub", "Vertretungsantwort",
+        )
+
+        requested = self.bob.post(
+            f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/request-send",
+            follow_redirects=True,
+        )
+        self.assertEqual(200, requested.status_code)
+        self.assertEqual(
+            "approved", cases.get_case("bob", case_id)["drafts"][0]["status"]
+        )
+        MailAccountPolicy(self.mail_store).set_read_only("alice", "work", False)
+
+        class FakeSmtp:
+            def __init__(self):
+                self.sent = []
+
+            def sendmail(self, sender, recipients, raw):
+                self.sent.append((sender, recipients, raw))
+                return {}
+
+            def quit(self):
+                pass
+
+            def close(self):
+                pass
+
+        smtp = FakeSmtp()
+        with patch.object(SmtpSubmission, "_connect", return_value=smtp):
+            sent = self.bob.post(
+                f"/documents/mail/reader/case/{case_id}/draft/{draft_id}/send",
+                follow_redirects=True,
+            )
+        self.assertEqual(200, sent.status_code)
+        self.assertIn("versandt und im Vorgang archiviert", sent.get_data(as_text=True))
+        self.assertEqual("alice@example.test", smtp.sent[0][0])
+        self.assertEqual(
+            "sent", cases.get_case("bob", case_id)["drafts"][0]["status"]
+        )
+
     def test_unknown_smtp_delivery_state_cannot_be_retried(self):
         cases = MailCaseStore(self.root)
         case_id = cases.create_case(

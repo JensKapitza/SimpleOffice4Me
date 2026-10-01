@@ -90,6 +90,7 @@ PERSISTENCE_COVERAGE = {
     "library.store": "pending-provider:library patron data is private",
     "mail_case_store": "excluded:collaboration metadata requires mail-case participant ACLs and is not a generic S3 projection",
     "mail_case_attachments": "excluded:mail-case draft attachments require case participant ACLs and malware-scan state",
+    "mail_send_delegation": "excluded:mail account delegation is authorization state and must not be projected through generic S3",
     "mail_index": "excluded:internal mail search index; EML archive provider is authoritative",
     "osm_address_storage": "excluded:public geodata index, not application-owned user data",
     "printershare_store": "excluded:printer credentials and job control state",

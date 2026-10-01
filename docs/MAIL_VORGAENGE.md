@@ -213,3 +213,41 @@ Die Regressionstests prüfen insbesondere:
 
 Vollständige Federation-Kommunikation, Signaturverwaltung und automatischer
 delegierter Versand bleiben bewusst außerhalb dieses Kernmoduls.
+
+
+## Versanddelegation und Urlaubsvertretung
+
+Der Kontoinhaber kann in den Mail-Einstellungen eine lokale Vertretung für ein
+Mailkonto einrichten. Die Delegation kann dauerhaft oder über ein Start-/Enddatum
+begrenzt werden.
+
+Eine Delegation ersetzt keine Vorgangsberechtigung. Der Vertreter muss im
+jeweiligen Mail-Vorgang weiterhin mindestens `send_request` besitzen. Ist die
+Delegation zum Zeitpunkt der Versandanforderung aktiv, wechselt der eingefrorene
+Entwurf direkt von `draft` auf `approved`. Der Vertreter darf anschließend
+den Versand auslösen.
+
+Die SMTP-/IMAP-Zugangsdaten werden dabei niemals an den Vertreter ausgegeben.
+Der Server löst das gespeicherte SMTP-Konto des Eigentümers erst unmittelbar für
+den Versand auf. Der Schreibschutz des Eigentümerkontos bleibt wirksam.
+Delegationsänderungen, automatische Freigaben und delegierte Sendungen werden
+auditiert.
+
+Nach Ablauf oder Entfernen einer Delegation werden neue Versandanforderungen
+wieder auf `ready` gestellt und benötigen die manuelle Freigabe des
+Kontoinhabers.
+
+## Konfigurierbare Sichtbarkeit
+
+Die Mail-Einstellungen speichern pro Konto eine Sichtbarkeitskonfiguration für
+Postfach, Archiv, Dubletten, neue Nachrichten, Mail-Vorgänge, Teilnehmer,
+Kommentare, Antwortentwürfe, Delegation, Kontakte, Kalender und Sieve.
+
+Diese Konfiguration ist ausschließlich eine UI-Konfiguration. Sie erteilt keine
+Rechte und darf nicht als Autorisierungsentscheidung verwendet werden.
+Vorgangs-ACLs, Kontoeigentum, Schreibschutz und Versanddelegation werden
+serverseitig unabhängig davon geprüft.
+
+Vorhandene Konten ohne gespeicherte Sichtbarkeitskonfiguration verwenden aus
+Kompatibilitätsgründen weiterhin den bisherigen Zustand: alle Funktionsbereiche
+sind sichtbar.

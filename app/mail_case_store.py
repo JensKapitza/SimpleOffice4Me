@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from .document_store import CONTROL_DIR
+from .mail_case_draft_metadata import attachment_metadata as _attachment_metadata
+from .mail_send_delegation import MailSendDelegationStore
 
 STATUSES = {"offen", "in_bearbeitung", "wartet", "erledigt"}
 PERMISSIONS = {
@@ -22,7 +24,6 @@ PERMISSIONS = {
 }
 DRAFT_STATUSES = {"draft", "ready", "approved", "sending", "sent", "rejected", "failed"}
 MAX_DRAFT_ATTACHMENTS = 20
-MAX_DRAFT_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 def _now() -> str:
@@ -37,43 +38,6 @@ def _permissions(value: Iterable[str]) -> list[str]:
     return result
 
 
-def _attachment_metadata(value: dict) -> dict:
-    if not isinstance(value, dict):
-        raise ValueError("draft attachment metadata must be an object")
-    document_id = str(value.get("document_id", "")).strip()
-    filename = Path(str(value.get("filename", "")).replace("\\", "/")).name.strip(" .")
-    content_type = str(value.get("content_type", "application/octet-stream")).strip()
-    sha256 = str(value.get("sha256", "")).strip().casefold()
-    scan_id = str(value.get("scan_id", "")).strip()
-    try:
-        size = int(value.get("size", -1))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("invalid draft attachment size") from exc
-    if not document_id or len(document_id) > 300:
-        raise ValueError("draft attachment document id is required")
-    if not filename or len(filename) > 180 or any(ord(ch) < 32 or ord(ch) == 127 for ch in filename):
-        raise ValueError("invalid draft attachment filename")
-    if (
-        "/" not in content_type or len(content_type) > 200
-        or any(ch in content_type for ch in "\r\n")
-    ):
-        raise ValueError("invalid draft attachment content type")
-    if size < 0 or size > MAX_DRAFT_ATTACHMENT_BYTES:
-        raise ValueError("draft attachment exceeds the 50 MiB limit")
-    if len(sha256) != 64 or any(ch not in "0123456789abcdef" for ch in sha256):
-        raise ValueError("draft attachment SHA-256 is invalid")
-    if not scan_id or len(scan_id) > 300:
-        raise ValueError("draft attachment malware scan id is required")
-    return {
-        "document_id": document_id,
-        "filename": filename,
-        "content_type": content_type,
-        "size": size,
-        "sha256": sha256,
-        "scan_id": scan_id,
-    }
-
-
 class MailCaseStore:
     """SQLite-backed collaboration metadata with transactional permission checks."""
 
@@ -83,6 +47,7 @@ class MailCaseStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.history = history
         self._initialize()
+        self.delegations = MailSendDelegationStore(self.root, history=history)
 
     @contextmanager
     def _db(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
@@ -809,12 +774,25 @@ class MailCaseStore:
                 raise KeyError(draft_id)
             if row["status"] not in {"draft", "rejected", "failed"}:
                 raise ValueError("draft is not requestable")
+            case = db.execute(
+                "SELECT account_owner,account_id FROM mail_case WHERE id=?", (case_id,)
+            ).fetchone()
+            delegated = bool(
+                case is not None and actor != case["account_owner"]
+                and self.delegations.has_active(case["account_owner"], case["account_id"], actor)
+            )
+            next_status = "approved" if delegated else "ready"
             db.execute(
-                "UPDATE mail_case_draft SET status='ready',updated_at=? WHERE case_id=? AND id=?",
-                (now, case_id, draft_id),
+                "UPDATE mail_case_draft SET status=?,updated_at=? WHERE case_id=? AND id=?",
+                (next_status, now, case_id, draft_id),
             )
             db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
         self._audit("mail_case_send_requested", actor, case_id, {"draft_id": draft_id})
+        if delegated:
+            self._audit(
+                "mail_case_send_auto_approved", actor, case_id,
+                {"draft_id": draft_id, "account_owner": case["account_owner"]},
+            )
 
     def review_draft_send(
         self, actor: str, case_id: str, draft_id: str, *, approve: bool,
@@ -849,12 +827,20 @@ class MailCaseStore:
     def begin_draft_send(self, actor: str, case_id: str, draft_id: str) -> dict:
         now = _now()
         with self._db(write=True) as db:
-            self._require(db, case_id, actor, "manage_mail")
             case = db.execute(
                 "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
             ).fetchone()
-            if case is None or case["account_owner"] != actor:
-                raise PermissionError("only the mail account owner can send a case draft")
+            if case is None:
+                raise KeyError(case_id)
+            delegated = actor != case["account_owner"] and self.delegations.has_active(
+                case["account_owner"], case["account_id"], actor
+            )
+            if actor == case["account_owner"]:
+                self._require(db, case_id, actor, "manage_mail")
+            else:
+                self._require(db, case_id, actor, "send_request")
+                if not delegated:
+                    raise PermissionError("active mail send delegation required")
             row = db.execute(
                 "SELECT * FROM mail_case_draft WHERE case_id=? AND id=?",
                 (case_id, draft_id),
@@ -886,10 +872,14 @@ class MailCaseStore:
         now = _now()
         with self._db(write=True) as db:
             case = db.execute(
-                "SELECT account_owner FROM mail_case WHERE id=?", (case_id,)
+                "SELECT account_owner,account_id FROM mail_case WHERE id=?", (case_id,)
             ).fetchone()
-            if case is None or case["account_owner"] != actor:
-                raise PermissionError("only the mail account owner can fail a send")
+            delegated = bool(
+                case is not None and actor != case["account_owner"]
+                and self.delegations.has_active(case["account_owner"], case["account_id"], actor)
+            )
+            if case is None or (case["account_owner"] != actor and not delegated):
+                raise PermissionError("active mail send delegation required")
             row = db.execute(
                 "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
                 (case_id, draft_id),
@@ -914,12 +904,20 @@ class MailCaseStore:
     ) -> None:
         now = _now()
         with self._db(write=True) as db:
-            self._require(db, case_id, actor, "manage_mail")
             case = db.execute(
                 "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
             ).fetchone()
-            if case is None or case["account_owner"] != actor:
-                raise PermissionError("only the mail account owner can complete a send")
+            if case is None:
+                raise KeyError(case_id)
+            delegated = actor != case["account_owner"] and self.delegations.has_active(
+                case["account_owner"], case["account_id"], actor
+            )
+            if actor == case["account_owner"]:
+                self._require(db, case_id, actor, "manage_mail")
+            else:
+                self._require(db, case_id, actor, "send_request")
+                if not delegated:
+                    raise PermissionError("active mail send delegation required")
             row = db.execute(
                 "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
                 (case_id, draft_id),
