@@ -211,6 +211,76 @@ body{font-family:system-ui,sans-serif;margin:24px;background:#f5f6f8;color:#111}
     (output_dir / "index.html").write_text(markup, encoding="utf-8")
 
 
+
+def write_tested_url_manifest(
+    summary: dict[str, object],
+    *,
+    output_dir: Path,
+) -> None:
+    """Write a compact, diff-friendly inventory of every attempted browser URL."""
+    pages: list[dict[str, object]] = summary["pages"]  # type: ignore[assignment]
+    rows = [
+        "status\thtml\tsource\tscreenshot\trequested_url\tfinal_url",
+    ]
+    for entry in pages:
+        rows.append(
+            "\t".join(
+                _compact(str(value)).replace("\t", " ")
+                for value in (
+                    entry.get("status", ""),
+                    entry.get("html", ""),
+                    entry.get("source", ""),
+                    entry.get("screenshot", ""),
+                    entry.get("requested_url", ""),
+                    entry.get("final_url", ""),
+                )
+            )
+        )
+    (output_dir / "tested-urls.tsv").write_text(
+        "\n".join(rows) + "\n",
+        encoding="utf-8",
+    )
+
+
+def route_coverage_failures(
+    summary: dict[str, object],
+    *,
+    require_dynamic: bool = False,
+) -> list[str]:
+    """Return actionable coverage failures for the all-pages browser run."""
+    coverage = summary.get("route_coverage")
+    if not isinstance(coverage, dict) or not coverage.get("available"):
+        return ["Browser-Routenabdeckung ist nicht verfügbar."]
+
+    failures: list[str] = []
+    uncovered_static = coverage.get("uncovered_static", [])
+    if isinstance(uncovered_static, list) and uncovered_static:
+        sample = ", ".join(
+            str(item.get("rule") or item.get("endpoint") or "?")
+            for item in uncovered_static[:12]
+            if isinstance(item, dict)
+        )
+        suffix = "" if len(uncovered_static) <= 12 else f" (+{len(uncovered_static) - 12} weitere)"
+        failures.append(
+            f"{len(uncovered_static)} statische Browser-Route(n) wurden nicht besucht: "
+            f"{sample}{suffix}"
+        )
+
+    uncovered_dynamic = coverage.get("uncovered_dynamic", [])
+    if require_dynamic and isinstance(uncovered_dynamic, list) and uncovered_dynamic:
+        sample = ", ".join(
+            str(item.get("rule") or item.get("endpoint") or "?")
+            for item in uncovered_dynamic[:12]
+            if isinstance(item, dict)
+        )
+        suffix = "" if len(uncovered_dynamic) <= 12 else f" (+{len(uncovered_dynamic) - 12} weitere)"
+        failures.append(
+            f"{len(uncovered_dynamic)} dynamische Browser-Route(n) wurden nicht materialisiert: "
+            f"{sample}{suffix}"
+        )
+    return failures
+
+
 def update_route_coverage(summary: dict[str, object]) -> None:
     inventory = summary.get("route_inventory")
     if not isinstance(inventory, dict) or not inventory.get("loaded"):
@@ -254,6 +324,9 @@ def update_route_coverage(summary: dict[str, object]) -> None:
         "available": True,
         "covered_candidates": covered,
         "candidate_routes": inventory.get("browser_candidate_count", 0),
+        "visited_paths": len(visited_paths),
+        "uncovered_static_count": len(uncovered_static),
+        "uncovered_dynamic_count": len(uncovered_dynamic),
         "uncovered_static": uncovered_static,
         "uncovered_dynamic": uncovered_dynamic,
     }
