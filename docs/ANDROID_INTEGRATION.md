@@ -113,11 +113,13 @@ zweites Aufgabenmodell angelegt.
 - `NavigationActivity` meldet einen wiederhergestellten Netzwerkzugang an die
   WebView; die Offline-Oberfläche stößt dann den Outbox-Sync an.
 - `window.SimpleOfficeOffline` wird nur erzeugt, wenn die serverseitige
-  Capability aktiv ist.
-- Beim Kontowechsel werden Offline-Store und Outbox vor dem Löschen der
-  Android-Identität und der WebView-Cookies geleert. Zusätzlich blockiert
-  `enforceOwner()` den Zugriff, falls die gespeicherte Identität dennoch von
-  der aktuellen abweicht.
+  Capability aktiv ist **und** die Seite eine authentifizierte SimpleOffice-
+  Benutzer-ID trägt. Beim Logout wird die native Owner-Bindung aufgehoben.
+- Der native Store bindet seinen Owner an Android-Identität **und** SimpleOffice-
+  Benutzer-ID. Ein Wechsel einer dieser beiden Identitäten löscht den bisherigen
+  Offline-Bestand vor dem ersten Lesezugriff.
+- Beim Android-Kontowechsel werden Offline-Store und Outbox vor dem Löschen der
+  Android-Identität und der WebView-Cookies geleert.
 
 ## WebView-Lifecycle
 
