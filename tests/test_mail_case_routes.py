@@ -246,6 +246,21 @@ class MailCaseRouteTests(unittest.TestCase):
         self.assertEqual(1, len(cases.get_case("alice", case_id)["messages"]))
         self.assertTrue(second_path.is_file(), "removing a case link must not alter the EML")
 
+    def test_federated_case_view_renders_explicit_share_actions(self):
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case("alice", "Peer-Fall", "federation:peer", "federation-placeholder")
+        cases.add_participant("alice", case_id, peer_id="remote-peer",
+                              remote_user_id="remote-alice",
+                              permissions=("read", "comment", "compose", "send_request"))
+        cases.add_comment("alice", case_id, "Darf bewusst geteilt werden")
+        cases.create_draft("alice", case_id, "bob@example.test", "Entwurf", "Text")
+
+        response = self.alice.get(f"/documents/mail/reader?case={case_id}")
+        self.assertEqual(200, response.status_code)
+        page = response.get_data(as_text=True)
+        self.assertIn("Kommentar an remote-peer senden", page)
+        self.assertIn("Entwurf an remote-peer senden", page)
+
     def test_non_participant_cannot_read_or_comment_on_foreign_case(self):
         cases = MailCaseStore(self.root)
         case_id = cases.create_case(

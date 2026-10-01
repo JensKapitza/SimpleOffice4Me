@@ -90,6 +90,7 @@ class MailCaseStore:
                 message_id TEXT NOT NULL DEFAULT '',
                 in_reply_to TEXT NOT NULL DEFAULT '',
                 references_json TEXT NOT NULL DEFAULT '[]',
+                content_sha512 TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 UNIQUE(case_id, mail_reference)
             );
@@ -155,6 +156,9 @@ class MailCaseStore:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(mail_case)")}
             if "account_owner" not in columns:
                 db.execute("ALTER TABLE mail_case ADD COLUMN account_owner TEXT NOT NULL DEFAULT ''")
+            message_columns = {row["name"] for row in db.execute("PRAGMA table_info(mail_case_message)")}
+            if "content_sha512" not in message_columns:
+                db.execute("ALTER TABLE mail_case_message ADD COLUMN content_sha512 TEXT NOT NULL DEFAULT ''")
             db.execute(
                 "UPDATE mail_case SET account_owner=created_by WHERE account_owner=''"
             )
@@ -248,7 +252,7 @@ class MailCaseStore:
             for item in result["participants"]:
                 item["permissions"] = json.loads(item.pop("permissions_json"))
             result["messages"] = [dict(x) for x in db.execute(
-                "SELECT mail_reference,direction,message_id,in_reply_to,references_json,created_at FROM mail_case_message WHERE case_id=? ORDER BY id",
+                "SELECT mail_reference,direction,message_id,in_reply_to,references_json,content_sha512,created_at FROM mail_case_message WHERE case_id=? ORDER BY id",
                 (case_id,),
             )]
             read_rows = [dict(x) for x in db.execute(

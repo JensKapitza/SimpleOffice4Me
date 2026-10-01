@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from flask import Blueprint, Response, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
@@ -25,8 +25,66 @@ from .v2.authorization import AuthorizationStore
 from .v2.contracts import AuditEvent
 from .v2.federation_policy import FederationPolicyStore, SCOPES
 from .v2.jobs import FederationJobService, PersistentJobStore
+from .mail_case_federation import MailCaseFederationIdentityStore
+from .db import get_db
 
 bp = Blueprint("federation_peer_admin", __name__, url_prefix="/admin/federation/peer-discovery")
+
+
+@bp.get("/mail-case-identities")
+@admin_required
+def mail_case_identities():
+    return jsonify({"mappings": MailCaseFederationIdentityStore(_root()).list()})
+
+
+@bp.post("/mail-case-identities")
+@admin_required
+def set_mail_case_identity():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "invalid_mapping"}), 400
+    peer_id = str(data.get("peer_id") or "")
+    local_user_id = str(data.get("local_user_id") or "").strip()
+    user = get_db().execute(
+        "SELECT username FROM user WHERE username=? COLLATE NOCASE AND is_disabled=0",
+        (local_user_id,),
+    ).fetchone()
+    if not user:
+        return jsonify({"error": "unknown_or_disabled_local_user"}), 400
+    try:
+        mapping = MailCaseFederationIdentityStore(_root()).set(
+            peer_id,
+            str(data.get("remote_user_id") or ""),
+            str(user["username"]),
+            updated_by=_actor(),
+        )
+    except ValueError:
+        return jsonify({"error": "invalid_mapping_or_peer"}), 400
+    FederationStore(_root()).record_event(
+        "mail_case_federation_identity_mapped", peer_id=peer_id,
+        detail={"remote_user_id": mapping["remote_user_id"], "local_user_id": mapping["local_user_id"], "updated_by": _actor()},
+    )
+    return jsonify({"mapping": mapping}), 200
+
+
+@bp.delete("/mail-case-identities")
+@admin_required
+def remove_mail_case_identity():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "invalid_mapping"}), 400
+    peer_id = str(data.get("peer_id") or "")
+    remote_user_id = str(data.get("remote_user_id") or "")
+    try:
+        removed = MailCaseFederationIdentityStore(_root()).remove(peer_id, remote_user_id)
+    except ValueError:
+        return jsonify({"error": "invalid_mapping"}), 400
+    if removed:
+        FederationStore(_root()).record_event(
+            "mail_case_federation_identity_removed", peer_id=peer_id,
+            detail={"remote_user_id": remote_user_id, "updated_by": _actor()},
+        )
+    return jsonify({"removed": removed}), 200
 
 
 def _root():
@@ -736,5 +794,4 @@ def preview_policy(peer_id):
     except (RuntimeError, TypeError, ValueError):
         flash("Policy-Vorschau konnte nicht sicher ausgewertet werden; Ergebnis ist fail-closed.")
     return _policy_redirect(peer_id)
-
 
