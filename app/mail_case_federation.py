@@ -120,6 +120,12 @@ class MailCaseFederation:
         try:
             self._ensure_remote_capability(dict(peer))
             result = self._post_envelope(peer, envelope)
+            if str(payload.get("operation") or "") in {"snapshot", "revoke"}:
+                self.contract.store.delete_mail_outbox_target(
+                    str(peer["peer_id"]),
+                    envelope.object_ref,
+                    str(payload.get("recipient_user_id") or ""),
+                )
             self.contract.peers.set_peer_health(str(peer["peer_id"]), seen=True)
             self.contract.peers.record_event(
                 "mail_case_v3_sent",
