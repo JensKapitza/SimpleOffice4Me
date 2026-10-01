@@ -167,7 +167,7 @@ class TodoStore:
                 actor,
                 permission,
             )
-            current_etag = self.etag(item)
+            current_etag = self.etag(self._normalized(item, actor))
             now = utc_now()
             if current_etag != expected_etag:
                 result = {
