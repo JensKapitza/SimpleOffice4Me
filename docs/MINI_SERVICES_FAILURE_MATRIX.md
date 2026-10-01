@@ -2,7 +2,8 @@
 
 This matrix is the repository-side negative-case contract for issue #330.
 It separates deterministic CI evidence from scenarios that require real
-operating systems, networks or hardware.
+operating systems, networks or hardware. Rechecked against main
+`c97d47424f1a81249f3ca62514f12291e7dd4101` on 2026-10-01.
 
 Legend:
 
@@ -45,6 +46,7 @@ Legend:
 | Audio sender | microphone disappears during capture | visible recovery/failure on real device | External |
 | Audio receiver | missing playback backend | controlled unavailable state | CI: audio receiver/lifecycle tests |
 | Audio receiver | process exits/device disappears | status must follow process/PCM evidence, not object existence | CI where synthetic; External for real device |
+| Mini Service CLI/package | installed package omits `tools.service_control` | package build/import must fail in CI; both modern and legacy metadata must include the runtime package | CI: `test_mini_packaging` (#537) |
 | Screen | unsupported/missing platform launcher | controlled user message; only error type audited | CI: screen tests + diagnostic audit |
 | Screen | session/signaling bounds exceeded | reject boundedly; no unbounded signaling queue | CI: screen tests |
 | Screen | native Miracast/Cast/WebRTC runtime | verify actual sender/receiver behavior | External |

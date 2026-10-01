@@ -1,9 +1,13 @@
 # Mini Services – Bestandsaufnahme und Abnahme
 
-Ausgangsbasis der historischen Inventur: `4a9b798` (main), 14.09.2026. Der aktuelle Fortschritt wird in `MINI_SERVICES_ACCEPTANCE.md` fortgeführt und am 21.09.2026 gegen den aktuellen main-Stand abgeglichen. Dies ist eine
-Arbeits- und Abnahmematrix, keine pauschale Produktionsfreigabe. Ein grüner
-Build ersetzt weder Hardwaretests noch eine Prüfung der tatsächlich nutzbaren
-Ende-zu-Ende-Funktion. Keine neue Drittanbieterabhängigkeit ist vorgesehen.
+Historische Ausgangsbasis der unveränderten Qualitätsmatrix: `4a9b798`
+(`main`, 14.09.2026). Die nachfolgenden Umsetzungsnotizen sind ein historischer
+Fortschrittsstand und keine aktuelle Statusquelle. Der aktuelle main-/CI-/PR-
+Abgleich sowie die neu bewertete vollständige Matrix stehen in
+[`MINI_SERVICES_ACCEPTANCE.md`](MINI_SERVICES_ACCEPTANCE.md), zuletzt geprüft
+gegen `c97d47424f1a81249f3ca62514f12291e7dd4101` am 01.10.2026. Diese Datei
+bleibt als Vergleichsbasis erhalten. Ein grüner Build ersetzt weder
+Hardwaretests noch eine Prüfung der tatsächlich nutzbaren Ende-zu-Ende-Funktion.
 
 Der [Abnahmestand nach den Änderungen](MINI_SERVICES_ACCEPTANCE.md) wiederholt
 alle 43 Qualitätskriterien und enthält Messwerte, Nachweise sowie konkrete
@@ -149,9 +153,9 @@ vereinheitlicht, nicht die Protokollimplementierungen ersetzt.
   angrenzende Subsysteme, nicht zusätzliche Instanzen des Netzwerkworkers.
   Ihre Aufrufstellen und gemeinsamen Lifecycle-Records müssen kompatibel bleiben.
 - Issue #285: DLNA/UPnP Audio-/Video-Renderer ist softwareseitig über die gemergte Kette #333 und #346–#349 vorhanden. Offen bleiben praktische Controller-/Audio-/Video-Hardwareabnahmen; diese Software nicht doppelt implementieren.
-- Issue #286 / offener PR #288: Bildschirmfreigabe separat. Auf main nicht
-  vorhanden; WebRTC-/Miracast-/Android-Laufzeitabnahme dort gesondert nötig.
-  Insbesondere erfolgreiche Kompilierung allein belegt keine Freigabe im Hintergrund.
+- Bildschirmfreigabe: PR #288 und die späteren Korrekturen aus #301 sind in
+  main enthalten. WebRTC-/Miracast-/Android-Laufzeitabnahme bleibt extern nötig;
+  erfolgreiche Kompilierung allein belegt keine Freigabe im Hintergrund.
 - PR #295 betrifft GitHub-Actions-Abhängigkeiten, nicht diesen Umbau.
 
 ## Qualitätsmatrix vor Änderungen
