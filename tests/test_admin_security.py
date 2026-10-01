@@ -62,6 +62,42 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(403, self.worker.get("/documents/").status_code)
         self.assertEqual(200, self.admin.get("/documents/").status_code)
 
+    def test_projects_feature_gates_task_blueprint_and_navigation(self):
+        self.update_worker()
+        self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
+        self.assertEqual(200, self.worker.get("/tasks/").status_code)
+        self.assertEqual(
+            302,
+            self.worker.post("/tasks/", data={"title": "Erlaubte Aufgabe"}).status_code,
+        )
+
+        self.update_worker(feature_projects=None)
+        self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
+        self.assertEqual(403, self.worker.get("/tasks/").status_code)
+        self.assertEqual(
+            403,
+            self.worker.post("/tasks/", data={"title": "Gesperrte Aufgabe"}).status_code,
+        )
+        navigation = self.worker.get("/documents/")
+        self.assertEqual(200, navigation.status_code)
+        self.assertNotIn('href="/tasks/"', navigation.get_data(as_text=True))
+
+        with app.app_context():
+            db = database.get_db()
+            owner_id = db.execute(
+                "SELECT id FROM user WHERE username='owner'"
+            ).fetchone()[0]
+            db.execute(
+                """INSERT INTO user_permission(user_id, feature, enabled, updated_at)
+                   VALUES (?, 'projects', 0, CURRENT_TIMESTAMP)
+                   ON CONFLICT(user_id, feature)
+                   DO UPDATE SET enabled=0, updated_at=CURRENT_TIMESTAMP""",
+                (owner_id,),
+            )
+            db.commit()
+        self.assertEqual(200, self.admin.get("/tasks/").status_code)
+        self.assertIn('href="/tasks/"', self.admin.get("/documents/").get_data(as_text=True))
+
     def test_user_admin_filters_explains_and_updates_profile_without_session_reset(self):
         page = self.admin.get("/admin/users?q=worker&status=active")
         body = page.get_data(as_text=True)
