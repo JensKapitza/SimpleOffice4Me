@@ -253,11 +253,15 @@ class MailCaseFederation:
             }
             for item in case["comments"]
         ]
+        supported_permissions = {"read", "comment", "compose", "send_request", "manage_status"}
+        permissions = sorted(set(case["permissions"]) & supported_permissions)
+        if "read" not in permissions:
+            raise PermissionError("federated mail-case participant no longer has read access")
         return {
             "case_id": case_id,
             "title": case["title"],
             "status": case["status"],
-            "permissions": list(case["permissions"]),
+            "permissions": permissions,
             "messages": messages,
             "comments": comments,
             "drafts": drafts,
@@ -302,13 +306,27 @@ class MailCaseFederation:
         for participant in case["participants"]:
             if participant.get("participant_type") != "federated_user":
                 continue
-            results.append(
-                self.send_snapshot(
-                    case_id,
-                    str(participant.get("peer_id") or ""),
-                    str(participant.get("remote_user_id") or ""),
+            peer_id = str(participant.get("peer_id") or "")
+            remote_user_id = str(participant.get("remote_user_id") or "")
+            try:
+                result = self.send_snapshot(case_id, peer_id, remote_user_id)
+            except Exception as exc:
+                self.contract.peers.record_event(
+                    "mail_case_v3_sync_failed",
+                    peer_id=peer_id,
+                    detail={
+                        "case_id": case_id,
+                        "remote_user_id": remote_user_id,
+                        "error": type(exc).__name__,
+                    },
                 )
-            )
+                result = {
+                    "status": "failed",
+                    "peer_id": peer_id,
+                    "remote_user_id": remote_user_id,
+                    "error": type(exc).__name__,
+                }
+            results.append(result)
         return results
 
     def remote_action(
