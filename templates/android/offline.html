@@ -1,0 +1,98 @@
+{% extends "layout.html" %}
+{% block title %}Android Offline · SimpleOffice{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<div class="container-fluid py-3" id="android-offline-app"
+     data-enabled="{{ '1' if enabled else '0' }}"
+     data-tasks-api="{{ url_for('v3_android_offline.tasks_api') }}"
+     data-task-api-prefix="/api/v3/android-offline/tasks/"
+     data-sync-api="{{ url_for('v3_android_offline.sync') }}"
+     data-policy-api="{{ url_for('v3_android_offline.policy') }}">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+      <h1 class="h3 mb-1"><i class="fas fa-mobile-screen-button me-2" aria-hidden="true"></i>Android Offline</h1>
+      <p class="text-secondary mb-0">Ausgewählte Arbeitsdaten lokal vorhalten und Aufgabenstatus kontrolliert synchronisieren.</p>
+    </div>
+    {% if enabled %}
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-outline-primary" type="button" data-offline-sync><i class="fas fa-arrows-rotate me-1"></i>Jetzt synchronisieren</button>
+      <button class="btn btn-outline-danger" type="button" data-offline-clear><i class="fas fa-trash me-1"></i>Lokale Daten löschen</button>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if not enabled %}
+    <div class="alert alert-secondary">Die optionale Funktion <code>v3.android_offline</code> ist deaktiviert. Das bestehende Verhalten bleibt unverändert.</div>
+  {% else %}
+    <div class="alert alert-info d-none" role="status" data-offline-message></div>
+    <div class="row g-3 mb-3">
+      <div class="col-lg-7">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">Lokaler Status</div>
+          <div class="card-body">
+            <div class="row g-2 small" data-offline-status>
+              <div class="col-md-4"><span class="text-secondary">Native Bridge</span><div class="fw-semibold" data-offline-native>Prüfung …</div></div>
+              <div class="col-md-4"><span class="text-secondary">Gespeichert</span><div class="fw-semibold" data-offline-items>–</div></div>
+              <div class="col-md-4"><span class="text-secondary">Ausgang</span><div class="fw-semibold" data-offline-outbox>–</div></div>
+              <div class="col-12"><span class="text-secondary">Speicher</span><div class="fw-semibold" data-offline-bytes>–</div></div>
+            </div>
+            <div class="mt-3" data-offline-worksets></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">Offline-Regeln</div>
+          <div class="card-body small">
+            <p class="mb-2">Lokal erlaubt: <strong>ausgewählte Aufgaben</strong>. Schreibbar ist ausschließlich der Aufgabenstatus.</p>
+            <p class="mb-2">Kalender, Kontakte, Mail und Federation bleiben online.</p>
+            <p class="mb-0">Passwörter, Sitzungsgeheimnisse, OAuth-/API-Schlüssel, Federation-Private-Keys und Vault-Geheimnisse werden nicht in den Offline-Arbeitsdaten gespeichert.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-xl-6">
+        <div class="card">
+          <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            <span>Verfügbare Aufgaben</span>
+            <span class="badge text-bg-secondary">{{ tasks|length }}</span>
+          </div>
+          <div class="list-group list-group-flush">
+            {% for task in tasks %}
+            <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <div class="min-w-0">
+                <div class="fw-semibold text-break">{{ task.title }}</div>
+                <div class="small text-secondary">{{ task.status }}{% if task.due %} · fällig {{ task.due }}{% endif %}</div>
+              </div>
+              <button class="btn btn-sm btn-outline-primary" type="button" data-offline-cache-task="{{ task.id }}">
+                <i class="fas fa-download me-1" aria-hidden="true"></i>Offline speichern
+              </button>
+            </div>
+            {% else %}
+            <div class="list-group-item text-secondary">Keine sichtbaren Aufgaben vorhanden.</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="col-xl-6">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">Offline gespeicherte Aufgaben</div>
+          <div class="list-group list-group-flush" data-offline-cached>
+            <div class="list-group-item text-secondary">Native Android-Daten werden geladen …</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header fw-semibold">Synchronisationsausgang und Konflikte</div>
+          <div class="list-group list-group-flush" data-offline-queue>
+            <div class="list-group-item text-secondary">Keine Daten geladen.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% if enabled %}<script src="{{ url_for('static', filename='js/v3_android_offline.js') }}"></script>{% endif %}
+{% endblock %}
