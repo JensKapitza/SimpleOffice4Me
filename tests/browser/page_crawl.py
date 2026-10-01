@@ -44,7 +44,7 @@ CRAWL_SENSITIVE_QUERY_KEYS = {
     "code", "key", "secret", "sig", "signature", "state", "token",
 }
 MAX_QUERY_VARIANTS_PER_PATH = max(
-    1, int(os.environ.get("BROWSER_MAX_QUERY_VARIANTS_PER_PATH", "20"))
+    1, int(os.environ.get("BROWSER_MAX_QUERY_VARIANTS_PER_PATH", "50"))
 )
 
 
