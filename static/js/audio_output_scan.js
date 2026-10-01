@@ -126,6 +126,6 @@
       finally { button.disabled = false; }
     };
     button.addEventListener('click', scan);
-    scan();
+    // Local audio hardware scanning is user initiated.
   }
 })();
