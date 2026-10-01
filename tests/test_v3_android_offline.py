@@ -80,6 +80,20 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
             response = self.client.get("/api/v3/android-offline/tasks")
         self.assertEqual(404, response.status_code)
 
+    def test_authenticated_owner_is_rendered_and_login_page_has_no_owner_binding(self):
+        page = self.client.get("/android/offline")
+        self.assertEqual(200, page.status_code)
+        self.assertIn(
+            f'data-v3-android-offline-owner="{self.admin_id}"'.encode(),
+            page.data,
+        )
+
+        with self.client.session_transaction() as session:
+            session.clear()
+        login = self.client.get("/auth/login")
+        self.assertEqual(200, login.status_code)
+        self.assertIn(b'data-v3-android-offline-owner=""', login.data)
+
     def test_policy_classifies_sensitive_and_online_only_data(self):
         response = self.client.get("/api/v3/android-offline/policy")
         self.assertEqual(200, response.status_code)
