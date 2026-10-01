@@ -15,7 +15,7 @@ class MiniPackagingTests(unittest.TestCase):
     def test_runtime_tools_package_is_installed_by_modern_and_legacy_metadata(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         modern_packages = ast.literal_eval(
-            re.search(r'(?m)^packages\\s*=\\s*(\\[.*\\])$', pyproject).group(1)
+            re.search(r'(?m)^packages\s*=\s*(\[.*\])$', pyproject).group(1)
         )
         tree = ast.parse((ROOT / "setup.py").read_text(encoding="utf-8"))
         setup = next(
@@ -55,7 +55,7 @@ class MiniPackagingTests(unittest.TestCase):
                      and isinstance(node.func, ast.Name) and node.func.id == "setup")
         legacy = ast.literal_eval(next(key.value for key in setup.keywords if key.arg == "py_modules"))
         # The metadata uses only a literal string array: no TOML dependency on Python 3.10.
-        modern = ast.literal_eval(re.search(r"(?ms)^py-modules\\s*=\\s*(\\[.*?\\])", (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1))
+        modern = ast.literal_eval(re.search(r"(?ms)^py-modules\s*=\s*(\[.*?\])", (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1))
         required = {path.stem for path in ROOT.glob("simpleoffice_*.py")}
         for label, modules in (("modern", modern), ("legacy", legacy)):
             with self.subTest(build=label):
