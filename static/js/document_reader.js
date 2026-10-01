@@ -9,7 +9,8 @@
   const errorBox = root.querySelector('[data-reader-error]');
   const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
   const saved = (() => { try { return JSON.parse(root.dataset.savedLocator || '{}'); } catch (_) { return {}; } })();
-  let current = format === 'pdf' ? Math.max(1, Number(saved.page || 1)) : 0;
+  let current = format === 'pdf' ? Math.max(1, Number(saved.page || 1)) : Math.max(0, Number(saved.chapter_index || 0));
+  let currentChapterId = format === 'epub' ? String(saved.chapter || '') : '';
   let fontScale = 1;
   let contrast = false;
   let saveTimer = null;
@@ -34,7 +35,7 @@
   };
   const locator = () => format === 'pdf'
     ? {page: current}
-    : {chapter: String(current), anchor: '', offset: 0};
+    : {chapter: currentChapterId || String(current), chapter_index: current, anchor: '', cfi: '', offset: 0};
   const percent = () => {
     const total = format === 'pdf' ? pageCount : Number(root.querySelectorAll('[data-reader-chapter]').length || 1);
     return total > 0 ? Math.min(100, Math.max(0, Math.round(((current + (format === 'pdf' ? 0 : 1)) / total) * 100))) : 0;
@@ -61,6 +62,7 @@
     current = Math.max(0, Math.min(total - 1, Number(index) || 0));
     try {
       const chapter = await request(root.dataset.epubUrl + '/' + current);
+      currentChapterId = String(chapter.id || current);
       epubBody.innerHTML = chapter.html || '<p>(Leeres Kapitel)</p>';
       epubBody.style.fontSize = (1.05 * fontScale) + 'rem';
       updateStatus(total);
@@ -77,7 +79,7 @@
     updateStatus(pageCount);
     if (window.SimpleOfficePdf && nativeBox && nativeImage) {
       try {
-        const rendered = await window.SimpleOfficePdf.render(root.dataset.pdfUrl, current - 1, Math.min(2048, Math.max(720, window.innerWidth * window.devicePixelRatio)));
+        const rendered = await window.SimpleOfficePdf.render(root.dataset.pdfUrl, current - 1, Math.min(2048, Math.max(720, window.innerWidth * window.devicePixelRatio * fontScale)));
         if (rendered && rendered.dataUrl) {
           nativeImage.src = rendered.dataUrl;
           nativeBox.classList.remove('d-none');
@@ -101,7 +103,9 @@
     const text = input?.value.trim() || '';
     if (!text) return;
     try {
-      await request(root.dataset.annotationApi, {method:'POST', body:JSON.stringify({locator:locator(), text, document_version:version})});
+      const kind = root.querySelector('[data-reader-note-kind]')?.value || 'note';
+      const quote = String(window.getSelection?.().toString() || '').trim().slice(0, 4000);
+      await request(root.dataset.annotationApi, {method:'POST', body:JSON.stringify({locator:locator(), text, kind, quote, document_version:version})});
       window.location.reload();
     } catch (error) { showError(error.message); }
   });
@@ -109,14 +113,34 @@
     try { await request(button.dataset.readerDeleteNote, {method:'POST', body:'{}'}); button.closest('[data-annotation-id]')?.remove(); }
     catch (error) { showError(error.message); }
   }));
-  root.querySelector('[data-reader-font-plus]')?.addEventListener('click', () => { fontScale = Math.min(1.8, fontScale + .1); if (epubBody) epubBody.style.fontSize = (1.05 * fontScale) + 'rem'; });
-  root.querySelector('[data-reader-font-minus]')?.addEventListener('click', () => { fontScale = Math.max(.7, fontScale - .1); if (epubBody) epubBody.style.fontSize = (1.05 * fontScale) + 'rem'; });
+  root.querySelector('[data-reader-font-plus]')?.addEventListener('click', () => {
+    fontScale = Math.min(1.8, fontScale + .1);
+    if (epubBody) epubBody.style.fontSize = (1.05 * fontScale) + 'rem';
+    if (format === 'pdf') loadPdf(current);
+  });
+  root.querySelector('[data-reader-font-minus]')?.addEventListener('click', () => {
+    fontScale = Math.max(.7, fontScale - .1);
+    if (epubBody) epubBody.style.fontSize = (1.05 * fontScale) + 'rem';
+    if (format === 'pdf') loadPdf(current);
+  });
+  root.querySelectorAll('[data-reader-jump-note]').forEach(button => button.addEventListener('click', () => {
+    try {
+      const target = JSON.parse(button.dataset.readerJumpNote || '{}');
+      if (format === 'pdf') return loadPdf(Number(target.page || 1));
+      const byId = [...root.querySelectorAll('[data-reader-chapter]')].find(
+        item => String(item.dataset.readerChapterId || '') === String(target.chapter || '')
+      );
+      return loadEpub(byId ? Number(byId.dataset.readerChapter) : Number(target.chapter_index || 0));
+    } catch (error) { showError(error.message); }
+  }));
   root.querySelector('[data-reader-theme]')?.addEventListener('click', () => { contrast = !contrast; root.classList.toggle('bg-dark', contrast); root.classList.toggle('text-light', contrast); });
   root.querySelector('[data-reader-fullscreen]')?.addEventListener('click', () => { if (!document.fullscreenElement) root.requestFullscreen?.(); else document.exitFullscreen?.(); });
 
   if (format === 'epub') {
-    const initial = Number.parseInt(saved.chapter, 10);
-    loadEpub(Number.isFinite(initial) ? initial : 0);
+    const byId = [...root.querySelectorAll('[data-reader-chapter]')].find(
+      item => String(item.dataset.readerChapterId || '') === String(saved.chapter || '')
+    );
+    loadEpub(byId ? Number(byId.dataset.readerChapter) : current);
   } else {
     loadPdf(current);
   }
