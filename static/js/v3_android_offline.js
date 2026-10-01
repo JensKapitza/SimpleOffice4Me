@@ -120,12 +120,21 @@
       const title = document.createElement('div');
       title.className = 'fw-semibold text-break';
       title.textContent = task.title || task.id;
+      const unresolved = operations.some(op =>
+        op.targetId === metadata.id && ['pending', 'conflict', 'rejected'].includes(op.status)
+      );
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'btn btn-sm btn-outline-danger';
-      remove.textContent = 'Entfernen';
+      remove.textContent = unresolved ? 'Änderung zuerst klären' : 'Entfernen';
+      remove.disabled = unresolved;
       remove.addEventListener('click', async () => {
-        bridge.remove(metadata.id, 'task');
+        if (unresolved) return;
+        const result = bridge.remove(metadata.id, 'task');
+        if (result !== 'ok') {
+          show(`Offline-Aufgabe konnte nicht entfernt werden: ${result}`, 'warning');
+          return;
+        }
         await render();
       });
       head.append(title, remove);
@@ -138,9 +147,6 @@
       enqueue.type = 'button';
       enqueue.className = 'btn btn-sm btn-outline-primary';
       enqueue.textContent = 'Status offline vormerken';
-      const unresolved = operations.some(op =>
-        op.targetId === metadata.id && ['pending', 'conflict', 'rejected'].includes(op.status)
-      );
       enqueue.disabled = unresolved;
       enqueue.addEventListener('click', async () => {
         hideMessage();
